@@ -450,6 +450,10 @@ describe.skipIf(!SHOULD_RUN)(
             refused.text,
             "and says why, in the run's own words",
           ).toContain(REFUSAL_TEXT);
+          // Narrowed for the two index reads below: `RowReading.text` is
+          // nullable because the occupant may be absent, and the assertion
+          // above has already established it is not.
+          if (refused.text === null) throw new Error("unreachable");
           expect(
             refused.text.indexOf("Compacting"),
             "the running title yields its seat for the flash's length",

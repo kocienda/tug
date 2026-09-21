@@ -158,8 +158,13 @@ export type {
  * `1.8.0`: adds the `screenshot` verb — renders the WKWebView to a
  * PNG temp file (via `WKWebView.takeSnapshot`) and returns its path.
  * Additive; major stays `1`.
+ *
+ * `1.9.0`: adds `stopTugcast` / `startTugcast` — one deliberate tugcast
+ * outage whose window belongs to the test. The app, its window and the
+ * loaded page all survive it, so what a test observes across the window is
+ * the deck's own reconnect healing. Additive; major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.8.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.9.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -1453,6 +1458,41 @@ export class App {
    */
   stopTugcode(): Promise<void> {
     return client.stopTugcode(this as HarnessCaller);
+  }
+
+  // -------------------------------------------------------------------
+  // Tugcast outage
+  //
+  // One deliberate outage of the instance's tugcast, in two halves, with
+  // the window between them belonging to the test. Tug.app, its window and
+  // the loaded page all survive: the app re-authenticates the page in place
+  // when the child comes back, so the deck's buffers are the ones that were
+  // there before — which is what makes the reconnect heal observable at all.
+  // -------------------------------------------------------------------
+
+  /**
+   * Put this instance's tugcast down and keep it down.
+   *
+   * Resolves only once the child is gone, so a write that follows is a write
+   * nothing was watching. Every feed the deck holds goes quiet until
+   * {@link App.startTugcast}. `evalJS` and `waitForCondition` keep working
+   * throughout — they run in the page, which the outage does not touch — so
+   * the DOM is readable the whole time; what is gone is every answer that
+   * would have come from the server.
+   */
+  stopTugcast(): Promise<void> {
+    return client.stopTugcast(this as HarnessCaller);
+  }
+
+  /**
+   * Bring tugcast back. Resolves once the child is spawned — the page's
+   * WebSocket reconnects on its own loop after that, so wait on the thing
+   * you actually care about (a `waitForCondition` on the transport state, or
+   * on the content the reconnect was supposed to heal) rather than on this
+   * promise alone.
+   */
+  startTugcast(): Promise<void> {
+    return client.startTugcast(this as HarnessCaller);
   }
 
   /**

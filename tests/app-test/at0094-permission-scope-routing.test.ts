@@ -23,7 +23,7 @@
  *
  * @covers tugdeck/src/lib/permission-rules-store.ts
  * @covers tugdeck/src/lib/permission-rules.ts
- * @covers tugrust/crates/tugcast/
+ * @covers tugrust/crates/tugcast/src/permissions.rs
  * @covers tugdeck/src/components/tugways/cards/permission-rules-editor.tsx
  * @covers tugdeck/src/components/tugways/tug-radio-group.css
  * @covers tugdeck/src/components/tugways/tug-radio-group.tsx

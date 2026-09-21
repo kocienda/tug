@@ -854,6 +854,40 @@ class ProcessManager {
         startProcess()
     }
 
+    #if DEBUG
+    /// Harness-only: stop tugcast and KEEP it down.
+    ///
+    /// `restart()` is the production shape — down and up in one call, with
+    /// no window in between. A test that wants to prove the deck heals
+    /// after an outage needs the window itself: it writes the watched file
+    /// while nothing is watching, then brings tugcast back and asserts the
+    /// card caught up with no interaction. So the two halves are separate
+    /// verbs, and the test — not a timer — decides how long the outage is.
+    ///
+    /// `restartDecision` is pinned to `.doNotRestart` BEFORE `stop()`, which
+    /// is the whole difference from an unexpected death: the supervisor's
+    /// exit branch, `handleDisconnect`, and tugcast's own UDS shutdown
+    /// message all guard on `.pending`, so the backoff respawn that would
+    /// otherwise race `startAgainForHarness()` never arms.
+    ///
+    /// The control-socket listener survives, exactly as it does across a
+    /// `restart()`, so the returning child reconnects to it.
+    func stopForHarness() {
+        restartDecision = .doNotRestart
+        stop()
+    }
+
+    /// Harness-only: bring tugcast back after `stopForHarness()`.
+    ///
+    /// `startProcess()` resets `restartDecision` to `.pending`, so the
+    /// instance supervises the new child the way it supervises any other.
+    /// `onReady` then fires with the new port and token, and AppDelegate's
+    /// restart branch re-authenticates the loaded page without reloading it.
+    func startAgainForHarness() {
+        startProcess()
+    }
+    #endif
+
     /// Internal: Start the process and supervise
     private func startProcess() {
         guard let tugcastURL = resolveTugcastPath() else {

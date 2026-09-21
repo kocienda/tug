@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Capture the CODE_INPUT frames `ask` sends. Mocked before importing the store.
+// `setConnection` is the real setter, frozen before the mock lands, so this
+// file-wide mock cannot swallow another suite's call to it. [B10]
 let sentFrames: Array<{ feedId: number; payload: string }> = [];
+import { setConnection as _realSetConnection } from "../connection-singleton";
+const realSetConnection = _realSetConnection;
 mock.module("../connection-singleton", () => ({
   getConnection: () => ({
     send: (feedId: number, payload: Uint8Array) => {
@@ -9,6 +13,7 @@ mock.module("../connection-singleton", () => ({
     },
     onFrame: () => () => {},
   }),
+  setConnection: realSetConnection,
 }));
 
 import { FeedId } from "../../protocol";

@@ -11,7 +11,10 @@
  *
  * Here we drive the app-level `UsageStore` directly (`ingestUsage`) with a
  * verbatim sample of `claude -p "/usage"` output, so the text→graphical mapping
- * is deterministic without a live `claude` invocation.
+ * is deterministic without a live `claude` invocation. That is also why nothing
+ * in tugcast is declared below: the shell-out that sources the text in
+ * production is never reached here, so claiming it would select this file for
+ * server changes it cannot see.
  *
  * Has teeth: before the parser + sheet render the windows there'd be no arc/
  * linear gauges; before the contributing parse there'd be no skills table.
@@ -19,7 +22,6 @@
  * @covers tugdeck/src/lib/usage-store.ts
  * @covers tugdeck/src/lib/usage-parse.ts
  * @covers tugdeck/src/lib/usage-context.tsx
- * @covers tugrust/crates/tugcast/src/feeds/claude_usage.rs
  * @covers tugdeck/src/components/tugways/cards/usage-sheet.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-gauge.css
  * @covers tugdeck/src/components/tugways/tug-arc-gauge.tsx

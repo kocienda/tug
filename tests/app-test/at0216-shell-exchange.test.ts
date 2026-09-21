@@ -34,7 +34,8 @@
  * @covers tugdeck/src/lib/ledger-restore-fetch.ts
  * @covers tugdeck/src/lib/shell-line-classifier.ts
  * @covers tugdeck/src/lib/shell-share.ts
- * @covers tugrust/crates/tugcast/
+ * @covers tugrust/crates/tugcast/src/feeds/shell.rs
+ * @covers tugrust/crates/tugcast/src/shell_ledger.rs
  * @covers tugdeck/src/components/tugways/blocks/block-header.css
  * @covers tugdeck/src/components/tugways/blocks/block-header.tsx
  * @covers tugdeck/src/components/tugways/body-kinds/terminal-block.tsx

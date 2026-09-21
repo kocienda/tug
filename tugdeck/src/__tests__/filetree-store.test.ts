@@ -19,6 +19,14 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 
 let sentFrames: Array<{ feedId: number; payload: string }> = [];
 
+// The real setter, frozen before the mock replaces the module, so this
+// file-wide mock cannot swallow another suite's `setConnection` call. A factory
+// that omits an export leaves it `undefined` for every later importer in the
+// process, and that mutual defection is why the sibling store tests each mock
+// defensively. [B10]
+import { setConnection as _realSetConnection } from "../lib/connection-singleton";
+const realSetConnection = _realSetConnection;
+
 mock.module("../lib/connection-singleton", () => ({
   getConnection: () => ({
     send: (feedId: number, payload: Uint8Array) => {
@@ -28,6 +36,7 @@ mock.module("../lib/connection-singleton", () => ({
       });
     },
   }),
+  setConnection: realSetConnection,
 }));
 
 import { FileTreeStore } from "../lib/filetree-store";

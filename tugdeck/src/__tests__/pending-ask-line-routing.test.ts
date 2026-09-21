@@ -27,18 +27,25 @@ const fakeConnection = {
   onFrame: (_feedId: number, _cb: (payload: Uint8Array) => void) => () => {},
 } as unknown as TugConnection;
 
+// `setConnection` is the real setter, frozen before the mock lands, so this
+// process-wide mock cannot swallow another suite's call to it. [B10]
+import { setConnection as _realSetConnection } from "@/lib/connection-singleton";
+const realSetConnection = _realSetConnection;
 mock.module("@/lib/connection-singleton", () => ({
   getConnection: () => fakeConnection,
-  setConnection: () => {},
+  setConnection: realSetConnection,
 }));
 
-import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
-const sharedLifecycle = new ConnectionLifecycle();
-mock.module("@/lib/connection-lifecycle", () => ({
+// The real `registerConnectionLifecycle` seam rather than `mock.module` — the
+// module has its own suite (`connection-lifecycle.test.ts`), and a process-wide
+// mock would hand that suite a stubbed `getConnectionLifecycle`.
+import {
   ConnectionLifecycle,
-  getConnectionLifecycle: () => sharedLifecycle,
-  registerConnectionLifecycle: () => {},
-}));
+  registerConnectionLifecycle,
+} from "@/lib/connection-lifecycle";
+const sharedLifecycle = new ConnectionLifecycle();
+registerConnectionLifecycle(sharedLifecycle);
+afterAll(() => registerConnectionLifecycle(null));
 
 const fakeTugbank = {
   get: (_domain: string, _key: string) => undefined,

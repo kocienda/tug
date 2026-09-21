@@ -22,16 +22,17 @@ import { FeedId } from "../protocol";
 import type { TugConnection } from "../connection";
 
 // The connection singleton is mocked here (not driven via `setConnection`)
-// because bun's `mock.module` leaks globally across test files: another test
-// mocks `connection-singleton` with a no-op `setConnection`, so a real
-// `setConnection` call would silently do nothing in the full suite. Pinning
-// `getConnection` to the current mock through `mock.module` — the same
-// mechanism `card-services-store-request-replay.test.ts` uses — makes the
-// store's send path deterministic regardless of file order.
+// because pinning `getConnection` to a local makes the store's send path
+// deterministic regardless of file order. `setConnection` is the REAL setter,
+// frozen before the mock lands: a no-op there is what used to make every sibling
+// suite mock defensively, since bun's `mock.module` is process-wide and a
+// stubbed-away export stays stubbed for every later importer. [B10]
+import { setConnection as _realSetConnection } from "../lib/connection-singleton";
+const realSetConnection = _realSetConnection;
 let activeConnection: MockConnection | null = null;
 mock.module("../lib/connection-singleton", () => ({
   getConnection: () => activeConnection,
-  setConnection: () => {},
+  setConnection: realSetConnection,
 }));
 
 // Imported after the mock so the store binds to the mocked singleton.

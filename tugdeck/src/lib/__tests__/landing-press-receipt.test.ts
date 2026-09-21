@@ -26,15 +26,17 @@ interface Sent {
 
 let sent: Sent[] = [];
 
-// The singleton is mocked rather than driven through `setConnection`, because
-// bun's `mock.module` leaks across files: another suite already replaces
-// `connection-singleton` with a no-op `setConnection`, so a real call would
-// silently do nothing depending on file order. Pinning `getConnection` to a
-// local is what `git-log-store.test.ts` does for the same reason.
+// The singleton is mocked rather than driven through `setConnection` because
+// pinning `getConnection` to a local is deterministic regardless of file order —
+// what `git-log-store.test.ts` does for the same reason. `setConnection` is the
+// REAL setter, frozen before the mock lands, so this process-wide mock cannot
+// swallow another suite's call to it. [B10]
+import { setConnection as _realSetConnection } from "@/lib/connection-singleton";
+const realSetConnection = _realSetConnection;
 let activeConnection: TugConnection | null = null;
 mock.module("@/lib/connection-singleton", () => ({
   getConnection: () => activeConnection,
-  setConnection: () => {},
+  setConnection: realSetConnection,
 }));
 
 // Imported after the mock so the receipt sender binds to it.

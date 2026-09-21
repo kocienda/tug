@@ -27,7 +27,7 @@
  * @covers tugdeck/src/lib/permission-rules-store.ts
  * @covers tugdeck/src/lib/permission-rules.ts
  * @covers tugdeck/src/lib/slash-commands.ts
- * @covers tugrust/crates/tugcast/
+ * @covers tugrust/crates/tugcast/src/permissions.rs
  * @covers tugdeck/src/components/tugways/cards/permission-rules-editor.tsx
  */
 

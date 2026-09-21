@@ -13,7 +13,11 @@ import { describe, expect, mock, test } from "bun:test";
 let sent: Array<string> = [];
 let socketOpen = true;
 // The full connection shape the sibling store tests mock, so this double is
-// harmless to any file that happens to resolve it.
+// harmless to any file that happens to resolve it. `setConnection` is the real
+// setter, frozen before the mock lands, so this file-wide mock cannot swallow
+// another suite's call to it. [B10]
+import { setConnection as _realSetConnection } from "../connection-singleton";
+const realSetConnection = _realSetConnection;
 mock.module("../connection-singleton", () => ({
   getConnection: () => ({
     send: (_feedId: number, payload: Uint8Array) => {
@@ -26,6 +30,7 @@ mock.module("../connection-singleton", () => ({
     },
     onFrame: () => () => {},
   }),
+  setConnection: realSetConnection,
 }));
 
 import { LedgerRestoreFetch } from "../ledger-restore-fetch";

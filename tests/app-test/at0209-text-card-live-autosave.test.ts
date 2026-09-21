@@ -18,6 +18,14 @@
  *    the edit on disk after process exit. A second app process re-opens
  *    the file and shows the flushed content.
  *
+ * 3b. **A reload that lands in the frame of the scroll.** The same
+ *    viewport hold with no frame between the scroll and the reload, so
+ *    CM6 has not measured the new offset when the change is dispatched.
+ *    Carries a per-frame sampler of the top line, and asserts the text
+ *    held on every frame rather than only on the last one — the hop
+ *    used to happen and self-correct, which is what made Scenario 3
+ *    marginal.
+ *
  * 4. **Undo after a reload.** A reload is not an undo step: a clean
  *    buffer adopts an external change silently, and one ⌘Z afterwards
  *    removes the user's own typing and nothing else — the reloaded
@@ -523,6 +531,201 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         expect(after.text).toBe(before.text);
         expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
 
+        // And the disk content really is in the buffer.
+        await app.evalJS<null>(
+          `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
+        );
+        await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
+      } finally {
+        await app.close();
+        rmFixture(dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // -------------------------------------------------------------------------
+  // Scenario 3b: the reload that lands in the frame of the scroll
+  // -------------------------------------------------------------------------
+  //
+  // Scenario 3 above is the same behaviour with a frame to spare, and it has
+  // been marginal — reading `tall line 044` where it expects `045`, off by
+  // exactly one row, flipping between runs with nothing in between touching the
+  // reload path. This scenario makes that window deterministic rather than
+  // waiting for luck to expose it.
+  //
+  // The window is CM6's cached scroll offset. `ViewState.update` computes a
+  // change's scroll anchor from `this.scrollOffset`, a cached copy that only a
+  // measure pass refreshes, and `EditorView.measure` throws the anchor away
+  // when the real offset has moved more than a pixel from the cached one. So a
+  // change dispatched after a scroll but BEFORE CM6 has measured that scroll
+  // gets no anchor at all: pixel `scrollTop` is held instead of the text, and
+  // every visible line slides down by the inserted row. That is the `044`
+  // signature exactly.
+  //
+  // Scenario 3 sets `scrollTop` and then clicks through the harness, which
+  // costs several round trips and therefore several frames, so CM6 has usually
+  // measured by the time the reload lands. Here the scroll, the reading of
+  // which line is at the top, and the Reload click all happen in ONE JS task,
+  // with no frame in between — `getBoundingClientRect()` flushes layout
+  // synchronously, which is enough to read the DOM but is NOT a CM6 measure
+  // pass. The product has the same window ([F04]): an agent writing while the
+  // user scrolls takes this path, wide open for any programmatic scroll.
+  //
+  // A green run is not the evidence here. The scenario carries a per-frame
+  // sampler of the top line's text and offset across the reload, so the trace
+  // says whether the hop happened and was corrected or never happened at all,
+  // and the fix is proven by a `tugtool file probe` reverting it and watching
+  // this go red.
+  test(
+    "in-place reload holds the text when it lands in the scroll's own frame",
+    async () => {
+      const { dir, file } = mkTallFixture();
+      const app = await launchTugApp({ testName: "at0209-reload-same-task" });
+      try {
+        await seedTextCard(app, file);
+        await waitForEditorShowing(app, "tall line 001");
+
+        // Same drive to a conflict banner as Scenario 3: the banner's Reload
+        // button is a real in-place reload through the store's `replaceText`
+        // bridge, and the external content is itself tall so a mid-document
+        // scrollTop stays valid after the adopt.
+        await typeIntoEditor(app, "EDIT1 ");
+        await waitForDisk(file, (c) => c.includes("EDIT1"));
+        const EXTERNAL = "EXTERNAL-WRITER LINE\n" + TALL_CONTENT;
+        fs.writeFileSync(file, EXTERNAL, "utf8");
+        await typeIntoEditor(app, "EDIT2 ");
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="text-card-conflict-reload"]') !== null`,
+          { timeoutMs: 8000 },
+        );
+
+        // A per-frame sampler of the top line, started BEFORE the scroll so the
+        // trace covers the whole reload. Each frame records which line sits at
+        // the viewport top, how far down its row starts, and the raw scrollTop
+        // — enough to tell "never hopped" from "hopped and was corrected".
+        await app.evalJS<null>(`(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          window.__tugHopSamples = [];
+          window.__tugHopStop = false;
+          function topLine(){
+            var box = scroller.getBoundingClientRect();
+            var lines = scroller.querySelectorAll('.cm-line');
+            for (var i = 0; i < lines.length; i++) {
+              var r = lines[i].getBoundingClientRect();
+              if (r.bottom > box.top + 1) {
+                return { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop };
+              }
+            }
+            return null;
+          }
+          function tick(){
+            if (window.__tugHopStop) return;
+            var s = topLine();
+            if (s !== null) window.__tugHopSamples.push(s);
+            requestAnimationFrame(tick);
+          }
+          requestAnimationFrame(tick);
+          return null;
+        })()`);
+
+        // ONE task: park the viewport, read the line at the top, and click
+        // Reload — no frame, and therefore no CM6 measure pass, in between.
+        const before = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        }>(`(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          scroller.scrollTop = 900;
+          var box = scroller.getBoundingClientRect();
+          var lines = scroller.querySelectorAll('.cm-line');
+          var found = null;
+          for (var i = 0; i < lines.length; i++) {
+            var r = lines[i].getBoundingClientRect();
+            if (r.bottom > box.top + 1) {
+              found = { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight };
+              break;
+            }
+          }
+          document.querySelector('[data-testid="text-card-conflict-reload"]').click();
+          return found;
+        })()`);
+        expect(before).not.toBeNull();
+        expect(before.text.indexOf("tall line")).toBe(0);
+        expect(before.scrollTop).toBeGreaterThan(200);
+
+        // The reload landed: banner gone and the added row made it taller.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="text-card-conflict-reload"]') === null`,
+          { timeoutMs: 6000 },
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
+          { timeoutMs: 6000 },
+        );
+
+        const readTop = `(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          var box = scroller.getBoundingClientRect();
+          var lines = scroller.querySelectorAll('.cm-line');
+          for (var i = 0; i < lines.length; i++) {
+            var r = lines[i].getBoundingClientRect();
+            if (r.bottom > box.top + 1) {
+              return { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight };
+            }
+          }
+          return null;
+        })()`;
+        const after = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        }>(readTop);
+
+        // Stop the sampler and read the trace back. It is reported whether the
+        // scenario passes or fails: a green run whose trace shows the top line
+        // changing and changing back is a different fact from one that never
+        // moved, and only the trace can tell them apart.
+        const samples = await app.evalJS<
+          Array<{ text: string; delta: number; scrollTop: number }>
+        >(`(function(){ window.__tugHopStop = true; return window.__tugHopSamples; })()`);
+        const distinct: string[] = [];
+        for (const s of samples) {
+          const label = `${s.text.slice(0, 14)}@${Math.round(s.delta)}/${Math.round(s.scrollTop)}`;
+          if (distinct[distinct.length - 1] !== label) distinct.push(label);
+        }
+        note(
+          `same-task reload: top line ${JSON.stringify(before.text.slice(0, 14))} → ` +
+            `${JSON.stringify(after.text.slice(0, 14))}; ${samples.length} frames sampled; ` +
+            `trace ${distinct.join(" | ")}`,
+        );
+
+        // The text held its place. Holding the pixel `scrollTop` instead would
+        // read one row EARLIER in the document — `tall line 044` for `045` —
+        // because the external write inserted a row above the viewport.
+        expect(after.text).toBe(before.text);
+        expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
+
+        // And it held its place on EVERY frame, which is the assertion the
+        // final read cannot make. Before the measure-first fix the trace read
+        // `045@900 | 044@900 | 045@920`: the hop happened, was visible for a
+        // frame, and the next measure pass put it back — so a final read that
+        // landed after the correction saw the right answer and a final read that
+        // landed during the hop saw `044`, which is the whole of Scenario 3's
+        // marginality. Every sampled frame after the viewport was parked must
+        // show the same top line.
+        const parked = samples.filter((s) => s.scrollTop > 200);
+        // A floor on the sample count, so an occluded harness window — which
+        // suspends `requestAnimationFrame` — cannot turn this into an assertion
+        // over an empty list that passes by seeing nothing.
+        expect(parked.length).toBeGreaterThanOrEqual(2);
+        const hopped = parked.filter((s) => s.text !== before.text);
+        expect(
+          hopped.map((s) => `${s.text.slice(0, 14)}@${Math.round(s.scrollTop)}`),
+        ).toEqual([]);
         // And the disk content really is in the buffer.
         await app.evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,

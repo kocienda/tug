@@ -40,12 +40,27 @@ audit_model = "opus"
 [[tugtool.arc.surface]]
 name  = "rust"
 paths = ["tugrust/"]
-check = ["cd tugrust && cargo clippy --workspace --all-targets -- -D warnings"]
+# `cargo nextest run` runs the whole workspace suite in one invocation. A step
+# checkpoint naming a package or a file cannot see a cross-crate regression, and
+# an arc's ending is the one place guaranteed to run. About 30 s, once per arc.
+check = [
+  "cd tugrust && cargo clippy --workspace --all-targets -- -D warnings",
+  "cd tugrust && cargo nextest run",
+]
 
 [[tugtool.arc.surface]]
 name  = "deck"
 paths = ["tugdeck/"]
-check = ["cd tugdeck && bunx tsc --noEmit", "cd tugdeck && bunx vite build", "just app-test-changed {paths}"]
+# Bare `bun test` runs every suite in ONE process, which is the only thing that
+# sees a process-wide `mock.module` leak — the defect that put five red tests on
+# main, because every checkpoint named files and no single run held both the
+# mocking suite and its victim. About 40 s, once per arc.
+check = [
+  "cd tugdeck && bunx tsc --noEmit",
+  "cd tugdeck && bunx vite build",
+  "cd tugdeck && bun test",
+  "just app-test-changed {paths}",
+]
 
 # Shadows `deck` by longest prefix: a change under tugdeck/crates/ runs the
 # wasm build, not the vite one.

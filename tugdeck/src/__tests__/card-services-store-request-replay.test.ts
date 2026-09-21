@@ -43,18 +43,26 @@ const fakeConnection = {
   onFrame: (_feedId: number, _cb: (payload: Uint8Array) => void) => () => {},
 } as unknown as TugConnection;
 
+// `setConnection` is the real setter, frozen before the mock lands, so this
+// process-wide mock cannot swallow another suite's call to it. [B10]
+import { setConnection as _realSetConnection } from "@/lib/connection-singleton";
+const realSetConnection = _realSetConnection;
 mock.module("@/lib/connection-singleton", () => ({
   getConnection: () => fakeConnection,
-  setConnection: () => {},
+  setConnection: realSetConnection,
 }));
 
-import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
-const sharedLifecycle = new ConnectionLifecycle();
-mock.module("@/lib/connection-lifecycle", () => ({
+// Wired through the real `registerConnectionLifecycle` seam rather than
+// `mock.module` — the module has its own suite (`connection-lifecycle.test.ts`),
+// and a process-wide mock would hand that suite a stubbed
+// `getConnectionLifecycle`.
+import {
   ConnectionLifecycle,
-  getConnectionLifecycle: () => sharedLifecycle,
-  registerConnectionLifecycle: () => {},
-}));
+  registerConnectionLifecycle,
+} from "@/lib/connection-lifecycle";
+const sharedLifecycle = new ConnectionLifecycle();
+registerConnectionLifecycle(sharedLifecycle);
+afterAll(() => registerConnectionLifecycle(null));
 
 // Wire the tugbank stub through the real `setTugbankClient` seam rather
 // than `mock.module` — a module mock on the singleton leaks across files
@@ -67,11 +75,16 @@ const fakeTugbank = {
 setTugbankClient(fakeTugbank as unknown as TugbankClient);
 afterAll(() => setTugbankClient(null));
 
-import * as actualSettingsApi from "@/settings-api";
-mock.module("@/settings-api", () => ({
-  ...actualSettingsApi,
-  putSessionRecentProjects: (_paths: string[]) => {},
-}));
+// `cardServicesStore._construct` calls `putSessionRecentProjects`, which reaches
+// `globalThis.fetch`. Stubbing fetch, rather than mocking `@/settings-api`,
+// keeps the real module for `settings-api.test.ts` — a module mock is
+// process-wide and would replace every one of that module's exports.
+const realFetch = globalThis.fetch;
+globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) =>
+  Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+afterAll(() => {
+  globalThis.fetch = realFetch;
+});
 
 // Imports must come AFTER the mock.module calls so the modules pick
 // up the mocked singletons.

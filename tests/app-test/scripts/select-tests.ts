@@ -326,12 +326,6 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugrust/crates/tugbank-core/": 10,
     "tugrust/crates/tugbank/": 3,
 
-    // The server, and by far the widest entry here. It is recorded rather than argued
-    // sound: 689 sources is not a unit anybody exercises, and this number climbing is the
-    // alarm working rather than a nuisance — the answer is to name the feed or the module
-    // the test actually drives, which is what every newer declaration already does.
-    "tugrust/crates/tugcast/": 689,
-
     "tugrust/crates/tugchanges-core/": 12,
     "tugrust/crates/tuggram/": 13,
 };

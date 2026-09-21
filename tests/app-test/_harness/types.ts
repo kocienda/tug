@@ -43,7 +43,9 @@ export type RpcMethod =
   | "simulateAppUnhide"
   | "startTugcode"
   | "stopTugcode"
-  | "writeTugcodeStdin";
+  | "writeTugcodeStdin"
+  | "stopTugcast"
+  | "startTugcast";
 
 /**
  * Viewport-space point passed to the native-gesture verbs. `{x, y}` is
@@ -371,6 +373,20 @@ export type Request =
       method: "writeTugcodeStdin";
       /** A single JSON IPC frame; Swift appends a newline. */
       line: string;
+    }
+  | {
+      id: number;
+      /**
+       * Put this instance's tugcast down and keep it down. Answers only
+       * once the child is gone, so whatever the test does next happens
+       * with nothing watching.
+       */
+      method: "stopTugcast";
+    }
+  | {
+      id: number;
+      /** Bring tugcast back after `stopTugcast`. */
+      method: "startTugcast";
     };
 
 /**

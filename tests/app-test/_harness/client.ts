@@ -1451,6 +1451,28 @@ export function stopTugcode(caller: HarnessCaller): Promise<void> {
 }
 
 /**
+ * Put this instance's tugcast down and keep it down.
+ *
+ * Resolves only once the child is gone — the Swift side runs the whole
+ * quiesce ladder before answering — so a write that follows this call is a
+ * write nothing was watching. Tug.app, its window and the loaded page all
+ * survive; pair with {@link startTugcast} to close the window.
+ */
+export function stopTugcast(caller: HarnessCaller): Promise<void> {
+  return caller.rpcCall<void>("stopTugcast", {});
+}
+
+/**
+ * Bring tugcast back after {@link stopTugcast}. Resolves once the child is
+ * spawned; the page's WebSocket reconnects on its own loop after that, and
+ * AppDelegate re-authenticates the already-loaded page rather than reloading
+ * it.
+ */
+export function startTugcast(caller: HarnessCaller): Promise<void> {
+  return caller.rpcCall<void>("startTugcast", {});
+}
+
+/**
  * Append a single JSON IPC frame to tugcode's stdin (the harness
  * appends the newline). Used by tests that drive the tugcode IPC
  * loop directly — typically a `protocol_init` followed by one or

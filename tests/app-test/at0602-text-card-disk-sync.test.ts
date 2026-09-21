@@ -38,6 +38,36 @@
  *    change on its own, Edit ▸ Undo still names the user's typing, and
  *    one undo removes that typing and leaves the reloaded lines.
  *
+ * 5. **A card that is not in front: unfocused but visible.** Two panes,
+ *    focus on the other card, nothing about the watched card touched.
+ *    The reload lands and holds its reading position anyway, and takes
+ *    no focus on the way in — nothing in the path is focus-gated.
+ *
+ * 6. **A card that is not in front: a hidden background tab.** The
+ *    stacked non-active card carries `display: none`, so it has no
+ *    layout and CM6 can neither measure nor anchor in it. Park the
+ *    viewport in front, switch away, write the file from outside,
+ *    switch back: the content must be the disk's AND the reading
+ *    position must be where it was left.
+ *
+ * 7. **A write nothing was watching, healed on reconnect.** The
+ *    harness puts this instance's tugcast down (`app.stopTugcast()`),
+ *    the file is written while it is gone, and tugcast comes back:
+ *    the buffer catches up with no interaction of any kind. The app,
+ *    its window and the loaded page all survive the outage — the app
+ *    re-authenticates in place rather than reloading — so what heals
+ *    is the client's own `connectionDidOpen` re-`watch`, and the
+ *    editor element the catch-up lands in is checked to be the same
+ *    object it was before, which is what rules out a reload having
+ *    re-read the file instead.
+ *
+ * 8. **A merge into a hidden DIRTY buffer.** The store keeps no copy of
+ *    the buffer — every save path reads it back through the editor — so a
+ *    reload held for a hidden card must still answer with the text it is
+ *    holding. Read out of the aside record, which is the artifact a quit
+ *    leaves behind: the merged text has to be in it, paired with the
+ *    post-merge baseline hash it is written against.
+ *
  * Input path and undo gesture follow `at0209` for the reasons recorded
  * there: edits go through `document.execCommand("insertText")` so the
  * real beforeinput → CM6 pipeline runs, and undo goes through
@@ -69,6 +99,22 @@
  *   client-side trailing look is the backstop for a burst slow enough to
  *   cross frames, and no app-test can produce one without racing the
  *   server's debounce; `file_watch.rs`'s own burst tests cover that side.
+ * - The editor's hidden-card deferral removed, so `replaceText` dispatches
+ *   into a `display: none` view the way it used to: **exactly scenario 6
+ *   red, the other six green** — including scenario 5, which is the same
+ *   not-in-front case with layout. The discrimination is the hidden state
+ *   itself and nothing adjacent to it.
+ * - `onConnectionDidOpen` in `file-watch-client.ts` patched to forget its
+ *   `seq` map and `reset` the server without re-`watch`ing: **exactly
+ *   scenario 7 red**, on the catch-up wait, and green again with the
+ *   re-`watch` restored. Nothing else in the file notices, because nothing
+ *   else in the file ever loses a frame.
+ * - The editor's bridge `getText` returned to `cmView.state.doc.toString()`,
+ *   so a hidden view answers with its stale document rather than with the
+ *   text the deferral is holding: **exactly scenario 8 red**, the aside
+ *   carrying the pre-merge buffer under the post-merge hash. Every other
+ *   scenario green, because no other one asks the buffer for its text while
+ *   a deferral is outstanding.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -113,6 +159,15 @@ const TALL_CONTENT = TALL_LINES.join("\n") + "\n";
 
 const WARMUP_BODY = "WARMUP marker\n";
 
+/**
+ * The body written while tugcast is down. A line PREPENDED to the fixture, so
+ * the catch-up is visible as new text at the top and the old body is still
+ * there to check — a wholesale replacement could not tell a reload from a
+ * card that lost its file.
+ */
+const OUTAGE_SENTINEL = "WRITTEN DURING THE OUTAGE";
+const OUTAGE_CONTENT = `${OUTAGE_SENTINEL}\n${FIXTURE_CONTENT}`;
+
 function mkFixture(prefix: string, content: string): { dir: string; file: string } {
   // `realpathSync` because macOS hands back `/var/...` for a `/private/var`
   // temp directory, and the watch is keyed by the path the card holds.
@@ -156,6 +211,70 @@ function deckShape() {
 }
 
 /**
+ * Two panes, both on screen, each with its own Text card. Card A holds the
+ * watched fixture and card B is what focus sits on — the ordinary Tug shape
+ * where an agent rewrites a file whose card the reader is not typing in.
+ */
+function deckShapeTwoPanes() {
+  return {
+    cards: [
+      { id: "A", componentId: "text", title: "Watched", closable: true },
+      { id: "B", componentId: "text", title: "Other", closable: true },
+    ],
+    panes: [
+      {
+        id: "p1",
+        position: { x: 40, y: 40 },
+        size: { width: 700, height: 560 },
+        cardIds: ["A"],
+        activeCardId: "A",
+        title: "",
+        acceptsFamilies: ["standard"],
+      },
+      {
+        id: "p2",
+        position: { x: 780, y: 40 },
+        size: { width: 460, height: 560 },
+        cardIds: ["B"],
+        activeCardId: "B",
+        title: "",
+        acceptsFamilies: ["standard"],
+      },
+    ],
+    activePaneId: "p2",
+    hasFocus: true,
+  };
+}
+
+/**
+ * One pane holding two stacked cards. The non-active one is mounted and alive
+ * but hidden with `display: none` (`card-host.tsx`), which is the state a
+ * background tab is in — no layout at all, so CM6 can neither measure nor
+ * anchor while it is back there.
+ */
+function deckShapeStacked() {
+  return {
+    cards: [
+      { id: "A", componentId: "text", title: "Watched", closable: true },
+      { id: "B", componentId: "text", title: "Other", closable: true },
+    ],
+    panes: [
+      {
+        id: "p1",
+        position: { x: 40, y: 40 },
+        size: { width: 760, height: 560 },
+        cardIds: ["A", "B"],
+        activeCardId: "A",
+        title: "",
+        acceptsFamilies: ["standard"],
+      },
+    ],
+    activePaneId: "p1",
+    hasFocus: true,
+  };
+}
+
+/**
  * Seed the deck-wide save-mode default BEFORE the card mounts —
  * `setTugbankValue` populates the same client cache `readSaveMode` reads.
  * Manual is the shipping default; the automatic scenarios opt in.
@@ -180,6 +299,31 @@ async function seedTextCard(
       },
     },
     focusCardId: "A",
+  });
+}
+
+/**
+ * Seed a two-card deck. `shape` decides whether the cards sit in two panes
+ * (both visible) or stacked in one (the non-active one hidden), and `focusCard`
+ * decides where focus lands. Card A is bound to the watched fixture, card B to
+ * a second file it never shares.
+ */
+async function seedTwoTextCards(
+  app: App,
+  shape: ReturnType<typeof deckShapeTwoPanes> | ReturnType<typeof deckShapeStacked>,
+  fileA: string,
+  fileB: string,
+  focusCard: "A" | "B",
+  mode: "automatic" | "manual",
+): Promise<void> {
+  await seedSaveMode(app, mode);
+  await app.seedDeckState({
+    state: shape,
+    cardStates: {
+      A: { content: { path: fileA, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
+      B: { content: { path: fileB, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
+    },
+    focusCardId: focusCard,
   });
 }
 
@@ -288,6 +432,91 @@ async function assertNoConflictSurface(app: App): Promise<void> {
     })()`,
   );
   expect(open, "a merged edit raises no conflict surface").toEqual([]);
+}
+
+/**
+ * The set-aside autosave directory. `~`-expanded by the fs endpoints the store
+ * writes through, so the records land in the real one.
+ */
+const ASIDES_DIR = path.join(
+  os.homedir(),
+  "Library/Application Support/Tug/Autosave Information",
+);
+
+/** The fields of an aside record this file reads. */
+interface AsideRecord {
+  path: string | null;
+  content: string;
+  baselineSha256: string | null;
+}
+
+/**
+ * The aside record the store has written for `file`, or null.
+ *
+ * Found by the record's OWN `path` field rather than by re-deriving
+ * `asidePathFor`'s FNV-1a filename hash here: a reader that duplicated that
+ * derivation would go silently stale the day the hash changed, and answer
+ * "no aside" for a file that has one.
+ */
+function readAsideFor(file: string): AsideRecord | null {
+  if (!fs.existsSync(ASIDES_DIR)) return null;
+  for (const name of fs.readdirSync(ASIDES_DIR)) {
+    if (!name.startsWith("aside-") || !name.endsWith(".json")) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(path.join(ASIDES_DIR, name), "utf8"));
+    } catch {
+      // A record caught mid-write, or one this test has no business reading.
+      continue;
+    }
+    if (parsed === null || typeof parsed !== "object") continue;
+    const rec = parsed as Partial<AsideRecord>;
+    if (rec.path !== file || typeof rec.content !== "string") continue;
+    return {
+      path: rec.path,
+      content: rec.content,
+      baselineSha256: rec.baselineSha256 ?? null,
+    };
+  }
+  return null;
+}
+
+/** Wait until `file`'s aside record satisfies `ready`, and answer with it. */
+async function waitForAside(
+  file: string,
+  ready: (rec: AsideRecord) => boolean,
+  what: string,
+  timeoutMs = 20_000,
+): Promise<AsideRecord> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const rec = readAsideFor(file);
+    if (rec !== null && ready(rec)) return rec;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `[at0602] timed out after ${timeoutMs}ms waiting for ${what}` +
+          ` (aside ${rec === null ? "absent" : `${rec.content.length}b`})`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/** Leave the user's real autosave directory as it was found. */
+function removeAsideFor(file: string): void {
+  if (!fs.existsSync(ASIDES_DIR)) return;
+  for (const name of fs.readdirSync(ASIDES_DIR)) {
+    if (!name.startsWith("aside-") || !name.endsWith(".json")) continue;
+    const full = path.join(ASIDES_DIR, name);
+    try {
+      const rec = JSON.parse(
+        fs.readFileSync(full, "utf8"),
+      ) as Partial<AsideRecord>;
+      if (rec !== null && rec.path === file) fs.rmSync(full, { force: true });
+    } catch {
+      continue;
+    }
+  }
 }
 
 /**
@@ -604,6 +833,494 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
       } finally {
         await app.close();
         rmFixture(dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // -------------------------------------------------------------------------
+  // Scenario 5: a reload into an unfocused but visible card
+  // -------------------------------------------------------------------------
+  //
+  // Every scenario above runs on the focused, visible card, and that is not the
+  // Tug-common shape: the reader is typing in one card while an agent rewrites
+  // a file open in another. This is that shape with both cards on screen —
+  // card A holds the watched fixture in its own pane, focus sits on card B in a
+  // second pane, and nothing about A is touched for the whole scenario. The
+  // reload has to land and hold A's reading position anyway.
+  //
+  // Unfocused is a weaker condition than hidden: an unfocused card still has
+  // layout, so CM6 can measure and anchor. What this pins is that nothing in
+  // the reload path is gated on focus — a `hasFocus` check anywhere in the
+  // anchor correction would show up here and nowhere else in this file.
+  test(
+    "an external write reloads an unfocused but visible card in place",
+    async () => {
+      const { dir, file } = mkFixture("at0602-unfocused-", TALL_CONTENT);
+      const other = mkFixture("at0602-unfocused-other-", FIXTURE_CONTENT);
+      const app = await launchTugApp({ testName: "at0602-unfocused-visible" });
+      note(`at0602 out-of-workspace fixture: ${file}`);
+      try {
+        await seedTwoTextCards(
+          app,
+          deckShapeTwoPanes(),
+          file,
+          other.file,
+          "B",
+          "manual",
+        );
+        await waitForEditorShowing(app, "tall line 001");
+        await proveWatchLive(app, file, TALL_CONTENT, "tall line 001");
+
+        // Focus really is elsewhere, and card A really is on screen. Both have
+        // to hold or the scenario is testing the focused case again under a
+        // different name.
+        const focused = await app.evalJS<string | null>(
+          `window.__tug.getFocusedCardId()`,
+        );
+        expect(focused, "focus sits on the other card").toBe("B");
+        const visible = await app.evalJS<boolean>(
+          `(function(){
+            var host = document.querySelector('[data-card-host][data-card-id="A"]');
+            if (host === null) return false;
+            return getComputedStyle(host).display !== "none"
+              && document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height > 100;
+          })()`,
+        );
+        expect(visible, "card A is on screen with a laid-out editor").toBe(true);
+
+        // Park A's viewport and read which line sits at its top.
+        await app.evalJS<null>(
+          `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 900, null)`,
+        );
+        const readTop = `(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          var box = scroller.getBoundingClientRect();
+          var lines = scroller.querySelectorAll('.cm-line');
+          for (var i = 0; i < lines.length; i++) {
+            var r = lines[i].getBoundingClientRect();
+            if (r.bottom > box.top + 1) {
+              return { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight };
+            }
+          }
+          return null;
+        })()`;
+        await app.waitForCondition<boolean>(
+          `(function(){ var t = ${readTop}; return t !== null && t.scrollTop > 200 && t.text.indexOf("tall line") === 0; })()`,
+          { timeoutMs: 6000 },
+        );
+        const before = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        }>(readTop);
+
+        // The only gesture: a write from outside the app, with focus still on B.
+        fs.writeFileSync(file, "EXTERNAL-WRITER LINE\n" + TALL_CONTENT, "utf8");
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
+          { timeoutMs: 20_000 },
+        );
+
+        const after = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        }>(readTop);
+        note(
+          `at0602 unfocused reload: top line ${JSON.stringify(before.text.slice(0, 14))} ` +
+            `-> ${JSON.stringify(after.text.slice(0, 14))}, scrollTop ${Math.round(before.scrollTop)} -> ${Math.round(after.scrollTop)}`,
+        );
+        expect(after.text, "the same line is still at the viewport top").toBe(
+          before.text,
+        );
+        expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
+
+        // The reload never stole focus on its way in.
+        expect(
+          await app.evalJS<string | null>(`window.__tug.getFocusedCardId()`),
+        ).toBe("B");
+
+        // And the disk content really is in the buffer.
+        await app.evalJS<null>(
+          `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
+        );
+        await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
+      } finally {
+        await app.close();
+        rmFixture(dir);
+        rmFixture(other.dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // -------------------------------------------------------------------------
+  // Scenario 6: a reload into a hidden tab, read when it is brought forward
+  // -------------------------------------------------------------------------
+  //
+  // The harder half of the not-in-front case. A stacked card that is not the
+  // active one is mounted and alive but carries `display: none`
+  // (`card-host.tsx`), so it has NO layout: CM6 cannot measure it and cannot
+  // anchor a change in it. `_applyDiskRead` calls `bridge.replaceText`
+  // regardless of whether the bridge's view is visible, so the reload lands in
+  // a view that cannot compute where to put the reader — and until this
+  // scenario nothing said what the card shows when it comes forward.
+  //
+  // The shape: park the viewport while the card is in front, switch to the
+  // other tab, write the file from outside, switch back, and read. Both answers
+  // are asserted — the content must be the disk's, and the reading position
+  // must be where it was left. A hidden editor that silently kept stale text,
+  // or came forward at the top of the file, fails here.
+  test(
+    "an external write to a hidden card is current and in place when it is shown",
+    async () => {
+      const { dir, file } = mkFixture("at0602-hidden-", TALL_CONTENT);
+      const other = mkFixture("at0602-hidden-other-", FIXTURE_CONTENT);
+      const app = await launchTugApp({ testName: "at0602-hidden-then-shown" });
+      note(`at0602 out-of-workspace fixture: ${file}`);
+      try {
+        await seedTwoTextCards(
+          app,
+          deckShapeStacked(),
+          file,
+          other.file,
+          "A",
+          "manual",
+        );
+        await waitForEditorShowing(app, "tall line 001");
+        await proveWatchLive(app, file, TALL_CONTENT, "tall line 001");
+
+        // Park the viewport while the card is still in front — the place the
+        // reader is owed back has to be established while CM6 can measure it.
+        await app.evalJS<null>(
+          `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 900, null)`,
+        );
+        const readTop = `(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          var box = scroller.getBoundingClientRect();
+          var lines = scroller.querySelectorAll('.cm-line');
+          for (var i = 0; i < lines.length; i++) {
+            var r = lines[i].getBoundingClientRect();
+            if (r.bottom > box.top + 1) {
+              return { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight };
+            }
+          }
+          return null;
+        })()`;
+        await app.waitForCondition<boolean>(
+          `(function(){ var t = ${readTop}; return t !== null && t.scrollTop > 200 && t.text.indexOf("tall line") === 0; })()`,
+          { timeoutMs: 6000 },
+        );
+        const before = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        }>(readTop);
+
+        // Send card A to the background and prove it is really hidden — the
+        // whole premise is `display: none`, so a shape that left it visible
+        // would make this a duplicate of Scenario 5.
+        await app.evalJS<void>(`window.__tug.activateCard("B")`);
+        await app.waitForCondition<boolean>(
+          `(function(){
+            var host = document.querySelector('[data-card-host][data-card-id="A"]');
+            return host !== null && getComputedStyle(host).display === "none";
+          })()`,
+          { timeoutMs: 6000 },
+        );
+        const hiddenHeight = await app.evalJS<number>(
+          `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,
+        );
+        expect(
+          hiddenHeight,
+          "a display:none editor has no layout to measure",
+        ).toBe(0);
+
+        // Write from outside the app while the card is in the background.
+        fs.writeFileSync(file, "EXTERNAL-WRITER LINE\n" + TALL_CONTENT, "utf8");
+
+        // Nothing observable is coming while the card is hidden: `innerText` is
+        // empty for a `display: none` subtree, and CM6 renders no new viewport
+        // without a measure pass. So wait the delivery out rather than polling
+        // for it. `proveWatchLive` above measured the real latency for this
+        // fixture and noted it — a few hundred milliseconds; this is an order of
+        // magnitude more than that.
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+
+        // Bring it forward. This is the moment the reader is owed both things.
+        await app.evalJS<void>(`window.__tug.activateCard("A")`);
+        await app.waitForCondition<boolean>(
+          `(function(){
+            var host = document.querySelector('[data-card-host][data-card-id="A"]');
+            return host !== null && getComputedStyle(host).display !== "none"
+              && document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height > 100;
+          })()`,
+          { timeoutMs: 6000 },
+        );
+
+        // The deferred reload lands a frame after the box appears, so wait for
+        // the content rather than assuming the show and the text are the same
+        // tick. A deferral that never applied times out here and says so.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
+          { timeoutMs: 6000 },
+        );
+
+        const after = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        } | null>(readTop);
+        note(
+          `at0602 hidden reload: top line ${JSON.stringify(before.text.slice(0, 14))} ` +
+            `-> ${JSON.stringify(after === null ? null : after.text.slice(0, 14))}, scrollTop ` +
+            `${Math.round(before.scrollTop)} -> ${after === null ? "none" : Math.round(after.scrollTop)}, ` +
+            `scrollHeight ${Math.round(before.scrollHeight)} -> ${after === null ? "none" : Math.round(after.scrollHeight)}`,
+        );
+        expect(after, "the shown editor renders lines").not.toBeNull();
+        if (after === null) throw new Error("unreachable");
+
+        // The content is the disk's: the added row made the document taller.
+        expect(
+          after.scrollHeight,
+          "the hidden card adopted the external write",
+        ).toBeGreaterThan(before.scrollHeight + 4);
+        // And the reading position survived the round trip through hidden.
+        expect(after.text, "the same line is still at the viewport top").toBe(
+          before.text,
+        );
+        expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
+
+        // The whole disk content really is in the buffer, not just its height.
+        await app.evalJS<null>(
+          `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
+        );
+        await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
+      } finally {
+        await app.close();
+        rmFixture(dir);
+        rmFixture(other.dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // -------------------------------------------------------------------------
+  // Scenario 7: a write nothing was watching, healed on reconnect
+  // -------------------------------------------------------------------------
+  //
+  // The outage is the whole apparatus. `app.stopTugcast()` answers only once
+  // the child is gone, so the write that follows is one no watcher on either
+  // side of the wire ever saw — which is exactly the gap the client's
+  // `connectionDidOpen` re-`watch` exists to close, and exactly the gap no
+  // scenario above can produce.
+  //
+  // Two guards keep it from passing for the wrong reason. The buffer is read
+  // DURING the outage and must still hold the old body — otherwise the write
+  // was delivered normally and there was no gap to heal. And a marker is
+  // stamped on the live `.cm-content` element before the outage and must
+  // still be there after the catch-up — otherwise the page reloaded or the
+  // card remounted, and a fresh read from disk would look identical from the
+  // outside while proving nothing about the heal.
+  test(
+    "a write during a tugcast outage lands on reconnect with no interaction",
+    async () => {
+      const { dir, file } = mkFixture("at0602-outage-", FIXTURE_CONTENT);
+      const app = await launchTugApp({ testName: "at0602-reconnect-heal" });
+      note(`at0602 out-of-workspace fixture: ${file}`);
+      try {
+        await seedTextCard(app, file, "manual");
+        await waitForEditorShowing(app, "fixture line 01");
+        await proveWatchLive(app, file, FIXTURE_CONTENT, "fixture line 01");
+
+        // Stamp the live editor element. A property, not an attribute: it
+        // cannot survive serialization, so it is only still readable if this
+        // is the same element object the outage started with.
+        await app.evalJS<null>(
+          `(document.querySelector('${EDITOR_CONTENT_SELECTOR}').__at0602Outage = "kept", null)`,
+        );
+
+        const downAt = Date.now();
+        await app.stopTugcast();
+        note(`at0602 tugcast down after ${Date.now() - downAt}ms`);
+
+        // The write nothing is watching.
+        fs.writeFileSync(file, OUTAGE_CONTENT, "utf8");
+
+        // Wait out an ordinary delivery before claiming the gap is real.
+        // `proveWatchLive` noted this fixture's real latency a moment ago —
+        // a few hundred milliseconds — and this is an order of magnitude
+        // more than that.
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const during = await editorText(app);
+        expect(
+          during.includes(OUTAGE_SENTINEL),
+          "nothing was watching: the write did not reach the buffer",
+        ).toBe(false);
+        expect(
+          during.includes("fixture line 01"),
+          "the buffer still holds the body it had before the outage",
+        ).toBe(true);
+
+        const upAt = Date.now();
+        await app.startTugcast();
+        // No interaction of any kind between here and the assertion: no
+        // click, no focus, no keystroke, no scroll. The reconnect is the
+        // only thing that happens.
+        await waitForEditorShowing(app, OUTAGE_SENTINEL, 60_000);
+        note(`at0602 buffer caught up ${Date.now() - upAt}ms after tugcast came back`);
+
+        const marker = await app.evalJS<string | null>(
+          `(function(){
+            var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
+            return el === null ? null : (el.__at0602Outage || null);
+          })()`,
+        );
+        expect(
+          marker,
+          "the same editor element caught up — no page reload, no remount",
+        ).toBe("kept");
+
+        const after = await editorText(app);
+        expect(
+          after.includes("fixture line 01"),
+          "the whole disk body is in the buffer, not just its first line",
+        ).toBe(true);
+        await assertNoConflictSurface(app);
+      } finally {
+        await app.close();
+        rmFixture(dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // -------------------------------------------------------------------------
+  // Scenario 8: a merge into a hidden DIRTY buffer, read out of the aside
+  // -------------------------------------------------------------------------
+  //
+  // Scenario 6's card was clean, and a clean card is the easy half: the store
+  // adopts the disk's text and nothing reads the buffer back until the card
+  // comes forward. A DIRTY hidden card is the half with teeth, because the
+  // store keeps no copy of the buffer — every path that needs the text asks
+  // the editor for it, and while a reload is deferred the editor's document is
+  // the PRE-merge text while the store's baseline and hash have already moved
+  // to the disk's.
+  //
+  // The aside is where that shows, and it is the artifact that matters: it is
+  // what a quit leaves behind and what a restore comes back as. A record
+  // pairing the pre-merge text with the post-merge baseline hash is the
+  // dangerous combination — the card would restore believing it is in step
+  // with a disk it has never seen, and the next save would write over the
+  // external editor's work with no conflict and no banner.
+  //
+  // Manual mode deliberately: nothing autosaves, so the buffer stays dirty for
+  // as long as the scenario needs and there is no debounce to race. The aside
+  // is found by its own `path` field rather than by re-deriving the filename
+  // hash, so the reader cannot go quietly stale against `asidePathFor`.
+  test(
+    "a merge into a hidden dirty buffer sets the aside to the merged text",
+    async () => {
+      const { dir, file } = mkFixture("at0602-hidden-dirty-", FIXTURE_CONTENT);
+      const other = mkFixture("at0602-hidden-dirty-other-", FIXTURE_CONTENT);
+      const app = await launchTugApp({ testName: "at0602-hidden-dirty-merge" });
+      note(`at0602 out-of-workspace fixture: ${file}`);
+      try {
+        await seedTwoTextCards(
+          app,
+          deckShapeStacked(),
+          file,
+          other.file,
+          "A",
+          "manual",
+        );
+        await waitForEditorShowing(app, "fixture line 01");
+        await proveWatchLive(app, file, FIXTURE_CONTENT, "fixture line 01");
+
+        // Dirty the buffer while the card is in front — the only way in, since
+        // a `display: none` card cannot be typed into.
+        await typeIntoEditor(app, TYPED_RUN);
+        const typed = await waitForAside(
+          file,
+          (rec) => rec.content.includes(TYPED_RUN.trim()),
+          "the typing reached the aside",
+        );
+
+        // Send the card to the background, and prove it really has no layout —
+        // that is the whole premise, and a visible card would make this
+        // scenario a duplicate of the merge scenarios above.
+        await app.evalJS<void>(`window.__tug.activateCard("B")`);
+        await app.waitForCondition<boolean>(
+          `(function(){
+            var host = document.querySelector('[data-card-host][data-card-id="A"]');
+            return host !== null && getComputedStyle(host).display === "none";
+          })()`,
+          { timeoutMs: 6000 },
+        );
+        expect(
+          await app.evalJS<number>(
+            `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,
+          ),
+          "a display:none editor has no layout to measure",
+        ).toBe(0);
+
+        // The external write, distant from the typing, while nothing is in
+        // front. The store merges it and re-captures the aside.
+        const external = FIXTURE_CONTENT.replace(
+          FIXTURE_LINES[19] as string,
+          EXTERNAL_LINE,
+        );
+        fs.writeFileSync(file, external, "utf8");
+
+        // The merge landed when the aside's baseline moved to the disk's new
+        // hash. Waiting on THAT rather than on the content is what makes the
+        // assertion below able to fail: a record written against the new
+        // baseline is a record the store believes is current.
+        const merged = await waitForAside(
+          file,
+          (rec) => rec.baselineSha256 !== typed.baselineSha256,
+          "the merge re-captured the aside against the new disk hash",
+        );
+        note(
+          `at0602 hidden dirty aside: baseline ${String(typed.baselineSha256).slice(0, 8)} -> ` +
+            `${String(merged.baselineSha256).slice(0, 8)}, ${merged.content.length}b, ` +
+            `typing ${merged.content.includes(TYPED_RUN.trim())}, external ${merged.content.includes(EXTERNAL_LINE)}`,
+        );
+
+        // Both edits, in the record that survives a quit. Without the merged
+        // text reaching the aside this holds the pre-merge buffer under the
+        // post-merge hash, which is the silent clobber.
+        expect(
+          merged.content.includes(TYPED_RUN.trim()),
+          "the aside still holds the user's own typing",
+        ).toBe(true);
+        expect(
+          merged.content.includes(EXTERNAL_LINE),
+          "and the external edit the merge brought in",
+        ).toBe(true);
+
+        // Bringing the card forward lands the deferred text, so the editor
+        // agrees with the record that was written while it could not.
+        await app.evalJS<void>(`window.__tug.activateCard("A")`);
+        await waitForEditorShowing(app, EXTERNAL_LINE, 10_000);
+        const shown = await editorText(app);
+        expect(shown, "the shown editor holds the user's typing too").toContain(
+          TYPED_RUN.trim(),
+        );
+        await assertNoConflictSurface(app);
+
+        // Manual mode writes nothing without being asked.
+        expect(fs.readFileSync(file, "utf8")).toBe(external);
+      } finally {
+        await app.close();
+        removeAsideFor(file);
+        rmFixture(dir);
+        rmFixture(other.dir);
       }
     },
     TEST_TIMEOUT_MS,

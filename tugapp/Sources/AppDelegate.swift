@@ -672,6 +672,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
     }
 
+    #if DEBUG
+    /// Harness-only: put this instance's tugcast down, and bring it back.
+    ///
+    /// The `ProcessManager` is private to the delegate, and these are the two
+    /// halves of one outage the harness verbs (`stopTugcast` / `startTugcast`)
+    /// reach through. Nothing about the window, the loaded page or the
+    /// harness's own socket is touched: `onReady`'s restart branch
+    /// re-authenticates the page in place, so the deck's buffers survive the
+    /// outage and the reconnect heal is what the test gets to observe.
+    func harnessStopTugcast() {
+        processManager.stopForHarness()
+    }
+
+    /// See `harnessStopTugcast()`. Returns once the child is spawned; the
+    /// page's WebSocket reconnects on its own loop after that.
+    func harnessStartTugcast() {
+        processManager.startAgainForHarness()
+    }
+    #endif
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }

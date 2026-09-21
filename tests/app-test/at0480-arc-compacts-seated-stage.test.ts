@@ -35,7 +35,8 @@
  *
  * @covers tugrust/crates/tugcast/src/feeds/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
- * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-notice-line.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-boundary.tsx
  * @covers tugdeck/src/lib/arc-meta-facts.ts
  */
 

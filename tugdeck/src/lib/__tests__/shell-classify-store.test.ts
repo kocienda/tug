@@ -1,12 +1,16 @@
 import { afterEach, describe, it, expect, jest, mock } from "bun:test";
 
 // Capture the SHELL_INPUT frames `request` sends. Mocked before importing the
-// store (the sibling side-question-store test's pattern — a leaked
-// `setConnection` on the real module loses to another file's module mock in a
-// full-suite run). The transport swallows frames so a request genuinely parks;
-// `connected` off is the no-transport posture.
+// store (the sibling side-question-store test's pattern). The transport
+// swallows frames so a request genuinely parks; `connected` off is the
+// no-transport posture. `setConnection` is the real setter, frozen before the
+// mock lands, so this file-wide mock cannot swallow another suite's call to it
+// — the mutual defection that used to make every one of these files mock
+// defensively. [B10]
 let sends: Array<{ feedId: number; payload: string }> = [];
 let connected = false;
+import { setConnection as _realSetConnection } from "../connection-singleton";
+const realSetConnection = _realSetConnection;
 mock.module("../connection-singleton", () => ({
   getConnection: () =>
     connected
@@ -16,6 +20,7 @@ mock.module("../connection-singleton", () => ({
           },
         }
       : null,
+  setConnection: realSetConnection,
 }));
 
 import { CLASSIFY_REQUEST_TIMEOUT_MS, ShellClassifyStore } from "../shell-classify-store";

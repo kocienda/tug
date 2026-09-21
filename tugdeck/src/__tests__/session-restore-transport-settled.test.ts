@@ -39,22 +39,27 @@ const fakeConnection = {
   sendControlFrame: (_action: string, _payload: unknown) => {},
 } as unknown as TugConnection;
 
+// `setConnection` is the real setter, frozen before the mock lands, so this
+// process-wide mock cannot swallow another suite's call to it. [B10]
+import { setConnection as _realSetConnection } from "@/lib/connection-singleton";
+const realSetConnection = _realSetConnection;
 mock.module("@/lib/connection-singleton", () => ({
   getConnection: () => fakeConnection,
-  setConnection: () => {},
+  setConnection: realSetConnection,
 }));
 
 // Single shared lifecycle so the store cardServicesStore constructs
-// is observably driven from the test. The real `ConnectionLifecycle`
-// class is imported and re-exported from the mock so other consumers
-// (e.g., the gallery card or future hooks) keep their type contract.
-import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
-const sharedLifecycle = new ConnectionLifecycle();
-mock.module("@/lib/connection-lifecycle", () => ({
+// is observably driven from the test. Wired through the real
+// `registerConnectionLifecycle` seam rather than `mock.module` — the module has
+// its own suite (`connection-lifecycle.test.ts`), and a process-wide mock would
+// hand that suite a stubbed `getConnectionLifecycle`.
+import {
   ConnectionLifecycle,
-  getConnectionLifecycle: () => sharedLifecycle,
-  registerConnectionLifecycle: () => {},
-}));
+  registerConnectionLifecycle,
+} from "@/lib/connection-lifecycle";
+const sharedLifecycle = new ConnectionLifecycle();
+registerConnectionLifecycle(sharedLifecycle);
+afterAll(() => registerConnectionLifecycle(null));
 
 // Tugbank stub. `cardServicesStore._construct` reads dev recents on
 // every successful bind; the test doesn't care about that side effect,
@@ -71,12 +76,16 @@ setTugbankClient(fakeTugbank as unknown as TugbankClient);
 afterAll(() => setTugbankClient(null));
 
 // `cardServicesStore._construct` calls `putSessionRecentProjects` —
-// stubbed here so it doesn't reach for `globalThis.fetch`.
-import * as actualSettingsApi from "@/settings-api";
-mock.module("@/settings-api", () => ({
-  ...actualSettingsApi,
-  putSessionRecentProjects: (_paths: string[]) => {},
-}));
+// which reaches `globalThis.fetch`. Stubbing fetch, rather than mocking
+// `@/settings-api`, keeps the real module for `settings-api.test.ts`: a module
+// mock is process-wide and would replace every one of that module's ~100
+// exports for the whole run.
+const realFetch = globalThis.fetch;
+globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) =>
+  Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+afterAll(() => {
+  globalThis.fetch = realFetch;
+});
 
 // Imports must come AFTER the mock.module calls so the modules pick
 // up the mocked singletons.

@@ -71,8 +71,12 @@ struct Watched {
     /// Gateway form of the parent — the `dirs` key, and the form handed to
     /// `watcher.watch`.
     dir: PathBuf,
-    /// Every directory watched on this file's behalf: the parent first,
-    /// then its ancestors up to the project root.
+    /// Every directory whose watch this file actually TOOK: the parent
+    /// first, then the ancestors up to the project root that registered
+    /// without error. An ancestor whose watch failed is deliberately absent,
+    /// because this list is also the release list — keeping a dir this file
+    /// never held would let its unwatch decrement, and then drop, a watch
+    /// some LATER file took on the same directory.
     watched_dirs: Vec<PathBuf>,
     /// The file's name within `dir`. Events are matched on this, never on a
     /// comparison of two absolute strings of unknown provenance ([L29]).
@@ -84,6 +88,15 @@ struct Watched {
     /// The size the last emitted frame reported — the suspicion rule's
     /// reference point.
     last_size: u64,
+    /// What the last look actually saw on disk, which is what "nothing has
+    /// moved" is measured against. The last *frame* is the wrong reference:
+    /// a look that changes nothing emits no frame, so a field maintained at
+    /// emit time would drift from the file.
+    last_identity: Option<Identity>,
+    /// An event named this file ITSELF since the pending look was launched.
+    /// A look with this set always reads; only a look caused purely by an
+    /// ancestor event is allowed to stop at the stat ([B08]).
+    self_event: bool,
     /// Names of other files in `dir` that events have named since this
     /// window opened. Filtered down to the ones that exist when a frame is
     /// built — see `note_sibling`.
@@ -107,9 +120,33 @@ enum Look {
         size: u64,
         dev: Option<u64>,
         ino: Option<u64>,
+        mtime: Option<std::time::SystemTime>,
     },
     Absent,
     Error(&'static str),
+    /// The stat matched the identity the last look recorded, so the file was
+    /// not read and there is nothing to report. Only reachable for a look an
+    /// ancestor event caused.
+    Unchanged,
+}
+
+/// The identity a look records so a later one can stop at the stat.
+///
+/// `(ino, size, mtime)` is the triple, and all three have to be present and
+/// equal: a missing inode (a non-unix host) never matches, so the cheap path
+/// simply never engages there rather than matching on two fields.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Identity {
+    ino: Option<u64>,
+    size: u64,
+    mtime: Option<std::time::SystemTime>,
+}
+
+impl Identity {
+    /// Whether `self` names the same unmoved file as `other`.
+    fn matches(&self, other: &Identity) -> bool {
+        self.ino.is_some() && self.mtime.is_some() && self == other
+    }
 }
 
 /// The service: one notify watcher, one non-recursive watch per distinct
@@ -263,29 +300,23 @@ impl FileWatchService {
         // hears it, so the chain is what makes a joined-away arc worktree
         // reach the card that had a file open inside it.
         let watched_dirs = watch_chain(&dir);
-        for (index, chain_dir) in watched_dirs.iter().enumerate() {
-            let refcount = self.dirs.entry(chain_dir.clone()).or_insert(0);
-            *refcount += 1;
-            if *refcount > 1 {
-                continue;
-            }
-            if let Err(err) = watcher.watch(chain_dir, RecursiveMode::NonRecursive) {
-                self.dirs.remove(chain_dir);
-                if index == 0 {
-                    // The file's own directory. Without it there is nothing
-                    // to report, so this one is fatal.
-                    error!(dir = ?chain_dir, error = %err, "FILE_WATCH: could not watch directory");
-                    for done in watched_dirs.iter().take(index) {
-                        self.release_dir(done, watcher);
-                    }
-                    self.emit_error(&client_path, "io");
-                    return;
+        let watched_dirs = match register_chain(&mut self.dirs, &watched_dirs, |chain_dir| {
+            watcher
+                .watch(chain_dir, RecursiveMode::NonRecursive)
+                .map_err(|err| err.to_string())
+        }) {
+            Ok(taken) => taken,
+            Err(taken) => {
+                // The file's own directory. Without it there is nothing to
+                // report, so this one is fatal — and the ancestors already
+                // taken for a file that will not exist are given back.
+                for done in &taken {
+                    self.release_dir(done, watcher);
                 }
-                // An ancestor we cannot watch costs the teardown case for
-                // this file and nothing else.
-                warn!(dir = ?chain_dir, error = %err, "FILE_WATCH: could not watch ancestor");
+                self.emit_error(&client_path, "io");
+                return;
             }
-        }
+        };
 
         self.files.insert(
             client_path.clone(),
@@ -297,6 +328,8 @@ impl FileWatchService {
                 client_dir,
                 last: None,
                 last_size: 0,
+                last_identity: None,
+                self_event: false,
                 siblings: Vec::new(),
                 renamed_to: None,
                 deadline: None,
@@ -330,12 +363,7 @@ impl FileWatchService {
     }
 
     fn release_dir(&mut self, dir: &Path, watcher: &mut notify::RecommendedWatcher) {
-        let Some(refcount) = self.dirs.get_mut(dir) else {
-            return;
-        };
-        *refcount -= 1;
-        if *refcount == 0 {
-            self.dirs.remove(dir);
+        if release_one(&mut self.dirs, dir) {
             if let Err(err) = watcher.unwatch(dir) {
                 warn!(dir = ?dir, error = %err, "FILE_WATCH: could not unwatch directory");
             }
@@ -432,6 +460,11 @@ impl FileWatchService {
                 {
                     file.renamed_to = Some(destination.to_string_lossy().to_string());
                 }
+                // The event named the file itself, so the next look reads
+                // rather than stopping at the stat: hash-as-identity is what
+                // the card compares, and a skipped read would leave a change
+                // the stat cannot see unreported.
+                file.self_event = true;
                 mark_dirty(file);
             }
         }
@@ -439,6 +472,9 @@ impl FileWatchService {
 
     fn mark_all_dirty(&mut self) {
         for file in self.files.values_mut() {
+            // A watcher error says nothing about which file, so every one of
+            // them is read rather than stat-compared.
+            file.self_event = true;
             mark_dirty(file);
         }
     }
@@ -481,10 +517,22 @@ impl FileWatchService {
         let path = file.resolved.clone();
         let last_size = file.last_size;
         let last_ino = file.last.as_ref().and_then(|last| last.ino);
+        // The cheap look, and the two conditions that withhold it: a frame
+        // that is owed regardless (`force`) needs a real answer to send, and
+        // an event naming the file itself is exactly the case a stat cannot
+        // adjudicate. What is left is a look an ANCESTOR event caused — a
+        // teardown somewhere above, or churn in a parent directory — where
+        // the file itself is usually untouched and the read is waste.
+        let cheap = if file.force || file.self_event {
+            None
+        } else {
+            file.last_identity
+        };
+        file.self_event = false;
         let key = key.to_string();
         let tx = look_tx.clone();
         tokio::task::spawn_blocking(move || {
-            let look = look_at(&path, last_size, last_ino);
+            let look = look_at(&path, last_size, last_ino, cheap);
             let _ = tx.send((key, look));
         });
     }
@@ -497,6 +545,24 @@ impl FileWatchService {
     ) {
         if let Some(file) = self.files.get_mut(&key) {
             file.looking = false;
+        }
+        // What the look saw, recorded before the frame decision: this is the
+        // reference a later ancestor-caused look stats against.
+        if let Some(file) = self.files.get_mut(&key) {
+            match &look {
+                Look::Present {
+                    size, ino, mtime, ..
+                } => {
+                    file.last_identity = Some(Identity {
+                        ino: *ino,
+                        size: *size,
+                        mtime: *mtime,
+                    });
+                }
+                Look::Absent | Look::Error(_) => file.last_identity = None,
+                // The stat matched, so the recorded identity is still true.
+                Look::Unchanged => {}
+            }
         }
         self.emit(&key, look);
         let owed = self
@@ -530,6 +596,10 @@ impl FileWatchService {
                 sha256: Some((*reason).to_string()),
                 ino: None,
             },
+            // The stat said nothing moved, so there was no read and there is
+            // nothing to report — the card already holds this answer, and
+            // `force` is deliberately left armed because it was never spent.
+            Look::Unchanged => return,
         };
         let changed = file.last.as_ref() != Some(&reported);
         let force = std::mem::take(&mut file.force);
@@ -546,7 +616,7 @@ impl FileWatchService {
         let created: Vec<String> = std::mem::take(&mut file.siblings)
             .into_iter()
             .filter(|name| dir.join(name).exists())
-            .map(|name| format!("{}/{}", client_dir, name.to_string_lossy()))
+            .map(|name| created_path(&client_dir, &name))
             .collect();
         let renamed_to = file.renamed_to.take();
         file.last = Some(reported);
@@ -570,6 +640,7 @@ impl FileWatchService {
                 size,
                 dev,
                 ino,
+                mtime: _,
             } => {
                 object.insert("state".into(), json!("present"));
                 object.insert("sha256".into(), json!(sha256));
@@ -588,6 +659,8 @@ impl FileWatchService {
                 object.insert("state".into(), json!("error"));
                 object.insert("error".into(), json!(reason));
             }
+            // Unreachable: the `reported` match above returns on it.
+            Look::Unchanged => {}
         }
         self.send(payload);
     }
@@ -616,6 +689,77 @@ impl FileWatchService {
         // No subscriber is the ordinary case at startup, not a failure.
         let _ = self.out.send(Frame::new(FeedId::FILE_WATCH, bytes));
     }
+}
+
+/// Register one file's chain of directory watches, and answer with the
+/// directories whose watch this file actually TOOK.
+///
+/// The refcount is per directory, so a chain_dir another file already holds
+/// is taken by incrementing and nothing is watched again. A `watch` that
+/// fails gives its increment straight back, and — the point of this function
+/// — the failed directory is left OUT of the answer. The answer is also the
+/// release list, so a directory kept here that was never held would have its
+/// refcount decremented on unwatch: if a later file had meanwhile taken a
+/// real watch on it, that decrement drops somebody else's watch and the file
+/// behind it goes deaf with nothing reporting anything.
+///
+/// `Err(taken)` is the fatal case and only the fatal case: the file's own
+/// parent, the first entry, could not be watched, so there is nothing to
+/// report about this file at all. The ancestors taken before it come back in
+/// the payload so the caller can give them up. An ancestor that fails is not
+/// fatal — it costs this file the teardown case and nothing else.
+fn register_chain(
+    dirs: &mut HashMap<PathBuf, usize>,
+    chain: &[PathBuf],
+    mut watch: impl FnMut(&Path) -> Result<(), String>,
+) -> Result<Vec<PathBuf>, Vec<PathBuf>> {
+    let mut taken: Vec<PathBuf> = Vec::with_capacity(chain.len());
+    for (index, chain_dir) in chain.iter().enumerate() {
+        let refcount = dirs.entry(chain_dir.clone()).or_insert(0);
+        *refcount += 1;
+        if *refcount > 1 {
+            taken.push(chain_dir.clone());
+            continue;
+        }
+        match watch(chain_dir) {
+            Ok(()) => taken.push(chain_dir.clone()),
+            Err(err) => {
+                dirs.remove(chain_dir);
+                if index == 0 {
+                    error!(dir = ?chain_dir, error = %err, "FILE_WATCH: could not watch directory");
+                    return Err(taken);
+                }
+                warn!(dir = ?chain_dir, error = %err, "FILE_WATCH: could not watch ancestor");
+            }
+        }
+    }
+    Ok(taken)
+}
+
+/// Give one directory watch back, answering whether the caller should now
+/// unwatch it. An unknown directory is a no-op — and after
+/// [`register_chain`] there is no such thing, which is the invariant that
+/// makes this answer trustworthy.
+fn release_one(dirs: &mut HashMap<PathBuf, usize>, dir: &Path) -> bool {
+    let Some(refcount) = dirs.get_mut(dir) else {
+        return false;
+    };
+    *refcount -= 1;
+    if *refcount > 0 {
+        return false;
+    }
+    dirs.remove(dir);
+    true
+}
+
+/// A sibling's path in the client's own spelling.
+///
+/// Joined rather than formatted: a watched file directly under the
+/// filesystem root has `/` for its directory, and `format!("{dir}/{name}")`
+/// spells that `//name` — a path the card would carry into its rename ladder
+/// and hand back to a read as a spelling nobody asked for ([L29]).
+fn created_path(client_dir: &str, name: &std::ffi::OsStr) -> String {
+    Path::new(client_dir).join(name).to_string_lossy().to_string()
 }
 
 /// The directories to watch on one file's behalf: its parent first, then
@@ -668,12 +812,32 @@ fn project_root(dir: &Path) -> Option<&Path> {
 /// Bounded deliberately: a busy directory beside a file nobody is editing
 /// would otherwise grow this list for as long as the card stays open, and
 /// the rename ladder only ever reads the first few candidates.
+///
+/// **A sibling noted while the file reads `absent` forces a frame of its
+/// own.** Ordinarily a sibling rides the next frame the watched file's own
+/// change produces, and beside a quiet file that is free. But an absent file
+/// has no next change coming: macOS reports a same-directory rename as two
+/// unpaired events, and when the second one lands after the first one's
+/// frame has gone out, the sibling that IS the renamed file would sit here
+/// forever. The card's rename ladder never sees a candidate, and the verdict
+/// falls through to the settle rung and tells the user their file was
+/// deleted.
 fn note_sibling(file: &mut Watched, name: &std::ffi::OsStr) {
     const MAX_SIBLINGS: usize = 64;
     if file.siblings.len() >= MAX_SIBLINGS || file.siblings.iter().any(|held| held == name) {
         return;
     }
     file.siblings.push(name.to_os_string());
+    if file
+        .last
+        .as_ref()
+        .is_some_and(|last| last.state == "absent")
+    {
+        // The follow-up frame repeats the absent verdict, so `force` is what
+        // gets it out — and it carries the candidate this time.
+        file.force = true;
+        mark_dirty(file);
+    }
 }
 
 /// Arm a file's debounce if it is not already armed. The window is
@@ -705,25 +869,43 @@ fn rename_destination(event: &notify::Event) -> Option<PathBuf> {
 /// the SAME inode is a plain modify caught mid-write, so wait one settle and
 /// look again. A new inode is a rename that already completed — there is
 /// nothing to wait for, and waiting would only delay the answer.
-fn look_at(path: &Path, last_size: u64, last_ino: Option<u64>) -> Look {
-    let first = look_once(path);
+///
+/// `cheap` is the identity a look may stop at the stat for — `Some` only for
+/// a look an ancestor event caused ([B08]). An event naming the file itself
+/// always passes `None` and always reads, so hash-as-identity is untouched:
+/// the skip is only ever taken where the stat says the file is the same
+/// inode, the same length and the same mtime as the last look found.
+fn look_at(path: &Path, last_size: u64, last_ino: Option<u64>, cheap: Option<Identity>) -> Look {
+    let first = look_once(path, cheap);
     if let Look::Present { size, ino, .. } = &first {
         let suspicious = *size == 0 || (last_size > 0 && size.saturating_mul(2) < last_size);
         let same_inode = ino.is_some() && *ino == last_ino;
         if suspicious && same_inode {
             std::thread::sleep(SETTLE);
-            return look_once(path);
+            // The second look is about the file's own content settling, so it
+            // reads unconditionally.
+            return look_once(path, None);
         }
     }
     first
 }
 
-fn look_once(path: &Path) -> Look {
+fn look_once(path: &Path, cheap: Option<Identity>) -> Look {
     let metadata = match std::fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Look::Absent,
         Err(_) => return Look::Error("io"),
     };
+    let seen = Identity {
+        ino: identity(&metadata).1,
+        size: metadata.len(),
+        mtime: metadata.modified().ok(),
+    };
+    if let Some(last) = cheap {
+        if seen.matches(&last) {
+            return Look::Unchanged;
+        }
+    }
     // A directory, a device, or a file too big to serve as text: the card
     // still wants to know it is there, and `sha256: null` says the identity
     // is not available rather than that the file is empty.
@@ -734,6 +916,7 @@ fn look_once(path: &Path) -> Look {
             size: metadata.len(),
             dev,
             ino,
+            mtime: seen.mtime,
         };
     }
     match read_stable(path) {
@@ -744,6 +927,7 @@ fn look_once(path: &Path) -> Look {
                 size: read.metadata.len(),
                 dev,
                 ino,
+                mtime: read.metadata.modified().ok(),
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Look::Absent,
@@ -1186,5 +1370,164 @@ mod tests {
         let bad = h.next_for("relative/doc.md").await;
         assert_eq!(bad["state"], json!("error"));
         assert_eq!(bad["error"], json!("bad_path"));
+    }
+
+    // ── The four defects reading found ──────────────────────────────────
+
+    /// A watched file directly under the filesystem root has `/` for its
+    /// directory, and a formatted join spells its siblings `//name`.
+    #[test]
+    fn a_sibling_of_a_file_at_the_root_is_not_spelled_with_two_slashes() {
+        assert_eq!(
+            created_path("/", std::ffi::OsStr::new("moved.txt")),
+            "/moved.txt"
+        );
+        assert_eq!(
+            created_path("/a/b", std::ffi::OsStr::new("moved.txt")),
+            "/a/b/moved.txt"
+        );
+        // The client's own spelling is carried through untouched, `~` and all.
+        assert_eq!(
+            created_path("~/notes", std::ffi::OsStr::new("moved.txt")),
+            "~/notes/moved.txt"
+        );
+    }
+
+    /// An ancestor whose watch failed must not end up on the file's release
+    /// list, or giving that file up drops a watch a LATER file took.
+    #[test]
+    fn a_failed_ancestor_watch_cannot_release_another_files_watch() {
+        let parent = PathBuf::from("/p/q/r");
+        let mid = PathBuf::from("/p/q");
+        let top = PathBuf::from("/p");
+        let chain = vec![parent.clone(), mid.clone(), top.clone()];
+        let mut dirs: HashMap<PathBuf, usize> = HashMap::new();
+
+        // The first file: the topmost ancestor refuses to be watched.
+        let refuses_top = |dir: &Path| {
+            if dir == top {
+                Err("no watch for you".to_string())
+            } else {
+                Ok(())
+            }
+        };
+        let first = register_chain(&mut dirs, &chain, refuses_top).expect("the parent was watched");
+        assert_eq!(
+            first,
+            vec![parent.clone(), mid.clone()],
+            "the failed ancestor is not one of this file's watches"
+        );
+        assert!(!dirs.contains_key(&top), "and it holds no refcount");
+
+        // A second file over the same chain, this time with every watch
+        // taking — so the top now really is watched, on its behalf.
+        let second = register_chain(&mut dirs, &chain, |_| Ok(())).expect("the parent was watched");
+        assert_eq!(second, chain);
+        assert_eq!(dirs.get(&top), Some(&1));
+
+        // The first file goes away. Releasing exactly what it took must leave
+        // the second file's watch on the top standing.
+        for dir in &first {
+            release_one(&mut dirs, dir);
+        }
+        assert_eq!(
+            dirs.get(&top),
+            Some(&1),
+            "the second file's ancestor watch survives the first file's release"
+        );
+        assert_eq!(dirs.get(&parent), Some(&1));
+        assert_eq!(dirs.get(&mid), Some(&1));
+    }
+
+    /// The second half of a same-directory rename can land after the first
+    /// half's frame has already gone out. The sibling it names is the renamed
+    /// file, and an absent file has no further change of its own to carry it,
+    /// so the frame has to be forced.
+    #[tokio::test]
+    async fn a_sibling_noted_after_the_absent_frame_still_reaches_the_card() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("doc.md");
+        let moved = dir.path().join("doc-moved.md");
+        write(&file, "hello\n");
+        let mut h = Harness::start();
+        let key = file.to_str().unwrap();
+
+        h.watch(key).await;
+        assert_eq!(h.next_for(key).await["state"], json!("present"));
+
+        // The first half: the file is gone, and the frame that says so goes
+        // out before anything has appeared beside it.
+        std::fs::remove_file(&file).unwrap();
+        let gone = h
+            .next_matching(key, |v| v["state"] == json!("absent"))
+            .await;
+        assert_eq!(gone["created"], json!([]));
+
+        // The second half, arriving in its own window: a sibling appears.
+        write(&moved, "hello\n");
+        let followup = h
+            .next_matching(key, |v| {
+                v["created"]
+                    .as_array()
+                    .is_some_and(|created| !created.is_empty())
+            })
+            .await;
+        assert_eq!(
+            followup["state"],
+            json!("absent"),
+            "the verdict is unchanged; what changed is that there is now a candidate"
+        );
+        assert_eq!(
+            followup["created"],
+            json!([moved.to_str().unwrap()]),
+            "the renamed file's new name rides the frame the card's ladder reads"
+        );
+    }
+
+    /// The cheaper look: an ancestor-caused look stops at the stat when
+    /// `(ino, size, mtime)` match, and an event naming the file itself always
+    /// reads — hash-as-identity is untouched.
+    #[test]
+    fn an_ancestor_caused_look_stops_at_the_stat_and_a_named_file_never_does() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("doc.md");
+        write(&file, "hello\n");
+        let metadata = std::fs::metadata(&file).unwrap();
+        let held = Identity {
+            ino: identity(&metadata).1,
+            size: metadata.len(),
+            mtime: metadata.modified().ok(),
+        };
+
+        assert!(
+            matches!(look_at(&file, 6, held.ino, Some(held)), Look::Unchanged),
+            "nothing moved, so the ancestor's look reads nothing"
+        );
+        assert!(
+            matches!(look_at(&file, 6, held.ino, None), Look::Present { .. }),
+            "an event naming the file itself reads regardless"
+        );
+
+        // A real change, and the stat sees it: the size differs, so the look
+        // falls through to the read and reports the new hash.
+        write(&file, "hello again\n");
+        match look_at(&file, 6, held.ino, Some(held)) {
+            Look::Present { sha256, .. } => {
+                assert_eq!(sha256, Some(sha("hello again\n")));
+            }
+            _ => panic!("a changed file is present with its new hash"),
+        }
+
+        // And an identity with no inode never matches, so a host that cannot
+        // answer for one simply always reads.
+        let blind = Identity {
+            ino: None,
+            size: held.size,
+            mtime: held.mtime,
+        };
+        assert!(matches!(
+            look_at(&file, 6, None, Some(blind)),
+            Look::Present { .. }
+        ));
     }
 }

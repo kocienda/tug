@@ -88,7 +88,13 @@ final class TestHarnessConnection {
     /// validation sweep so validators that refresh radio checkmarks
     /// (the permission-mode submenu) are reflected. Additive; major
     /// stays `1`.
-    static let surfaceVersion = "1.8.0"
+    ///
+    /// `1.9.0`: adds `stopTugcast` / `startTugcast` — one deliberate
+    /// tugcast outage, held open for as long as the test wants. The
+    /// app, its window and the loaded page all survive it, so what a
+    /// test observes across the window is the deck's own reconnect
+    /// healing. Additive; major stays `1`.
+    static let surfaceVersion = "1.9.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -202,6 +208,9 @@ final class TestHarnessConnection {
              "stopTugcode",
              "writeTugcodeStdin":
             dispatchTugcodeLifecycleVerb(id: id, method: method, verbObj: obj)
+        case "stopTugcast",
+             "startTugcast":
+            dispatchTugcastLifecycleVerb(id: id, method: method)
         case "getElementScreenBounds":
             guard let selector = obj["selector"] as? String else {
                 respondError(id: id, name: "ProtocolError", message: "getElementScreenBounds: missing 'selector'")
@@ -645,6 +654,49 @@ final class TestHarnessConnection {
                     id: id,
                     name: "TugcodeLifecycleError",
                     message: "\(error)",
+                )
+            }
+        }
+    }
+
+    // MARK: - Tugcast outage verbs
+
+    /// Top-level dispatch for `stopTugcast` / `startTugcast` — the two
+    /// halves of one deliberate tugcast outage, with the window between
+    /// them belonging to the test rather than to a timer.
+    ///
+    /// Tug.app, its window and the loaded page all survive: `onReady`'s
+    /// restart branch re-authenticates in place, so what a test observes
+    /// across the window is the deck's own reconnect healing (the
+    /// `connectionDidOpen` re-`watch` in `file-watch-client.ts`) rather
+    /// than a fresh page that would have re-read everything anyway.
+    ///
+    /// Reaches the private `ProcessManager` through the AppDelegate's two
+    /// DEBUG-only passthroughs. `stopTugcast` blocks for as long as the
+    /// quiesce ladder takes (up to the 4 s drain deadline), which is why
+    /// the work hops to a background queue and marshals onto main with
+    /// `sync` — the response is not written until the child is actually
+    /// gone, so a test that writes the watched file next knows nothing was
+    /// watching it.
+    private func dispatchTugcastLifecycleVerb(id: Int, method: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let reached: Bool = DispatchQueue.main.sync {
+                guard let delegate = NSApp.delegate as? AppDelegate else { return false }
+                if method == "stopTugcast" {
+                    delegate.harnessStopTugcast()
+                } else {
+                    delegate.harnessStartTugcast()
+                }
+                return true
+            }
+            if reached {
+                self.respond(id: id, ok: true, payload: ["value": NSNull()])
+            } else {
+                self.respondError(
+                    id: id,
+                    name: "ProtocolError",
+                    message: "\(method): no AppDelegate to reach the ProcessManager through",
                 )
             }
         }
