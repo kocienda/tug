@@ -593,7 +593,7 @@ pub(crate) async fn all_files(dir: &Path) -> Result<Vec<String>, String> {
 fn dedupe(paths: Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for path in paths {
-        if path.is_empty() || out.iter().any(|held| *held == path) {
+        if path.is_empty() || out.contains(&path) {
             continue;
         }
         out.push(path);

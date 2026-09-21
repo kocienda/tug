@@ -59,7 +59,6 @@
  * shared highlights, or the anchored landing — the description of each case
  * says which.
  *
- * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
  * @covers tugdeck/src/lib/transcript-find-engine.ts
  * @covers tugdeck/src/lib/find-session.ts

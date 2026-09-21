@@ -148,8 +148,7 @@ pub(crate) fn read_stable(path: &Path) -> std::io::Result<StableRead> {
         let before = std::fs::metadata(path)?;
         let bytes = std::fs::read(path)?;
         let after = std::fs::metadata(path)?;
-        let settled =
-            same_file_state(&before, &after) && bytes.len() as u64 == after.len();
+        let settled = same_file_state(&before, &after) && bytes.len() as u64 == after.len();
         let read = StableRead {
             bytes,
             metadata: after,

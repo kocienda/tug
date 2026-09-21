@@ -180,7 +180,11 @@ mod tests {
     }
 
     fn feed(key: &str, event_tx: broadcast::Sender<Vec<FsEvent>>) -> FilesystemFeed {
-        FilesystemFeed::new(PathBuf::from("/unused-in-this-test"), event_tx, Arc::from(key))
+        FilesystemFeed::new(
+            PathBuf::from("/unused-in-this-test"),
+            event_tx,
+            Arc::from(key),
+        )
     }
 
     /// Let a spawned feed reach its `subscribe()` before anything is sent.
@@ -400,7 +404,12 @@ mod tests {
                 "{path} is git's own"
             );
         }
-        for path in [".gitignore", ".github/workflows/ci.yml", "git", "src/.git-notes"] {
+        for path in [
+            ".gitignore",
+            ".github/workflows/ci.yml",
+            "git",
+            "src/.git-notes",
+        ] {
             assert!(
                 event_is_visible(&FsEvent::Modified {
                     path: path.to_string()

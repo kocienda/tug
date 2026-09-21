@@ -162,7 +162,7 @@ impl std::fmt::Display for ListingError {
 /// merge-tree` above all — will not take the flag after their revision
 /// operands, so their caller places it and this adds nothing.
 fn with_z(args: &[&str]) -> Vec<String> {
-    if args.iter().any(|a| *a == "-z") {
+    if args.contains(&"-z") {
         return args.iter().map(|s| (*s).to_owned()).collect();
     }
     let cut = args.iter().position(|a| *a == "--").unwrap_or(args.len());

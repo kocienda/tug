@@ -14283,7 +14283,6 @@ mod tests {
 
     #[tokio::test]
     async fn changeset_join_previews_and_executes() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let status = tugcore::git_command()
                 .current_dir(dir)
@@ -14419,7 +14418,6 @@ mod tests {
     /// ([L29]) — the same rule `changeset_join_resolve_delta` already follows.
     #[tokio::test]
     async fn a_join_narrates_its_beats_on_the_wire() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let status = tugcore::git_command()
                 .current_dir(dir)
@@ -14567,7 +14565,6 @@ mod tests {
     /// remove ([B04], [B05]).
     #[tokio::test]
     async fn changeset_delete_documents_removes_only_the_documents() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let status = tugcore::git_command()
                 .current_dir(dir)
@@ -14638,7 +14635,6 @@ mod tests {
 
     #[tokio::test]
     async fn changeset_discard_discards_arc() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let status = tugcore::git_command()
                 .current_dir(dir)
@@ -14770,7 +14766,6 @@ mod tests {
     /// dead button if the frame carried no word.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn changeset_replay_reports_current_when_the_base_has_not_moved() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let status = tugcore::git_command()
                 .current_dir(dir)
@@ -14824,7 +14819,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
-
         // A fake scribe that returns a fixed clean merge and echoes it as one
         // streamed delta — no real claude call.
         struct FixedScribe(String);
@@ -14963,7 +14957,6 @@ mod tests {
     /// A repo on `main` with an arc that changed a shared path, and the base
     /// dirty over that same path — the overlap a fold exists to clear.
     fn base_dirt_repo() -> (tempfile::TempDir, std::path::PathBuf) {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let ok = tugcore::git_command()
                 .current_dir(dir)
@@ -15206,7 +15199,6 @@ mod tests {
     /// `reset --hard` on the workshop the first one's resolver was editing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_live_resolve_refuses_every_other_run_on_that_arc() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let ok = tugcore::git_command()
                 .current_dir(dir)
@@ -15791,7 +15783,6 @@ mod tests {
     /// in git and still has to show up in the state the feed composes.
     #[tokio::test]
     async fn a_resolve_survives_losing_every_control_frame() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let ok = tugcore::git_command()
                 .current_dir(dir)
@@ -15950,7 +15941,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn changeset_draft_request_spawns_generation_over_snapshot() {
-
         fn git(dir: &std::path::Path, args: &[&str]) {
             let ok = tugcore::git_command()
                 .current_dir(dir)

@@ -636,7 +636,7 @@ fn with_rename_sources(repo_root: &Path, files: &[String]) -> Vec<String> {
 
     let mut paths = files.to_vec();
     for (source, destination) in renames {
-        if files.iter().any(|f| *f == destination) && !paths.iter().any(|p| *p == source) {
+        if files.contains(&destination) && !paths.contains(&source) {
             paths.push(source);
         }
     }
@@ -1411,7 +1411,7 @@ mod tests {
         .unwrap_err();
 
         assert!(
-            matches!(&err, CommitError::BadPath { paths } if paths == &[fabricated.clone()]),
+            matches!(&err, CommitError::BadPath { paths } if paths == std::slice::from_ref(&fabricated)),
             "the tripwire names exactly the bad path: {err:?}"
         );
         let text = err.to_string();

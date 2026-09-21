@@ -142,7 +142,11 @@ mod tests {
     async fn git_in(repo: &Path, args: &[&str]) {
         let mut full = vec!["-C", repo.to_str().unwrap()];
         full.extend_from_slice(args);
-        let out = Command::from(tugcore::git_command()).args(&full).output().await.unwrap();
+        let out = Command::from(tugcore::git_command())
+            .args(&full)
+            .output()
+            .await
+            .unwrap();
         assert!(
             out.status.success(),
             "git {:?} failed: {}",

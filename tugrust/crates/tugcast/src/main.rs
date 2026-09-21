@@ -1953,10 +1953,7 @@ async fn main() {
     let (jots_rx, jots_nudge) = feeds::jots::jots_feed(jots_file_path.clone());
     let jots_state = Some(jots::JotsState::new(jots_file_path, jots_nudge));
 
-    let mut snapshot_watches = vec![
-        bootstrap.ft_watch_rx.clone(),
-        changeset_all_rx,
-    ];
+    let mut snapshot_watches = vec![bootstrap.ft_watch_rx.clone(), changeset_all_rx];
     if let Some(rx) = defaults_rx {
         snapshot_watches.push(rx);
     }

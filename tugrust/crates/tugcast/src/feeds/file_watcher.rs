@@ -169,14 +169,12 @@ impl FileWatcher {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         // Create watcher (must stay alive for the duration)
-        let mut watcher = match notify::recommended_watcher(
-            move |res: notify::Result<Event>| {
-                // Unbounded, so this never blocks notify's thread; a send
-                // that fails means the drain is gone, which cancellation
-                // already accounts for.
-                let _ = event_tx.send(res);
-            },
-        ) {
+        let mut watcher = match notify::recommended_watcher(move |res: notify::Result<Event>| {
+            // Unbounded, so this never blocks notify's thread; a send
+            // that fails means the drain is gone, which cancellation
+            // already accounts for.
+            let _ = event_tx.send(res);
+        }) {
             Ok(w) => w,
             Err(e) => {
                 error!(error = %e, "failed to create filesystem watcher");

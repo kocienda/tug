@@ -99,7 +99,12 @@ fn the_doctor_names_the_stranded_base_and_the_verb_that_clears_it() {
         .collect();
     assert_eq!(codes, vec!["base-squash-standing", "base-echo"]);
     for finding in findings {
-        assert!(finding["sentence"].as_str().unwrap().contains("resolve-base"));
+        assert!(
+            finding["sentence"]
+                .as_str()
+                .unwrap()
+                .contains("resolve-base")
+        );
         assert!(finding.get("repair").is_none(), "no automatic repair");
     }
     assert_eq!(json["data"]["left_for_a_person"], 2);
