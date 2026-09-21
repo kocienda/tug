@@ -353,8 +353,8 @@ function dropStaleWraps(
       // portaled in: the portal host empties the span, so reading it back
       // would ask about "" and refute every chip on the next pass. The
       // emptied text is preserved on {@link SESSION_TEXT_ATTRIBUTE} for
-      // exactly this, and restored below so an unwrap folds the words back
-      // rather than a hole.
+      // exactly this, and handed to `unwrapMatch` so the unwrap folds the
+      // words back rather than a hole.
       const saved = element.getAttribute(SESSION_TEXT_ATTRIBUTE);
       const target = saved ?? element.textContent ?? "";
       const verdict = context.resolveSession?.(target);
@@ -363,11 +363,10 @@ function dropStaleWraps(
       // dropped the answer, and the next batch will bring it back. Unwrapping
       // on pending would blink every citation on every reconnect.
       if (verdict?.state === "pending") continue;
-      if (saved !== null) {
-        element.textContent = saved;
-        element.removeAttribute(SESSION_TEXT_ATTRIBUTE);
-      }
-      unwrapMatch(element);
+      // The saved words go THROUGH `unwrapMatch` rather than into the host
+      // first: the host's children are a React portal's, and emptying it
+      // here is what made the next unmount throw `NotFoundError`.
+      unwrapMatch(element, saved ?? undefined);
       continue;
     }
     // Only path wraps are re-checked beyond that; a kind whose truth cannot
@@ -378,17 +377,14 @@ function dropStaleWraps(
     // `textContent` is not the prose's spelling once a file tip has been
     // portaled in — the portal host empties the span, the same way a
     // citation's does — so the saved words are the authority when they
-    // exist, and are restored below rather than folded into a hole.
+    // exist, and are handed to `unwrapMatch` rather than written back into
+    // a host whose children React owns (see the session arm above).
     const saved = element.getAttribute(FILE_TEXT_ATTRIBUTE);
     const reference = detectPathReference(saved ?? element.textContent ?? "");
     const state =
       reference === null ? "unknown" : context.resolvePath(reference).state;
     if (state === "confirmed") continue;
-    if (saved !== null) {
-      element.textContent = saved;
-      element.removeAttribute(FILE_TEXT_ATTRIBUTE);
-    }
-    unwrapMatch(element);
+    unwrapMatch(element, saved ?? undefined);
   }
 }
 

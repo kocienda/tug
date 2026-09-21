@@ -153,11 +153,22 @@ export function wrapMatchesInTextNode(
  * Normalizing the parent merges the neighbouring text nodes, so the next
  * pass sees one run again and can find a match that spans what used to be
  * the boundary.
+ *
+ * `text` overrides the words folded back. A wrapper hosting a portal has
+ * had its own characters moved to a `data-*` attribute and its children
+ * replaced by REACT'S DOM, so its `textContent` is no longer the prose's
+ * spelling — and writing the saved words back into it before unwrapping
+ * would destroy a subtree React still believes it owns, which throws
+ * `NotFoundError` from `removeChild` on the portal's next unmount ([L06]:
+ * a DOM mutation is free only while it does not reach into React's
+ * subtree). Passing the words here instead leaves the host's children
+ * untouched: the element is discarded whole, React's nodes still inside
+ * it, so the unmount finds them exactly where it left them.
  */
-export function unwrapMatch(element: HTMLElement): void {
+export function unwrapMatch(element: HTMLElement, text?: string): void {
   const parent = element.parentNode;
   if (parent === null) return;
-  const text = element.textContent ?? "";
-  parent.replaceChild(element.ownerDocument.createTextNode(text), element);
+  const words = text ?? element.textContent ?? "";
+  parent.replaceChild(element.ownerDocument.createTextNode(words), element);
   parent.normalize();
 }
