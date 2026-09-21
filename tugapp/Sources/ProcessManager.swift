@@ -54,9 +54,28 @@ class ProcessManager {
     private var childPID: Int32 = 0
     private var restartDecision: RestartDecision = .pending
     private var backoffSeconds: TimeInterval = 0
+    /// How many times tugcast has been respawned since the last `ready`.
+    ///
+    /// The backoff alone does not say how long this has been going on — it
+    /// saturates at 30 s and then reports 30 forever — and a launch that
+    /// never comes up because tugcast keeps dying is exactly the shape the
+    /// count answers. Reset with the backoff on a successful `ready`.
+    private var respawnAttempts: Int = 0
+
+    /// Consecutive respawns before the host is told the launch is not going
+    /// to finish on its own. Three is past every transient — a port briefly
+    /// held by a dying predecessor, a first-run permission prompt — and
+    /// still inside the backoff's first few seconds, so the screen arrives
+    /// while the user is looking at the splash rather than minutes later.
+    static let respawnFailureThreshold = 3
 
     /// Callback for ready message (UDS-based): passes auth URL and actual tugcast port
     var onReady: ((String, Int) -> Void)?
+
+    /// Called on every respawn from `respawnFailureThreshold` onward, with
+    /// the attempt count and the last exit code. The backoff is unchanged by
+    /// it — this only reports.
+    var onRepeatedRespawn: ((Int, Int32) -> Void)?
 
     /// Callback for dev_mode errors
     var onDevModeError: ((String) -> Void)?
@@ -108,60 +127,42 @@ class ProcessManager {
             return
         }
 
-        let resolved = resolveShellPATHViaLoginShell()
-        _shellPATH = resolved
-        writeCachedShellPATH(resolved)
+        let outcome = resolveShellPATHViaLoginShell()
+        _shellPATH = outcome.path
+        // A fallback is not an answer, and caching one would be worse than
+        // paying the timeout again: the fast path above trusts a present
+        // cache, so a PATH written here after a shell that never answered
+        // would be believed on every later launch and the shell would never
+        // be asked again.
+        if !outcome.usedFallback {
+            writeCachedShellPATH(outcome.path)
+        }
     }
 
     /// Derive the user's fully-configured PATH by spawning their login
     /// shell. The slow path behind {@link resolveShellPATH}'s cache — runs
     /// only on a cache miss.
-    private static func resolveShellPATHViaLoginShell() -> String {
-        // Step 1: Find the user's login shell via Directory Services
-        var loginShell = "/bin/zsh" // sensible default
-        let dscl = Process()
-        dscl.executableURL = URL(fileURLWithPath: "/usr/bin/dscl")
-        dscl.arguments = [".", "-read", "/Users/\(NSUserName())", "UserShell"]
-        let dsclPipe = Pipe()
-        dscl.standardOutput = dsclPipe
-        dscl.standardError = Pipe()
-        do {
-            try dscl.run()
-            dscl.waitUntilExit()
-            let data = dsclPipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                // Output is "UserShell: /bin/zsh\n"
-                let parts = output.split(separator: ":", maxSplits: 1)
-                if parts.count == 2 {
-                    let shell = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if FileManager.default.isExecutableFile(atPath: shell) {
-                        loginShell = shell
-                    }
-                }
+    ///
+    /// Every subprocess it runs is bounded — see `ShellPathResolver` for
+    /// the deadline, why the wait is bounded rather than handed off, and
+    /// why each subprocess gets its own budget. This function is what turns
+    /// the resolver's outcome into the log line: a fallback that said
+    /// nothing is how this defect would recur, so the warn is not optional
+    /// and the resolver has no way to skip it.
+    private static func resolveShellPATHViaLoginShell() -> ShellPathResolver.Outcome {
+        // The cache is the fallback when the shell does not answer: this
+        // path is also reached with a cache present (a dev build whose
+        // cached PATH no longer locates tmux), and a stale PATH beats the
+        // bare inherited one.
+        ShellPathResolver.resolve(
+            fallback: readCachedShellPATH(),
+            warn: { message, fields in
+                NSLog("ProcessManager: %@", message)
+                TugLog.warn("path", message, fields.sorted(by: { $0.key < $1.key }).map {
+                    TugLog.field($0.key, $0.value)
+                })
             }
-        } catch {}
-
-        // Step 2: Launch that shell in login-interactive mode to get the fully-configured PATH.
-        // -l = login shell (reads profile/rc files), -i = interactive (reads .bashrc/.zshrc),
-        // -c = execute command. This picks up PATH modifications from .zprofile, .bash_profile,
-        // .zshrc, .bashrc, /etc/paths, /etc/paths.d/*, path_helper, nix, homebrew, etc.
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: loginShell)
-        proc.arguments = ["-lic", "printf '%s' \"$PATH\""]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = Pipe()
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let path = String(data: data, encoding: .utf8), !path.isEmpty {
-                return path
-            }
-        } catch {}
-
-        // Step 3: Last resort — use whatever the app inherited
-        return ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        )
     }
 
     /// Location of the cached shell-PATH file under the Tug app-support dir.
@@ -575,7 +576,11 @@ class ProcessManager {
             self.tugcastPort = port
             // Reset backoff on successful ready
             backoffSeconds = 0
+            respawnAttempts = 0
             NSLog("ProcessManager: ready (auth_url=%@, port=%d)", authURL, port)
+            TugLog.info("tugcast", "ready", [
+                TugLog.field("port", port),
+            ])
             onReady?(authURL, port)
         case "dev_mode_result":
             let success = msg.data["success"] as? Bool ?? false
@@ -1028,16 +1033,34 @@ class ProcessManager {
                     switch self.restartDecision {
                     case .restartWithBackoff:
                         self.backoffSeconds = self.backoffSeconds == 0 ? 1 : min(self.backoffSeconds * 2, 30)
+                        self.respawnAttempts += 1
                         NSLog("ProcessManager: restarting with %.0fs backoff", self.backoffSeconds)
+                        // Previously NSLog-only, so a tugcast dying in a loop
+                        // left the file with a launch that stopped at
+                        // `starting tugcast` and no reason beside it.
+                        TugLog.warn("tugcast", "respawning after unexpected exit", [
+                            TugLog.field("attempt", self.respawnAttempts),
+                            TugLog.field("backoff_s", String(format: "%.0f", self.backoffSeconds)),
+                            TugLog.field("exit_code", exitCode),
+                        ])
+                        if self.respawnAttempts >= ProcessManager.respawnFailureThreshold {
+                            self.onRepeatedRespawn?(self.respawnAttempts, exitCode)
+                        }
                         DispatchQueue.main.asyncAfter(deadline: .now() + self.backoffSeconds) { [weak self] in
                             self?.startProcess()
                         }
                     case .doNotRestart:
                         NSLog("ProcessManager: tugcast exited with code %d, not restarting", exitCode)
+                        TugLog.error("tugcast", "exited, not restarting", [
+                            TugLog.field("exit_code", exitCode),
+                        ])
                         self.process = nil
                     case .pending:
                         // Should not happen, but treat as doNotRestart
                         NSLog("ProcessManager: tugcast exited with code %d (no decision)", exitCode)
+                        TugLog.error("tugcast", "exited with no restart decision", [
+                            TugLog.field("exit_code", exitCode),
+                        ])
                         self.process = nil
                     }
                 }

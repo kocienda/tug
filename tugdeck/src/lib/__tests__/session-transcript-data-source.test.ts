@@ -141,6 +141,8 @@ function snapshotWith(args: {
     phase: "idle",
     transportState: "online",
     interruptInFlight: false,
+    stopStalled: false,
+    streamStalled: false,
     tugSessionId: "s",
     displayLabel: "test",
     sessionMode: "new",
@@ -341,8 +343,8 @@ describe("[D07] row layout: variable rows per turn driven by user_message presen
       snapshotWith({
         transcript: [normalTurn("t1", "x", "y")],
         queuedSends: [
-          { turnKey: "q1", text: "queued", atoms: [], origin: "user", queuedAt: 10 },
-          { turnKey: "q2", text: "another", atoms: [], origin: "user", queuedAt: 11 },
+          { turnKey: "q1", text: "queued", atoms: [], origin: "user", queuedAt: 10, held: false },
+          { turnKey: "q2", text: "another", atoms: [], origin: "user", queuedAt: 11, held: false },
         ],
       }),
     );
@@ -411,7 +413,7 @@ describe("trailing shell rows merge into the pending block by timestamp", () => 
           shellTurn("s3", "date", 120),
         ],
         activeTurn: activeTurn({ turnKey: "L", isWake: false, withText: "go", submitAt: 50 }),
-        queuedSends: [{ turnKey: "Q", text: "later", atoms: [], origin: "user", queuedAt: 90 }],
+        queuedSends: [{ turnKey: "Q", text: "later", atoms: [], origin: "user", queuedAt: 90, held: false }],
       }),
     );
     expect(layout.slots.map((s) => s.cellKind)).toEqual([
@@ -590,7 +592,7 @@ describe("rowAt produces a descriptor consumers can narrow on", () => {
 
   test("ghost: a queued send produces a `ghost` row with the queued payload", () => {
     const snap = snapshotWith({
-      queuedSends: [{ turnKey: "Q", text: "later", atoms: [], origin: "user", queuedAt: 10 }],
+      queuedSends: [{ turnKey: "Q", text: "later", atoms: [], origin: "user", queuedAt: 10, held: false }],
     });
     const ds = new SessionTranscriptDataSource(storeWith(snap));
     expect(ds.numberOfItems()).toBe(1);
@@ -740,7 +742,7 @@ describe("turnDepthFromEnd / rowIndexForTurnDepthFromEnd", () => {
     const snap = snapshotWith({
       transcript: [normalTurn("t1", "a", "A")], // rows 0,1
       activeTurn: active, // rows 2,3
-      queuedSends: [{ turnKey: "Q", text: "later", atoms: [], origin: "user", queuedAt: 10 }], // row 4
+      queuedSends: [{ turnKey: "Q", text: "later", atoms: [], origin: "user", queuedAt: 10, held: false }], // row 4
     });
     const ds = new SessionTranscriptDataSource(storeWith(snap));
     expect(ds.turnDepthFromEnd(0)).toBe(1); // committed

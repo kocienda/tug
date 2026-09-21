@@ -51,7 +51,7 @@ fetch-fonts *ARGS:
     cd tugdeck && bun run scripts/fetch-fonts.ts {{ARGS}}
 
 # Run all tests (Rust + TypeScript)
-test: test-rust test-ts test-standalone
+test: test-rust test-ts test-swift test-standalone
 
 # Drive the shipped plugin the way a user's machine would: the real hook
 # script and the real `tugtool arc` verbs, from a scratch project with no
@@ -75,6 +75,17 @@ test-ts:
     cd tugdeck && bun test
     cd tugcode && bun test
     cd tests/app-test && bun test scripts/ _harness/
+
+# Run the Swift unit tests.
+#
+# Neither needs an XCTest bundle in the Xcode project: each script
+# concatenates the canonical source with its driver and runs the pair
+# through `swift -`, so the test exercises the file the app builds against
+# rather than a copy of its logic. That idiom only works for a source with
+# no app-type dependencies, which is why both of them are Foundation-only.
+test-swift:
+    bash tests/build-info/test-branch-slug.sh
+    bash tests/shell-path/test-shell-path-timeout.sh
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #

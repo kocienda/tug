@@ -57,6 +57,7 @@ import type {
   ReplayLineageEntry,
   SideQuestion,
   SideQuestionAnswer,
+  InterruptNoop,
   StopAllWorkDone,
   SessionStageSpec,
 } from "./types.ts";
@@ -279,6 +280,45 @@ export const REWIND_READY_TIMEOUT_MS = 20_000;
  * `done` with the jobs honestly gone rather than letting the wait expire.
  */
 export const STOP_ALL_WORK_READY_TIMEOUT_MS = 15_000;
+
+/**
+ * Cap on each of the two waits a submit sits behind before it can reach
+ * claude's stdin: the cold-boot readiness gate (`claudeReadyPromise`) and
+ * the respawn gate. A cold `--resume` spawn is 5–10 s of silent binary load
+ * and JSONL read, and a respawn is a kill plus one of those, so the bound is
+ * generous — it is a horizon, not a performance budget, and it exists so the
+ * wait ends in a frame rather than never.
+ *
+ * **This does not bound claude's silence, and must not be made to.** The 30 s
+ * spawn watchdog {@link SessionManager.spawnClaudeAndWatch}'s docstring
+ * describes was removed for a good reason: its only proxy for "claude is
+ * hung" flipped on user input, so it read as "user idle for 30 s" and killed
+ * healthy sessions. What is bounded here is the *deck-visible send path* —
+ * two promises tugcode itself owns and can see the state of — and the expiry
+ * emits a frame and returns without touching the claude process at all.
+ */
+export const SEND_HORIZON_MS = 30_000;
+
+/**
+ * Resolve `true` if `promise` settles within `timeoutMs`, `false` on expiry.
+ * A rejection propagates rather than reading as expiry: the caller's
+ * pre-existing rejection path is a different answer from "the wait ran out",
+ * and conflating them would hide a throw behind a horizon.
+ */
+async function settlesWithin(
+  promise: Promise<unknown>,
+  timeoutMs: number,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const expiry = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise.then(() => true), expiry]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
 
 /**
  * Soft cap on the number of raw lines captured from claude's stdout
@@ -3622,6 +3662,13 @@ export class SessionManager {
    * {@link handleUserMessage} waits on this; {@link respawn} owns it.
    */
   private respawnGate: Promise<void> | null = null;
+  /**
+   * The horizon each of the two send-path gates is raced against, in ms.
+   * An instance field rather than a bare read of {@link SEND_HORIZON_MS} so
+   * a test can narrow it and prove the expiry in milliseconds instead of
+   * half a minute; nothing in production writes it.
+   */
+  private sendHorizonMs: number = SEND_HORIZON_MS;
   /**
    * Set true the first time the stdout drain observes a `system/init`
    * event for the current claude subprocess. Subsequent `system/init`
@@ -7613,13 +7660,41 @@ export class SessionManager {
     // first claude stdin write here is sequenced correctly. After
     // the gate resolves it stays resolved; subsequent submits await
     // it as a no-op.
+    //
+    // Both of the gates below are raced against {@link SEND_HORIZON_MS}. The
+    // bound is on the *send path*, never on claude's silence — see that
+    // constant's docstring and `spawnClaudeAndWatch`'s for why the removed
+    // spawn watchdog is not being reintroduced here. On expiry the submit
+    // gives up with a named frame and the claude process is not touched.
     if (this.claudeReadyPromise !== null) {
-      await this.claudeReadyPromise;
+      if (!(await settlesWithin(this.claudeReadyPromise, this.sendHorizonMs))) {
+        emitErrorFrame(
+          "send_ready_timeout",
+          "The session did not finish starting, so the message was not sent.",
+          true,
+        );
+        return;
+      }
     }
     // A respawn in flight owns the process slot; the message is for the
-    // claude it seats, not the one it is retiring.
+    // claude it seats, not the one it is retiring. One deadline covers the
+    // whole loop rather than each turn of it: a gate that clears and is
+    // immediately replaced would otherwise buy a fresh horizon every pass,
+    // which is the unbounded wait wearing a bound.
+    const respawnDeadline = Date.now() + this.sendHorizonMs;
     while (this.respawnGate !== null) {
-      await this.respawnGate;
+      const remaining = respawnDeadline - Date.now();
+      if (
+        remaining <= 0 ||
+        !(await settlesWithin(this.respawnGate, remaining))
+      ) {
+        emitErrorFrame(
+          "send_respawn_timeout",
+          "The session was still restarting, so the message was not sent.",
+          true,
+        );
+        return;
+      }
     }
 
     if (!this.claudeProcess) {
@@ -7803,10 +7878,17 @@ export class SessionManager {
    * the turn is flagged and the close hook
    * ({@link maybeScheduleRetraction}) runs the conversation-rewind
    * truncation anchored at the turn's own prompt record.
+   *
+   * **Both early returns emit an {@link InterruptNoop} receipt.** The deck
+   * raises `interruptInFlight` the instant the user presses Stop and has no
+   * way to distinguish a working interrupt from one that reached a bridge
+   * with nothing to interrupt. A silent early return therefore strands the
+   * card; the receipt is what ends it.
    */
   handleInterrupt(retract: boolean = false): void {
     if (!this.claudeProcess) {
       console.log("No active claude process to interrupt");
+      this.emitInterruptNoop("no_process");
       return;
     }
 
@@ -7828,7 +7910,28 @@ export class SessionManager {
     // cancel must always win.
     if (this.activeTurn !== null) {
       this.armInterruptEscalation(this.activeTurn);
+      return;
     }
+    // No turn was open. The control request above still went to stdin, which
+    // is harmless — but no escalation is armed and no turn can end, so this
+    // interrupt has no terminal of its own. Receipt it, or the deck waits for
+    // a `turn_complete` that nothing is going to produce.
+    this.emitInterruptNoop("no_turn");
+  }
+
+  /**
+   * Write the {@link InterruptNoop} receipt for an interrupt that found
+   * nothing to interrupt. One writer, so neither early return can drift from
+   * the other, and so the frame's shape lives in one place.
+   */
+  private emitInterruptNoop(reason: InterruptNoop["reason"]): void {
+    const frame: InterruptNoop = {
+      type: "interrupt_noop",
+      tug_session_id: this.sessionId,
+      reason,
+      ipc_version: 2,
+    };
+    writeLine(frame);
   }
 
   /**

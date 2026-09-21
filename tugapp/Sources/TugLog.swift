@@ -86,6 +86,17 @@ enum TugLog {
         info("tuglog", "tuglog initialized", [field("name", "tugapp"), field("log_dir", directory.path)])
     }
 
+    /// The file today's lines are being written to.
+    ///
+    /// Resolved from the same directory and the same UTC-day formatter the
+    /// writer uses, so "the log" a user is shown is the file the app is
+    /// appending to rather than a guess at its name. It may not exist yet
+    /// when nothing has been logged; every caller so far runs long after
+    /// the launch's first lap, which has.
+    static var currentFileURL: URL {
+        directory.appendingPathComponent("tugapp.log.\(days.string(from: Date()))")
+    }
+
     // MARK: - Internals
 
     /// The threshold, read once from `TUG_LOG`, mirroring tuglog's `RUST_LOG`.

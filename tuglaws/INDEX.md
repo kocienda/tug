@@ -52,6 +52,10 @@
 - [code-signing-mac.md](code-signing-mac.md) — The `Tug Dev` self-signed signing pipeline (macOS only). Why the app-test harness depends on it; procedures and failure modes.
 - [wasm-crates.md](wasm-crates.md) — WASM crates in tugdeck (`tugmark-wasm`, `tugdiff-wasm`). Per-crate layout, build pipeline, lazy-load convention, and the checklist for adding a new one.
 
+## Refusals & failure surfaces
+
+- [no-wait-without-a-horizon.md](no-wait-without-a-horizon.md) — The long form of [L33]: every wait on another process carries a deadline, a named terminal state and a user exit, and no app-wide modal depends on anything outside the deck. Ten worked examples, each naming a defect Tug shipped and the horizon that closed it — the dropped receipt, the flag with one clearer, the deadline any traffic re-arms, the app-modal a whole window waited behind, the bare `await` on a gesture path, the spinner with one exit, the blocking login shell, the setup wizard that needed what was missing. Carries the reviewer's one-question test and the standing findings, each pointing at the brief that owns it. Read before adding any `await`, timer, or modal that waits on tugcast, tugcode, the host, or claude.
+
 ## Working on an arc
 
 - [work-grammar.md](work-grammar.md) — The lexicon every other document here defers to: the two roles, the artifact ladder (idea → sketch → brief → plan), the two lanes, the arc and its two kinds (plain and planned), the wheel and its doors and stages, where documents live, and where knowledge lives — the rule that anything the model must know to drive Tug ships in the bundle, with the one-question test for a new `CLAUDE.md` paragraph. Read it first; where another document's vocabulary conflicts with it, this one wins.

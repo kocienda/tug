@@ -68,6 +68,13 @@ protocol BridgeDelegate: AnyObject {
     func bridgeDevBadge(backend: Bool, app: Bool)
     func bridgePageDidLoad()
     func bridgeHmrUpdate()
+    /// The coarse stage the launch has reached, for the splash failure
+    /// screen's one-line statement of what the app is waiting on.
+    func bridgeLaunchStageName() -> String
+    /// Re-run whatever the current launch stage was waiting on. The host
+    /// owns the launch sequence; the window owns the screen that offers
+    /// the retry.
+    func bridgeRetryLaunchStage()
 }
 
 /// Pass-through container so the dev-info overlay does not block clicks
@@ -317,6 +324,27 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     private var webView: WKWebView!
     private var containerView: NSView!
     private var spinnerView: NSView?
+    /// The centered content of the splash — the icon-and-wave stack at
+    /// launch, the failure screen after a deadline or a navigation error.
+    /// Swapped by `setSplashContent`, which is the only writer.
+    private var splashContent: NSView?
+    /// The icon-and-wave stack, kept after a failure screen replaces it so
+    /// Retry can put the spinner back rather than build a second one.
+    private var splashSpinnerStack: NSView?
+    private var splashWave: WaveProgressView?
+    /// The armed splash deadline, or nil when nothing is waiting on the
+    /// interface. Armed by the event that opens the wait (the splash
+    /// mounting, a Retry) and cancelled by the one that closes it
+    /// (`revealWebView`) — never by polling `webView.isHidden`.
+    private var splashDeadline: DispatchWorkItem?
+    /// True once the failure screen is up, so a deadline that fires behind
+    /// a navigation error does not rebuild the screen underneath itself.
+    private var launchFailureMounted = false
+    #if DEBUG
+    /// `TUG_FORCE_LAUNCH_STALL=frontend` suppresses the first `frontendReady`
+    /// and no other, so a Retry's reload can still reveal. DEBUG-only.
+    private var suppressedFirstFrontendReady = false
+    #endif
     private var contentController: WKUserContentController!
     private var devInfoOverlay: DevInfoOverlayView?
     private var devInfoLabel: NSTextField?
@@ -361,6 +389,23 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// twenty windows through whatever the user was looking at, and a sweep
     /// hundreds.
     static let harnessBackgroundLevel = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
+
+    /// How long the splash may hold before the app says what it is waiting
+    /// on. Ten seconds is long enough that no healthy launch reaches it —
+    /// the recorded laps put a cold reveal under a second — and short
+    /// enough that a stalled one is answered while the user is still
+    /// looking at it.
+    ///
+    /// The spinner it replaces had no deadline at all: a tugcast that never
+    /// came up, a DNS lookup that never returned, an interface that never
+    /// signalled ready all produced the same endless animation, and the
+    /// only exit was force-quitting the app.
+    static let splashDeadlineMs = 10_000
+
+    /// `splashDeadlineMs` as the interval `DispatchQueue` wants.
+    static var splashDeadlineInterval: TimeInterval {
+        TimeInterval(splashDeadlineMs) / 1000
+    }
 
     /// Keep the harness's window off the top of the user's screen.
     ///
@@ -439,6 +484,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.add(self, name: "choosePath")
         contentController.add(self, name: "getSettings")
         contentController.add(self, name: "frontendReady")
+        contentController.add(self, name: "frontendLaunchStalled")
         contentController.add(self, name: "setTheme")
         contentController.add(self, name: "devBadge")
         contentController.add(self, name: "clipboardRead")
@@ -559,23 +605,140 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 20
-        splashView.addSubview(stack)
 
         NSLayoutConstraint.activate([
             iconView.widthAnchor.constraint(equalToConstant: iconSize),
             iconView.heightAnchor.constraint(equalToConstant: iconSize),
             wave.widthAnchor.constraint(equalToConstant: wave.intrinsicContentSize.width),
             wave.heightAnchor.constraint(equalToConstant: waveSize),
-            stack.centerXAnchor.constraint(equalTo: splashView.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: splashView.centerYAnchor),
         ])
 
         wave.startAnimating()
         containerView.addSubview(splashView, positioned: .below, relativeTo: webView)
         self.spinnerView = splashView
+        self.splashSpinnerStack = stack
+        self.splashWave = wave
+        setSplashContent(stack)
 
         self.contentView = containerView
         // Background color is set by AppDelegate after init, not here.
+    }
+
+    // MARK: - The splash, its deadline, and its failure screen
+
+    /// Centre one view in the splash, removing whatever was there.
+    ///
+    /// The splash has exactly one piece of content at a time — the spinner
+    /// stack or the failure screen — and this is the only thing that puts
+    /// either there, so the two can never be up at once.
+    private func setSplashContent(_ view: NSView) {
+        guard let splash = spinnerView else { return }
+        splashContent?.removeFromSuperview()
+        splashContent = view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        splash.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: splash.centerXAnchor),
+            view.centerYAnchor.constraint(equalTo: splash.centerYAnchor),
+        ])
+    }
+
+    /// Open the wait: the splash is up, and it has until the deadline to
+    /// become an interface.
+    ///
+    /// Idempotent — a second arm replaces the first, which is what a Retry
+    /// wants. Cancelled in `revealWebView`, the one event that closes this
+    /// wait; nothing here watches `webView.isHidden`.
+    func armSplashDeadline() {
+        splashDeadline?.cancel()
+        guard spinnerView != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.mountLaunchFailure(
+                stage: self.bridgeDelegate?.bridgeLaunchStageName() ?? "starting",
+                reason: nil
+            )
+        }
+        splashDeadline = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + MainWindow.splashDeadlineInterval,
+            execute: work
+        )
+    }
+
+    /// Put the launch's stall on screen: what it is waiting on, and two
+    /// ways out of it.
+    ///
+    /// Mounted by the deadline, by a navigation failure, and by a tugcast
+    /// that keeps exiting. It swaps the spinner inside the existing splash
+    /// container and **does not touch the WebView**, which may yet load —
+    /// a page that arrives late still reveals normally over the top of
+    /// this, because `revealWebView` is unchanged by it.
+    func mountLaunchFailure(stage: String, reason: String?) {
+        // Nothing to say once the interface is up: the splash is gone and
+        // the deck raises its own surfaces. This is also what scopes the
+        // repeated-respawn route to launch — a tugcast dying in a loop an
+        // hour in reaches here and is refused.
+        guard spinnerView != nil, webView.isHidden else { return }
+        guard !launchFailureMounted else { return }
+        launchFailureMounted = true
+        splashDeadline?.cancel()
+        splashDeadline = nil
+        splashWave?.stopAnimating()
+
+        TugLog.error("launch", "stalled", [
+            TugLog.field("stage", stage),
+            TugLog.field("reason", reason ?? "no reason given"),
+        ])
+
+        let title = NSTextField(labelWithString: "Tug is stuck \(stage).")
+        title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        title.alignment = .center
+
+        let detail = NSTextField(wrappingLabelWithString:
+            reason ?? "It has been waiting \(MainWindow.splashDeadlineMs / 1000) seconds.")
+        detail.font = NSFont.systemFont(ofSize: 12)
+        detail.alignment = .center
+        detail.textColor = .secondaryLabelColor
+        detail.preferredMaxLayoutWidth = 360
+
+        let retry = NSButton(title: "Retry", target: self, action: #selector(retryLaunchStage))
+        retry.bezelStyle = .rounded
+        retry.keyEquivalent = "\r"
+        let showLog = NSButton(title: "Show Log", target: self, action: #selector(showLaunchLog))
+        showLog.bezelStyle = .rounded
+
+        let buttons = NSStackView(views: [retry, showLog])
+        buttons.orientation = .horizontal
+        buttons.spacing = 12
+
+        let stack = NSStackView(views: [title, detail, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 14
+        NSLayoutConstraint.activate([
+            detail.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+        ])
+        setSplashContent(stack)
+    }
+
+    /// Put the spinner back and re-open the wait, then ask the host to
+    /// re-run the stage. A second stall produces the screen again rather
+    /// than an endless spinner, because the deadline is re-armed here.
+    @objc private func retryLaunchStage() {
+        launchFailureMounted = false
+        if let spinner = splashSpinnerStack {
+            setSplashContent(spinner)
+        }
+        splashWave?.startAnimating()
+        armSplashDeadline()
+        bridgeDelegate?.bridgeRetryLaunchStage()
+    }
+
+    /// Reveal today's `tugapp.log.<UTC-date>` in Finder — the file every
+    /// launch lap, and the `launch stalled` line above, was written to.
+    @objc private func showLaunchLog() {
+        NSWorkspace.shared.activateFileViewerSelecting([TugLog.currentFileURL])
     }
 
     // MARK: - Click-through activation
@@ -1022,6 +1185,28 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    /// Hand the deck the host's network-path report.
+    ///
+    /// A **hint**, and the callback name says so nowhere near strongly enough
+    /// — `NetworkPathMonitor`'s docstring carries the argument, and
+    /// `network-path-store.ts` carries it again on the receiving side. The one
+    /// line worth repeating here: `satisfied` is not an assurance, because
+    /// captive wifi reports it while nothing gets through.
+    func bridgeNetworkPath(status: String, isExpensive: Bool, isConstrained: Bool) {
+        let statusArg = escapeForJS(status)
+        webView.evaluateJavaScript(
+            "window.__tugBridge?.onNetworkPath?.({status: '\(statusArg)', "
+                + "isExpensive: \(isExpensive), isConstrained: \(isConstrained)})"
+        ) { _, error in
+            if let error = error {
+                NSLog(
+                    "MainWindow: evaluateJavaScript failed for onNetworkPath: %@",
+                    error.localizedDescription
+                )
+            }
+        }
+    }
+
     /// Present the `/export` save panel ([#step-13c]) as a sheet on this
     /// window. The accessory File Format popup selects which content
     /// (markdown / JSON Lines) is written; the popup index — not the typed
@@ -1104,6 +1289,26 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// that would occur if we revealed on didFinishNavigation.
     func revealWebView() {
         NSLog("MainWindow: revealWebView called (isHidden=%d)", webView.isHidden ? 1 : 0)
+        // The event that closes the wait the splash opened. Cancelling here
+        // and arming at the mount is the whole of the deadline's lifecycle
+        // — nothing polls, and a reveal that beats the deadline leaves no
+        // timer behind to fire into a live interface.
+        splashDeadline?.cancel()
+        splashDeadline = nil
+        // The launch's last line. Either the log holds a reveal or it does
+        // not, and "it does not" is the whole of the diagnosis for a launch
+        // that never finished — read against the last `launch` line's
+        // `stage` field, which names what it was waiting on.
+        TugLog.info("launch", "reveal", [
+            TugLog.field(
+                "ms",
+                String(
+                    format: "%.1f",
+                    (CFAbsoluteTimeGetCurrent() - AppDelegate.launchStartedAt) * 1000
+                )
+            ),
+            TugLog.field("hidden_before", webView.isHidden),
+        ])
 
         // If a reload snapshot overlay is present, hold it for 0.5s so the
         // WebView content is fully composited before the crossfade begins.
@@ -1139,10 +1344,30 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         NSLog("Navigation failed: %@", error.localizedDescription)
+        TugLog.error("webview", "navigation failed", [
+            TugLog.field("error", error.localizedDescription),
+        ])
+        // A failure during launch has no deadline worth waiting out: the
+        // navigation is already over. `mountLaunchFailure` refuses once the
+        // interface is up, so a failure after the reveal only logs.
+        mountLaunchFailure(
+            stage: bridgeDelegate?.bridgeLaunchStageName() ?? "loading interface",
+            reason: error.localizedDescription
+        )
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         NSLog("Navigation failed (provisional): %@", error.localizedDescription)
+        // The provisional failure is the launch-relevant one: it means the
+        // page never began loading, so a splash that is still up has this
+        // line behind it and nothing else.
+        TugLog.error("webview", "provisional navigation failed", [
+            TugLog.field("error", error.localizedDescription),
+        ])
+        mountLaunchFailure(
+            stage: bridgeDelegate?.bridgeLaunchStageName() ?? "loading interface",
+            reason: error.localizedDescription
+        )
     }
 
     /// The WebContent process died — jetsam under memory pressure, or a
@@ -1171,10 +1396,14 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
                 "MainWindow: WebContent process terminated again after %.1fs — not reloading",
                 now.timeIntervalSince(previous),
             )
+            TugLog.error("webview", "WebContent process terminated again — not reloading", [
+                TugLog.field("since_s", String(format: "%.1f", now.timeIntervalSince(previous))),
+            ])
             return
         }
 
         NSLog("MainWindow: WebContent process terminated — reloading")
+        TugLog.warn("webview", "WebContent process terminated — reloading")
         if webView.url != nil {
             webView.reload()
         } else if let urlString = lastLoadedURLString {
@@ -1183,6 +1412,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             loadURL(urlString)
         } else {
             NSLog("MainWindow: no URL to reload after WebContent termination")
+            TugLog.error("webview", "no URL to reload after WebContent termination")
         }
     }
 
@@ -1619,8 +1849,28 @@ extension MainWindow: WKScriptMessageHandler {
             presentExportPanel(requestId: requestId, baseName: baseName,
                                markdown: markdown, jsonl: jsonl)
         case "frontendReady":
+            #if DEBUG
+            if LaunchStall.forced == .frontend, !suppressedFirstFrontendReady {
+                suppressedFirstFrontendReady = true
+                NSLog("MainWindow: TUG_FORCE_LAUNCH_STALL=frontend — ignoring the first frontendReady")
+                return
+            }
+            #endif
             revealWebView()
             bridgeDelegate?.bridgeFrontendReady()
+        case "frontendLaunchStalled":
+            // The deck bounded its own boot awaits and one of them ran past
+            // its horizon. It has not given up — the await is still running
+            // — so this only names the wait, which is more than the splash
+            // could say on its own.
+            let waitingOn = (message.body as? [String: Any])?["waitingOn"] as? String
+            TugLog.warn("launch", "frontend boot await ran past its horizon", [
+                TugLog.field("waiting_on", waitingOn ?? "unknown"),
+            ])
+            mountLaunchFailure(
+                stage: "\(LaunchStage.waitingForInterface.rawValue): \(waitingOn ?? "unknown")",
+                reason: "The interface loaded but has not finished starting up."
+            )
         case "setTheme":
             guard let body = message.body as? [String: Any],
                   let color = body["color"] as? String else { return }

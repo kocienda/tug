@@ -234,6 +234,14 @@ When a mechanism that hides, reveals, or measures content cannot answer — the 
 
 The test: *if this mechanism's beat never runs, what does the user see?* If the answer is "the content", the mechanism is sound. If the answer is "nothing", or "a cap measured for a window that no longer exists", it fails the wrong way. [L06, L23, L27, L31]
 
+### L33. No wait without a horizon. {#l33}
+
+Every wait on another process — the claude CLI, tugcast, the login shell, the host's panels, the network beyond any of them — has three things: a **deadline**, so the wait ends whether or not the answer comes; a **named terminal state**, so what the user is looking at says which wait failed rather than reading as the same spinner every other failure reads as; and a **user exit**, so the person in front of it has something to press. Two of the three is not compliance. A deadline that ends in an unnamed state trades a hang for a mystery, and a named state with nothing to press trades a hang for a wall.
+
+And the second clause, which is about where a wait is allowed to be staged: **no app-wide modal may depend on anything outside the deck.** A surface that covers the whole window while waiting on a process the deck does not control converts one component's bad day into an application nobody can use — including the parts that are working, including the way out. What one card is waiting for is that card's state, and every other card stays live beside it. The long form is [no-wait-without-a-horizon.md](no-wait-without-a-horizon.md), which carries the worked examples.
+
+The test: *if the thing you are waiting on never answers, what does the user see, and what can they do?* If the answer is "a spinner, and nothing", it fails. [L23, L31, L32]
+
 ---
 
 ## Licensing

@@ -14,9 +14,16 @@
  *     replay_timeout}`, closes `REPLAY_TIMEOUT_DWELL_MS` (1.5s)
  *     later or on the next `replay_started`.
  *
- * and one deadline with no field of its own: a replay bracket that
- * hears nothing from the wire for `REPLAY_SILENCE_DEADLINE_MS` is
- * abandoned with a `replay_stalled` `lastError`.
+ * and two deadlines with no field of their own:
+ *
+ *   - a bracket that hears no *bracket-borne* frame for
+ *     `REPLAY_SILENCE_DEADLINE_MS` is abandoned with a `replay_stalled`
+ *     `lastError`. Which frames count is `BRACKET_FRAME_TYPES`, and the
+ *     partition tests at the bottom of this file are what keep that set
+ *     total against the deck's accepted frame vocabulary.
+ *   - a bracket that has not closed after `REPLAY_BRACKET_DEADLINE_MS`
+ *     is abandoned with a `replay_bracket_timeout` `lastError`,
+ *     whatever arrived inside it.
  *
  * Tests use an injected `TimerSource` so the store can be advanced
  * deterministically without racing real wall-clock delays. Each
@@ -32,6 +39,10 @@ import { describe, it, expect } from "bun:test";
 
 import {
   CodeSessionStore,
+  BRACKET_FRAME_TYPES,
+  KNOWN_CODE_OUTPUT_TYPES,
+  REPLAY_BRACKET_DEADLINE_MS,
+  REPLAY_BRACKET_MESSAGE,
   REPLAY_PREFLIGHT_TIMEOUT_MS,
   REPLAY_SILENCE_DEADLINE_MS,
   REPLAY_SOFT_BUDGET_MS,
@@ -420,25 +431,160 @@ describe("replaySilenceEffect — the arming rule", () => {
   const cancel: Effect = { kind: "cancel_timer", name: "replay_silence" };
 
   it("arms on entering replaying, from the wire or not", () => {
-    expect(replaySilenceEffect("idle", "replaying", true)).toEqual(schedule);
-    expect(replaySilenceEffect("errored", "replaying", false)).toEqual(schedule);
+    // The entering event is whatever produced the transition, and it is
+    // not required to be bracket-borne: a local `replay_started` arms
+    // just as a wire one does.
+    expect(
+      replaySilenceEffect("idle", "replaying", true, "replay_started"),
+    ).toEqual(schedule);
+    expect(
+      replaySilenceEffect("errored", "replaying", false, "replay_started"),
+    ).toEqual(schedule);
   });
 
-  it("restarts on a wire frame inside the bracket, and only on one", () => {
-    expect(replaySilenceEffect("replaying", "replaying", true)).toEqual(schedule);
+  it("restarts on a bracket-borne wire frame, and only on one", () => {
+    expect(
+      replaySilenceEffect("replaying", "replaying", true, "assistant_text"),
+    ).toEqual(schedule);
     // A local action or a timer tick is not the relay talking.
-    expect(replaySilenceEffect("replaying", "replaying", false)).toBeNull();
+    expect(
+      replaySilenceEffect("replaying", "replaying", false, "assistant_text"),
+    ).toBeNull();
+    // And neither is a wire frame from outside the bracket — the
+    // reported restore hang, as one line.
+    expect(
+      replaySilenceEffect("replaying", "replaying", true, "api_retry"),
+    ).toBeNull();
+  });
+
+  it("every BRACKET_FRAME_TYPES member buys time, and a non-member does not", () => {
+    for (const type of BRACKET_FRAME_TYPES) {
+      expect(
+        replaySilenceEffect("replaying", "replaying", true, type),
+      ).toEqual(schedule);
+    }
+    for (const type of ["api_retry", "cost_update", "streaming_usage"]) {
+      expect(
+        replaySilenceEffect("replaying", "replaying", true, type),
+      ).toBeNull();
+    }
   });
 
   it("disarms on leaving replaying by any exit", () => {
-    expect(replaySilenceEffect("replaying", "idle", true)).toEqual(cancel);
-    expect(replaySilenceEffect("replaying", "streaming", true)).toEqual(cancel);
-    expect(replaySilenceEffect("replaying", "errored", false)).toEqual(cancel);
+    expect(
+      replaySilenceEffect("replaying", "idle", true, "replay_complete"),
+    ).toEqual(cancel);
+    expect(
+      replaySilenceEffect("replaying", "streaming", true, "turn_complete"),
+    ).toEqual(cancel);
+    expect(
+      replaySilenceEffect("replaying", "errored", false, "tick_replay_silence"),
+    ).toEqual(cancel);
   });
 
   it("is silent outside a bracket", () => {
-    expect(replaySilenceEffect("idle", "idle", true)).toBeNull();
-    expect(replaySilenceEffect("idle", "streaming", false)).toBeNull();
+    // Including for a bracket frame — `assistant_text` outside a bracket
+    // is the live tail, and has no deadline to restart.
+    expect(replaySilenceEffect("idle", "idle", true, "assistant_text")).toBeNull();
+    expect(replaySilenceEffect("idle", "streaming", false, "send")).toBeNull();
+  });
+});
+
+describe("BRACKET_FRAME_TYPES — the partition is total", () => {
+  /**
+   * The CODE_OUTPUT types deliberately excluded from the bracket set.
+   * Together with `BRACKET_FRAME_TYPES` this must cover every type the
+   * deck accepts, so a frame type added to `KNOWN_CODE_OUTPUT_TYPES`
+   * cannot silently land on one side or the other — whoever adds it has
+   * to say here whether a bracket hearing it is still being replayed to.
+   */
+  const EXCLUDED: ReadonlySet<string> = new Set([
+    // Session identity and bridge bookkeeping — true of the session, not
+    // evidence the replay is progressing.
+    "session_init",
+    "session_segment",
+    "control_request_forward",
+    // Display-only folds. `api_retry` is the one that produced the
+    // reported hang: a claude retrying a dead API emits it more often
+    // than every 15 s.
+    "api_retry",
+    "model_refusal_fallback",
+    "output_truncated",
+    "unknown_event",
+    "goal_feedback",
+    "interrupt_noop",
+    // The Force Stop receipt. A group sweep says nothing about whether a
+    // replay is still arriving — if anything it says the opposite.
+    "stop_all_work_done",
+    // Telemetry.
+    "cost_update",
+    "streaming_usage",
+    "context_breakdown",
+    // Background jobs — a live claude's, never a replay's.
+    "task_started",
+    "task_updated",
+    "task_progress",
+    // `/rewind`, which cannot run during a restore.
+    "prompt_anchor",
+    "rewind_preview_result",
+    "rewind_result",
+    // Terminals. Each leaves `replaying` on its own, so restarting a
+    // deadline for one would be arming a timer on the way out.
+    "error",
+    "resume_failed",
+    // Server-originated turn injection; not part of any bracket.
+    "tug_notice",
+  ]);
+
+  it("classifies every type the deck accepts", () => {
+    const unclassified = [...KNOWN_CODE_OUTPUT_TYPES].filter(
+      (t) => !BRACKET_FRAME_TYPES.has(t) && !EXCLUDED.has(t),
+    );
+    expect(unclassified).toEqual([]);
+  });
+
+  it("classifies each type exactly once", () => {
+    const both = [...KNOWN_CODE_OUTPUT_TYPES].filter(
+      (t) => BRACKET_FRAME_TYPES.has(t) && EXCLUDED.has(t),
+    );
+    expect(both).toEqual([]);
+  });
+
+  it("covers every frame the replay translator emits", () => {
+    // Sourced from `tugcode/src/replay.ts` — the frames a bracket is
+    // actually made of. Any of these missing from the set would mean a
+    // healthy replay could be cut off by the silence deadline.
+    const REPLAY_EMITTED = [
+      "replay_started",
+      "replay_complete",
+      "replay_stage",
+      "add_user_message",
+      "assistant_opener",
+      "wake_started",
+      "content_block_start",
+      "assistant_text",
+      "thinking_text",
+      "tool_use",
+      "tool_result",
+      "tool_use_structured",
+      "system_metadata",
+      "turn_complete",
+      "compact_boundary",
+      "compact_summary",
+    ];
+    for (const type of REPLAY_EMITTED) {
+      expect(BRACKET_FRAME_TYPES.has(type)).toBe(true);
+    }
+  });
+
+  it("admits only the transport envelope from outside the accepted set", () => {
+    // `replay_batch` is unwrapped by `routeFrame` and never reaches the
+    // reducer, so it is the one member with no `KNOWN_CODE_OUTPUT_TYPES`
+    // entry. Anything else here would be a member that can never match.
+    const orphans = [...BRACKET_FRAME_TYPES].filter(
+      (t) => !KNOWN_CODE_OUTPUT_TYPES.has(t),
+    );
+    expect(orphans).toEqual(["replay_batch"]);
   });
 });
 

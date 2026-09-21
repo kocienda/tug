@@ -8,10 +8,13 @@
  *    signals (errored / replaying / interruptInFlight).
  *  - `submitButtonMode` — the matrix's Z5 column for every state, plus
  *    the TRANSPORT_DOWN (`reconnecting`) overlay effect.
- *  - `overlays` — `transport_down`, the sole member. A question raised
- *    outside the turn stream produces no overlay here; its Awaiting
- *    reading is pinned in `session-phase-visual.test.ts`, which covers
- *    the projection the STATE cell actually reads.
+ *  - `overlays` — `transport_down`, `stop_stalled` and `stalled`. A
+ *    question raised outside the turn stream produces no overlay here; its
+ *    Awaiting reading is pinned in `session-phase-visual.test.ts`, which
+ *    covers the projection the STATE cell actually reads.
+ *  - `stalled` × Z5 — the table that pins the *absence*: the overlay must
+ *    change no submit-button mode in any base state, because loopback is
+ *    healthy and Stop is deliverable throughout a network stall.
  *  - [DT09] — `deriveLifecycleSnapshot` returns the previous reference
  *    when no matrix-relevant signal moved, a fresh one when any did.
  *  - `lifecycleSnapshotsEqual` — the structural-equality primitive.
@@ -32,6 +35,7 @@ import {
   type LifecycleStoreSignals,
   type SessionLifecycleSnapshot,
 } from "../lifecycle-state";
+import type { ApiRetryState } from "../types";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -46,9 +50,17 @@ function signals(
     phase: "idle",
     transportState: "online",
     interruptInFlight: false,
+    stopStalled: false,
+    streamStalled: false,
+    apiRetry: null,
     transcript: [],
     ...overrides,
   };
+}
+
+/** An `api_retry` announcement in the shape the snapshot carries. */
+function retry(error: string, errorStatus: number | null): ApiRetryState {
+  return { attempt: 3, maxRetries: 10, deadline: 0, error, errorStatus };
 }
 
 /** A transcript with one committed turn — splits COMPLETE from IDLE. */
@@ -228,6 +240,215 @@ describe("deriveLifecycleSnapshot — overlays", () => {
       expect(overlays.has("transport_down")).toBe(true);
       expect(overlays.size).toBe(1);
     }
+  });
+
+  it("stop_stalled when a stop went unanswered", () => {
+    const { overlays } = derive(signals({ phase: "streaming", stopStalled: true }));
+    expect(overlays.has("stop_stalled")).toBe(true);
+    expect(overlays.size).toBe(1);
+  });
+
+  it("both overlays stand together — neither suppresses the other", () => {
+    const { overlays } = derive(
+      signals({ phase: "streaming", transportState: "offline", stopStalled: true }),
+    );
+    expect(overlays.has("transport_down")).toBe(true);
+    expect(overlays.has("stop_stalled")).toBe(true);
+    expect(overlays.size).toBe(2);
+  });
+
+  it("stalled when a live turn has gone silent", () => {
+    const { overlays } = derive(
+      signals({ phase: "streaming", streamStalled: true }),
+    );
+    expect(overlays.has("stalled")).toBe(true);
+    expect(overlays.size).toBe(1);
+  });
+
+  it("stalled when claude reports a connection-category retry", () => {
+    const { overlays } = derive(
+      signals({ phase: "streaming", apiRetry: retry("ECONNRESET", null) }),
+    );
+    expect(overlays.has("stalled")).toBe(true);
+  });
+
+  it("not stalled for a retry that is not the network's fault", () => {
+    // The discriminator doing its job. A rate limit and a billing failure
+    // are claude's problems; neither says the network stopped answering,
+    // and each has its own reading elsewhere.
+    for (const [error, status] of [
+      ["rate_limit", 429],
+      ["overloaded", 529],
+      ["billing_error", 402],
+      // A status-bearing failure is the server's, whatever its words say.
+      ["connection reset upstream", 503],
+    ] as ReadonlyArray<readonly [string, number | null]>) {
+      const { overlays } = derive(
+        signals({ phase: "streaming", apiRetry: retry(error, status) }),
+      );
+      expect(overlays.has("stalled")).toBe(false);
+    }
+  });
+
+  it("stalled stands alongside the other two rather than replacing them", () => {
+    const { overlays } = derive(
+      signals({
+        phase: "streaming",
+        transportState: "offline",
+        stopStalled: true,
+        streamStalled: true,
+      }),
+    );
+    expect(overlays.has("transport_down")).toBe(true);
+    expect(overlays.has("stop_stalled")).toBe(true);
+    expect(overlays.has("stalled")).toBe(true);
+    expect(overlays.size).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stalled — the overlay that deliberately changes no button
+// ---------------------------------------------------------------------------
+
+describe("deriveLifecycleSnapshot — stalled leaves Z5 alone", () => {
+  const BASE_PHASES = [
+    "idle",
+    "submitting",
+    "awaiting_first_token",
+    "streaming",
+    "tool_work",
+    "awaiting_approval",
+    "replaying",
+    "errored",
+  ] as const;
+
+  it("every base state's submit mode is unchanged by the overlay", () => {
+    // The whole claim of the state, as a table: a network stall leaves
+    // loopback healthy, so every Stop stays Stop and nothing becomes inert.
+    // A disabled stop button over work that will not end is the defect this
+    // arc began from.
+    for (const phase of BASE_PHASES) {
+      const without = derive(signals({ phase })).submitButtonMode;
+      const withStall = derive(
+        signals({ phase, streamStalled: true }),
+      ).submitButtonMode;
+      expect(withStall).toEqual(without);
+    }
+  });
+
+  it("the retry arm changes no button either", () => {
+    for (const phase of BASE_PHASES) {
+      const without = derive(signals({ phase })).submitButtonMode;
+      const withStall = derive(
+        signals({ phase, apiRetry: retry("ECONNRESET", null) }),
+      ).submitButtonMode;
+      expect(withStall).toEqual(without);
+    }
+  });
+
+  it("an in-flight turn still reads Stop while stalled", () => {
+    // Said directly, because it is the sentence the state exists for.
+    for (const phase of [
+      "submitting",
+      "awaiting_first_token",
+      "streaming",
+      "tool_work",
+    ] as const) {
+      expect(
+        derive(signals({ phase, streamStalled: true })).submitButtonMode,
+      ).toEqual({ kind: "stop" });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// force_stop — the Z5 mode an unanswered stop produces
+// ---------------------------------------------------------------------------
+
+describe("deriveLifecycleSnapshot — force_stop", () => {
+  it("stopStalled yields force_stop from every in-flight state", () => {
+    for (const phase of [
+      "submitting",
+      "awaiting_first_token",
+      "streaming",
+      "tool_work",
+      "awaiting_approval",
+    ] as const) {
+      expect(
+        derive(signals({ phase, stopStalled: true })).submitButtonMode,
+      ).toEqual({ kind: "force_stop" });
+    }
+  });
+
+  it("it wins over transport_down", () => {
+    // The one place something beats the wire in this function: the card has
+    // work to force-stop whatever the transport is doing, and the frame is
+    // deliverable the moment the wire returns. An inert "Reconnecting…"
+    // here would be the dead stop button this arc exists to remove.
+    expect(
+      derive(
+        signals({
+          phase: "streaming",
+          transportState: "offline",
+          stopStalled: true,
+        }),
+      ).submitButtonMode,
+    ).toEqual({ kind: "force_stop" });
+  });
+
+  it("it wins over an in-flight interrupt's `stopping`", () => {
+    // Not a live combination — the deadline's tick clears one flag as it
+    // raises the other — but the order is what keeps a race from parking
+    // the card back on the inert glyph.
+    expect(
+      derive(
+        signals({
+          phase: "streaming",
+          interruptInFlight: true,
+          stopStalled: true,
+        }),
+      ).submitButtonMode,
+    ).toEqual({ kind: "force_stop" });
+  });
+
+  it("every base state is unchanged while stopStalled is false", () => {
+    // The matrix gains a column value, not a rewrite.
+    for (const phase of [
+      "idle",
+      "submitting",
+      "awaiting_first_token",
+      "streaming",
+      "tool_work",
+      "awaiting_approval",
+      "replaying",
+      "errored",
+    ] as const) {
+      const withFlag = derive(signals({ phase, stopStalled: false }));
+      expect(withFlag.submitButtonMode).not.toEqual({ kind: "force_stop" });
+    }
+  });
+
+  it("[DT09] reference stability holds with two overlays in the set", () => {
+    // `overlaySetsEqual` has only ever seen a one-member union; a set of
+    // two is the case that would expose a size-only or first-member-only
+    // comparison.
+    const base = signals({
+      phase: "streaming",
+      transportState: "offline",
+      stopStalled: true,
+    });
+    const first = derive(base);
+    const second = derive({ ...base, transcript: [] }, first);
+    expect(second).toBe(first);
+
+    // …and a set that differs by one member is not equal, so the snapshot
+    // really does move when the overlay does.
+    const third = derive(
+      { ...base, transportState: "online", transcript: [] },
+      second,
+    );
+    expect(third).not.toBe(second);
+    expect(third.overlays.size).toBe(1);
   });
 });
 

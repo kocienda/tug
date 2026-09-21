@@ -23,6 +23,7 @@
 import { describe, it, expect } from "bun:test";
 
 import { CodeSessionStore } from "@/lib/code-session-store";
+import { STREAM_SILENCE_STALL_MS } from "@/lib/code-session-store/reducer";
 import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import type { TugConnection } from "@/connection";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
@@ -42,9 +43,15 @@ function makeStore() {
     tugSessionId: TUG,
     sessionMode: "resume",
     timerSource: {
-      setTimeout: (cb: () => void) => {
+      // The stream-stall deadline is re-armed by every stream event, and a
+      // `TimerSource` sees no names — so this fake, which is about the
+      // notification hold's own watchdog, ignores timers armed at that
+      // deadline's duration. Without the filter `pendingTimers()` would
+      // count a timer this file is not about, and `fireTimers()` would fire
+      // one it has no business firing.
+      setTimeout: (cb: () => void, ms: number) => {
         armed += 1;
-        pending.set(armed, cb);
+        if (ms !== STREAM_SILENCE_STALL_MS) pending.set(armed, cb);
         return armed;
       },
       clearTimeout: (handle: unknown) => {

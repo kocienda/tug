@@ -15,8 +15,10 @@ import {
   SESSION_PHASE_LABELS,
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
+  stallLabel,
   type SessionPhaseInput,
 } from "../session-phase-visual";
+import type { ApiRetryState } from "../types";
 
 function input(
   overrides: Partial<SessionPhaseInput>,
@@ -87,6 +89,154 @@ describe("sessionSessionPhaseKey — interrupt precedence", () => {
     expect(
       sessionSessionPhaseKey(input({ phase: "errored", interruptInFlight: true })),
     ).toBe("interrupting");
+  });
+});
+
+describe("sessionSessionPhaseKey — a stop that went unanswered", () => {
+  test("stopStalled reads 'Stop unanswered' over the still-live turn", () => {
+    const key = sessionSessionPhaseKey(
+      input({ phase: "streaming", stopStalled: true }),
+    );
+    expect(key).toBe("stop_stalled");
+    expect(SESSION_PHASE_LABELS[key]).toBe("Stop unanswered");
+  });
+
+  test("interrupt-in-flight still outranks it", () => {
+    // Never both true in practice — the deadline's tick clears one as it
+    // raises the other — so this pins the order rather than a live case.
+    expect(
+      sessionSessionPhaseKey(
+        input({ phase: "streaming", interruptInFlight: true, stopStalled: true }),
+      ),
+    ).toBe("interrupting");
+  });
+
+  test("transport trouble still outranks it", () => {
+    // A dead wire is why nothing answered; saying so is the better read.
+    for (const transportState of ["offline", "restoring"] as const) {
+      expect(
+        sessionSessionPhaseKey(
+          input({ phase: "streaming", transportState, stopStalled: true }),
+        ),
+      ).toBe(transportState === "offline" ? "offline" : "restoring");
+    }
+  });
+
+  test("it outranks a pending ask and the phase itself", () => {
+    expect(
+      sessionSessionPhaseKey(
+        input({ phase: "tool_work", stopStalled: true, pendingAsk: true }),
+      ),
+    ).toBe("stop_stalled");
+  });
+
+  test("absent and false both read as no claim", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "streaming" }))).toBe("streaming");
+    expect(
+      sessionSessionPhaseKey(input({ phase: "streaming", stopStalled: false })),
+    ).toBe("streaming");
+  });
+
+  test("it breathes in caution — the turn is not over", () => {
+    expect(sessionSessionPhaseVisual("stop_stalled")).toEqual({
+      role: "caution",
+      state: "running",
+    });
+  });
+});
+
+describe("sessionSessionPhaseKey — a network that stopped answering", () => {
+  test("stalled reads 'Waiting for network' over the still-live turn", () => {
+    const key = sessionSessionPhaseKey(
+      input({ phase: "streaming", stalled: true }),
+    );
+    expect(key).toBe("stalled");
+    expect(SESSION_PHASE_LABELS[key]).toBe("Waiting for network");
+  });
+
+  test("transport trouble outranks it", () => {
+    // A dead wire is the bigger fact: the deck cannot reach tugcode at all,
+    // which is more than a statement about what claude is waiting on.
+    for (const transportState of ["offline", "restoring"] as const) {
+      expect(
+        sessionSessionPhaseKey(
+          input({ phase: "streaming", transportState, stalled: true }),
+        ),
+      ).toBe(transportState === "offline" ? "offline" : "restoring");
+    }
+  });
+
+  test("it outranks an in-flight interrupt", () => {
+    // The order that matters, and the one this key was inserted for: the
+    // stall is *why* nothing is answering, and the stop is deliverable
+    // either way, so "Interrupting" over a healthy wire would tell the user
+    // nothing about the wait they are actually in.
+    expect(
+      sessionSessionPhaseKey(
+        input({ phase: "streaming", interruptInFlight: true, stalled: true }),
+      ),
+    ).toBe("stalled");
+  });
+
+  test("it outranks stop_stalled, a pending ask, and the phase itself", () => {
+    expect(
+      sessionSessionPhaseKey(
+        input({
+          phase: "tool_work",
+          stalled: true,
+          stopStalled: true,
+          pendingAsk: true,
+        }),
+      ),
+    ).toBe("stalled");
+  });
+
+  test("absent and false both read as no claim", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "streaming" }))).toBe("streaming");
+    expect(
+      sessionSessionPhaseKey(input({ phase: "streaming", stalled: false })),
+    ).toBe("streaming");
+  });
+
+  test("it breathes in caution — nothing has failed or been abandoned", () => {
+    expect(sessionSessionPhaseVisual("stalled")).toEqual({
+      role: "caution",
+      state: "running",
+    });
+  });
+});
+
+describe("stallLabel", () => {
+  function retry(attempt: number, maxRetries: number): ApiRetryState {
+    return {
+      attempt,
+      maxRetries,
+      deadline: 0,
+      error: "ECONNRESET",
+      errorStatus: null,
+    };
+  }
+
+  test("a stall that arrived as silence reads the bare label", () => {
+    // Which is exactly what the deck knows: nothing has announced anything,
+    // the turn has simply gone quiet.
+    expect(stallLabel(null)).toBe("Waiting for network");
+  });
+
+  test("a stall claude is counting attempts for says so", () => {
+    expect(stallLabel(retry(3, 10))).toBe("Waiting for network — retry 3 of 10");
+    expect(stallLabel(retry(1, 10))).toBe("Waiting for network — retry 1 of 10");
+    expect(stallLabel(retry(10, 10))).toBe(
+      "Waiting for network — retry 10 of 10",
+    );
+  });
+
+  test("it composes from the record rather than duplicating the copy", () => {
+    // The reason this is a helper and not a `SESSION_PHASE_LABELS` entry: a
+    // copy edit to the base label moves both readings at once.
+    expect(stallLabel(retry(2, 5)).startsWith(SESSION_PHASE_LABELS.stalled)).toBe(
+      true,
+    );
   });
 });
 
@@ -396,6 +546,7 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["interrupting", "Interrupting"],
     ["background", "Running"],
     ["ready", "Ready"],
+    ["stalled", "Waiting for network"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
   });

@@ -334,6 +334,31 @@ export interface TurnCancelled {
 }
 
 /**
+ * The receipt for an interrupt that found nothing to interrupt.
+ *
+ * `handleInterrupt` has two early returns — no claude process, and no active
+ * turn — and both used to end in a bare `console.log`. An inbound verb that
+ * can return without emitting is a silent early return, and the deck cannot
+ * answer one: it sets `interruptInFlight` the moment the user presses Stop,
+ * and has no way to tell "the interrupt is working" from "the interrupt
+ * reached a bridge with nothing to do". Putting a deadline on the deck side
+ * of every such verb is the alternative, and it is worse — a deadline is a
+ * guess about how long an answer takes, while a receipt is the answer.
+ *
+ * `reason` says which early return it was. `no_process` is a card whose
+ * claude is not up (between spawns, after a terminal exit); `no_turn` is a
+ * live claude with no turn open, where the interrupt is still written to
+ * stdin — harmless, and claude may act on it — but nothing can end, because
+ * nothing was running.
+ */
+export interface InterruptNoop {
+  type: "interrupt_noop";
+  tug_session_id: string;
+  reason: "no_process" | "no_turn";
+  ipc_version: number;
+}
+
+/**
  * The emit sites an `error` frame can come from — the one frame family
  * that locks a card body, so the set is enumerated rather than left to
  * free-form strings. A new site adds a slug here; `emitErrorFrame` is the
@@ -364,6 +389,10 @@ export type ErrorFrameSite =
   | "drain_eof_open_turn"
   /** A submit arrived after the drain had already observed EOF. */
   | "send_after_eof"
+  /** A submit waited out its horizon on the cold-boot readiness gate. */
+  | "send_ready_timeout"
+  /** A submit waited out its horizon behind a respawn that never cleared. */
+  | "send_respawn_timeout"
   /** The stub replay engine ran past the end of its transcript. */
   | "stub_replay_exhausted";
 
@@ -1626,6 +1655,7 @@ export type OutboundMessage =
   | Question
   | TurnComplete
   | TurnCancelled
+  | InterruptNoop
   | ErrorEvent
   | ThinkingText
   | ContentBlockStart

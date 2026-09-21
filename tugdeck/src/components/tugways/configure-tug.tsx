@@ -119,6 +119,7 @@ import {
   useClaudeVersion,
 } from "@/lib/claude-version-store";
 import { hostToolsStore, useHostTools } from "@/lib/host-tools-store";
+import { useNetworkPath } from "@/lib/network-path-store";
 import {
   subscriptionLabel,
   pendingOpenStepCopy,
@@ -126,6 +127,11 @@ import {
   isLoginOnlyWizard,
   hostToolsCopy,
   returnHomeStepKey,
+  authOfflineCopy,
+  deriveProbingHold,
+  deriveConfigureTugRequired,
+  deriveFirstRunComplete,
+  CONFIGURE_TUG_PROBE_DEADLINE_MS,
 } from "./configure-tug-copy";
 import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser } from "./tug-file-chooser";
@@ -331,6 +337,11 @@ export function ConfigureTug(): ReactElement {
 
   const notReady = forced ? !forcedLoggedIn : loggedIn === false;
 
+  // The macOS host's network-path hint ([L02] through the store's own hook).
+  // A hint, believed in one direction only; `network-path-store.ts` carries
+  // the argument and the two consumers below read it accordingly.
+  const { status: pathStatus } = useNetworkPath();
+
   // First launch: show the wizard up front and immediately, even before the
   // auth probe answers, rather than flashing a blank deck. The flag is read
   // once at mount (tugbank is ready before React mounts); it is persisted when
@@ -399,9 +410,41 @@ export function ConfigureTug(): ReactElement {
     return () => window.clearTimeout(timer);
   }, [signingIn]);
 
+  // The probe's answer either arrives or it does not, and the wizard cannot
+  // wait on it forever — `probing` is a term of `required`, so an unbounded
+  // hold is the app held open by a frame that is never coming.
+  const [probeDeadlinePassed, setProbeDeadlinePassed] = useState(false);
+  useEffect(() => {
+    if (loggedIn !== null) return;
+    const timer = window.setTimeout(
+      () => setProbeDeadlinePassed(true),
+      CONFIGURE_TUG_PROBE_DEADLINE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [loggedIn]);
+
   // While the probe is still in flight on a first launch, the login state is
   // unknown — render a "checking" body instead of guessing step statuses.
-  const probing = !forced && inFirstRun && loggedIn === null;
+  const probing = deriveProbingHold({
+    forced: forced !== false,
+    inFirstRun,
+    loggedIn,
+    reason,
+    deadlinePassed: probeDeadlinePassed,
+  });
+
+  // The probe ran and could not tell. Not the same as logged out, and treated
+  // as neither a claim on the app nor an answer: the wizard says what it does
+  // not know, keeps its button, and gets out of the way.
+  const probeFailed = !forced && reason === "probe_failed";
+
+  // Signed out, with the host reporting no route. The one use Tug makes of
+  // the path hint, and it reads the believed negative only — see
+  // `deriveConfigureTugRequired`, which takes the same pair and is where the
+  // argument lives. `satisfied` says nothing here, because captive wifi
+  // reports it while nothing gets through.
+  const loggedOutOffline =
+    !forced && reason === "logged_out" && pathStatus === "unsatisfied";
 
   // The version gate takes precedence: while it is open, ConfigureTug suppresses
   // itself so the two app-modals never stack (Spec S02).
@@ -410,8 +453,15 @@ export function ConfigureTug(): ReactElement {
   // the app — setup isn't done, so there is nothing to dismiss to. On demand
   // the app IS set up and the user asked to look, so the wizard is theirs to
   // close. When both are true the required claim wins and Done stays hidden.
-  const required =
-    !suppressed && (forced !== false || notReady || needsFirstSession || probing);
+  const required = deriveConfigureTugRequired({
+    suppressed,
+    forced: forced !== false,
+    notReady,
+    needsFirstSession,
+    probing,
+    reason: forcedReason,
+    pathStatus,
+  });
   const open = deriveConfigureTugOpen(gateOpen, required || onDemand);
 
   // The first run is finished when the wizard's own claim on the app lets go:
@@ -422,11 +472,21 @@ export function ConfigureTug(): ReactElement {
   // (app-test) instances never write it: nothing was asked, so nothing was
   // answered.
   useEffect(() => {
-    if (inFirstRun && !suppressed && !required) {
+    // `!required` is not the test — see `deriveFirstRunComplete`. The offline
+    // case drops `required` precisely so the app is reachable, and writing
+    // `setup-seen` on that would burn a first run that never happened.
+    if (
+      deriveFirstRunComplete({
+        inFirstRun,
+        suppressed,
+        required,
+        effectiveLoggedIn,
+      })
+    ) {
       setFirstRunComplete(true);
       putSetupSeen(true);
     }
-  }, [inFirstRun, suppressed, required]);
+  }, [inFirstRun, suppressed, required, effectiveLoggedIn]);
 
   // Which wizard the user is looking at, latched for as long as the panel is on
   // screen. Radix keeps the content mounted through its close animation, so
@@ -636,6 +696,9 @@ export function ConfigureTug(): ReactElement {
     };
   })();
 
+  const offlineSignIn = authOfflineCopy(
+    loggedOutOffline ? "logged_out_offline" : "probe_failed",
+  );
   const signInStep: Step = claudeMissing
     ? { key: "signin", status: "pending", label: "Log in to Claude" }
     : signingIn
@@ -646,8 +709,21 @@ export function ConfigureTug(): ReactElement {
           detail: "Use your browser to log in…",
           cta: { label: "Logging in…", onClick: handleSignIn },
         }
-      : effectiveLoggedIn
-        ? {
+      : (probeFailed || loggedOutOffline) && !effectiveLoggedIn
+        ? // Two readings, one row. Either Tug could not tell (`probe_failed`)
+          // or it can tell and knows the network is why the fix will not
+          // work (`logged_out` over an unsatisfied path). Both keep the
+          // button: pressing it re-probes on the way to a sign-in, which is
+          // exactly what the user wants when the network comes back.
+          {
+            key: "signin",
+            status: "error",
+            label: offlineSignIn.label,
+            detail: offlineSignIn.detail,
+            cta: { label: offlineSignIn.cta, onClick: handleSignIn },
+          }
+        : effectiveLoggedIn
+          ? {
             key: "signin",
             status: "done",
             label: account?.email ? `Logged in as ${account.email}` : "Logged in to Claude",
@@ -659,15 +735,15 @@ export function ConfigureTug(): ReactElement {
               ? { secondaryCta: { label: "Log Out…", onClick: requestLogout } }
               : {}),
           }
-        : signInFailed
-          ? {
+          : signInFailed
+            ? {
               key: "signin",
               status: "error",
               label: "Log in to Claude",
               detail: "Log-in didn't finish. The browser may have been closed.",
               cta: { label: "Try Again", onClick: handleSignIn },
             }
-          : {
+            : {
               key: "signin",
               status: "active",
               label: "Log in to Claude",

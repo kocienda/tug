@@ -3222,7 +3222,12 @@ export const TugPromptEntry = React.forwardRef<
         // submit. Editor Return reaches `performSubmit` directly
         // (never via this action), so an in-flight Return queues
         // rather than popping.
-        if (submitButtonModeRef.current.kind === "stop") {
+        if (submitButtonModeRef.current.kind === "force_stop") {
+          // The one mode where the button is not the unified pop: a stop
+          // this session already failed to answer is not worth repeating,
+          // so the same node sends `stop_all_work` instead ([P02]).
+          codeSessionStore.forceStop();
+        } else if (submitButtonModeRef.current.kind === "stop") {
           codeSessionStore.popInteractive();
         } else {
           void performSubmit();

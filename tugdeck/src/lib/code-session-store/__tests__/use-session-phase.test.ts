@@ -27,11 +27,24 @@ function snapshot(over: Partial<SessionPhaseSource> = {}): SessionPhaseSource {
     phase: "idle",
     transportState: "online",
     interruptInFlight: false,
+    stopStalled: false,
+    streamStalled: false,
+    apiRetry: null,
     jobs: [],
     pendingAsk: null,
     ...over,
   };
 }
+
+describe("sessionPhaseFromSnapshot — an unanswered stop reads from a list", () => {
+  test("reads stop_stalled rather than the turn phase underneath it", () => {
+    expect(
+      sessionPhaseFromSnapshot(
+        snapshot({ phase: "streaming", stopStalled: true }),
+      ),
+    ).toBe("stop_stalled");
+  });
+});
 
 describe("unknown liveness reads idle, never danger", () => {
   test("no snapshot — no card, or services not yet constructed — is idle", () => {

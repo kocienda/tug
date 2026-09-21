@@ -171,6 +171,17 @@ export interface SendActionEvent {
    * place). A single-use, single-turn suppression.
    */
   suppress?: boolean;
+  /**
+   * The host's last network-path report was `unsatisfied` — read from
+   * `networkPathStore` by the impure store wrapper at submit, because the
+   * reducer is pure and the hint lives outside it.
+   *
+   * It is the **believed** half of the path hint ([P10]): a submission made
+   * with no route at all is held rather than sent. Nothing anywhere gates a
+   * send on the positive reading — `satisfied` is a captive portal's answer
+   * too, so it proves nothing and licenses nothing.
+   */
+  pathUnsatisfied?: boolean;
 }
 
 /** `session_init` frame — carries Claude's `session_id` (for `--resume`). */
@@ -359,6 +370,57 @@ export interface TurnCompleteEvent {
    * and the reducer falls back to `Date.now()`.
    */
   timestamp?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * `turn_cancelled` — closes the active turn as cancelled. tugcode writes it
+ * wherever a turn ends with `ActiveTurn.interrupted` set: the escalation
+ * ladder that force-terminates a wedged claude, the drain's EOF path, and
+ * `stop_all_work`. It is the clean cancel receipt, and it is a different
+ * frame from the `turn_complete(result: "error")` a healthy claude sends
+ * when it answers its own interrupt in time.
+ *
+ * `partial_result` is whatever assistant text the turn had streamed before
+ * the cut, or the literal "User interrupted" when it had streamed none. The
+ * live path has usually already folded that text into scratch off the
+ * content frames, so the reducer appends it only when the turn would
+ * otherwise commit empty.
+ *
+ * `is_recovery` says tugcode was recovering a wedged claude rather than the
+ * user cancelling. Both reach tugcode's emit sites through one
+ * `ActiveTurn.interrupted` flag, so without the field they are
+ * indistinguishable — and a consumer that read every cancel as the user
+ * taking their card back would act on a session that is still alive and
+ * still working. An older frame carries no field and reads as a user cancel,
+ * which is what every frame before this was.
+ *
+ * Field names mirror `TurnCancelled` in `tugcode/src/types.ts` rather than
+ * being normalized to camelCase: the frame carries no value the wrapper has
+ * to stamp or synthesize, so a normalization pass would have nothing to do.
+ */
+export interface TurnCancelledEvent {
+  type: "turn_cancelled";
+  msg_id: string;
+  seq: number;
+  partial_result: string;
+  is_recovery?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * `interrupt_noop` — the receipt for an interrupt that found nothing to
+ * interrupt. tugcode's `handleInterrupt` has two early returns, and both
+ * write this rather than returning silently: `no_process` is a card whose
+ * claude is not up, `no_turn` a live claude with no turn open.
+ *
+ * It ends the *interrupt*, never the turn. By construction there was no turn,
+ * so the handler clears the per-interrupt flags and leaves the transcript
+ * exactly as it found it.
+ */
+export interface InterruptNoopEvent {
+  type: "interrupt_noop";
+  reason: "no_process" | "no_turn";
   [key: string]: unknown;
 }
 
@@ -920,7 +982,29 @@ export interface SeedQueuedSendsEvent {
     turnKey: string;
     origin: "user" | "wheel";
     queuedAt: number;
+    /**
+     * Carried across the store disposal like every other field: a prompt held
+     * for the network on one store is still held on the store that inherits
+     * it. Re-seeding it unheld would send it into the same dead path the hold
+     * was raised for.
+     */
+    held: boolean;
   }>;
+}
+
+/**
+ * The host's network path transitioned to `satisfied` — injected by
+ * `CodeSessionStore`, which watches `networkPathStore` and dispatches only on
+ * the transition, never on a repeat report.
+ *
+ * It is a **nudge to try**, and the only thing it does is release held sends
+ * ([P10]). It is not an assurance: a captive portal reports a satisfied path
+ * while answering every request with its login page, so the release is
+ * optimistic by design — the send that follows finds out for itself, and the
+ * turn's own retries report what happens.
+ */
+export interface NetworkPathSatisfiedEvent {
+  type: "network_path_satisfied";
 }
 
 /**
@@ -1480,6 +1564,64 @@ export interface TickReplaySilenceEvent {
   type: "tick_replay_silence";
 }
 
+/**
+ * Internal action dispatched by the replay bracket cap
+ * (`REPLAY_BRACKET_DEADLINE_MS` after the bracket opened, regardless of
+ * what arrived inside it). The reducer abandons the bracket and raises a
+ * `replay_bracket_timeout` `lastError` — a distinct cause from
+ * `replay_stalled`, so a log or a bug report tells a bracket that went
+ * quiet apart from one that never ended. Dropped outside `replaying`.
+ */
+export interface TickReplayBracketEvent {
+  type: "tick_replay_bracket";
+}
+
+/**
+ * Internal action dispatched by the interrupt deadline
+ * (`INTERRUPT_SILENCE_DEADLINE_MS` after a CASE B stop went out with no
+ * answer of any kind). The reducer raises `stopStalled` and stands the
+ * interrupt down — but does **not** end the turn, which it has no
+ * evidence about ([P01]). Dropped when `interruptInFlight` is already
+ * false, which is the race where a receipt landed in the same tick.
+ */
+export interface TickInterruptSilenceEvent {
+  type: "tick_interrupt_silence";
+}
+
+/**
+ * Internal action dispatched by the stream-stall timer
+ * (`STREAM_SILENCE_STALL_MS` after the last stream event of a live turn).
+ * The reducer raises `streamStalled`, which is all it does: no turn ends, no
+ * error is stamped, and Stop stays live. Dropped outside a live turn phase,
+ * which is the race where a turn ended in the same tick the timer fired.
+ */
+export interface TickStreamStallEvent {
+  type: "tick_stream_stall";
+}
+
+/**
+ * Local action — the user pressed Force Stop, the control an unanswered
+ * stop turns the submit button into. Emits `stop_all_work`, the verb
+ * tugcode already implements and answers; a no-op from any state where
+ * `stopStalled` is false, so there is no door to Force Stop that does
+ * not run through a stop that went unanswered ([P02]).
+ */
+export interface ForceStopActionEvent {
+  type: "force_stop";
+}
+
+/**
+ * tugcode's answer to `stop_all_work`: the group was swept and the
+ * respawn's handshake acked. Sent on its failure paths too, which is why
+ * the deck consumes it — `handleStopAllWork` also closes the turn with
+ * `turn_cancelled{is_recovery:true}`, so this is the belt to that frame's
+ * braces, and a teardown that half-worked still settles the card.
+ */
+export interface StopAllWorkDoneEvent {
+  type: "stop_all_work_done";
+  [key: string]: unknown;
+}
+
 /** Discriminated union of events the reducer accepts. */
 export type CodeSessionEvent =
   | SendActionEvent
@@ -1491,10 +1633,13 @@ export type CodeSessionEvent =
   | ToolResultEvent
   | ToolUseStructuredEvent
   | TurnCompleteEvent
+  | TurnCancelledEvent
+  | InterruptNoopEvent
   | SystemMetadataEvent
   | ControlRequestForwardEvent
   | RespondApprovalActionEvent
   | RespondQuestionActionEvent
+  | TickStreamStallEvent
   | InterruptActionEvent
   | SetPermissionModeActionEvent
   | SetModelActionEvent
@@ -1526,6 +1671,7 @@ export type CodeSessionEvent =
   | TransportOpenEvent
   | TransportSettledEvent
   | SeedQueuedSendsEvent
+  | NetworkPathSatisfiedEvent
   | ResumeFailedEvent
   | AddUserMessageEvent
   | ReplayStartedEvent
@@ -1543,6 +1689,10 @@ export type CodeSessionEvent =
   | TickTimeoutDwellDoneEvent
   | TickPreflightDoneEvent
   | TickReplaySilenceEvent
+  | TickReplayBracketEvent
+  | TickInterruptSilenceEvent
+  | ForceStopActionEvent
+  | StopAllWorkDoneEvent
   | PromptAnchorEvent
   | RewindPreviewResultEvent
   | RewindResultEvent

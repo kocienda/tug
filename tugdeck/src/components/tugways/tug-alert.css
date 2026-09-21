@@ -110,7 +110,7 @@ body {
      on the child outranks it.
 
      That is not only an app-test condition: any user whose motion is reduced
-     to zero gets the same dead app after a restore gate closes. So the rule a
+     to zero gets the same dead app after an app-modal closes. So the rule a
      closed dialog has to obey is stated unconditionally here rather than left
      to depend on whether an animation happened to run. [L06] — behaviour on a
      DOM attribute, in CSS, never React state. */

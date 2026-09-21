@@ -185,6 +185,8 @@ describe("error frame sites", () => {
       "fresh_init_exit",
       "drain_eof_open_turn",
       "send_after_eof",
+      "send_ready_timeout",
+      "send_respawn_timeout",
       "stub_replay_exhausted",
     ];
     expect([...sites].sort() as string[]).toEqual(declaredSites().sort());

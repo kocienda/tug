@@ -117,14 +117,31 @@ export interface DiscardPrependEffect {
  * reducer. The reducer is pure — only the store wrapper sees real
  * `setTimeout` calls.
  *
- * The four names used today are `"preflight"` (cleared by the first
+ * The five names used today are `"preflight"` (cleared by the first
  * of `replay_started` / `replay_complete` / `transport_close` /
  * 12s tick), `"soft_budget"` (cleared by `replay_started` /
  * `replay_complete`), `"timeout_dwell"` (cleared by the dwell
  * tick itself or by `replay_started` opening the next window), and
- * `"replay_silence"` (restarted by every wire frame inside a replay
- * bracket, cleared on leaving it — armed by the store wrapper through
- * `replaySilenceEffect`, since only the wrapper knows a frame's origin).
+ * `"replay_silence"` (restarted by every *bracket-borne* wire frame
+ * inside a replay bracket, cleared on leaving it — armed by the store
+ * wrapper through `replaySilenceEffect`, since only the wrapper knows a
+ * frame's origin), and `"replay_bracket"` (the absolute cap: armed once
+ * on entering `replaying`, never re-armed, cleared on leaving — armed by
+ * the same wrapper through `replayBracketEffect`).
+ *
+ * And `"interrupt_silence"` — the deck's own horizon behind the
+ * interrupt protocol, armed when `interruptInFlight` rises and cancelled
+ * when it falls, through `interruptSilenceEffect` in the same wrapper.
+ *
+ * And `"stream_stall"` — the one whose two halves live apart, for a reason
+ * the others do not have. Its *arm* is emitted by the four reducer handlers
+ * that fold a live stream event (`streamStallEffect`), because only a
+ * handler knows an event arrived; its *cancel* is a phase transition in the
+ * wrapper (`streamStallCancelEffect`), because the endings that matter are
+ * the ones where no further stream event ever comes. Seven names, then;
+ * four of them transition rules the wrapper owns because a schedule spread
+ * across every handler that could end the thing being watched is the defect
+ * this arc exists to close.
  */
 export interface ScheduleTimerEffect {
   kind: "schedule_timer";

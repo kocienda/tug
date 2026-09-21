@@ -275,3 +275,185 @@ export function hostToolsCopy(tools: {
     secondaryCta: "Skip for now",
   };
 }
+
+// ── The offline readings ─────────────────────────────────────────────────
+//
+// Everything below is about one sentence: the wizard must never hold the app
+// over a question it cannot answer. Its two required actions both need the
+// network — `install` shells out to `curl … | bash`, `log in` opens a browser
+// OAuth round-trip to Anthropic — so on a machine that cannot reach either,
+// the checklist is a door with no handle. The answer is not to hide the
+// buttons but to stop *requiring* them: say plainly why they will not work,
+// leave them where they are for the moment the network returns, and let go of
+// the app so the user can read what is already on disk.
+
+/**
+ * How long the wizard holds a first run on "checking" before it stops waiting
+ * for the probe.
+ *
+ * The hold exists so a first launch shows the checklist rather than flashing a
+ * blank deck, and it was unbounded: `loggedIn === null` held `required` true
+ * for as long as no answer came. With the probe itself now bounded, the only
+ * way to stay `null` is a backend that never answered at all — a tugcast that
+ * did not come up, a frame lost on a transport that reconnected. Twelve
+ * seconds is past the probe's own five-second deadline with room for the
+ * round-trip, so this fires only when the probe's answer never arrived rather
+ * than racing it.
+ */
+export const CONFIGURE_TUG_PROBE_DEADLINE_MS = 12_000;
+
+/**
+ * Whether the wizard should still be holding for the first probe.
+ *
+ * The bounded form of `!forced && inFirstRun && loggedIn === null`. Past the
+ * deadline this is false whatever the store says, which is the whole point:
+ * `probing` is a term of `required`, so an unbounded hold is a wait with no
+ * exit wearing a wizard's clothes.
+ *
+ * `loggedIn === null` is not on its own a reason to hold, and that
+ * distinction is load-bearing: a `probe_failed` result carries `null` too,
+ * and it is an *answer* — "we asked and could not tell". Holding on it sent
+ * the wizard back to "Looking for Claude Code…" for the whole deadline after
+ * the news had already arrived, which is both false on its face and the exact
+ * hold this step exists to remove. So the hold is for silence only.
+ */
+export function deriveProbingHold(signals: {
+  forced: boolean;
+  inFirstRun: boolean;
+  loggedIn: boolean | null;
+  /** The `reason` beside `loggedIn`, which is what tells silence from news. */
+  reason: string | null;
+  deadlinePassed: boolean;
+}): boolean {
+  if (signals.forced) return false;
+  if (signals.deadlinePassed) return false;
+  if (signals.reason === "probe_failed") return false;
+  return signals.inFirstRun && signals.loggedIn === null;
+}
+
+/**
+ * Whether the wizard has a claim on the whole app.
+ *
+ * `required` is what makes the wizard app-modal with no way out, so what is
+ * *not* in it matters as much as what is. A probe that could not tell is
+ * absent by construction: `notReady` is `loggedIn === false`, and a
+ * `probe_failed` result carries `loggedIn: null`, so an unanswered probe
+ * asserts nothing here. That, plus a bounded `probing`, is what lets the
+ * offline case fall through to a reachable deck ([L31]: a gesture produces
+ * the act or a visible reason — and "the app is held" is neither).
+ *
+ * The second relaxation is the harder one, and it is the only place in Tug
+ * that acts on the host's network-path hint. A **definite** `logged_out`
+ * answered while the host reports the path `unsatisfied` also drops the
+ * claim: Tug knows the user is signed out, and it knows the one fix — a
+ * browser round-trip to Anthropic — cannot possibly work right now. Holding
+ * the whole app behind a button that cannot succeed is the "unable to do its
+ * main job, still responsive and truthful" line failed at its clearest case.
+ *
+ * **It reads only the believed negative.** `unsatisfied` means there is no
+ * route, which is true; `satisfied` means a route exists, which captive wifi
+ * reports while nothing gets through. So `satisfied` relaxes nothing, and a
+ * `null` — the host has not reported yet, or there is no host — relaxes
+ * nothing either. An absent hint is not an offline hint, and this function is
+ * the one place that distinction has to be right ([P10]).
+ *
+ * Nothing else changes for such a user: `setup-seen` is still gated on a
+ * definite login (see {@link deriveFirstRunComplete}), so getting out of the
+ * way does not record a setup that never happened.
+ */
+export function deriveConfigureTugRequired(signals: {
+  suppressed: boolean;
+  forced: boolean;
+  notReady: boolean;
+  needsFirstSession: boolean;
+  probing: boolean;
+  /** The `reason` beside `loggedIn` — `"logged_out"` is the arm below. */
+  reason: string | null;
+  /** The host's last path report, or `null` for "nothing was reported". */
+  pathStatus: string | null;
+}): boolean {
+  if (signals.suppressed) return false;
+  if (signals.forced) return true;
+  // Signed out, and the network the fix needs is not there. Only the
+  // negative; `satisfied` and `null` both leave the claim standing.
+  const loggedOutOffline =
+    signals.reason === "logged_out" && signals.pathStatus === "unsatisfied";
+  return (
+    (signals.notReady && !loggedOutOffline) ||
+    signals.needsFirstSession ||
+    signals.probing
+  );
+}
+
+/**
+ * Whether this launch's first run may be recorded as finished.
+ *
+ * Deliberately **not** `!required`. Dropping `required` is how the offline
+ * case gets out of the user's way, and reading that as "setup finished" would
+ * permanently record a first run that never happened — the next launch would
+ * give them a two-row login wizard for a setup they never completed, which is
+ * the exact outcome the write exists to prevent. So the write needs a definite
+ * positive answer: logged in, for real, with the checklist actually let go.
+ * A `probe_failed` result is not that answer, and neither is silence.
+ */
+export function deriveFirstRunComplete(signals: {
+  inFirstRun: boolean;
+  suppressed: boolean;
+  required: boolean;
+  effectiveLoggedIn: boolean;
+}): boolean {
+  return (
+    signals.inFirstRun &&
+    !signals.suppressed &&
+    !signals.required &&
+    signals.effectiveLoggedIn
+  );
+}
+
+/**
+ * Which offline sentence the login row is saying.
+ *
+ * `probe_failed` — Tug asked and got no answer, so it does not know whether
+ * the user is logged in. `logged_out_offline` — Tug knows they are logged out
+ * *and* knows the network is why the fix cannot work. The second reading
+ * needs a way to know the network is the reason, which is the host path hint
+ * — so it was written before its producer existed and acquired one when the
+ * hint landed. Its condition is exactly the relaxation in
+ * {@link deriveConfigureTugRequired}: a definite `logged_out` over an
+ * `unsatisfied` path.
+ */
+export type AuthOfflineReading = "probe_failed" | "logged_out_offline";
+
+/** What the login row says when the network is what is missing. */
+export interface AuthOfflineCopy {
+  label: string;
+  detail: string;
+  /** The button stays — it is what the user presses when the network is back. */
+  cta: string;
+}
+
+/**
+ * The login row's offline copy.
+ *
+ * Both readings keep the button. Removing it would be the tidier-looking
+ * choice and the wrong one: the user has no other way to retry, and a row
+ * that explains a failure while withdrawing its only affordance is a dead
+ * end. The detail line carries the reason instead, so pressing it and getting
+ * nowhere is at least an informed press.
+ */
+export function authOfflineCopy(reading: AuthOfflineReading): AuthOfflineCopy {
+  if (reading === "probe_failed") {
+    return {
+      label: "Can't check your login right now",
+      detail:
+        "Tug asked Claude Code whether you're logged in and got no answer. You can keep reading your existing sessions; starting a turn needs Claude Code.",
+      cta: "Try Again",
+    };
+  }
+  return {
+    label: "Can't log in right now",
+    detail:
+      "Tug needs a network connection to reach Anthropic. Logging in opens your browser, which can't finish while you're offline.",
+    cta: "Log In",
+  };
+}

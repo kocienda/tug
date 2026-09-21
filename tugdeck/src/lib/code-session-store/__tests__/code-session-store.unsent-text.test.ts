@@ -24,6 +24,30 @@ import type { TugConnection } from "@/connection";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { FeedId } from "@/protocol";
+import {
+  networkPathStore,
+  networkPathFromPayload,
+} from "@/lib/network-path-store";
+
+/**
+ * Put the host's path hint into a given state for the duration of one test.
+ *
+ * The store is a module singleton, so every use resets it afterwards — and
+ * resets it to "the host has not said" (`{}`) rather than to `satisfied`,
+ * because a transition into `satisfied` is a release event and would flush a
+ * held prompt out of the queue the test is still looking at.
+ */
+function withPathReport<T>(
+  payload: Record<string, unknown>,
+  body: () => T,
+): T {
+  try {
+    networkPathStore.apply(networkPathFromPayload(payload));
+    return body();
+  } finally {
+    networkPathStore.apply(networkPathFromPayload({}));
+  }
+}
 
 function constructStore(conn: TestFrameChannel): CodeSessionStore {
   return new CodeSessionStore({
@@ -106,6 +130,37 @@ describe("CodeSessionStore.captureUnsentText", () => {
       "queued first",
       "queued second",
     ]);
+  });
+
+  it("captures a prompt held for the network, exactly once", () => {
+    // A held prompt rides `queuedSends` rather than a second queue ([P09]),
+    // which is the whole reason it survives quit with no new persistence
+    // work: this capture already walks that FIFO, and the prompt entry folds
+    // the result into the draft it persists on a "termination" save ([L23]).
+    const store = constructStore(new TestFrameChannel());
+
+    withPathReport({ status: "unsatisfied" }, () => {
+      store.send("written on a plane", []);
+      // Nothing was sent — the card is idle and the words are in the queue.
+      const snap = store.getSnapshot();
+      expect(snap.phase).toBe("idle");
+      expect(snap.queuedSends.length).toBe(1);
+      expect(snap.queuedSends[0].held).toBe(true);
+
+      expect(store.captureUnsentText()).toEqual(["written on a plane"]);
+    });
+  });
+
+  it("deduplicates a held prompt against the stash, as it does a queued one", () => {
+    const store = constructStore(new TestFrameChannel());
+
+    withPathReport({ status: "unsatisfied" }, () => {
+      store.send("held once", []);
+      store.stashUnsentText();
+      // The stash and the live queue hold the same text; the union reports
+      // it once, which is what the composer receives.
+      expect(store.captureUnsentText()).toEqual(["held once"]);
+    });
   });
 
   it("does not report the same text twice when the interrupt left the queue intact", () => {

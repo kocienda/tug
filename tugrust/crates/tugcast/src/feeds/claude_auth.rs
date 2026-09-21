@@ -23,6 +23,18 @@ pub enum AuthState {
     LoggedOut,
     /// Logged in; carries account details for the sign-in UI.
     LoggedIn(AccountInfo),
+    /// The probe did not answer, so the login state is genuinely unknown.
+    ///
+    /// Distinct from [`AuthState::LoggedOut`] on purpose, and the distinction
+    /// is the whole point of this arm. Every non-`NotFound` failure used to
+    /// resolve to `LoggedOut`, which is reasonable for a definite answer —
+    /// better to offer sign-in than to crash-loop a session — and wrong for
+    /// silence: it is exactly what turns a machine whose `claude` is slow or
+    /// wedged into a user being told they are signed out and handed a modal
+    /// that cannot succeed. "We could not tell" is a different sentence from
+    /// "you are signed out", and only the surface reading it can decide what
+    /// to do about it.
+    Unknown,
 }
 
 /// Account details surfaced by `claude auth status --json`, shown in the
@@ -81,17 +93,54 @@ pub(crate) fn claude_command(args: &[&str]) -> Command {
     cmd
 }
 
+/// How long the auth probe may run before its answer stops being worth
+/// waiting for.
+///
+/// `claude auth status --json` reports stored credentials without a model
+/// query, so a healthy run answers in well under a second; five seconds is
+/// roughly ten times that. It is short enough that the setup wizard and the
+/// session-open gate both stay responsive, and it bounds a `claude` binary
+/// that is itself hung — which is the case this exists for, because an
+/// unbounded probe is a wait with no exit on the path to opening a card.
+const AUTH_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Probe the current login state by running `claude auth status --json`.
 ///
 /// Fast and local — the CLI reports stored auth without a model query. A
 /// missing `claude` binary resolves to [`AuthState::ClaudeMissing`]; any other
-/// failure resolves to [`AuthState::LoggedOut`] so the UI offers sign-in rather
-/// than silently crash-looping a session.
+/// *definite* failure resolves to [`AuthState::LoggedOut`] so the UI offers
+/// sign-in rather than silently crash-looping a session. A probe that does not
+/// answer inside [`AUTH_PROBE_TIMEOUT`] resolves to [`AuthState::Unknown`]
+/// instead — see that arm for why silence is not a signed-out answer.
 pub async fn probe() -> AuthState {
-    match claude_command(&["auth", "status", "--json"]).output().await {
-        Ok(output) => parse_status(&String::from_utf8_lossy(&output.stdout)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => AuthState::ClaudeMissing,
-        Err(_) => AuthState::LoggedOut,
+    probe_command(
+        claude_command(&["auth", "status", "--json"]),
+        AUTH_PROBE_TIMEOUT,
+    )
+    .await
+}
+
+/// The bounded probe itself, over a command the caller supplies.
+///
+/// Split out from [`probe`] so a test can point it at a command that never
+/// answers and watch it come back anyway — which is the claim, and which no
+/// test could make against a function that resolves its own executable.
+async fn probe_command(mut cmd: Command, timeout: std::time::Duration) -> AuthState {
+    let started = std::time::Instant::now();
+    match tokio::time::timeout(timeout, cmd.output()).await {
+        Ok(Ok(output)) => parse_status(&String::from_utf8_lossy(&output.stdout)),
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => AuthState::ClaudeMissing,
+        Ok(Err(_)) => AuthState::LoggedOut,
+        Err(_) => {
+            // Logged with the elapsed time so a slow `claude` is a fact in the
+            // log rather than something inferred from a UI that went quiet.
+            tracing::warn!(
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                timeout_ms = timeout.as_millis() as u64,
+                "claude auth probe timed out; login state is unknown"
+            );
+            AuthState::Unknown
+        }
     }
 }
 
@@ -244,5 +293,57 @@ mod tests {
     #[test]
     fn logged_out_when_unparseable() {
         assert_eq!(parse_status("not json at all"), AuthState::LoggedOut);
+    }
+
+    #[tokio::test]
+    async fn a_probe_that_never_answers_is_unknown_not_logged_out() {
+        // The whole claim of the bound, in one assertion pair: a command that
+        // would run for half a minute comes back inside the deadline, and what
+        // it comes back with is `Unknown`. An unbounded `output().await` would
+        // sit here for thirty seconds, and the arm it used to resolve to would
+        // have told the user they were signed out.
+        let mut cmd = Command::new("sleep");
+        cmd.arg("30");
+        let started = std::time::Instant::now();
+        let state = probe_command(cmd, std::time::Duration::from_millis(200)).await;
+        assert_eq!(state, AuthState::Unknown);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "probe took {:?}, which is not a bound",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_definite_answer_is_unchanged_by_the_bound() {
+        // The bound must not change what a command that *does* answer means.
+        // Valid output still reads `LoggedIn`, and malformed output still reads
+        // `LoggedOut` — only silence became a third thing.
+        let mut ok = Command::new("printf");
+        ok.arg(r#"{"loggedIn": true, "email": "user@example.com"}"#);
+        assert_eq!(
+            probe_command(ok, std::time::Duration::from_secs(20)).await,
+            AuthState::LoggedIn(AccountInfo {
+                email: Some("user@example.com".to_string()),
+                subscription_type: None,
+                auth_method: None,
+            })
+        );
+
+        let mut garbage = Command::new("printf");
+        garbage.arg("not json at all");
+        assert_eq!(
+            probe_command(garbage, std::time::Duration::from_secs(20)).await,
+            AuthState::LoggedOut
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_binary_is_still_claude_missing() {
+        let cmd = Command::new("/nonexistent/tug-test-no-such-claude");
+        assert_eq!(
+            probe_command(cmd, std::time::Duration::from_secs(20)).await,
+            AuthState::ClaudeMissing
+        );
     }
 }

@@ -1,7 +1,71 @@
 import Cocoa
 import UniformTypeIdentifiers
 
+/// The coarse stages a launch passes through, in order.
+///
+/// Distinct from the fine-grained lap labels: a lap names one call that
+/// finished, and there are a dozen of them, most of which take under a
+/// millisecond. A stage names **what the app is waiting on**, which is the
+/// only thing worth telling a user whose launch never finished. The mapping
+/// between the two is written out at the lap sites rather than derived from
+/// the label text, so renaming a lap cannot silently rename a stage.
+enum LaunchStage: String {
+    case starting = "starting"
+    case resolvingPath = "resolving PATH"
+    case startingTugcast = "starting tugcast"
+    case loadingInterface = "loading interface"
+    case waitingForInterface = "waiting for the interface"
+}
+
+#if DEBUG
+/// A launch stage deliberately left incomplete, named by
+/// `TUG_FORCE_LAUNCH_STALL`.
+///
+/// The splash deadline cannot be tested from a unit test — it wants a
+/// window, a run loop and ten seconds — so the proof is a real launch that
+/// stalls on purpose. Each case skips exactly the call that *completes* its
+/// stage and nothing else, so the app is left in the state a broken machine
+/// would leave it in: the stage stands, the splash holds, and the deadline
+/// is the only thing that moves.
+///
+/// The skip is at the launch call site only, never in the retry path, so
+/// Retry recovers a forced stall exactly as it would recover a real one —
+/// which is what makes the button's behaviour observable at all. The one
+/// exception is `frontend`, which suppresses only the *first* `frontendReady`
+/// for the same reason: a reload has to be able to succeed.
+///
+/// DEBUG-only; zero bytes of it ship in a release bundle.
+enum LaunchStall: String {
+    case path
+    case tugcast
+    case load
+    case frontend
+
+    static let forced: LaunchStall? = {
+        guard let name = ProcessInfo.processInfo.environment["TUG_FORCE_LAUNCH_STALL"],
+              !name.isEmpty else { return nil }
+        let stall = LaunchStall(rawValue: name)
+        if stall == nil {
+            NSLog("AppDelegate: TUG_FORCE_LAUNCH_STALL=%@ is not a stage — ignoring", name)
+        }
+        return stall
+    }()
+}
+#endif
+
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    /// Origin of the launch clock every `launch` log line measures against.
+    ///
+    /// A static because the reveal happens in `MainWindow`, long after
+    /// `applicationDidFinishLaunching` returns and with no lap function in
+    /// scope, and one launch has exactly one origin.
+    static var launchStartedAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+
+    /// The coarse stage the launch has reached. Advanced by `lap` at the
+    /// sites that enter a new one, and read by nothing yet — it is the fact
+    /// a launch that never finishes needs to be able to name.
+    private(set) var launchStage: LaunchStage = .starting
+
     private var window: MainWindow!
     private var processManager = ProcessManager()
 
@@ -76,6 +140,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// "Check for Updates…" menu item stays hidden.
     private let updateController = UpdateController()
     private var checkForUpdatesMenuItem: NSMenuItem?
+
+    /// The host's network-path hint, started on the first
+    /// `bridgeFrontendReady` and never before. See `NetworkPathMonitor` for
+    /// why it starts late and why `satisfied` is not an assurance.
+    private let networkPathMonitor = NetworkPathMonitor()
     /// An update found before the deck was live. Flushed to the bulletin
     /// bridge once `bridgeFrontendReady` fires, like `pendingOpenPaths`.
     private var pendingUpdateNotice: (version: String, build: String)?
@@ -191,12 +260,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let t0 = CFAbsoluteTimeGetCurrent()
-        func lap(_ label: String) {
+        AppDelegate.launchStartedAt = t0
+        // Every lap goes to the log file as well as Console. Console is not
+        // where anyone reads Tug's logs and not where `just logs-debug`
+        // looks, so a launch that stalled used to leave no durable trace of
+        // how far it got — the report arrived with nothing to read.
+        //
+        // `entering:` advances the coarse stage, and only at the sites that
+        // begin a new one; passing nothing leaves the stage where it was.
+        //
+        // `TugLog.start()` runs a few lines below, but `lap("start")` still
+        // lands in the file: `TugLog` needs no initialization — `start()`
+        // only writes the announcement line — so the first lap is written
+        // ahead of it rather than lost. The file therefore opens with the
+        // lap, then `tuglog initialized`, then the rest.
+        func lap(_ label: String, entering stage: LaunchStage? = nil) {
             let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            if let stage { self.launchStage = stage }
             NSLog("LAUNCH [%6.1fms] %@", ms, label)
+            TugLog.info("launch", label, [
+                TugLog.field("ms", String(format: "%.1f", ms)),
+                TugLog.field("stage", self.launchStage.rawValue),
+            ])
         }
 
-        lap("start")
+        lap("start", entering: .starting)
 
         // Harness pid mode: run as an accessory. A `.regular` app
         // activates itself once it finishes launching and has a visible
@@ -286,6 +374,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         lap("window visible")
 
         window.bridgeDelegate = self
+        // The splash went up in `MainWindow.init`; the deadline is armed
+        // here because the screen it mounts asks the delegate which stage
+        // stalled, and this is the line that makes the delegate exist.
+        window.armSplashDeadline()
         loadPreferences()
         lap("loadPreferences")
 
@@ -314,10 +406,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         lap("updateController")
 
         buildMenuBar()
-        lap("buildMenuBar")
+        lap("buildMenuBar", entering: .resolvingPath)
+
+        #if DEBUG
+        if LaunchStall.forced == .path {
+            NSLog("AppDelegate: TUG_FORCE_LAUNCH_STALL=path — not resolving PATH")
+            return
+        }
+        #endif
 
         ProcessManager.resolveShellPATH()
-        lap("resolveShellPATH")
+        lap("resolveShellPATH", entering: .startingTugcast)
 
         if !ProcessManager.checkTmux() {
             let alert = NSAlert()
@@ -342,7 +441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Setup process manager
         processManager.onReady = { [weak self] url, port in
             guard let self = self else { return }
-            lap("onReady (tugcast port=\(port))")
+            lap("onReady (tugcast port=\(port))", entering: .loadingInterface)
             self.lastAuthURL = url
 
             // Extract the auth token from the ready URL so both paths can construct their load URL.
@@ -379,6 +478,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             self.initialLoadComplete = true
 
+            #if DEBUG
+            if LaunchStall.forced == .load {
+                NSLog("AppDelegate: TUG_FORCE_LAUNCH_STALL=load — not loading the interface")
+                return
+            }
+            #endif
+
             if self.devServingEnabled {
                 // Maker mode serves the frontend from the tugtool source via
                 // Vite, so it genuinely needs a source tree. Maker mode is a
@@ -398,9 +504,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     guard let self = self else { return }
                     if !ready {
                         NSLog("AppDelegate: vite server did not become ready in 10s")
+                        TugLog.warn("launch", "vite server did not become ready", [
+                            TugLog.field("port", self.vitePort),
+                            TugLog.field("waited_s", 10),
+                        ])
                     }
                     let viteURL = "http://127.0.0.1:\(self.vitePort)/auth?token=\(token)"
                     self.window.loadURL(viteURL)
+                    lap("loadURL (vite)", entering: .waitingForInterface)
                     // Notify tugcast to activate file watchers and set origin allowlist.
                     self.processManager.sendDevMode(enabled: true, sourceTree: path, vitePort: self.vitePort)
                 }
@@ -409,6 +520,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 // tugcast serves pre-built dist/ files via ServeDir on port 55255.
                 let tugcastURL = "http://127.0.0.1:\(port)/auth?token=\(token)"
                 self.window.loadURL(tugcastURL)
+                lap("loadURL (tugcast)", entering: .waitingForInterface)
                 // Notify tugcast to update file watchers and clear dev_port from origin allowlist.
                 self.processManager.sendDevMode(enabled: false, sourceTree: self.sourceTreePath, vitePort: self.vitePort)
             }
@@ -419,7 +531,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.window.bridgeDevModeError(message: message)
         }
 
+        // A tugcast that keeps dying is a launch that will never finish, and
+        // the backoff alone says nothing on screen. Past the threshold the
+        // splash stops pretending and names it. `mountLaunchFailure` refuses
+        // once the interface is up, so a respawn loop after the reveal is
+        // still only a log line.
+        processManager.onRepeatedRespawn = { [weak self] attempts, exitCode in
+            guard let self = self else { return }
+            self.window.mountLaunchFailure(
+                stage: LaunchStage.startingTugcast.rawValue,
+                reason: "tugcast has exited \(attempts) times in a row (last exit code \(exitCode))."
+            )
+        }
+
         // Start tugcast
+        #if DEBUG
+        if LaunchStall.forced == .tugcast {
+            NSLog("AppDelegate: TUG_FORCE_LAUNCH_STALL=tugcast — not starting tugcast")
+            return
+        }
+        #endif
         processManager.start(sourceTree: sourceTreePath)
         lap("processManager.start returned")
     }
@@ -2573,6 +2704,20 @@ extension AppDelegate: BridgeDelegate {
             // waiting for a toggle.
             self.sendVoiceOverState()
 
+            // The network-path hint starts here and nowhere earlier: nothing
+            // at launch reads it, and a framework that had to answer before
+            // the splash cleared would be one more launch dependency of
+            // exactly the kind this arc removed. Idempotent — a reconnect's
+            // second call re-publishes the current report to a store that
+            // reloaded empty, rather than stacking a monitor.
+            self.networkPathMonitor.start { [weak self] report in
+                self?.window.bridgeNetworkPath(
+                    status: report.status,
+                    isExpensive: report.isExpensive,
+                    isConstrained: report.isConstrained
+                )
+            }
+
             // First frontendReady is the initial mount — no replay
             // needed (the OS hasn't told tugdeck anything that needs
             // re-asserting yet) and the WebView is already painted by
@@ -2626,6 +2771,39 @@ extension AppDelegate: BridgeDelegate {
     func bridgeHmrUpdate() {
         lastLoadTime = Date()
         updateDevInfoOverlay()
+    }
+
+    func bridgeLaunchStageName() -> String {
+        launchStage.rawValue
+    }
+
+    /// Re-run what the current stage was waiting on.
+    ///
+    /// Each arm is the same call the launch sequence made, so a Retry after
+    /// a transient failure reaches exactly the state a healthy launch would
+    /// have. The window has already put the spinner back and re-armed its
+    /// deadline, so an arm that stalls again produces the screen again.
+    func bridgeRetryLaunchStage() {
+        TugLog.info("launch", "retry", [TugLog.field("stage", launchStage.rawValue)])
+        switch launchStage {
+        case .starting, .resolvingPath:
+            // A PATH that never resolved leaves everything after it unrun,
+            // so this arm resumes the sequence rather than repeating one call.
+            ProcessManager.resolveShellPATH()
+            launchStage = .startingTugcast
+            processManager.start(sourceTree: sourceTreePath)
+        case .startingTugcast:
+            processManager.start(sourceTree: sourceTreePath)
+        case .loadingInterface, .waitingForInterface:
+            guard let url = lastAuthURL else {
+                // No ready ever arrived, so there is no URL to go back to;
+                // the stage is misread and tugcast is the thing to re-run.
+                processManager.start(sourceTree: sourceTreePath)
+                return
+            }
+            launchStage = .waitingForInterface
+            window.loadURL(url)
+        }
     }
 }
 

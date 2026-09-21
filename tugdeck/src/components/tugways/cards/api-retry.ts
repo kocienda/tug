@@ -27,11 +27,33 @@
  */
 export type ApiRetrySeverity = "transient" | "likely-fatal";
 
+/**
+ * The machine-readable discriminator a consumer keys behaviour off.
+ *
+ * `label` is display copy and `severity` is a tone; neither is a fact about
+ * what failed. Anything that has to *act* on the kind of failure — the
+ * lifecycle matrix's `stalled` overlay reads `connection` — reads this
+ * instead, because a copy edit to `label` would otherwise silently stop the
+ * behaviour with no test to catch it, and the tokens that decide the
+ * connection reading are module-private by design.
+ */
+export type ApiRetryCategory =
+  | "connection"
+  | "rate"
+  | "server"
+  | "auth"
+  | "billing"
+  | "permission"
+  | "timeout"
+  | "other";
+
 /** The presentation a raw `api_retry` event classifies into. */
 export interface ApiRetryClass {
   /** Short human label for the failure category. */
   label: string;
   severity: ApiRetrySeverity;
+  /** What failed, for consumers that branch on it. See {@link ApiRetryCategory}. */
+  category: ApiRetryCategory;
 }
 
 /**
@@ -79,26 +101,54 @@ export function classifyApiRetry(
 ): ApiRetryClass {
   switch (error) {
     case "rate_limit":
-      return { label: "Rate limited", severity: "transient" };
+      return { label: "Rate limited", severity: "transient", category: "rate" };
     case "overloaded":
-      return { label: "Servers overloaded", severity: "transient" };
+      return {
+        label: "Servers overloaded",
+        severity: "transient",
+        category: "server",
+      };
     case "timeout":
-      return { label: "Request timed out", severity: "transient" };
+      return {
+        label: "Request timed out",
+        severity: "transient",
+        category: "timeout",
+      };
     case "api_error":
-      return { label: "Server error", severity: "transient" };
+      return { label: "Server error", severity: "transient", category: "server" };
     case "authentication_failed":
-      return { label: "Authentication failed", severity: "likely-fatal" };
+      return {
+        label: "Authentication failed",
+        severity: "likely-fatal",
+        category: "auth",
+      };
     case "billing_error":
-      return { label: "Billing problem", severity: "likely-fatal" };
+      return {
+        label: "Billing problem",
+        severity: "likely-fatal",
+        category: "billing",
+      };
     case "permission_error":
-      return { label: "Permission denied", severity: "likely-fatal" };
+      return {
+        label: "Permission denied",
+        severity: "likely-fatal",
+        category: "permission",
+      };
     default:
       if (errorStatus !== null && errorStatus >= 500) {
-        return { label: "Server error", severity: "transient" };
+        return {
+          label: "Server error",
+          severity: "transient",
+          category: "server",
+        };
       }
       if (errorStatus === null && isNetworkError(error)) {
-        return { label: "Connection lost", severity: "transient" };
+        return {
+          label: "Connection lost",
+          severity: "transient",
+          category: "connection",
+        };
       }
-      return { label: "API error", severity: "transient" };
+      return { label: "API error", severity: "transient", category: "other" };
   }
 }

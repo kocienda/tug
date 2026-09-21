@@ -205,6 +205,14 @@ describe("replay fold — one snapshot tick per flush", () => {
     // double notify — rests entirely on `clearTimeout` (the trailing
     // callback itself publishes unconditionally), so the fake must track
     // cleared handles for that half to be testable.
+    //
+    // It also filters by DURATION. The store arms more than one named
+    // timer over a live turn — the stream-stall deadline is re-armed by
+    // every stream event — and a `TimerSource` sees no names. The
+    // coalescing window is one display frame (16 ms) and every other timer
+    // this store arms is seconds out, so "a timer due inside 100 ms" is the
+    // coalescing flush and nothing else.
+    const WINDOW_MAX_MS = 100;
     const pending = new Map<number, () => void>();
     let armed = 0;
     let clearedCount = 0;
@@ -215,9 +223,9 @@ describe("replay fold — one snapshot tick per flush", () => {
       tugSessionId: TUG,
       sessionMode: "new",
       timerSource: {
-        setTimeout: (cb: () => void) => {
+        setTimeout: (cb: () => void, ms: number) => {
           armed += 1;
-          pending.set(armed, cb);
+          if (ms <= WINDOW_MAX_MS) pending.set(armed, cb);
           return armed;
         },
         clearTimeout: (handle: unknown) => {

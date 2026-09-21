@@ -147,8 +147,8 @@ body {
 /* Z5 submit-button modes [L06].
  *
  * The submit button is one node whose mode is carried by `data-mode`
- * — `submit` / `stop` / `awaiting-user` / `stopping` / `reconnecting`
- * / `restoring` (see `resolveSubmitButtonView`). The four inert modes
+ * — `submit` / `stop` / `force-stop` / `awaiting-user` / `stopping` /
+ * `reconnecting` / `restoring` (see `resolveSubmitButtonView`). The four inert modes
  * are natively `disabled`, so their dimmed, pointer-inert look comes
  * from `TugPushButton`'s own disabled tokens — no per-mode rule
  * needed here; the icon glyph + `aria-label` already distinguish
@@ -167,6 +167,17 @@ body {
   opacity: var(--tugx-control-disabled-opacity, 0.45);
   pointer-events: none;
   cursor: not-allowed;
+}
+
+/* Force Stop ([P02]) — the one mode that gets a rule of its own, because it
+   is the one mode the user has never seen before and it has to read as more
+   than the Stop that just failed them. Same node, same filled-danger fill,
+   same glyph: the whole difference is a ring in the button's own danger
+   colour, so it reads as a stronger version of the control already there
+   rather than a new one. Appearance through CSS off `data-mode` ([L06]). */
+.tug-prompt-entry-submit-button[data-mode="force-stop"] {
+  box-shadow: 0 0 0 2px
+    var(--tug7-surface-control-primary-filled-danger-rest, currentColor);
 }
 
 /* The arbitration tell — a submit parked on the shell-vs-Claude decision

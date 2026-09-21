@@ -48,6 +48,7 @@ import {
 import { cardServicesStore } from "@/lib/card-services-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
+import { isNetworkStalled } from "@/lib/code-session-store/lifecycle-state";
 import { countRunningJobs } from "@/lib/code-session-store/select-jobs";
 import {
   sessionSessionPhaseKey,
@@ -65,7 +66,14 @@ const NOOP_SUBSCRIBE = (): (() => void) => () => {};
  */
 export type SessionPhaseSource = Pick<
   CodeSessionSnapshot,
-  "phase" | "transportState" | "interruptInFlight" | "jobs" | "pendingAsk"
+  | "phase"
+  | "transportState"
+  | "interruptInFlight"
+  | "stopStalled"
+  | "streamStalled"
+  | "apiRetry"
+  | "jobs"
+  | "pendingAsk"
 >;
 
 /**
@@ -186,6 +194,13 @@ export function sessionPhaseFromSnapshot(
     phase: snap.phase,
     transportState: snap.transportState,
     interruptInFlight: snap.interruptInFlight,
+    // A stop the session never answered reads from a list too: that row is
+    // how a card the user isn't looking at says their stop went nowhere.
+    stopStalled: snap.stopStalled,
+    // A session waiting on a network that has stopped answering reads that
+    // from a list too. The condition is derived once, in `lifecycle-state`,
+    // so the overlay on the card and the dot on the row cannot disagree.
+    stalled: isNetworkStalled(snap),
     runningJobCount: countRunningJobs(snap.jobs),
     // A session waiting on an answer reads Awaiting from a list too — that row
     // is how a card the user isn't looking at says it needs them.

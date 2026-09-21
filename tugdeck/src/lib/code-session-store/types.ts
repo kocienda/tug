@@ -473,8 +473,14 @@ export type TurnEndReason =
  * `"logout"` before `claude auth logout`, `"configure-tug"` before the Configure Tug wizard
  * takes the whole app modal. The end-state badge names the flow so a turn the
  * user didn't personally stop doesn't read as an anonymous "Interrupted".
+ *
+ * `"recovery"` is the third and it comes from the other direction: not a flow
+ * the deck started, but tugcode's own `turn_cancelled{is_recovery: true}`,
+ * written when the escalation ladder force-terminated a wedged claude and
+ * respawned it. The user asked for nothing, so the badge must not say they
+ * stopped anything — and it stays tonally quiet for the same reason.
  */
-export type InterruptReason = "logout" | "configure-tug";
+export type InterruptReason = "logout" | "configure-tug" | "recovery";
 
 /**
  * Immutable transcript entry appended once per completed turn.
@@ -882,6 +888,22 @@ export interface QueuedSend {
    * queued therefore stays BELOW it, live and after the flush alike.
    */
   queuedAt: number;
+  /**
+   * True when the submission is waiting for the **network** rather than for
+   * the turn ahead of it: the card was in the `stalled` overlay at submit, or
+   * the host's last path report was `unsatisfied` ([P10]).
+   *
+   * A held entry is not flushed by the ordinary queue drain. It is released —
+   * `held` flipped to false on every entry — by a proving event: a live
+   * stream event, a `turn_complete`, or a path transition to `satisfied`.
+   * Nothing polls ([P11]), and release is a state change rather than a send
+   * of its own; the existing flush path is what puts the head on the wire.
+   *
+   * Held sends ride this same FIFO rather than a second queue, so they are
+   * already captured by `captureUnsentText` and already persist as the card's
+   * draft on a "termination" save ([L23]) with nothing added.
+   */
+  held: boolean;
 }
 
 /**
@@ -985,6 +1007,27 @@ export interface CodeSessionSnapshot {
    * their stop request hasn't been lost between request and ack.
    */
   interruptInFlight: boolean;
+
+  /**
+   * True once a stop has gone unanswered past
+   * `INTERRUPT_SILENCE_DEADLINE_MS`. The lifecycle projection reads it
+   * to offer Force Stop in place of a stop that produced nothing.
+   *
+   * It makes no claim that the turn ended — `activeTurn` may still be
+   * non-null, and only a real turn end commits it ([P01]).
+   */
+  stopStalled: boolean;
+  /**
+   * True once a live turn has gone `STREAM_SILENCE_STALL_MS` without a
+   * single stream event. Raises the lifecycle matrix's `stalled` overlay
+   * alongside a `connection`-category `apiRetry`, and cleared by the next
+   * stream event.
+   *
+   * Like {@link stopStalled} it makes no claim that the turn ended, and
+   * unlike `transport_down` it does not disable anything — the wire is fine
+   * and Stop is deliverable.
+   */
+  streamStalled: boolean;
 
   tugSessionId: string;
   displayLabel: string;
@@ -1246,7 +1289,8 @@ export interface CodeSessionSnapshot {
       | "session_unknown"
       | "session_not_owned"
       | "resume_failed"
-      | "replay_stalled";
+      | "replay_stalled"
+      | "replay_bracket_timeout";
     message: string;
     at: number;
     /**

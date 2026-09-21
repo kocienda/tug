@@ -74,9 +74,11 @@ import {
   TugProgressIndicator,
   type TugProgressIndicatorState,
 } from "@/components/tugways/tug-progress-indicator";
+import { isNetworkStalled } from "@/lib/code-session-store/lifecycle-state";
 import {
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
+  stallLabel,
   SESSION_PHASE_LABELS,
   type SessionPhaseInput,
 } from "@/lib/code-session-store/session-phase-visual";
@@ -1452,6 +1454,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     phase: snap.phase,
     transportState: snap.transportState,
     interruptInFlight: snap.interruptInFlight,
+    // The stop went out and nothing answered it. The cell says so rather
+    // than falling back to whatever the turn phase still claims.
+    stopStalled: snap.stopStalled,
+    // The network claude needs has stopped answering — claude's own retry
+    // report or a turn that has gone silent. The cell says so rather than
+    // going on claiming to stream.
+    stalled: isNetworkStalled(snap),
     // A committed turn can leave agents running behind it; without this
     // the cell would read "Idle" over live work.
     runningJobCount: countRunningJobs(jobsLedger),
@@ -1469,7 +1478,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // STATE cell value — the human-readable phase title. The two
   // flanking indicators take the same phase key and derive their
   // own role + state via sessionSessionPhaseVisual.
-  const stateLabelText = SESSION_PHASE_LABELS[statePhaseKey];
+  // `stalled` is the one key whose label carries a detail: claude's retry
+  // count, when the stall arrived as a retry announcement rather than as
+  // silence. See `stallLabel` for why that is a helper and not an entry.
+  const stateLabelText =
+    statePhaseKey === "stalled"
+      ? stallLabel(snap.apiRetry)
+      : SESSION_PHASE_LABELS[statePhaseKey];
 
   // TASKS cell — the numbered checklist alone ([D100]'s derived
   // turn-scoped fold, keeping its idle demotion: a half-done list does

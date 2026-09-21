@@ -87,6 +87,16 @@ describe("resolveSubmitButtonView — Z5 mode → view", () => {
     });
   });
 
+  it("force_stop — enabled, danger role, stop glyph", () => {
+    expect(resolveSubmitButtonView({ kind: "force_stop" })).toEqual({
+      dataMode: "force-stop",
+      ariaLabel: "Force stop",
+      disabled: false,
+      icon: "stop",
+      danger: true,
+    });
+  });
+
   it("exactly the four inert modes are disabled", () => {
     // The `disabled` field is also `performSubmit`'s Enter-gate:
     // submit / stop fire, the rest do not.
@@ -94,6 +104,9 @@ describe("resolveSubmitButtonView — Z5 mode → view", () => {
       !resolveSubmitButtonView(m).disabled;
     expect(fires({ kind: "submit", disabled: false })).toBe(true);
     expect(fires({ kind: "stop" })).toBe(true);
+    // The only other enabled member of the stop family. A card whose stop
+    // went unanswered has something left to do.
+    expect(fires({ kind: "force_stop" })).toBe(true);
     expect(fires({ kind: "awaiting_user" })).toBe(false);
     expect(fires({ kind: "stopping" })).toBe(false);
     expect(fires({ kind: "reconnecting" })).toBe(false);

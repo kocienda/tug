@@ -64,7 +64,10 @@ import {
   createInitialState,
   deriveActiveTurnSnapshot,
   reduce,
+  interruptSilenceEffect,
+  replayBracketEffect,
   replaySilenceEffect,
+  streamStallCancelEffect,
   truncateTranscriptAtAnchor,
   upsertInkTurn,
   appendTurnInterleavingInk,
@@ -74,6 +77,10 @@ import {
 } from "./code-session-store/reducer";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { getDigestStore } from "./digest-store";
+import {
+  networkPathStore,
+  type NetworkPathStatus,
+} from "./network-path-store";
 import {
   clearCachedParses,
   invalidateCachedParsesByPrefix,
@@ -117,6 +124,11 @@ export type {
 } from "./code-session-store/types";
 
 export {
+  BRACKET_FRAME_TYPES,
+  INTERRUPT_SILENCE_DEADLINE_MS,
+  INTERRUPT_STALLED_MESSAGE,
+  REPLAY_BRACKET_DEADLINE_MS,
+  REPLAY_BRACKET_MESSAGE,
   REPLAY_PREFLIGHT_TIMEOUT_MS,
   REPLAY_SILENCE_DEADLINE_MS,
   REPLAY_SOFT_BUDGET_MS,
@@ -282,7 +294,7 @@ function sessionAtomVerdict(atom: AtomSegment): {
 }
 
 /** CODE_OUTPUT frame `type` values the reducer currently handles. */
-const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
+export const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   "session_init",
   "content_block_start",
   "assistant_text",
@@ -291,6 +303,25 @@ const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   "tool_result",
   "tool_use_structured",
   "turn_complete",
+  // The cancel receipt: tugcode closes an interrupted turn with this rather
+  // than `turn_complete` whenever the turn ended with `ActiveTurn.interrupted`
+  // set — the escalation ladder that force-terminates a wedged claude, the
+  // drain's EOF path, and `stop_all_work`. The reducer commits the turn as
+  // interrupted and clears the per-interrupt flags; `is_recovery: true` marks
+  // a cancel tugcode performed to recover a wedged claude, which commits the
+  // same way but is not badged as a stop the user asked for.
+  "turn_cancelled",
+  // The receipt for an interrupt that found nothing to interrupt — tugcode's
+  // `handleInterrupt` reached a card with no claude process (`no_process`) or
+  // a live claude with no turn open (`no_turn`). Either way no turn can end,
+  // so the reducer clears the per-interrupt flags and leaves the transcript
+  // alone: by construction there was no turn to commit.
+  "interrupt_noop",
+  // tugcode's answer to `stop_all_work` — the group was swept and its
+  // respawn acked. Emitted on its failure paths too, which is exactly why
+  // the deck listens: it is the belt to `turn_cancelled`'s braces, so a
+  // teardown that half-worked still settles a card offering Force Stop.
+  "stop_all_work_done",
   "system_metadata",
   "control_request_forward",
   "cost_update",
@@ -518,6 +549,13 @@ export class CodeSessionStore {
    * one-line iteration at dispose; no chance of forgetting one.
    */
   private _lifecycleUnsubs: Array<() => void> = [];
+  /** Unsubscribe from the host's path hint; cleared at dispose. */
+  private _pathUnsub: (() => void) | null = null;
+  /**
+   * The last path status this store saw, so the release fires on the
+   * *transition* into `satisfied` and not on every repeat report of it.
+   */
+  private _lastPathStatus: NetworkPathStatus | null = null;
   private _lastFrameByFeed: Map<number, unknown> = new Map();
 
   /**
@@ -657,6 +695,26 @@ export class CodeSessionStore {
         this.dispatch({ type: "transport_open" });
       }),
     );
+
+    // The host's path hint ([P10]), watched for the one transition that does
+    // anything: into `satisfied`, which releases a prompt held for the
+    // network. A repeated report of the same status is not a transition and
+    // dispatches nothing, and nothing here asks at an interval ([P11]) — the
+    // host pushes, this listens.
+    //
+    // The seed is the status standing at construction, so a store built while
+    // the path was already satisfied does not read its first notification as
+    // a transition into it.
+    this._lastPathStatus = networkPathStore.getSnapshot().status;
+    this._pathUnsub = networkPathStore.subscribe(() => {
+      if (this._disposed) return;
+      const status = networkPathStore.getSnapshot().status;
+      const prev = this._lastPathStatus;
+      this._lastPathStatus = status;
+      if (status === "satisfied" && prev !== "satisfied") {
+        this.dispatch({ type: "network_path_satisfied" });
+      }
+    });
   }
 
   /** L02 subscribe contract. Returns an unsubscribe function. */
@@ -775,6 +833,8 @@ export class CodeSessionStore {
       phase: this.state.phase,
       transportState: this.state.transportState,
       interruptInFlight: this.state.interruptInFlight,
+      stopStalled: this.state.stopStalled,
+      streamStalled: this.state.streamStalled,
       tugSessionId: this.tugSessionId,
       displayLabel: this.displayLabel,
       sessionMode: this.sessionMode,
@@ -1005,6 +1065,12 @@ export class CodeSessionStore {
       content: wire.content,
       turnKey: mintTurnKey(),
       suppress: opts?.suppress === true,
+      // Read here rather than in the reducer, which is pure and cannot see a
+      // module store. Only the believed negative is passed: `unsatisfied`
+      // means there is no route and the submission is held ([P10]). The
+      // positive reading is not passed at all, because nothing may be gated
+      // on it.
+      pathUnsatisfied: networkPathStore.getSnapshot().status === "unsatisfied",
     });
   }
 
@@ -1260,6 +1326,21 @@ export class CodeSessionStore {
   interrupt(reason?: InterruptReason): void {
     if (this._disposed) return;
     this.dispatch({ type: "interrupt_action", reason });
+  }
+
+  /**
+   * Force Stop — the control an unanswered stop turns the submit button
+   * into. Emits `stop_all_work`, which tugcode implements and answers, and
+   * which reaches it with no new plumbing: the verb is already in
+   * `INBOUND_VERBS`, and tugcast's `dispatch_one` routes CODE_INPUT by
+   * session id rather than by verb.
+   *
+   * A no-op unless `stopStalled` is set — the reducer's guard, not this
+   * method's, so every door to the frame runs through the same one.
+   */
+  forceStop(): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "force_stop" });
   }
 
   /**
@@ -1699,6 +1780,13 @@ export class CodeSessionStore {
       this.cancelQueuedSend(queued[queued.length - 1].turnKey);
       return;
     }
+    // A stop this session already failed to answer is not worth repeating.
+    // Both doors on the unified gesture — the Z5 button and Escape — escalate
+    // instead ([F04]).
+    if (this.state.stopStalled) {
+      this.forceStop();
+      return;
+    }
     this.interrupt();
   }
 
@@ -1810,6 +1898,10 @@ export class CodeSessionStore {
       unsub();
     }
     this._lifecycleUnsubs = [];
+    if (this._pathUnsub !== null) {
+      this._pathUnsub();
+      this._pathUnsub = null;
+    }
     this.feedStore.dispose();
     // Cancel every in-flight replay-clock timer. After dispose, even
     // if a callback fires before the cancel takes effect (timer
@@ -2046,6 +2138,31 @@ export class CodeSessionStore {
             typeof ev.fallback_model === "string" ? ev.fallback_model : "",
         } as unknown as CodeSessionEvent;
       }
+      if (ev.type === "turn_cancelled") {
+        // Defensive narrowing, the same contract every sibling here keeps:
+        // make an untrusted wire value one of the shapes the reducer knows.
+        // The field names stay the wire's — the frame carries nothing the
+        // wrapper has to stamp (no turnKey to mint, no deadline to compute),
+        // so there is no camelCase event shape to normalize toward.
+        return {
+          type: "turn_cancelled",
+          msg_id: typeof ev.msg_id === "string" ? ev.msg_id : "",
+          seq: typeof ev.seq === "number" ? ev.seq : 0,
+          partial_result:
+            typeof ev.partial_result === "string" ? ev.partial_result : "",
+          ...(ev.is_recovery === true ? { is_recovery: true } : {}),
+        } as unknown as CodeSessionEvent;
+      }
+      if (ev.type === "interrupt_noop") {
+        // Defensive narrowing. An unrecognized `reason` narrows to `no_turn`,
+        // the conservative of the two: it says the bridge is up and idle,
+        // which is what a card that got an unreadable receipt should assume
+        // rather than that its claude is gone.
+        return {
+          type: "interrupt_noop",
+          reason: ev.reason === "no_process" ? "no_process" : "no_turn",
+        } as unknown as CodeSessionEvent;
+      }
       if (ev.type === "output_truncated") {
         // No payload — the reducer flips a per-turn boolean. Drop the wire's
         // `ipc_version` so the reducer event is clean.
@@ -2187,17 +2304,41 @@ export class CodeSessionStore {
     const reduceMs = performance.now() - reduceStart;
     this.state = state;
     this.processEffects(effects);
-    // Replay silence deadline: armed on entering `replaying`, restarted
-    // by every wire frame ingested inside it, disarmed on leaving. It is
-    // armed here rather than in the reducer because only the wrapper
-    // knows an event's origin — and after `processEffects`, so the
-    // deck's own ingest work never counts as the relay's silence.
+    // The two replay deadlines, both armed here rather than in the
+    // reducer: the silence one because only the wrapper knows an event's
+    // origin, and the bracket cap because arming and cancelling it are
+    // one rule about a phase transition, and splitting them would leave
+    // the cancel to be remembered at every exit. Both run after
+    // `processEffects`, so the deck's own ingest work on a large
+    // `replay_batch` never counts against either.
+    //
+    // Silence restarts on a bracket-borne wire frame only ([P05]);
+    // the cap is armed once per bracket and never re-armed ([P04]).
     const silence = replaySilenceEffect(
       prev.phase,
       state.phase,
       origin === "wire",
+      event.type,
     );
     if (silence !== null) this.processEffects([silence]);
+    const bracket = replayBracketEffect(prev.phase, state.phase);
+    if (bracket !== null) this.processEffects([bracket]);
+    // The interrupt deadline, on the same terms and for the same reason:
+    // its life is the `interruptInFlight` flag's, and a rule written once
+    // here cannot be forgotten at one of the fourteen returns that clear
+    // the flag.
+    const interrupt = interruptSilenceEffect(
+      prev.interruptInFlight,
+      state.interruptInFlight,
+    );
+    if (interrupt !== null) this.processEffects([interrupt]);
+    // The stall timer's cancel half, on the same terms again. Its *arm* is
+    // emitted by the four handlers that fold a live stream event, because
+    // only they know an event arrived; its cancel is a transition on the
+    // phase, because the endings that matter are the ones where no further
+    // stream event ever comes.
+    const stall = streamStallCancelEffect(prev.phase, state.phase);
+    if (stall !== null) this.processEffects([stall]);
     this.maybePersistStateChange(prev, state);
     // Turn boundary (send or commit): the live usage path clears so the
     // status cells never read a stale frame across turns — the old

@@ -25,6 +25,7 @@ import {
 } from "./lib/layout-imposer";
 import { initRecentDocuments } from "./lib/recent-documents";
 import { installActivationClickBridge } from "./lib/activation-click-bridge";
+import { installNetworkPathBridge } from "./lib/network-path-store";
 import { installUpdateBridge } from "./lib/update-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
@@ -272,6 +273,57 @@ if (!container) {
   throw new Error("deck-container element not found");
 }
 
+/**
+ * How long one of the boot awaits may run before the host is told which one
+ * is still running.
+ *
+ * Matched to `MainWindow.splashDeadlineMs`, and deliberately so: the splash's
+ * own deadline fires at the same moment and would otherwise mount a screen
+ * saying only "waiting for the interface". A report that arrives on the same
+ * tick names the await instead, which is the difference between a screen the
+ * user can act on and one that restates what they can already see.
+ */
+const BOOT_AWAIT_HORIZON_MS = 10_000;
+
+/**
+ * Tell the host that a boot await has run past its horizon.
+ *
+ * A report, never a bypass. The await it names is still running and still
+ * awaited; nothing downstream proceeds on a WASM init that has not returned.
+ * Outside the Swift host — a browser tab, an app-test with no bridge — there
+ * is no message handler and this is a no-op.
+ */
+function reportBootStall(waitingOn: string): void {
+  const webkit = (window as unknown as {
+    webkit?: {
+      messageHandlers?: {
+        frontendLaunchStalled?: { postMessage: (v: unknown) => void };
+      };
+    };
+  }).webkit;
+  webkit?.messageHandlers?.frontendLaunchStalled?.postMessage({ waitingOn });
+}
+
+/**
+ * Await `promise`, reporting the wait by name if it outlives the horizon.
+ *
+ * Each of the boot awaits is wrapped individually rather than the
+ * `Promise.all` around two of them: a settled `Promise.all` says only that
+ * both finished, so a horizon on it could never say which one had not — and
+ * naming the one that did not is the whole point of the message.
+ */
+async function withBootHorizon<T>(
+  waitingOn: string,
+  promise: Promise<T>,
+): Promise<T> {
+  const timer = setTimeout(() => reportBootStall(waitingOn), BOOT_AWAIT_HORIZON_MS);
+  try {
+    return await promise;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Async IIFE: wait for tugbank data + WASM before constructing DeckManager.
 //
 // Initialization sequence:
@@ -286,8 +338,8 @@ if (!container) {
 
   // Wait for initial DEFAULTS frame + WASM init in parallel.
   await Promise.all([
-    tugbankClient.ready(),
-    initTugmark({ module_or_path: wasmUrl }),
+    withBootHorizon("tugbank", tugbankClient.ready()),
+    withBootHorizon("tugmark", initTugmark({ module_or_path: wasmUrl })),
   ]);
 
   // All domain snapshots are now in the TugbankClient cache.
@@ -322,12 +374,12 @@ if (!container) {
   // flash the wrong theme and then restyle.
   if (import.meta.env.PROD) {
     // Apply the saved non-base override <link>.
-    await activateProductionTheme(initialTheme);
+    await withBootHorizon("theme", activateProductionTheme(initialTheme));
   } else {
     // Reconcile the dev server's baked active theme with this variant's saved
     // theme — the dev server's boot seed can come from a different tugbank
     // instance than this app writes to (see syncDevActiveTheme).
-    await syncDevActiveTheme(initialTheme);
+    await withBootHorizon("theme", syncDevActiveTheme(initialTheme));
   }
 
   // Sync canvas color to Swift bridge from the applied CSS metadata token.
@@ -538,6 +590,14 @@ if (!container) {
   // bulletin. Installed after the provider tree is mounted so the first
   // push has a Toaster to land in. See `lib/update-bridge.ts`.
   installUpdateBridge();
+
+  // Receive the host's network-path reports. A hint, and asymmetric: the
+  // store believes `unsatisfied` and treats `satisfied` as nothing but a
+  // nudge to try, because captive wifi reports the latter while nothing gets
+  // through. The receiver is installed before the host's first push can
+  // arrive — the host starts its monitor on `frontendReady`, which the deck
+  // signals after this point. See `lib/network-path-store.ts`.
+  installNetworkPathBridge();
 
   // Receive the host's click-through activation point: the click that brings a
   // backgrounded Tug.app forward never reaches the document, so the host hands

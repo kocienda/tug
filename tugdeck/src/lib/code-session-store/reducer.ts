@@ -32,6 +32,7 @@
 import type { AtomSegment } from "../tug-atom-img";
 import type { ContentBlock } from "../../protocol";
 import type { Effect } from "./effects";
+import { isNetworkStalled } from "./lifecycle-state";
 import type {
   AddUserMessageEvent,
   ApiRetryEvent,
@@ -53,6 +54,7 @@ import type {
   CostUpdateEvent,
   ReplayCompleteEvent,
   SeedQueuedSendsEvent,
+  NetworkPathSatisfiedEvent,
   ReplayStartedEvent,
   RespondApprovalActionEvent,
   RespondQuestionActionEvent,
@@ -71,6 +73,8 @@ import type {
   TaskUpdatedEvent,
   TaskProgressEvent,
   TurnCompleteEvent,
+  TurnCancelledEvent,
+  InterruptNoopEvent,
   WakeStartedEvent,
   AssistantOpenerEvent,
   TugNoticeEvent,
@@ -522,6 +526,12 @@ export interface CodeSessionState {
     turnKey: string;
     origin: "user" | "wheel";
     queuedAt: number;
+    /**
+     * Waiting for the network rather than for the turn ahead of it — see
+     * {@link QueuedSend.held}, whose doc is the contract. A held entry is
+     * skipped by every flush until a proving event releases it.
+     */
+    held: boolean;
   }>;
   lastError: {
     cause:
@@ -531,7 +541,8 @@ export interface CodeSessionState {
       | "session_unknown"
       | "session_not_owned"
       | "resume_failed"
-      | "replay_stalled";
+      | "replay_stalled"
+      | "replay_bracket_timeout";
     message: string;
     at: number;
     /**
@@ -770,6 +781,34 @@ export interface CodeSessionState {
    */
   interruptInFlight: boolean;
   /**
+   * A stop went unanswered past `INTERRUPT_SILENCE_DEADLINE_MS`, so the
+   * deck stopped waiting on a receipt and said so. Set by
+   * {@link handleTickInterruptSilence}; cleared at every turn end, in
+   * `enterErrored`, and at the next `send`.
+   *
+   * **It is not a claim that the turn ended.** `pendingTurn` stays open
+   * and only a real turn end — `turn_cancelled`, `turn_complete`, a
+   * terminal — commits it ([P01]). What the flag changes is what the
+   * stop control *means*: the card offers Force Stop rather than
+   * repeating a stop nothing answered. Committing a turn the far end may
+   * still be writing would be the same lie the app-wide restore modal
+   * told, and this arc is removing that lie rather than adding one.
+   */
+  stopStalled: boolean;
+  /**
+   * A live turn has gone `STREAM_SILENCE_STALL_MS` without a single stream
+   * event. Set by {@link handleTickStreamStall}; cleared by the next stream
+   * event ({@link foldStreamEvent}), at every turn end, in `enterErrored`,
+   * and at the next `send`.
+   *
+   * Like {@link stopStalled} it is a claim about the *wait*, not about the
+   * turn: the turn stays open, `lastError` is not stamped, and Stop stays
+   * deliverable. The card reads "Waiting for network" instead of
+   * "Streaming", which is the difference between a screen that is lying and
+   * one that is quiet about a real wait.
+   */
+  streamStalled: boolean;
+  /**
    * Why the in-flight CASE B interrupt fired, when it wasn't a plain
    * user Stop. Stashed by `handleInterrupt` when an app-level flow stops
    * turns, and read by `buildTurnEntry` so the committed turn's end-state
@@ -901,28 +940,141 @@ export interface CodeSessionState {
  *   p99 579 ms, max 1,451 ms. 15 s is ten times the worst bracket ever
  *   seen and still inside a user's patience for a modal that cannot be
  *   dismissed.
+ * - `REPLAY_BRACKET_DEADLINE_MS` — the absolute cap on a bracket, armed
+ *   once when `phase` becomes `replaying` and never re-armed, so no
+ *   amount of wire traffic can buy a bracket more of it. tugcast already
+ *   caps a bracket at 120 s and synthesizes
+ *   `replay_complete{replay_timeout}`, an honest close carrying an
+ *   outcome the card can explain; where that frame can arrive it should
+ *   win, so this sits above it. What it exists for is the cases where it
+ *   cannot: a CODE_OUTPUT replay-ring overflow, a `replay_complete`
+ *   dropped by `handleReplayComplete`'s own phase guard, a
+ *   `request_replay` dropped before session init. 150 s costs one card's
+ *   patience rather than the whole deck's ([P04]) — affordable only
+ *   because the app-wide restore modal goes away in the same arc.
  */
 export const REPLAY_SOFT_BUDGET_MS = 2000;
 export const REPLAY_TIMEOUT_DWELL_MS = 1500;
 export const REPLAY_PREFLIGHT_TIMEOUT_MS = 12_000;
 export const REPLAY_SILENCE_DEADLINE_MS = 15_000;
+export const REPLAY_BRACKET_DEADLINE_MS = 150_000;
+
+/**
+ * How long the deck waits for *any* answer to a stop before it stops
+ * waiting. Sized just past tugcode's own escalation ladder:
+ * `INTERRUPT_ACK_GRACE_MS` (2000) before it force-terminates, plus the
+ * 1500 ms SIGINT grace before SIGKILL, plus headroom for the respawn —
+ * so a ladder that runs to its end still beats this deadline and the
+ * card settles on a real receipt rather than on a clock.
+ *
+ * Which is to say: with the `turn_cancelled` handler and tugcode's
+ * `interrupt_noop` receipts both in place, this timer should never fire
+ * ([B05]). It exists because the failure this arc came from *was* a
+ * receipt that was supposed to be impossible to lose — the deck had no
+ * horizon behind the protocol, so when the protocol went quiet the card
+ * waited forever. A deadline that never fires is the cost of not needing
+ * the protocol to be perfect.
+ */
+export const INTERRUPT_SILENCE_DEADLINE_MS = 6000;
+
+/**
+ * How long a live turn may go without a single stream event before the card
+ * says so. Twenty seconds is chosen against the thing being measured rather
+ * than against a feeling: `maxStreamGapMs` — the longest inter-event silence
+ * inside a healthy turn — is the telemetry this deck already keeps, and a
+ * long thinking block or a slow tool call sits well inside it. Twenty
+ * seconds is past anything a working turn produces and well short of the
+ * patience a user has for a screen that says nothing.
+ *
+ * **It is not an error and not a horizon.** Nothing is abandoned when it
+ * fires: no `lastError` is stamped ([P05]), no turn is committed, Stop stays
+ * live and deliverable. All that changes is that the card stops claiming to
+ * be streaming and says it is waiting — which is the honest reading of a
+ * turn whose far end has gone quiet, and the one the user on a plane needed
+ * and did not get.
+ */
+export const STREAM_SILENCE_STALL_MS = 20_000;
 
 /** Copy for the `replay_stalled` error the silence deadline raises. */
 export const REPLAY_STALLED_MESSAGE =
   "The session stopped responding while it was being restored.";
 
+/** Copy for the `replay_bracket_timeout` error the absolute cap raises. */
+export const REPLAY_BRACKET_MESSAGE =
+  "The session took too long to restore and was given up on.";
+
+/** Copy for a stop that went unanswered past its deadline. */
+export const INTERRUPT_STALLED_MESSAGE =
+  "The session did not answer the stop request.";
+
+/**
+ * The frame types that belong to a replay bracket, and so are the only
+ * ones that may restart the silence deadline ([P05]).
+ *
+ * The set is the replay translator's own output vocabulary
+ * (`tugcode/src/replay.ts`) plus the two bracket markers the supervisor
+ * adds and the live-tail turn frames a bracket can carry across its
+ * close. Everything else on CODE_OUTPUT — `api_retry` above all, but also
+ * `cost_update`, `streaming_usage`, `context_breakdown`, the task frames —
+ * is chatter from a claude that is doing something other than replaying,
+ * and a bracket that hears only chatter is a bracket that has stopped.
+ *
+ * `replay_batch` is here for completeness rather than for effect: it is a
+ * transport envelope that `routeFrame` unwraps, so the reducer never sees
+ * one, and each inner frame arms on its own account.
+ *
+ * A frame type added to the replay path and not added here silently loses
+ * its right to buy time, so `code-session-store.replay-clock.test.ts`
+ * asserts the partition against `KNOWN_CODE_OUTPUT_TYPES`.
+ */
+export const BRACKET_FRAME_TYPES: ReadonlySet<string> = new Set([
+  // Bracket markers.
+  "replay_started",
+  "replay_batch",
+  "replay_complete",
+  "replay_stage",
+  // Turn openers the replay translator emits.
+  "add_user_message",
+  "assistant_opener",
+  "wake_started",
+  // Turn content.
+  "content_block_start",
+  "assistant_text",
+  "thinking_text",
+  "tool_use",
+  "tool_result",
+  "tool_use_structured",
+  "system_metadata",
+  // Turn closers, including the live tail's cancel receipt.
+  "turn_complete",
+  "turn_cancelled",
+  // Compaction dividers, emitted on the replay path as well as the live one.
+  "compact_boundary",
+  "compact_summary",
+]);
+
 /**
  * The silence deadline's arming rule, as a pure function of one
- * dispatch: the phase before it, the phase after it, and whether the
- * event came off the wire.
+ * dispatch: the phase before it, the phase after it, whether the event
+ * came off the wire, and which frame type it was.
  *
- * - entering `replaying` arms the timer;
- * - a wire frame ingested while `replaying` restarts it;
- * - leaving `replaying` — `replay_complete`, an error, the tick itself —
+ * - entering `replaying` arms the timer, from any origin and any event;
+ * - a wire frame in {@link BRACKET_FRAME_TYPES} ingested while
+ *   `replaying` restarts it;
+ * - leaving `replaying` — `replay_complete`, an error, either tick —
  *   disarms it;
- * - anything else (a local action or a timer tick inside the window, any
- *   event outside it) leaves it alone, so only evidence that the relay is
- *   still talking can buy more time.
+ * - anything else leaves it alone: a local action, a timer tick inside
+ *   the window, any event outside it, and — the fourth value, new to
+ *   this arc — a wire frame that does not belong to the bracket.
+ *
+ * That fourth value is what makes `REPLAY_SILENCE_DEADLINE_MS`'s own
+ * sizing argument true. It justifies 15 s as ten times the longest wait
+ * for tugcode's *next replay frame* ever recorded — an argument about
+ * bracket-borne frames that the old rule did not hold to, because it
+ * restarted on any frame at all. A claude retrying a dead API emits
+ * `api_retry` more often than every 15 s, so the deadline never expired
+ * and the restore hung behind a modal until the user quit. The deadline
+ * was not too generous; it was measuring the wrong silence.
  *
  * An event-armed timer on the thing being watched, not a poll. It depends
  * on no frame arriving: the case it exists for is the one where tugcast
@@ -932,13 +1084,14 @@ export function replaySilenceEffect(
   prevPhase: CodeSessionState["phase"],
   nextPhase: CodeSessionState["phase"],
   fromWire: boolean,
+  eventType: string,
 ): Effect | null {
   if (nextPhase !== "replaying") {
     return prevPhase === "replaying"
       ? { kind: "cancel_timer", name: "replay_silence" }
       : null;
   }
-  if (prevPhase !== "replaying" || fromWire) {
+  if (prevPhase !== "replaying" || (fromWire && BRACKET_FRAME_TYPES.has(eventType))) {
     return {
       kind: "schedule_timer",
       name: "replay_silence",
@@ -947,6 +1100,149 @@ export function replaySilenceEffect(
     };
   }
   return null;
+}
+
+/**
+ * The bracket cap's arming rule, and deliberately the simpler of the two:
+ * schedule on the transition **into** `replaying`, cancel on the
+ * transition out, `null` otherwise. It reads neither the origin nor the
+ * event, because nothing that happens inside a bracket is allowed to
+ * change when the bracket ends — that is the whole of what "absolute"
+ * means here, and expressing it as one pure function of the two phases is
+ * what keeps a later caller from re-arming it by accident.
+ */
+export function replayBracketEffect(
+  prevPhase: CodeSessionState["phase"],
+  nextPhase: CodeSessionState["phase"],
+): Effect | null {
+  if (nextPhase === "replaying") {
+    return prevPhase === "replaying"
+      ? null
+      : {
+          kind: "schedule_timer",
+          name: "replay_bracket",
+          ms: REPLAY_BRACKET_DEADLINE_MS,
+          fire: { type: "tick_replay_bracket" },
+        };
+  }
+  return prevPhase === "replaying"
+    ? { kind: "cancel_timer", name: "replay_bracket" }
+    : null;
+}
+
+/**
+ * The interrupt deadline's arming rule, in the shape the two replay
+ * rules establish: a pure function of the flag before a dispatch and
+ * the flag after it. Arm when `interruptInFlight` rises — which is
+ * exactly `handleInterrupt`'s CASE B, the one place it rises — and
+ * cancel when it falls, which is exactly every way an interrupt can
+ * end.
+ *
+ * Written this way rather than as a literal in each handler because
+ * the flag falls at more than a dozen returns: three in
+ * `handleTurnComplete`, the queue-flush path, `handleTurnCancelled`,
+ * `handleInterruptNoop`, the wake and notice openers, and all six
+ * terminals through `enterErrored`. That is the shape `enterErrored`
+ * itself was written for in this arc — a clear whose sole performer
+ * was one handler is what produced the defect the arc started from —
+ * and a cancel that has to be remembered at fourteen returns is the
+ * same bet, made again. Here it cannot be forgotten: the timer's life
+ * is tied to the flag's, by construction.
+ *
+ * The tick itself clears the flag, so a fired timer earns a cancel for
+ * a timer that has already gone. That is a no-op at the wrapper, and
+ * cheaper than a special case.
+ */
+export function interruptSilenceEffect(
+  prevInFlight: boolean,
+  nextInFlight: boolean,
+): Effect | null {
+  if (prevInFlight === nextInFlight) return null;
+  return nextInFlight
+    ? {
+        kind: "schedule_timer",
+        name: "interrupt_silence",
+        ms: INTERRUPT_SILENCE_DEADLINE_MS,
+        fire: { type: "tick_interrupt_silence" },
+      }
+    : { kind: "cancel_timer", name: "interrupt_silence" };
+}
+
+/**
+ * The phases in which a stream stall is a meaningful thing to watch for: a
+ * turn is open and the far end owes content.
+ *
+ * Deliberately narrower than {@link isLiveTurnPhase}, which answers a
+ * different question — "is there a turn a terminal would have to kill" —
+ * and counts `awaiting_approval` for exactly the reason this one does not.
+ *
+ * `awaiting_approval` is deliberately out. A turn parked on a permission
+ * dialog is silent *because the user has not answered*, and reporting that
+ * as a network stall would blame the wire for the one wait the user is
+ * themselves holding up. `replaying` is out too — a bracket has its own two
+ * deadlines, and a second reading over the top of them would say the same
+ * thing twice in a different register.
+ */
+function isStallWatchedPhase(phase: CodeSessionState["phase"]): boolean {
+  return (
+    phase === "submitting" ||
+    phase === "awaiting_first_token" ||
+    phase === "streaming" ||
+    phase === "tool_work" ||
+    phase === "waking"
+  );
+}
+
+/**
+ * The stall timer's arming rule, in `replaySilenceEffect`'s shape and for
+ * the same reason: a pure function returning the one effect, so the schedule
+ * is written once and read at each call site rather than inlined four times.
+ *
+ * Emitted by the four handlers that fold a live stream event, with the phase
+ * the dispatch is landing in. Every stream event restarts it — a
+ * `schedule_timer` with a live name cancels the prior one at the wrapper —
+ * so the timer measures the gap since the last event, which is exactly what
+ * it claims to measure. Event-armed on the thing being watched, never a poll
+ * ([P11]).
+ *
+ * A fold that lands outside a live turn cancels instead of arming, so the
+ * one rule covers both directions.
+ */
+export function streamStallEffect(phase: CodeSessionState["phase"]): Effect {
+  return isStallWatchedPhase(phase)
+    ? {
+        kind: "schedule_timer",
+        name: "stream_stall",
+        ms: STREAM_SILENCE_STALL_MS,
+        fire: { type: "tick_stream_stall" },
+      }
+    : { kind: "cancel_timer", name: "stream_stall" };
+}
+
+/**
+ * The stall timer's *cancel* rule — a transition on the phase, armed in the
+ * store wrapper beside the other three.
+ *
+ * The arming rule above cannot carry this half: it is only consulted when a
+ * stream event lands, and the endings that matter are the ones where no
+ * further stream event ever comes — a `turn_complete`, a terminal, a
+ * transport loss, a dialog opening. Leaving those to be remembered at each
+ * handler is the exact bet this arc exists to stop making, so the rule is
+ * written once as a function of the phase before a dispatch and the phase
+ * after it.
+ *
+ * `enterErrored` clears the *flag* on its own, because a card that has
+ * errored must not still read "Waiting for network"; this cancels the timer
+ * behind it.
+ */
+export function streamStallCancelEffect(
+  prevPhase: CodeSessionState["phase"],
+  nextPhase: CodeSessionState["phase"],
+): Effect | null {
+  if (!isStallWatchedPhase(prevPhase) || isStallWatchedPhase(nextPhase)) {
+    return null;
+  }
+  return { kind: "cancel_timer", name: "stream_stall" };
 }
 
 /** Build the initial state for a freshly constructed store. */
@@ -1008,6 +1304,8 @@ export function createInitialState(
     interruptInFlight: false,
     pendingInterruptReason: null,
     interruptInFlightSegmentStartedAt: null,
+    stopStalled: false,
+    streamStalled: false,
     awaitingApprovalIntervals: [],
     transportDowntimeIntervals: [],
     interruptInFlightIntervals: [],
@@ -1040,6 +1338,56 @@ function senderOrigin(origin: "user" | "wheel" | undefined): "user" | "wheel" {
   return origin === "wheel" ? "wheel" : "user";
 }
 
+/**
+ * Should this submission be **held** for the network rather than sent ([P10])?
+ *
+ * Two readings, and both of them are negatives — which is the whole design.
+ * The card's `stalled` overlay means claude has already told us a connection
+ * failure is in progress, or a live turn has gone silent past its deadline.
+ * `pathUnsatisfied` means the host has no route at all. Neither is a guess:
+ * each is something that has already failed.
+ *
+ * There is deliberately no positive test anywhere. A submission is sent unless
+ * one of these two negatives is standing, because `satisfied` is what a
+ * captive portal reports while answering everything with its login page — a
+ * send gated on it would be gated on the one reading that lies.
+ */
+function shouldHoldSubmission(
+  state: CodeSessionState,
+  event: SendActionEvent,
+): boolean {
+  return isNetworkStalled(state) || event.pathUnsatisfied === true;
+}
+
+/**
+ * Drop the hold from every entry, returning the same array reference when
+ * nothing was held — so a proving event on an ordinary queue costs no
+ * snapshot churn and no re-render ([L02]).
+ *
+ * Release is a state change and never a send: what puts the released head on
+ * the wire is the flush path that was already going to run.
+ */
+function releaseHeldSends(
+  sends: CodeSessionState["queuedSends"],
+): CodeSessionState["queuedSends"] {
+  if (!sends.some((s) => s.held)) return sends;
+  return sends.map((s) => (s.held ? { ...s, held: false } : s));
+}
+
+/** True when the queue's head is waiting on the network — no flush may take it. */
+function headIsHeld(state: CodeSessionState): boolean {
+  return state.queuedSends.length > 0 && state.queuedSends[0].held;
+}
+
+/**
+ * The state with every hold released — handed to a flush at a proving
+ * boundary so the released head is the one the flush picks up.
+ */
+function withHeldReleased(state: CodeSessionState): CodeSessionState {
+  const sends = releaseHeldSends(state.queuedSends);
+  return sends === state.queuedSends ? state : { ...state, queuedSends: sends };
+}
+
 function handleSend(
   state: CodeSessionState,
   event: SendActionEvent,
@@ -1054,7 +1402,14 @@ function handleSend(
     return { state, effects: [] };
   }
 
-  if (state.phase === "idle" || state.phase === "errored") {
+  // A submission the network cannot carry is held rather than sent or
+  // refused ([B14]): it enters the same FIFO a mid-turn submit enters, with
+  // `held` set, and waits there for a proving event. The composer is never
+  // blocked and the words are never lost — holding is the third answer
+  // between sending into a dead path and telling the user no.
+  const held = shouldHoldSubmission(state, event);
+
+  if (!held && (state.phase === "idle" || state.phase === "errored")) {
     const submitAt = Date.now();
     const userMessage: UserMessage = {
       kind: "user_message",
@@ -1130,6 +1485,11 @@ function handleSend(
       interruptInFlight: false,
       pendingInterruptReason: null,
       interruptInFlightSegmentStartedAt: null,
+      // A new turn is not the turn whose stop went unanswered.
+      stopStalled: false,
+      // Nor the turn that went quiet. The submit is itself the stream event
+      // the previous turn stopped producing.
+      streamStalled: false,
       awaitingApprovalIntervals: [],
       transportDowntimeIntervals: [],
       interruptInFlightIntervals: [],
@@ -1174,6 +1534,9 @@ function handleSend(
       // the moment the user posted, which is what the row's timestamp
       // shows and what its position among shell rows sorts on.
       queuedAt: Date.now(),
+      // Waiting for the network, or merely for the turn ahead of it. An
+      // idle card only ever reaches this enqueue when `held` is true.
+      held,
     },
   ];
   return { state: { ...state, queuedSends }, effects: [] };
@@ -1333,6 +1696,7 @@ function handleInterrupt(
         awaitingApprovalAccumulatedMs: 0,
         lastStreamEventAt: null,
         maxStreamGapMs: 0,
+        streamStalled: false,
         firstAssistantDeltaAt: null,
         firstToolUseAt: null,
         // Transport-downtime accumulator is bounded to the active
@@ -1440,6 +1804,8 @@ function handleInterrupt(
       interruptInFlightSegmentStartedAt: interruptOpenedAt,
       ...closeAwaitingApprovalInterval(state, interruptOpenedAt),
     },
+    // The deadline is armed by the store wrapper off this state's rising
+    // `interruptInFlight` — see `interruptSilenceEffect`.
     effects: [{ kind: "send-frame", msg: { type: "interrupt" } }],
   };
 }
@@ -1615,6 +1981,13 @@ function handleSessionInit(
  * mid-stream. Clearing `apiRetry` here dismisses it the instant content
  * flows again. A subsequent failure re-announces a fresh `api_retry`,
  * so this never races a still-failing turn.
+ *
+ * That clear is also, for free, the recovery half of the `stalled` overlay's
+ * connection arm: the overlay is raised by an `api_retry` whose category is
+ * `connection`, and clearing `apiRetry` here drops it the instant content
+ * flows again. So both arms of the overlay — the retry announcement and
+ * `streamStalled` right below — fall through this one function, and neither
+ * needs a clear of its own anywhere else. Do not add one.
  */
 function foldStreamEvent(
   state: CodeSessionState,
@@ -1623,12 +1996,14 @@ function foldStreamEvent(
   lastStreamEventAt: number;
   maxStreamGapMs: number;
   apiRetry: ApiRetryState | null;
+  streamStalled: false;
 } {
   if (state.lastStreamEventAt === null) {
     return {
       lastStreamEventAt: now,
       maxStreamGapMs: state.maxStreamGapMs,
       apiRetry: null,
+      streamStalled: false,
     };
   }
   const gap = Math.max(0, now - state.lastStreamEventAt);
@@ -1636,6 +2011,7 @@ function foldStreamEvent(
     lastStreamEventAt: now,
     maxStreamGapMs: gap > state.maxStreamGapMs ? gap : state.maxStreamGapMs,
     apiRetry: null,
+    streamStalled: false,
   };
 }
 
@@ -2004,6 +2380,12 @@ function handleTextDelta(
   const now = Date.now();
   const isReplay = state.phase === "replaying";
   const streamFold = isReplay ? {} : foldStreamEvent(state, now);
+  // A live stream event is the path proving itself, which is the release a
+  // held prompt gets without the monitor's help ([P10]). Replay proves
+  // nothing about the network — it is JSONL off the local disk.
+  const heldRelease = isReplay
+    ? {}
+    : { queuedSends: releaseHeldSends(state.queuedSends) };
   const firstAssistantDeltaAt =
     !isReplay && kind === "assistant_text" && state.firstAssistantDeltaAt === null
       ? now
@@ -2026,6 +2408,10 @@ function handleTextDelta(
       value: mutatedText,
     },
   ];
+  // Content arrived, so the stall clock starts again from here. Emitted
+  // beside the fold at all four of its call sites; the fold is what clears
+  // the flag, this is what re-arms the timer behind it.
+  if (!isReplay) effects.push(streamStallEffect(nextPhase));
 
   return {
     state: {
@@ -2034,6 +2420,7 @@ function handleTextDelta(
       activeMsgId: msgId,
       scratch: withScratchEntry(state.scratch, turnKey, nextEntry),
       ...streamFold,
+      ...heldRelease,
       firstAssistantDeltaAt,
     },
     effects,
@@ -2243,6 +2630,10 @@ function handleToolUse(
   // do NOT advance `firstToolUseAt` past the first call.
   const now = Date.now();
   const streamFold = isReplaying ? {} : foldStreamEvent(state, now);
+  // The path proved itself — release any hold, as at the other stream sites.
+  const heldRelease = isReplaying
+    ? {}
+    : { queuedSends: releaseHeldSends(state.queuedSends) };
   const firstToolUseAt =
     !isReplaying && state.firstToolUseAt === null
       ? now
@@ -2261,9 +2652,13 @@ function handleToolUse(
       scratch: withScratchEntry(state.scratch, turnKey, nextEntry),
       toolUseStartedAt,
       ...streamFold,
+      ...heldRelease,
       firstToolUseAt,
     },
-    effects: [],
+    // Beside the fold, as at the other three call sites.
+    effects: isReplaying
+      ? []
+      : [streamStallEffect(isBracketed ? state.phase : "tool_work")],
   };
 }
 
@@ -2374,7 +2769,12 @@ function handleToolResult(
   // since claude emits no live echo — [Q02]); reload from JSONL tightens
   // it to claude's exact merge point.
   const isLive = !isReplaying && !isWaking;
-  let queuedSends = state.queuedSends;
+  // A live tool_result is a stream event, so the hold releases here too —
+  // before the pickup reads the head, which is what lets a prompt held at
+  // submit be steered into the turn that has just proved the path.
+  let queuedSends = isLive
+    ? releaseHeldSends(state.queuedSends)
+    : state.queuedSends;
   const pickupEffects: Effect[] = [];
   if (isLive && queuedSends.length > 0) {
     const [head, ...rest] = queuedSends;
@@ -2553,7 +2953,10 @@ function handleToolResult(
       queuedSends,
       ...streamFold,
     },
-    effects: pickupEffects,
+    // Beside the fold, as at the other three call sites.
+    effects: isReplaying
+      ? pickupEffects
+      : [...pickupEffects, streamStallEffect(nextPhase)],
   };
 }
 
@@ -2656,14 +3059,21 @@ function handleToolUseStructured(
 
   const isReplaying = state.phase === "replaying";
   const streamFold = isReplaying ? {} : foldStreamEvent(state, Date.now());
+  // The path proved itself — release any hold, as at the other stream sites.
+  const heldRelease = isReplaying
+    ? {}
+    : { queuedSends: releaseHeldSends(state.queuedSends) };
 
   return {
     state: {
       ...state,
       scratch: withScratchEntry(state.scratch, turnKey, nextEntry),
       ...streamFold,
+      ...heldRelease,
     },
-    effects: [],
+    // Beside the fold, as at the other three call sites. The phase is
+    // untouched here, so the re-arm reads the one the card is already in.
+    effects: isReplaying ? [] : [streamStallEffect(state.phase)],
   };
 }
 
@@ -2744,6 +3154,8 @@ function resetPerTurnTelemetry(): Pick<
   | "costAtSubmit"
   | "interruptInFlight"
   | "pendingInterruptReason"
+  | "stopStalled"
+  | "streamStalled"
   | "apiRetry"
   | "refusalFallback"
   | "outputTruncated"
@@ -2763,6 +3175,13 @@ function resetPerTurnTelemetry(): Pick<
     // (buildTurnEntry read the reason off the pre-reset state), so the
     // bridge closes for the next turn.
     pendingInterruptReason: null,
+    // The turn ended, so whether its stop was ever answered is no longer
+    // a live question. Force Stop has nothing left to offer.
+    stopStalled: false,
+    // Same reading, one axis over: a turn that has ended is not a turn
+    // waiting on anything. The timer behind this is cancelled by
+    // `streamStallCancelEffect` at the same transition.
+    streamStalled: false,
     // A retry banner is per-turn-transient: the turn it was retrying has
     // ended, so the announcement is stale. Cleared on every turn_complete
     // path (each spreads this) and at wake start.
@@ -3284,8 +3703,12 @@ function handleTurnComplete(
     // flush it — nothing drives the "gets its own turn" the old comment
     // assumed. `wakeTrigger` is cleared as the wake closes.
     if (state.queuedSends.length > 0) {
+      // A turn that ended is a proving event for a held prompt ([P10]): the
+      // wire carried a turn to completion, so whatever the hold was raised
+      // for has passed. Release before the flush, so the head this drains is
+      // the released one.
       return flushQueuedHeadResult(
-        state,
+        withHeldReleased(state),
         scratch,
         committedMsgIds,
         sessionInitTokens,
@@ -3337,8 +3760,11 @@ function handleTurnComplete(
         ? [buildRecordTelemetryEffect(entry, sessionInitTokens)]
         : []),
     ];
+    // Released for the same reason the wake branch releases: the turn
+    // reached its end over the wire, which is the proof a hold was waiting
+    // for.
     return flushQueuedHeadResult(
-      state,
+      withHeldReleased(state),
       scratch,
       committedMsgIds,
       sessionInitTokens,
@@ -3346,6 +3772,30 @@ function handleTurnComplete(
       {},
     );
   }
+
+  // [P07] — the exhausted-retries route. A turn that ends with claude's SDK
+  // out of retries, having produced nothing but the user's own message, is a
+  // submission that never reached the model. The words go back to the
+  // composer through `pendingDraftRestore` — the same slot a CASE A cancel
+  // uses — and emphatically NOT back onto the held queue.
+  //
+  // There is no re-send path here and there must not be one: the prompt is
+  // already in claude's session JSONL, so a re-send writes a second user
+  // record and the next `--resume` replays both, a duplicate turn visible
+  // forever. The committed entry stands in the transcript as the interrupted
+  // attempt it was, and the person who can see what happened is one keystroke
+  // from sending it again.
+  const exhaustedRestore =
+    state.apiRetry !== null &&
+    state.apiRetry.attempt >= state.apiRetry.maxRetries &&
+    state.pendingTurn?.suppressed !== true &&
+    entry.messages.length === 1 &&
+    entry.messages[0].kind === "user_message"
+      ? {
+          text: entry.messages[0].text,
+          atoms: entry.messages[0].attachments,
+        }
+      : null;
 
   return {
     state: {
@@ -3358,6 +3808,7 @@ function handleTurnComplete(
       pendingQuestion: null,
       prevPhase: null,
       pendingTurn: null,
+      pendingDraftRestore: exhaustedRestore ?? state.pendingDraftRestore,
       // Error-path queue clear: if a turn errored out without a
       // preceding `interrupt()`, any enqueued follow-ups are dropped.
       // Interrupt-driven paths already cleared the queue.
@@ -3383,6 +3834,246 @@ function handleTurnComplete(
         ? [buildRecordTelemetryEffect(entry, sessionInitTokens)]
         : []),
     ],
+  };
+}
+
+/**
+ * tugcode's sentinel for "the turn streamed nothing before it was cut". It is
+ * not model output and must never enter the transcript as assistant text — a
+ * cancelled turn that produced nothing commits empty, which is the honest
+ * record of what happened. A real turn whose entire output was this exact
+ * string loses one line, which is the cheaper of the two mistakes.
+ */
+const CANCEL_NO_PARTIAL_SENTINEL = "User interrupted";
+
+/**
+ * `turn_cancelled` — the clean cancel receipt. tugcode writes it wherever a
+ * turn ends with `ActiveTurn.interrupted` set: the escalation ladder that
+ * force-terminates a wedged claude after `INTERRUPT_ACK_GRACE_MS`, the drain's
+ * EOF path, and `stop_all_work`. Until this handler existed the deck dropped
+ * the frame at the `KNOWN_CODE_OUTPUT_TYPES` guard, and the only clearer of
+ * `interruptInFlight` was `turn_complete` — so a stop that escalated left the
+ * card reading "Interrupting" with no frame able to end it.
+ *
+ * The commit is `handleTurnComplete`'s interrupted commit, reached by a
+ * different frame: same `buildTurnEntry`, same `closeTurnPauseSegments` so
+ * `deriveInflightActiveMs` stays correct, same `resetPerTurnTelemetry` spread
+ * that clears `interruptInFlight` / `pendingInterruptReason` / `apiRetry`.
+ */
+function handleTurnCancelled(
+  state: CodeSessionState,
+  event: TurnCancelledEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  // Idempotence guard, in `handleReplayComplete`'s style: a cancel with no
+  // turn behind it has nothing to commit. It reaches us when the ladder raced
+  // a `turn_complete` that already settled the turn, or when the frame lands
+  // after a transport-lost commit. tugcode's replay translator emits
+  // `turn_complete(result: "interrupted")` rather than this frame, so a cancel
+  // inside a replay bracket is a wire-shape regression, not a path to serve.
+  // Every drop returns the same state reference, so no observer re-renders.
+  if (
+    state.pendingTurn === null ||
+    state.phase === "idle" ||
+    state.phase === "replaying"
+  ) {
+    tugDevLogStore.warn(
+      "code-session-store",
+      "dropping turn_cancelled with no live turn to cancel",
+      { msgId: event.msg_id, phase: state.phase },
+    );
+    return { state, effects: [] };
+  }
+
+  const msgId =
+    event.msg_id !== "" ? event.msg_id : (state.activeMsgId ?? "");
+  // Same dedupe contract as `handleTurnComplete`: an identity already
+  // committed is a turn this frame cannot close twice. "" is never an
+  // identity — it is the shared key every no-content turn carries.
+  if (msgId !== "" && state.committedMsgIds.has(msgId)) {
+    tugDevLogStore.warn("code-session-store", "dropping duplicate turn_cancelled", {
+      msgId,
+    });
+    return { state, effects: [] };
+  }
+
+  const turnKey = state.pendingTurn.turnKey;
+  const endedAt = Date.now();
+
+  // The partial fold. On the live path the content frames already wrote the
+  // streamed text into scratch, so `partial_result` is a duplicate and folding
+  // it would double the turn's last block. It is the only copy when no content
+  // frame reached the deck — a turn cut while suppressed, or one cut before
+  // its first delta — so fold it exactly then, and only when it is real text
+  // rather than tugcode's nothing-streamed sentinel.
+  const scratchEntry = state.scratch.get(turnKey);
+  const hasAssistantContent =
+    scratchEntry !== undefined &&
+    scratchEntry.messages.some((m) => m.kind !== "user_message");
+  const partial = event.partial_result;
+  const foldPartial =
+    !hasAssistantContent &&
+    partial !== "" &&
+    partial !== CANCEL_NO_PARTIAL_SENTINEL;
+  const scratchForCommit =
+    foldPartial && scratchEntry !== undefined
+      ? withScratchEntry(state.scratch, turnKey, {
+          ...scratchEntry,
+          messages: [
+            ...scratchEntry.messages,
+            {
+              kind: "assistant_text" as const,
+              messageKey: wireMessageKey(msgId, 0),
+              createdAt: endedAt,
+              text: partial,
+            },
+          ],
+        })
+      : state.scratch;
+
+  // The reason bridge. `buildTurnEntry` reads `pendingInterruptReason` off the
+  // pre-reset state, so a recovery cancel is named by setting the field here
+  // rather than by widening the builder's signature. A cancel landing on top
+  // of an app-flow interrupt keeps the flow's own reason: logout and Configure
+  // Tug are the truer cause, and they are what the user acted on.
+  const pendingInterruptReason: InterruptReason | null =
+    event.is_recovery === true && state.pendingInterruptReason === null
+      ? "recovery"
+      : state.pendingInterruptReason;
+
+  const commitState: CodeSessionState = {
+    ...state,
+    scratch: scratchForCommit,
+    pendingInterruptReason,
+  };
+  const entry = buildTurnEntry(
+    commitState,
+    msgId,
+    "interrupted",
+    endedAt,
+    undefined,
+  );
+
+  const closedPauseSegments = closeTurnPauseSegments(state, endedAt);
+  const scratch = withoutPendingTurnScratch(commitState);
+  const committedMsgIds = new Set(state.committedMsgIds);
+  if (msgId !== "") {
+    committedMsgIds.add(msgId);
+  }
+
+  const suppressed = state.pendingTurn.suppressed === true;
+  const commitEffects: Effect[] = [
+    ...(suppressed ? [] : [{ kind: "append-transcript" as const, entry }]),
+    { kind: "clear-inflight" },
+    // A cancel is always live — the replay path never reaches here — so the
+    // per-turn telemetry block is always derived and always persisted.
+    ...(suppressed
+      ? []
+      : [buildRecordTelemetryEffect(entry, state.sessionInitTokens)]),
+  ];
+
+  // A queued send flushes here, on the same single-tick collapse the wake
+  // branch uses. The user-cancel path never exercises it — `handleInterrupt`
+  // cleared the queue before the stop went out — so what this serves is the
+  // recovery cancel, where the user stopped nothing and the message they
+  // posted mid-turn is waiting for exactly this boundary. Stranding it at idle
+  // would leave nothing to flush it later.
+  // A held head stays held here. A cancel is not a proving event — nothing
+  // reached the far end — so flushing one would send the prompt into exactly
+  // the dead path it was held for.
+  if (state.queuedSends.length > 0 && !headIsHeld(state)) {
+    return flushQueuedHeadResult(
+      commitState,
+      scratch,
+      committedMsgIds,
+      state.sessionInitTokens,
+      commitEffects,
+      { wakeTrigger: null },
+    );
+  }
+
+  return {
+    state: {
+      ...state,
+      phase: "idle",
+      activeMsgId: null,
+      scratch,
+      toolUseStartedAt: new Map(),
+      pendingApproval: null,
+      pendingQuestion: null,
+      prevPhase: null,
+      pendingTurn: null,
+      // A cancel closes a wake bracket the same way `turn_complete` does:
+      // there is no separate `wake_complete` frame ([D01]).
+      wakeTrigger: null,
+      committedMsgIds,
+      ...resetPerTurnTelemetry(),
+      ...closedPauseSegments,
+    },
+    effects: commitEffects,
+  };
+}
+
+/**
+ * `interrupt_noop` — tugcode's receipt for an interrupt that found nothing to
+ * interrupt: no claude process (`no_process`), or a live claude with no turn
+ * open (`no_turn`).
+ *
+ * It ends the interrupt and nothing else. The per-interrupt flags come down
+ * and the open in-flight segment is closed into its intervals projection, so
+ * `deriveInflightActiveMs` still accounts for the time the user spent
+ * waiting; the phase, the transcript and `pendingTurn` are left exactly as
+ * they were, because by construction there was no turn for this receipt to
+ * close.
+ *
+ * `no_turn` can arrive while the deck believes a turn IS in flight — the two
+ * sides disagreeing about whether one is open is precisely the condition that
+ * produced the receipt. Ending the deck's turn here would be the worse
+ * reading of that disagreement: it would discard a turn that may still be
+ * streaming, on the word of the side that has already said it is not
+ * watching one. Clearing the flag is the honest minimum, and it is enough —
+ * the card stops saying "Interrupting" and goes back to showing whatever it
+ * actually has.
+ */
+function handleInterruptNoop(
+  state: CodeSessionState,
+  event: InterruptNoopEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (
+    !state.interruptInFlight &&
+    state.pendingInterruptReason === null &&
+    state.interruptInFlightSegmentStartedAt === null &&
+    !state.stopStalled
+  ) {
+    // Nothing to clear. Returning the same reference keeps `getSnapshot()`
+    // stable for `useSyncExternalStore`, the same idempotence contract every
+    // drop in this file keeps.
+    return { state, effects: [] };
+  }
+  tugDevLogStore.warn(
+    "code-session-store",
+    "interrupt reached the bridge with nothing to interrupt",
+    { reason: event.reason },
+  );
+  const end = Date.now();
+  const interruptInFlightIntervals =
+    state.interruptInFlightSegmentStartedAt === null
+      ? state.interruptInFlightIntervals
+      : [
+          ...state.interruptInFlightIntervals,
+          [state.interruptInFlightSegmentStartedAt, end] as const,
+        ];
+  return {
+    state: {
+      ...state,
+      interruptInFlight: false,
+      pendingInterruptReason: null,
+      interruptInFlightSegmentStartedAt: null,
+      interruptInFlightIntervals,
+      // A receipt, late or not, answers the stop. Force Stop is for a stop
+      // nothing answered, and this is the thing answering it.
+      stopStalled: false,
+    },
+    effects: [],
   };
 }
 
@@ -4397,6 +5088,85 @@ function handleContextBreakdown(
 // Errored triggers —
 // ---------------------------------------------------------------------------
 
+/**
+ * The `lastError` record a terminal handler stamps, with the `null` that
+ * means "this card has no standing error" taken off — {@link enterErrored}
+ * reads `null` as "do not stamp one", which is a different thing.
+ */
+type SessionLastError = NonNullable<CodeSessionState["lastError"]>;
+
+/** What {@link enterErrored} contributes to a terminal handler's state. */
+type ErroredSlice = Pick<
+  CodeSessionState,
+  | "phase"
+  | "wakeTrigger"
+  | "interruptInFlight"
+  | "pendingInterruptReason"
+  | "interruptInFlightSegmentStartedAt"
+  | "stopStalled"
+  | "streamStalled"
+> &
+  Partial<Pick<CodeSessionState, "lastError">>;
+
+/**
+ * The one sanctioned way to set `phase: "errored"`.
+ *
+ * Every terminal handler routes through here so the per-interrupt fields are
+ * cleared at a single chokepoint. The reason is the defect this arc is named
+ * after: `interruptInFlight` was set by `handleInterrupt` and cleared only by
+ * `resetPerTurnTelemetry`, which in an interrupting state is reachable only
+ * through `handleTurnComplete` — so the flag's sole clearer was one frame
+ * type. When that frame did not come the flag outlived its turn, and
+ * `session-phase-visual.ts` reads it *above* the phase, so a card that had
+ * genuinely errored still painted "Interrupting". A flag whose clearer is a
+ * single frame type is the pattern; a shared terminal slice is the answer.
+ *
+ * `session-phase-visual.ts` is deliberately left alone. Its precedence —
+ * `interruptInFlight` over the phase — is correct once the flag is honest,
+ * and re-ordering the projection would paper over a lying signal rather than
+ * fix it.
+ *
+ * `lastError` is `null` for the one caller that enters errored without
+ * stamping anything (`handleTransportClose`, whose comment gives the
+ * argument: a wire blip heals itself, and a stamp here would be sticky). A
+ * `null` therefore leaves whatever `lastError` already stood, rather than
+ * clearing it — no terminal path clears one on the way in.
+ *
+ * The returned `effects` are still empty, and the interrupt-silence deadline
+ * this comment once expected to put here went somewhere better. Its
+ * `cancel_timer` is a transition rule on `interruptInFlight` in the store
+ * wrapper ({@link interruptSilenceEffect}), so a terminal cancels it by
+ * clearing the flag, which the slice above already does. The shape stays: a
+ * chokepoint with an effects channel is the right place for the next such
+ * thing, and one is cheaper to have than to add.
+ *
+ * It takes no `state`: every field in the slice is a constant, and a
+ * parameter read by nothing is a worse signature than one argument fewer.
+ */
+function enterErrored(lastError: SessionLastError | null): {
+  slice: ErroredSlice;
+  effects: Effect[];
+} {
+  return {
+    slice: {
+      phase: "errored",
+      // After a terminal, no bracket-close `turn_complete` is coming, so a
+      // wake marker left standing would outlive the wake it named.
+      wakeTrigger: null,
+      interruptInFlight: false,
+      pendingInterruptReason: null,
+      interruptInFlightSegmentStartedAt: null,
+      stopStalled: false,
+      // A card that has errored is not a card waiting for the network. The
+      // timer behind the flag is cancelled by `streamStallCancelEffect`,
+      // which reads the same transition into `errored`.
+      streamStalled: false,
+      ...(lastError !== null ? { lastError } : {}),
+    },
+    effects: [],
+  };
+}
+
 function handleSessionStateErrored(
   state: CodeSessionState,
   event: SessionStateErroredEvent,
@@ -4406,20 +5176,17 @@ function handleSessionStateErrored(
   // The next `send()` from `errored` re-submits and clears `lastError`
   // on the following `turn_complete(success)`.
   const message = event.detail ?? "session errored";
+  const { slice, effects } = enterErrored({
+    cause: "session_state_errored",
+    message,
+    at: Date.now(),
+  });
   return {
     state: {
       ...state,
-      phase: "errored",
-      // Clear the wake bracket marker — after a session error, the
-      // bracket-close `turn_complete` will never arrive.
-      wakeTrigger: null,
-      lastError: {
-        cause: "session_state_errored",
-        message,
-        at: Date.now(),
-      },
+      ...slice,
     },
-    effects: [],
+    effects,
   };
 }
 
@@ -4432,25 +5199,23 @@ function handleWireError(
   // surface a different affordance (e.g. a retry button for a
   // `recoverable: true` wire error).
   const message = event.message ?? "wire error";
+  const { slice, effects } = enterErrored({
+    cause: "wire_error",
+    message,
+    at: Date.now(),
+    // The bridge names which of its emit sites wrote the frame; the
+    // banner's detail panel shows it, so "Protocol error" stops being a
+    // label with nothing behind it. Older bridges send none.
+    ...(typeof event.site === "string" && event.site.length > 0
+      ? { site: event.site }
+      : {}),
+  });
   return {
     state: {
       ...state,
-      phase: "errored",
-      // Same rationale as `handleSessionStateErrored` above.
-      wakeTrigger: null,
-      lastError: {
-        cause: "wire_error",
-        message,
-        at: Date.now(),
-        // The bridge names which of its emit sites wrote the frame; the
-        // banner's detail panel shows it, so "Protocol error" stops being a
-        // label with nothing behind it. Older bridges send none.
-        ...(typeof event.site === "string" && event.site.length > 0
-          ? { site: event.site }
-          : {}),
-      },
+      ...slice,
     },
-    effects: [],
+    effects,
   };
 }
 
@@ -4508,10 +5273,51 @@ function handleSeedQueuedSends(
         turnKey: s.turnKey,
         origin: s.origin,
         queuedAt: s.queuedAt,
+        // The hold rides across the disposal with the words. A card that
+        // lost its store while the network was down inherits a prompt that
+        // is still waiting for the network, not one about to be sent into
+        // it.
+        held: s.held,
       })),
     },
     effects: [],
   };
+}
+
+/**
+ * The host's path went to `satisfied` — the one release a held prompt can get
+ * while nothing else is happening ([P10]).
+ *
+ * With no turn in flight there are no `api_retry` frames and no stream
+ * events, so this transition is the only event available. It is a nudge and
+ * not an assurance — a captive portal reports the same thing — so the release
+ * is optimistic: the send finds out for itself, and if it fails the turn's
+ * own retries raise the overlay again and the next submission holds.
+ *
+ * Release is a state change. The send that follows is the ordinary flush,
+ * reached here because an idle card has no later boundary that would reach
+ * it: every other flush hangs off a turn ending, and there is no turn.
+ */
+function handleNetworkPathSatisfied(
+  state: CodeSessionState,
+  _event: NetworkPathSatisfiedEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const released = releaseHeldSends(state.queuedSends);
+  if (released === state.queuedSends) return { state, effects: [] };
+  const next = { ...state, queuedSends: released };
+  if (state.phase !== "idle" && state.phase !== "errored") {
+    // Mid-turn: the entries are unheld now and the turn's own end flushes
+    // the head, exactly as it does for an ordinary queued send.
+    return { state: next, effects: [] };
+  }
+  return flushQueuedHeadResult(
+    next,
+    next.scratch,
+    next.committedMsgIds,
+    next.sessionInitTokens,
+    [],
+    {},
+  );
 }
 
 function handleTransportClose(
@@ -4635,18 +5441,30 @@ function handleTransportClose(
   // `canSubmit` on its own. A stamp here would also be *sticky*, since
   // nothing on the recovery path clears it — worst exactly in the case
   // where the wire never comes back.
+  //
+  // `enterErrored(null)` is that "no stamp": the shared terminal slice
+  // carries the phase, the wake clear, and the per-interrupt clears, and
+  // leaves `lastError` exactly as it stood. It is spread after
+  // `perTurnReset` because the two agree on every field they share — the
+  // reset's `closeTurnPauseSegments` already nulls the open interrupt
+  // segment after folding it into `interruptInFlightIntervals`, which the
+  // slice does not touch.
+  const { slice: erroredSlice, effects: erroredEffects } = enterErrored(null);
   return {
     state: {
       ...state,
       ...perTurnReset,
-      phase: "errored",
+      ...erroredSlice,
       transportState: "offline",
-      wakeTrigger: null,
       ...preflightCleared,
       ...caseAEchoesCleared,
       ...transportClock,
     },
-    effects: [...cancelPreflightEffect, ...transportLostCommit],
+    effects: [
+      ...erroredEffects,
+      ...cancelPreflightEffect,
+      ...transportLostCommit,
+    ],
   };
 }
 
@@ -4803,17 +5621,17 @@ function handleSessionUnknown(
     return { state, effects: [] };
   }
   const message = event.detail ?? "session unknown to supervisor";
+  const { slice, effects } = enterErrored({
+    cause: "session_unknown",
+    message,
+    at: Date.now(),
+  });
   return {
     state: {
       ...state,
-      phase: "errored",
-      lastError: {
-        cause: "session_unknown",
-        message,
-        at: Date.now(),
-      },
+      ...slice,
     },
-    effects: [],
+    effects,
   };
 }
 
@@ -4831,17 +5649,17 @@ function handleSessionNotOwned(
     return { state, effects: [] };
   }
   const message = event.detail ?? "session not owned by this client";
+  const { slice, effects } = enterErrored({
+    cause: "session_not_owned",
+    message,
+    at: Date.now(),
+  });
   return {
     state: {
       ...state,
-      phase: "errored",
-      lastError: {
-        cause: "session_not_owned",
-        message,
-        at: Date.now(),
-      },
+      ...slice,
     },
-    effects: [],
+    effects,
   };
 }
 
@@ -5103,7 +5921,11 @@ function handleReplayComplete(
   // by a transport close and carried across the rebind finally reaches
   // the wire — without the flush here the stash would refill the store
   // and then sit there forever, which is worse than no stash at all.
-  if (state.queuedSends.length > 0) {
+  // Held stays held across a replay, for the cancel branch's reason: a
+  // bracket closing is JSONL off the local disk and proves nothing about the
+  // network. The release comes from a stream event, a completed turn, or the
+  // host's path transition, and until one of those lands the words wait.
+  if (state.queuedSends.length > 0 && !headIsHeld(state)) {
     return flushQueuedHeadResult(
       state,
       new Map(),
@@ -5936,7 +6758,7 @@ function handleTickPreflightDone(
 /**
  * `tick_replay_silence` — `REPLAY_SILENCE_DEADLINE_MS` passed inside a
  * replay bracket with no wire frame. The bracket is abandoned: the card
- * errors on itself, which drops it out of the app-modal restore gate
+ * errors on itself, which takes down its own `SessionRestoring` placeholder
  * (`deriveColdRestoreActive` is false under any `lastError`) and mounts
  * the body so the banner shows. Whatever the bracket had staged goes with
  * it — a half-built cycle in scratch, a load-previous batch that will
@@ -5951,14 +6773,189 @@ function handleTickReplaySilence(
   if (state.phase !== "replaying") {
     return { state, effects: [] };
   }
+  return abandonBracket(state, "replay_stalled", REPLAY_STALLED_MESSAGE);
+}
+
+/**
+ * `tick_replay_bracket` — `REPLAY_BRACKET_DEADLINE_MS` passed since the
+ * bracket opened, whatever arrived inside it. Ends it the same way the
+ * silence deadline does and differs only in the cause it stamps, which is
+ * the point: `replay_stalled` says the relay stopped talking,
+ * `replay_bracket_timeout` says it never stopped and never finished.
+ *
+ * Dropped outside `replaying`: the timer is cancelled on phase exit, and
+ * this guards the stale tick that races the cancel.
+ */
+function handleTickReplayBracket(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (state.phase !== "replaying") {
+    return { state, effects: [] };
+  }
+  return abandonBracket(
+    state,
+    "replay_bracket_timeout",
+    REPLAY_BRACKET_MESSAGE,
+  );
+}
+
+/**
+ * `tick_interrupt_silence` — the stop went out and nothing came back:
+ * no `turn_complete`, no `turn_cancelled`, no `interrupt_noop`, no
+ * terminal. Every one of those cancels this timer by clearing
+ * `interruptInFlight`, so reaching here means the protocol went quiet.
+ *
+ * What the deck knows is that its stop was not answered, and that is
+ * all it says. `interruptInFlight` falls so the card stops claiming an
+ * interrupt is in progress, the interrupt segment closes so the turn
+ * clock does not count the unanswered window twice, and `stopStalled`
+ * rises so the stop control can become Force Stop.
+ *
+ * **`pendingTurn` stays open** ([P01]). The far end may still be
+ * writing, and committing a turn on a timer would be exactly the kind
+ * of confident lie the app-wide restore modal told. The turn is
+ * committed by a real turn end or not at all — and Force Stop's own
+ * receipt produces one in about a second.
+ *
+ * Dropped when the flag is already false: the timer is cancelled on
+ * every fall, and this guards the tick that races the cancel.
+ */
+function handleTickInterruptSilence(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (!state.interruptInFlight) {
+    return { state, effects: [] };
+  }
+  const end = Date.now();
+  const interruptInFlightIntervals =
+    state.interruptInFlightSegmentStartedAt === null
+      ? state.interruptInFlightIntervals
+      : [
+          ...state.interruptInFlightIntervals,
+          [state.interruptInFlightSegmentStartedAt, end] as const,
+        ];
+  return {
+    state: {
+      ...state,
+      interruptInFlight: false,
+      pendingInterruptReason: null,
+      interruptInFlightSegmentStartedAt: null,
+      interruptInFlightIntervals,
+      stopStalled: true,
+    },
+    effects: [],
+  };
+}
+
+/**
+ * `tick_stream_stall` — a live turn has produced nothing for
+ * `STREAM_SILENCE_STALL_MS`.
+ *
+ * It raises one flag and stops. No turn is committed ([P01]), no `lastError`
+ * is stamped ([P05]), no frame is sent, and the submit button stays Stop —
+ * a stalled stream leaves loopback healthy and the stop entirely
+ * deliverable. What changes is only what the card *says*: it stops claiming
+ * to be streaming and starts saying it is waiting, which is the difference
+ * the report this arc came from was actually about.
+ *
+ * Dropped outside a live turn: the timer is cancelled by
+ * `streamStallCancelEffect` on every exit, and this guards the tick that
+ * races the cancel. Idempotent on an already-raised flag, so a re-arm that
+ * fires twice costs nothing.
+ */
+function handleTickStreamStall(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (!isStallWatchedPhase(state.phase) || state.streamStalled) {
+    return { state, effects: [] };
+  }
+  return { state: { ...state, streamStalled: true }, effects: [] };
+}
+
+/**
+ * `force_stop` — the user pressed the control an unanswered stop turned
+ * the submit button into. One frame: `stop_all_work`, which tugcode has
+ * implemented and answered since the arc machinery needed it, so Force
+ * Stop needs no new protocol.
+ *
+ * `task_ids` is empty on purpose. tugcode keeps no open-job set of its
+ * own — the ids ride the verb from tugcast's supervisor, which holds
+ * them — so a deck-origin stop skips the per-task `stop_task` courtesy
+ * and goes straight to the group sweep, which is the rung that actually
+ * ends the work.
+ *
+ * `stopStalled` is deliberately left standing: the frame has gone out
+ * and nothing has come back yet, which is the same state the card was
+ * already in. What clears it is the answer — `turn_cancelled` from
+ * `handleStopAllWork`'s own teardown, or `stop_all_work_done`.
+ *
+ * Guarded on `stopStalled` ([P02]): there is no route to this frame that
+ * does not run through a stop the session failed to answer. A dispatch
+ * from anywhere else returns the same state reference and sends nothing.
+ */
+function handleForceStop(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (!state.stopStalled) {
+    return { state, effects: [] };
+  }
+  return {
+    state,
+    effects: [
+      { kind: "send-frame", msg: { type: "stop_all_work", task_ids: [] } },
+    ],
+  };
+}
+
+/**
+ * `stop_all_work_done` — tugcode swept the group and its respawn acked.
+ *
+ * The belt to `turn_cancelled`'s braces. `handleStopAllWork` sets
+ * `activeTurn.interrupted` before it tears down, so the drain's EOF
+ * normally emits `turn_cancelled{is_recovery:true}` and that commits the
+ * turn. But tugcode sends this frame on its *failure* paths too — a
+ * teardown that half-worked still swept the group — and on those paths
+ * the cancel may never come. Clearing `stopStalled` here means the card
+ * settles either way.
+ *
+ * It touches nothing else: the turn is not this frame's to end, and if a
+ * cancel is coming it will do that properly.
+ */
+function handleStopAllWorkDone(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (!state.stopStalled) {
+    return { state, effects: [] };
+  }
+  return { state: { ...state, stopStalled: false }, effects: [] };
+}
+
+/**
+ * Abandon an open replay bracket: error the card on itself with the
+ * caller's cause, and take the bracket's half-built state with it — a
+ * cycle in scratch, a load-previous batch that will never be flushed.
+ * Turns the bracket already committed stay.
+ *
+ * Shared by both replay deadlines so the two endings cannot drift; each
+ * supplies only the cause and the copy.
+ */
+function abandonBracket(
+  state: CodeSessionState,
+  cause: SessionLastError["cause"],
+  message: string,
+): { state: CodeSessionState; effects: Effect[] } {
   const effects: Effect[] = [{ kind: "cancel_timer", name: "soft_budget" }];
   if (state.replayPrependActive) {
     effects.push({ kind: "discard-prepend" });
   }
+  const { slice, effects: erroredEffects } = enterErrored({
+    cause,
+    message,
+    at: Date.now(),
+  });
   return {
     state: {
       ...state,
-      phase: "errored",
       activeMsgId: null,
       scratch: new Map(),
       toolUseStartedAt: new Map(),
@@ -5966,18 +6963,13 @@ function handleTickReplaySilence(
       pendingQuestion: null,
       prevPhase: null,
       pendingTurn: null,
-      wakeTrigger: null,
       replayPrependActive: false,
       replayPreflightActive: false,
       replaySoftBudgetElapsed: false,
       replayTimeoutDwellActive: false,
-      lastError: {
-        cause: "replay_stalled",
-        message: REPLAY_STALLED_MESSAGE,
-        at: Date.now(),
-      },
+      ...slice,
     },
-    effects,
+    effects: [...effects, ...erroredEffects],
   };
 }
 
@@ -6599,6 +7591,26 @@ export function reduce(
         ? res
         : { ...res, state: { ...res.state, goal: settled } };
     }
+    case "turn_cancelled": {
+      // Same goal settlement the `turn_complete` case performs, against the
+      // same PRE-commit state: a cancelled cycle is never a success, so the
+      // goal is left possibly-active rather than achieved.
+      const res = handleTurnCancelled(state, event);
+      const committedKey =
+        state.pendingTurn !== null && res.state.pendingTurn === null
+          ? state.pendingTurn.turnKey
+          : null;
+      const settled = settleGoalOnCycleCommit(
+        res.state.goal,
+        committedKey,
+        false,
+      );
+      return settled === res.state.goal
+        ? res
+        : { ...res, state: { ...res.state, goal: settled } };
+    }
+    case "interrupt_noop":
+      return handleInterruptNoop(state, event);
     case "goal_feedback":
       return {
         state: {
@@ -6673,6 +7685,8 @@ export function reduce(
       return handleSessionNotOwned(state, event);
     case "seed_queued_sends":
       return handleSeedQueuedSends(state, event);
+    case "network_path_satisfied":
+      return handleNetworkPathSatisfied(state, event);
     case "transport_close":
       return handleTransportClose(state);
     case "transport_open":
@@ -6730,6 +7744,16 @@ export function reduce(
       return handleTickPreflightDone(state);
     case "tick_replay_silence":
       return handleTickReplaySilence(state);
+    case "tick_replay_bracket":
+      return handleTickReplayBracket(state);
+    case "tick_interrupt_silence":
+      return handleTickInterruptSilence(state);
+    case "tick_stream_stall":
+      return handleTickStreamStall(state);
+    case "force_stop":
+      return handleForceStop(state);
+    case "stop_all_work_done":
+      return handleStopAllWorkDone(state);
     case "prompt_anchor":
       return handlePromptAnchor(state, event);
     case "rewind_preview_result":

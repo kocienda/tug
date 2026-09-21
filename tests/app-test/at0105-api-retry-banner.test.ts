@@ -22,9 +22,15 @@
  * count, (3) a new attempt updates it in place, (4) a likely-fatal category
  * escalates tone, and (5) a `cost_update` (turn boundary) dismisses it.
  *
+ * The one classification that gets no bulletin is `connection`: a network
+ * stall is the card's whole current condition rather than transient chatter,
+ * so it is reported on the state strip as the `stalled` phase instead. The
+ * categories driven here are deliberately not that one.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/cards/api-retry.ts
+ * @covers tugdeck/src/components/tugways/cards/transient-notice.ts
  * @covers tugdeck/src/components/tugways/tug-pane-bulletin.tsx
  * @covers tugdeck/src/lib/banner-lifecycle.ts
  * @covers tugcode/

@@ -61,7 +61,7 @@
 import type {
   TugProgressIndicatorPhaseVisual,
 } from "@/components/tugways/tug-progress-indicator";
-import type { CodeSessionPhase, TransportState } from "./types";
+import type { ApiRetryState, CodeSessionPhase, TransportState } from "./types";
 
 // ---------------------------------------------------------------------------
 // Input shape
@@ -83,6 +83,19 @@ export interface SessionPhaseInput {
   readonly phase: CodeSessionPhase;
   readonly transportState: TransportState;
   readonly interruptInFlight: boolean;
+  /**
+   * Whether a stop on this session went unanswered past its deadline.
+   * Optional for the same reason as `runningJobCount`: a replayed
+   * historical state-change row has no live flag to consult, and absent
+   * correctly reads as "makes no claim". Every live surface passes it.
+   */
+  readonly stopStalled?: boolean;
+  /**
+   * Whether the network claude needs has stopped answering — the lifecycle
+   * matrix's `stalled` overlay, flattened. Optional on the same terms as
+   * `stopStalled`: a replayed historical row makes no claim.
+   */
+  readonly stalled?: boolean;
   readonly runningJobCount?: number;
   /**
    * Whether a question from outside the turn stream (`/api/ask`) is on
@@ -109,7 +122,9 @@ export interface SessionPhaseInput {
 export type SessionPhaseKey =
   | "offline"
   | "restoring"
+  | "stalled"
   | "interrupting"
+  | "stop_stalled"
   | "ready"
   | "background"
   | CodeSessionPhase;
@@ -132,6 +147,24 @@ export type SessionPhaseKey =
  * and interrupt: a dead wire means the answer cannot be delivered, and a
  * stop in flight is the thing the user most recently asked for.
  *
+ * `stop_stalled` sits directly below `interrupting`, and the ordering is
+ * the whole of its meaning: it is what the card reads *after* an
+ * interrupt stopped being in flight without anything having answered it.
+ * The two are never both true — the deadline's tick clears the flag it
+ * raises this one beside — so the order is documentation rather than
+ * arbitration. It stays above the phase for the same reason
+ * `interrupting` does: an unanswered stop is the most recent thing the
+ * user asked for and has not got.
+ *
+ * `stalled` sits below the two transport keys and above `interrupting`, and
+ * the order is the argument. A dead wire outranks a stalled API because the
+ * deck cannot reach tugcode at all, which is a bigger fact about the card
+ * than anything claude is doing. But a stall outranks a stop in flight
+ * because the stall is *why* nothing is answering, and the two readings are
+ * about to agree anyway — the stop is deliverable either way, and the card
+ * saying "Interrupting" over a wire that is fine tells the user nothing
+ * about the wait they are actually in.
+ *
  * `ready` promotes from `idle` alone, on the same terms as
  * `background` and for the same reason: every other phase is a turn
  * saying something more specific about the session right now, and a
@@ -142,7 +175,9 @@ export type SessionPhaseKey =
 export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKey {
   if (input.transportState === "offline") return "offline";
   if (input.transportState === "restoring") return "restoring";
+  if (input.stalled === true) return "stalled";
   if (input.interruptInFlight) return "interrupting";
+  if (input.stopStalled === true) return "stop_stalled";
   if (input.pendingAsk === true) return "awaiting_approval";
   if (input.phase === "idle" && input.joinReady === true) return "ready";
   if (input.phase === "idle" && (input.runningJobCount ?? 0) > 0) {
@@ -176,7 +211,9 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
 export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   offline: "Disconnected",
   restoring: "Reconnecting",
+  stalled: "Waiting for network",
   interrupting: "Interrupting",
+  stop_stalled: "Stop unanswered",
   idle: "Idle",
   ready: "Ready",
   background: "Running",
@@ -236,6 +273,19 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
     case "restoring":
     case "interrupting":
       return { role: "caution", state: "running" };
+    case "stalled":
+      // Caution, and still breathing. Nothing has failed and nothing has
+      // been abandoned: claude is retrying or the far end is quiet, the turn
+      // is open, and Stop works. `danger`/`aborted` would claim an ending
+      // that has not happened, and a still glyph would claim a settled
+      // session — both are the confident lie this arc is removing.
+      return { role: "caution", state: "running" };
+    case "stop_stalled":
+      // Still breathing, and still caution: the turn is not over, the
+      // card is not wedged, and the one thing that changed is that the
+      // stop the user asked for has not been answered. A still glyph
+      // here would read as a settled session, which is the lie.
+      return { role: "caution", state: "running" };
     case "awaiting_approval":
       // The turn is IN FLIGHT — opened, parked on the user, and resuming the
       // instant they answer — so the session's dot pulses, in caution rather
@@ -258,4 +308,28 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
     default:
       return { role: "inherit", state: "stopped" };
   }
+}
+
+// ---------------------------------------------------------------------------
+// The stalled label
+// ---------------------------------------------------------------------------
+
+/**
+ * The visible label for the `stalled` key, with claude's own retry count
+ * folded in when it has one: "Waiting for network — retry 3 of 10".
+ *
+ * A separate helper rather than a richer {@link SESSION_PHASE_LABELS},
+ * because that record is a plain `key → string` map that several surfaces
+ * index directly, and giving one key a function's worth of behaviour would
+ * make every consumer ask which kind of entry it had. The base label stands
+ * on its own; this adds the one detail a user actually acts on, which is
+ * whether claude is still counting attempts or has simply gone quiet.
+ *
+ * `null` — the stall arrived as silence rather than as a retry announcement
+ * — reads as the bare label, which is exactly what the deck knows.
+ */
+export function stallLabel(apiRetry: ApiRetryState | null): string {
+  const base = SESSION_PHASE_LABELS.stalled;
+  if (apiRetry === null) return base;
+  return `${base} — retry ${apiRetry.attempt} of ${apiRetry.maxRetries}`;
 }

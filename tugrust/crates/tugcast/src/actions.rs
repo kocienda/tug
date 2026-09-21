@@ -19,16 +19,40 @@ fn broadcast_auth_result(
     // `reason` distinguishes the two signed-out cases so the gate can show
     // install guidance vs. a sign-in prompt: "claude_missing" (no CLI) vs
     // "logged_out" (CLI present, not signed in). `null` when logged in.
+    //
+    // `loggedIn` is three-valued on the wire, and the third value is the point:
+    // `null` with reason "probe_failed" says the probe did not answer, which no
+    // boolean could say. A `false` there would put a sign-in modal in front of
+    // a user who may well be signed in, over a question nobody asked.
     let (logged_in, email, subscription_type, auth_method, reason) = match state {
         AuthState::LoggedIn(info) => (
-            true,
+            serde_json::Value::Bool(true),
             info.email,
             info.subscription_type,
             info.auth_method,
             None,
         ),
-        AuthState::ClaudeMissing => (false, None, None, None, Some("claude_missing")),
-        AuthState::LoggedOut => (false, None, None, None, Some("logged_out")),
+        AuthState::ClaudeMissing => (
+            serde_json::Value::Bool(false),
+            None,
+            None,
+            None,
+            Some("claude_missing"),
+        ),
+        AuthState::LoggedOut => (
+            serde_json::Value::Bool(false),
+            None,
+            None,
+            None,
+            Some("logged_out"),
+        ),
+        AuthState::Unknown => (
+            serde_json::Value::Null,
+            None,
+            None,
+            None,
+            Some("probe_failed"),
+        ),
     };
     let Some(cat) = cat else { return };
     let body = serde_json::json!({

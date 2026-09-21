@@ -98,6 +98,28 @@ describe("deriveColdRestoreActive", () => {
     expect(deriveColdRestoreActive(signals({ phase: "errored" }))).toBe(false);
   });
 
+  it("the cap's own error takes the placeholder down too", () => {
+    // With the app-modal gone, this clause is the whole of the exit
+    // besides `replay_complete`: both deadlines — the silence one and
+    // the absolute `replay_bracket` cap — end a bracket by raising a
+    // `lastError`, and nothing else ends one at all. A cause this
+    // predicate did not fall under would be a card held on its
+    // placeholder with no wire frame left that could free it.
+    expect(
+      deriveColdRestoreActive(
+        signals({
+          phase: "replaying",
+          sessionMode: "resume",
+          lastError: {
+            cause: "replay_bracket_timeout",
+            message: "gave up",
+            at: 1_700_000_000_000,
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("false for a live in-flight phase (streaming) — not a restore", () => {
     expect(
       deriveColdRestoreActive(signals({ phase: "streaming" })),

@@ -613,6 +613,13 @@ pub async fn run_session_bridge(
                 crate::feeds::claude_auth::AuthState::LoggedIn(_) => None,
                 crate::feeds::claude_auth::AuthState::ClaudeMissing => Some("claude_missing"),
                 crate::feeds::claude_auth::AuthState::LoggedOut => Some("auth_required"),
+                // A probe that did not answer is not an answer, so it does not
+                // close a session. The gate exists to stop a *known* logged-out
+                // `claude` from crash-looping; erroring a session on silence
+                // would instead take away a session that might have been fine.
+                // The spawn goes ahead, and if `claude` really is logged out it
+                // exits instantly and the next respawn's probe says so.
+                crate::feeds::claude_auth::AuthState::Unknown => None,
             }
         } else {
             None

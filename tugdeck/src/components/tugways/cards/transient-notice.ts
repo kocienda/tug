@@ -102,16 +102,24 @@ export function projectNotices(
   if (snap.apiRetry !== null) {
     const cls = classifyApiRetry(snap.apiRetry.error, snap.apiRetry.errorStatus);
     const { attempt, maxRetries, deadline } = snap.apiRetry;
-    out.push({
-      id: NOTICE_IDS.apiRetry,
-      message: cls.label,
-      description: retryDescription(attempt, maxRetries, deadline, now),
-      tone: cls.severity === "likely-fatal" ? "danger" : "caution",
-      persistence: "condition",
-      // Only while the deadline is ahead: signals the controller to keep
-      // re-projecting at 1 Hz so the "next try in Ns" tail stays live.
-      ...(deadline > now ? { countdownTo: deadline } : {}),
-    });
+    // The connection classification is the `stalled` state's own, and it is
+    // reported on the state strip rather than here. A bulletin as well would
+    // say one fact twice in two registers — and the strip is the better of
+    // the two for this one, because a bulletin is dismissible transient
+    // chatter and a stalled network is the card's whole current condition.
+    // Every other classification keeps its bulletin.
+    if (cls.category !== "connection") {
+      out.push({
+        id: NOTICE_IDS.apiRetry,
+        message: cls.label,
+        description: retryDescription(attempt, maxRetries, deadline, now),
+        tone: cls.severity === "likely-fatal" ? "danger" : "caution",
+        persistence: "condition",
+        // Only while the deadline is ahead: signals the controller to keep
+        // re-projecting at 1 Hz so the "next try in Ns" tail stays live.
+        ...(deadline > now ? { countdownTo: deadline } : {}),
+      });
+    }
   }
 
   // Only `offline` — the cold-restore `restoring` window is owned by the

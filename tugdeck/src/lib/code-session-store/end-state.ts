@@ -49,6 +49,7 @@ export interface EndStateBadge {
  * | `interrupted`     | (none)          | "Interrupted"        | caution  |
  * | `interrupted`     | `logout`        | "Stopped — logged out" | caution  |
  * | `interrupted`     | `configure-tug` | "Stopped — Configure Tug" | caution |
+ * | `interrupted`     | `recovery`      | "Recovered"          | inherit  |
  * | `error`           | —               | "Error"              | danger   |
  * | `transport_lost`  | —               | "Lost"               | caution  |
  *
@@ -67,6 +68,13 @@ export interface EndStateBadge {
  * of a bare "Interrupted", keeping the same `caution` tone. It
  * is the one helper both the Z1B footer and the telemetry popover call,
  * so both surfaces stay in sync ([D19]).
+ *
+ * `recovery` is the one refinement that also changes the tone. tugcode
+ * cancelled the turn to recover a wedged claude; the user asked for nothing
+ * and has nothing to do about it, so the row reads "Recovered" in the
+ * surrounding text colour — the same `inherit` treatment `complete` gets, and
+ * for the same reason: attention is not warranted, and a caution-toned badge
+ * on a turn nobody stopped would draw the eye to a non-event.
  */
 export function endStateBadgeFor(
   reason: TurnEndReason,
@@ -81,6 +89,8 @@ export function endStateBadgeFor(
           return { text: "Stopped — logged out", role: "caution" };
         case "configure-tug":
           return { text: "Stopped — Configure Tug", role: "caution" };
+        case "recovery":
+          return { text: "Recovered", role: "inherit" };
         default:
           return { text: "Interrupted", role: "caution" };
       }

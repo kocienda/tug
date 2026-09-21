@@ -59,6 +59,8 @@ function baseSnap(
     phase: "idle",
     transportState: "online",
     interruptInFlight: false,
+    stopStalled: false,
+    streamStalled: false,
     tugSessionId: "tug-1",
     displayLabel: "test",
     sessionMode: "new",

@@ -25,7 +25,9 @@
  * @module lib/code-session-store/lifecycle-state
  */
 
-import type { CodeSessionPhase, TransportState } from "./types";
+import { classifyApiRetry } from "@/components/tugways/cards/api-retry";
+
+import type { ApiRetryState, CodeSessionPhase, TransportState } from "./types";
 
 // ---------------------------------------------------------------------------
 // Matrix vocabulary
@@ -71,8 +73,28 @@ export type SessionLifecycleState =
  * `sessionSessionPhaseKey` (`session-phase-visual.ts`), which is where
  * `pendingAsk` now surfaces as Awaiting. Deleting an unread overlay was right;
  * concluding from its silence that the feature was unwanted was not.
+ *
+ * `stop_stalled` is the second member, and it earns its place on exactly the
+ * rule above: `deriveSubmitButtonMode(state, overlays)` never sees the
+ * snapshot, so `stopStalled` cannot reach it as a raw read, and widening that
+ * signature would give the Z5 column a second dependency surface the matrix
+ * does not otherwise have. An overlay is this file's declared mechanism for a
+ * state orthogonal to the base lifecycle, and an unanswered stop is exactly
+ * that: the turn is wherever it was, and what changed is what the stop
+ * control means.
+ *
+ * `stalled` is the third, and it says the one thing neither of the others
+ * can: the wire is up, the stop is deliverable, and *the network claude
+ * needs* is not answering. It has two arms and they are one condition —
+ * claude's own SDK reporting a connection-level retry, and a live turn that
+ * has produced nothing for `STREAM_SILENCE_STALL_MS` — because a user on a
+ * plane gets whichever of the two their failure happens to produce, and the
+ * card should read the same either way.
  */
-export type SessionLifecycleOverlay = "transport_down";
+export type SessionLifecycleOverlay =
+  | "transport_down"
+  | "stop_stalled"
+  | "stalled";
 
 /**
  * The Z5 submit-button mode — the matrix's Z5 column. The `submit`
@@ -88,6 +110,7 @@ export type SessionLifecycleOverlay = "transport_down";
 export type SessionSubmitButtonMode =
   | { kind: "submit"; disabled: boolean }
   | { kind: "stop" }
+  | { kind: "force_stop" }
   | { kind: "awaiting_user" }
   | { kind: "stopping" }
   | { kind: "reconnecting" }
@@ -111,6 +134,25 @@ export interface LifecycleStoreSignals {
   phase: CodeSessionPhase;
   transportState: TransportState;
   interruptInFlight: boolean;
+  /**
+   * A stop on this session went unanswered past its deadline. Raises the
+   * `stop_stalled` overlay, which is the only thing that produces the
+   * `force_stop` submit-button mode ([P02]) — there is no way to reach Force
+   * Stop without having pressed Stop and had it answered by nothing.
+   */
+  stopStalled: boolean;
+  /**
+   * A live turn has gone `STREAM_SILENCE_STALL_MS` without a stream event.
+   * One of the two arms of the `stalled` overlay.
+   */
+  streamStalled: boolean;
+  /**
+   * Claude's own retry announcement, or `null`. The other arm of `stalled`:
+   * an announcement whose {@link classifyApiRetry} `category` is
+   * `"connection"` is claude telling the deck the network is the problem,
+   * which is better evidence than any timer.
+   */
+  apiRetry: ApiRetryState | null;
   /**
    * Only `.length` is read — it splits the `idle` phase into COMPLETE
    * (a turn has committed) vs a never-used IDLE.
@@ -166,6 +208,35 @@ function deriveLifecycleState(s: LifecycleStoreSignals): SessionLifecycleState {
   }
 }
 
+/**
+ * The `stalled` condition, exported because two surfaces read it and they
+ * must not each derive their own: the lifecycle overlay below, and the
+ * flattened phase key in `session-phase-visual.ts` that the STATE cell and
+ * every list row paint from. Two copies of this rule would be two cards
+ * disagreeing about the same session.
+ *
+ * The `category` read is deliberate and load-bearing: `label` is display
+ * copy and the tokens behind the connection reading are private to
+ * `api-retry.ts`, so keying off anything but the discriminator would let a
+ * copy edit silently retire the whole state.
+ *
+ * Neither arm needs a clear anywhere. `foldStreamEvent` nulls `apiRetry` and
+ * `streamStalled` on every live stream event, so recovery drops both arms
+ * through the one mechanism they already run on — read that function's
+ * docstring before adding a second.
+ */
+export function isNetworkStalled(s: {
+  streamStalled: boolean;
+  apiRetry: ApiRetryState | null;
+}): boolean {
+  if (s.streamStalled) return true;
+  if (s.apiRetry === null) return false;
+  return (
+    classifyApiRetry(s.apiRetry.error, s.apiRetry.errorStatus).category ===
+    "connection"
+  );
+}
+
 /** The active overlay set — the matrix's overlay row. */
 function deriveOverlays(
   s: LifecycleStoreSignals,
@@ -174,6 +245,11 @@ function deriveOverlays(
   // TRANSPORT_DOWN covers both `offline` (no wire) and `restoring`
   // (wire back, binding not re-ack'd) — anything but `online`.
   if (s.transportState !== "online") overlays.add("transport_down");
+  // An unanswered stop. Deliberately independent of `transport_down`: the
+  // two can both be up, and each says something the other does not.
+  if (s.stopStalled) overlays.add("stop_stalled");
+  // A network stall, from either of its two arms.
+  if (isNetworkStalled(s)) overlays.add("stalled");
   // A question from outside the turn stream (`/api/ask`) deliberately touches
   // nothing here. It says nothing about the turn — the session is usually idle
   // when one arrives — and routing it through `awaiting_approval` would make
@@ -190,6 +266,20 @@ function deriveSubmitButtonMode(
   state: SessionLifecycleState,
   overlays: ReadonlySet<SessionLifecycleOverlay>,
 ): SessionSubmitButtonMode {
+  // An unanswered stop outranks a down transport, which is the one place in
+  // this function where something beats the wire. The argument is that the
+  // card has something to force-stop whatever the wire is doing, and
+  // `stop_all_work` is deliverable the instant the wire returns — whereas an
+  // inert "Reconnecting…" here would put the user back where this whole arc
+  // started: a dead stop button over work that will not end.
+  if (overlays.has("stop_stalled")) return { kind: "force_stop" };
+  // `stalled` deliberately does NOT appear in this function, and the absence
+  // is the decision. Unlike `transport_down`, a network stall leaves
+  // loopback healthy: the frame Stop sends reaches tugcode the instant it is
+  // pressed, and the turn it stops is one claude is failing to advance. A
+  // disabled stop button over work that will not end is the exact defect
+  // this arc began from, and it is not to be reintroduced for the one state
+  // that most looks like it deserves one.
   // Transport down trumps everything — neither submit nor stop can
   // reach the wire, so the button is an inert "Reconnecting…".
   if (overlays.has("transport_down")) return { kind: "reconnecting" };

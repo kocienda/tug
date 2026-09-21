@@ -26,11 +26,20 @@ export interface AuthAccount {
  * Why the user is signed out — drives which setup-checklist step is active:
  * `claude_missing` = the CLI isn't installed; `logged_out` = installed but not
  * signed in. `null` when logged in (or not yet probed).
+ *
+ * `probe_failed` is the odd one out and rides alongside `loggedIn: null`:
+ * the probe ran and did not answer, so the login state is unknown rather than
+ * signed out. `loggedIn: null` on its own already means "not yet probed"; the
+ * reason is what tells "not yet" from "could not".
  */
-export type AuthReason = "claude_missing" | "logged_out";
+export type AuthReason = "claude_missing" | "logged_out" | "probe_failed";
 
 export interface AuthSnapshot {
-  /** `null` until the first probe answers; then the known login state. */
+  /**
+   * `null` until the first probe answers, and again whenever a probe fails to
+   * answer — `reason` says which. Only `true` and `false` are claims about
+   * the user.
+   */
   loggedIn: boolean | null;
   /** Which signed-out step is active, or `null` when logged in / unknown. */
   reason: AuthReason | null;
@@ -193,21 +202,28 @@ class AuthStore {
 
   /** Apply a `claude_auth_result`: records login state and clears `signingIn`. */
   applyResult(
-    loggedIn: boolean,
+    loggedIn: boolean | null,
     reason: AuthReason | null,
     account: AuthAccount | null,
   ): void {
     // A result that arrives while a sign-in was in flight but does not log in
     // means the attempt failed (cancelled / browser closed). A successful login
     // clears the flag; a plain probe (no attempt in flight) leaves it as-is.
-    const attempted = this._snapshot.signingIn;
+    //
+    // A probe that did not answer is not such a result: it says nothing about
+    // the attempt, so it must not be read as one that failed. `signingIn` is
+    // still cleared — the frame is the answer to the request that set it —
+    // but `signInFailed` is left exactly as it was.
+    const unanswered = loggedIn === null;
+    const attempted = this._snapshot.signingIn && !unanswered;
     this._snapshot = {
       ...this._snapshot,
       loggedIn,
-      reason: loggedIn ? null : reason,
-      account: loggedIn ? account : null,
+      reason: loggedIn === true ? null : reason,
+      account: loggedIn === true ? account : null,
       signingIn: false,
-      signInFailed: loggedIn ? false : attempted || this._snapshot.signInFailed,
+      signInFailed:
+        loggedIn === true ? false : attempted || this._snapshot.signInFailed,
       installing: false,
       // This result is the post-install re-probe (or any later probe): the
       // install step now resolves to its real state, so the bridge ends.
@@ -233,7 +249,6 @@ export function useAuth(): AuthSnapshot {
  * wire shape (`loggedIn` plus optional `email`/`subscriptionType`/`authMethod`).
  */
 export function applyAuthResultPayload(payload: Record<string, unknown>): void {
-  const loggedIn = payload.loggedIn === true;
   const str = (v: unknown): string | null =>
     typeof v === "string" && v.length > 0 ? v : null;
   const reason: AuthReason | null =
@@ -241,11 +256,18 @@ export function applyAuthResultPayload(payload: Record<string, unknown>): void {
       ? "claude_missing"
       : payload.reason === "logged_out"
         ? "logged_out"
-        : null;
+        : payload.reason === "probe_failed"
+          ? "probe_failed"
+          : null;
+  // Three-valued, matching the wire: `true`, `false`, and a `null` that says
+  // the probe did not answer. Anything else the wire could carry is read as
+  // unknown rather than as a signed-out claim.
+  const loggedIn: boolean | null =
+    payload.loggedIn === true ? true : payload.loggedIn === false ? false : null;
   authStore.applyResult(
     loggedIn,
     reason,
-    loggedIn
+    loggedIn === true
       ? {
           email: str(payload.email),
           subscriptionType: str(payload.subscriptionType),

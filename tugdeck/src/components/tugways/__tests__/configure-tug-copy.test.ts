@@ -18,6 +18,10 @@ import {
   hostToolsCopy,
   returnHomeStepKey,
   COMMAND_LINE_TOOLS_SIZE,
+  authOfflineCopy,
+  deriveProbingHold,
+  deriveConfigureTugRequired,
+  deriveFirstRunComplete,
 } from "../configure-tug-copy";
 
 describe("subscriptionLabel", () => {
@@ -265,5 +269,252 @@ describe("returnHomeStepKey", () => {
     expect(
       returnHomeStepKey([row("install", "busy"), row("host-tools", "error", false)]),
     ).toBeNull();
+  });
+});
+
+// ── The offline readings ─────────────────────────────────────────────────
+
+describe("deriveProbingHold", () => {
+  const base = {
+    forced: false,
+    inFirstRun: true,
+    loggedIn: null as boolean | null,
+    reason: null as string | null,
+    deadlinePassed: false,
+  };
+
+  test("holds a first run while the probe has not answered", () => {
+    expect(deriveProbingHold(base)).toBe(true);
+  });
+
+  test("does not hold on a probe that answered 'could not tell'", () => {
+    // `probe_failed` carries `loggedIn: null` like silence does, and it is
+    // the opposite of silence: the news arrived. Holding on it put the wizard
+    // back on "Looking for Claude Code…" for the whole deadline after the
+    // answer was already in hand — which a real launch showed doing exactly
+    // that before this clause existed.
+    expect(deriveProbingHold({ ...base, reason: "probe_failed" })).toBe(false);
+  });
+
+  test("lets go at the deadline, whatever the store still says", () => {
+    // The whole reason this is a function. `loggedIn` is still `null` — the
+    // answer never came — and the hold ends anyway, because `probing` is a
+    // term of `required` and an unbounded one holds the app shut.
+    expect(deriveProbingHold({ ...base, deadlinePassed: true })).toBe(false);
+  });
+
+  test("does not hold once the probe answers, either way", () => {
+    expect(deriveProbingHold({ ...base, loggedIn: true })).toBe(false);
+    expect(deriveProbingHold({ ...base, loggedIn: false })).toBe(false);
+  });
+
+  test("does not hold outside a first run, or under a forced scenario", () => {
+    expect(deriveProbingHold({ ...base, inFirstRun: false })).toBe(false);
+    expect(deriveProbingHold({ ...base, forced: true })).toBe(false);
+  });
+});
+
+describe("deriveConfigureTugRequired", () => {
+  const base = {
+    suppressed: false,
+    forced: false,
+    notReady: false,
+    needsFirstSession: false,
+    probing: false,
+    reason: null as string | null,
+    pathStatus: null as string | null,
+  };
+
+  test("a probe that could not tell does not claim the app", () => {
+    // `probe_failed` carries `loggedIn: null`, so `notReady` (`loggedIn ===
+    // false`) is false and the hold has ended. Nothing is left to require the
+    // wizard, which is what makes the deck behind it reachable.
+    expect(deriveConfigureTugRequired(base)).toBe(false);
+  });
+
+  test("a definite logged-out answer still claims it", () => {
+    expect(deriveConfigureTugRequired({ ...base, notReady: true })).toBe(true);
+  });
+
+  test("the probing hold claims it, and releasing the hold releases the claim", () => {
+    expect(deriveConfigureTugRequired({ ...base, probing: true })).toBe(true);
+    expect(deriveConfigureTugRequired({ ...base, probing: false })).toBe(false);
+  });
+
+  test("a first session still owed claims it", () => {
+    expect(deriveConfigureTugRequired({ ...base, needsFirstSession: true })).toBe(true);
+  });
+
+  test("suppression beats every other term", () => {
+    expect(
+      deriveConfigureTugRequired({
+        suppressed: true,
+        forced: true,
+        notReady: true,
+        needsFirstSession: true,
+        probing: true,
+        reason: "logged_out",
+        pathStatus: "unsatisfied",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("deriveConfigureTugRequired — the path hint's one use", () => {
+  // The table the whole hint exists for, and the reason it is a table: the
+  // relaxation must fire on exactly one combination and on nothing that
+  // merely resembles it.
+  const loggedOut = {
+    suppressed: false,
+    forced: false,
+    notReady: true,
+    needsFirstSession: false,
+    probing: false,
+    reason: "logged_out" as string | null,
+    pathStatus: null as string | null,
+  };
+
+  test("logged out with no route does not claim the app", () => {
+    // Tug knows the user is signed out AND knows the one fix — a browser
+    // round-trip to Anthropic — cannot work. Holding the app behind a button
+    // that cannot succeed is the failure this relaxes.
+    expect(
+      deriveConfigureTugRequired({ ...loggedOut, pathStatus: "unsatisfied" }),
+    ).toBe(false);
+  });
+
+  test("logged out with a route still claims it", () => {
+    // `satisfied` is not an assurance — captive wifi reports it while nothing
+    // gets through — so it relaxes nothing. The user can try, and the sign-in
+    // attempt's own timeout is what tells them if it went nowhere.
+    expect(
+      deriveConfigureTugRequired({ ...loggedOut, pathStatus: "satisfied" }),
+    ).toBe(true);
+  });
+
+  test("logged out with no report yet still claims it", () => {
+    // An absent hint is not an offline hint. `null` is "the host has not
+    // said", which is where every deck starts and where a browser tab stays.
+    expect(deriveConfigureTugRequired(loggedOut)).toBe(true);
+  });
+
+  test("requiresConnection is not the believed negative either", () => {
+    // A route exists and something must be brought up first (an on-demand
+    // VPN). Not "there is no network", so not this relaxation's case.
+    expect(
+      deriveConfigureTugRequired({
+        ...loggedOut,
+        pathStatus: "requiresConnection",
+      }),
+    ).toBe(true);
+  });
+
+  test("no route does not relax a reason that is not logged_out", () => {
+    // `claude_missing` is not fixed by the network coming back — the CLI is
+    // not installed — so the wizard's claim stands however the path reads.
+    expect(
+      deriveConfigureTugRequired({
+        ...loggedOut,
+        reason: "claude_missing",
+        pathStatus: "unsatisfied",
+      }),
+    ).toBe(true);
+  });
+
+  test("no route does not relax a first session still owed", () => {
+    // A different term of `required` entirely, and one the network has no
+    // bearing on: the user is logged in and has no card open.
+    expect(
+      deriveConfigureTugRequired({
+        ...loggedOut,
+        notReady: false,
+        needsFirstSession: true,
+        pathStatus: "unsatisfied",
+      }),
+    ).toBe(true);
+  });
+
+  test("no route does not relax the probing hold", () => {
+    expect(
+      deriveConfigureTugRequired({
+        ...loggedOut,
+        notReady: false,
+        probing: true,
+        pathStatus: "unsatisfied",
+      }),
+    ).toBe(true);
+  });
+
+  test("a forced wizard is unaffected by the path", () => {
+    // `forced` is the app-test/demo door into the wizard; the host's network
+    // has nothing to say about whether a caller asked for it.
+    for (const pathStatus of ["unsatisfied", "satisfied", null]) {
+      expect(
+        deriveConfigureTugRequired({ ...loggedOut, forced: true, pathStatus }),
+      ).toBe(true);
+    }
+  });
+});
+
+describe("deriveFirstRunComplete", () => {
+  const base = {
+    inFirstRun: true,
+    suppressed: false,
+    required: false,
+    effectiveLoggedIn: true,
+  };
+
+  test("records a first run that genuinely finished", () => {
+    expect(deriveFirstRunComplete(base)).toBe(true);
+  });
+
+  test("does NOT record one on the offline path, even though nothing is required", () => {
+    // The finding this test exists for. The offline case drops `required` so
+    // the app is reachable; read as "setup finished" it would permanently
+    // record a first run the user never completed, and the next launch would
+    // hand them a login wizard for a setup they never did.
+    expect(deriveFirstRunComplete({ ...base, effectiveLoggedIn: false })).toBe(false);
+  });
+
+  test("does not record while the wizard still has a claim", () => {
+    expect(deriveFirstRunComplete({ ...base, required: true })).toBe(false);
+  });
+
+  test("a suppressed instance was never asked, so it answers nothing", () => {
+    expect(deriveFirstRunComplete({ ...base, suppressed: true })).toBe(false);
+  });
+
+  test("nothing to record outside a first run", () => {
+    expect(deriveFirstRunComplete({ ...base, inFirstRun: false })).toBe(false);
+  });
+});
+
+describe("authOfflineCopy", () => {
+  test("an unanswered probe says it does not know, rather than that you are signed out", () => {
+    const copy = authOfflineCopy("probe_failed");
+    expect(copy.label).toBe("Can't check your login right now");
+    expect(copy.detail).toContain("got no answer");
+    // The claim Tug does not have must not appear in the row that is about
+    // not having it.
+    expect(copy.label).not.toContain("logged out");
+    expect(copy.detail).not.toContain("logged out");
+  });
+
+  test("a known logout while offline names the network as the reason", () => {
+    const copy = authOfflineCopy("logged_out_offline");
+    expect(copy.label).toBe("Can't log in right now");
+    expect(copy.detail).toContain("network connection");
+    expect(copy.detail).toContain("browser");
+  });
+
+  test("both readings keep a button, because the user has no other retry", () => {
+    for (const reading of ["probe_failed", "logged_out_offline"] as const) {
+      expect(authOfflineCopy(reading).cta.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("both readings say what is still possible or why it is not — never a bare failure", () => {
+    expect(authOfflineCopy("probe_failed").detail).toContain("existing sessions");
+    expect(authOfflineCopy("logged_out_offline").detail).toContain("offline");
   });
 });

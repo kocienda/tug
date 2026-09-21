@@ -7,10 +7,15 @@
  * and behaviour are entirely a function of the lifecycle-derived
  * `submitButtonMode` ([L26] — one node across every mode; only the
  * label / icon / `disabled` / `data-mode` change, never the element).
- * `resolveSubmitButtonView` is that function: it maps the six
+ * `resolveSubmitButtonView` is that function: it maps the seven
  * `submitButtonMode` kinds onto the `data-mode` attribute CSS keys
  * off ([L06]), the per-mode `aria-label`, the `disabled` flag, the
  * icon glyph, and the danger-role flag.
+ *
+ * The enumeration is seven kinds. `force_stop` is the newest, and it is the
+ * only *enabled* member of the stop family besides `stop` itself — a card
+ * whose stop went unanswered has something left to do, and the inert
+ * `stopping` glyph that used to sit there forever is the defect it replaces.
  *
  * Pure module — no DOM, no React. The button component in
  * `tug-prompt-entry.tsx` consumes this; the derivation is unit-tested
@@ -31,6 +36,7 @@ export interface SubmitButtonView {
   dataMode:
     | "submit"
     | "stop"
+    | "force-stop"
     | "awaiting-user"
     | "stopping"
     | "reconnecting"
@@ -74,6 +80,16 @@ export function resolveSubmitButtonView(
       return {
         dataMode: "stop",
         ariaLabel: "Stop turn",
+        disabled: false,
+        icon: "stop",
+        danger: true,
+      };
+    case "force_stop":
+      // Reachable only from the `stop_stalled` overlay ([P02]), which is
+      // raised only by a stop that went unanswered for its whole deadline.
+      return {
+        dataMode: "force-stop",
+        ariaLabel: "Force stop",
         disabled: false,
         icon: "stop",
         danger: true,

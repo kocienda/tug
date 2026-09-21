@@ -486,6 +486,7 @@ const CAUSE_LABELS: Record<BannerErrorCause, string> = {
   session_unknown: "Session unknown",
   session_not_owned: "Session not owned",
   replay_stalled: "Restore stalled",
+  replay_bracket_timeout: "Restore timed out",
 };
 
 // ---------------------------------------------------------------------------
@@ -4028,7 +4029,15 @@ export function SessionCardBody({
       // interrupt); the menu item's `canInterrupt` enablement is the
       // only gate, and a stray dispatch while idle is a no-op.
       [TUG_ACTIONS.INTERRUPT_SESSION]: (_event: ActionEvent) => {
-        codeSessionStore.interrupt();
+        // …except once a stop has gone unanswered, where repeating it would
+        // send a frame the session has already proved it will not answer.
+        // The menu item escalates to Force Stop on the same terms the Z5
+        // button does ([F04]).
+        if (codeSessionStore.getSnapshot().stopStalled) {
+          codeSessionStore.forceStop();
+        } else {
+          codeSessionStore.interrupt();
+        }
       },
       // A typed local slash command, dispatched key-card-scoped by the prompt
       // entry. Open the matching surface. An unknown name is a no-op (the
