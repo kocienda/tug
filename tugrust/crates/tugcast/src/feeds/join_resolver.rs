@@ -1535,7 +1535,7 @@ mod tests {
     // -- the resolve flow, over a real conflicted repo -----------------------
 
     fn git(dir: &Path, args: &[&str]) {
-        let ok = std::process::Command::new("git")
+        let ok = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -1596,7 +1596,7 @@ mod tests {
         let tip = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("a chain stands")
             .tip;
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["log", "-1", "--format=%s", &tip])
@@ -1646,7 +1646,7 @@ mod tests {
             tugarc_core::resolve::CandidateStatus::Valid(sha) => sha,
             other => panic!("expected a valid candidate, got {other:?}"),
         };
-        let merged = std::process::Command::new("git")
+        let merged = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])
@@ -2029,7 +2029,7 @@ mod tests {
         let chain = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("the chain outlives the failed resolve");
         assert_ne!(chain.tip, root, "the chain advanced past its root");
-        let settled = std::process::Command::new("git")
+        let settled = tugcore::git_command()
             .current_dir(repo)
             .args(["show", &format!("{}:g.txt", chain.tip)])
             .output()
@@ -2089,7 +2089,7 @@ mod tests {
         );
         let chain = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("the chain outlives the failed resolve");
-        let head = std::process::Command::new("git")
+        let head = tugcore::git_command()
             .current_dir(&workshop)
             .args(["rev-parse", "HEAD"])
             .output()
@@ -2099,7 +2099,7 @@ mod tests {
             chain.tip,
             "and the workshop is parked exactly on it"
         );
-        let status = std::process::Command::new("git")
+        let status = tugcore::git_command()
             .current_dir(&workshop)
             .args(["status", "--porcelain"])
             .output()

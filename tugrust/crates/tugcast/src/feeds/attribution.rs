@@ -1049,7 +1049,7 @@ pub async fn snapshot_worktree(repo_root: &Path) -> HashMap<PathBuf, FileState> 
 /// returning stdout on success or `None` on any failure (non-repo, git error,
 /// spawn failure) — the caller degrades to an empty snapshot.
 async fn run_git_status_porcelain(repo_root: &Path) -> Option<String> {
-    let output = tokio::process::Command::new("git")
+    let output = tokio::process::Command::from(tugcore::git_command())
         .args([
             "-C",
             &repo_root.to_string_lossy(),
@@ -2046,7 +2046,7 @@ u UU N... 0 0 0 0 unmerged.rs
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         let run = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
+            let ok = tugcore::git_command()
                 .args(args)
                 .current_dir(root)
                 .output()
@@ -2112,7 +2112,7 @@ u UU N... 0 0 0 0 unmerged.rs
         let repo = init_repo();
         let root = repo.path().to_path_buf();
         let run = |args: &[&str]| {
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .args(args)
                 .current_dir(&root)
                 .output()

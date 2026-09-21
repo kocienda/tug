@@ -426,7 +426,7 @@ pub fn delete_documents(name: &str) -> Result<DeleteDocumentsOutcome, String> {
 
 /// Run a git command in `dir`, returning its raw output.
 pub(crate) fn git_output(dir: &Path, args: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("git")
+    tugcore::git_command()
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -3112,20 +3112,9 @@ pub fn commit(
     // Stage and commit, re-attempting past a held `index.lock` (Spec S02) —
     // the join's preflight sweep commits into this same worktree, and
     // whichever writer lost the race used to die outright.
-    let mut last_error = String::new();
-    let mut result: Option<Option<String>> = None;
-    for attempt in 0..INDEX_LOCK_ATTEMPTS {
-        if attempt > 0 {
-            std::thread::sleep(INDEX_LOCK_BACKOFF);
-        }
-        let stage = git_output(&worktree, &["add", "-A"])?;
-        if !stage.status.success() {
-            let stderr = String::from_utf8_lossy(&stage.stderr).trim().to_string();
-            last_error = format!("git add failed: {stderr}");
-            if index_lock_blocked(&stderr) {
-                continue;
-            }
-            return Err(last_error);
+    let commit_hash = retry_past_index_lock(|| {
+        if let LockAttempt::Blocked(e) = git_write(&worktree, &["add", "-A"], "git add failed")? {
+            return Ok(LockAttempt::Blocked(e));
         }
 
         // Anything staged? Re-asked on every attempt, which is what makes a
@@ -3135,29 +3124,21 @@ pub fn commit(
         let diff = git_output(&worktree, &["diff", "--cached", "--quiet"])?;
         let has_changes = !diff.status.success(); // exits 1 when there are changes
         if !has_changes {
-            result = Some(None);
-            break;
+            return Ok(LockAttempt::Done(None));
         }
 
-        let commit = git_output(&worktree, &["commit", "-m", &commit_message])?;
-        if !commit.status.success() {
-            let stderr = String::from_utf8_lossy(&commit.stderr).trim().to_string();
-            last_error = format!("git commit failed: {stderr}");
-            if index_lock_blocked(&stderr) {
-                continue;
-            }
-            return Err(last_error);
+        if let LockAttempt::Blocked(e) = git_write(
+            &worktree,
+            &["commit", "-m", &commit_message],
+            "git commit failed",
+        )? {
+            return Ok(LockAttempt::Blocked(e));
         }
-        result = Some(Some(git_stdout(
+        Ok(LockAttempt::Done(Some(git_stdout(
             &worktree,
             &["rev-parse", "--short", "HEAD"],
-        )?));
-        break;
-    }
-    // The window closed with the lock still held — the original error, verbatim.
-    let Some(commit_hash) = result else {
-        return Err(last_error);
-    };
+        )?)))
+    })?;
     let has_changes = commit_hash.is_some();
 
     // Append an arc log line ([P04]): the verbatim instruction is git's one gap.
@@ -3339,26 +3320,108 @@ fn conflict_archaeology(
 }
 
 fn merge_tree_conflicts(repo: &Path, base: &str, branch: &str) -> Result<Vec<String>, String> {
+    Ok(match merge_tree(repo, base, branch)? {
+        MergedTree::Clean(_) => vec![],
+        MergedTree::Conflicted(conflicts) => conflicts,
+    })
+}
+
+/// What merging two commits in memory came to.
+enum MergedTree {
+    /// The result tree's object id.
+    Clean(String),
+    /// The paths that conflict.
+    Conflicted(Vec<String>),
+}
+
+/// Merge `branch` into `base` with `git merge-tree --write-tree` (git ≥ 2.38):
+/// objects only, no worktree, index, or ref touched.
+fn merge_tree(repo: &Path, base: &str, branch: &str) -> Result<MergedTree, String> {
     let out = git_output(
         repo,
         &["merge-tree", "--write-tree", "--name-only", base, branch],
     )?;
-    if out.status.success() {
-        return Ok(vec![]); // clean merge
-    }
-    // Exit 1 ⇒ conflicts. Output: the toplevel tree OID on line 1, then the
-    // conflicted file names, a blank line, then informational messages.
+    // Output: the toplevel tree OID on line 1; then, on a conflict, the
+    // conflicted file names, a blank line, and informational messages.
     let stdout = String::from_utf8_lossy(&out.stdout);
     let mut lines = stdout.lines();
-    let _tree_oid = lines.next();
-    let mut conflicts = Vec::new();
-    for line in lines {
-        if line.trim().is_empty() {
-            break;
-        }
-        conflicts.push(line.trim().to_string());
+    let tree_oid = lines.next().unwrap_or("").trim().to_string();
+    match out.status.code() {
+        Some(0) if !tree_oid.is_empty() => Ok(MergedTree::Clean(tree_oid)),
+        // Exit 1 ⇒ conflicts.
+        Some(1) => Ok(MergedTree::Conflicted(
+            lines
+                .take_while(|line| !line.trim().is_empty())
+                .map(|line| line.trim().to_string())
+                .collect(),
+        )),
+        // Anything else is git failing to merge at all — a git too old for
+        // `--write-tree` among them — and it says so rather than reading as
+        // a clean merge of nothing.
+        _ => Err(format!(
+            "git merge-tree failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )),
     }
-    Ok(conflicts)
+}
+
+/// A commit message as `git commit -m` would have stored it: trailing
+/// whitespace stripped from each line, runs of blank lines collapsed, blank
+/// lines at either end removed, one final newline. `git commit-tree` stores
+/// its message verbatim, so a commit built off to the side cleans its own.
+fn cleaned_commit_message(message: &str) -> String {
+    let mut out = String::new();
+    let mut pending_blank = false;
+    for line in message.lines().map(str::trim_end) {
+        if line.is_empty() {
+            pending_blank = !out.is_empty();
+            continue;
+        }
+        if pending_blank {
+            out.push('\n');
+            pending_blank = false;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Build a commit of `tree` on `parents` off to the side, then land it on the
+/// checked-out base by fast-forward.
+///
+/// **Nothing is ever staged on the base.** `commit-tree` needs no index, so
+/// the commit exists in full before the base is touched, and the one act that
+/// touches it — `merge --ff-only` — refuses before writing anything when it
+/// loses the index lock or when local changes overlap, and leaves disjoint
+/// dirt alone. There is no half-landed state, so there is nothing to roll
+/// back. The landing retries past a held `index.lock` with every other index
+/// write ([`retry_past_index_lock`]).
+///
+/// `parents[0]` must be the base's head, which is what makes the landing a
+/// fast-forward.
+fn land_side_built_commit(
+    repo_root: &Path,
+    tree: &str,
+    parents: &[&str],
+    message: &str,
+) -> Result<String, String> {
+    let message = cleaned_commit_message(message);
+    let mut args = vec!["commit-tree", tree];
+    for parent in parents {
+        args.extend(["-p", parent]);
+    }
+    args.extend(["-m", &message]);
+    let commit = git_stdout(repo_root, &args)
+        .map_err(|e| format!("failed to build the join commit: {e}"))?;
+    retry_past_index_lock(|| {
+        git_write(
+            repo_root,
+            &["merge", "--ff-only", "--quiet", &commit],
+            "failed to land the join commit",
+        )
+    })?;
+    Ok(commit)
 }
 
 /// The arc's maintained draft ([P23], Spec S09) — the default join message
@@ -3708,11 +3771,7 @@ pub(crate) fn commit_worktree_dirt(worktree: &Path, name: &str) -> Result<(), St
         &format!("tugarc({name}): commit outstanding changes"),
         &[(SWEEP_TRAILER_KEY, "1")],
     );
-    let mut last_error = String::new();
-    for attempt in 0..INDEX_LOCK_ATTEMPTS {
-        if attempt > 0 {
-            std::thread::sleep(INDEX_LOCK_BACKOFF);
-        }
+    retry_past_index_lock(|| {
         // Re-read the status on every attempt, not once before the loop. This
         // is what makes losing the race a graceful yield rather than an error:
         // if the other writer swept the dirt while we waited, there is nothing
@@ -3720,32 +3779,24 @@ pub(crate) fn commit_worktree_dirt(worktree: &Path, name: &str) -> Result<(), St
         // happened ([L31] — the act, not a swallowed failure).
         let arc_status = git_stdout(worktree, &["status", "--porcelain"])?;
         if arc_status.is_empty() {
-            return Ok(());
+            return Ok(LockAttempt::Done(()));
         }
-        let add = git_output(worktree, &["add", "-A"])?;
-        if !add.status.success() {
-            let stderr = String::from_utf8_lossy(&add.stderr).trim().to_string();
-            last_error = format!("join: git add in the arc worktree failed: {stderr}");
-            if index_lock_blocked(&stderr) {
-                continue;
-            }
-            return Err(last_error);
+        if let LockAttempt::Blocked(e) = git_write(
+            worktree,
+            &["add", "-A"],
+            "join: git add in the arc worktree failed",
+        )? {
+            return Ok(LockAttempt::Blocked(e));
         }
-        let c = git_output(worktree, &["commit", "-m", &message])?;
-        if !c.status.success() {
-            let stderr = String::from_utf8_lossy(&c.stderr).trim().to_string();
-            last_error = format!("join: auto-commit in the arc worktree failed: {stderr}");
-            if index_lock_blocked(&stderr) {
-                continue;
-            }
-            return Err(last_error);
+        if let LockAttempt::Blocked(e) = git_write(
+            worktree,
+            &["commit", "-m", &message],
+            "join: auto-commit in the arc worktree failed",
+        )? {
+            return Ok(LockAttempt::Blocked(e));
         }
-        return Ok(());
-    }
-    // The window closed with the lock still held. The original message goes
-    // back verbatim — a retry that rewrote the error would cost the reader the
-    // one word (`index.lock`) that says what actually happened.
-    Err(last_error)
+        Ok(LockAttempt::Done(()))
+    })
 }
 
 /// The trailer that marks a commit as the join's preflight sweep rather
@@ -3835,6 +3886,88 @@ const INDEX_LOCK_BACKOFF: std::time::Duration = std::time::Duration::from_millis
 /// disagree about what is transient.
 fn index_lock_blocked(stderr: &str) -> bool {
     stderr.contains("index.lock")
+}
+
+/// What one attempt at an index-writing act came to.
+enum LockAttempt<T> {
+    /// The act finished — it wrote, or found there was nothing left to write.
+    Done(T),
+    /// A git write lost the race for `index.lock`; the error is git's own.
+    Blocked(String),
+}
+
+/// Run an index-writing act, re-attempting past a held `index.lock` under
+/// [`INDEX_LOCK_ATTEMPTS`] and [`INDEX_LOCK_BACKOFF`] (Spec S02).
+///
+/// The one loop, for every site that writes an index another Tug process may
+/// be writing — the arc worktree's two commit paths and the base's landing —
+/// so they cannot disagree about what is transient or for how long. The whole
+/// closure re-runs per attempt, which is what lets a caller re-read state
+/// first and find that the writer it lost to already did the work. An `Err`
+/// from the closure is a failure on the merits and ends the loop at once.
+///
+/// When the window closes with the lock still held, the last blocked error
+/// goes back verbatim — a retry that rewrote it would cost the reader the one
+/// word (`index.lock`) that says what actually happened.
+fn retry_past_index_lock<T>(
+    mut attempt: impl FnMut() -> Result<LockAttempt<T>, String>,
+) -> Result<T, String> {
+    let mut last_error = String::new();
+    for n in 0..INDEX_LOCK_ATTEMPTS {
+        if n > 0 {
+            std::thread::sleep(INDEX_LOCK_BACKOFF);
+        }
+        match attempt()? {
+            LockAttempt::Done(value) => return Ok(value),
+            LockAttempt::Blocked(e) => last_error = e,
+        }
+    }
+    Err(last_error)
+}
+
+/// One git write inside a [`retry_past_index_lock`] attempt: `Blocked` when it
+/// lost the index lock, `Err` when it failed on its merits, both as
+/// `<what>: <git's stderr>`.
+fn git_write(dir: &Path, args: &[&str], what: &str) -> Result<LockAttempt<()>, String> {
+    let out = git_output(dir, args)?;
+    if out.status.success() {
+        return Ok(LockAttempt::Done(()));
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let error = format!("{what}: {stderr}");
+    if index_lock_blocked(&stderr) {
+        Ok(LockAttempt::Blocked(error))
+    } else {
+        Err(error)
+    }
+}
+
+/// A git write on the base whose failure may be the caller's own signal — a
+/// fast-forward the base has outgrown, a cherry-pick that conflicts — run
+/// through [`retry_past_index_lock`] so that only the merits decide it.
+///
+/// `None` is success; `Some(stderr)` is git's own refusal, which the caller
+/// reads as the signal it was watching for; `Err` is the lock held past the
+/// window, which is neither and must never be read as one. A fast-forward
+/// that "failed" because another Tug process held the index would otherwise
+/// send the rebase down its cherry-pick and land the arc on the base as fresh
+/// commits — the shape decided by a race.
+fn git_write_on_the_merits(
+    dir: &Path,
+    args: &[&str],
+    what: &str,
+) -> Result<Option<String>, String> {
+    retry_past_index_lock(|| {
+        let out = git_output(dir, args)?;
+        if out.status.success() {
+            return Ok(LockAttempt::Done(None));
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        if index_lock_blocked(&stderr) {
+            return Ok(LockAttempt::Blocked(format!("{what}: {stderr}")));
+        }
+        Ok(LockAttempt::Done(Some(stderr)))
+    })
 }
 
 fn stale_journal_detail(name: &str) -> String {
@@ -4014,19 +4147,50 @@ fn overlap_paths(overlap: &[BaseOverlapPath]) -> Vec<String> {
 ///
 /// Every drop is reported. A file the user last saw as uncommitted work is now
 /// committed work, which is a fact about their checkout they are owed.
+///
+/// **Every path is classified before any is touched, and the drop is all or
+/// nothing.** The `tracked` bucket is "dirty against HEAD", which holds two
+/// index states git treats differently: a path HEAD knows restores with
+/// `checkout HEAD --`, and a path *staged as new* — in the index, absent from
+/// HEAD — has nothing there to restore to, so its index entry goes with its
+/// file ([`carry_working_set_in`]'s `"staged-new"` arm is the model). A failure
+/// part-way puts back every copy already dropped, from `<branch>:<path>` —
+/// the same guarantee that licensed the drop — with the index entry each path
+/// held, so the base reads as it did before the call.
 fn drop_identical_base_copies(
     repo_root: &Path,
+    branch: &str,
     droppable: &BlockingBasePaths,
     warnings: &mut Vec<String>,
-) -> Result<(), String> {
-    for entry in &droppable.tracked {
-        git_stdout(repo_root, &["checkout", "HEAD", "--", &entry.path])
-            .map_err(|e| format!("failed to drop the base's copy of {}: {e}", entry.path))?;
-    }
-    for entry in &droppable.untracked {
-        let path = repo_root.join(&entry.path);
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("failed to drop the base's copy of {}: {e}", entry.path))?;
+) -> Result<(), DropFailure> {
+    let copies: Vec<BaseCopy> = droppable
+        .tracked
+        .iter()
+        .map(|o| BaseCopy::read(repo_root, &o.path, true))
+        .chain(
+            droppable
+                .untracked
+                .iter()
+                .map(|o| BaseCopy::read(repo_root, &o.path, false)),
+        )
+        .collect();
+
+    for (i, copy) in copies.iter().enumerate() {
+        if let Err(e) = copy.drop_from(repo_root) {
+            let detail = format!("failed to drop the base's copy of {}: {e}", copy.path);
+            // The failing path is put back with the rest: a drop that failed
+            // may still have done half of what it does, and the put-back is
+            // idempotent over a path that was never touched.
+            let left_dropped: Vec<String> = copies[..=i]
+                .iter()
+                .filter(|c| c.put_back(repo_root, branch).is_err())
+                .map(|c| c.path.clone())
+                .collect();
+            return Err(DropFailure {
+                detail,
+                left_dropped,
+            });
+        }
     }
     let dropped = [
         overlap_paths(&droppable.tracked),
@@ -4040,6 +4204,164 @@ fn drop_identical_base_copies(
         ));
     }
     Ok(())
+}
+
+/// A drop that did not finish, and what it could not take back.
+///
+/// `left_dropped` empty means the base is as the drop found it, so the caller
+/// may treat the verb as not having happened. Anything named there is a path
+/// the put-back could not restore — the bytes are still at `<branch>:<path>`,
+/// and the caller owes the record and the user that fact.
+#[derive(Debug)]
+struct DropFailure {
+    detail: String,
+    left_dropped: Vec<String>,
+}
+
+impl DropFailure {
+    /// The sentence the verb returns.
+    fn sentence(&self, branch: &str) -> String {
+        if self.left_dropped.is_empty() {
+            format!("{} — the base checkout was left as it was.", self.detail)
+        } else {
+            format!(
+                "{} — and the base's copy of {} could not be put back; the same bytes are on '{branch}'.",
+                self.detail,
+                self.left_dropped.join(", ")
+            )
+        }
+    }
+}
+
+/// Which of the three states a droppable base copy is in — the one fact that
+/// decides how it is dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BaseCopyState {
+    /// HEAD has the path; the copy restores from it.
+    TrackedDirty,
+    /// In the index and absent from HEAD: nothing to restore to.
+    StagedNew,
+    /// Not in the index at all.
+    Untracked,
+}
+
+/// One droppable base copy, read before anything is touched: how to drop it,
+/// and what putting it back has to reproduce.
+#[derive(Debug)]
+struct BaseCopy {
+    path: String,
+    state: BaseCopyState,
+    /// The index entry the path held, `(mode, blob)` — `None` for a path the
+    /// index did not have (untracked, or a staged deletion).
+    index_entry: Option<(String, String)>,
+    /// Whether the file was on disk. A deletion both sides made is
+    /// `identical` too, and putting that back means removing the file again.
+    on_disk: bool,
+    /// The working file's permission bits, so a put-back restores the file
+    /// the base had rather than one that merely holds the same bytes. The
+    /// index entry answers this for a tracked path and for nothing else: an
+    /// executable *untracked* copy has no entry to read a mode off.
+    #[cfg(unix)]
+    mode: Option<u32>,
+}
+
+impl BaseCopy {
+    fn read(repo_root: &Path, path: &str, tracked: bool) -> BaseCopy {
+        let index_entry = git_stdout(repo_root, &["ls-files", "--stage", "--", path])
+            .ok()
+            .and_then(|line| {
+                let mut fields = line.split_whitespace();
+                Some((fields.next()?.to_string(), fields.next()?.to_string()))
+            });
+        let in_head = git_output(repo_root, &["cat-file", "-e", &format!("HEAD:{path}")])
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        let state = match (tracked, in_head) {
+            (false, _) => BaseCopyState::Untracked,
+            (true, true) => BaseCopyState::TrackedDirty,
+            (true, false) => BaseCopyState::StagedNew,
+        };
+        BaseCopy {
+            path: path.to_string(),
+            state,
+            index_entry,
+            on_disk: repo_root.join(path).exists(),
+            #[cfg(unix)]
+            mode: {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::metadata(repo_root.join(path))
+                    .ok()
+                    .map(|m| m.permissions().mode() & 0o7777)
+            },
+        }
+    }
+
+    fn drop_from(&self, repo_root: &Path) -> Result<(), String> {
+        match self.state {
+            BaseCopyState::TrackedDirty => {
+                git_stdout(repo_root, &["checkout", "HEAD", "--", &self.path]).map(|_| ())
+            }
+            BaseCopyState::StagedNew => git_stdout(
+                repo_root,
+                &[
+                    "rm",
+                    "--force",
+                    "--quiet",
+                    "--ignore-unmatch",
+                    "--",
+                    &self.path,
+                ],
+            )
+            .map(|_| ()),
+            BaseCopyState::Untracked => {
+                std::fs::remove_file(repo_root.join(&self.path)).map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    /// Restore the working file from the arc branch and the index entry from
+    /// what was read, whatever the drop did or did not get to.
+    fn put_back(&self, repo_root: &Path, branch: &str) -> Result<(), String> {
+        let file = repo_root.join(&self.path);
+        if self.on_disk {
+            // `--filters` is the smudged, worktree form of the blob — what a
+            // checkout of the path would have written.
+            let out = git_output(
+                repo_root,
+                &["cat-file", "--filters", &format!("{branch}:{}", self.path)],
+            )?;
+            if !out.status.success() {
+                return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+            }
+            if let Some(dir) = file.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&file, &out.stdout).map_err(|e| e.to_string())?;
+            #[cfg(unix)]
+            if let Some(mode) = self.mode {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode))
+                    .map_err(|e| e.to_string())?;
+            }
+        } else if file.exists() {
+            std::fs::remove_file(&file).map_err(|e| e.to_string())?;
+        }
+        match &self.index_entry {
+            Some((mode, blob)) => git_stdout(
+                repo_root,
+                &[
+                    "update-index",
+                    "--add",
+                    "--cacheinfo",
+                    &format!("{mode},{blob},{}", self.path),
+                ],
+            )
+            .map(|_| ()),
+            None if self.state == BaseCopyState::Untracked => Ok(()),
+            None => git_stdout(repo_root, &["update-index", "--force-remove", "--", &self.path])
+                .map(|_| ()),
+        }
+    }
 }
 
 /// The base paths that would block a join, split by why they block.
@@ -4279,6 +4601,49 @@ pub fn resolve_base_in(
     }
     let worktree = worktree_path(&repo_root, name);
 
+    // A join that stranded the base is cleared first: what it left is not
+    // "uncommitted work" the partition below knows how to read, and the record
+    // that names it goes only once the base is back where that join found it.
+    let mut warnings = Vec::new();
+    let mut cleared_strand = match crate::oplog::stranded_join(&repo_root, name) {
+        Some(op) => {
+            clear_stranded_join(&repo_root, &op, &mut warnings)?;
+            true
+        }
+        None => false,
+    };
+
+    // An operation that began and never finished — a verb killed mid-flight —
+    // says nothing an undo can read. With no half-done integrate standing on
+    // the base there is nothing of it left to clear but the record itself.
+    if standing_integrate_markers(&repo_root).is_empty() {
+        for op in crate::oplog::list_ops(&repo_root).into_iter().filter(|op| {
+            op.arc == name && op.after.is_none() && op.join.is_none() && op.stranded.is_none()
+        }) {
+            crate::oplog::abandon(&repo_root, op.seq);
+            warnings.push(format!(
+                "Dropped operation {} ({} of '{name}'), which began and never finished.",
+                op.seq,
+                op.verb.as_str()
+            ));
+            cleared_strand = true;
+        }
+    }
+
+    // A `SQUASH_MSG` naming this arc's rounds is the other half of a squash
+    // staged on the base and never committed. The staged bytes are the
+    // droppable set below; the message file goes with them, or the base keeps
+    // offering a dead squash's text to the user's next commit.
+    if read_base_checkout(&repo_root, name).is_some_and(|base| base.squash_standing) {
+        if let Ok(git_dir) = git_stdout(&repo_root, &["rev-parse", "--absolute-git-dir"]) {
+            let _ = std::fs::remove_file(Path::new(&git_dir).join("SQUASH_MSG"));
+        }
+        warnings.push(format!(
+            "Removed the SQUASH_MSG an uncommitted squash of '{name}' left on '{base_branch}'."
+        ));
+        cleared_strand = true;
+    }
+
     let (blocking, droppable) =
         blocking_base_dirt(&repo_root, &worktree, &base_branch, &branch).split_on_relation();
 
@@ -4296,12 +4661,23 @@ pub fn resolve_base_in(
         })
         .collect();
     if blocking.is_empty() && droppable.is_empty() {
+        // Clearing the strand was the whole of the job.
+        if cleared_strand {
+            return Ok(ResolveBaseOutcome {
+                name: name.to_string(),
+                base_branch,
+                committed: None,
+                folded: vec![],
+                dropped: vec![],
+                folded_from,
+                warnings,
+            });
+        }
         return Err(format!(
             "Nothing to resolve: no uncommitted work on '{base_branch}' touches what arc '{name}' changed."
         ));
     }
 
-    let mut warnings = Vec::new();
     let folded = [
         overlap_paths(&blocking.tracked),
         overlap_paths(&blocking.untracked),
@@ -4323,11 +4699,35 @@ pub fn resolve_base_in(
         &op_tips,
     )?;
 
-    drop_identical_base_copies(&repo_root, &droppable, &mut warnings)?;
+    // Every failure from here closes the record it opened: abandoned when the
+    // base is as the verb found it, completed with what actually moved when it
+    // is not. A bare `before` is a record nothing can read.
+    let close_failed = |left_dropped: &[String]| {
+        if left_dropped.is_empty() {
+            crate::oplog::abandon(&repo_root, op_seq);
+        } else {
+            let _ = crate::oplog::record_complete(
+                &repo_root,
+                op_seq,
+                crate::oplog::OpAfter {
+                    base_tip: git_stdout(&repo_root, &["rev-parse", &base_branch]).ok(),
+                    dropped: left_dropped.to_vec(),
+                    ..Default::default()
+                },
+            );
+        }
+    };
 
-    let committed = if folded.is_empty() {
-        None
-    } else {
+    if let Err(failure) = drop_identical_base_copies(&repo_root, &branch, &droppable, &mut warnings)
+    {
+        close_failed(&failure.left_dropped);
+        return Err(failure.sentence(&branch));
+    }
+
+    let fold = || -> Result<Option<String>, String> {
+        if folded.is_empty() {
+            return Ok(None);
+        }
         let message = fold_commit_message(name, &folded, &folded_from);
         // Untracked paths are not in the index, and a pathspec commit refuses
         // a pathspec git does not know. Staging first covers the add/add case
@@ -4341,7 +4741,16 @@ pub fn resolve_base_in(
         args.extend(folded.iter().map(String::as_str));
         git_stdout(&repo_root, &args)
             .map_err(|e| format!("failed to commit the base's work in progress: {e}"))?;
-        Some(git_stdout(&repo_root, &["rev-parse", "HEAD"])?)
+        Ok(Some(git_stdout(&repo_root, &["rev-parse", "HEAD"])?))
+    };
+    let committed = match fold() {
+        Ok(committed) => committed,
+        // The fold did not commit, so the base tip has not moved; what did
+        // happen is the drop, and the record says so rather than nothing.
+        Err(e) => {
+            close_failed(&dropped);
+            return Err(e);
+        }
     };
 
     crate::oplog::record_complete(
@@ -4839,6 +5248,13 @@ pub fn join_in_with_progress(
         return Err(stale_journal_detail(name));
     }
 
+    // A prior join that could not prove it left the base untouched stands
+    // until `resolve-base` clears it; joining over it would stack a second
+    // integrate on a state nothing recorded.
+    if let Some(op) = crate::oplog::stranded_join(&repo_root, name) {
+        return Err(crate::oplog::stranded_detail(&op));
+    }
+
     // Must run from the base worktree, not inside the arc worktree. Deliberately
     // absent from `join_preflight_in`: it reads the *process* cwd, which from
     // tugcast is the server's and has nothing to do with the calling card.
@@ -4918,11 +5334,6 @@ pub fn join_in_with_progress(
         return Err(empty_detail(name, &base_branch));
     }
 
-    // The last refusal is behind us, so the base's stale copies of this arc's
-    // own bytes can go. Git would refuse the merge over them otherwise, even
-    // though it is about to write those exact bytes.
-    drop_identical_base_copies(&repo_root, &droppable, &mut warnings)?;
-
     // Record the operation before the integrate, and after the dirt sweep above
     // — the sweep's commit is work the arc owns, so a `before` read any
     // earlier would describe an arc missing it. Every refusal above this line
@@ -4945,6 +5356,29 @@ pub fn join_in_with_progress(
     if let Some(lease) = &broke_lease {
         warnings.push(broke_lease_warning(name, lease, op_seq));
     }
+
+    // The last refusal is behind us, so the base's stale copies of this arc's
+    // own bytes can go. Git would refuse the merge over them otherwise, even
+    // though it is about to write those exact bytes. Inside the record, so a
+    // drop that could not be taken back is on what an undo reads: the record
+    // goes only when the base is as the join found it.
+    if let Err(failure) = drop_identical_base_copies(&repo_root, &branch, &droppable, &mut warnings)
+    {
+        if failure.left_dropped.is_empty() {
+            crate::oplog::abandon(&repo_root, op_seq);
+        } else {
+            let _ = crate::oplog::record_stranded(
+                &repo_root,
+                op_seq,
+                crate::oplog::StrandedBase {
+                    paths: failure.left_dropped.clone(),
+                    found: "the base's copies of the arc's own bytes were dropped and could not be put back".to_string(),
+                },
+            );
+        }
+        return Err(failure.sentence(&branch));
+    }
+
     // Integrate, in one function with one return type ([P03]): what it landed,
     // or the conflicts that stopped it landing anything.
     let conflict_outcome = |conflicts: Vec<String>, warnings: Vec<String>| JoinOutcome {
@@ -4964,16 +5398,44 @@ pub fn join_in_with_progress(
     };
 
     on_beat("squash", "start");
+    let arc_paths: Vec<String> = git_stdout(
+        &repo_root,
+        &[
+            "diff",
+            "--name-only",
+            &format!("{}...{}", base_branch, branch),
+        ],
+    )
+    .unwrap_or_default()
+    .lines()
+    .map(|l| l.trim().to_string())
+    .filter(|l| !l.is_empty())
+    .collect();
+    let base_before = BaseReading::read(&repo_root, &arc_paths);
+    // A record describes an operation that happened. An integrate that did not
+    // land is one that did not happen **only if the base is as it was**, so
+    // that is checked rather than assumed: equal readings drop the record —
+    // jj states the rule as a transaction that is not committed writing no
+    // operation, and dropping it is what lets an incomplete join record *mean*
+    // a teardown to resume. Unequal readings keep it, marked, and say so.
+    let settle_unlanded = |what: String| -> Result<(), String> {
+        let base_after = BaseReading::read(&repo_root, &arc_paths);
+        if base_after == base_before {
+            crate::oplog::abandon(&repo_root, op_seq);
+            return Ok(());
+        }
+        let stranded = base_after.difference_from(&base_before);
+        let sentence = format!(
+            "{what} — and the base checkout could not be proven untouched ({}). The join is recorded as operation {op_seq}; clear it with: tugtool arc resolve-base {name}",
+            stranded.found
+        );
+        let _ = crate::oplog::record_stranded(&repo_root, op_seq, stranded);
+        Err(sentence)
+    };
     let integration = match integrate_join(&repo_root, name, &branch, &base_branch, &opts) {
         Ok(integration) => integration,
-        // A record describes an operation that happened, and this one did not:
-        // the integrate left the base as it found it. So the record opened
-        // above goes with it — jj states the rule as a transaction that is not
-        // committed writing no operation, and undo and replay already keep it.
-        // Dropping it here is what lets an incomplete join record *mean* a
-        // teardown to resume.
         Err(e) => {
-            crate::oplog::abandon(&repo_root, op_seq);
+            settle_unlanded(e.clone())?;
             return Err(e);
         }
     };
@@ -4983,7 +5445,10 @@ pub fn join_in_with_progress(
             message,
         } => (commit_hash, message),
         Integration::Conflicted(conflicts) => {
-            crate::oplog::abandon(&repo_root, op_seq);
+            settle_unlanded(format!(
+                "The join hit conflicts in {}",
+                conflicts.join(", ")
+            ))?;
             return Ok(conflict_outcome(conflicts, warnings));
         }
     };
@@ -5014,6 +5479,211 @@ pub fn join_in_with_progress(
         &on_beat,
     )
 }
+/// The files git leaves in its directory while an integrate is half-done.
+const INTEGRATE_MARKERS: [&str; 3] = ["SQUASH_MSG", "MERGE_HEAD", "CHERRY_PICK_HEAD"];
+
+/// What the base checkout holds, as far as a join can disturb it: where HEAD
+/// is, which half-done-integrate markers stand, and — for each of the arc's
+/// paths — the index entry and the working file's blob.
+///
+/// Read before an integrate and again after one that failed. Equal readings
+/// are the proof that lets the join's record be dropped; unequal ones are why
+/// it is kept.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BaseReading {
+    head: String,
+    markers: Vec<&'static str>,
+    paths: BTreeMap<String, String>,
+}
+
+impl BaseReading {
+    fn read(repo_root: &Path, arc_paths: &[String]) -> BaseReading {
+        let mut paths: BTreeMap<String, String> =
+            arc_paths.iter().map(|p| (p.clone(), String::new())).collect();
+        for chunk in arc_paths.chunks(200) {
+            let mut staged = vec!["ls-files", "--stage", "--"];
+            staged.extend(chunk.iter().map(String::as_str));
+            for line in git_stdout(repo_root, &staged).unwrap_or_default().lines() {
+                if let Some((entry, path)) = line.split_once('\t') {
+                    if let Some(reading) = paths.get_mut(path) {
+                        reading.push_str(entry);
+                    }
+                }
+            }
+            let on_disk: Vec<&str> = chunk
+                .iter()
+                .map(String::as_str)
+                .filter(|p| repo_root.join(p).is_file())
+                .collect();
+            if on_disk.is_empty() {
+                continue;
+            }
+            let mut hash = vec!["hash-object", "--"];
+            hash.extend(on_disk.iter().copied());
+            let blobs = git_stdout(repo_root, &hash).unwrap_or_default();
+            for (path, blob) in on_disk.iter().zip(blobs.lines()) {
+                if let Some(reading) = paths.get_mut(*path) {
+                    reading.push_str(" | ");
+                    reading.push_str(blob.trim());
+                }
+            }
+        }
+        BaseReading {
+            head: git_stdout(repo_root, &["rev-parse", "HEAD"]).unwrap_or_default(),
+            markers: standing_integrate_markers(repo_root),
+            paths,
+        }
+    }
+
+    /// What differs from `before`, as the stranded record states it.
+    fn difference_from(&self, before: &BaseReading) -> crate::oplog::StrandedBase {
+        let mut found = Vec::new();
+        if self.head != before.head {
+            found.push(format!("HEAD moved from {} to {}", before.head, self.head));
+        }
+        for marker in &self.markers {
+            if !before.markers.contains(marker) {
+                found.push(format!("{marker} is standing"));
+            }
+        }
+        let paths: Vec<String> = self
+            .paths
+            .iter()
+            .filter(|(path, reading)| before.paths.get(*path) != Some(reading))
+            .map(|(path, _)| path.clone())
+            .collect();
+        if !paths.is_empty() {
+            found.push(format!("{} of the arc's paths changed", paths.len()));
+        }
+        crate::oplog::StrandedBase {
+            paths,
+            found: found.join("; "),
+        }
+    }
+}
+
+/// What `arc doctor` reads off the base checkout for one arc.
+pub(crate) struct BaseCheckoutReading {
+    /// Whether a `SQUASH_MSG` naming this arc's rounds is standing.
+    pub squash_standing: bool,
+    /// Uncommitted base paths holding byte for byte what the arc's tip holds.
+    pub echoed: Vec<String>,
+}
+
+/// Read the base checkout for the marks a half-landed join of `name` leaves.
+///
+/// Arc-specific on purpose. A `SQUASH_MSG` is reported only when the rounds it
+/// lists are this arc's — a person's own `git merge --squash` is theirs — and
+/// the echoed paths are the same set the join itself would drop
+/// ([`blocking_base_dirt`] partitioned on relation), so the doctor and the
+/// join cannot disagree about what "the arc's own bytes" means. `None` when
+/// the arc has no branch, or the base is not the branch checked out.
+pub(crate) fn read_base_checkout(repo_root: &Path, name: &str) -> Option<BaseCheckoutReading> {
+    let repo_root = main_repo_root(repo_root);
+    let branch = branch_name(name);
+    if !branch_exists(&repo_root, &branch) {
+        return None;
+    }
+    let base_branch = arc_base(&repo_root, name).ok()?;
+    let current = git_stdout(&repo_root, &["rev-parse", "--abbrev-ref", "HEAD"]).ok()?;
+    if current != base_branch {
+        return None;
+    }
+
+    let squash_standing = standing_integrate_markers(&repo_root).contains(&"SQUASH_MSG")
+        && git_stdout(&repo_root, &["rev-parse", "--absolute-git-dir"])
+            .ok()
+            .and_then(|dir| std::fs::read_to_string(Path::new(&dir).join("SQUASH_MSG")).ok())
+            .is_some_and(|message| {
+                let rounds = git_stdout(
+                    &repo_root,
+                    &["rev-list", &format!("{base_branch}..{branch}")],
+                )
+                .unwrap_or_default();
+                message
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("commit "))
+                    .any(|sha| rounds.lines().any(|round| round == sha.trim()))
+            });
+
+    let worktree = worktree_path(&repo_root, name);
+    let (_, droppable) =
+        blocking_base_dirt(&repo_root, &worktree, &base_branch, &branch).split_on_relation();
+    let echoed = [
+        overlap_paths(&droppable.tracked),
+        overlap_paths(&droppable.untracked),
+    ]
+    .concat();
+    Some(BaseCheckoutReading {
+        squash_standing,
+        echoed,
+    })
+}
+
+/// Which of [`INTEGRATE_MARKERS`] exist in the checkout's git directory.
+fn standing_integrate_markers(repo_root: &Path) -> Vec<&'static str> {
+    let Ok(git_dir) = git_stdout(repo_root, &["rev-parse", "--absolute-git-dir"]) else {
+        return Vec::new();
+    };
+    INTEGRATE_MARKERS
+        .into_iter()
+        .filter(|marker| Path::new(&git_dir).join(marker).exists())
+        .collect()
+}
+
+/// Clear what a stranded join left on the base, and drop its record once the
+/// base is back where that join found it.
+///
+/// Only states with one right answer are acted on: a standing cherry-pick or
+/// merge is aborted — the abort that failed the first time, re-attempted past
+/// the index lock — and a leftover `SQUASH_MSG` is removed. A HEAD that is
+/// still not where the join found it is *not* moved: that is history, and the
+/// sentence says where it was so a person can decide.
+fn clear_stranded_join(
+    repo_root: &Path,
+    op: &crate::oplog::OpPayload,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
+    let standing = standing_integrate_markers(repo_root);
+    for (marker, verb) in [("CHERRY_PICK_HEAD", "cherry-pick"), ("MERGE_HEAD", "merge")] {
+        if standing.contains(&marker) {
+            retry_past_index_lock(|| {
+                git_write(
+                    repo_root,
+                    &[verb, "--abort"],
+                    &format!("failed to abort the stranded {verb}"),
+                )
+            })?;
+        }
+    }
+    if standing.contains(&"SQUASH_MSG") {
+        if let Ok(git_dir) = git_stdout(repo_root, &["rev-parse", "--absolute-git-dir"]) {
+            let _ = std::fs::remove_file(Path::new(&git_dir).join("SQUASH_MSG"));
+        }
+    }
+    let head = git_stdout(repo_root, &["rev-parse", "HEAD"])?;
+    let left = standing_integrate_markers(repo_root);
+    if head != op.before.base_tip || !left.is_empty() {
+        return Err(format!(
+            "{} — and it could not be cleared: '{}' is at {head}, the join found it at {}{}.",
+            crate::oplog::stranded_detail(op),
+            op.before.base_branch,
+            op.before.base_tip,
+            if left.is_empty() {
+                String::new()
+            } else {
+                format!(", and {} still stands", left.join(", "))
+            }
+        ));
+    }
+    crate::oplog::abandon(repo_root, op.seq);
+    warnings.push(format!(
+        "Cleared the base state a failed join of '{}' left behind (operation {}).",
+        op.arc, op.seq
+    ));
+    Ok(())
+}
+
 /// What an integrate did: it landed a commit on the base, or it hit conflicts
 /// and left the base exactly as it found it.
 ///
@@ -5083,52 +5753,27 @@ fn integrate_join(
             opts.session_id.as_deref(),
         );
         let commit_hash = match opts.strategy {
-            JoinStrategy::Squash => {
-                // The candidate is a descendant of the base head, so this
-                // stages its tree without conflict; the commit below is what
-                // the draft was written for.
-                let merge = git_output(repo_root, &["merge", "--squash", &candidate])?;
-                if !merge.status.success() {
-                    let _ = git_output(repo_root, &["reset", "--hard"]);
-                    return Err(format!(
-                        "failed to stage the resolved candidate: {}",
-                        String::from_utf8_lossy(&merge.stderr).trim()
-                    ));
+            // The candidate is a descendant of the base head, so its tree *is*
+            // the join's result; the commit built on it is what the draft was
+            // written for — one parent for a squash, the candidate as the
+            // second for a merge.
+            JoinStrategy::Squash | JoinStrategy::Merge => {
+                let tree = git_stdout(repo_root, &["rev-parse", &format!("{candidate}^{{tree}}")])?;
+                let mut parents = vec![base_head.as_str()];
+                if matches!(opts.strategy, JoinStrategy::Merge) {
+                    parents.push(&candidate);
                 }
-                let commit = git_output(repo_root, &["commit", "-m", &final_msg])?;
-                if !commit.status.success() {
-                    let _ = git_output(repo_root, &["reset", "--hard"]);
-                    return Err(format!(
-                        "git commit failed: {}",
-                        String::from_utf8_lossy(&commit.stderr).trim()
-                    ));
-                }
-                git_stdout(repo_root, &["rev-parse", "HEAD"])?
-            }
-            JoinStrategy::Merge => {
-                let merge = git_output(
-                    repo_root,
-                    &["merge", "--no-ff", "-m", &final_msg, &candidate],
-                )?;
-                if !merge.status.success() {
-                    let _ = git_output(repo_root, &["merge", "--abort"]);
-                    return Err(format!(
-                        "failed to merge the resolved candidate: {}",
-                        String::from_utf8_lossy(&merge.stderr).trim()
-                    ));
-                }
-                git_stdout(repo_root, &["rev-parse", "HEAD"])?
+                land_side_built_commit(repo_root, &tree, &parents, &final_msg)?
             }
             // The one strategy that asks for the candidate's own history on the
             // base, and therefore the one that keeps its own messages.
             JoinStrategy::Rebase => {
-                let ff = git_output(repo_root, &["merge", "--ff-only", &candidate])?;
-                if !ff.status.success() {
-                    return Err(format!(
-                        "failed to fast-forward '{}' onto the resolved candidate: {}",
-                        base_branch,
-                        String::from_utf8_lossy(&ff.stderr).trim()
-                    ));
+                let what =
+                    format!("failed to fast-forward '{base_branch}' onto the resolved candidate");
+                if let Some(stderr) =
+                    git_write_on_the_merits(repo_root, &["merge", "--ff-only", &candidate], &what)?
+                {
+                    return Err(format!("{what}: {stderr}"));
                 }
                 git_stdout(repo_root, &["rev-parse", "HEAD"])?
             }
@@ -5155,52 +5800,54 @@ fn integrate_join(
         opts.session_id.as_deref(),
     );
 
-    // Integrate per strategy. A conflict cleanly aborts (pre-join state
-    // restored) and returns the structured conflict list — never a dead end.
+    // Integrate per strategy. A conflict returns the structured conflict list
+    // — never a dead end. For a squash and a merge it is found in memory, with
+    // the base untouched; the rebase's cherry-pick aborts back to where it was.
 
     let commit_hash = match opts.strategy {
-        JoinStrategy::Squash => {
-            let merge = git_output(repo_root, &["merge", "--squash", branch])?;
-            if !merge.status.success() {
-                let conflicts = conflicted_paths(repo_root);
-                // A squash conflict leaves the index/worktree dirty but sets no
-                // MERGE_HEAD, so `reset --hard` (not `merge --abort`) restores.
-                let _ = git_output(repo_root, &["reset", "--hard"]);
-                return Ok(Integration::Conflicted(conflicts));
+        JoinStrategy::Squash | JoinStrategy::Merge => {
+            let base_head = git_stdout(repo_root, &["rev-parse", base_branch])?;
+            let tree = match merge_tree(repo_root, &base_head, branch)? {
+                MergedTree::Clean(tree) => tree,
+                MergedTree::Conflicted(conflicts) => {
+                    return Ok(Integration::Conflicted(conflicts));
+                }
+            };
+            let mut parents = vec![base_head.as_str()];
+            if matches!(opts.strategy, JoinStrategy::Merge) {
+                parents.push(branch);
             }
-            let commit = git_output(repo_root, &["commit", "-m", &final_msg])?;
-            if !commit.status.success() {
-                let _ = git_output(repo_root, &["reset", "--hard"]);
-                return Err(format!(
-                    "git commit failed: {}",
-                    String::from_utf8_lossy(&commit.stderr).trim()
-                ));
-            }
-            git_stdout(repo_root, &["rev-parse", "HEAD"])?
-        }
-        JoinStrategy::Merge => {
-            let merge = git_output(repo_root, &["merge", "--no-ff", "-m", &final_msg, branch])?;
-            if !merge.status.success() {
-                let conflicts = conflicted_paths(repo_root);
-                let _ = git_output(repo_root, &["merge", "--abort"]);
-                return Ok(Integration::Conflicted(conflicts));
-            }
-            git_stdout(repo_root, &["rev-parse", "HEAD"])?
+            land_side_built_commit(repo_root, &tree, &parents, &final_msg)?
         }
         JoinStrategy::Rebase => {
             // Fast-forward when base is unchanged (linear); else replay the
-            // arc's commits onto the current base with cherry-pick.
-            let ff = git_output(repo_root, &["merge", "--ff-only", branch])?;
-            if ff.status.success() {
+            // arc's commits onto the current base with cherry-pick. This is
+            // the one arm that still writes the base's index, so all three of
+            // its writes wait out a held `index.lock` ([B03]): a fast-forward
+            // that lost the lock is not a base that moved, a pick that lost it
+            // is not a conflict, and an abort that loses it is the strand.
+            let ff = git_write_on_the_merits(
+                repo_root,
+                &["merge", "--ff-only", branch],
+                &format!("failed to fast-forward '{base_branch}' onto the arc"),
+            )?;
+            if ff.is_none() {
                 git_stdout(repo_root, &["rev-parse", "HEAD"])?
             } else {
-                let pick = git_output(
+                let pick = git_write_on_the_merits(
                     repo_root,
                     &["cherry-pick", &format!("{}..{}", base_branch, branch)],
+                    "failed to replay the arc's rounds onto the base",
                 )?;
-                if !pick.status.success() {
+                if pick.is_some() {
                     let conflicts = conflicted_paths(repo_root);
-                    let _ = git_output(repo_root, &["cherry-pick", "--abort"]);
+                    let _ = retry_past_index_lock(|| {
+                        git_write(
+                            repo_root,
+                            &["cherry-pick", "--abort"],
+                            "failed to abort the cherry-pick",
+                        )
+                    });
                     return Ok(Integration::Conflicted(conflicts));
                 }
                 git_stdout(repo_root, &["rev-parse", "HEAD"])?
@@ -5645,7 +6292,6 @@ mod tests {
     use serial_test::serial;
     use std::fs;
     use std::path::Path;
-    use std::process::Command;
     use tempfile::TempDir;
 
     /// Join options for a test whose subject is the join's **mechanics** — the
@@ -6055,7 +6701,7 @@ mod tests {
             vec!["config", "user.name", "Test User"],
             vec!["config", "user.email", "test@example.com"],
         ] {
-            Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(&repo)
                 .args(&args)
@@ -6063,13 +6709,13 @@ mod tests {
                 .unwrap();
         }
         fs::write(repo.join("README.md"), "# Test\n").unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["commit", "-m", "init"])
@@ -6211,13 +6857,13 @@ mod tests {
     }
 
     fn commit_all(path: &Path, message: &str) {
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(path)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(path)
             .args(["commit", "-m", message])
@@ -6226,19 +6872,19 @@ mod tests {
     }
 
     fn init_git_repo(path: &Path) {
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(path)
             .args(["init", "-b", "main"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(path)
             .args(["config", "user.name", "Test User"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(path)
             .args(["config", "user.email", "test@example.com"])
@@ -6254,13 +6900,13 @@ mod tests {
         fs::write(path.join(".tugtool/.keep"), "").unwrap();
 
         fs::write(path.join("README.md"), "# Test\n").unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(path)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(path)
             .args(["commit", "-m", "Initial commit"])
@@ -6283,7 +6929,7 @@ mod tests {
     }
 
     fn current_branch(repo: &Path) -> String {
-        let out = Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -6293,7 +6939,7 @@ mod tests {
     }
 
     fn branch_present(repo: &Path, branch: &str) -> bool {
-        let out = Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["branch", "--list", branch])
@@ -6303,7 +6949,7 @@ mod tests {
     }
 
     fn run_git(repo: &Path, args: &[&str]) {
-        let ok = Command::new("git")
+        let ok = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(args)
@@ -6384,7 +7030,7 @@ Some context.
     /// worktree's own git dir — for a linked worktree that is
     /// `…/.git/worktrees/<name>/`, not a `.git` directory beside the files.
     fn index_lock_path(worktree: &Path) -> std::path::PathBuf {
-        let git_dir = Command::new("git")
+        let git_dir = tugcore::git_command()
             .arg("-C")
             .arg(worktree)
             .args(["rev-parse", "--absolute-git-dir"])
@@ -6392,6 +7038,46 @@ Some context.
             .unwrap();
         let dir = String::from_utf8_lossy(&git_dir.stdout).trim().to_string();
         Path::new(&dir).join("index.lock")
+    }
+
+    /// The helper alone, against a real held lock: a write whose lock is
+    /// released inside the window lands, and one held past it comes back as
+    /// git's own message.
+    #[test]
+    fn a_lock_retry_lands_inside_the_window_and_reports_git_past_it() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        init_git_repo(repo);
+        fs::write(repo.join("a.txt"), "a\n").unwrap();
+
+        let add = || retry_past_index_lock(|| git_write(repo, &["add", "a.txt"], "git add failed"));
+
+        let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * 2);
+        add().expect("released inside the window");
+        held.join().unwrap();
+        assert_eq!(
+            git_stdout(repo, &["diff", "--cached", "--name-only"]).unwrap(),
+            "a.txt"
+        );
+
+        fs::write(repo.join("a.txt"), "b\n").unwrap();
+        let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * (INDEX_LOCK_ATTEMPTS + 4));
+        let err = add().unwrap_err();
+        held.join().unwrap();
+        assert!(err.starts_with("git add failed: "), "{err}");
+        assert!(err.contains("index.lock"), "git's own message: {err}");
+    }
+
+    /// The shared runner's git declines optional locks — read back through
+    /// git itself, whose `!` alias runs in the environment git was given.
+    #[test]
+    fn the_runner_spawns_git_without_optional_locks() {
+        let out = git_stdout(
+            Path::new("."),
+            &["-c", "alias.lockenv=!printenv GIT_OPTIONAL_LOCKS", "lockenv"],
+        )
+        .expect("git runs");
+        assert_eq!(out, "0");
     }
 
     /// Take the index lock and release it after `hold`.
@@ -6409,7 +7095,7 @@ Some context.
     }
 
     fn head_sha(dir: &Path) -> String {
-        let out = Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(["rev-parse", "HEAD"])
@@ -6425,13 +7111,13 @@ Some context.
         fs::create_dir_all(&repo).unwrap();
         init_git_repo(&repo);
         fs::write(repo.join("a.txt"), "base\n").unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["commit", "-q", "-m", "base"])
@@ -6463,13 +7149,13 @@ Some context.
     fn commit_worktree_dirt_yields_when_the_other_writer_took_the_dirt() {
         let temp = TempDir::new().unwrap();
         let repo = dirty_repo(&temp);
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["commit", "-q", "-m", "the other writer got there first"])
@@ -6478,7 +7164,7 @@ Some context.
 
         commit_worktree_dirt(&repo, "sweeper").expect("losing the race is not an error");
 
-        let subject = Command::new("git")
+        let subject = tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["log", "-1", "--format=%s"])
@@ -6550,13 +7236,13 @@ Some context.
             format!("work {n}\n"),
         )
         .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(worktree)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(worktree)
             .args(["commit", "-q", "-m", &format!("tugarc(d): round {n}")])
@@ -6604,7 +7290,7 @@ Some context.
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
         commit_worktree_dirt(&worktree, "voiced").unwrap();
 
-        let message = Command::new("git")
+        let message = tugcore::git_command()
             .arg("-C")
             .arg(&worktree)
             .args(["log", "-1", "--format=%B"])
@@ -6658,13 +7344,13 @@ Some context.
         let worktree = worktree_path(&repo, "legacy-sweep");
         // Exactly what the sweep used to write: the old subject, no trailer.
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&worktree)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&worktree)
             .args(["commit", "-q", "-m", "join: commit outstanding changes"])
@@ -8383,7 +9069,7 @@ Some context.
             vec!["config", "user.name", "Test User"],
             vec!["config", "user.email", "test@example.com"],
         ] {
-            Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(&repo)
                 .args(&args)
@@ -8393,13 +9079,13 @@ Some context.
         fs::create_dir_all(repo.join(".tugtool")).unwrap();
         fs::write(repo.join(".tugtool/.keep"), "").unwrap();
         fs::write(repo.join("README.md"), "# Test\n").unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["add", "-A"])
             .output()
             .unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&repo)
             .args(["commit", "-m", "init"])
@@ -9167,7 +9853,7 @@ Some context.
             !arc_log_path(&temp.path().join("state"), &base).exists(),
             "the base's project state records nothing"
         );
-        let dirt = Command::new("git")
+        let dirt = tugcore::git_command()
             .arg("-C")
             .arg(&base)
             .args(["status", "--porcelain"])
@@ -9328,7 +10014,7 @@ Some context.
 
     /// The commit a revision names, as a full sha.
     fn rev_parse_at(repo: &Path, rev: &str) -> String {
-        let out = Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["rev-parse", rev])
@@ -9853,7 +10539,7 @@ Some context.
         assert!(branch_present(repo, "tugarc/test-arc"));
 
         // Base branch is recorded in git config.
-        let base = Command::new("git")
+        let base = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["config", "--get", "branch.tugarc/test-arc.tugbase"])
@@ -9946,7 +10632,7 @@ Some context.
         assert!(result.unwrap().committed);
 
         // A new commit landed on the arc branch.
-        let count = Command::new("git")
+        let count = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["rev-list", "--count", "main..tugarc/test-arc"])
@@ -9977,7 +10663,7 @@ Some context.
         assert!(!result.unwrap().committed);
 
         // No commit ahead of base.
-        let count = Command::new("git")
+        let count = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["rev-list", "--count", "main..tugarc/test-arc"])
@@ -10009,7 +10695,7 @@ Some context.
         commit("test-arc", "feat: thing", Some(meta)).unwrap();
 
         // The subject is the --message; the summary rode into the body.
-        let subject = Command::new("git")
+        let subject = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["log", "-1", "--format=%s", "tugarc/test-arc"])
@@ -10092,7 +10778,7 @@ Some context.
         assert!(result.is_ok());
 
         // Squash commit on base, worktree + branch gone.
-        let log = Command::new("git")
+        let log = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["log", "--oneline", "-1"])
@@ -10245,7 +10931,7 @@ Some context.
             std::env::remove_var("TUG_CHANGES_DB");
         }
 
-        let log = Command::new("git")
+        let log = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["log", "-1", "--format=%B"])
@@ -10327,7 +11013,7 @@ Some context.
 
         join("id-draft-arc", mechanics()).unwrap();
 
-        let log = Command::new("git")
+        let log = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["log", "--format=%B", "-1"])
@@ -10410,7 +11096,7 @@ Some context.
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
         commit("cite-arc", "Add f", None).unwrap();
 
-        let round = Command::new("git")
+        let round = tugcore::git_command()
             .arg("-C")
             .arg(&worktree)
             .args(["log", "-1", "--format=%B"])
@@ -10449,7 +11135,7 @@ Some context.
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
         commit("trailer-arc", "Add f", None).unwrap();
 
-        let round = Command::new("git")
+        let round = tugcore::git_command()
             .arg("-C")
             .arg(&worktree)
             .args(["log", "-1", "--format=%B"])
@@ -10482,7 +11168,7 @@ Some context.
             },
         )
         .unwrap();
-        let squash = Command::new("git")
+        let squash = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["log", "-1", "--format=%B"])
@@ -10573,7 +11259,7 @@ Some context.
             },
         )
         .unwrap();
-        let squash = Command::new("git")
+        let squash = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["log", "-1", "--format=%B"])
@@ -11292,7 +11978,7 @@ Some context.
             .unwrap()
             .as_secs()
             - 3 * 60 * 60;
-        let out = Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args([
@@ -12759,7 +13445,7 @@ Some context.
         std::env::set_current_dir(repo).unwrap();
 
         create("test-arc", Some("Test".to_string()), false, None).unwrap();
-        Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["checkout", "-b", "feature"])
@@ -13969,6 +14655,488 @@ Some context.
         assert!(outcome.folded.is_empty());
         assert!(outcome.committed.is_none(), "nothing to commit");
         assert!(dirty_tracked_paths(repo).is_empty());
+    }
+
+    /// What a failed landing must leave exactly as it found it.
+    fn base_snapshot(repo: &Path, files: &[&str]) -> (String, String, String, Vec<Vec<u8>>, bool) {
+        let git_dir = git_stdout(repo, &["rev-parse", "--absolute-git-dir"]).unwrap();
+        (
+            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+            git_stdout(repo, &["ls-files", "--stage"]).unwrap(),
+            git_stdout(repo, &["status", "--porcelain"]).unwrap(),
+            files.iter().map(|f| fs::read(repo.join(f)).unwrap()).collect(),
+            Path::new(&git_dir).join("SQUASH_MSG").exists(),
+        )
+    }
+
+    /// A landing that loses the base's index lock to a writer about to finish
+    /// retries and lands.
+    #[serial]
+    #[test]
+    fn a_join_whose_landing_loses_the_lock_retries_and_lands() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "contendedbase");
+        let repo = temp.path();
+
+        let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * 3);
+        let outcome = join("contendedbase", mechanics()).expect("lands past the lock");
+        held.join().unwrap();
+        assert!(outcome.commit_hash.is_some());
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\narc change\n"
+        );
+    }
+
+    /// A lock held past the window fails the join with nothing moved: HEAD,
+    /// the index, the worktree — the user's disjoint uncommitted edit with
+    /// them — and no `SQUASH_MSG`, because nothing was ever staged. The same
+    /// join then lands once the lock is gone, over that same edit.
+    #[serial]
+    #[test]
+    fn a_lock_held_past_the_window_leaves_the_base_untouched() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "lockedbase");
+        let repo = temp.path();
+        fs::write(repo.join("notes.txt"), "committed\n").unwrap();
+        git_output(repo, &["add", "notes.txt"]).unwrap();
+        git_output(repo, &["commit", "-m", "notes"]).unwrap();
+        fs::write(repo.join("notes.txt"), "the user's own edit\n").unwrap();
+
+        let files = ["shared.txt", "notes.txt"];
+        let before = base_snapshot(repo, &files);
+        let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * (INDEX_LOCK_ATTEMPTS * 2));
+        let err = join("lockedbase", mechanics()).unwrap_err();
+        let after = base_snapshot(repo, &files);
+        held.join().unwrap();
+
+        assert!(err.contains("index.lock"), "git's own message: {err}");
+        assert_eq!(before, after, "the base is byte-identical");
+        assert!(!after.4, "no SQUASH_MSG");
+        assert!(ops_for(repo, "lockedbase").is_empty(), "and nothing is recorded");
+
+        let outcome = join("lockedbase", mechanics()).expect("lands once the lock is gone");
+        assert!(outcome.commit_hash.is_some());
+        assert_eq!(
+            fs::read_to_string(repo.join("notes.txt")).unwrap(),
+            "the user's own edit\n",
+            "disjoint dirt rides through the landing"
+        );
+    }
+
+    /// A rebase's fast-forward that loses the base's index lock is not a base
+    /// that moved. Read as one it falls through to the cherry-pick, and the
+    /// arc arrives on the base as fresh commits rather than its own — the
+    /// join's shape decided by a race. So it waits the lock out instead.
+    #[serial]
+    #[test]
+    fn a_rebase_whose_fast_forward_loses_the_lock_still_fast_forwards() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "lockedff");
+        let repo = temp.path();
+        let arc_tip = git_stdout(repo, &["rev-parse", &branch_name("lockedff")]).unwrap();
+
+        let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * 3);
+        let outcome = join(
+            "lockedff",
+            JoinOptions {
+                strategy: JoinStrategy::Rebase,
+                ..mechanics()
+            },
+        )
+        .expect("lands past the lock");
+        held.join().unwrap();
+
+        assert_eq!(
+            outcome.commit_hash.as_deref(),
+            Some(arc_tip.as_str()),
+            "the arc's own commit, fast-forwarded rather than picked afresh"
+        );
+        assert_eq!(git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(), arc_tip);
+    }
+
+    /// A commit built off the base has the shape the staged one had: the arc's
+    /// tree, the composed message as `git commit` would have cleaned it, one
+    /// parent for a squash and the arc's tip as the second for a merge.
+    #[serial]
+    #[test]
+    fn squash_and_merge_land_the_same_tree_and_message_shape() {
+        for (name, strategy, parent_count) in [
+            ("shapesquash", JoinStrategy::Squash, 1),
+            ("shapemerge", JoinStrategy::Merge, 2),
+        ] {
+            let temp = TempDir::new().unwrap();
+            seed_arc_with_a_round(&temp, name);
+            let repo = temp.path();
+            let branch = branch_name(name);
+            let base_head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+            let arc_tip = git_stdout(repo, &["rev-parse", &branch]).unwrap();
+            let arc_tree = git_stdout(repo, &["rev-parse", &format!("{branch}^{{tree}}")]).unwrap();
+
+            join(
+                name,
+                JoinOptions {
+                    strategy,
+                    message: Some("Land the change  \n\n\n\nThe body.\n\n\n".to_string()),
+                    ..mechanics()
+                },
+            )
+            .expect("lands");
+
+            assert_eq!(
+                git_stdout(repo, &["rev-parse", "HEAD^{tree}"]).unwrap(),
+                arc_tree,
+                "{name}: the arc's tree"
+            );
+            let parents = git_stdout(repo, &["log", "-1", "--format=%P"]).unwrap();
+            let parents: Vec<&str> = parents.split_whitespace().collect();
+            assert_eq!(parents.len(), parent_count, "{name}: {parents:?}");
+            assert_eq!(parents[0], base_head);
+            if parent_count == 2 {
+                assert_eq!(parents[1], arc_tip);
+            }
+            let body = tugcore::git_command()
+                .arg("-C")
+                .arg(repo)
+                .args(["log", "-1", "--format=%B"])
+                .output()
+                .unwrap();
+            let body = String::from_utf8_lossy(&body.stdout).to_string();
+            assert!(body.contains("Land the change\n\nThe body.\n"), "{name}: {body:?}");
+            assert!(!body.contains("\n\n\n"), "{name}: blank runs collapsed: {body:?}");
+            assert!(dirty_tracked_paths(repo).is_empty(), "{name}: checkout clean");
+        }
+    }
+
+    /// The unprovable case, reached for real: a rebase join conflicts, and the
+    /// `cherry-pick --abort` that would put the base back loses the index lock.
+    /// The lock is taken by a merge driver git itself runs during the pick —
+    /// it waits for the pick to finish and release, then takes the lock, so
+    /// the abort is the first writer to meet it.
+    ///
+    /// The join's record is kept and marked, the error says so in a sentence,
+    /// `join` and `undo` both refuse by naming it, and `resolve-base` clears
+    /// it: the abort re-run, the base back where the join found it, the
+    /// record gone, and the next join free to run.
+    #[cfg(unix)]
+    #[serial]
+    #[test]
+    fn a_failed_abort_is_recorded_as_a_stranded_base_and_resolve_base_clears_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "strand");
+        let repo = temp.path();
+        // The base moves on the same line, so the rebase cannot fast-forward
+        // and its cherry-pick has a content merge to run.
+        fs::write(repo.join("shared.txt"), "base\nbase change\n").unwrap();
+        git_output(repo, &["commit", "-am", "base moves"]).unwrap();
+        let base_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+
+        let git_dir = git_stdout(repo, &["rev-parse", "--absolute-git-dir"]).unwrap();
+        let driver = temp.path().join("state").join("take-the-lock.sh");
+        fs::write(
+            &driver,
+            format!(
+                "#!/bin/sh\n\
+                 (\n  n=0\n  until [ -e '{git_dir}/CHERRY_PICK_HEAD' ] && [ ! -e '{git_dir}/index.lock' ]; do\n    \
+                 n=$((n+1)); [ $n -gt 2000000 ] && exit 0\n  done\n  : > '{git_dir}/index.lock'\n\
+                 ) >/dev/null 2>&1 &\nexit 1\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&driver, fs::Permissions::from_mode(0o755)).unwrap();
+        git_output(
+            repo,
+            &["config", "merge.strand.driver", &driver.display().to_string()],
+        )
+        .unwrap();
+        fs::create_dir_all(Path::new(&git_dir).join("info")).unwrap();
+        fs::write(
+            Path::new(&git_dir).join("info/attributes"),
+            "shared.txt merge=strand\n",
+        )
+        .unwrap();
+
+        let rebase = || JoinOptions {
+            strategy: JoinStrategy::Rebase,
+            ..mechanics()
+        };
+        let err = join("strand", rebase()).unwrap_err();
+        assert!(err.contains("could not be proven untouched"), "{err}");
+        assert!(err.contains("CHERRY_PICK_HEAD is standing"), "{err}");
+        assert!(err.contains("tugtool arc resolve-base strand"), "{err}");
+
+        let root = std::fs::canonicalize(repo).unwrap();
+        let op = crate::oplog::stranded_join(&root, "strand").expect("the record is kept");
+        assert!(op.after.is_none(), "it landed nothing");
+        assert_eq!(op.before.base_tip, base_tip);
+
+        // Every other door reads the record rather than guessing.
+        let again = join("strand", rebase()).unwrap_err();
+        assert!(again.starts_with("stranded-base:"), "{again}");
+        let undo = crate::oplog::undo_in(repo, Some("strand")).unwrap_err();
+        assert!(undo.starts_with("stranded-base:"), "{undo}");
+
+        // The lock's holder is gone; resolve-base re-runs the abort.
+        fs::remove_file(Path::new(&git_dir).join("index.lock")).unwrap();
+        let outcome = resolve_base_in(repo, "strand", &BTreeMap::new()).expect("clears");
+        assert!(
+            outcome.warnings.iter().any(|w| w.contains("Cleared")),
+            "{:?}",
+            outcome.warnings
+        );
+        assert!(crate::oplog::stranded_join(&root, "strand").is_none());
+        assert!(standing_integrate_markers(repo).is_empty());
+        assert_eq!(git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(), base_tip);
+        assert!(dirty_tracked_paths(repo).is_empty());
+
+        // And the join is a join again: with the driver gone it reports the
+        // conflict, the base untouched and nothing recorded.
+        git_output(repo, &["config", "--unset", "merge.strand.driver"]).unwrap();
+        let outcome = join("strand", rebase()).expect("runs");
+        assert_eq!(outcome.conflicts, vec!["shared.txt"]);
+        assert!(ops_for(repo, "strand").is_empty());
+    }
+
+    /// A payload written before the stranded field existed still reads.
+    #[test]
+    fn a_payload_without_the_stranded_field_still_reads() {
+        let old = r#"{"version":1,"seq":7,"verb":"join","dash":"x","recorded_at":"t",
+            "before":{"base_branch":"main","base_tip":"a","dash_tip":"b","worktree":"w"}}"#;
+        let op: crate::oplog::OpPayload = serde_json::from_str(old).expect("reads");
+        assert!(op.stranded.is_none());
+    }
+
+    /// The 2026-09-21 state, rebuilt: an arc's squash staged on the base and
+    /// never committed, one of its files since restored, `SQUASH_MSG` standing.
+    /// The five records agree throughout, which is why the doctor reads a
+    /// sixth: it names the standing squash and the echoed paths, points at
+    /// `resolve-base`, and only says the arc is healthy once that has run.
+    #[serial]
+    #[test]
+    fn the_doctor_names_a_squash_stranded_on_the_base() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "leftstaged");
+        let repo = temp.path();
+        let worktree = repo.join(".tug/worktrees/leftstaged");
+        for n in 0..10 {
+            fs::write(worktree.join(format!("file{n}.txt")), format!("arc {n}\n")).unwrap();
+        }
+        commit("leftstaged", "add ten files", None).unwrap();
+        let root = std::fs::canonicalize(repo).unwrap();
+        assert!(crate::doctor::diagnose(&root, "leftstaged").healthy());
+
+        let merged = git_output(repo, &["merge", "--squash", &branch_name("leftstaged")]).unwrap();
+        assert!(merged.status.success());
+        git_output(repo, &["checkout", "HEAD", "--", "shared.txt"]).unwrap();
+
+        let diagnosis = crate::doctor::diagnose(&root, "leftstaged");
+        let find = |code: &str| {
+            diagnosis
+                .findings
+                .iter()
+                .find(|f| f.code == code)
+                .unwrap_or_else(|| panic!("{code}: {:?}", diagnosis.findings))
+        };
+        let squash = find("base-squash-standing");
+        assert!(squash.sentence.contains("SQUASH_MSG"), "{}", squash.sentence);
+        assert!(squash.sentence.contains("tugtool arc resolve-base leftstaged"));
+        let echo = find(crate::doctor::BASE_ECHO_CODE);
+        assert!(echo.sentence.contains("10 paths"), "{}", echo.sentence);
+        assert!(echo.sentence.contains("file3.txt"), "{}", echo.sentence);
+        assert!(!echo.sentence.contains("shared.txt"), "the restored file is clean");
+        assert!(echo.sentence.contains("tugtool arc resolve-base leftstaged"));
+
+        resolve_base_in(repo, "leftstaged", &BTreeMap::new()).expect("one call clears it");
+        let diagnosis = crate::doctor::diagnose(&root, "leftstaged");
+        assert!(diagnosis.healthy(), "{:?}", diagnosis.findings);
+        assert!(standing_integrate_markers(repo).is_empty());
+    }
+
+    /// Somebody's own `git merge --squash` of some other branch is theirs: the
+    /// doctor reads the base for *this arc's* marks and reports none.
+    #[serial]
+    #[test]
+    fn a_squash_msg_that_is_not_this_arcs_is_not_a_finding() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "bystander");
+        let repo = temp.path();
+        git_output(repo, &["checkout", "-q", "-b", "side"]).unwrap();
+        fs::write(repo.join("side.txt"), "side\n").unwrap();
+        git_output(repo, &["add", "side.txt"]).unwrap();
+        git_output(repo, &["commit", "-qm", "side work"]).unwrap();
+        git_output(repo, &["checkout", "-q", "-"]).unwrap();
+        assert!(git_output(repo, &["merge", "--squash", "side"]).unwrap().status.success());
+        assert_eq!(standing_integrate_markers(repo), vec!["SQUASH_MSG"]);
+
+        let root = std::fs::canonicalize(repo).unwrap();
+        let diagnosis = crate::doctor::diagnose(&root, "bystander");
+        assert!(diagnosis.healthy(), "{:?}", diagnosis.findings);
+    }
+
+    /// The other two marks: the stranded record and an operation with no
+    /// `after`, each named with the verb that clears it, and each cleared.
+    #[serial]
+    #[test]
+    fn the_doctor_names_a_stranded_record_and_an_unfinished_operation() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "records");
+        let repo = temp.path();
+        let root = std::fs::canonicalize(repo).unwrap();
+        let open = |verb| {
+            let before = crate::oplog::capture_before(&root, "records").unwrap();
+            let tips = crate::oplog::tips_of(&before);
+            crate::oplog::record_begin(&root, verb, "records", before, &tips).unwrap()
+        };
+        let stranded = open(crate::oplog::OpVerb::Join);
+        crate::oplog::record_stranded(
+            &root,
+            stranded,
+            crate::oplog::StrandedBase {
+                paths: vec!["shared.txt".to_string()],
+                found: "SQUASH_MSG is standing".to_string(),
+            },
+        )
+        .unwrap();
+        open(crate::oplog::OpVerb::ResolveBase);
+
+        let diagnosis = crate::doctor::diagnose(&root, "records");
+        let codes: Vec<&str> = diagnosis.findings.iter().map(|f| f.code.as_str()).collect();
+        assert_eq!(codes, vec!["base-stranded", "op-incomplete"]);
+        for finding in &diagnosis.findings {
+            assert!(
+                finding.sentence.contains("tugtool arc resolve-base records"),
+                "{}",
+                finding.sentence
+            );
+        }
+
+        resolve_base_in(repo, "records", &BTreeMap::new()).expect("clears both");
+        assert!(crate::doctor::diagnose(&root, "records").healthy());
+    }
+
+    /// An arc that edits one file and adds two — the shape whose base copies
+    /// come in all three index states.
+    fn seed_arc_that_adds_files(temp: &TempDir, name: &str) {
+        seed_arc_with_a_round(temp, name);
+        let worktree = temp.path().join(".tug/worktrees").join(name);
+        fs::write(worktree.join("added.txt"), "new in the arc\n").unwrap();
+        fs::create_dir_all(worktree.join("nested")).unwrap();
+        fs::write(worktree.join("nested/extra.txt"), "also new\n").unwrap();
+        commit(name, "add files", None).unwrap();
+    }
+
+    /// A base copy *staged as new* is in the index and absent from HEAD, so
+    /// `checkout HEAD --` has nothing to restore it to. The drop takes the
+    /// index entry with the file, and the join lands over it.
+    #[serial]
+    #[test]
+    fn a_join_lands_over_an_identical_staged_new_base_copy() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_that_adds_files(&temp, "stagednew");
+        let repo = temp.path();
+        fs::write(repo.join("added.txt"), "new in the arc\n").unwrap();
+        git_output(repo, &["add", "added.txt"]).unwrap();
+
+        let outcome = join("stagednew", mechanics()).expect("the join runs over a staged-new echo");
+        assert!(outcome.commit_hash.is_some(), "it landed");
+        assert!(
+            outcome.warnings.iter().any(|w| w.contains("added.txt")),
+            "the drop is reported: {:?}",
+            outcome.warnings
+        );
+        assert_eq!(
+            fs::read_to_string(repo.join("added.txt")).unwrap(),
+            "new in the arc\n"
+        );
+        assert!(dirty_tracked_paths(repo).is_empty(), "nothing left uncommitted");
+    }
+
+    /// The state a join that lost the index lock leaves: the arc's whole squash
+    /// staged on the base, edits and additions together. One `resolve-base`
+    /// clears all of it.
+    #[serial]
+    #[test]
+    fn resolve_base_clears_a_whole_staged_squash_in_one_call() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_that_adds_files(&temp, "stranded");
+        let repo = temp.path();
+        let merged = git_output(repo, &["merge", "--squash", &branch_name("stranded")]).unwrap();
+        assert!(merged.status.success(), "the squash staged");
+
+        let outcome = resolve_base_in(repo, "stranded", &BTreeMap::new()).expect("resolves");
+        let mut dropped = outcome.dropped.clone();
+        dropped.sort();
+        assert_eq!(dropped, vec!["added.txt", "nested/extra.txt", "shared.txt"]);
+        assert!(outcome.committed.is_none(), "nothing to commit");
+        assert!(dirty_tracked_paths(repo).is_empty(), "the index matches HEAD");
+        assert!(!repo.join("added.txt").exists(), "the staged-new file went with its entry");
+        assert_eq!(fs::read_to_string(repo.join("shared.txt")).unwrap(), "base\n");
+    }
+
+    /// A drop that fails part-way puts back what it had already dropped, in
+    /// the index state and the permissions each path held, and closes the
+    /// record it opened. The failure is a real one: the last untracked copy
+    /// sits in a directory that refuses the unlink, after the two tracked
+    /// copies and one executable untracked one have been dropped.
+    #[cfg(unix)]
+    #[serial]
+    #[test]
+    fn a_drop_that_fails_midway_leaves_the_base_as_it_was() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        seed_arc_that_adds_files(&temp, "halfdrop");
+        let repo = temp.path();
+        // An executable file the arc adds: the one shape whose mode no index
+        // entry records, since the base's copy of it is untracked.
+        let worktree = repo.join(".tug/worktrees/halfdrop");
+        fs::write(worktree.join("alpha.sh"), "#!/bin/sh\necho hi\n").unwrap();
+        fs::set_permissions(worktree.join("alpha.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        commit("halfdrop", "add a script", None).unwrap();
+        fs::write(repo.join("alpha.sh"), "#!/bin/sh\necho hi\n").unwrap();
+        fs::set_permissions(repo.join("alpha.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(repo.join("shared.txt"), "base\narc change\n").unwrap();
+        fs::write(repo.join("added.txt"), "new in the arc\n").unwrap();
+        git_output(repo, &["add", "shared.txt", "added.txt"]).unwrap();
+        fs::create_dir_all(repo.join("nested")).unwrap();
+        fs::write(repo.join("nested/extra.txt"), "also new\n").unwrap();
+        fs::set_permissions(repo.join("nested"), fs::Permissions::from_mode(0o555)).unwrap();
+
+        let snapshot = || {
+            (
+                git_stdout(repo, &["status", "--porcelain"]).unwrap(),
+                git_stdout(repo, &["ls-files", "--stage"]).unwrap(),
+                fs::read(repo.join("shared.txt")).unwrap(),
+                fs::read(repo.join("added.txt")).unwrap(),
+                fs::read(repo.join("nested/extra.txt")).unwrap(),
+                fs::read(repo.join("alpha.sh")).unwrap(),
+                fs::metadata(repo.join("alpha.sh")).unwrap().permissions().mode() & 0o7777,
+            )
+        };
+        let before = snapshot();
+        let err = resolve_base_in(repo, "halfdrop", &BTreeMap::new()).unwrap_err();
+        let after = snapshot();
+        fs::set_permissions(repo.join("nested"), fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(err.contains("nested/extra.txt"), "{err}");
+        assert!(err.contains("left as it was"), "{err}");
+        assert_eq!(before, after, "index and files are byte-identical");
+        let root = std::fs::canonicalize(repo).unwrap();
+        assert!(
+            crate::oplog::list_ops(&root)
+                .iter()
+                .all(|op| op.after.is_some() || op.verb != crate::oplog::OpVerb::ResolveBase),
+            "no resolve-base payload is left without an `after`"
+        );
+
+        // The same failure on the join path drops the record it opened too.
+        fs::set_permissions(repo.join("nested"), fs::Permissions::from_mode(0o555)).unwrap();
+        let err = join("halfdrop", mechanics()).unwrap_err();
+        let after = snapshot();
+        fs::set_permissions(repo.join("nested"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(err.contains("left as it was"), "{err}");
+        assert_eq!(before, after, "the join's failed drop moved nothing either");
+        assert!(ops_for(repo, "halfdrop").is_empty(), "and left no join record");
     }
 
     /// Undo beside the receipt puts the edit back where it was: the base at

@@ -3773,7 +3773,7 @@ mod tests {
             &["config", "user.email", "t@t"][..],
             &["config", "user.name", "t"][..],
         ] {
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .current_dir(root)
                 .args(args)
                 .status()
@@ -3977,7 +3977,7 @@ mod tests {
             "cache stays None so the next event re-probes"
         );
 
-        std::process::Command::new("git")
+        tugcore::git_command()
             .arg("-C")
             .arg(&dir)
             .args(["init", "-q"])
@@ -5194,7 +5194,7 @@ mod tests {
         let root = repo.path().to_path_buf();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(&root)
                     .output()
@@ -5528,7 +5528,7 @@ mod tests {
         let moved_root = root.clone();
         let rows = bash_bracket_rows(&root, "tug-mv", "git mv a.txt b.txt", move || {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(["mv", "a.txt", "b.txt"])
                     .current_dir(&moved_root)
                     .output()
@@ -5603,7 +5603,7 @@ mod tests {
         let cached_root = root.clone();
         let rows = bash_bracket_rows(&root, "tug-cached", "git rm --cached a.txt", move || {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(["rm", "-q", "--cached", "a.txt"])
                     .current_dir(&cached_root)
                     .output()
@@ -5629,7 +5629,7 @@ mod tests {
         let root = repo.path().to_path_buf();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(&root)
                     .output()
@@ -5765,7 +5765,7 @@ mod tests {
         let root = repo.path().to_path_buf();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(&root)
                     .output()
@@ -5877,7 +5877,7 @@ mod tests {
         let root = repo.path().to_path_buf();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(&root)
                     .output()
@@ -6034,7 +6034,7 @@ mod tests {
         let root = repo.path().to_path_buf();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(&root)
                     .output()

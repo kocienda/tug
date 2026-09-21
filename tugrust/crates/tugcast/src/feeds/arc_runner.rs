@@ -1885,6 +1885,11 @@ async fn records_agree_or_stop(
         if finding.code == "arc-unbound" {
             continue;
         }
+        // The base holding the arc's own bytes is a state the join drops by
+        // itself; the doctor names it for a person, and it stops no stage.
+        if finding.code == tugarc_core::doctor::BASE_ECHO_CODE {
+            continue;
+        }
         if resuming && tugarc_core::doctor::OPEN_STEP_CODES.contains(&finding.code.as_str()) {
             open_step.push(finding.code.clone());
             continue;
@@ -3438,7 +3443,7 @@ Some context.
             vec!["config", "user.name", "Test User"],
             vec!["config", "user.email", "test@example.com"],
         ] {
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(&args)
@@ -3451,13 +3456,13 @@ Some context.
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
 
         let commit = |message: &str| {
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(["add", "-A"])
                 .output()
                 .unwrap();
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(["commit", "-m", message])
@@ -4633,7 +4638,7 @@ Some context.
             vec!["config", "user.name", "Test User"],
             vec!["config", "user.email", "test@example.com"],
         ] {
-            let out = std::process::Command::new("git")
+            let out = tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(&args)
@@ -4644,7 +4649,7 @@ Some context.
         std::fs::write(root.join(".gitignore"), ".tug/\n.tugtool/\n").unwrap();
         std::fs::write(root.join("README.md"), "# Test\n").unwrap();
         for args in [vec!["add", "-A"], vec!["commit", "-m", "Initial commit"]] {
-            let out = std::process::Command::new("git")
+            let out = tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(&args)
@@ -4791,7 +4796,7 @@ Some context.
         let worktree = PathBuf::from(&outcome.worktree);
         std::fs::write(worktree.join("round.txt"), "work\n").unwrap();
         for args in [vec!["add", "-A"], vec!["commit", "-m", "A round"]] {
-            let out = std::process::Command::new("git")
+            let out = tugcore::git_command()
                 .arg("-C")
                 .arg(&worktree)
                 .args(&args)
@@ -4800,7 +4805,7 @@ Some context.
             assert!(out.status.success(), "git {args:?}");
         }
         let tip = String::from_utf8(
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(["rev-parse", "tugarc/demo"])
@@ -4809,7 +4814,7 @@ Some context.
                 .stdout,
         )
         .unwrap();
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(root)
             .args(["worktree", "remove", "--force"])
@@ -4848,7 +4853,7 @@ Some context.
         );
         // And the rounds are still there.
         let still = String::from_utf8(
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(["rev-parse", "tugarc/demo"])

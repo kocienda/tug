@@ -473,14 +473,14 @@ fn patch_has_zero_context_hunk(patch: &str) -> bool {
 /// Pipe `patch` to `git apply --cached`, returning git's stderr on refusal.
 fn git_apply_cached(repo_root: &Path, patch: &str) -> Result<(), String> {
     use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     let mut args: Vec<&str> = vec!["apply", "--cached"];
     if patch_has_zero_context_hunk(patch) {
         args.push("--unidiff-zero");
     }
     args.push("-");
-    let mut child = Command::new("git")
+    let mut child = tugcore::git_command()
         .arg("-C")
         .arg(repo_root)
         .args(&args)
@@ -621,7 +621,7 @@ mod tests {
 
     fn git(root: &Path, args: &[&str]) {
         assert!(
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .args(args)
                 .current_dir(root)
                 .output()
@@ -913,7 +913,7 @@ mod tests {
     // ── hunk-elected landing ([P07]) ───────────────────────────────────────
 
     fn git_out(root: &Path, args: &[&str]) -> String {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .args(args)
             .current_dir(root)
             .output()

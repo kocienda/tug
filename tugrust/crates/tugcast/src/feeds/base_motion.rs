@@ -853,7 +853,7 @@ fn base_delta_paths(
     if old_base.is_empty() {
         return Vec::new();
     }
-    let out = std::process::Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(repo)
         .args(["diff", "--name-only", &old_base, base_branch])
@@ -869,7 +869,7 @@ fn base_delta_paths(
 
 /// `git merge-base <a> <b>`, empty when there is none.
 fn merge_base(repo: &Path, a: &str, b: &str) -> String {
-    let out = std::process::Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(repo)
         .args(["merge-base", a, b])
@@ -923,7 +923,7 @@ fn submission_text(text: &str) -> String {
 
 /// `git rev-parse <rev>`, empty when it does not resolve.
 fn rev_parse(repo: &Path, rev: &str) -> String {
-    let out = std::process::Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(repo)
         .args(["rev-parse", rev])
@@ -979,7 +979,7 @@ async fn bound_session(
 /// keys the arc already keeps there.
 fn read_arc_autoreplay(repo_dir: &Path, name: &str) -> bool {
     let key = format!("branch.tugarc/{name}.tugautoreplay");
-    let out = std::process::Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(repo_dir)
         .args(["config", "--bool", &key])
@@ -992,7 +992,7 @@ fn read_arc_autoreplay(repo_dir: &Path, name: &str) -> bool {
 
 /// `git config --bool tugarc.autoreplay`, defaulting to on ([P08]).
 fn read_autoreplay(repo_dir: &Path) -> bool {
-    let out = std::process::Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(repo_dir)
         .args(["config", "--bool", "tugarc.autoreplay"])
@@ -1411,7 +1411,7 @@ mod tests {
     }
 
     fn git(dir: &Path, args: &[&str]) {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -1426,7 +1426,7 @@ mod tests {
     }
 
     fn read(dir: &Path, args: &[&str]) -> String {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)

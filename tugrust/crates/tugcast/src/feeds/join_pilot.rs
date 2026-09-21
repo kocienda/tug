@@ -351,7 +351,7 @@ mod tests {
     }
 
     fn git_in(dir: &Path, args: &[&str]) {
-        let ok = std::process::Command::new("git")
+        let ok = tugcore::git_command()
             .current_dir(dir)
             .args(args)
             .status()

@@ -66,7 +66,7 @@ pub(crate) fn parse_porcelain_v2(output: &str) -> GitStatus {
 
 /// Fetch the HEAD commit message
 pub(crate) async fn fetch_head_message(repo_dir: &Path) -> String {
-    let output = Command::new("git")
+    let output = Command::from(tugcore::git_command())
         .args([
             "-C",
             &repo_dir.to_string_lossy(),
@@ -92,7 +92,7 @@ pub(crate) async fn fetch_head_message(repo_dir: &Path) -> String {
 /// fails with `index.lock: File exists`). A read-only status has no need to
 /// write the index, so we opt out of the lock entirely.
 pub(crate) async fn fetch_git_status(repo_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
+    let output = Command::from(tugcore::git_command())
         .args([
             "-C",
             &repo_dir.to_string_lossy(),
@@ -740,7 +740,7 @@ async fn run_git_diff_against(dir: &Path, target: &str, paths: &[String]) -> Opt
         args.push("--");
         args.extend(paths.iter().map(String::as_str));
     }
-    let output = Command::new("git")
+    let output = Command::from(tugcore::git_command())
         .env_remove("GIT_DIFF_OPTS")
         .args(&args)
         .output()
@@ -762,7 +762,7 @@ async fn run_git_diff_against(dir: &Path, target: &str, paths: &[String]) -> Opt
 /// Run a git command expected to print a single line (e.g. `merge-base`,
 /// `rev-parse HEAD`), returning the trimmed stdout on success, `None` otherwise.
 pub(crate) async fn run_git_line(dir: &Path, args: &[&str]) -> Option<String> {
-    let mut cmd = Command::new("git");
+    let mut cmd = Command::from(tugcore::git_command());
     cmd.arg("-C").arg(dir).args(args);
     let output = cmd.output().await.ok()?;
     if output.status.success() {
@@ -777,7 +777,7 @@ pub(crate) async fn run_git_line(dir: &Path, args: &[&str]) -> Option<String> {
 /// full stdout on success, `None` (with a `warn!`) otherwise. The multi-line
 /// counterpart to [`run_git_line`]; serves the `git log` body.
 async fn run_git_capture(dir: &Path, args: &[&str]) -> Option<String> {
-    let mut cmd = Command::new("git");
+    let mut cmd = Command::from(tugcore::git_command());
     cmd.arg("-C").arg(dir).args(args);
     let output = cmd.output().await;
     match output {
@@ -822,7 +822,7 @@ async fn synthesize_untracked_diff(repo_dir: &Path, path: &str) -> Option<String
     let mut args: Vec<&str> = vec!["-c", "core.quotepath=false", "diff"];
     args.extend_from_slice(HUNK_DIFF_FLAGS);
     args.extend_from_slice(&["--no-index", "--", "/dev/null", path]);
-    let output = Command::new("git")
+    let output = Command::from(tugcore::git_command())
         .env_remove("GIT_DIFF_OPTS")
         .arg("-C")
         .arg(repo_dir)
@@ -874,7 +874,7 @@ pub(crate) async fn fetch_git_diff_with_untracked(
 /// [`fetch_git_diff_with_untracked`], which also covers created-but-never-
 /// committed files.
 pub(crate) async fn fetch_git_diff(repo_dir: &Path, paths: &[String]) -> Option<String> {
-    let mut cmd = Command::new("git");
+    let mut cmd = Command::from(tugcore::git_command());
     // Same scrub as the engine's `git_output` — hunk identity ([P06]) needs
     // both readers at one context width, and GIT_DIFF_OPTS is per-process.
     cmd.env_remove("GIT_DIFF_OPTS");
@@ -1450,7 +1450,7 @@ index 1111111..2222222 100644
     async fn git_in(repo: &Path, args: &[&str]) {
         let mut full = vec!["-C", repo.to_str().unwrap()];
         full.extend_from_slice(args);
-        let out = Command::new("git").args(&full).output().await.unwrap();
+        let out = Command::from(tugcore::git_command()).args(&full).output().await.unwrap();
         assert!(
             out.status.success(),
             "git {:?} failed: {}",

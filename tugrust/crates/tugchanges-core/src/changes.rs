@@ -668,7 +668,7 @@ mod tests {
         let root = dir.path();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(root)
                     .output()
@@ -1026,7 +1026,7 @@ mod tests {
         let root = dir.path();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(root)
                     .output()
@@ -1260,7 +1260,7 @@ mod tests {
         let root = dir.path();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(args)
                     .current_dir(root)
                     .output()

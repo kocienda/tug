@@ -96,10 +96,9 @@ pub fn write_pilot_mark(repo: &Path, name: &str, head_pair: &str) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command as Cmd;
 
     fn git(dir: &Path, args: &[&str]) {
-        let ok = Cmd::new("git")
+        let ok = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)

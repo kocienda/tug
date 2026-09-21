@@ -11,6 +11,7 @@
 #[cfg(test)]
 mod cli_test_env_scan;
 pub mod facts;
+pub mod git_cmd;
 pub mod host_tools;
 pub mod instance;
 pub mod janitor;
@@ -27,6 +28,8 @@ pub mod session_transcript;
 #[cfg(test)]
 mod source_scan;
 pub mod version;
+
+pub use git_cmd::git_command;
 
 /// Resolve the per-instance data directory for `instance_id` without
 /// consulting the environment. Mirrors `instance::data_dir` but with

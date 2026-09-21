@@ -805,10 +805,9 @@ mod tests {
 mod fit_tests {
     use super::*;
     use std::path::Path;
-    use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
+        let ok = tugcore::git_command()
             .current_dir(dir)
             .args(args)
             .status()
@@ -818,7 +817,7 @@ mod fit_tests {
     }
 
     fn git_stdout(dir: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
+        let out = tugcore::git_command()
             .current_dir(dir)
             .args(args)
             .output()

@@ -139,7 +139,7 @@ fn resolve_owner(owner: Option<String>, project_dir: &str) -> Result<Owner, AppE
 /// The arc name when `project_dir` has a `tugarc/<name>` branch checked
 /// out, else `None` (a detached HEAD, a non-repo, or any ordinary branch).
 fn arc_branch_name(project_dir: &str) -> Option<String> {
-    let out = std::process::Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(project_dir)
         .args(["rev-parse", "--abbrev-ref", "HEAD"])

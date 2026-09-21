@@ -438,7 +438,7 @@ mod tests {
     /// A real checkout, because the steer only fires on a path inside one.
     fn checkout() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("temp");
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .args(["init", "-q", "-b", "main"])
             .current_dir(dir.path())
             .output()

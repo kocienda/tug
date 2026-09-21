@@ -500,10 +500,10 @@ index 1111111..2222222 100644
     fn git_applies_a_filtered_patch_to_the_index() {
         use std::io::Write;
         use std::path::Path;
-        use std::process::{Command, Stdio};
+        use std::process::Stdio;
 
         fn git(root: &Path, args: &[&str]) -> String {
-            let out = Command::new("git")
+            let out = tugcore::git_command()
                 .args(args)
                 .current_dir(root)
                 .output()
@@ -545,7 +545,7 @@ index 1111111..2222222 100644
         let selected: BTreeSet<String> = [hunks[1].id.clone()].into_iter().collect();
         let patch = filtered_patch(&file_header(&diff), &hunks, &selected).unwrap();
 
-        let mut child = Command::new("git")
+        let mut child = tugcore::git_command()
             .args(["apply", "--cached", "-"])
             .current_dir(root)
             .stdin(Stdio::piped())

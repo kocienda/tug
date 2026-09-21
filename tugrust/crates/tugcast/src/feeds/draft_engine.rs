@@ -669,7 +669,7 @@ fn read_arc_log(repo_dir: &Path, arc_name: &str) -> Vec<String> {
 
 /// Run a git command at `dir`, returning trimmed stdout on success.
 async fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
-    let output = tokio::process::Command::new("git")
+    let output = tokio::process::Command::from(tugcore::git_command())
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -785,7 +785,7 @@ mod tests {
     }
 
     fn git(dir: &Path, args: &[&str]) {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)

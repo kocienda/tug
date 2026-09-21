@@ -84,14 +84,16 @@ The old `r1..r3` stay reachable through the op log's keepalive (§6) until it is
      empty          rev-list --count <base>..tugarc/<name> == 0 (→ release)
 
    integrate (default strategy = squash):
-     git merge --squash tugarc/<name>  &&  git commit -m "<subject>\n\nTug-Arc: …"
+     T = git merge-tree --write-tree <base> tugarc/<name>     (objects only; a conflict stops here)
+     J = git commit-tree T -p <base> -m "<subject>\n\nTug-Arc: …"
+     git merge --ff-only J                                    (the one act that touches the base)
 
    base   ──o──B0──o──o──B1──J             J = ONE commit, the drafted message
                  \            ↑
                   r1'──r2'──r3'            ...then the branch and worktree go away
 
-   Strategies:  Squash  merge --squash + commit        (the shipped default)
-                Merge   merge --no-ff -m <msg>
+   Strategies:  Squash  commit-tree, one parent        (the shipped default)
+                Merge   commit-tree, two parents: <base> and the arc tip
                 Rebase  merge --ff-only, else cherry-pick <base>..<branch>
 
    teardown phases, each persisted on the op record BEFORE its acts count as done:
@@ -99,7 +101,7 @@ The old `r1..r3` stay reachable through the op log's keepalive (§6) until it is
      a crash anywhere leaves stage = `joining`; `join --continue` resumes at the phase
 ```
 
-A join that lands nothing — a conflict, a stale candidate, an integrate error — resets the base to what it found (`reset --hard` / `merge --abort` / `cherry-pick --abort`) and **drops the op record**. An incomplete record therefore always means a teardown to resume.
+A squash or merge join **never stages on the base**: the commit is built off to the side and landed by fast-forward, which refuses before writing anything when it loses the index lock or when local changes overlap, and leaves disjoint dirt alone — so there is nothing to roll back, and no `reset --hard` anywhere in the integrate. (Only `Rebase`'s cherry-pick works on the base, and aborts.) A join that lands nothing — a conflict, a stale candidate, an integrate error — **drops the op record only after proving the base is as it found it**: `HEAD`, no `SQUASH_MSG`/`MERGE_HEAD`/`CHERRY_PICK_HEAD`, and the arc's paths all read as they did before. When that cannot be proven the record is kept, marked `stranded` with the paths; `join` and `arc undo` refuse it by name, `arc doctor` reports it, and `resolve-base` clears it. An incomplete record therefore means a teardown to resume, or a base to clear — and says which.
 
 ## 5. Conflict — the ladder, the chain, the candidate
 
@@ -191,7 +193,7 @@ The base moving underneath an arc is answered by **replay** (`replay.rs`), drive
 
 `join_in_with_progress` (`ops.rs`) runs one **preflight** that serves both `--preview` and the act, so a blocker's sentence is verbatim the refusal it predicts. The blockers: `off-base` (the base checkout's HEAD is not the base branch), `base-dirt` (base checkout dirt intersected with the arc's changed paths — byte-identical copies are not a blocker; they are dropped with `git checkout HEAD -- <path>` and named in a warning), `stale-journal` (an incomplete join op stands; `join --continue` clears it), `live-resolve` (a resolver lease holds the conflict chain; `--break-lease` or resolving again clears it), and `empty` (no rounds past base; release instead). Then the worktree's dirt is swept into a `Tug-Sweep: 1` round, the op-log record opens with every tip pinned, and `integrate_join` runs.
 
-**Integrate** is one function returning `Landed | Conflicted`. The shipped default is **squash**: `git merge --squash tugarc/<name>` then `git commit -m <message>`, the message being the composer's draft with the `Tug-Arc:` trailer added — exactly one commit lands on the base. `Merge` (`--no-ff`) and `Rebase` (`--ff-only`, else `cherry-pick <base>..<branch>`) exist as strategies. Any non-zero exit collects `conflicted_paths`, restores the base (`reset --hard` for a squash, which sets no `MERGE_HEAD`; `merge --abort` / `cherry-pick --abort` otherwise), and **abandons the op record** — a join that lands nothing records nothing. On `Landed`, the record's payload gains `JoinProgress { phase, commit_hash, strategy, message }` and becomes the resume record.
+**Integrate** is one function returning `Landed | Conflicted`. The shipped default is **squash**: the result tree comes from the candidate, or from `git merge-tree --write-tree` (a conflict there touches nothing); `git commit-tree` writes the commit — the message being the composer's draft with the `Tug-Arc:` trailer added — and `git merge --ff-only` lands it, retrying past a held `index.lock` with every other index write. Exactly one commit lands on the base, and nothing is ever staged there. `Merge` is the same with the arc tip as a second parent; `Rebase` (`--ff-only`, else `cherry-pick <base>..<branch>`, aborted on conflict) keeps the rounds. An integrate that does not land **abandons the op record only once the base is proven untouched** — a join that lands nothing records nothing, and the premise is checked; otherwise the record is kept and marked `stranded`. On `Landed`, the record's payload gains `JoinProgress { phase, commit_hash, strategy, message }` and becomes the resume record.
 
 **Teardown** (`finish_join_teardown`) is phased — `Integrated → WorktreeRemoved → BranchDeleted → record` — and each phase is persisted on the op payload *before* its acts are treated as done, so a crash under-claims and a resume repeats idempotent work. The phases: `git worktree remove --force` (retried, then `worktree prune`); `clear_candidate` (which also drops the conflict chain), workshop removal, `git branch -D`, deletion of `.tug/arcs/<name>/`; then the arc log's `joined` line and `record_complete` with the base tip and landed commit. `join --continue` enters above the branch-exists guard, because a join killed after `branch -D` is the one that most needs to resume.
 

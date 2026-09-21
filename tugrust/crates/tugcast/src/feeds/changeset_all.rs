@@ -465,7 +465,7 @@ mod tests {
     use tugcast_core::spawn_snapshot_feed;
 
     fn git(dir: &Path, args: &[&str]) {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)

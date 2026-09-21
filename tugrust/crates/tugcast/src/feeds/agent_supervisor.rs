@@ -6029,7 +6029,7 @@ impl AgentSupervisor {
             return;
         }
 
-        let output = tokio::process::Command::new("git")
+        let output = tokio::process::Command::from(tugcore::git_command())
             .arg("-C")
             .arg(dir)
             .args(["init", "-b", "main"])
@@ -7074,7 +7074,7 @@ impl AgentSupervisor {
     /// would otherwise read the same as a repo that is not there.
     fn live_arc_records(repo: &str) -> ArcRecords {
         let git = |args: &[&str]| {
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(repo)
                 .args(args)
@@ -14283,10 +14283,9 @@ mod tests {
 
     #[tokio::test]
     async fn changeset_join_previews_and_executes() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let status = Command::new("git")
+            let status = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -14374,7 +14373,7 @@ mod tests {
         assert_eq!(done["action"], "changeset_join_ok");
         assert_eq!(done["previewed"], false);
         assert!(done["commit_hash"].is_string(), "real join lands a commit");
-        let tree = Command::new("git")
+        let tree = tugcore::git_command()
             .current_dir(&root)
             .args(["ls-tree", "--name-only", "HEAD"])
             .output()
@@ -14383,7 +14382,7 @@ mod tests {
             String::from_utf8_lossy(&tree.stdout).contains("round.txt"),
             "squash landed the arc file on main"
         );
-        let branches = Command::new("git")
+        let branches = tugcore::git_command()
             .current_dir(&root)
             .args(["branch", "--list", "tugarc/demo"])
             .output()
@@ -14420,10 +14419,9 @@ mod tests {
     /// ([L29]) — the same rule `changeset_join_resolve_delta` already follows.
     #[tokio::test]
     async fn a_join_narrates_its_beats_on_the_wire() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let status = Command::new("git")
+            let status = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -14569,10 +14567,9 @@ mod tests {
     /// remove ([B04], [B05]).
     #[tokio::test]
     async fn changeset_delete_documents_removes_only_the_documents() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let status = Command::new("git")
+            let status = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -14641,10 +14638,9 @@ mod tests {
 
     #[tokio::test]
     async fn changeset_discard_discards_arc() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let status = Command::new("git")
+            let status = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -14705,7 +14701,7 @@ mod tests {
         assert_eq!(done["action"], "changeset_discard_ok");
         assert_eq!(done["name"], "demo");
 
-        let branches = Command::new("git")
+        let branches = tugcore::git_command()
             .current_dir(&root)
             .args(["branch", "--list", "tugarc/demo"])
             .output()
@@ -14774,10 +14770,9 @@ mod tests {
     /// dead button if the frame carried no word.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn changeset_replay_reports_current_when_the_base_has_not_moved() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let status = Command::new("git")
+            let status = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -14829,7 +14824,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
-        use std::process::Command;
 
         // A fake scribe that returns a fixed clean merge and echoes it as one
         // streamed delta — no real claude call.
@@ -14853,7 +14847,7 @@ mod tests {
         }
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let ok = Command::new("git")
+            let ok = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -14956,7 +14950,7 @@ mod tests {
 
         // The candidate's f.txt carries the scribe's merged content.
         let candidate = ok["candidate_commit"].as_str().unwrap();
-        let show = Command::new("git")
+        let show = tugcore::git_command()
             .current_dir(&root)
             .args(["show", &format!("{candidate}:f.txt")])
             .output()
@@ -14969,10 +14963,9 @@ mod tests {
     /// A repo on `main` with an arc that changed a shared path, and the base
     /// dirty over that same path — the overlap a fold exists to clear.
     fn base_dirt_repo() -> (tempfile::TempDir, std::path::PathBuf) {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let ok = Command::new("git")
+            let ok = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -15153,7 +15146,7 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(body["action"], "changeset_join_resolve_base_ok", "{body}");
 
-        let porcelain = std::process::Command::new("git")
+        let porcelain = tugcore::git_command()
             .current_dir(&root)
             .args(["status", "--porcelain", "--", "f.txt"])
             .output()
@@ -15190,7 +15183,7 @@ mod tests {
             "and where the base was put back: {body}"
         );
 
-        let porcelain = std::process::Command::new("git")
+        let porcelain = tugcore::git_command()
             .current_dir(&root)
             .args(["status", "--porcelain", "--", "f.txt"])
             .output()
@@ -15213,10 +15206,9 @@ mod tests {
     /// `reset --hard` on the workshop the first one's resolver was editing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_live_resolve_refuses_every_other_run_on_that_arc() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let ok = Command::new("git")
+            let ok = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -15799,10 +15791,9 @@ mod tests {
     /// in git and still has to show up in the state the feed composes.
     #[tokio::test]
     async fn a_resolve_survives_losing_every_control_frame() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let ok = Command::new("git")
+            let ok = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -15959,10 +15950,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn changeset_draft_request_spawns_generation_over_snapshot() {
-        use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let ok = Command::new("git")
+            let ok = tugcore::git_command()
                 .current_dir(dir)
                 .args(args)
                 .status()
@@ -16280,7 +16270,7 @@ mod tests {
     // --- session↔arc binding (Spec S03/S04, [P05], [P08]) ----------------
 
     fn git_in(dir: &std::path::Path, args: &[&str]) {
-        let ok = std::process::Command::new("git")
+        let ok = tugcore::git_command()
             .current_dir(dir)
             .args(args)
             .status()
@@ -16808,7 +16798,7 @@ mod tests {
         .unwrap();
         sup.handle_control("changeset_join", &payload, 1).await;
 
-        let landed = std::process::Command::new("git")
+        let landed = tugcore::git_command()
             .args(["-C", &project, "rev-parse", "main"])
             .output()
             .unwrap();
@@ -20510,7 +20500,7 @@ mod tests {
     }
 
     fn run_git(repo: &std::path::Path, args: &[&str]) {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(args)
@@ -21888,7 +21878,7 @@ mod tests {
     #[tokio::test]
     async fn changeset_commit_persists_the_landing_to_the_shell_ledger() {
         fn git(dir: &std::path::Path, args: &[&str]) {
-            let out = std::process::Command::new("git")
+            let out = tugcore::git_command()
                 .arg("-C")
                 .arg(dir)
                 .args(args)

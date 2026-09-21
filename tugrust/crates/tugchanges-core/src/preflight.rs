@@ -275,7 +275,7 @@ mod tests {
 
     fn git(root: &Path, args: &[&str]) {
         assert!(
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .args(args)
                 .current_dir(root)
                 .output()

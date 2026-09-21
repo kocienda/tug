@@ -423,7 +423,7 @@ fn git_apply_stdout(patch: &str, args: &[&str]) -> Option<String> {
     use std::io::Write;
     use std::process::Stdio;
 
-    let mut child = std::process::Command::new("git")
+    let mut child = tugcore::git_command()
         .arg("apply")
         .args(args)
         .arg("-")
@@ -455,7 +455,7 @@ fn run_git_apply(patch: &str, check_only: bool, cached: bool) -> Result<(), AppE
     use std::io::Write;
     use std::process::Stdio;
 
-    let mut command = std::process::Command::new("git");
+    let mut command = tugcore::git_command();
     command.arg("apply");
     if check_only {
         command.arg("--check");

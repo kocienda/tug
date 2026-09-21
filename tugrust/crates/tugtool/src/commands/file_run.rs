@@ -25,7 +25,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
@@ -99,7 +98,7 @@ pub fn run_run(scopes: &[String], command: &[String]) -> Result<(), AppError> {
 /// The repository root, which is both the default scope and the directory the
 /// universe is enumerated from.
 fn repo_root() -> Result<PathBuf, AppError> {
-    let out = Command::new("git")
+    let out = tugcore::git_command()
         .args(["rev-parse", "--show-toplevel"])
         .output()
         .map_err(|e| AppError::Exit1(format!("git: {e}")))?;
@@ -134,7 +133,7 @@ fn resolve_scopes(root: &Path, scopes: &[String]) -> Result<Vec<PathBuf>, AppErr
 /// ignore, the same set the read side classifies — so a build directory or a
 /// target tree costs nothing to run this over.
 fn fingerprint_universe(root: &Path, scopes: &[PathBuf]) -> Result<Fingerprints, AppError> {
-    let out = Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(root)
         .args([

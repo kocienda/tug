@@ -1,4 +1,4 @@
-//! `arc doctor` — what the five records say, and where they disagree.
+//! `arc doctor` — what the records say, and where they disagree.
 //!
 //! An arc keeps five records of itself, and no two of them are written by the
 //! same act:
@@ -10,6 +10,13 @@
 //! | the **sqlite binding** | tugcast, at bind and at the rotation seat | which card an arc is showing in |
 //! | the **arc record** (also the log) | the arc runner | which stage the Wheel rotates next |
 //! | the **seat** — branch and worktree | `ops::create_in`, from the dispatch | the stage's `where` line, every round |
+//!
+//! And a sixth reading beside the five, which is not a record anybody writes
+//! but the place a failed join leaves its marks: **the base checkout**. A
+//! standing `SQUASH_MSG` naming the arc's rounds, base paths holding the arc's
+//! own bytes uncommitted, a join recorded as having stranded the base, an
+//! operation that began and never finished — each is a state a person can see
+//! in `git status`, so none of them may read as "the records agree".
 //!
 //! The split in the first two rows is the one that matters, and it is easy to
 //! read backwards: **join-arming derives from the log; the resume pointer
@@ -200,6 +207,7 @@ pub fn diagnose(repo_root: &Path, name: &str) -> ArcDiagnosis {
     check_commit_cells(&mut findings, rows);
     check_arc(&mut findings, rows, arc.as_ref(), repo_root, name);
     check_seat(&mut findings, arc.as_ref(), repo_root, name);
+    check_base_checkout(&mut findings, repo_root, name);
 
     ArcDiagnosis {
         arc: name.to_string(),
@@ -553,6 +561,73 @@ fn check_seat(
         ),
         repair,
     });
+}
+
+/// The one base-checkout finding a running stage is not stopped for.
+///
+/// Base copies of the arc's own bytes are something the join drops by itself,
+/// and they arise innocently — a note written on the base from the arc's work
+/// leaves exactly this. The doctor names them because a person reading `git
+/// status` should find them explained; a runner that stopped an arc over them
+/// would be stopping it for a state the machine already handles.
+pub const BASE_ECHO_CODE: &str = "base-echo";
+
+/// The base checkout: what a failed join leaves where the five records cannot
+/// see it. Each finding names the state and the verb that clears it; none
+/// carries a repair, because every clearing act touches the user's checkout
+/// and `resolve-base` is the door that records doing so.
+fn check_base_checkout(findings: &mut Vec<ArcFinding>, repo_root: &Path, name: &str) {
+    let root = ops::main_repo_root(repo_root);
+    let mut push = |code: &str, sentence: String| {
+        findings.push(ArcFinding {
+            code: code.to_string(),
+            sentence,
+            repair: None,
+        });
+    };
+
+    if let Some(op) = crate::oplog::stranded_join(&root, name) {
+        push("base-stranded", crate::oplog::stranded_detail(&op));
+    }
+
+    // Any other operation that began and never finished. A join between its
+    // integrate and its end is not one of these: it carries progress, and
+    // `join --continue` is its own door.
+    for op in crate::oplog::list_ops(&root).into_iter().filter(|op| {
+        op.arc == name && op.after.is_none() && op.join.is_none() && op.stranded.is_none()
+    }) {
+        push(
+            "op-incomplete",
+            format!(
+                "Operation {} ({} of '{name}') began and never finished, so what it changed on '{}' is unrecorded. Check the base checkout, then clear it with: tugtool arc resolve-base {name}",
+                op.seq,
+                op.verb.as_str(),
+                op.before.base_branch
+            ),
+        );
+    }
+
+    let Some(base) = ops::read_base_checkout(&root, name) else {
+        return;
+    };
+    if base.squash_standing {
+        push(
+            "base-squash-standing",
+            format!(
+                "A SQUASH_MSG naming this arc's rounds is standing on the base checkout — a squash of '{name}' was staged there and never committed. Clear it with: tugtool arc resolve-base {name}"
+            ),
+        );
+    }
+    if !base.echoed.is_empty() {
+        push(
+            BASE_ECHO_CODE,
+            format!(
+                "The base checkout holds, uncommitted, the same bytes arc '{name}' carries for {} ({}). A join drops them itself; to clear them now: tugtool arc resolve-base {name}",
+                if base.echoed.len() == 1 { "one path".to_string() } else { format!("{} paths", base.echoed.len()) },
+                base.echoed.join(", ")
+            ),
+        );
+    }
 }
 
 /// What a `arc doctor` run did.

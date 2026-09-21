@@ -1077,7 +1077,7 @@ fn merge_file_rung(scratch: &Path, path: &str, loaded: &LoadedStages) -> Option<
     let ours_f = write_scratch(scratch, "ours", ext, ours)?;
     let base_f = write_scratch(scratch, "base", ext, base)?;
     let theirs_f = write_scratch(scratch, "theirs", ext, theirs)?;
-    let out = Command::new("git")
+    let out = tugcore::git_command()
         .args([
             "-c",
             "diff.algorithm=histogram",
@@ -1240,7 +1240,7 @@ pub(crate) fn commit_tree(
 /// Run a git command with an explicit `GIT_INDEX_FILE`, returning trimmed
 /// stdout on success.
 fn git_with_index(repo: &Path, index: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(repo)
         .args(args)
@@ -1272,7 +1272,7 @@ fn cat_blob(repo: &Path, oid: &str) -> Result<Vec<u8>, String> {
 
 /// Write `bytes` as a loose blob (`git hash-object -w --stdin`) → its OID.
 fn hash_blob(repo: &Path, bytes: &[u8]) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let mut child = tugcore::git_command()
         .arg("-C")
         .arg(repo)
         .args(["hash-object", "-w", "--stdin"])
@@ -2436,10 +2436,9 @@ pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> Candidate
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
+        let ok = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -3137,7 +3136,7 @@ mod tests {
             std::fs::write(dir.join("base"), "A\n").unwrap();
             std::fs::write(dir.join("ours"), "B\n").unwrap();
             std::fs::write(dir.join("theirs"), "C\n").unwrap();
-            let mut cmd = Command::new("git");
+            let mut cmd = tugcore::git_command();
             cmd.arg("merge-file").arg("-p");
             if let Some(style) = style {
                 cmd.arg(style);
@@ -3367,7 +3366,7 @@ mod tests {
             );
             assert_ne!(old, new, "the round was rebuilt onto the moved base");
             // Each rebuilt commit is reachable from the replayed head.
-            let ok = Command::new("git")
+            let ok = tugcore::git_command()
                 .arg("-C")
                 .arg(repo)
                 .args(["merge-base", "--is-ancestor", new, &replayed.head])
@@ -3387,7 +3386,7 @@ mod tests {
         assert!(outcome.unresolved.is_empty());
         let candidate = outcome.candidate_commit.expect("replay candidate");
         // The candidate's f.txt is the arc's final state, C.
-        let show = Command::new("git")
+        let show = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])
@@ -3443,7 +3442,7 @@ mod tests {
         set(repo, "g.txt", "M\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "main side"]);
-        let _ = Command::new("git")
+        let _ = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["merge", "--no-edit", "seed"])
@@ -3491,7 +3490,7 @@ mod tests {
             .expect("driver produced a candidate");
         assert_eq!(outcome.resolved.len(), 1);
         assert_eq!(outcome.resolved[0].resolved_by, ResolvedBy::Driver);
-        let show = Command::new("git")
+        let show = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])
@@ -3636,7 +3635,7 @@ mod tests {
         set(repo, "f.txt", "C\n");
         git(repo, &["commit", "-am", "main to C"]);
         let main_c = String::from_utf8(
-            Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(repo)
                 .args(["rev-parse", "HEAD"])
@@ -3650,7 +3649,7 @@ mod tests {
 
         // Record: a real merge conflicts, we resolve to R and commit → rerere
         // learns the preimage→resolution. Then reset main back to C.
-        let _ = Command::new("git")
+        let _ = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["merge", "--no-edit", "tugarc/demo"])
@@ -3664,7 +3663,7 @@ mod tests {
         assert_eq!(outcome.resolved.len(), 1, "rerere resolved f.txt");
         assert_eq!(outcome.resolved[0].resolved_by, ResolvedBy::Rerere);
         let candidate = outcome.candidate_commit.expect("rerere candidate");
-        let show = Command::new("git")
+        let show = tugcore::git_command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])

@@ -932,7 +932,7 @@ pub(crate) async fn run_git(dir: &Path, args: &[String]) -> Result<String, Strin
     if !dir.is_dir() {
         return Err(format!("{} is not a directory", dir.display()));
     }
-    let mut cmd = Command::new("git");
+    let mut cmd = Command::from(tugcore::git_command());
     cmd.arg("-C").arg(dir).args(args).kill_on_drop(true);
     let output = cmd
         .output()
@@ -2432,7 +2432,7 @@ mod tests {
     fn git_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let run = |args: &[&str]| {
-            let status = std::process::Command::new("git")
+            let status = tugcore::git_command()
                 .arg("-C")
                 .arg(dir.path())
                 .args(args)
@@ -3534,7 +3534,7 @@ mod tests {
                 "big",
             ],
         ] {
-            let out = std::process::Command::new("git")
+            let out = tugcore::git_command()
                 .arg("-C")
                 .arg(f.repo.path())
                 .args(&args)
@@ -3547,7 +3547,7 @@ mod tests {
             );
         }
         let head = String::from_utf8(
-            std::process::Command::new("git")
+            tugcore::git_command()
                 .arg("-C")
                 .arg(f.repo.path())
                 .args(["rev-parse", "HEAD"])

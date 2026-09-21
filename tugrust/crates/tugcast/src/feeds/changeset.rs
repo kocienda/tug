@@ -2085,7 +2085,7 @@ pub(crate) fn format_delete_documents_summary(arc: &str, files: &[String]) -> St
 /// Run a git command at `dir`, returning trimmed stdout on success, `None`
 /// on any failure.
 pub(crate) async fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
-    let output = tokio::process::Command::new("git")
+    let output = tokio::process::Command::from(tugcore::git_command())
         // Same scrub as the engine's `git_output` — a per-process context
         // override must never skew a diff this side reads ([P06]).
         .env_remove("GIT_DIFF_OPTS")
@@ -2109,7 +2109,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn git(dir: &Path, args: &[&str]) {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -5672,7 +5672,7 @@ mod m02a_verification {
     const FILE: &str = "wide.txt";
 
     fn git(dir: &Path, args: &[&str]) {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -5789,7 +5789,7 @@ mod m02a_verification {
     }
 
     fn head_patch(root: &Path) -> String {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .arg("-C")
             .arg(root)
             .args(["show", "--no-color", "HEAD"])
@@ -5873,7 +5873,7 @@ mod m02a_verification {
             !shown.contains("line 90 CHANGED"),
             "the unelected hunk did NOT land: {shown}"
         );
-        let status = std::process::Command::new("git")
+        let status = tugcore::git_command()
             .arg("-C")
             .arg(&root)
             .args(["status", "--porcelain"])
@@ -5896,7 +5896,7 @@ mod m02a_verification {
             head_patch(&root).contains("line 90 CHANGED"),
             "the remainder landed whole"
         );
-        let status = std::process::Command::new("git")
+        let status = tugcore::git_command()
             .arg("-C")
             .arg(&root)
             .args(["status", "--porcelain"])
@@ -5955,7 +5955,7 @@ mod m02a_verification {
             "the refusal reads as drift: {err}"
         );
 
-        let staged = std::process::Command::new("git")
+        let staged = tugcore::git_command()
             .arg("-C")
             .arg(&root)
             .args(["diff", "--cached", "--name-only"])

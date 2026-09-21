@@ -261,6 +261,27 @@ pub struct OpPayload {
     /// `undone_by` backlinks, so a redo can find its original directly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reverses: Option<u64>,
+    /// Set when a join failed and the base checkout could **not** be proven to
+    /// be as the join found it.
+    ///
+    /// "A join that lands nothing records nothing" holds only when the base
+    /// was checked and found untouched. When the check fails the record stays,
+    /// carrying this, and `join`, `resolve-base`, `undo` and `doctor` all read
+    /// it: the base may hold part of an integrate that nothing else recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stranded: Option<StrandedBase>,
+}
+
+/// What a failed join may have left on the base checkout.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StrandedBase {
+    /// The arc's paths that read differently on the base than before the join.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    /// What the check found, in words — a moved HEAD, a standing
+    /// `CHERRY_PICK_HEAD`, changed paths.
+    #[serde(default)]
+    pub found: String,
 }
 
 fn payload_version() -> u32 {
@@ -480,6 +501,7 @@ pub fn record_begin(
             join: None,
             undone_by: None,
             reverses: None,
+            stranded: None,
         };
         write_payload(repo, &payload)?;
         prune(repo);
@@ -496,6 +518,37 @@ pub fn record_complete(repo: &Path, seq: u64, after: OpAfter) -> Result<(), Stri
         read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to complete"))?;
     payload.after = Some(after);
     write_payload(repo, &payload)
+}
+
+/// Mark the join `seq` as having left the base in a state nothing could prove
+/// untouched. The record is kept open — no `after` — because the join landed
+/// nothing; what it carries is the warning.
+pub fn record_stranded(repo: &Path, seq: u64, stranded: StrandedBase) -> Result<(), String> {
+    let mut payload =
+        read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to mark stranded"))?;
+    payload.stranded = Some(stranded);
+    write_payload(repo, &payload)
+}
+
+/// The newest join of `arc` that stranded the base and has not been cleared.
+pub fn stranded_join(repo: &Path, arc: &str) -> Option<OpPayload> {
+    list_ops(repo).into_iter().find(|op| {
+        op.arc == arc && op.verb == OpVerb::Join && op.after.is_none() && op.stranded.is_some()
+    })
+}
+
+/// The one sentence every reader of a stranded record says.
+pub fn stranded_detail(op: &OpPayload) -> String {
+    let stranded = op.stranded.clone().unwrap_or_default();
+    let paths = if stranded.paths.is_empty() {
+        String::new()
+    } else {
+        format!(" Paths: {}.", stranded.paths.join(", "))
+    };
+    format!(
+        "stranded-base: operation {} (join of '{}') failed and could not prove it left '{}' untouched — {}.{paths} Clear it with: tugtool arc resolve-base {}",
+        op.seq, op.arc, op.before.base_branch, stranded.found, op.arc
+    )
 }
 
 /// Mark `seq` as reversed by the undo operation `by`.
@@ -802,6 +855,16 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, String> {
         .filter(|op| arc.is_none_or(|d| op.arc == d))
         .filter(|op| !op.verb.is_reversal())
         .collect();
+
+    // A join that stranded the base is refused by name, ahead of any older
+    // operation that would otherwise be the candidate: the base is in a state
+    // nothing recorded, and reversing something beneath it would be a guess.
+    if let Some(op) = candidates
+        .iter()
+        .find(|op| op.after.is_none() && op.stranded.is_some())
+    {
+        return Err(stranded_detail(op));
+    }
 
     let op = match candidates.iter().find(|op| op.is_undoable()) {
         Some(op) => op.clone(),
@@ -1567,10 +1630,9 @@ fn restore_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resul
 mod tests {
     use super::*;
     use serial_test::serial;
-    use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
+        let ok = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)

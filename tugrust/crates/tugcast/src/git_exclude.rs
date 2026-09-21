@@ -178,10 +178,9 @@ pub(crate) fn ensure_assets_excluded(assets_dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let status = Command::new("git")
+        let status = tugcore::git_command()
             .current_dir(dir)
             .args(args)
             .status()

@@ -665,7 +665,7 @@ mod tests {
             &["config", "user.email", "t@example.com"][..],
             &["config", "user.name", "T"][..],
         ] {
-            let ok = std::process::Command::new("git")
+            let ok = tugcore::git_command()
                 .arg("-C")
                 .arg(root)
                 .args(args)
@@ -1761,7 +1761,7 @@ mod tests {
         let worktree = root.join("arcs/join-arc");
         std::fs::create_dir_all(&main).unwrap();
         let git = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
+            let ok = tugcore::git_command()
                 .arg("-C")
                 .arg(&main)
                 .args(args)

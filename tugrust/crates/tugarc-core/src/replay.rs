@@ -561,10 +561,9 @@ mod tests {
     use super::*;
     use crate::log::read_declarations;
     use serial_test::serial;
-    use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
+        let ok = tugcore::git_command()
             .arg("-C")
             .arg(dir)
             .args(args)

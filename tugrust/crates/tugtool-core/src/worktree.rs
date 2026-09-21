@@ -6,7 +6,6 @@
 
 use crate::error::TugError;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Resolve the main repository root, even when CWD is inside a linked worktree.
 ///
@@ -89,7 +88,7 @@ pub fn find_repo_root_from(start: &Path) -> Result<PathBuf, TugError> {
 
     // If .git is a file, we're in a linked worktree -- resolve to main repo
     if git_path.is_file() {
-        let output = Command::new("git")
+        let output = tugcore::git_command()
             .arg("-C")
             .arg(start)
             .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
@@ -174,7 +173,7 @@ mod tests {
     }
 
     fn git(dir: &Path, args: &[&str]) {
-        let output = Command::new("git")
+        let output = tugcore::git_command()
             .args(args)
             .current_dir(dir)
             .output()
@@ -340,7 +339,7 @@ mod tests {
         let repo = temp.path();
 
         // Initialize a git repo
-        Command::new("git")
+        tugcore::git_command()
             .args(["init", "-b", "main"])
             .current_dir(repo)
             .output()

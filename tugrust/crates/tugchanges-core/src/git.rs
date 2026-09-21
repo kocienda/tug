@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde::Serialize;
 
@@ -26,7 +26,7 @@ use serde::Serialize;
 /// spawn failure (git missing / not executable); a non-zero exit is a
 /// successful spawn the caller inspects.
 pub fn git_output(dir: &Path, args: &[&str]) -> Result<Output, String> {
-    Command::new("git")
+    tugcore::git_command()
         // Hunk identity ([P06]) assumes both readers diff at one context
         // width. `diff.context` is machine config and satisfies that;
         // GIT_DIFF_OPTS is per-process environment and does not — a profile
@@ -489,6 +489,18 @@ pub fn file_stats(numstat: &str, name_status: &str) -> Vec<FileStat> {
 
 #[cfg(test)]
 mod tests {
+    /// The shared runner's git declines optional locks — read back through
+    /// git itself, whose `!` alias runs in the environment git was given.
+    #[test]
+    fn the_runner_spawns_git_without_optional_locks() {
+        let out = super::git_output(
+            std::path::Path::new("."),
+            &["-c", "alias.lockenv=!printenv GIT_OPTIONAL_LOCKS", "lockenv"],
+        )
+        .expect("git runs");
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
+    }
+
     use super::*;
 
     #[test]

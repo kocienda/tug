@@ -11,7 +11,6 @@ use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
 use tugtool_core::error::TugError;
 use tugtool_core::paths::project_state_dir;
 use tugtool_core::session::now_iso8601;
@@ -94,7 +93,7 @@ pub fn validate_arc_name(name: &str) -> Result<(), TugError> {
 /// 4. If all fail: error with message listing available local branches
 pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
     // Step 1: Try origin/HEAD
-    let output = Command::new("git")
+    let output = tugcore::git_command()
         .arg("-C")
         .arg(repo_root)
         .arg("symbolic-ref")
@@ -112,7 +111,7 @@ pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
     }
 
     // Step 2: Check if main exists
-    let output = Command::new("git")
+    let output = tugcore::git_command()
         .arg("-C")
         .arg(repo_root)
         .arg("rev-parse")
@@ -127,7 +126,7 @@ pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
     }
 
     // Step 3: Check if master exists
-    let output = Command::new("git")
+    let output = tugcore::git_command()
         .arg("-C")
         .arg(repo_root)
         .arg("rev-parse")
@@ -142,7 +141,7 @@ pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
     }
 
     // Step 4: Error with available branches
-    let output = Command::new("git")
+    let output = tugcore::git_command()
         .arg("-C")
         .arg(repo_root)
         .arg("branch")

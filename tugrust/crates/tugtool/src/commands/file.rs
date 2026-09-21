@@ -503,7 +503,7 @@ fn git_tracks(path: &Path) -> bool {
     let Some(dir) = git_dir_for(path) else {
         return false;
     };
-    std::process::Command::new("git")
+    tugcore::git_command()
         .arg("-C")
         .arg(&dir)
         .arg("ls-files")
@@ -528,7 +528,7 @@ fn git(args: &[&str], paths: &[&Path]) -> Result<(), AppError> {
     let Some(dir) = paths.first().and_then(|p| git_dir_for(p)) else {
         return Err(AppError::Exit1("no directory to run git in".to_string()));
     };
-    let mut command = std::process::Command::new("git");
+    let mut command = tugcore::git_command();
     command.arg("-C").arg(&dir);
     command.args(args);
     for path in paths {
@@ -559,7 +559,7 @@ mod tests {
             vec!["config", "user.name", "t"],
         ] {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(&args)
                     .current_dir(root)
                     .output()
@@ -574,7 +574,7 @@ mod tests {
     fn commit_all(root: &Path) {
         for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", "seed"]] {
             assert!(
-                std::process::Command::new("git")
+                tugcore::git_command()
                     .args(&args)
                     .current_dir(root)
                     .output()
@@ -866,7 +866,7 @@ mod tests {
     // ── stage ([P13]) ──────────────────────────────────────────────────────
 
     fn git_out(root: &Path, args: &[&str]) -> String {
-        let out = std::process::Command::new("git")
+        let out = tugcore::git_command()
             .args(args)
             .current_dir(root)
             .output()

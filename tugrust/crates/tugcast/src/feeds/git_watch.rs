@@ -61,7 +61,7 @@ async fn read_head(repo_dir: &Path) -> String {
 /// move is swallowed and no `GIT_HEAD` ever fires for it, leaving the client's
 /// log stale with nothing to correct it.
 pub fn read_head_blocking(repo_dir: &Path) -> String {
-    let out = std::process::Command::new("git")
+    let out = tugcore::git_command()
         .arg("-C")
         .arg(repo_dir)
         .args(["rev-parse", "HEAD"])
@@ -142,7 +142,7 @@ mod tests {
     async fn git_in(repo: &Path, args: &[&str]) {
         let mut full = vec!["-C", repo.to_str().unwrap()];
         full.extend_from_slice(args);
-        let out = Command::new("git").args(&full).output().await.unwrap();
+        let out = Command::from(tugcore::git_command()).args(&full).output().await.unwrap();
         assert!(
             out.status.success(),
             "git {:?} failed: {}",
