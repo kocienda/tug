@@ -50,6 +50,12 @@ Three distinct failures are in that report: the view **jumps** on reload; the re
 - JetBrains, BBEdit, Neovim all re-verify on focus as a backstop for missed events. JetBrains' long-running "File Cache Conflict" complaints are a failure to tell its own writes from external ones.
 - Atomic saves (temp + `rename`) replace the inode, so a per-fd vnode watch goes deaf after the first save; watching the parent directory, or FSEvents by path, survives. FSEvents flags are OR-coalesced per path, so event *kind* is not trustworthy.
 
+**[F14] FILESYSTEM has exactly two client consumers, and the second one can go permanently wrong on a lost batch.** They are `text-card-store.ts` and the path-verdict cache in `tugdeck/src/lib/annotator/path-resolution.ts`. The cache re-asks `missing` and `unknown` verdicts on a timer, but a `confirmed` verdict is re-probed only when an event names it — so a lost batch carrying a delete leaves a dead path painted as live indefinitely. The cache is also deaf to every non-bootstrap workspace, by [F02]. **(verified by reading the code)**
+
+**[F15] The Diff card cannot show a buffer against the disk.** `diff-card.tsx` carries a git `DiffDescriptor` (head, range, or commit) and owns a `GitDiffStore`; it has no non-git source. The document it renders, `TugDiffDocument`, is shared and takes a parsed unified diff. `@codemirror/merge` is not a dependency, and tugdeck pins its CM6 packages exactly because a duplicate instance silently defaults every facet. **(verified)**
+
+**[F16] Gitignored files are legitimately open in Text cards.** An arc's own documents live under `.tug/arcs/<name>/`, which is never tracked. Any gitignore filter on the event path would silence exactly those cards. **(verified)**
+
 ---
 
 ## Decisions {#decisions}
@@ -58,7 +64,7 @@ Three distinct failures are in that report: the view **jumps** on reload; the re
 
 **[B02] tugcast watches the file's parent directory, non-recursively, and treats every event kind as "look again".** The parent-directory watch survives atomic-rename saves and costs one watch per distinct directory, shared across cards. Event kind is never switched on for the changed/unchanged question ([F13]: FSEvents coalesces flags); any event naming the path means stat and re-read.
 
-**[B03] Per-file change events ride a lossless stream, versioned, never a latest-value channel.** They go out on a broadcast sender registered like `ft_response_tx`, carrying `{path, sha256, seq}` with `seq` monotonic per path. The client drops a `seq` not newer than the last it applied. An event stream on `watch` is the defect in [F04]; this decision is that the new stream does not repeat it. Whether the existing workspace FILESYSTEM feed also moves off `watch` is the first open question.
+**[B03] Per-file change events ride a lossless stream, versioned, never a latest-value channel.** They go out on a broadcast sender registered like `ft_response_tx`, carrying `{path, sha256, seq}` with `seq` monotonic per path. The client drops a `seq` not newer than the last it applied. An event stream on `watch` is the defect in [F04]; this decision is that the new stream does not repeat it, and [B14] removes it from the existing feed as well.
 
 **[B04] Every gap heals itself by re-asking.** On `Lagged`, on WebSocket reconnect, on card show, and on window focus, the client asks "what is the current hash for this path?" and reloads a clean buffer if it differs from the baseline. `recheckOnActivation` stays, demoted from the only trigger to a backstop. A missed push then costs a delay, never a permanently stale buffer ([F05]).
 
@@ -68,7 +74,7 @@ Three distinct failures are in that report: the view **jumps** on reload; the re
 
 **[B07] A suspicious read is confirmed before it is believed.** tugcast stats before and after the read and retries when they differ; an empty or sharply shorter result following a plain modify (not a rename) gets one confirming re-read after a short settle before it is reported ([F11]). An atomic-rename save cannot tear, so a new inode with a stable stat is reported immediately.
 
-**[B08] A dirty buffer is never reloaded silently, and the first answer to divergence is a three-way merge.** Base is the baseline text, ours is the buffer, theirs is the disk. A clean merge is applied through `minimalTextChanges`, the buffer stays dirty, the baseline moves to the disk hash, and nothing is asked. Only a true overlap raises the existing conflict surface (non-modal banner in automatic, sheet in manual), which gains a way to see the difference. This is what makes Tug better than BBEdit's alert rather than equal to it, and it matters more here than elsewhere because an agent edits the open file while the user is typing in it. It requires retaining the baseline text, not just its hash.
+**[B08] A dirty buffer is never reloaded silently, and the first answer to divergence is a three-way merge.** Base is the baseline text, ours is the buffer, theirs is the disk. A clean merge is applied through `minimalTextChanges`, the buffer stays dirty, the baseline moves to the disk hash, and nothing is asked. Only a true overlap raises the existing conflict surface (non-modal banner in automatic, sheet in manual), which gains the compare view in [B16]. The merge itself is [B15]. This is what makes Tug better than BBEdit's alert rather than equal to it, and it matters more here than elsewhere because an agent edits the open file while the user is typing in it. It requires retaining the baseline text, not just its hash.
 
 **[B09] Automatic mode learns of divergence when it happens, not at its next write.** The `editing` branch reads disk on an event for its path and runs [B08]'s merge, instead of returning and waiting for a 409 ([F09]).
 
@@ -80,25 +86,34 @@ Three distinct failures are in that report: the view **jumps** on reload; the re
 
 **[B13] The watcher's 50 ms `try_recv` poll loop goes.** `notify`'s std channel is drained by a blocking receive on its own thread (or bridged to a tokio channel at the source), so an idle watcher does nothing ([F12]). The debounce that batches a burst stays; the idle timer does not. This is the standing no-polling rule applied to a file the arc is already in.
 
+**[B14] The workspace FILESYSTEM feed moves off `watch` in this arc, onto one shared broadcast sender, and a lag becomes a `resync` frame.** Every workspace's `FilesystemFeed` sends into a single broadcast sender registered with the router, the pattern `ft_response_tx` already uses — which fixes the loss in [F04] and the non-bootstrap deafness in [F02] for every consumer in one move, not only the Text card. A receiver that reports `Lagged` emits a `resync` frame for its workspace; a consumer answers a `resync` by re-probing everything it holds (the verdict cache re-asks its `confirmed` verdicts, the Text card re-asks its hash). Logging a lag and carrying on was considered and rejected: it leaves the permanent-stale hole in [F14]. Losing the retained last frame at connect is intended — replaying an arbitrary stale batch to a new connection is wrong for an event stream.
+
+**[B15] The three-way merge is a line-based diff3 on the Myers diff already in `minimal-text-changes.ts`, with git's rules.** A region conflicts when both sides changed overlapping *or touching* base lines; an identical change on both sides merges once; a diff past `MAX_EDIT_DISTANCE` on either side counts as a conflict rather than being merged coarsely. It is exact, synchronous, and needs no new dependency (`diffLines` is exported for it). `diff-match-patch`'s `patch_apply` was rejected because it is fuzzy: it places a hunk at the best similar-looking location, and in code with repeated lines that is a silent wrong merge, which is the one outcome worse than a prompt. Letting adjacent-line edits merge was rejected for the same reason in a milder form. The merge is tested against adversarial fixtures: both sides edit touching lines; both append at EOF; one side reformats the whole file; both make the same change.
+
+**[B16] When the merge fails, the conflict surface's Diff button opens a pane sheet in the card, rendering the shared `TugDiffDocument`.** The sheet shows a unified disk-versus-buffer diff built from our own hunks and carries the Reload and Keep Mine actions, so the decision is made while looking at the difference. It is computed when the sheet opens, from the live buffer. A Diff card with a two-text descriptor was rejected: the card is git-only ([F15]) and a persisted two-text descriptor is a snapshot that is stale by the next keystroke. `@codemirror/merge` was rejected as a new CM6 package on a tree that pins CM6 exactly.
+
+**[B17] Gitignore never filters watcher events; the client-facing feed drops `.git/` internals and nothing else.** Ignored files are open in Text cards ([F16]), and after [B01] the Text card no longer reads the firehose while the verdict cache already filters by the keys it holds — so ignored-path noise ([F06]) costs bandwidth only. `.git/` churn is the one cut worth making, applied in `FilesystemFeed` (the per-file stream has no use for it either); `git_watch` subscribes to the watcher upstream of that and is unaffected.
+
 ---
 
 ## Open Questions {#open-questions}
 
-- **Does the workspace FILESYSTEM feed also move off `watch`?** [B03] fixes the Text card by giving it its own stream. The path resolver and any other FILESYSTEM consumer still sit on the lossy channel ([F04]). Moving the feed to a broadcast sender is mechanically small but changes connect-time behaviour (no retained last frame) and touches `subscribe_feeds` / `retained_watches`. Settled by reading what each consumer does with a missed batch; if any of them can go wrong, it moves in this arc.
-- **Where does the three-way merge run, and with what?** `diff-match-patch` is already a tugdeck dependency (lazy-loaded to stay out of the boot bundle) and has `patch_apply`, which is fuzzy rather than a true diff3. A line-based diff3 built on the Myers diff already in `minimal-text-changes.ts` is small and exact. The choice changes what "clean merge" means, so it should be made deliberately, with a few adversarial fixtures (both sides edit adjacent lines; both append at EOF; one side reformats the whole file).
-- **What does the conflict surface show when the merge fails?** A Diff button is decided ([B08]); what it opens — the existing diff card against a temp of the buffer, or an in-card view — is a product call.
-- **Should the gitignore filter move into the watcher for FILESYSTEM consumers?** [F06] is noise that every consumer pays for. FileTreeFeed wants unfiltered events to reconcile `.gitignore` changes, so the filter cannot simply be applied at the source for everyone.
+None. The four questions this brief first carried — the fate of the workspace FILESYSTEM feed, the merge algorithm, what the Diff button opens, and event filtering — were settled with the user on 2026-09-21 and are recorded as [B14]–[B17].
+
 
 ---
 
 ## Non-goals {#non-goals}
 
-- **Forwarding every workspace's FILESYSTEM feed to every client as the fix.** It repairs other-workspace files and leaves out-of-workspace files reloading on click; [B01] covers both with less traffic.
+- **Forwarding every workspace's FILESYSTEM feed as the Text card's fix.** [B14] does forward them, for the verdict cache's sake and the ladder's — but that alone leaves out-of-workspace files reloading on click. The card's trigger is its own subscription ([B01]).
 - **A per-fd vnode / kqueue watch on the file itself.** It goes deaf on the first atomic save ([F13]). Rejected in favour of the parent-directory watch.
 - **mtime as the changed/unchanged test.** False positives on network volumes and coarse filesystems, false negatives on a same-second write. It is a trigger only ([B05]).
 - **Time-window self-write suppression** ("ignore events for N ms after a save"). It both hides real external writes and leaks echoes ([B05]).
 - **A timer that re-stats open files.** Emacs falls back to 5-second polling where notifications fail; Tug does not. The backstops in [B04] are events (focus, show, reconnect, lag), not a clock.
 - **The reload as an undoable step.** Considered (VS Code's policy) and rejected in [B10].
+- **Fuzzy merging.** `diff-match-patch` `patch_apply`, and letting touching-line edits merge, both rejected in [B15]: a silent wrong merge is worse than a prompt.
+- **Gitignore filtering of watcher events**, at the watcher or in the feed. Rejected in [B17]; ignored files are open in cards.
+- **A two-text Diff card, or `@codemirror/merge`, as the compare view.** Rejected in [B16].
 - **Character-level diffing of whole files.** Zed abandoned it for hanging on large files; the line diff with per-hunk tightening is already landed and bounded.
 - **Changing the save modes, the aside record, or the missing-file ladder.** They are sound ([F07]); this arc changes how the store *hears* about the disk and what it does with a dirty divergence, not how it saves.
 - **Other cards that show files** (file-view, diff, image). They may want the same subscription later; this arc builds it for the Text card and keeps the wire general enough not to preclude them.
@@ -112,7 +127,7 @@ Three distinct failures are in that report: the view **jumps** on reload; the re
 1. The two editor-only changes first, because they are independent and small: `addToHistory.of(false)` on `replaceText` with the typing-run ⌘Z test ([B10], [B11]).
 2. The tugcast side of the per-file watch: subscribe/unsubscribe message, parent-directory watch shared per directory, stat-guarded read, `{path, sha256, seq}` on a broadcast sender, a "current hash for path" query ([B01]–[B03], [B07]). Rust tests can drive atomic-rename saves, truncate-then-write, delete-then-recreate, and a burst.
 3. The store switches its trigger: subscribe on bind, release on rebind/dispose, per-file read queue with a guaranteed trailing read, hash-equals-baseline as the no-op, and the re-ask on lag / reconnect / show / focus ([B04]–[B06]). The rename ladder must still pass its existing tests here — this is the step where [B01]'s caveat about sibling `Created` events is settled.
-4. Retained baseline text and the three-way merge for dirty buffers in both modes, with the automatic-mode branch reading on the event ([B08], [B09]).
-5. The poll loop ([B13]), and the FILESYSTEM-off-`watch` question if it resolves to "move it".
+4. Retained baseline text and the diff3 merge for dirty buffers in both modes, with the automatic-mode branch reading on the event, then the compare sheet for the merges that fail ([B08], [B09], [B15], [B16]).
+5. The workspace FILESYSTEM feed onto the shared broadcast sender with the `resync` frame, the `.git/` drop, the verdict cache's `resync` handler, and the poll loop ([B13], [B14], [B17]). This can land before step 3 if the ladder's sibling-`Created` events are easier to keep on a lossless workspace feed than to carry on the per-file stream.
 
 An app-test should pin the headline behaviours from outside: a file **outside every workspace** reloads with no interaction; the text at the viewport top holds; a burst of external writes ends with the buffer equal to the last write; and an agent-style edit to a different region of a dirty buffer merges without a prompt. Per the standing lesson, each motion assertion gets a reverse-diff `file probe` to prove it can go red.
