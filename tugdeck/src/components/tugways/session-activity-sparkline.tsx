@@ -20,12 +20,14 @@
  * must not wake this tape. The filter is `isRateChannel`, applied in the
  * subscription rather than in the series, because the wake is what costs.
  *
- * The instrument itself samples imperatively off React's render path and
- * scrolls under WAAPI; this component's whole job is to hand it the two
- * callbacks and the session's numbers ([L06]/[L13]).
+ * The instrument itself draws off React's render path, on whichever thread
+ * owns its canvas, recomputing the whole picture from these bins and the
+ * clock; this component's whole job is to hand it the two callbacks and the
+ * session's numbers ([L06], [L13]'s instrument carve-out).
  *
  * Laws: [L06] the tape is canvas and CSS, never React state; [L13] motion is
- *       the instrument's; [L20] `TugSparkline` is composed through its
+ *       the instrument's own redraw, not a transform; [L20] `TugSparkline`
+ *       is composed through its
  *       published props only.
  *
  * @module components/tugways/session-activity-sparkline

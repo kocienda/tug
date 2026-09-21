@@ -29,15 +29,12 @@ export const ACTIVITY_BIN_MS = 250;
 /**
  * Bins retained. The window serves two consumers, and the LARGER one sets it:
  * the rolling ~1s rate needs only a handful of trailing bins, but the
- * sparkline reconstructs its whole picture from these bins on every rebuild —
- * a wake from a hidden pause, a masthead remount when a stacked pane's
- * frontmost tab flips, a resolution change. `SparklineTape.rebuildTape`
- * reaches back `DORMANT_AFTER_MS` (the visible span plus the prune margin,
- * 19 s) and zero-seeds anything the bins do not cover, so a window shorter
- * than that FABRICATES emptiness over a span the screen was just showing:
- * the tape visibly clears and refills from the right. 80 bins is 20 s —
- * the reconstruction span with one second of slack. The invariant is pinned
- * by `sparkline-tape.test.ts`.
+ * sparkline draws its WHOLE picture from these bins on every frame, so the
+ * window must cover everything the screen shows at once. That span is the
+ * visible 15 s plus the display lag the instrument draws behind the clock
+ * (two bins, 500 ms) — a window shorter than the sum would FABRICATE
+ * emptiness at the left edge over a span the screen is currently showing.
+ * 80 bins is 20 s: the shown span with four and a half seconds of slack.
  */
 export const ACTIVITY_WINDOW_BINS = 80;
 
@@ -117,32 +114,89 @@ export class RateMeter implements ActivityMeterLike {
 }
 
 /**
- * Gauge meter: sample-and-hold, held INDEFINITELY. The emitter's contract
- * is "no news is no news": tugcast's resource sampler publishes a gauge
- * channel only when its value changes, and publishes one final zero frame
- * when a session's subtree dies — so between frames the held level IS the
- * truth, and a time-based decay here would turn a steady reading into a
- * lie. The level moves on the next sample or falls to the emitter's final
- * zero; it never expires on its own.
+ * Gauge meter: sample-and-hold over the same absolute-wall-clock bin grid
+ * `RateMeter` uses, so a gauge channel has a PAST and the sparkline can draw
+ * it. The emitter's contract is "no news is no news": tugcast's resource
+ * sampler publishes a gauge channel only when its value changes, and
+ * publishes one final zero frame when a session's subtree dies — so between
+ * frames the held level IS the truth, and a time-based decay here would turn
+ * a steady reading into a lie. Hold-forward is that contract expressed on
+ * the grid: every bin from a sample's own up to the bin being read carries
+ * that sample's level, until the next sample moves it or the emitter's final
+ * zero brings it down. Nothing expires on its own.
+ *
+ * Bins BEFORE the first sample stay zero rather than adopting the first
+ * level: a level the meter had not yet been told about is not a level it may
+ * draw, and smearing the first sample backwards over the whole window would
+ * invent a past.
  */
 export class GaugeMeter implements ActivityMeterLike {
-  private readonly windowBins: number;
+  private readonly levels: Float64Array;
+  private readonly binMs: number;
+  /** Absolute index (floor(ms/binMs)) of the newest bin; -1 until first use. */
+  private headBin = -1;
   private latestValue: number | null = null;
 
-  constructor(windowBins: number = ACTIVITY_WINDOW_BINS) {
-    this.windowBins = windowBins;
+  constructor(
+    binMs: number = ACTIVITY_BIN_MS,
+    windowBins: number = ACTIVITY_WINDOW_BINS,
+  ) {
+    this.binMs = binMs;
+    this.levels = new Float64Array(windowBins);
   }
 
-  record(value: number, _atMs: number): void {
+  record(value: number, atMs: number): void {
     if (!Number.isFinite(value)) return;
+    const bin = Math.floor(atMs / this.binMs);
+    this.advanceTo(bin);
+    // A sample older than the head lands nowhere: the bins it would have
+    // filled are already written, and rewriting them would revise values the
+    // screen has shown. The held level still moves, which is what `raw` reads.
+    if (bin >= this.headBin) this.levels[this.indexFor(bin)] = value;
     this.latestValue = value;
   }
 
-  series(_nowMs: number): number[] {
-    return new Array<number>(this.windowBins).fill(this.latestValue ?? 0);
+  series(nowMs: number): number[] {
+    this.advanceTo(Math.floor(nowMs / this.binMs));
+    const n = this.levels.length;
+    const out = new Array<number>(n);
+    for (let i = 0; i < n; i++) {
+      const bin = this.headBin - (n - 1) + i;
+      out[i] = bin < 0 ? 0 : this.levels[this.indexFor(bin)];
+    }
+    return out;
   }
 
   raw(_nowMs: number): number | null {
     return this.latestValue;
+  }
+
+  /**
+   * Carry the held level forward to `bin`, filling every bin crossed. This is
+   * the one place the hold becomes data; a bin, once written, is never
+   * revised.
+   */
+  private advanceTo(bin: number): void {
+    if (this.headBin < 0) {
+      this.headBin = bin;
+      return;
+    }
+    if (bin <= this.headBin) return;
+    const n = this.levels.length;
+    const held = this.latestValue ?? 0;
+    const gap = bin - this.headBin;
+    if (gap >= n) {
+      this.levels.fill(held);
+    } else {
+      for (let k = 1; k <= gap; k++) {
+        this.levels[this.indexFor(this.headBin + k)] = held;
+      }
+    }
+    this.headBin = bin;
+  }
+
+  private indexFor(bin: number): number {
+    const n = this.levels.length;
+    return ((bin % n) + n) % n;
   }
 }

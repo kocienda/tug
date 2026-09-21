@@ -301,6 +301,7 @@ function ActivityRow({
         subscribeActivity={subscribeActivity}
         binMs={ACTIVITY_BIN_MS}
         fullScale={descriptor.fullScale}
+        hold={descriptor.kind === "gauge"}
         curve={descriptor.curve}
         width={SPARK_WIDTH}
         height={SPARK_HEIGHT}

@@ -1,9 +1,10 @@
 /**
  * tug-sparkline.css — the scrolling activity graph's scoped styling.
  *
- * The track is translated by WAAPI (GPU); these rules only set geometry box
- * and the line/area/baseline tint, which ride the element's resolved `color`
- * so the theme owns it. [L16] each color rule names its surface.
+ * The picture is drawn on the canvas by the instrument, which has no cascade;
+ * these rules set the geometry box and the line/area/baseline tint, which
+ * ride the element's resolved `color` so the theme owns it. [L16] each color
+ * rule names its surface.
  *
  * The zero line is drawn HERE as well as on the canvas — see the rest
  * baseline below. That is the one thing in this file the canvas does not own.
@@ -35,11 +36,10 @@
    staircase, which lies on the baseline only while every point is zero. So
    this bar is the flat reading drawn a second way for the one state in which
    the reading IS flat, keyed on `data-tape-rest` — stamped by the tape from
-   its own points, present exactly while no point is above zero. A dropped
-   first paint, a parked transform disagreeing with the painted origin, a lost
-   acknowledgement, or a colour resolved before the chrome ink does can each
-   lose the ACTIVITY — none of them can reach a stylesheet fact, so none of
-   them can lose the INSTRUMENT. A quiet session reads as a flatline rather
+   its own picture, present exactly while no plotted value is above zero. A
+   dropped first paint, or a colour resolved before the chrome ink does, can
+   lose the ACTIVITY — neither can reach a stylesheet fact, so neither can
+   lose the INSTRUMENT. A quiet session reads as a flatline rather
    than as empty air, which is what `session-identity-row.tsx` has always said
    it should. The moment a value exists the stamp is withdrawn and the
    canvas's line is the whole reading: a rule under a live tape would be a
@@ -58,7 +58,7 @@
    is what keeps them equal.
 
    `::before` rather than a background on the box: it paints before the
-   positioned track, so the canvas's ink lies over it, and it is a bar of its
+   canvas, so the canvas's ink lies over it, and it is a bar of its
    own rather than a wash the area fill would have to be told apart from.
    [L06] — the rest state is appearance, so it is painted, never React state. */
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
@@ -113,21 +113,13 @@
   color: var(--activity-disk);
 }
 
-/* The scrolling layer — WAAPI animates its transform; pinned top-left so the
-   SVG inside it scrolls under the fixed window. */
-.tug-sparkline-track {
-  position: absolute;
-  top: 0;
-  left: 0;
-  will-change: transform;
-}
-
-/* The tape's pixels. Line and area used to be an SVG polyline/polygon pair
+/* The tape's pixels — the canvas IS the box, viewport-sized, with nothing
+   behind it to scroll. Line and area used to be an SVG polyline/polygon pair
    picking up `currentColor` and a fixed opacity from here; the canvas has no
-   cascade, so those four values moved into `lib/sparkline-geometry.ts` and the
-   component resolves this element's `color` and posts it to the render worker
-   on mount, on a theme swap, and when the channel tint above changes. The
-   rules that remain are the ones the cascade still owns. */
+   cascade, so those four values live in `lib/sparkline-geometry.ts` and the
+   component resolves this element's `color` and posts it to the instrument on
+   mount, on a theme swap, and when the channel tint above changes. The rules
+   that remain are the ones the cascade still owns. */
 .tug-sparkline-canvas {
   display: block;
 }

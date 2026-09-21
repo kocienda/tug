@@ -101,15 +101,30 @@ Two lifecycle edges that come with the form:
 
 ---
 
+## The instrument carve-out — redrawing data on a worker-owned canvas {#instrument-carve-out}
+
+**An instrument that redraws its DATA onto a canvas this page does not own is not animation in [L13]'s sense, and the timer that drives it is not the rAF loop [L13] forbids.** The carve-out is named rather than implied, because the alternative was a sparkline built to satisfy the letter of a law whose objection it never met — and the picture that came out of it is the one this carve-out exists to stop anybody building again.
+
+The objection [L13] and this doctrine both measure is per-frame **style mutation**: a diff in a transform-family property schedules a main-thread rendering update, and any such diff trips the whole-page compositing walk (#engine-facts). A worker that owns an `OffscreenCanvas` through `transferControlToOffscreen` mutates no style, schedules no rendering update on the page, and does not wake it — the canvas commits straight to the compositor. There is no walk to price because there is no style diff, at any layer population. The doctrine's objection is therefore not merely tolerated here; it is absent.
+
+The carve-out is **scoped to worker-owned canvases and to data**, and both halves are load-bearing:
+
+- **Worker-owned.** A main-thread redraw loop on a main-thread canvas is outside this carve-out and always was. It may cost less than an rAF transform loop, but it is on the page's clock and can be cited into the shape [L13] forbids; a carve-out that admitted it would be a hole rather than a boundary. `transferControlToOffscreen` returning null is a fallback to the same class running on the page — a correctness fallback, not a licence.
+- **Data.** What redraws is the reading: the picture is recomputed from the store's own window and the clock, and every frame of it is a different *value*, not a different pose of the same value. Motion — a thing travelling from one place to another — is what [L13] governs and what the qualifying form (#qualifying-form) prices. An instrument has no pose to interpolate.
+
+**[D1] and [D7] are not relaxed by any of this, and they are what keeps the carve-out honest.** An instrument's tick is a finisher in [D7]'s sense: it is armed by a store event, and it stops by construction when the data it depicts has drained — not when the picture stops moving, which is the distinction [D7] already paid for. The quiet contract holds unchanged: at rest the instrument holds zero timers, because the tick stopped itself, and an idle deck is zero timers and zero animation objects by construction. What the carve-out permits is a timer while the data is live; what it does not permit is a timer at rest, and no reading of it supplies one.
+
+The instrument this is written from is the session sparkline ([D198]): the picture is a pure function of the activity store's bins and the wall clock, drawn fresh on each tick onto a viewport-sized canvas the render worker owns.
+
 ## Worked example 1 — the event clock end to end (the activity instrument) {#worked-event-clock}
 
 The S2 rework is the reference implementation of [D7]/[D8] across a full producer→consumer chain. Before: a standing 4Hz sampler per tape, a perpetual 250ms easing interval per readout row, and dormancy machinery whose whole job was to detect that polling had been finding nothing — an idle activity card ran ~48 timer wakes/s. After: **zero timers, zero animation objects, zero frames at idle, each stage silent because the stage before it sent nothing.**
 
 - **The wire ([D8]):** tugcast's resource sampler publishes only moved gauge channels (0.5% CPU / 4 MiB rss / exact-delta disk, referenced to last-published), sends no frame when nothing moved, and flushes one final all-zero frame when a session leaves the live set — the falling edge that keeps silence unambiguous. The deck holds indefinitely; the TTL was deleted because under this contract a decay is a lie.
 - **The store gate:** `record()` recognizes change at display grain (gauge moved ≥1% of full scale vs the published reference) and pushes channel-tagged activity events; consumers subscribe, never sample.
-- **The surface finishers:** the tape appends only downstream of events; its two timers are finishers — a settle burst that stops only when the plotted value is stable *and* the rolling window has drained past the last event, and one flat-off timeout that retires the scroll tween once the last recognized change scrolls off. Change is recognized in plot pixels (2px of amplitude vs the reference at last recognized change). The readout's easing became a glide burst: armed by events, terminated by its own no-write gate.
+- **The surface finisher:** the tape draws only downstream of events; its one timer is a finisher — a redraw tick armed by a store event that stops when every plotted value across the retained window is equal *and* the rolling window has drained past the last event, which is the distinction between the data's future and the pixels' present that [D7] is made of. The readout's easing became a glide burst: armed by events, terminated by its own no-write gate.
 
-The geometry lesson that made it work: the pen draws the last value flat to the right edge, so "a flat line needs no new points" is literally true — quiet was made *constructible* by making stillness the default rendering, not by detecting it.
+The geometry lesson that made it work: the pen draws the last value flat to the right edge, so "a flat reading needs no new work" is literally true — quiet was made *constructible* by making stillness the default rendering, not by detecting it. The tape that carried this example has since been rebuilt as a pure instrument ([D198], #instrument-carve-out); what the rework proved about the chain above it stands unchanged, and the surface's own machinery is now one drain-aware tick rather than the scroll tween and the epoch protocol this paragraph was first written over.
 
 ## Worked example 2 — the FLIP settle (imposer) {#worked-flip}
 
@@ -175,6 +190,6 @@ Inside a single WebKit page, painter's order is document-global — any layer ma
 This doctrine deepens [L06] and [L13]; it replaces neither.
 
 - **[L06]** (appearance through CSS/DOM, never React state) gains its temporal complement: appearance state must also be *quiet* — the DOM-zone mechanisms L06 mandates must shed their animation objects, timers, and retained transitions when the data they depict settles ([D1]/[D6]).
-- **[L13]** (CSS declarative / TugAnimator programmatic / rAF for gestures only) gains its price sheet: "rAF is not for animation" is now a measured law — per-frame style mutation is *the* disqualifying delta that turns any motion into a whole-page-walk-per-frame ([L05] agrees for React-timing reasons; the compositor agrees for pricing reasons). TugAnimator remains the programmatic engine, with its completion-commit residue edge named in #qualifying-form.
+- **[L13]** (CSS declarative / TugAnimator programmatic / rAF for gestures only) gains its price sheet: "rAF is not for animation" is now a measured law — per-frame style mutation is *the* disqualifying delta that turns any motion into a whole-page-walk-per-frame ([L05] agrees for React-timing reasons; the compositor agrees for pricing reasons). TugAnimator remains the programmatic engine, with its completion-commit residue edge named in #qualifying-form. It also gains its one named carve-out (#instrument-carve-out): an instrument redrawing DATA onto a worker-owned canvas mutates no style and schedules no main-thread rendering update, so the measured objection does not reach it.
 - **[L27]** applies to animation objects: a finished-but-retained effect is an unreleased acquisition ([D6]).
 - **[L23]/[L28]** govern the hold pattern: anything that defers user-visible updates for a gesture window needs a watchdog, idempotent release, and teardown coverage, and is driven through the owning store's published API, never by reaching in.

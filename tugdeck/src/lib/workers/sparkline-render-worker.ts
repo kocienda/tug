@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 
 /**
- * `sparkline-render-worker` — paints every sparkline tape off the main thread.
+ * `sparkline-render-worker` — runs every sparkline INSTRUMENT off the main
+ * thread.
  *
  * ## Why this exists as a worker
  *
@@ -15,137 +16,140 @@
  *
  * `OffscreenCanvas` only goes off-thread when *owned* by a worker. The main
  * thread transfers control of each tape's canvas here at mount; from then on a
- * sample is one `postMessage` and the drawing, the tape array, and the pruning
- * all live on this thread. The canvas commits straight to the compositor
- * without waking the page.
+ * store event is one `postMessage` and the whole picture is computed and drawn
+ * on this thread. The canvas commits straight to the compositor without waking
+ * the page.
  *
- * ## What stays on the main thread
+ * ## The instrument owns the tick
  *
- * Everything that needs the DOM or the stores: the sample timer, the dormancy
- * protocol, the WAAPI scroll, the `IntersectionObserver` visibility gate,
- * reading `getSeries`, and resolving colors from computed style. This worker
- * is a pen, not a policy.
+ * An instrument entry holds a {@link SparklineInstrument} against its own
+ * `OffscreenCanvas`, and the REDRAW TIMER lives here with it. The main thread
+ * posts `{headBin, bins, hold}` on store events only, and posts nothing
+ * between them: the picture for any moment in between is computed on this
+ * thread from those bins and this thread's own `Date.now()`. Both threads read
+ * the same wall clock and the bin index is absolute, so there is no clock to
+ * convert and no origin for the two sides to disagree about.
+ *
+ * What stays on the main thread is what needs the DOM or the stores: the
+ * store subscription, resolving colors from computed style, and the rest
+ * stamp — which this thread reports back as it moves, because only the main
+ * thread can write an attribute.
  *
  * ## Wire protocol
  *
- * One shared worker instance for all tapes, keyed by `id`. The HOT path is
- * one-directional by design — a reply on every sample would put the main
- * thread back in the loop it was taken out of. Rebase paints alone carry an
- * `ack`, and they are the only messages this thread answers.
+ * One shared worker instance for every instrument, keyed by `id`. The hot
+ * path is one-directional by design — a reply on every sample would put the
+ * main thread back in the loop it was taken out of.
  *
- *  - `init`     transfer the canvas and fix the geometry
- *  - `tape`     the whole tape plus the epoch origin — draw it
- *  - `colors`   theme or dominant-channel change
- *  - `dispose`  drop the entry
+ *  - `instrument-init`      transfer the canvas and fix everything fixed
+ *  - `bins`                 a store event: `{headBin, bins, hold}`
+ *  - `instrument-colors`    theme or dominant-channel change
+ *  - `instrument-geometry`  a resize or a device-pixel-ratio change
+ *  - `dispose`              drop the entry, stopping its tick
  *
- * The one outbound message is `painted`, posted at the END of the `tape`
- * handler when that message carried an `ack`. By then `paint()` has returned
- * and the `OffscreenCanvas` commit for this task is queued, so the main thread
- * may move the scroll knowing the pixels for the new origin exist. That
- * ordering is the whole point: move the transform first and the viewport
- * shows the new position over the previous epoch's pixels.
+ * `state` is the instrument path's one outbound message, and it carries a
+ * fact rather than an acknowledgement: nothing on this thread waits for a
+ * reply, because nothing here is in agreement with anything over there. It is
+ * posted when the tick starts or stops and when the rest reading moves —
+ * never per frame.
  *
- * Every draw carries the WHOLE tape rather than appending a sample, and `t0`
- * rides along rather than being stored. Both are deliberate: the main thread
- * owns the tape and the epoch origin (the same number the WAAPI translate is
- * measured from), so shipping them together makes it impossible for the two
- * threads to hold different pictures. The tape is at most a few dozen points
- * at 4Hz — a structured clone of that is far below the cost of the style
- * invalidation this replaces, and it buys away a whole class of divergence.
+ * `bins` carries the WHOLE window every time rather than appending a sample.
+ * The window is eighty numbers, a structured clone of which is far below the
+ * cost of the style invalidation this design replaces, and sending all of it
+ * means a message that arrives late, out of order, or not at all costs one
+ * frame rather than a divergence: the next message is the whole truth again.
  *
- * Laws: [L06] appearance is painted, never React state; [L13] the motion is
- *       still the compositor's transform — this thread draws, it does not
- *       animate.
+ * Laws: [L06] appearance is painted, never React state; [L13]'s carve-out for
+ *       an instrument redrawing DATA onto a worker-owned canvas — no style is
+ *       mutated and no main-thread rendering update is scheduled.
  *
  * @module lib/workers/sparkline-render-worker
  */
 
+import type { SparklineColors } from "../sparkline-geometry";
 import {
-  drawSparkline,
-  pruneSparklineTape,
-  type SparklineColors,
-  type SparklineGeometry,
-  type SparklinePoint,
-} from "../sparkline-geometry";
+  resolveSparklineCurve,
+  SparklineInstrument,
+  type SparklineBins,
+  type SparklineCurveSpec,
+  type SparklineInstrumentGeometry,
+  type SparklineInstrumentState,
+} from "../sparkline-instrument";
 
 export type SparklineWorkerRequest =
-  | ({
-      kind: "init";
+  | {
+      /** Claim a canvas for an instrument and fix everything it draws with. */
+      kind: "instrument-init";
       id: number;
       canvas: OffscreenCanvas;
+      geometry: SparklineInstrumentGeometry;
       colors: SparklineColors;
-    } & SparklineGeometry)
-  | {
-      kind: "tape";
-      id: number;
-      points: SparklinePoint[];
-      t0: number;
-      now: number;
-      /** Present only on a rebase paint; answered with `painted`. */
-      ack?: number;
-      /**
-       * False on an origin-moving rebase paint: the proposal draws into its
-       * own (disjoint) region of the canvas and leaves the committed origin's
-       * pixels — which the still-unmoved transform is showing — untouched.
-       */
-      clear?: boolean;
+      binMs: number;
+      fullScale: number;
+      curve: SparklineCurveSpec;
+      motion: boolean;
     }
-  | { kind: "colors"; id: number; colors: SparklineColors; t0: number }
+  | {
+      /** A store event: the whole window, and nothing about time. */
+      kind: "bins";
+      id: number;
+      data: SparklineBins;
+    }
+  | { kind: "instrument-colors"; id: number; colors: SparklineColors }
+  | {
+      kind: "instrument-geometry";
+      id: number;
+      geometry: SparklineInstrumentGeometry;
+    }
   | { kind: "dispose"; id: number };
 
-/** The worker's only outbound message. See the wire protocol above. */
-export type SparklineWorkerResponse = { kind: "painted"; id: number; ack: number };
+/**
+ * The instrument's one fact moved — the tick started or stopped, or the rest
+ * reading changed. Only the main thread can write an attribute, so the
+ * instrument reports and the component stamps.
+ */
+export type SparklineWorkerResponse = {
+  kind: "state";
+  id: number;
+  state: SparklineInstrumentState;
+};
 
-interface Entry {
-  ctx: OffscreenCanvasRenderingContext2D;
-  geo: SparklineGeometry;
-  colors: SparklineColors;
-  tape: SparklinePoint[];
-}
-
-const entries = new Map<number, Entry>();
-
-function paint(entry: Entry, t0: number, clear = true): void {
-  drawSparkline(entry.ctx, entry.geo, entry.colors, entry.tape, t0, clear);
-}
+const instruments = new Map<number, SparklineInstrument>();
 
 self.onmessage = (event: MessageEvent<SparklineWorkerRequest>): void => {
   const msg = event.data;
-  if (msg.kind === "init") {
+  if (msg.kind === "instrument-init") {
     const ctx = msg.canvas.getContext("2d");
     if (ctx === null) return;
-    const { kind, id, canvas, colors, ...geo } = msg;
-    void kind;
-    void canvas;
-    entries.set(id, { ctx, geo, colors, tape: [] });
+    instruments.set(
+      msg.id,
+      new SparklineInstrument({
+        ctx,
+        geometry: msg.geometry,
+        colors: msg.colors,
+        binMs: msg.binMs,
+        fullScale: msg.fullScale,
+        curve: resolveSparklineCurve(msg.curve),
+        motion: msg.motion,
+        now: () => Date.now(),
+        setInterval: (fn, ms) => self.setInterval(fn, ms) as unknown as number,
+        clearInterval: (handle) => self.clearInterval(handle),
+        onState: (state) => {
+          const moved: SparklineWorkerResponse = { kind: "state", id: msg.id, state };
+          self.postMessage(moved);
+        },
+      }),
+    );
     return;
   }
-
-  const entry = entries.get(msg.id);
-  if (entry === undefined) return;
-
-  switch (msg.kind) {
-    case "tape": {
-      entry.tape = msg.points;
-      pruneSparklineTape(entry.tape, msg.now, entry.geo.retainMs);
-      paint(entry, msg.t0, msg.clear ?? true);
-      // After the draw, so the commit for this task is already queued.
-      if (msg.ack !== undefined) {
-        const painted: SparklineWorkerResponse = {
-          kind: "painted",
-          id: msg.id,
-          ack: msg.ack,
-        };
-        self.postMessage(painted);
-      }
-      return;
-    }
-    case "colors":
-      entry.colors = msg.colors;
-      paint(entry, msg.t0);
-      return;
-    case "dispose":
-      entries.delete(msg.id);
-      return;
+  if (msg.kind === "dispose") {
+    instruments.get(msg.id)?.dispose();
+    instruments.delete(msg.id);
+    return;
   }
+  const instrument = instruments.get(msg.id);
+  if (instrument === undefined) return;
+  if (msg.kind === "bins") instrument.setBins(msg.data);
+  else if (msg.kind === "instrument-colors") instrument.setColors(msg.colors);
+  else instrument.setGeometry(msg.geometry);
 };

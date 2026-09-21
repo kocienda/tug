@@ -61,13 +61,13 @@ import {
   getSessionActivityStore,
   type ActivityChannel,
 } from "./lib/session-activity-store";
-import { peekSparklineTape } from "./components/tugways/tug-sparkline";
+import { peekSparklineHost } from "./components/tugways/tug-sparkline";
 import {
   dictionaryLookupFor,
   type DictionaryLookupRequest,
 } from "./lib/dictionary-lookup";
 import { textMeasurer, whenFaceLoaded } from "./lib/font-metrics";
-import type { SparklineTapeDebugState } from "./lib/sparkline-tape";
+import type { SparklineInstrumentState } from "./lib/sparkline-instrument";
 import { nodeToPath, selectionGuard } from "./components/tugways/selection-guard";
 import {
   cardSessionBindingStore,
@@ -399,7 +399,7 @@ import {
  * `TugListViewHandle.revealRange` before any product code drives it.
  * Additive; minor bump.
  */
-export const SURFACE_VERSION = "2.22.0" as const;
+export const SURFACE_VERSION = "2.23.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1147,16 +1147,19 @@ export interface TugTestSurface {
   recordActivity(session: string, channel: string, units: number): boolean;
 
   /**
-   * The live state of the sparkline tape drawn under the first element matching
-   * `selector` (SURFACE_VERSION 2.2.0), or `null` when nothing is mounted there.
+   * The live state of the sparkline instrument drawing under the first element
+   * matching `selector` (SURFACE_VERSION 2.23.0), or `null` when nothing is
+   * mounted there.
    *
-   * The tape's state is deliberately outside React and outside the DOM — that
-   * is what makes an idle tape free — so it is otherwise unreachable from a
-   * real-app test. `lastV` is what the pen is holding at the right edge, which
+   * The instrument's one fact is deliberately outside React and outside the
+   * DOM — that is what makes an idle tape free — so it is otherwise
+   * unreachable from a real-app test. `ticking` says whether the picture can
+   * still change, and `newest` is the plotted value at the right edge, which
    * is how a test sees a stalled stream drain to baseline through the real
-   * store rather than through a reconstructed one.
+   * store. Reported by whichever thread is drawing, so it is the instrument's
+   * own answer rather than a second opinion formed on this side.
    */
-  sparklineTapeState(selector: string): SparklineTapeDebugState | null;
+  sparklineInstrumentState(selector: string): SparklineInstrumentState | null;
 
   /**
    * What Look Up in Dictionary would hand the host for the LIVE selection
@@ -2380,10 +2383,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return true;
     },
 
-    sparklineTapeState(selector: string): SparklineTapeDebugState | null {
+    sparklineInstrumentState(selector: string): SparklineInstrumentState | null {
       const container = document.querySelector(selector);
       if (container === null) return null;
-      return peekSparklineTape(container)?.debugState() ?? null;
+      return peekSparklineHost(container)?.state() ?? null;
     },
 
     dictionaryLookupProbe(): DictionaryLookupProbe | null {

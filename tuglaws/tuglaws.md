@@ -166,7 +166,7 @@ A Deck holds Panes; a Pane holds Cards; a Card holds one content component. Posi
 
 ### L13. CSS handles declarative motion. TugAnimator handles programmatic motion. `requestAnimationFrame` is not for animation. {#l13}
 
-CSS (`transition`, `@keyframes`) owns hover/focus states, Radix `data-state` enter/exit, and continuous animations. TugAnimator owns animations needing completion promises, cancellation, multi-element coordination, or physics curves. RAF is for gesture-driven frame loops (drag, resize, autoscroll) that read input and write DOM each frame. [D76]
+CSS (`transition`, `@keyframes`) owns hover/focus states, Radix `data-state` enter/exit, and continuous animations. TugAnimator owns animations needing completion promises, cancellation, multi-element coordination, or physics curves. RAF is for gesture-driven frame loops (drag, resize, autoscroll) that read input and write DOM each frame. One carve-out, named in [animation-doctrine.md](animation-doctrine.md#instrument-carve-out): an INSTRUMENT redrawing its data onto a canvas a worker owns is not animation in this law's sense — it mutates no style and schedules no main-thread rendering update, which is the objection this law measures. [D76, D198]
 
 ### L14. Radix Presence owns enter/exit DOM lifecycle; TugAnimator does not cross that boundary. {#l14}
 

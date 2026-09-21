@@ -32,16 +32,12 @@
  *
  * Ink is a pixel in a band deviating from the surround's median by more than
  * {@link INK_DELTA} on any channel. The three bands together, beside the
- * tape's recorded state and the track's transform and animation, name which
- * of the brief's three roads the card took rather than merely reporting that
- * it took one:
+ * instrument's own reading — ticking or not, the newest plotted value, and
+ * the rest stamp — name which road the card took rather than merely
+ * reporting that it took one:
  *
- *  - no ink in EITHER band, tape state `flat-dormant` with points on it:
- *    the born-inert paint never reached the surface, or was drawn and
- *    dropped;
- *  - no ink in either band and a track transform far off zero: the parked
- *    scroll's transform disagrees with the painted origin, and the picture
- *    is somewhere outside the window (design decision D133's symptom);
+ *  - no ink in EITHER band with the instrument reading rest: the flat
+ *    picture never reached the surface, or was drawn and dropped;
  *  - no ink and a resolved `color` that matches the surround: colour was
  *    read before the masthead's chrome ink resolved, and the line is drawn
  *    in the background.
@@ -51,14 +47,14 @@
  *
  * ## Two readings, because "at rest" is two states
  *
- * A card fresh off a bind is `live`: the bind itself is activity, and the
- * scroll is running. The reported card is the state AFTER that — the tape
- * transitions to `flat-dormant` once the last recognized change has scrolled
- * fully off ({@link DORMANT_AFTER_MS}, 19s), and from there it holds no
- * timers and no animation and will not repaint until an event arrives. So
- * the picture standing at the moment of that transition is the whole picture
- * the card shows for as long as the session is quiet, and it is the one the
- * report is about. Both readings are taken and both are asserted.
+ * A card fresh off a bind is ticking: the bind itself is activity, and the
+ * instrument redraws while any of it is still in the window. The reported
+ * card is the state AFTER that — the instrument stops its own tick once every
+ * plotted value across the retained window is equal at zero, and from there
+ * it holds no timer and redraws only on the next store event. So the picture
+ * standing when the tick stops is the whole picture the card shows for as
+ * long as the session is quiet, and it is the one the report is about. Both
+ * readings are taken and both are asserted.
  *
  * ## Three readings, and why the third is the pin
  *
@@ -74,13 +70,14 @@
  *
  * ## What it asserts
  *
- * The baseline band carries ink — live, dormant, and with the canvas
+ * The baseline band carries ink — live, at rest, and with the canvas
  * hidden — and the field above it stays blank in all three, because a quiet
  * tape is one line and not a box.
  *
  * @covers tugdeck/src/components/tugways/tug-sparkline.tsx
  * @covers tugdeck/src/components/tugways/tug-sparkline.css
- * @covers tugdeck/src/lib/sparkline-tape.ts
+ * @covers tugdeck/src/lib/sparkline-instrument.ts
+ * @covers tugdeck/src/lib/sparkline-host.ts
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  */
 
@@ -89,7 +86,6 @@ import { unlinkSync } from "node:fs";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { decodePngFile } from "./_harness/png";
-import { DORMANT_AFTER_MS } from "../../tugdeck/src/lib/sparkline-tape";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -99,7 +95,6 @@ const PANE_ID = "p1";
 const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 /** The masthead's tape — the one a fresh card is reported to be missing. */
 const SPARK = `${PANE} .session-masthead-row [data-slot="tug-sparkline"]`;
-const TRACK = `${SPARK} .tug-sparkline-track`;
 
 /**
  * How far a channel must sit off the surround's median to count as ink.
@@ -144,12 +139,8 @@ interface TapeReading {
   color: string;
   opacity: string;
   visibility: string;
-  /** `SparklineTapeDebugState`, or null when no tape is registered. */
-  tape: { state: string; t0: number; points: number; lastV: number } | null;
-  /** The scrolling layer's committed transform, as a matrix string. */
-  trackTransform: string;
-  /** The WAAPI scroll, if one is registered on the track. */
-  anim: { playState: string; startTime: number | null; currentTime: number | null } | null;
+  /** `SparklineInstrumentState`, or null when no instrument is mounted. */
+  tape: { ticking: boolean; newest: number; atRest: boolean } | null;
   /** The canvas's backing store, to tell a sized surface from an unsized one. */
   canvasW: number;
   canvasH: number;
@@ -165,14 +156,11 @@ async function readTape(app: App): Promise<TapeReading> {
   return app.evalJS<TapeReading>(
     `(function () {
       var box = document.querySelector(${JSON.stringify(SPARK)});
-      var track = document.querySelector(${JSON.stringify(TRACK)});
       var canvas = box === null ? null : box.querySelector("canvas");
       var r = box === null
         ? { left: -1, top: -1, width: -1, height: -1 }
         : box.getBoundingClientRect();
       var cs = box === null ? null : getComputedStyle(box);
-      var anims = track === null ? [] : track.getAnimations();
-      var a = anims.length > 0 ? anims[0] : null;
       var rest = null;
       if (box !== null) {
         var bs = getComputedStyle(box, "::before");
@@ -191,13 +179,7 @@ async function readTape(app: App): Promise<TapeReading> {
         color: cs === null ? "" : cs.color,
         opacity: cs === null ? "" : cs.opacity,
         visibility: cs === null ? "" : cs.visibility,
-        tape: box === null ? null : window.__tug.sparklineTapeState(${JSON.stringify(SPARK)}),
-        trackTransform: track === null ? "" : getComputedStyle(track).transform,
-        anim: a === null ? null : {
-          playState: a.playState,
-          startTime: a.startTime === null ? null : Number(a.startTime),
-          currentTime: a.currentTime === null ? null : Number(a.currentTime),
-        },
+        tape: box === null ? null : window.__tug.sparklineInstrumentState(${JSON.stringify(SPARK)}),
         canvasW: canvas === null ? -1 : canvas.width,
         canvasH: canvas === null ? -1 : canvas.height,
         rest: rest,
@@ -386,22 +368,22 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThan(box.width * 0.25);
 
           // ── Reading 2: the reported state ────────────────────────────
-          // The tape retires its scroll DORMANT_AFTER_MS after the last
-          // recognized change, and from there repaints never. Wait for the
-          // transition itself rather than for a duration, so the reading is
-          // of the dormant tape and not of a live one that was about to be.
+          // The instrument stops its own tick once the whole retained window
+          // is flat at zero — the bind's activity has to scroll off first.
+          // Wait for the stop itself rather than for a duration, so the
+          // reading is of the stopped instrument and not of one about to be.
           await app.waitForCondition<boolean>(
             `(function () {
-               var s = window.__tug.sparklineTapeState(${JSON.stringify(SPARK)});
-               return s !== null && s.state === "flat-dormant";
+               var s = window.__tug.sparklineInstrumentState(${JSON.stringify(SPARK)});
+               return s !== null && !s.ticking && s.atRest;
              })()`,
-            { timeoutMs: DORMANT_AFTER_MS + 15_000 },
+            { timeoutMs: 45_000 },
           );
-          // A beat for the parked transform and the retiring paint to commit.
+          // A beat for the last drawn frame to commit.
           await new Promise<void>((r) => setTimeout(r, 500));
 
           const restBox = await readTape(app);
-          note("at0567 tape box, dormant", JSON.stringify(restBox));
+          note("at0567 tape box, at rest", JSON.stringify(restBox));
 
           const restShot = await app.screenshot();
           let restInk: TapeInk;
@@ -421,7 +403,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           expect(
             restInk.baseline.inkPixels,
-            "the dormant tape's baseline carries ink",
+            "the resting tape's baseline carries ink",
           ).toBeGreaterThan(restBox.width * 0.25);
 
           // ── Reading 3: the pin ───────────────────────────────────────
@@ -455,7 +437,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // And it is a LINE, not a wash: nothing above the baseline row.
           expect(ink.field.inkPixels, "the quiet tape's field is blank").toBe(0);
-          expect(restInk.field.inkPixels, "the dormant tape's field is blank").toBe(0);
+          expect(restInk.field.inkPixels, "the resting tape's field is blank").toBe(0);
           expect(bareInk.field.inkPixels, "the bare baseline's field is blank").toBe(0);
 
           // ── Reading 4: a value ───────────────────────────────────────
@@ -473,9 +455,9 @@ describe.skipIf(!SHOULD_RUN)(
           await app.waitForCondition<boolean>(
             `(function () {
                var box = document.querySelector(${JSON.stringify(SPARK)});
-               var s = window.__tug.sparklineTapeState(${JSON.stringify(SPARK)});
+               var s = window.__tug.sparklineInstrumentState(${JSON.stringify(SPARK)});
                return box !== null && !box.hasAttribute("data-tape-rest")
-                 && s !== null && s.state === "live";
+                 && s !== null && s.ticking;
              })()`,
             { timeoutMs: 10_000 },
           );
