@@ -13,6 +13,8 @@ mod cli_test_env_scan;
 pub mod facts;
 pub mod git_cmd;
 pub mod host_tools;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod hostile_repo;
 pub mod instance;
 pub mod janitor;
 pub mod ledger_db;
@@ -29,7 +31,7 @@ pub mod session_transcript;
 mod source_scan;
 pub mod version;
 
-pub use git_cmd::git_command;
+pub use git_cmd::{git_command, git_command_for_check_ignore};
 
 /// Resolve the per-instance data directory for `instance_id` without
 /// consulting the environment. Mirrors `instance::data_dir` but with

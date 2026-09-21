@@ -447,6 +447,48 @@ pub(crate) fn git_stdout(dir: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+// --- the `-z` path-listing door [B01] --------------------------------------
+//
+// Every listing in this crate that yields *paths* reads them through
+// `tugchanges_core::git`'s door rather than through `git_stdout` above. The
+// reason is one sentence: git's line-oriented output is a display format that
+// C-quotes any path with a non-ASCII byte, a `"`, a `\`, a tab or a newline,
+// and these sites move a user's work — a join preflight that cannot name what
+// is dirty is a join that sweeps or refuses on a path nobody has.
+//
+// `git_stdout` stays for everything that is not a path: shas, branch names,
+// commit subjects, config values.
+
+/// The paths a git listing names, through the door.
+pub(crate) fn git_paths(dir: &Path, args: &[&str]) -> Result<Vec<String>, String> {
+    tugchanges_core::read_paths(dir, args).map_err(|e| e.to_string())
+}
+
+/// The same, degrading an unreadable listing to no paths — for the callers
+/// that already treated a git failure that way.
+pub(crate) fn git_paths_or_empty(dir: &Path, args: &[&str]) -> Vec<String> {
+    git_paths(dir, args).unwrap_or_default()
+}
+
+/// `git status --porcelain=v2 <extra…>` at `dir`, through the door.
+pub(crate) fn git_status(
+    dir: &Path,
+    extra: &[&str],
+) -> Result<tugchanges_core::StatusReport, String> {
+    tugchanges_core::read_status(dir, extra).map_err(|e| e.to_string())
+}
+
+/// Whether `dir` holds anything uncommitted at all — tracked or untracked.
+///
+/// The question every `status --porcelain` emptiness check was asking. It goes
+/// through the door for the same reason the others do: a status read is a
+/// path listing whether or not this particular caller looks at the paths, and
+/// one spelling for all of them is what keeps the next one from drifting.
+pub(crate) fn has_uncommitted(dir: &Path) -> Result<bool, String> {
+    let report = git_status(dir, &[])?;
+    Ok(!report.entries.is_empty() || !report.untracked.is_empty())
+}
+
 /// The commits since `since` that touched any of `paths`, newest first,
 /// capped at `cap` lines.
 ///
@@ -888,6 +930,26 @@ fn exclude_contents_with(existing: &str, line: &str) -> Option<String> {
     Some(out)
 }
 
+/// Whether the project's own ignore rules already cover `.tug/`.
+///
+/// Spawned through [`tugcore::git_command_for_check_ignore`] rather than the
+/// ordinary door, because `check-ignore` is the one subcommand that refuses
+/// the literal-pathspec setting every other git run carries [B03]. The
+/// argument is a pattern Tug wrote, never a path it read, so there is nothing
+/// the setting would have protected here.
+///
+/// The trailing slash matters: a `.tug/` pattern only matches a directory, and
+/// `check-ignore` on a bare `.tug` that does not exist yet reads as a file and
+/// answers "not ignored".
+pub(crate) fn tug_dir_is_ignored(repo: &Path) -> bool {
+    tugcore::git_command_for_check_ignore()
+        .arg("-C")
+        .arg(repo)
+        .args(["check-ignore", "-q", ".tug/"])
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
 /// Keep `<repo>/.tug/` out of git, for a project whose `.gitignore` does not.
 ///
 /// Every arc artifact in the tree lives under `.tug/` — the worktrees, and now
@@ -908,10 +970,7 @@ fn exclude_contents_with(existing: &str, line: &str) -> Option<String> {
 /// did.
 pub fn ensure_tug_excluded(repo: &Path) {
     let repo = main_repo_root(repo);
-    // The trailing slash matters: a `.tug/` pattern only matches a directory,
-    // and `check-ignore` on a bare `.tug` that does not exist yet reads as a
-    // file and answers "not ignored".
-    if git_output(&repo, &["check-ignore", "-q", ".tug/"]).is_ok_and(|out| out.status.success()) {
+    if tug_dir_is_ignored(&repo) {
         return;
     }
     let Ok(common_dir) = git_stdout(
@@ -1055,9 +1114,7 @@ fn migrate_worktrees(repo: &Path, warnings: &mut Vec<String>) {
         }
 
         // Gate 1: only a clean worktree migrates — uncommitted work stays put.
-        let dirty = git_stdout(&old, &["status", "--porcelain"])
-            .map(|s| !s.is_empty())
-            .unwrap_or(true);
+        let dirty = has_uncommitted(&old).unwrap_or(true);
         if dirty {
             warnings.push(format!(
                 "arc '{}': worktree has uncommitted changes; left at .tugtree (not migrated to .tug/worktrees)",
@@ -1774,9 +1831,7 @@ pub fn show(name: &str) -> Result<ShowOutcome, String> {
 
     // Uncommitted changes in the worktree, if it is present.
     let uncommitted_changes = if worktree.exists() {
-        git_stdout(&worktree, &["status", "--porcelain"])
-            .ok()
-            .map(|s| !s.is_empty())
+        has_uncommitted(&worktree).ok()
     } else {
         None
     };
@@ -1950,27 +2005,35 @@ pub struct ArcDetail {
     pub kind: Option<crate::arc::ArcKind>,
 }
 
-/// Parse `git diff --name-status` output. Rename and copy lines
-/// (`R<score>\told\tnew`) report the destination path.
-fn parse_name_status(output: &str) -> Vec<ArcDetailFile> {
+/// Read `git diff --name-status -z` records. A rename or copy reports the
+/// destination path.
+///
+/// The records are the door's ([B01]): the status letter is its own record
+/// with its score fused to it (`R079`), and the path — or, for a rename, the
+/// two paths in `old`, `new` order — follows.
+fn name_status_files(records: &[String]) -> Vec<ArcDetailFile> {
     let mut files = Vec::new();
-    for line in output.lines() {
-        let mut fields = line.split('\t');
-        let Some(status) = fields.next() else {
-            continue;
-        };
+    let mut i = 0;
+    while i < records.len() {
+        let status = &records[i];
         let Some(letter) = status.chars().next() else {
+            i += 1;
             continue;
         };
+        i += 1;
         let path = if letter == 'R' || letter == 'C' {
-            fields.nth(1)
+            let dest = records.get(i + 1);
+            i += 2;
+            dest
         } else {
-            fields.next()
+            let dest = records.get(i);
+            i += 1;
+            dest
         };
         if let Some(path) = path.filter(|p| !p.is_empty()) {
             files.push(ArcDetailFile {
-                path: path.to_owned(),
-                status: status.to_owned(),
+                path: path.clone(),
+                status: status.clone(),
                 added: None,
                 deleted: None,
             });
@@ -1982,12 +2045,14 @@ fn parse_name_status(output: &str) -> Vec<ArcDetailFile> {
 /// Fold a `--numstat` read over the same range onto the name-status rows,
 /// keyed by path. A rename is keyed by its destination on both sides, so the
 /// two reads meet; a path the numstat does not name keeps `None`.
-fn with_numstat(mut files: Vec<ArcDetailFile>, numstat: &str) -> Vec<ArcDetailFile> {
-    let counts: BTreeMap<String, (Option<u32>, Option<u32>)> =
-        tugchanges_core::parse_numstat(numstat)
-            .into_iter()
-            .map(|e| (e.path, (e.added, e.deleted)))
-            .collect();
+fn with_numstat(
+    mut files: Vec<ArcDetailFile>,
+    numstat: &[tugchanges_core::NumstatEntry],
+) -> Vec<ArcDetailFile> {
+    let counts: BTreeMap<String, (Option<u32>, Option<u32>)> = numstat
+        .iter()
+        .map(|e| (e.path.clone(), (e.added, e.deleted)))
+        .collect();
     for file in &mut files {
         if let Some((added, deleted)) = counts.get(&file.path) {
             file.added = *added;
@@ -2002,20 +2067,20 @@ fn with_numstat(mut files: Vec<ArcDetailFile>, numstat: &str) -> Vec<ArcDetailFi
 /// is an empty list, no numstat read is a list without counts.
 fn arc_range_files(repo_root: &Path, base: &str, branch: &str) -> Vec<ArcDetailFile> {
     let range = format!("{base}...{branch}");
-    let files = git_stdout(repo_root, &["diff", "--name-status", &range])
+    let files = tugchanges_core::listing(repo_root, &["diff", "--name-status", &range])
         .ok()
-        .map(|out| parse_name_status(&out))
+        .map(|records| name_status_files(&records))
         .unwrap_or_default();
-    match git_stdout(repo_root, &["diff", "--numstat", &range]).ok() {
+    match tugchanges_core::read_numstat(repo_root, &["diff", "--numstat", &range]).ok() {
         Some(numstat) => with_numstat(files, &numstat),
         None => files,
     }
 }
 
-/// The paths a `git diff --name-status` output names, renames reported at
+/// The paths a `git diff --name-status -z` listing names, renames reported at
 /// their destination.
-pub(crate) fn name_status_paths(output: &str) -> Vec<String> {
-    parse_name_status(output)
+pub(crate) fn name_status_paths(records: &[String]) -> Vec<String> {
+    name_status_files(records)
         .into_iter()
         .map(|file| file.path)
         .collect()
@@ -2076,10 +2141,8 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
             .unwrap_or(&worktree_abs)
             .to_string_lossy()
             .into_owned();
-        let worktree_dirty = worktree_abs.exists()
-            && git_stdout(&worktree_abs, &["status", "--porcelain"])
-                .map(|s| !s.is_empty())
-                .unwrap_or(false);
+        let worktree_dirty =
+            worktree_abs.exists() && has_uncommitted(&worktree_abs).unwrap_or(false);
         let worktree_dirt_tracked = if worktree_abs.exists() {
             dirty_tracked_paths(&worktree_abs)
         } else {
@@ -2418,10 +2481,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<ArcStatus, String> {
     let rounds = arc_rounds(repo_root, &base_branch, &branch).len() as i64;
 
     let worktree = worktree_path(repo_root, name);
-    let worktree_dirty = worktree.exists()
-        && git_stdout(&worktree, &["status", "--porcelain"])
-            .map(|s| !s.is_empty())
-            .unwrap_or(false);
+    let worktree_dirty = worktree.exists() && has_uncommitted(&worktree).unwrap_or(false);
 
     // Readiness is measured over tracked dirt only ([P04]), which the porcelain
     // read above cannot answer — an untracked scratch file makes `worktree_dirty`
@@ -2908,12 +2968,8 @@ fn verify_commit(worktree: &Path, rev: &str) -> Result<String, String> {
 ///
 /// Returns the entries it moved, in census order.
 fn carry_working_set_in(repo_root: &Path, worktree: &Path) -> Result<Vec<BaseDirtPath>, String> {
-    let unmerged = git_stdout(repo_root, &["ls-files", "-u", "--format=%(path)"])
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
+    let unmerged = git_paths_or_empty(repo_root, &["ls-files", "-u", "--format=%(path)"])
+        .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
     if !unmerged.is_empty() {
         return Err(format!(
@@ -3180,12 +3236,7 @@ pub(crate) fn git_supports_merge_tree(repo: &Path) -> bool {
 /// --name-only HEAD` avoids porcelain's status-prefix parsing and never lists
 /// untracked files (which can't overlap the base's tracked dirt anyway).
 fn dirty_tracked_paths(dir: &Path) -> Vec<String> {
-    git_stdout(dir, &["diff", "--name-only", "HEAD"])
-        .unwrap_or_default()
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect()
+    git_paths_or_empty(dir, &["diff", "--name-only", "HEAD"])
 }
 
 /// The arc worktree's uncommitted tracked paths, or empty when it has no
@@ -3236,13 +3287,10 @@ fn base_working_set_dirt(dir: &Path) -> Vec<BaseDirtPath> {
         })
         .collect();
     out.extend(
-        git_stdout(dir, &["ls-files", "--others", "--exclude-standard"])
-            .unwrap_or_default()
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
+        git_paths_or_empty(dir, &["ls-files", "--others", "--exclude-standard"])
+            .into_iter()
             .map(|path| BaseDirtPath {
-                path: path.to_string(),
+                path,
                 state: "untracked".to_string(),
                 deleted: false,
                 carried: false,
@@ -3254,9 +3302,7 @@ fn base_working_set_dirt(dir: &Path) -> Vec<BaseDirtPath> {
 
 /// The conflicted (unmerged) paths after a failed merge/cherry-pick.
 fn conflicted_paths(repo: &Path) -> Vec<String> {
-    git_stdout(repo, &["diff", "--name-only", "--diff-filter=U"])
-        .map(|s| s.lines().map(|l| l.trim().to_string()).collect())
-        .unwrap_or_default()
+    git_paths_or_empty(repo, &["diff", "--name-only", "--diff-filter=U"])
 }
 
 /// In-memory conflict preview via `git merge-tree --write-tree` (git ≥ 2.38):
@@ -3337,31 +3383,41 @@ enum MergedTree {
 /// Merge `branch` into `base` with `git merge-tree --write-tree` (git ≥ 2.38):
 /// objects only, no worktree, index, or ref touched.
 fn merge_tree(repo: &Path, base: &str, branch: &str) -> Result<MergedTree, String> {
-    let out = git_output(
+    // `-z` is spelled here rather than added by the door, because merge-tree
+    // refuses the flag after its revision operands. Records: the toplevel tree
+    // OID first; then, on a conflict, the conflicted paths, **one empty record
+    // as a separator**, and informational records. The conflicted paths are
+    // the whole reason this reads `-z` — without it git C-quotes them, and a
+    // join preflight that names a path nobody has is worse than none.
+    let (records, status) = tugchanges_core::listing_with_status(
         repo,
-        &["merge-tree", "--write-tree", "--name-only", base, branch],
-    )?;
-    // Output: the toplevel tree OID on line 1; then, on a conflict, the
-    // conflicted file names, a blank line, and informational messages.
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let mut lines = stdout.lines();
-    let tree_oid = lines.next().unwrap_or("").trim().to_string();
-    match out.status.code() {
+        &[
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "-z",
+            base,
+            branch,
+        ],
+    )
+    .map_err(|e| format!("git merge-tree failed: {e}"))?;
+    let tree_oid = records.first().cloned().unwrap_or_default();
+    match status.code() {
         Some(0) if !tree_oid.is_empty() => Ok(MergedTree::Clean(tree_oid)),
         // Exit 1 ⇒ conflicts.
         Some(1) => Ok(MergedTree::Conflicted(
-            lines
-                .take_while(|line| !line.trim().is_empty())
-                .map(|line| line.trim().to_string())
+            records
+                .iter()
+                .skip(1)
+                .take_while(|record| !record.is_empty())
+                .cloned()
                 .collect(),
         )),
         // Anything else is git failing to merge at all — a git too old for
         // `--write-tree` among them — and it says so rather than reading as
-        // a clean merge of nothing.
-        _ => Err(format!(
-            "git merge-tree failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        )),
+        // a clean merge of nothing. Git's own words arrived as the door's
+        // error when it had any, so this is the silent-failure case.
+        _ => Err("git merge-tree failed".to_string()),
     }
 }
 
@@ -3777,8 +3833,7 @@ pub(crate) fn commit_worktree_dirt(worktree: &Path, name: &str) -> Result<(), St
         // if the other writer swept the dirt while we waited, there is nothing
         // left to commit, and the act this call exists to produce has already
         // happened ([L31] — the act, not a swallowed failure).
-        let arc_status = git_stdout(worktree, &["status", "--porcelain"])?;
-        if arc_status.is_empty() {
+        if !has_uncommitted(worktree)? {
             return Ok(LockAttempt::Done(()));
         }
         if let LockAttempt::Blocked(e) = git_write(
@@ -4267,9 +4322,13 @@ struct BaseCopy {
 
 impl BaseCopy {
     fn read(repo_root: &Path, path: &str, tracked: bool) -> BaseCopy {
-        let index_entry = git_stdout(repo_root, &["ls-files", "--stage", "--", path])
+        // One record per entry, `<mode> <sha> <stage>\tpath` — the mode and sha
+        // are what this reads, and the path operand is a real name only
+        // because the listing that produced it was one ([B01]).
+        let index_entry = tugchanges_core::listing(repo_root, &["ls-files", "--stage", "--", path])
             .ok()
-            .and_then(|line| {
+            .and_then(|records| {
+                let line = records.first()?;
                 let mut fields = line.split_whitespace();
                 Some((fields.next()?.to_string(), fields.next()?.to_string()))
             });
@@ -4358,8 +4417,11 @@ impl BaseCopy {
             )
             .map(|_| ()),
             None if self.state == BaseCopyState::Untracked => Ok(()),
-            None => git_stdout(repo_root, &["update-index", "--force-remove", "--", &self.path])
-                .map(|_| ()),
+            None => git_stdout(
+                repo_root,
+                &["update-index", "--force-remove", "--", &self.path],
+            )
+            .map(|_| ()),
         }
     }
 }
@@ -4402,12 +4464,7 @@ impl BlockingBasePaths {
 
 /// The untracked paths at `dir`, as plain path lines.
 fn untracked_paths(dir: &Path) -> Vec<String> {
-    git_stdout(dir, &["ls-files", "--others", "--exclude-standard"])
-        .unwrap_or_default()
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect()
+    git_paths_or_empty(dir, &["ls-files", "--others", "--exclude-standard"])
 }
 
 /// The base state that would block a join of `branch`: the base's dirty tracked
@@ -4425,19 +4482,14 @@ fn blocking_base_dirt(
     if base_dirt.is_empty() && base_untracked.is_empty() {
         return BlockingBasePaths::default();
     }
-    let mut arc_changed: Vec<String> = git_stdout(
+    let mut arc_changed: Vec<String> = git_paths_or_empty(
         repo_root,
         &[
             "diff",
             "--name-only",
             &format!("{}...{}", base_branch, branch),
         ],
-    )
-    .unwrap_or_default()
-    .lines()
-    .map(|l| l.trim().to_string())
-    .filter(|l| !l.is_empty())
-    .collect();
+    );
     if worktree.exists() {
         arc_changed.extend(dirty_tracked_paths(worktree));
     }
@@ -5398,19 +5450,14 @@ pub fn join_in_with_progress(
     };
 
     on_beat("squash", "start");
-    let arc_paths: Vec<String> = git_stdout(
+    let arc_paths: Vec<String> = git_paths_or_empty(
         &repo_root,
         &[
             "diff",
             "--name-only",
             &format!("{}...{}", base_branch, branch),
         ],
-    )
-    .unwrap_or_default()
-    .lines()
-    .map(|l| l.trim().to_string())
-    .filter(|l| !l.is_empty())
-    .collect();
+    );
     let base_before = BaseReading::read(&repo_root, &arc_paths);
     // A record describes an operation that happened. An integrate that did not
     // land is one that did not happen **only if the base is as it was**, so
@@ -5498,12 +5545,14 @@ struct BaseReading {
 
 impl BaseReading {
     fn read(repo_root: &Path, arc_paths: &[String]) -> BaseReading {
-        let mut paths: BTreeMap<String, String> =
-            arc_paths.iter().map(|p| (p.clone(), String::new())).collect();
+        let mut paths: BTreeMap<String, String> = arc_paths
+            .iter()
+            .map(|p| (p.clone(), String::new()))
+            .collect();
         for chunk in arc_paths.chunks(200) {
             let mut staged = vec!["ls-files", "--stage", "--"];
             staged.extend(chunk.iter().map(String::as_str));
-            for line in git_stdout(repo_root, &staged).unwrap_or_default().lines() {
+            for line in tugchanges_core::listing(repo_root, &staged).unwrap_or_default() {
                 if let Some((entry, path)) = line.split_once('\t') {
                     if let Some(reading) = paths.get_mut(path) {
                         reading.push_str(entry);
@@ -6307,11 +6356,28 @@ mod tests {
     /// The numstat fold keys on the destination path a rename reports, so the
     /// two reads of one range meet; a binary file's `-` stays `None`; a path
     /// the numstat does not name is left uncounted rather than zeroed.
+    ///
+    /// Both sides are `-z` records ([B01]), so a rename arrives as its status
+    /// letter and two path records on the name-status side and as an empty
+    /// path field followed by two path records on the numstat side. A path
+    /// that git would have C-quoted is in the fixture because that is the
+    /// whole point of reading records rather than lines.
     #[test]
     fn numstat_folds_onto_name_status_by_destination_path() {
-        let files = parse_name_status("M\ta.rs\nR100\told.rs\tnew.rs\nA\tpic.png\nD\tgone.rs\n");
-        let numstat = "3\t1\ta.rs\n0\t0\told.rs => new.rs\n-\t-\tpic.png\n";
-        let folded = with_numstat(files, numstat);
+        let records: Vec<String> = [
+            "M", "a.rs", "R100", "olł.rs", "neł.rs", "A", "pic.png", "D", "gone.rs",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+        let files = name_status_files(&records);
+        let numstat_records: Vec<String> =
+            ["3\t1\ta.rs", "0\t0\t", "olł.rs", "neł.rs", "-\t-\tpic.png"]
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect();
+        let numstat = tugchanges_core::parse_numstat_records(&numstat_records);
+        let folded = with_numstat(files, &numstat);
         let got: Vec<(&str, Option<u32>, Option<u32>)> = folded
             .iter()
             .map(|f| (f.path.as_str(), f.added, f.deleted))
@@ -6320,7 +6386,7 @@ mod tests {
             got,
             vec![
                 ("a.rs", Some(3), Some(1)),
-                ("new.rs", Some(0), Some(0)),
+                ("neł.rs", Some(0), Some(0)),
                 ("pic.png", None, None),
                 ("gone.rs", None, None),
             ]
@@ -7074,7 +7140,11 @@ Some context.
     fn the_runner_spawns_git_without_optional_locks() {
         let out = git_stdout(
             Path::new("."),
-            &["-c", "alias.lockenv=!printenv GIT_OPTIONAL_LOCKS", "lockenv"],
+            &[
+                "-c",
+                "alias.lockenv=!printenv GIT_OPTIONAL_LOCKS",
+                "lockenv",
+            ],
         )
         .expect("git runs");
         assert_eq!(out, "0");
@@ -14664,7 +14734,10 @@ Some context.
             git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
             git_stdout(repo, &["ls-files", "--stage"]).unwrap(),
             git_stdout(repo, &["status", "--porcelain"]).unwrap(),
-            files.iter().map(|f| fs::read(repo.join(f)).unwrap()).collect(),
+            files
+                .iter()
+                .map(|f| fs::read(repo.join(f)).unwrap())
+                .collect(),
             Path::new(&git_dir).join("SQUASH_MSG").exists(),
         )
     }
@@ -14713,7 +14786,10 @@ Some context.
         assert!(err.contains("index.lock"), "git's own message: {err}");
         assert_eq!(before, after, "the base is byte-identical");
         assert!(!after.4, "no SQUASH_MSG");
-        assert!(ops_for(repo, "lockedbase").is_empty(), "and nothing is recorded");
+        assert!(
+            ops_for(repo, "lockedbase").is_empty(),
+            "and nothing is recorded"
+        );
 
         let outcome = join("lockedbase", mechanics()).expect("lands once the lock is gone");
         assert!(outcome.commit_hash.is_some());
@@ -14802,9 +14878,18 @@ Some context.
                 .output()
                 .unwrap();
             let body = String::from_utf8_lossy(&body.stdout).to_string();
-            assert!(body.contains("Land the change\n\nThe body.\n"), "{name}: {body:?}");
-            assert!(!body.contains("\n\n\n"), "{name}: blank runs collapsed: {body:?}");
-            assert!(dirty_tracked_paths(repo).is_empty(), "{name}: checkout clean");
+            assert!(
+                body.contains("Land the change\n\nThe body.\n"),
+                "{name}: {body:?}"
+            );
+            assert!(
+                !body.contains("\n\n\n"),
+                "{name}: blank runs collapsed: {body:?}"
+            );
+            assert!(
+                dirty_tracked_paths(repo).is_empty(),
+                "{name}: checkout clean"
+            );
         }
     }
 
@@ -14847,7 +14932,11 @@ Some context.
         fs::set_permissions(&driver, fs::Permissions::from_mode(0o755)).unwrap();
         git_output(
             repo,
-            &["config", "merge.strand.driver", &driver.display().to_string()],
+            &[
+                "config",
+                "merge.strand.driver",
+                &driver.display().to_string(),
+            ],
         )
         .unwrap();
         fs::create_dir_all(Path::new(&git_dir).join("info")).unwrap();
@@ -14939,13 +15028,27 @@ Some context.
                 .unwrap_or_else(|| panic!("{code}: {:?}", diagnosis.findings))
         };
         let squash = find("base-squash-standing");
-        assert!(squash.sentence.contains("SQUASH_MSG"), "{}", squash.sentence);
-        assert!(squash.sentence.contains("tugtool arc resolve-base leftstaged"));
+        assert!(
+            squash.sentence.contains("SQUASH_MSG"),
+            "{}",
+            squash.sentence
+        );
+        assert!(
+            squash
+                .sentence
+                .contains("tugtool arc resolve-base leftstaged")
+        );
         let echo = find(crate::doctor::BASE_ECHO_CODE);
         assert!(echo.sentence.contains("10 paths"), "{}", echo.sentence);
         assert!(echo.sentence.contains("file3.txt"), "{}", echo.sentence);
-        assert!(!echo.sentence.contains("shared.txt"), "the restored file is clean");
-        assert!(echo.sentence.contains("tugtool arc resolve-base leftstaged"));
+        assert!(
+            !echo.sentence.contains("shared.txt"),
+            "the restored file is clean"
+        );
+        assert!(
+            echo.sentence
+                .contains("tugtool arc resolve-base leftstaged")
+        );
 
         resolve_base_in(repo, "leftstaged", &BTreeMap::new()).expect("one call clears it");
         let diagnosis = crate::doctor::diagnose(&root, "leftstaged");
@@ -14966,7 +15069,12 @@ Some context.
         git_output(repo, &["add", "side.txt"]).unwrap();
         git_output(repo, &["commit", "-qm", "side work"]).unwrap();
         git_output(repo, &["checkout", "-q", "-"]).unwrap();
-        assert!(git_output(repo, &["merge", "--squash", "side"]).unwrap().status.success());
+        assert!(
+            git_output(repo, &["merge", "--squash", "side"])
+                .unwrap()
+                .status
+                .success()
+        );
         assert_eq!(standing_integrate_markers(repo), vec!["SQUASH_MSG"]);
 
         let root = std::fs::canonicalize(repo).unwrap();
@@ -15005,7 +15113,9 @@ Some context.
         assert_eq!(codes, vec!["base-stranded", "op-incomplete"]);
         for finding in &diagnosis.findings {
             assert!(
-                finding.sentence.contains("tugtool arc resolve-base records"),
+                finding
+                    .sentence
+                    .contains("tugtool arc resolve-base records"),
                 "{}",
                 finding.sentence
             );
@@ -15049,7 +15159,10 @@ Some context.
             fs::read_to_string(repo.join("added.txt")).unwrap(),
             "new in the arc\n"
         );
-        assert!(dirty_tracked_paths(repo).is_empty(), "nothing left uncommitted");
+        assert!(
+            dirty_tracked_paths(repo).is_empty(),
+            "nothing left uncommitted"
+        );
     }
 
     /// The state a join that lost the index lock leaves: the arc's whole squash
@@ -15069,9 +15182,18 @@ Some context.
         dropped.sort();
         assert_eq!(dropped, vec!["added.txt", "nested/extra.txt", "shared.txt"]);
         assert!(outcome.committed.is_none(), "nothing to commit");
-        assert!(dirty_tracked_paths(repo).is_empty(), "the index matches HEAD");
-        assert!(!repo.join("added.txt").exists(), "the staged-new file went with its entry");
-        assert_eq!(fs::read_to_string(repo.join("shared.txt")).unwrap(), "base\n");
+        assert!(
+            dirty_tracked_paths(repo).is_empty(),
+            "the index matches HEAD"
+        );
+        assert!(
+            !repo.join("added.txt").exists(),
+            "the staged-new file went with its entry"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\n"
+        );
     }
 
     /// A drop that fails part-way puts back what it had already dropped, in
@@ -15110,7 +15232,11 @@ Some context.
                 fs::read(repo.join("added.txt")).unwrap(),
                 fs::read(repo.join("nested/extra.txt")).unwrap(),
                 fs::read(repo.join("alpha.sh")).unwrap(),
-                fs::metadata(repo.join("alpha.sh")).unwrap().permissions().mode() & 0o7777,
+                fs::metadata(repo.join("alpha.sh"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o7777,
             )
         };
         let before = snapshot();
@@ -15136,7 +15262,10 @@ Some context.
         fs::set_permissions(repo.join("nested"), fs::Permissions::from_mode(0o755)).unwrap();
         assert!(err.contains("left as it was"), "{err}");
         assert_eq!(before, after, "the join's failed drop moved nothing either");
-        assert!(ops_for(repo, "halfdrop").is_empty(), "and left no join record");
+        assert!(
+            ops_for(repo, "halfdrop").is_empty(),
+            "and left no join record"
+        );
     }
 
     /// Undo beside the receipt puts the edit back where it was: the base at
@@ -15392,5 +15521,69 @@ Some context.
             Some(".tug/arcs/tasks-only/tasks.md")
         );
         assert_eq!(opened.record.kind, Some(crate::arc::ArcKind::Plain));
+    }
+
+    // -----------------------------------------------------------------------
+    // The hostile-filename fixture [B05] — the arc's own round trip
+    // -----------------------------------------------------------------------
+
+    /// An arc round carrying files git considers unusual reports them by their
+    /// **real names**, through the listings every arc surface reads.
+    ///
+    /// The arc's rounds commit with `add -A`, so the round itself lands today;
+    /// what does not is every *listing* around it — `worktree_dirt` reads
+    /// `diff --name-only HEAD`, the dirt census reads `ls-files --others`, and
+    /// both hand back git's C-quoted display form ([F01]). These are the sites
+    /// that move a user's work: a join preflight that cannot name what is dirty
+    /// is a join that sweeps or refuses on a path nobody has.
+    ///
+    /// RED until step 5 moves `tugarc-core` onto the [B01] door.
+    #[serial]
+    #[test]
+    fn an_arc_round_names_its_hostile_files_by_their_real_names() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("hostile", None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "hostile");
+
+        // Git's own spelling of the roster: verbatim, except the decomposed
+        // name, which git precomposes (measured in `tugcore::hostile_repo`).
+        let mut want: Vec<String> = tugcore::hostile_repo::HOSTILE_NAMES
+            .iter()
+            .map(|n| {
+                if n.path == "No\u{301}tes.txt" {
+                    "N\u{f3}tes.txt".to_string()
+                } else {
+                    n.path.to_string()
+                }
+            })
+            .collect();
+        want.sort();
+
+        // A round that brings them in.
+        tugcore::hostile_repo::write_hostile_files(&worktree).expect("the fixture writes");
+        let outcome = commit("hostile", "tugarc(hostile): add the records", None).unwrap();
+        assert!(outcome.committed, "the round carried the files");
+        assert!(
+            worktree_dirt(&repo, "hostile").is_empty(),
+            "the round left nothing behind"
+        );
+
+        // A round that changes them: now every one is dirty, and the arc has
+        // to be able to say which.
+        for name in tugcore::hostile_repo::HOSTILE_NAMES {
+            let path = worktree.join(name.path);
+            let body = fs::read_to_string(&path).unwrap();
+            fs::write(&path, format!("{body}more\n")).unwrap();
+        }
+
+        let mut dirt = worktree_dirt(&repo, "hostile");
+        dirt.sort();
+        assert_eq!(dirt, want, "the arc names every dirty file as it really is");
+
+        // And a second round takes them all, leaving the worktree clean.
+        let outcome = commit("hostile", "tugarc(hostile): revise the records", None).unwrap();
+        assert!(outcome.committed);
+        assert!(worktree_dirt(&repo, "hostile").is_empty());
     }
 }

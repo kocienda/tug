@@ -1375,12 +1375,16 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
             }
         }
         for (label, tip) in [("This arc", branch), ("The base", base_branch)] {
-            if let Ok(names) = git_stdout(
+            // Through the [B01] door, and rendered here rather than relayed:
+            // this text names files to whoever adjudicates the conflict, and
+            // git's line-oriented spelling would name some of them wrongly.
+            if let Ok(records) = tugchanges_core::listing(
                 repo,
                 &["diff", "--name-status", &format!("{}..{}", fork, tip)],
             ) {
-                if !names.trim().is_empty() {
-                    parts.push(format!("{} touched:\n{}", label, names.trim()));
+                let names = crate::ops::name_status_paths(&records);
+                if !names.is_empty() {
+                    parts.push(format!("{} touched:\n{}", label, names.join("\n")));
                 }
             }
         }

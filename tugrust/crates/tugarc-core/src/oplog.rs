@@ -1199,13 +1199,11 @@ fn refuse_dirty_worktree(op: &OpPayload) -> Result<(), String> {
     if !worktree.exists() {
         return Ok(());
     }
-    let dirt = git_stdout(&worktree, &["status", "--porcelain"]).unwrap_or_default();
-    let paths: Vec<&str> = dirt
-        .lines()
-        .filter_map(|l| l.get(3..))
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
+    // Through the [B01] door: this message names the user's own files back to
+    // them, so a path here has to be the file's real name.
+    let report = crate::ops::git_status(&worktree, &[]).unwrap_or_default();
+    let mut paths: Vec<String> = report.entries.iter().map(|e| e.path.clone()).collect();
+    paths.extend(report.untracked.iter().cloned());
     if paths.is_empty() {
         return Ok(());
     }

@@ -36,8 +36,6 @@
 
 use std::path::Path;
 
-use super::operator::run_git;
-
 /// How many paths any single resolution or listing returns. Fifty is a list a
 /// model can read and choose from; five hundred is a context flood.
 pub const LS_MAX_PATHS: usize = 50;
@@ -441,7 +439,17 @@ pub async fn path_candidates(dir: &Path, needle: &str) -> Result<Candidates, Str
 
     let base = basename(&stripped);
     if !base.is_empty() {
-        let hits = ls_pathspec(dir, &format!("*{base}*")).await?;
+        // Was a `*{base}*` pathspec handed to git; the substring match is
+        // what that pattern meant, and it is now done here because git
+        // expands nothing [B03]. Matched against the whole path, as git's
+        // `*` crosses `/`.
+        let universe = all_files(dir).await?;
+        let hits: Vec<String> = universe
+            .iter()
+            .filter(|path| path.contains(base))
+            .take(LS_MAX_PATHS)
+            .cloned()
+            .collect();
         if !hits.is_empty() {
             return Ok(Candidates {
                 rung: Some(Rung::BasenameGlob),
@@ -450,8 +458,7 @@ pub async fn path_candidates(dir: &Path, needle: &str) -> Result<Candidates, Str
         }
 
         let lowered = base.to_lowercase();
-        let hits: Vec<String> = all_files(dir)
-            .await?
+        let hits: Vec<String> = universe
             .into_iter()
             .filter(|path| basename(path).to_lowercase() == lowered)
             .take(LS_MAX_PATHS)
@@ -472,9 +479,11 @@ pub async fn path_candidates(dir: &Path, needle: &str) -> Result<Candidates, Str
 
 /// Resolve `repo.grep`'s `path_scope`.
 ///
-/// A literal match passes the argument through untouched — a directory or a
-/// glob is a legitimate scope and git should resolve it the same way it always
-/// has. A repair searches the candidates it found and says so, because grep is
+/// A literal match passes the argument through untouched — a path or a
+/// directory is a scope git resolves the same way it always has. A **glob**
+/// cannot be passed through any more: git no longer expands one [B03], so the
+/// resolved paths go instead, which is the same set git would have matched.
+/// A repair searches the candidates it found and says so, because grep is
 /// multi-file by construction and matches whose provenance is visible beat a
 /// refusal. Nothing at all is an error naming the argument.
 pub async fn resolve_grep_scope(dir: &Path, scope: &str) -> Result<ScopeResolution, String> {
@@ -483,6 +492,12 @@ pub async fn resolve_grep_scope(dir: &Path, scope: &str) -> Result<ScopeResoluti
         return Err(unmatched_path_error(dir, "path_scope", scope).await);
     }
     if !candidates.repaired() {
+        if is_wildcard(scope) {
+            return Ok(ScopeResolution {
+                used: candidates.paths,
+                note: None,
+            });
+        }
         return Ok(ScopeResolution {
             used: vec![scope.to_string()],
             note: None,
@@ -551,45 +566,86 @@ async fn near_misses(dir: &Path, needle: &str) -> Vec<String> {
         .collect()
 }
 
-/// Files matching a pathspec: tracked, plus untracked-but-not-ignored so a file
-/// written minutes ago is reachable. One subprocess, because `--cached
+/// Every file git can see in `dir`: tracked, plus untracked-but-not-ignored so
+/// a file written minutes ago is reachable. One subprocess, because `--cached
 /// --others` is a single listing rather than two.
-async fn ls_pathspec(dir: &Path, pathspec: &str) -> Result<Vec<String>, String> {
-    let argv: Vec<String> = vec![
-        "ls-files".into(),
-        "--cached".into(),
-        "--others".into(),
-        "--exclude-standard".into(),
-        "--".into(),
-        pathspec.into(),
-    ];
-    Ok(dedupe_lines(&run_git(dir, &argv).await?))
+///
+/// **Uncapped**, deliberately. This is the universe a pattern is matched
+/// against, and a capped universe does not return fewer answers — it answers
+/// "no such file" for every file past the cap. The cap belongs on what is
+/// handed back to a model, and every caller below applies it there.
+pub(crate) async fn all_files(dir: &Path) -> Result<Vec<String>, String> {
+    Ok(dedupe(
+        crate::feeds::git::git_paths(
+            dir,
+            &["ls-files", "--cached", "--others", "--exclude-standard"],
+        )
+        .await?,
+    ))
 }
 
-/// The same listing with no pathspec: every file git can see.
-async fn all_files(dir: &Path) -> Result<Vec<String>, String> {
-    let argv: Vec<String> = vec![
-        "ls-files".into(),
-        "--cached".into(),
-        "--others".into(),
-        "--exclude-standard".into(),
-    ];
-    Ok(dedupe_lines(&run_git(dir, &argv).await?))
-}
-
-fn dedupe_lines(stdout: &str) -> Vec<String> {
+/// `--cached --others` lists a file that is both tracked and present twice, so
+/// the run is deduped.
+///
+/// The records arrive from the door already exact, so nothing is trimmed here:
+/// a path may legitimately begin or end with a space, and trimming one used to
+/// silently rename it.
+fn dedupe(paths: Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() || out.iter().any(|held| held == line) {
+    for path in paths {
+        if path.is_empty() || out.iter().any(|held| *held == path) {
             continue;
         }
-        out.push(line.to_string());
-        if out.len() >= LS_MAX_PATHS {
-            break;
-        }
+        out.push(path);
     }
     out
+}
+
+/// Whether `pattern` is a wildcard rather than a path.
+///
+/// The three bytes git's own wildmatch treats as special. A name that merely
+/// *contains* one of them is therefore read as a pattern here — which is the
+/// right way round for an argument a model composed, and the wrong way round
+/// for a path Tug read back from git. Nothing on this side does the latter:
+/// these are the Operator's arguments, and the paths Tug reads go to git
+/// literally, under `GIT_LITERAL_PATHSPECS` [B03].
+pub(crate) fn is_wildcard(pattern: &str) -> bool {
+    pattern.contains(['*', '?', '['])
+}
+
+/// Files matching `pathspec`, resolved **here** rather than by git.
+///
+/// Git will no longer glob a pathspec for anybody [B03], so a surface that
+/// genuinely wants one — the Operator's `path`, `path_scope` and `repo.ls`
+/// `pattern`, all three documented to the model as taking a git glob — does
+/// the matching against a listing read through the door and hands git the
+/// literal paths that came back.
+///
+/// Git's own pathspec semantics, minus the magic: an exact path matches
+/// itself, a directory matches everything beneath it, and a wildcard matches
+/// by `glob::Pattern`, whose `*` crosses `/` exactly as git's does without
+/// `:(glob)`.
+pub(crate) fn match_pathspec(universe: &[String], pathspec: &str) -> Vec<String> {
+    let trimmed = pathspec.strip_suffix('/').unwrap_or(pathspec);
+    let under = format!("{trimmed}/");
+    let glob = is_wildcard(pathspec)
+        .then(|| glob::Pattern::new(pathspec).ok())
+        .flatten();
+    universe
+        .iter()
+        .filter(|path| {
+            path.as_str() == trimmed
+                || path.starts_with(&under)
+                || glob.as_ref().is_some_and(|g| g.matches(path))
+        })
+        .take(LS_MAX_PATHS)
+        .cloned()
+        .collect()
+}
+
+/// [`match_pathspec`] against a freshly-read universe.
+async fn ls_pathspec(dir: &Path, pathspec: &str) -> Result<Vec<String>, String> {
+    Ok(match_pathspec(&all_files(dir).await?, pathspec))
 }
 
 /// The last path segment. Pathspecs are always `/`-separated, whatever the
@@ -719,15 +775,29 @@ impl Thing {
     }
 
     #[test]
-    fn dedupe_keeps_first_sighting_and_honors_the_cap() {
-        assert_eq!(
-            dedupe_lines("a.txt\nb.txt\na.txt\n\n"),
-            vec!["a.txt".to_string(), "b.txt".to_string()]
-        );
-        let many: String = (0..LS_MAX_PATHS + 10)
-            .map(|n| format!("f{n}.txt\n"))
+    fn dedupe_keeps_first_sighting_and_never_trims_a_name() {
+        let records: Vec<String> = ["a.txt", "b.txt", "a.txt", " spaced.txt "]
+            .iter()
+            .map(|s| (*s).to_string())
             .collect();
-        assert_eq!(dedupe_lines(&many).len(), LS_MAX_PATHS);
+        assert_eq!(
+            dedupe(records),
+            vec![
+                "a.txt".to_string(),
+                "b.txt".to_string(),
+                // Kept exactly as git named it: the old read trimmed it, which
+                // silently renamed a file whose name has a space on the end.
+                " spaced.txt ".to_string(),
+            ]
+        );
+        // The universe is uncapped — the cap belongs on what a rung hands
+        // back, and a capped universe answers "no such file" rather than
+        // "here are the first fifty".
+        let many: Vec<String> = (0..LS_MAX_PATHS + 10)
+            .map(|n| format!("f{n}.txt"))
+            .collect();
+        assert_eq!(dedupe(many.clone()).len(), LS_MAX_PATHS + 10);
+        assert_eq!(match_pathspec(&many, "*.txt").len(), LS_MAX_PATHS);
     }
 
     /// A repair rung is what makes a result a guess; a literal match is not.

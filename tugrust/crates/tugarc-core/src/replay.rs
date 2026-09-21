@@ -166,8 +166,7 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
             format!("arc '{}' has no worktree to move under", name),
         ));
     }
-    let dirt = git_stdout(&worktree, &["status", "--porcelain"])?;
-    if !dirt.trim().is_empty() {
+    if crate::ops::has_uncommitted(&worktree)? {
         return Ok(ReplayOutcome::deferred(
             "dirty-worktree",
             format!("arc '{}' has uncommitted changes", name),
@@ -256,8 +255,7 @@ pub(crate) fn cas_reset(
     expected_tip: &str,
     head: &str,
 ) -> Result<Option<ReplayOutcome>, String> {
-    let dirt = git_stdout(worktree, &["status", "--porcelain"])?;
-    if !dirt.trim().is_empty() {
+    if crate::ops::has_uncommitted(worktree)? {
         return Ok(Some(ReplayOutcome::deferred(
             "dirty-worktree",
             "the arc worktree became dirty while the replay ran",

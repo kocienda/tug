@@ -371,18 +371,13 @@ fn run_plans(worktree: &Path, plans: Vec<SurfacePlan>) -> Vec<SurfaceResult> {
 /// reported at its destination.
 fn touched_paths(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let range = format!("{base}..{head}");
-    let out = crate::ops::git_stdout(
-        repo,
-        &[
-            "-c",
-            "core.quotepath=false",
-            "diff",
-            "--name-status",
-            "-M",
-            &range,
-        ],
-    )?;
-    Ok(crate::ops::name_status_paths(&out))
+    // `-c core.quotepath=false` used to sit here: a local discovery that
+    // un-quotes a non-ASCII name and leaves a `"`, a `\`, a tab and a newline
+    // quoted. The [B01] door supersedes it — `-z` is total where that was
+    // partial — so the flag is gone rather than kept beside it.
+    let records = tugchanges_core::listing(repo, &["diff", "--name-status", "-M", &range])
+        .map_err(|e| format!("git diff --name-status {range} failed: {e}"))?;
+    Ok(crate::ops::name_status_paths(&records))
 }
 
 /// Verify the fit of an arc: resolve the range it would land, check every

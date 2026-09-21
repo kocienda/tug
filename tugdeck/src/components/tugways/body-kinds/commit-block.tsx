@@ -24,6 +24,13 @@
  * which mounts it inside a real `BlockChrome` alongside the other commit
  * surfaces.
  *
+ * **The one deck surface that reads git's own text.** Everywhere else a path
+ * reaches the deck as a typed field the Rust side read through a `-z` listing,
+ * so nothing is ever quoted. Here the source is a foreign transcript's `git
+ * commit` stdout, which Tug neither runs nor can ask for in another shape, so
+ * the C-quoted display form has to be read back — see {@link unquoteGitPath},
+ * whose result is painted and never handed to git.
+ *
  * Laws:
  *  - [L06] disclosures are `BlockDisclosure` (native `<details>`) —
  *    appearance toggles through the DOM, no React state.
@@ -107,6 +114,74 @@ function splitMessage(message: string): { summary: string; body: string[] } {
 }
 
 /**
+ * Git's C-quoted display form, back to the path's real name.
+ *
+ * Every other path in the deck arrives as a typed field from Rust, read
+ * through a `-z` listing that is never quoted. This block is the one
+ * exception, and not by choice: it scrapes the stdout of a `git commit` some
+ * agent ran in its own shell — text Tug does not author and cannot ask for in
+ * another shape. Git quotes there whenever a path holds a non-ASCII byte, a
+ * `"`, a `\`, a tab or a newline, so `01_Stanisław.jpg` is printed
+ * `"01_Stanis\305\202aw.jpg"` and would paint that way.
+ *
+ * Reading it back is display-only and safe *because* it is display-only: the
+ * result is rendered and never handed to git, so a path this gets wrong costs
+ * a wrong-looking row rather than a wrong file. An unquoted string is returned
+ * untouched — git quotes only when it must, and the opening `"` is the tell.
+ *
+ * Octal escapes are the individual BYTES of the name's UTF-8, so they are
+ * collected and decoded together; a decoder run per escape would turn one
+ * two-byte `ł` into two replacement characters.
+ */
+export function unquoteGitPath(raw: string): string {
+  if (raw.length < 2 || !raw.startsWith('"') || !raw.endsWith('"')) return raw;
+  const chars = Array.from(raw.slice(1, -1));
+  const encoder = new TextEncoder();
+  const simple: Record<string, number> = {
+    a: 0x07,
+    b: 0x08,
+    f: 0x0c,
+    n: 0x0a,
+    r: 0x0d,
+    t: 0x09,
+    v: 0x0b,
+    '"': 0x22,
+    "\\": 0x5c,
+  };
+  const bytes: number[] = [];
+  const push = (text: string): void => {
+    for (const byte of encoder.encode(text)) bytes.push(byte);
+  };
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!;
+    if (ch !== "\\") {
+      push(ch);
+      continue;
+    }
+    const next = chars[++i];
+    if (next === undefined) {
+      push("\\");
+      break;
+    }
+    const mapped = simple[next];
+    if (mapped !== undefined) {
+      bytes.push(mapped);
+      continue;
+    }
+    const octal = chars.slice(i, i + 3).join("");
+    if (/^[0-7]{3}$/.test(octal)) {
+      bytes.push(Number.parseInt(octal, 8));
+      i += 2;
+      continue;
+    }
+    // Not an escape git writes. Keep both characters rather than guess.
+    push("\\");
+    push(next);
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+/**
  * Parse a per-file breakdown from a commit's stdout, or `undefined` when
  * none is present. Two complementary sources:
  *
@@ -119,19 +194,22 @@ function splitMessage(message: string): { summary: string; body: string[] } {
  *    in the numstat is a modification, M).
  *
  * Binary files report `-` for both counts; treated as 0 / 0.
+ *
+ * Every path either source names is read back through {@link unquoteGitPath}
+ * first, so the two maps are keyed by the same real name.
  */
 function parseCommitFiles(stdout: string): CommitFile[] | undefined {
   const statusByPath = new Map<string, CommitFile["status"]>();
   for (const m of stdout.matchAll(/^ create mode \d+ (.+)$/gm)) {
-    statusByPath.set(m[1]!.trim(), "A");
+    statusByPath.set(unquoteGitPath(m[1]!.trim()), "A");
   }
   for (const m of stdout.matchAll(/^ delete mode \d+ (.+)$/gm)) {
-    statusByPath.set(m[1]!.trim(), "D");
+    statusByPath.set(unquoteGitPath(m[1]!.trim()), "D");
   }
 
   const files: CommitFile[] = [];
   for (const m of stdout.matchAll(/^([0-9]+|-)\t([0-9]+|-)\t(.+)$/gm)) {
-    const path = m[3]!.trim();
+    const path = unquoteGitPath(m[3]!.trim());
     const added = m[1] === "-" ? 0 : Number(m[1]);
     const removed = m[2] === "-" ? 0 : Number(m[2]);
     // A numstat rename path carries `=>` (e.g. `a => b` or `d/{a => b}`).
@@ -256,7 +334,11 @@ export function CommitBlock({ commit }: CommitBlockProps): React.ReactElement {
   return (
     <div className="tugx-commit" data-slot="commit-block">
       <div className="tugx-commit-stat">
-        <TugBadge emphasis="ghost" role="inherit" size="sm">{`+${insertions}`}</TugBadge>
+        <TugBadge
+          emphasis="ghost"
+          role="inherit"
+          size="sm"
+        >{`+${insertions}`}</TugBadge>
         <TugBadge emphasis="ghost" role="inherit" size="sm">
           {`−${deletions}`}
         </TugBadge>
@@ -288,10 +370,14 @@ export function CommitBlock({ commit }: CommitBlockProps): React.ReactElement {
                 </span>
                 <span className="tugx-commit-file-delta">
                   {f.added > 0 && (
-                    <span className="tugx-commit-stat-num--add">+{f.added}</span>
+                    <span className="tugx-commit-stat-num--add">
+                      +{f.added}
+                    </span>
                   )}
                   {f.removed > 0 && (
-                    <span className="tugx-commit-stat-num--del">−{f.removed}</span>
+                    <span className="tugx-commit-stat-num--del">
+                      −{f.removed}
+                    </span>
                   )}
                 </span>
               </li>

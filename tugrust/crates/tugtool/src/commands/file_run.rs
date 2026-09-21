@@ -133,28 +133,18 @@ fn resolve_scopes(root: &Path, scopes: &[String]) -> Result<Vec<PathBuf>, AppErr
 /// ignore, the same set the read side classifies — so a build directory or a
 /// target tree costs nothing to run this over.
 fn fingerprint_universe(root: &Path, scopes: &[PathBuf]) -> Result<Fingerprints, AppError> {
-    let out = tugcore::git_command()
-        .arg("-C")
-        .arg(root)
-        .args([
-            "ls-files",
-            "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-        ])
-        .output()
-        .map_err(|e| AppError::Exit1(format!("git ls-files: {e}")))?;
-    if !out.status.success() {
-        return Err(AppError::Exit1("git ls-files failed".to_string()));
-    }
+    // This read was `-z` before the door existed, and it decoded lossily —
+    // which would have turned an undecodable name into a *different*,
+    // nonexistent path and fingerprinted nothing under it. The door refuses
+    // that substitution instead ([B06]).
+    let listed = tugchanges_core::read_paths(
+        root,
+        &["ls-files", "--cached", "--others", "--exclude-standard"],
+    )
+    .map_err(|e| AppError::Exit1(format!("git ls-files: {e}")))?;
 
     let mut map = Fingerprints::new();
-    for raw in out.stdout.split(|b| *b == 0) {
-        if raw.is_empty() {
-            continue;
-        }
-        let rel = String::from_utf8_lossy(raw).to_string();
+    for rel in listed {
         let path = root.join(rel);
         if !scopes.is_empty() && !scopes.iter().any(|s| path.starts_with(s) || path == *s) {
             continue;

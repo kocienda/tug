@@ -130,8 +130,10 @@ fn is_tracked(dir: &Path, assets_dir: &Path) -> bool {
     let Some(text) = assets_dir.to_str() else {
         return false;
     };
-    tugchanges_core::git::git_stdout(dir, &["ls-files", "--error-unmatch", "--", text])
-        .is_ok_and(|out| !out.trim().is_empty())
+    // `--error-unmatch` exits non-zero when nothing matches, which the door
+    // reports as an error — so a non-empty answer is the whole of the test.
+    tugchanges_core::read_paths(dir, &["ls-files", "--error-unmatch", "--", text])
+        .is_ok_and(|paths| !paths.is_empty())
 }
 
 /// Add `assets_dir` to its repository's `.git/info/exclude`, if it is in one.

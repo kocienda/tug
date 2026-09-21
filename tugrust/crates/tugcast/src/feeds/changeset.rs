@@ -19,7 +19,7 @@ use tugcast_core::types::{
 };
 
 use super::attribution::{parse_worktree_states, repo_root_for};
-use super::git::{fetch_git_status, fetch_head_message, parse_porcelain_v2};
+use super::git::{fetch_git_status, fetch_head_message, git_status_wire};
 use super::workspace_registry::WorkspaceRegistry;
 use crate::path_resolver::{CanonicalPath, same_file};
 use crate::session_ledger::{
@@ -103,9 +103,9 @@ pub(crate) async fn compose_snapshot(
     // Loop-invariant across every row this compose resolves, and resolving it
     // takes the resolver's global memo lock — so it is resolved once, here.
     let canonical_root = CanonicalPath::from_raw(&repo_root);
-    let status_output = fetch_git_status(&repo_root).await?;
+    let status = fetch_git_status(&repo_root).await?;
 
-    let header = parse_porcelain_v2(&status_output);
+    let header = git_status_wire(&status);
     let head_message = fetch_head_message(&repo_root).await;
     // One `rev-parse` replaces up to one `git log` per dirty path on every
     // recompute — see `live_cut_cache`.
@@ -116,7 +116,7 @@ pub(crate) async fn compose_snapshot(
 
     // Dirty working-tree files: repo-relative path → porcelain-v2 XY
     // status ("??" for untracked, matching the familiar v1 rendering).
-    let dirty: BTreeMap<String, String> = parse_worktree_states(&status_output)
+    let dirty: BTreeMap<String, String> = parse_worktree_states(&status)
         .into_iter()
         .map(|(path, status)| {
             let status = if status == "?" {
@@ -1978,9 +1978,12 @@ pub(crate) fn format_join_summary(summary: &JoinSummary<'_>) -> String {
 /// against its first parent". Every flag is load-bearing for that parity:
 /// `-M` makes a rename one row here and one row there rather than two here and
 /// one there, `--root` covers a root commit by diffing it against the empty
-/// tree, and `core.quotepath=false` keeps a non-ASCII path spelled the same in
-/// the list as in the fetch behind it. Matching them makes the summary's list
-/// and the rows it expands into the same object by construction.
+/// tree. Matching them makes the summary's list and the rows it expands into
+/// the same object by construction.
+///
+/// The spelling parity the two reads need used to be bought with
+/// `core.quotepath=false`; it is the `-z` door's now, and total rather than
+/// partial — the reasoning is on the door itself ([B01]).
 ///
 /// `-r` is explicit because `diff-tree` does not recurse by default: `-p` and
 /// `--numstat` imply it, but `--name-status` does not, so without it the
@@ -1991,40 +1994,14 @@ pub(crate) fn format_join_summary(summary: &JoinSummary<'_>) -> String {
 /// Either read failing yields an empty vec, which omits the `files:` line
 /// rather than asserting a commit changed nothing.
 pub(crate) async fn landing_file_stats(dir: &Path, sha: &str) -> Vec<tugchanges_core::FileStat> {
-    let numstat = git_stdout(
-        dir,
-        &[
-            "-c",
-            "core.quotepath=false",
-            "diff-tree",
-            "--no-commit-id",
-            "--root",
-            "-r",
-            "-M",
-            "--numstat",
-            sha,
-        ],
-    )
-    .await;
-    let name_status = git_stdout(
-        dir,
-        &[
-            "-c",
-            "core.quotepath=false",
-            "diff-tree",
-            "--no-commit-id",
-            "--root",
-            "-r",
-            "-M",
-            "--name-status",
-            sha,
-        ],
-    )
-    .await;
-    match (numstat, name_status) {
-        (Some(numstat), Some(name_status)) => tugchanges_core::file_stats(&numstat, &name_status),
-        _ => Vec::new(),
-    }
+    const SHAPE: [&str; 5] = ["diff-tree", "--no-commit-id", "--root", "-r", "-M"];
+    let mut numstat: Vec<&str> = SHAPE.to_vec();
+    numstat.extend_from_slice(&["--numstat", sha]);
+    let mut name_status: Vec<&str> = SHAPE.to_vec();
+    name_status.extend_from_slice(&["--name-status", sha]);
+    super::git::git_file_stats(dir, &numstat, &name_status)
+        .await
+        .unwrap_or_default()
 }
 
 /// The `/arc-discard` receipt's durable summary (Spec S02).
@@ -5747,10 +5724,10 @@ mod m02a_verification {
     /// The hunk ids the deck's checkboxes are keyed by — read the way the deck
     /// reads them, off the wire.
     async fn wire_hunk_ids(root: &Path) -> Vec<String> {
-        let diff = super::super::git::fetch_git_diff_with_untracked(root, &[])
+        let (diff, listed) = super::super::git::fetch_git_diff_with_untracked(root, &[])
             .await
             .expect("wire diff");
-        super::super::git::parse_git_diff(&diff)
+        super::super::git::parse_git_diff(&diff, &listed)
             .into_iter()
             .find(|f| f.path == FILE)
             .expect("the dirty file is on the wire")

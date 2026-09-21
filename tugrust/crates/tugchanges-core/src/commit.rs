@@ -71,6 +71,9 @@ pub enum CommitError {
     /// An elected hunk is no longer in the file's diff — the content moved
     /// under the election. Nothing was staged and nothing committed.
     HunkDrift { path: String, ids: Vec<String> },
+    /// Tug was about to hand git a path git does not know — [B04]'s tripwire.
+    /// Nothing was staged and nothing committed. Carries the offending paths.
+    BadPath { paths: Vec<String> },
     /// A real error (git/sqlite/io/blank message) — exit 1.
     Other(String),
 }
@@ -94,6 +97,14 @@ impl fmt::Display for CommitError {
             CommitError::HunkDrift { path, ids } => {
                 write!(f, "hunk drift: {path} no longer has {}", ids.join(", "))
             }
+            CommitError::BadPath { paths } => write!(
+                f,
+                "Tug produced {} path(s) git does not know, so nothing was committed. This is a \
+                 defect in Tug, not in your files: the names are correct and there is nothing \
+                 for you to fix, and retrying will fail the same way. The path(s): {}",
+                paths.len(),
+                paths.join(", ")
+            ),
             CommitError::Other(msg) => write!(f, "{msg}"),
         }
     }
@@ -122,10 +133,19 @@ pub struct LeftBehind {
     pub shared: Vec<String>,
 }
 
-/// The structured commit receipt (Spec S03). `numstat` is the raw
-/// `git show --numstat --format= HEAD` text, kept as the compatibility bridge
-/// until the deck consumes `files` directly ([Q01]). `left_behind` names the
+/// The structured commit receipt (Spec S03). `left_behind` names the
 /// still-dirty files per bucket after the commit (Spec S04).
+///
+/// `numstat` is the `<added>\t<deleted>\t<path>` text kept as the
+/// compatibility bridge until the deck consumes `files` directly ([Q01]). It
+/// is rendered from `files` rather than read from git's line-oriented output,
+/// so the paths in it are the files' real names and never git's C-quoted
+/// display form.
+///
+/// **It cannot carry every path, and `files` is the field to read.** Its
+/// delimiters are a tab and a newline, so a path containing either one splits
+/// its own row — a limit of the format, not of the quoting, and one no
+/// spelling of this field removes. `files` is typed and has no such limit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CommitReceipt {
     pub sha: String,
@@ -152,6 +172,7 @@ pub fn commit(opts: CommitOptions) -> Result<CommitReceipt, CommitError> {
     }
 
     let elections = normalize_elections(opts.hunks.as_ref(), &files)?;
+    check_operands(&repo_root, &files)?;
     stage_and_commit(&repo_root, &files, &opts.message, &elections)?;
     let mut receipt = build_receipt(&repo_root, &opts.message).map_err(CommitError::Other)?;
     receipt.left_behind = compute_left_behind(&opts);
@@ -196,6 +217,65 @@ fn derive_file_set(opts: &CommitOptions) -> Result<(PathBuf, Vec<String>), Commi
 
     let files = select_from_buckets(&attributed, &unattributed, opts)?;
     Ok((resolved.repo_root, files))
+}
+
+/// **[B04]'s tripwire.** Refuse before staging anything unless every operand is
+/// a path git can actually match: present in the worktree, or named by the
+/// status as gone (a staged or worktree deletion, or a staged rename's source,
+/// which `stage_and_commit` puts back on the commit pathspec).
+///
+/// This exists because of how the `ł` failure reached the user. A path Tug
+/// manufactured went to git as a pathspec, git said `pathspec '…' did not match
+/// any file(s) known to git`, and the sheet relayed that beside a "try again"
+/// button that re-sent the identical string — so the message named the user's
+/// file and asked them to fix something that was not broken, forever. Naming it
+/// as Tug's own bad path turns the next bug of this class into one read.
+///
+/// After the [B01] door this should never fire. It is not a fallback and it
+/// does not repair anything: it refuses, names what it refused, and stages
+/// nothing.
+///
+/// The status read is also where [B06] surfaces. A path git cannot decode is a
+/// path this function cannot check, so it is reported rather than skipped —
+/// skipping it would let an undecodable name ride into the commit unexamined,
+/// which is the outcome the decision exists to prevent.
+///
+/// Presence is asked of the **link itself**, never of what it points at. A
+/// symlink whose target does not exist is a file git tracks and commits like
+/// any other, and `Path::exists` follows the link and answers no — which would
+/// refuse a legitimate commit in exactly the voice this tripwire reserves for
+/// Tug's own bugs.
+fn check_operands(repo_root: &Path, files: &[String]) -> Result<(), CommitError> {
+    let report = git::read_status(repo_root, &["--untracked-files=all"]).map_err(|e| {
+        CommitError::Other(format!(
+            "cannot read the working tree before committing: {e}"
+        ))
+    })?;
+
+    // Every path git knows is absent: a deletion on either side, and the source
+    // of a staged rename.
+    let mut known_absent: BTreeSet<&str> = BTreeSet::new();
+    for entry in &report.entries {
+        if entry.xy.contains('D') {
+            known_absent.insert(entry.path.as_str());
+        }
+        if let Some(orig) = entry.orig_path.as_deref() {
+            known_absent.insert(orig);
+        }
+    }
+
+    let bad: Vec<String> = files
+        .iter()
+        .filter(|path| !on_disk(&repo_root.join(path)))
+        .filter(|path| !known_absent.contains(path.as_str()))
+        .cloned()
+        .collect();
+
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        Err(CommitError::BadPath { paths: bad })
+    }
 }
 
 /// Apply the disposition matrix (Table T01) to already-classified buckets —
@@ -418,11 +498,8 @@ fn require_clean_index(repo_root: &Path) -> Result<(), CommitError> {
     if output.status.success() {
         return Ok(());
     }
-    let staged = git::git_stdout(repo_root, &["diff", "--cached", "--name-only"])
+    let staged = git::read_paths(repo_root, &["diff", "--cached", "--name-only"])
         .unwrap_or_default()
-        .lines()
-        .map(str::to_string)
-        .collect::<Vec<_>>()
         .join("\n");
     Err(CommitError::Other(format!(
         "hunk election needs a clean index; these paths are already staged:\n{staged}"
@@ -434,10 +511,20 @@ fn require_clean_index(repo_root: &Path) -> Result<(), CommitError> {
 fn tracked_paths(repo_root: &Path, files: &[String]) -> BTreeSet<String> {
     let mut ls_args: Vec<&str> = vec!["ls-files", "--"];
     ls_args.extend(files.iter().map(String::as_str));
-    match git::git_stdout(repo_root, &ls_args) {
-        Ok(out) => out.lines().map(str::to_string).collect(),
+    match git::read_paths(repo_root, &ls_args) {
+        Ok(paths) => paths.into_iter().collect(),
         Err(_) => files.iter().cloned().collect(),
     }
+}
+
+/// Whether `path` names something on disk — the **link itself** for a symlink,
+/// rather than whatever it points at.
+///
+/// `Path::exists` resolves the link, so a symlink with a missing target reads
+/// as absent from a tree git is perfectly happy to track and commit. Every
+/// presence test on a commit operand asks this instead.
+fn on_disk(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
 }
 
 /// Whether any hunk in `patch` carries no context lines. `git apply` refuses
@@ -523,15 +610,15 @@ fn reset_index(repo_root: &Path, paths: &[String]) {
 fn stageable_paths(repo_root: &Path, files: &[String]) -> Vec<String> {
     let mut ls_args: Vec<&str> = vec!["ls-files", "--"];
     ls_args.extend(files.iter().map(String::as_str));
-    let tracked: Vec<String> = match git::git_stdout(repo_root, &ls_args) {
-        Ok(out) => out.lines().map(str::to_string).collect(),
+    let tracked: Vec<String> = match git::read_paths(repo_root, &ls_args) {
+        Ok(paths) => paths,
         // Can't tell — stage everything, as before.
         Err(_) => return files.to_vec(),
     };
 
     files
         .iter()
-        .filter(|path| repo_root.join(path).exists() || tracked.iter().any(|t| t == *path))
+        .filter(|path| on_disk(&repo_root.join(path)) || tracked.iter().any(|t| t == *path))
         .cloned()
         .collect()
 }
@@ -540,7 +627,7 @@ fn stageable_paths(repo_root: &Path, files: &[String]) -> Vec<String> {
 /// `files` — see [`stage_and_commit`]. Best-effort: a failing `git diff` leaves
 /// the set untouched.
 fn with_rename_sources(repo_root: &Path, files: &[String]) -> Vec<String> {
-    let Ok(name_status) = git::git_stdout(
+    let Ok(renames) = git::read_rename_pairs(
         repo_root,
         &["diff", "--cached", "--name-status", "--find-renames"],
     ) else {
@@ -548,19 +635,9 @@ fn with_rename_sources(repo_root: &Path, files: &[String]) -> Vec<String> {
     };
 
     let mut paths = files.to_vec();
-    for line in name_status.lines() {
-        let mut fields = line.split('\t');
-        let Some(status) = fields.next() else {
-            continue;
-        };
-        if !status.starts_with('R') {
-            continue;
-        }
-        let (Some(source), Some(destination)) = (fields.next(), fields.next()) else {
-            continue;
-        };
-        if files.iter().any(|f| f == destination) && !paths.iter().any(|p| p == source) {
-            paths.push(source.to_string());
+    for (source, destination) in renames {
+        if files.iter().any(|f| *f == destination) && !paths.iter().any(|p| *p == source) {
+            paths.push(source);
         }
     }
     paths
@@ -591,10 +668,26 @@ fn build_receipt(repo_root: &Path, message: &str) -> Result<CommitReceipt, Strin
     let branch = git::git_stdout(repo_root, &["branch", "--show-current"])
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-    let numstat = git::git_stdout(repo_root, &["show", "--numstat", "--format=", "HEAD"])?;
-    let name_status = git::git_stdout(repo_root, &["show", "--name-status", "--format=", "HEAD"])?;
-
-    let files = git::file_stats(&numstat, &name_status);
+    let files = git::read_file_stats(
+        repo_root,
+        &["show", "--numstat", "--format=", "HEAD"],
+        &["show", "--name-status", "--format=", "HEAD"],
+    )
+    .map_err(|e| e.to_string())?;
+    // The raw `numstat` field is the transition bridge ([Q01]), and it is
+    // rendered from the parsed files rather than read a second time from git's
+    // line-oriented output — which would put a C-quoted path back into the
+    // receipt the rest of it no longer carries. Same `<added>\t<deleted>\t<path>`
+    // shape; a binary file keeps git's `-`, and a rename shows its destination,
+    // which is the path `files` already keys on.
+    let numstat = files
+        .iter()
+        .map(|f| {
+            let added = f.added.map_or_else(|| "-".to_owned(), |n| n.to_string());
+            let deleted = f.deleted.map_or_else(|| "-".to_owned(), |n| n.to_string());
+            format!("{added}\t{deleted}\t{}\n", f.path)
+        })
+        .collect::<String>();
     let insertions: u32 = files.iter().map(|f| f.added.unwrap_or(0)).sum();
     let deletions: u32 = files.iter().map(|f| f.deleted.unwrap_or(0)).sum();
     let aggregate = Aggregate {
@@ -1169,5 +1262,247 @@ mod tests {
             err.to_string().contains("selects no hunks"),
             "detail was: {err}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // The hostile-filename fixture [B05] — the eucit round trip
+    // -----------------------------------------------------------------------
+
+    /// Git's own spelling of a name, as the door will hand it back: the roster
+    /// verbatim, except that git precomposes the decomposed one (measured in
+    /// `tugcore::hostile_repo`).
+    fn hostile_paths_as_git_reports_them() -> Vec<String> {
+        tugcore::hostile_repo::HOSTILE_NAMES
+            .iter()
+            .map(|n| {
+                if n.path == "No\u{301}tes.txt" {
+                    "N\u{f3}tes.txt".to_string()
+                } else {
+                    n.path.to_string()
+                }
+            })
+            .collect()
+    }
+
+    /// A file whose NAME is a glob commits as itself and takes nothing with
+    /// it [B03].
+    ///
+    /// The roster carries `*.jpg` for exactly this. Before
+    /// `GIT_LITERAL_PATHSPECS`, staging it matched every jpg in the tree, so
+    /// the failure was not an error the user could see — it was a commit
+    /// quietly carrying files they never selected, which is the worse of the
+    /// two shapes. The assertion is therefore on the **bystander**: it must
+    /// still be dirty afterwards.
+    #[test]
+    fn a_file_named_like_a_glob_commits_alone() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        let root = repo.path();
+        tugcore::hostile_repo::seed_hostile_repo(root).expect("the fixture seeds");
+        let glob_named = tugcore::hostile_repo::hostile("glob_star").path;
+        std::fs::write(root.join("holiday.jpg"), "a bystander\n").expect("write");
+
+        let receipt = commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "commit the glob-named file".to_string(),
+            paths: Some(vec![glob_named.to_string()]),
+            ..Default::default()
+        })
+        .expect("a glob-named file commits");
+
+        let committed: Vec<&str> = receipt.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(committed, vec![glob_named], "only the named file committed");
+
+        let after = git::read_status(root, &["--untracked-files=all"]).unwrap();
+        assert!(
+            after.untracked.iter().any(|p| p == "holiday.jpg"),
+            "the bystander jpg must still be untracked: {after:?}"
+        );
+    }
+
+    /// **The eucit failure, reproduced end to end.** Read the dirty paths the
+    /// way the changes list reads them, hand exactly those to `commit`, and the
+    /// commit lands.
+    ///
+    /// Today it does not: the status parser stores git's C-quoted display form
+    /// ([F01]), that string becomes an operand of `git add --` and `git commit
+    /// -- <paths>` ([F02]), git looks for a file whose name begins with a
+    /// literal `"`, finds none, and one unusual file among N blocks all N
+    /// ([F05]). Taking the paths from the listing rather than writing them out
+    /// by hand is the whole point — a test that typed the real names would
+    /// commit cleanly today and prove nothing.
+    #[test]
+    fn every_dirty_path_the_listing_reports_commits_through_the_real_verb() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        let root = repo.path();
+        tugcore::hostile_repo::seed_hostile_repo(root).expect("the fixture seeds");
+
+        // The changes list's own read of what is dirty.
+        let mut paths: Vec<String> = git::read_status(root, &["--branch"]).unwrap().untracked;
+        paths.sort();
+
+        let receipt = commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "commit the scanned records".to_string(),
+            paths: Some(paths.clone()),
+            ..Default::default()
+        })
+        .expect("a correctly named file commits");
+
+        let mut committed: Vec<String> = receipt.files.iter().map(|f| f.path.clone()).collect();
+        committed.sort();
+        let mut want = hostile_paths_as_git_reports_them();
+        want.sort();
+        assert_eq!(committed, want, "the receipt names every real file");
+
+        // Nothing dirty is left behind, which is the user-visible claim: the
+        // sixty-file commit that could not be made now can be.
+        let after = git::read_status(root, &[]).unwrap();
+        assert!(
+            after.entries.is_empty() && after.untracked.is_empty(),
+            "tree clean: {after:?}"
+        );
+
+        // The raw numstat bridge carries the real names too — no C-quoting.
+        // It is checked against the names a tab-and-newline-delimited format
+        // can represent at all: `tab\tx.txt` and `two\nlines.txt` split their
+        // own rows, which is the format's limit rather than the quoting's, and
+        // is why `files` is the field to read. See `CommitReceipt`.
+        let representable: Vec<&str> = want
+            .iter()
+            .map(String::as_str)
+            .filter(|p| !p.contains('\t') && !p.contains('\n'))
+            .collect();
+        let mut bridge: Vec<&str> = receipt
+            .numstat
+            .lines()
+            .filter_map(|l| l.split('\t').nth(2))
+            .filter(|p| representable.contains(p))
+            .collect();
+        bridge.sort_unstable();
+        assert_eq!(bridge, representable);
+    }
+
+    // -----------------------------------------------------------------------
+    // [B04] — the commit-boundary tripwire
+    // -----------------------------------------------------------------------
+
+    /// A path Tug produced that git does not know is refused **as Tug's own
+    /// bad path**, by name, before anything is staged.
+    ///
+    /// The message is the point. What the user saw was git's own
+    /// `pathspec '"01_Stanis\305\202aw…"' did not match any file(s) known to
+    /// git` beside a retry that re-sent the identical string — a message that
+    /// named their file and asked them to fix something that was not broken.
+    #[test]
+    fn a_path_git_does_not_know_is_refused_as_tugs_own_bug() {
+        let repo = init_repo();
+        let root = repo.path();
+        std::fs::write(root.join("real.txt"), "real\n").unwrap();
+
+        // The shape the defect produced: git's C-quoted display form of a real
+        // file, handed back to git as though it were the file's name.
+        let fabricated = "\"01_Stanis\\305\\202aw.jpg\"".to_string();
+        let err = commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "commit the scanned records".to_string(),
+            paths: Some(vec!["real.txt".to_string(), fabricated.clone()]),
+            ..Default::default()
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(&err, CommitError::BadPath { paths } if paths == &[fabricated.clone()]),
+            "the tripwire names exactly the bad path: {err:?}"
+        );
+        let text = err.to_string();
+        assert!(text.contains(&fabricated), "it names the path: {text}");
+        assert!(text.contains("defect in Tug"), "it owns the bug: {text}");
+        assert!(
+            text.contains("nothing for you to fix"),
+            "it does not ask the user to fix their file: {text}"
+        );
+        assert!(
+            !err.is_refusal(),
+            "a Tug bug is an error, not the [P03] refusal"
+        );
+
+        // Nothing was staged and nothing committed — the good path did not ride
+        // along and the index is untouched.
+        let staged = git::read_paths(root, &["diff", "--cached", "--name-only"]).unwrap();
+        assert!(staged.is_empty(), "index untouched: {staged:?}");
+        let log = git::git_stdout(root, &["log", "--format=%s"]).unwrap();
+        assert_eq!(log.trim(), "init", "no commit was made");
+    }
+
+    /// The tripwire does not fire on a path that is legitimately absent: a
+    /// worktree deletion, an already-staged deletion, and a staged rename's
+    /// source are all operands git matches.
+    #[test]
+    fn the_tripwire_passes_every_path_git_can_still_match() {
+        let repo = init_repo();
+        let root = repo.path();
+        std::fs::write(root.join("gone.txt"), "x\n").unwrap();
+        std::fs::write(root.join("dropped.txt"), "y\n").unwrap();
+        std::fs::write(root.join("old.txt"), "one\ntwo\nthree\n").unwrap();
+        git(root, &["add", "-A"]);
+        git(root, &["commit", "-q", "-m", "seed"]);
+
+        std::fs::remove_file(root.join("gone.txt")).unwrap(); // worktree deletion
+        git(root, &["rm", "-q", "dropped.txt"]); // staged deletion
+        git(root, &["mv", "old.txt", "new.txt"]); // staged rename
+
+        let receipt = commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "remove and rename".to_string(),
+            paths: Some(vec![
+                "gone.txt".to_string(),
+                "dropped.txt".to_string(),
+                "new.txt".to_string(),
+            ]),
+            ..Default::default()
+        })
+        .expect("every operand is one git can match");
+
+        let mut paths: Vec<&str> = receipt.files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["dropped.txt", "gone.txt", "new.txt"]);
+    }
+
+    /// After the [B01] door the tripwire never fires on the case it was written
+    /// for — the whole hostile roster passes it.
+    #[test]
+    fn the_tripwire_is_silent_on_every_hostile_name() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        let root = repo.path();
+        tugcore::hostile_repo::seed_hostile_repo(root).expect("the fixture seeds");
+        let paths = git::read_status(root, &["--branch"]).unwrap().untracked;
+        assert!(check_operands(root, &paths).is_ok(), "{paths:?}");
+    }
+
+    /// A symlink whose target does not exist is a file git tracks and commits
+    /// like any other, and the tripwire must not read it as one of Tug's own
+    /// bad paths.
+    ///
+    /// `Path::exists` follows the link and answers no, which would have
+    /// refused the user's commit in the voice this tripwire reserves for a
+    /// defect in Tug — the same "nothing for you to fix" dead end the arc
+    /// exists to remove, arriving by a different door.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_with_no_target_is_a_file_git_commits() {
+        let repo = init_repo();
+        let root = repo.path();
+        std::os::unix::fs::symlink("nowhere/at/all", root.join("broken.link")).unwrap();
+
+        let receipt = commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "commit a dangling symlink".to_string(),
+            paths: Some(vec!["broken.link".to_string()]),
+            ..Default::default()
+        })
+        .expect("a dangling symlink commits like any other file");
+
+        let paths: Vec<&str> = receipt.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["broken.link"]);
     }
 }

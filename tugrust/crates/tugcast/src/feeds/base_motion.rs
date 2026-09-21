@@ -853,18 +853,8 @@ fn base_delta_paths(
     if old_base.is_empty() {
         return Vec::new();
     }
-    let out = tugcore::git_command()
-        .arg("-C")
-        .arg(repo)
-        .args(["diff", "--name-only", &old_base, base_branch])
-        .output();
-    match out {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(str::to_string)
-            .collect(),
-        _ => Vec::new(),
-    }
+    tugchanges_core::read_paths(repo, &["diff", "--name-only", &old_base, base_branch])
+        .unwrap_or_default()
 }
 
 /// `git merge-base <a> <b>`, empty when there is none.

@@ -498,6 +498,7 @@ async fn gather_head(
     // and the fingerprint (no side-band (size, mtime) fold-in needed).
     let diff = crate::feeds::git::fetch_git_diff_with_untracked(repo_dir, &paths)
         .await
+        .map(|(text, _listed)| text)
         .unwrap_or_default();
     let status_pairs: Vec<(String, String)> = files
         .iter()
@@ -592,8 +593,22 @@ async fn gather_arc(
         .unwrap_or_default();
     let worktree_abs = repo_dir.join(worktree);
     let worktree_status = if worktree_abs.is_dir() {
-        git_output(&worktree_abs, &["status", "--porcelain"])
+        // A fingerprint over the worktree's dirt, not a path listing — but it
+        // is read through the door all the same, so a hostile name changes
+        // the fingerprint by its real bytes rather than by git's escape of
+        // them. Rendered one `XY path` per line, which is the shape the
+        // `--porcelain` read produced.
+        crate::feeds::git::git_status(&worktree_abs, &[], &[])
             .await
+            .map(|report| {
+                report
+                    .entries
+                    .iter()
+                    .map(|e| format!("{} {}", e.xy, e.path))
+                    .chain(report.untracked.iter().map(|p| format!("?? {p}")))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
             .unwrap_or_default()
     } else {
         String::new()
@@ -603,6 +618,7 @@ async fn gather_arc(
     // The draft engine reads the whole range: an empty pathspec is unscoped.
     let diff = crate::feeds::git::fetch_arc_diff(repo_dir, worktree, base, branch, &[])
         .await
+        .map(|(text, _listed)| text)
         .unwrap_or_default();
     let git_log = git_output(
         repo_dir,

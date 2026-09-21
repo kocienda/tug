@@ -158,14 +158,7 @@ impl Workshop {
                 String::from_utf8_lossy(&out.stderr).trim()
             ));
         }
-        Ok(
-            git_stdout(&self.path, &["diff", "--cached", "--name-only", baseline])?
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .map(str::to_string)
-                .collect(),
-        )
+        crate::ops::git_paths(&self.path, &["diff", "--cached", "--name-only", baseline])
     }
 
     /// Whether the working tree still holds exactly what `sha` does.
@@ -176,8 +169,7 @@ impl Workshop {
     /// which would convert a replay join into a squash as a side effect of
     /// reading it.
     pub fn matches(&self, sha: &str) -> Result<bool, String> {
-        let dirty = git_stdout(&self.path, &["status", "--porcelain"])?;
-        if !dirty.trim().is_empty() {
+        if crate::ops::has_uncommitted(&self.path)? {
             return Ok(false);
         }
         let head = git_stdout(&self.path, &["rev-parse", "HEAD"])?;
@@ -208,15 +200,10 @@ impl Workshop {
         // Only what this candidate would actually change is scanned — a
         // whole-tree read would cost the project's size on every pass to
         // re-answer a question about a handful of files.
-        let touched: Vec<String> = git_stdout(
+        let touched: Vec<String> = crate::ops::git_paths(
             &self.path,
             &["diff", "--cached", "--name-only", &self.base_head],
-        )?
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect();
+        )?;
         let markers = self.marker_paths(&touched);
         if !markers.is_empty() {
             return Err(format!(
@@ -321,18 +308,13 @@ impl Workshop {
         // Nothing moved since the tip — a turn that resolved nothing adds no
         // commit, so the chain stays a record of progress rather than of
         // attempts.
-        let changed = git_stdout(&self.path, &["diff", "--cached", "--name-only", &chain.tip])?;
-        if changed.trim().is_empty() {
+        let touched: Vec<String> =
+            crate::ops::git_paths(&self.path, &["diff", "--cached", "--name-only", &chain.tip])?;
+        if touched.is_empty() {
             return Ok(None);
         }
 
         let known: Vec<String> = chain.record.paths.iter().map(|p| p.path.clone()).collect();
-        let touched: Vec<String> = changed
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .map(str::to_string)
-            .collect();
         let stray: Vec<String> = self
             .marker_paths(&touched)
             .into_iter()
@@ -574,10 +556,7 @@ pub fn remove(repo: &Path, name: &str, warnings: &mut Vec<String>) {
 /// the right instrument: per-clone, untracked, and never an edit to the user's
 /// committed `.gitignore`.
 fn ensure_tug_ignored(repo: &Path) {
-    let covered = git_output(repo, &["check-ignore", "-q", ".tug/"])
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if covered {
+    if crate::ops::tug_dir_is_ignored(repo) {
         return;
     }
     let Ok(common) = git_stdout(
@@ -990,10 +969,7 @@ mod tests {
         let temp = init(false);
         let repo = temp.path();
         assert!(
-            !git_output(repo, &["check-ignore", "-q", ".tug/"])
-                .unwrap()
-                .status
-                .success(),
+            !crate::ops::tug_dir_is_ignored(repo),
             "the fixture must start with .tug/ unignored"
         );
 

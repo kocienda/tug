@@ -24,3 +24,5 @@ tuggram.workspace = true
 
 [dev-dependencies]
 serial_test = "3"
+# The hostile-filename fixture [B05], shared with tugchanges-core.
+tugcore = { workspace = true, features = ["test-fixtures"] }

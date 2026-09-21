@@ -503,16 +503,12 @@ fn git_tracks(path: &Path) -> bool {
     let Some(dir) = git_dir_for(path) else {
         return false;
     };
-    tugcore::git_command()
-        .arg("-C")
-        .arg(&dir)
-        .arg("ls-files")
-        .arg("--error-unmatch")
-        .arg("--")
-        .arg(path)
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false)
+    let Some(text) = path.to_str() else {
+        return false;
+    };
+    // A non-zero exit — git's `--error-unmatch` saying nothing matched — is
+    // the door's error, so a successful read is the answer.
+    tugchanges_core::read_paths(&dir, &["ls-files", "--error-unmatch", "--", text]).is_ok()
 }
 
 fn git_dir_for(path: &Path) -> Option<PathBuf> {

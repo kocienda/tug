@@ -1031,10 +1031,10 @@ pub async fn repo_root_for(dir: &Path) -> Option<PathBuf> {
 /// name the file, not the directory.
 pub async fn snapshot_worktree(repo_root: &Path) -> HashMap<PathBuf, FileState> {
     let mut map = HashMap::new();
-    let Some(output) = run_git_status_porcelain(repo_root).await else {
+    let Some(report) = run_git_status_porcelain(repo_root).await else {
         return map;
     };
-    for (rel, status) in parse_worktree_states(&output) {
+    for (rel, status) in parse_worktree_states(&report) {
         let abs = repo_root.join(&rel);
         let mtime = tokio::fs::metadata(&abs)
             .await
@@ -1045,54 +1045,36 @@ pub async fn snapshot_worktree(repo_root: &Path) -> HashMap<PathBuf, FileState> 
     map
 }
 
-/// Run `git -C <repo_root> status --porcelain=v2 --untracked-files=all`,
-/// returning stdout on success or `None` on any failure (non-repo, git error,
+/// Read `git -C <repo_root> status --porcelain=v2 --untracked-files=all`
+/// through the `-z` door, or `None` on any failure (non-repo, git error,
 /// spawn failure) — the caller degrades to an empty snapshot.
-async fn run_git_status_porcelain(repo_root: &Path) -> Option<String> {
-    let output = tokio::process::Command::from(tugcore::git_command())
-        .args([
-            "-C",
-            &repo_root.to_string_lossy(),
-            "status",
-            "--porcelain=v2",
-            "--untracked-files=all",
-        ])
-        .output()
+async fn run_git_status_porcelain(repo_root: &Path) -> Option<tugchanges_core::StatusReport> {
+    crate::feeds::git::git_status(repo_root, &[], &["--untracked-files=all"])
         .await
-        .ok()?;
-    if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        None
-    }
+        .ok()
 }
 
-/// Extract `(repo-relative path, status)` pairs from porcelain-v2 output.
-/// `1 ` ordinary and `2 ` rename/copy entries yield their `XY` status
-/// (rename's `X` is `R`); `? ` untracked entries yield `"?"`. Unmerged
-/// (`u `) and header (`# `) lines are ignored. Mirrors the field layout
-/// `feeds/git.rs::parse_porcelain_v2` reads.
-pub(crate) fn parse_worktree_states(output: &str) -> Vec<(String, String)> {
+/// Project a [`StatusReport`](tugchanges_core::StatusReport) into
+/// `(repo-relative path, status)` pairs: a tracked entry yields its raw `XY`
+/// (a rename's is `R.`, and the pair names the *new* path), an untracked one
+/// yields `"?"`. Unmerged entries and the `# branch.*` headers never reach
+/// here — the door's parser drops them.
+///
+/// This used to split porcelain-v2 *lines* by hand, and a rename's two paths
+/// were told apart by the tab between them — which is precisely the field git
+/// quotes the whole record for when a path contains one. Reading the door's
+/// records instead, each path is its own record and there is nothing to split.
+pub(crate) fn parse_worktree_states(
+    report: &tugchanges_core::StatusReport,
+) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for line in output.lines() {
-        if let Some(rest) = line.strip_prefix("1 ") {
-            // XY sub mH mI mW hH hI path
-            let fields: Vec<&str> = rest.splitn(8, ' ').collect();
-            if fields.len() >= 8 && !fields[0].is_empty() && !fields[7].is_empty() {
-                out.push((fields[7].to_owned(), fields[0].to_owned()));
-            }
-        } else if let Some(rest) = line.strip_prefix("2 ") {
-            // XY sub mH mI mW hH hI Xscore path\torig
-            let fields: Vec<&str> = rest.splitn(9, ' ').collect();
-            if fields.len() >= 9 {
-                let new_path = fields[8].split('\t').next().unwrap_or(fields[8]);
-                if !new_path.is_empty() {
-                    out.push((new_path.to_owned(), fields[0].to_owned()));
-                }
-            }
-        } else if let Some(path) = line.strip_prefix("? ") {
-            out.push((path.to_owned(), "?".to_owned()));
+    for entry in &report.entries {
+        if !entry.path.is_empty() && !entry.xy.is_empty() {
+            out.push((entry.path.clone(), entry.xy.clone()));
         }
+    }
+    for path in &report.untracked {
+        out.push((path.clone(), "?".to_owned()));
     }
     out
 }
@@ -2019,26 +2001,87 @@ mod tests {
 
     #[test]
     fn parse_worktree_states_reads_ordinary_rename_untracked() {
-        let output = "\
-# branch.oid abc
-# branch.head main
-1 .M N... 100644 100644 100644 aaa bbb src/mod.rs
-2 R. N... 100644 100644 100644 aaa bbb R100 dst.rs\tsrc.rs
-? new.txt
-u UU N... 0 0 0 0 unmerged.rs
-";
-        let states = parse_worktree_states(output);
+        // `-z` records, as the door hands them over: the rename's original
+        // path is its own record rather than a tab-separated tail, and the
+        // new path here holds a tab of its own — the byte the old
+        // line-oriented read used as its separator.
+        let records: Vec<String> = [
+            "# branch.oid abc",
+            "# branch.head main",
+            "1 .M N... 100644 100644 100644 aaa bbb src/mod.rs",
+            "2 R. N... 100644 100644 100644 aaa bbb R100 ds\tt.rs",
+            "src.rs",
+            "? new.txt",
+            "u UU N... 0 0 0 0 unmerged.rs",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+        let report = tugchanges_core::parse_status_records(&records);
+        let states = parse_worktree_states(&report);
         let by: HashMap<&str, &str> = states
             .iter()
             .map(|(p, s)| (p.as_str(), s.as_str()))
             .collect();
         assert_eq!(by.get("src/mod.rs"), Some(&".M"));
-        assert_eq!(by.get("dst.rs"), Some(&"R."), "rename reports the new path");
+        assert_eq!(
+            by.get("ds\tt.rs"),
+            Some(&"R."),
+            "rename reports the new path, tab and all"
+        );
+        assert!(
+            !by.contains_key("src.rs"),
+            "the rename's original path is not a state of its own"
+        );
         assert_eq!(by.get("new.txt"), Some(&"?"));
         assert!(!by.contains_key("unmerged.rs"), "unmerged entries skipped");
     }
 
     // ---- real-git integration (snapshot + repo-root walk) -----------
+
+    /// The worktree snapshot is the attribution bracket's whole view of what
+    /// changed, and every path in it is keyed by its bytes on disk. A name git
+    /// escapes for display — `ł`, a tab, a `"`, a newline — used to arrive
+    /// escaped and key a file that does not exist, so the bracket attributed
+    /// nothing for it and said nothing about why ([F08]).
+    ///
+    /// The assertion is deliberately on disk existence rather than on a
+    /// spelling: a path in this map that is not a file is exactly the failure,
+    /// whatever form the mis-spelling took.
+    ///
+    /// Matched through `canonicalize` rather than by bytes, because one of the
+    /// roster's names is deliberately NFD and git reports it NFC — the
+    /// normalization step 1 measured and the door deliberately does not
+    /// perform. Both spellings open the same file, so "names the same file" is
+    /// the property to assert; "is spelled the way I wrote it" is not.
+    #[tokio::test]
+    async fn every_hostile_name_is_snapshotted_under_its_real_bytes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        tugcore::hostile_repo::seed_hostile_repo(root).expect("seed");
+
+        let snapshot = snapshot_worktree(root).await;
+        let real: Vec<PathBuf> = snapshot
+            .keys()
+            .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+            .collect();
+        for name in tugcore::hostile_repo::HOSTILE_NAMES {
+            let abs = root.join(name.path);
+            let want = std::fs::canonicalize(&abs).unwrap_or_else(|_| abs.clone());
+            assert!(
+                real.contains(&want),
+                "{} ({}) is missing from the worktree snapshot",
+                name.label,
+                name.why
+            );
+        }
+        for path in snapshot.keys() {
+            assert!(
+                path.exists(),
+                "{path:?} is in the snapshot but is not a file on disk"
+            );
+        }
+    }
 
     /// Init a git repo in a fresh tempdir with one committed file, so
     /// snapshots start from a clean working tree.

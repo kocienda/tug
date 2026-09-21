@@ -623,7 +623,11 @@ fn check_base_checkout(findings: &mut Vec<ArcFinding>, repo_root: &Path, name: &
             BASE_ECHO_CODE,
             format!(
                 "The base checkout holds, uncommitted, the same bytes arc '{name}' carries for {} ({}). A join drops them itself; to clear them now: tugtool arc resolve-base {name}",
-                if base.echoed.len() == 1 { "one path".to_string() } else { format!("{} paths", base.echoed.len()) },
+                if base.echoed.len() == 1 {
+                    "one path".to_string()
+                } else {
+                    format!("{} paths", base.echoed.len())
+                },
                 base.echoed.join(", ")
             ),
         );

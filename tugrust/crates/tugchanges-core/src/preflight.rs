@@ -253,16 +253,18 @@ pub fn diff(opts: DiffOptions) -> Result<DiffReport, String> {
 
 /// Run `git diff --numstat <scope>` + `git diff --name-status <scope>` and join
 /// them into per-file [`FileStat`]s.
+///
+/// Both reads go through the `-z` door ([B01]): a `tugtool diff` whose scope is
+/// the session's own changed files hands those paths straight back to git, so a
+/// C-quoted spelling would scope the diff to a file nobody has.
 fn diff_stats(repo_root: &Path, scope: &[&str]) -> Result<Vec<FileStat>, String> {
     let mut numstat_args: Vec<&str> = vec!["diff", "--numstat"];
     numstat_args.extend_from_slice(scope);
-    let numstat = git::git_stdout(repo_root, &numstat_args)?;
 
     let mut name_status_args: Vec<&str> = vec!["diff", "--name-status"];
     name_status_args.extend_from_slice(scope);
-    let name_status = git::git_stdout(repo_root, &name_status_args)?;
 
-    Ok(git::file_stats(&numstat, &name_status))
+    git::read_file_stats(repo_root, &numstat_args, &name_status_args).map_err(|e| e.to_string())
 }
 
 // The `preflight`/`log`/`diff` ops are proven end-to-end at the CLI integration

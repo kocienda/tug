@@ -20,3 +20,6 @@ tugcore.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# The hostile-filename fixture [B05] — one roster of unusual names, shared
+# with tugarc-core rather than copied into it.
+tugcore = { workspace = true, features = ["test-fixtures"] }

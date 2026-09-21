@@ -17,18 +17,124 @@ use tugcast_core::types::{
 };
 use tugchanges_core::HUNK_DIFF_FLAGS;
 
-/// Parse git status --porcelain=v2 --branch output into GitStatus.
+// ---------------------------------------------------------------------------
+// The `-z` door, from async code [B01]
+// ---------------------------------------------------------------------------
+//
+// Every path tugcast reads from git comes through one of these three. They are
+// thin: the reading, the `-z`, and the parsing all live in
+// `tugchanges_core::git`, and what is added here is the hop onto the blocking
+// pool, because the door is synchronous `std::process` and tugcast is not.
+//
+// `spawn_blocking` rather than a second async implementation of the door, and
+// that is the point of [B01]: a second implementation is a second place for a
+// listing to be spelled without `-z`, which is the defect this arc exists to
+// remove. tugcast already crosses this bridge for every other
+// `tugchanges_core` call it makes.
+//
+// Each one flattens its error to a `String`. A caller here degrades — an
+// empty snapshot, a skipped cycle — rather than propagating, so the typed
+// distinction the door draws has no consumer on this side; the caller that
+// must not swallow [B06] is the commit boundary, and it is in
+// `tugchanges_core` where the type is.
+
+/// Run a bare path listing through the door: `ls-files`, `diff --name-only`,
+/// `ls-tree --name-only`, `show --name-only`.
+pub(crate) async fn git_paths(dir: &Path, args: &[&str]) -> Result<Vec<String>, String> {
+    let dir = dir.to_path_buf();
+    let args: Vec<String> = args.iter().map(|s| (*s).to_owned()).collect();
+    tokio::task::spawn_blocking(move || {
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        tugchanges_core::read_paths(&dir, &borrowed).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("git listing task failed: {e}"))?
+}
+
+/// Run a listing through the door and hand back its **records**, unclassified.
 ///
-/// Delegates the parsing to `tugchanges_core`'s canonical
-/// [`parse_status_porcelain_v2`](tugchanges_core::parse_status_porcelain_v2)
-/// ([P06]/[P08]) and maps its [`StatusReport`](tugchanges_core::StatusReport) into
-/// the `tugcast_core` wire type: each tracked entry's XY splits into a staged
+/// For the one shape that is not a bare path listing: `git log -z
+/// --name-only`, where a commit's formatted record and the paths that follow
+/// it share the stream and the caller tells them apart. The value over reading
+/// stdout and splitting on NUL by hand is the same as everywhere else — the
+/// door decodes rather than substituting, so an undecodable path is an error
+/// instead of a U+FFFD-bearing name that matches no file ([B06]).
+pub(crate) async fn git_records(dir: &Path, args: &[&str]) -> Result<Vec<String>, String> {
+    let dir = dir.to_path_buf();
+    let args: Vec<String> = args.iter().map(|s| (*s).to_owned()).collect();
+    tokio::task::spawn_blocking(move || {
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        tugchanges_core::listing(&dir, &borrowed).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("git listing task failed: {e}"))?
+}
+
+/// Read a `--numstat` listing through the door.
+///
+/// Its entries are what a patch's file names are taken from: read in the same
+/// order git emits the patch, they name every chunk without anybody parsing a
+/// quoted `+++ b/…` header.
+pub(crate) async fn git_numstat(
+    dir: &Path,
+    args: &[&str],
+) -> Result<Vec<tugchanges_core::NumstatEntry>, String> {
+    let dir = dir.to_path_buf();
+    let args: Vec<String> = args.iter().map(|s| (*s).to_owned()).collect();
+    tokio::task::spawn_blocking(move || {
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        tugchanges_core::read_numstat(&dir, &borrowed).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("git numstat task failed: {e}"))?
+}
+
+/// Read `git [pre…] status --porcelain=v2 [extra…]` through the door.
+pub(crate) async fn git_status(
+    dir: &Path,
+    pre: &[&str],
+    extra: &[&str],
+) -> Result<tugchanges_core::StatusReport, String> {
+    let dir = dir.to_path_buf();
+    let pre: Vec<String> = pre.iter().map(|s| (*s).to_owned()).collect();
+    let extra: Vec<String> = extra.iter().map(|s| (*s).to_owned()).collect();
+    tokio::task::spawn_blocking(move || {
+        let pre: Vec<&str> = pre.iter().map(String::as_str).collect();
+        let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+        tugchanges_core::read_status_from(&dir, &pre, &extra).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("git status task failed: {e}"))?
+}
+
+/// Join a `--numstat` read and a `--name-status` read of the same commit into
+/// per-file stats, both through the door.
+pub(crate) async fn git_file_stats(
+    dir: &Path,
+    numstat_args: &[&str],
+    name_status_args: &[&str],
+) -> Result<Vec<tugchanges_core::FileStat>, String> {
+    let dir = dir.to_path_buf();
+    let numstat: Vec<String> = numstat_args.iter().map(|s| (*s).to_owned()).collect();
+    let name_status: Vec<String> = name_status_args.iter().map(|s| (*s).to_owned()).collect();
+    tokio::task::spawn_blocking(move || {
+        let numstat: Vec<&str> = numstat.iter().map(String::as_str).collect();
+        let name_status: Vec<&str> = name_status.iter().map(String::as_str).collect();
+        tugchanges_core::read_file_stats(&dir, &numstat, &name_status).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("git file-stats task failed: {e}"))?
+}
+
+/// Project a [`StatusReport`](tugchanges_core::StatusReport) into `GitStatus`.
+///
+/// The reading and the parsing are the door's ([P06]/[P08]); what happens here
+/// is only the map into the `tugcast_core` wire type: each tracked entry's XY splits into a staged
 /// (X, rendered `R` for a rename) and/or unstaged (Y) `FileStatus`, in the same
 /// per-line order as before; untracked paths and branch/ahead/behind/head carry
 /// straight over. `head_message` is filled separately via git log. The wire
-/// contract is unchanged — only the parser internals moved.
-pub(crate) fn parse_porcelain_v2(output: &str) -> GitStatus {
-    let report = tugchanges_core::parse_status_porcelain_v2(output);
+/// contract is unchanged — only where the report comes from moved.
+pub(crate) fn git_status_wire(report: &tugchanges_core::StatusReport) -> GitStatus {
     let mut staged: Vec<FileStatus> = Vec::new();
     let mut unstaged: Vec<FileStatus> = Vec::new();
     for entry in &report.entries {
@@ -53,13 +159,13 @@ pub(crate) fn parse_porcelain_v2(output: &str) -> GitStatus {
         }
     }
     GitStatus {
-        branch: report.branch,
+        branch: report.branch.clone(),
         ahead: report.ahead,
         behind: report.behind,
         staged,
         unstaged,
-        untracked: report.untracked,
-        head_sha: report.head_sha,
+        untracked: report.untracked.clone(),
+        head_sha: report.head_sha.clone(),
         head_message: String::new(), // Filled separately via git log
     }
 }
@@ -91,33 +197,14 @@ pub(crate) async fn fetch_head_message(repo_dir: &Path) -> String {
 /// races a concurrent user `git commit`/`git add` in the same repo (the commit
 /// fails with `index.lock: File exists`). A read-only status has no need to
 /// write the index, so we opt out of the lock entirely.
-pub(crate) async fn fetch_git_status(repo_dir: &Path) -> Option<String> {
-    let output = Command::from(tugcore::git_command())
-        .args([
-            "-C",
-            &repo_dir.to_string_lossy(),
-            "--no-optional-locks",
-            "status",
-            "--porcelain=v2",
-            "--branch",
-        ])
-        .output()
-        .await;
-
-    match output {
-        Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).to_string()),
-        Ok(o) => {
-            // `git`'s stderr ends with a `\n`; the tracing fmt layer
-            // appends its own newline per event, so logging the raw
-            // string would produce a `\n\n` and a blank line in the
-            // log file. Trim before logging.
-            let stderr = String::from_utf8_lossy(&o.stderr);
-            let stderr = stderr.trim_end();
-            warn!(stderr = %stderr, "git status command failed");
-            None
-        }
+pub(crate) async fn fetch_git_status(repo_dir: &Path) -> Option<tugchanges_core::StatusReport> {
+    match git_status(repo_dir, &["--no-optional-locks"], &["--branch"]).await {
+        Ok(report) => Some(report),
         Err(e) => {
-            warn!(error = %e, "failed to execute git status");
+            // The door hands back git's own trimmed stderr; the tracing fmt
+            // layer appends its own newline per event, so an untrimmed one
+            // would leave a blank line in the log file.
+            warn!(error = %e, "git status command failed");
             None
         }
     }
@@ -191,7 +278,7 @@ pub async fn build_git_diff_snapshot(
         };
     }
     let files = match fetch_git_diff_with_untracked(repo_dir, paths).await {
-        Some(output) => parse_git_diff(&output),
+        Some((output, listed)) => parse_git_diff(&output, &listed),
         None => Vec::new(),
     };
     let total_added = files.iter().map(|f| f.added).sum();
@@ -249,8 +336,15 @@ pub async fn build_commit_diff_snapshot(
         args.push("--");
         args.extend(paths.iter().map(String::as_str));
     }
+    // The same diff, listed: `--numstat` for `-p`, every other flag held,
+    // so its entries face the patch's chunks one for one.
+    let mut listing_args: Vec<&str> = args.clone();
+    listing_args[args.iter().position(|a| *a == "-p").expect("-p")] = "--numstat";
+    let listed = git_numstat(repo_dir, &listing_args)
+        .await
+        .unwrap_or_default();
     let files = match run_git_capture(repo_dir, &args).await {
-        Some(output) => parse_git_diff(&output),
+        Some(output) => parse_git_diff(&output, &listed),
         None => Vec::new(),
     };
     let total_added = files.iter().map(|f| f.added).sum();
@@ -272,7 +366,7 @@ pub async fn build_commit_diff_snapshot(
 /// into ([P10]). This is the light list, no unified diff text: each file's hunks
 /// are fetched lazily per-row through the existing commit-flavor GIT_DIFF path.
 ///
-/// Reuses `tugchanges_core::file_stats` — the same join the `/commit` receipt
+/// Reuses `tugchanges_core::read_file_stats` — the same join the `/commit` receipt
 /// builds — over `git show --numstat/--name-status --format= <sha>`. A missing
 /// sha (rebase, gc) yields empty `files`, not an error; a non-git dir returns
 /// `no_repo: true`.
@@ -321,41 +415,21 @@ pub async fn build_commit_files_snapshot(
             files: Vec::new(),
         };
     }
-    let numstat = run_git_capture(
+    let files = git_file_stats(
         repo_dir,
-        &[
-            "-c",
-            "core.quotepath=false",
-            "show",
-            "--numstat",
-            "--format=",
-            sha,
-        ],
+        &["show", "--numstat", "--format=", sha],
+        &["show", "--name-status", "--format=", sha],
     )
     .await
-    .unwrap_or_default();
-    let name_status = run_git_capture(
-        repo_dir,
-        &[
-            "-c",
-            "core.quotepath=false",
-            "show",
-            "--name-status",
-            "--format=",
-            sha,
-        ],
-    )
-    .await
-    .unwrap_or_default();
-    let files = tugchanges_core::file_stats(&numstat, &name_status)
-        .into_iter()
-        .map(|f| GitCommitFile {
-            path: f.path,
-            status: f.status,
-            added: f.added.unwrap_or(0),
-            removed: f.deleted.unwrap_or(0),
-        })
-        .collect();
+    .unwrap_or_default()
+    .into_iter()
+    .map(|f| GitCommitFile {
+        path: f.path,
+        status: f.status,
+        added: f.added.unwrap_or(0),
+        removed: f.deleted.unwrap_or(0),
+    })
+    .collect();
     // The commit's own identity, for a reader that has to say what this sha
     // IS — a hover over a bare hash in prose. `-s` suppresses the diff, and
     // the unit separator cannot appear in a name or in `%s` (which strips
@@ -455,11 +529,9 @@ pub async fn build_git_log_snapshot(
         .unwrap_or_else(|| "(detached)".to_string());
     let limit_arg = format!("-n{}", limit.saturating_add(1));
     let skip_arg = format!("--skip={offset}");
-    let mut commits = match run_git_capture(
+    let mut commits = match git_records(
         repo_dir,
         &[
-            "-c",
-            "core.quotepath=false",
             "log",
             // `-z` NUL-terminates each commit record so the final `%b` body
             // field can span multiple lines without a newline-split
@@ -499,8 +571,11 @@ pub async fn build_git_log_snapshot(
     )
     .await
     {
-        Some(output) => parse_git_log(&output),
-        None => Vec::new(),
+        Ok(records) => parse_git_log(&records),
+        Err(e) => {
+            warn!(error = %e, "git log failed");
+            Vec::new()
+        }
     };
     // The probe commit answered "is there more"; it is not part of this page.
     let has_more = commits.len() > limit as usize;
@@ -565,12 +640,12 @@ fn strip_tug_trailers(body: &str) -> String {
 /// because `subject` is `fields[6]`, an index the trailing fields do not move.
 /// Raising it would newly reject records this parser handles today and drop
 /// their paths.
-fn parse_git_log(output: &str) -> Vec<GitLogCommit> {
+fn parse_git_log(records: &[String]) -> Vec<GitLogCommit> {
     let mut commits: Vec<GitLogCommit> = Vec::new();
     // False while the paths of a record we rejected stream past, so they are
     // never misfiled onto the previous (good) commit.
     let mut collecting = false;
-    for chunk in output.split('\0') {
+    for chunk in records {
         // Only the first path of each commit carries git's leading newline;
         // trimming it here costs nothing on the others.
         let chunk = chunk.trim_start_matches('\n');
@@ -673,7 +748,7 @@ pub async fn build_arc_diff_snapshot(
         };
     }
     let files = match fetch_arc_diff(repo_dir, worktree_abs, base, branch, paths).await {
-        Some(output) => parse_git_diff(&output),
+        Some((output, listed)) => parse_git_diff(&output, &listed),
         None => Vec::new(),
     };
     let total_added = files.iter().map(|f| f.added).sum();
@@ -714,7 +789,7 @@ pub(crate) async fn fetch_arc_diff(
     base: &str,
     branch: &str,
     paths: &[String],
-) -> Option<String> {
+) -> Option<(String, Vec<tugchanges_core::NumstatEntry>)> {
     let worktree_abs = Path::new(worktree_abs);
     if worktree_abs.is_dir() {
         let merge_base = run_git_line(worktree_abs, &["merge-base", base, branch]).await?;
@@ -731,22 +806,36 @@ pub(crate) async fn fetch_arc_diff(
 /// Note that `-M` rename detection is scoped along with the diff: a rename
 /// whose other side falls outside the pathspec renders as an add or a delete
 /// rather than as a rename. That is git's behaviour for any scoped diff.
-async fn run_git_diff_against(dir: &Path, target: &str, paths: &[String]) -> Option<String> {
-    let dir = dir.to_string_lossy();
-    let mut args: Vec<&str> = vec!["-C", &dir, "-c", "core.quotepath=false", "diff"];
+async fn run_git_diff_against(
+    dir: &Path,
+    target: &str,
+    paths: &[String],
+) -> Option<(String, Vec<tugchanges_core::NumstatEntry>)> {
+    let dir_text = dir.to_string_lossy();
+    let mut args: Vec<&str> = vec!["-C", &dir_text, "diff"];
     args.extend_from_slice(HUNK_DIFF_FLAGS);
     args.extend_from_slice(&["-M", target]);
     if !paths.is_empty() {
         args.push("--");
         args.extend(paths.iter().map(String::as_str));
     }
+    // The same range, listed, so its entries name the patch's chunks.
+    let mut listing_args: Vec<&str> = args[2..].to_vec();
+    let cut = listing_args
+        .iter()
+        .position(|a| *a == "--")
+        .unwrap_or(listing_args.len());
+    listing_args.insert(cut, "--numstat");
+    let listed = git_numstat(dir, &listing_args).await.unwrap_or_default();
     let output = Command::from(tugcore::git_command())
         .env_remove("GIT_DIFF_OPTS")
         .args(&args)
         .output()
         .await;
     match output {
-        Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).into_owned()),
+        Ok(o) if o.status.success() => {
+            Some((String::from_utf8_lossy(&o.stdout).into_owned(), listed))
+        }
         Ok(o) => {
             let stderr = String::from_utf8_lossy(&o.stderr);
             warn!(stderr = %stderr.trim_end(), target, "git diff (arc range) failed");
@@ -796,22 +885,17 @@ async fn run_git_capture(dir: &Path, args: &[&str]) -> Option<String> {
 
 /// List the untracked (non-ignored) files in `repo_dir`, optionally narrowed
 /// to a pathspec — the repo-relative paths `git diff HEAD` cannot show.
+///
+/// Every path here is handed straight back to git as the operand of a
+/// `diff --no-index`, so a display-form spelling would synthesize a diff for a
+/// file that does not exist. The door is what makes that impossible.
 async fn list_untracked_paths(repo_dir: &Path, paths: &[String]) -> Vec<String> {
-    let mut args: Vec<&str> = vec![
-        "-c",
-        "core.quotepath=false",
-        "ls-files",
-        "--others",
-        "--exclude-standard",
-    ];
+    let mut args: Vec<&str> = vec!["ls-files", "--others", "--exclude-standard"];
     if !paths.is_empty() {
         args.push("--");
         args.extend(paths.iter().map(String::as_str));
     }
-    match run_git_capture(repo_dir, &args).await {
-        Some(output) => output.lines().map(str::to_owned).collect(),
-        None => Vec::new(),
-    }
+    git_paths(repo_dir, &args).await.unwrap_or_default()
 }
 
 /// Synthesize a new-file unified diff for one untracked `path` via
@@ -853,19 +937,50 @@ async fn synthesize_untracked_diff(repo_dir: &Path, path: &str) -> Option<String
 pub(crate) async fn fetch_git_diff_with_untracked(
     repo_dir: &Path,
     paths: &[String],
-) -> Option<String> {
+) -> Option<(String, Vec<tugchanges_core::NumstatEntry>)> {
     let tracked = fetch_git_diff(repo_dir, paths).await;
+    // The tracked half's chunks are named by its own listing; each untracked
+    // chunk is named by the path that synthesized it, appended in the order
+    // the chunks are. So the whole list still faces the combined patch one
+    // for one, which is what the positional join needs.
+    let mut listed = fetch_git_diff_listing(repo_dir, paths).await;
     let mut combined = tracked.clone().unwrap_or_default();
     for path in list_untracked_paths(repo_dir, paths).await {
         if let Some(chunk) = synthesize_untracked_diff(repo_dir, &path).await {
             combined.push_str(&chunk);
+            listed.push(tugchanges_core::NumstatEntry {
+                path,
+                old_path: None,
+                added: None,
+                deleted: None,
+            });
         }
     }
     if tracked.is_none() && combined.is_empty() {
         None
     } else {
-        Some(combined)
+        Some((combined, listed))
     }
+}
+
+/// The `--numstat` listing of exactly the diff [`fetch_git_diff`] fetches.
+///
+/// Kept beside it rather than folded in, because the two are read by separate
+/// git runs and the flags they must share are the point: a listing taken with
+/// a different `-M` or a different pathspec would face a different set of
+/// chunks, and the positional join would then rename files onto each other.
+async fn fetch_git_diff_listing(
+    repo_dir: &Path,
+    paths: &[String],
+) -> Vec<tugchanges_core::NumstatEntry> {
+    let mut args: Vec<&str> = vec!["diff"];
+    args.extend_from_slice(HUNK_DIFF_FLAGS);
+    args.extend_from_slice(&["-M", "--numstat", GIT_DIFF_BASE]);
+    if !paths.is_empty() {
+        args.push("--");
+        args.extend(paths.iter().map(String::as_str));
+    }
+    git_numstat(repo_dir, &args).await.unwrap_or_default()
 }
 
 /// Fetch the combined `git diff HEAD` output for the working tree, optionally
@@ -917,8 +1032,8 @@ pub(crate) async fn fetch_git_diff(repo_dir: &Path, paths: &[String]) -> Option<
 /// no hunks; created files are left id-less on purpose — their chunk is
 /// synthesized from `--no-index` rather than read out of the index, so the
 /// landing engine cannot address their hunks and the client must not offer to.
-pub fn parse_git_diff(output: &str) -> Vec<GitDiffFile> {
-    tugchanges_core::parse_unified_diff(output)
+pub fn parse_git_diff(output: &str, listed: &[tugchanges_core::NumstatEntry]) -> Vec<GitDiffFile> {
+    tugchanges_core::parse_unified_diff_with(output, listed)
         .into_iter()
         .map(|f| {
             let hunks = if f.binary || f.status == tugchanges_core::DiffFileStatus::Added {
@@ -963,6 +1078,20 @@ mod tests {
 
     const SEP: char = LOG_FIELD_SEP;
 
+    /// Split a `git log -z` payload into the records the door would hand over,
+    /// so these tests keep writing the NUL stream git actually prints while
+    /// the parser reads records.
+    fn z(stream: &str) -> Vec<String> {
+        tugchanges_core::nul_records(stream.as_bytes()).expect("valid UTF-8 records")
+    }
+
+    /// Build a `GitStatus` from porcelain-v2 text, one record per line — what
+    /// the door yields for a status with no path needing more than one.
+    fn v2(output: &str) -> GitStatus {
+        let records: Vec<String> = output.lines().map(str::to_owned).collect();
+        git_status_wire(&tugchanges_core::parse_status_records(&records))
+    }
+
     /// One `git log -z` record. Field order mirrors the `--format` string:
     /// sha, author, date, committer, email, committer date, subject, then the
     /// three Tug trailers, then the body.
@@ -995,7 +1124,7 @@ mod tests {
                 "A real explanation\nover two lines.\n\nTug-Session: stocky-pixie (f6e43925)\nTug-Session-Id: {FULL_ID}\n"
             ),
         );
-        let commits = parse_git_log(&format!("{record}\0"));
+        let commits = parse_git_log(&z(&format!("{record}\0")));
         assert_eq!(commits.len(), 1);
         let c = &commits[0];
         assert_eq!(c.tug_session.as_deref(), Some("stocky-pixie (f6e43925)"));
@@ -1020,7 +1149,7 @@ mod tests {
             "",
             &format!("Body text.\n\nTug-Session: {legacy}\n"),
         );
-        let commits = parse_git_log(&format!("{record}\0"));
+        let commits = parse_git_log(&z(&format!("{record}\0")));
         assert_eq!(commits[0].tug_session.as_deref(), Some(legacy));
         assert_eq!(commits[0].tug_session_id, None);
         assert_eq!(commits[0].body, "Body text.");
@@ -1038,7 +1167,7 @@ mod tests {
             "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
             "First line.\nTug-Session: stocky-pixie (f6e43925)\n\nSecond paragraph.\n\nTug-Dash: tugdash/x onto main\nTug-Session-Id: f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f\n",
         );
-        let commits = parse_git_log(&format!("{record}\0"));
+        let commits = parse_git_log(&z(&format!("{record}\0")));
         assert_eq!(commits[0].body, "First line.\n\nSecond paragraph.");
         assert_eq!(
             commits[0].tug_arc.as_deref(),
@@ -1058,7 +1187,7 @@ mod tests {
         let stream = format!(
             "{good}\0\nsrc/a.rs\0src/b.rs\0{malformed}\0\norphan.rs\0{second}\0\nsrc/c.rs\0"
         );
-        let commits = parse_git_log(&stream);
+        let commits = parse_git_log(&z(&stream));
         assert_eq!(commits.len(), 2, "the malformed record is skipped");
         assert_eq!(commits[0].subject, "first");
         assert_eq!(commits[0].files, vec!["src/a.rs", "src/b.rs"]);
@@ -1073,7 +1202,7 @@ mod tests {
     #[test]
     fn a_body_with_no_trailers_is_untouched() {
         let record = log_record("s", "", "", "", "Just prose.\n\nAnd more.\n");
-        let commits = parse_git_log(&format!("{record}\0"));
+        let commits = parse_git_log(&z(&format!("{record}\0")));
         assert_eq!(commits[0].body, "Just prose.\n\nAnd more.");
         assert_eq!(commits[0].tug_session, None);
         assert_eq!(commits[0].tug_session_id, None);
@@ -1091,7 +1220,7 @@ mod tests {
 ? temp.txt
 ";
 
-        let status = parse_porcelain_v2(output);
+        let status = v2(output);
         assert_eq!(status.branch, "main");
         assert_eq!(status.ahead, 2);
         assert_eq!(status.behind, 1);
@@ -1113,7 +1242,7 @@ mod tests {
 # branch.head (detached)
 ";
 
-        let status = parse_porcelain_v2(output);
+        let status = v2(output);
         assert_eq!(status.branch, "(detached)");
         assert_eq!(status.head_sha, "abc123");
         assert_eq!(status.ahead, 0);
@@ -1130,7 +1259,7 @@ mod tests {
 # branch.head main
 ";
 
-        let status = parse_porcelain_v2(output);
+        let status = v2(output);
         assert_eq!(status.branch, "main");
         assert_eq!(status.head_sha, "abc123");
         assert_eq!(status.ahead, 0);
@@ -1145,10 +1274,11 @@ mod tests {
         let output = "\
 # branch.oid abc123
 # branch.head main
-2 R. N... 100644 100644 100644 hash1 hash2 R100 new_name.rs\told_name.rs
+2 R. N... 100644 100644 100644 hash1 hash2 R100 new_name.rs
+old_name.rs
 ";
 
-        let status = parse_porcelain_v2(output);
+        let status = v2(output);
         assert_eq!(status.staged.len(), 1);
         assert_eq!(status.staged[0].status, "R");
         assert_eq!(status.staged[0].path, "new_name.rs");
@@ -1162,7 +1292,7 @@ mod tests {
 # branch.ab +5 -3
 ";
 
-        let status = parse_porcelain_v2(output);
+        let status = v2(output);
         assert_eq!(status.ahead, 5);
         assert_eq!(status.behind, 3);
     }
@@ -1174,7 +1304,7 @@ mod tests {
 # branch.head feature
 ";
 
-        let status = parse_porcelain_v2(output);
+        let status = v2(output);
         assert_eq!(status.ahead, 0);
         assert_eq!(status.behind, 0);
     }
@@ -1187,7 +1317,7 @@ mod tests {
 1 MM N... 100644 100644 100644 hash1 hash2 src/lib.rs
 ";
 
-        let status = parse_porcelain_v2(output);
+        let status = v2(output);
         assert_eq!(status.staged.len(), 1);
         assert_eq!(status.staged[0].path, "src/lib.rs");
         assert_eq!(status.staged[0].status, "M");
@@ -1316,7 +1446,7 @@ Binary files a/img.png and b/img.png differ
 
     #[test]
     fn test_parse_diff_modified() {
-        let files = parse_git_diff(MODIFIED);
+        let files = parse_git_diff(MODIFIED, &[]);
         assert_eq!(files.len(), 1);
         let f = &files[0];
         assert_eq!(f.path, "src/main.rs");
@@ -1335,7 +1465,7 @@ Binary files a/img.png and b/img.png differ
 
     #[test]
     fn test_parse_diff_added() {
-        let files = parse_git_diff(ADDED);
+        let files = parse_git_diff(ADDED, &[]);
         assert_eq!(files.len(), 1);
         let f = &files[0];
         assert_eq!(f.path, "new.txt");
@@ -1362,7 +1492,7 @@ index 1111111..2222222 100644
 -    old();
 +    new();
 ";
-        let files = parse_git_diff(two_hunk);
+        let files = parse_git_diff(two_hunk, &[]);
         let f = &files[0];
         let library = tugchanges_core::parse_hunks(&f.unified);
         assert_eq!(library.len(), 2);
@@ -1377,13 +1507,13 @@ index 1111111..2222222 100644
     fn test_no_hunk_ids_for_created_or_binary_files() {
         // A created file's diff is synthesized, not read from the index, so no
         // hunk of it is electable at landing time.
-        assert!(parse_git_diff(ADDED)[0].hunks.is_empty());
-        assert!(parse_git_diff(BINARY)[0].hunks.is_empty());
+        assert!(parse_git_diff(ADDED, &[])[0].hunks.is_empty());
+        assert!(parse_git_diff(BINARY, &[])[0].hunks.is_empty());
     }
 
     #[test]
     fn test_parse_diff_deleted() {
-        let files = parse_git_diff(DELETED);
+        let files = parse_git_diff(DELETED, &[]);
         assert_eq!(files.len(), 1);
         let f = &files[0];
         // Path comes from the `--- a/…` side; `+++ /dev/null` is skipped.
@@ -1395,7 +1525,7 @@ index 1111111..2222222 100644
 
     #[test]
     fn test_parse_diff_renamed_pure() {
-        let files = parse_git_diff(RENAMED_PURE);
+        let files = parse_git_diff(RENAMED_PURE, &[]);
         assert_eq!(files.len(), 1);
         let f = &files[0];
         assert_eq!(f.path, "new_name.txt");
@@ -1407,7 +1537,7 @@ index 1111111..2222222 100644
 
     #[test]
     fn test_parse_diff_renamed_with_edits() {
-        let files = parse_git_diff(RENAMED_EDITED);
+        let files = parse_git_diff(RENAMED_EDITED, &[]);
         assert_eq!(files.len(), 1);
         let f = &files[0];
         assert_eq!(f.path, "b.txt");
@@ -1419,7 +1549,7 @@ index 1111111..2222222 100644
 
     #[test]
     fn test_parse_diff_binary() {
-        let files = parse_git_diff(BINARY);
+        let files = parse_git_diff(BINARY, &[]);
         assert_eq!(files.len(), 1);
         let f = &files[0];
         // No `---`/`+++` lines — path falls back to the `diff --git` header.
@@ -1433,7 +1563,7 @@ index 1111111..2222222 100644
     #[test]
     fn test_parse_diff_multifile_order_preserved() {
         let combined = format!("{MODIFIED}{ADDED}{DELETED}");
-        let files = parse_git_diff(&combined);
+        let files = parse_git_diff(&combined, &[]);
         let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(paths, vec!["src/main.rs", "new.txt", "gone.txt"]);
         assert_eq!(files[0].status, GitDiffFileStatus::Modified);
@@ -1443,14 +1573,18 @@ index 1111111..2222222 100644
 
     #[test]
     fn test_parse_diff_empty() {
-        assert!(parse_git_diff("").is_empty());
+        assert!(parse_git_diff("", &[]).is_empty());
     }
 
     /// Run a git subcommand in `repo`, asserting success.
     async fn git_in(repo: &Path, args: &[&str]) {
         let mut full = vec!["-C", repo.to_str().unwrap()];
         full.extend_from_slice(args);
-        let out = Command::from(tugcore::git_command()).args(&full).output().await.unwrap();
+        let out = Command::from(tugcore::git_command())
+            .args(&full)
+            .output()
+            .await
+            .unwrap();
         assert!(
             out.status.success(),
             "git {:?} failed: {}",
@@ -2164,12 +2298,68 @@ index 1111111..2222222 100644
         temp
     }
 
+    /// The `/diff` sheet names a hostile file by its real bytes.
+    ///
+    /// A patch has no `-z` spelling: `diff --git a/… b/…` and `+++ b/…` are
+    /// display form and always were, so this is the one reader that cannot be
+    /// fixed by changing a flag. The names come from the `--numstat` listing
+    /// beside the patch instead, joined by position.
+    ///
+    /// Asserted on disk existence rather than on a spelling, for the same
+    /// reason the attribution snapshot is: a path in the sheet that is not a
+    /// file is the failure, whatever escape produced it. The decomposed name
+    /// is matched through `canonicalize`, since git reports it NFC.
+    #[tokio::test]
+    async fn the_diff_sheet_names_a_hostile_file_by_its_real_bytes() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        tugcore::hostile_repo::seed_hostile_repo(root).expect("seed");
+        tugcore::hostile_repo::commit_hostile_files(root, "the roster").expect("commit");
+        // Every hostile file now dirty, so each one gets a patch chunk.
+        for name in tugcore::hostile_repo::HOSTILE_NAMES {
+            fs::write(root.join(name.path), "edited\n").expect("edit");
+        }
+
+        let snapshot = build_git_diff_snapshot(root, "r1".to_string(), "ws", &[]).await;
+        assert!(!snapshot.no_repo);
+        assert_eq!(
+            snapshot.files.len(),
+            tugcore::hostile_repo::HOSTILE_NAMES.len(),
+            "one chunk per hostile file"
+        );
+        for file in &snapshot.files {
+            assert!(
+                root.join(&file.path).exists(),
+                "the sheet names {:?}, which is not a file",
+                file.path
+            );
+        }
+        let named: Vec<std::path::PathBuf> = snapshot
+            .files
+            .iter()
+            .map(|f| {
+                let abs = root.join(&f.path);
+                std::fs::canonicalize(&abs).unwrap_or(abs)
+            })
+            .collect();
+        for name in tugcore::hostile_repo::HOSTILE_NAMES {
+            let abs = root.join(name.path);
+            let want = std::fs::canonicalize(&abs).unwrap_or(abs);
+            assert!(
+                named.contains(&want),
+                "{} ({}) is missing from the diff sheet",
+                name.label,
+                name.why
+            );
+        }
+    }
+
     /// Assert the two readers produce the same ids for `wide.txt`.
     async fn assert_hunk_ids_agree(repo: &Path) {
-        let wire = fetch_git_diff_with_untracked(repo, &[])
+        let (wire, listed) = fetch_git_diff_with_untracked(repo, &[])
             .await
             .expect("wire diff");
-        let wire_file = parse_git_diff(&wire)
+        let wire_file = parse_git_diff(&wire, &listed)
             .into_iter()
             .find(|f| f.path == "wide.txt")
             .expect("the dirty file is on the wire");

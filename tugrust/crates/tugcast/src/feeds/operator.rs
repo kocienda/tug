@@ -952,11 +952,33 @@ pub(crate) async fn run_git(dir: &Path, args: &[String]) -> Result<String, Strin
     ))
 }
 
-/// Field and record separators. ASCII unit/record separators cannot appear in
-/// a commit subject the way a `|` or a tab can, so parsing is exact rather
-/// than heuristic.
+/// The field separator inside one commit's formatted record. An ASCII unit
+/// separator cannot appear in a commit subject the way a `|` or a tab can, so
+/// parsing is exact rather than heuristic — and, since it cannot appear in a
+/// checked-in path either, its presence is also what tells a commit's record
+/// from one of the path records that follow it.
 const GIT_FIELD: char = '\x1f';
-const GIT_RECORD: char = '\x1e';
+
+/// The operands a `path` argument becomes, now that git expands nothing [B03].
+///
+/// A plain path goes through as itself — which is also the only spelling that
+/// still works for a file the history has since deleted, since a listing of
+/// the working tree cannot name one. A **wildcard** is resolved against a
+/// listing read through the door, because the catalog tells the model that
+/// `path` takes a git glob and that promise is kept here rather than by git.
+/// A wildcard matching nothing yields the pattern itself, so the scope stays
+/// a scope and the answer is empty rather than silently repo-wide.
+async fn literal_pathspecs(dir: &Path, path: &str) -> Result<Vec<String>, String> {
+    if !repo_files::is_wildcard(path) {
+        return Ok(vec![path.to_string()]);
+    }
+    let matched = repo_files::match_pathspec(&repo_files::all_files(dir).await?, path);
+    Ok(if matched.is_empty() {
+        vec![path.to_string()]
+    } else {
+        matched
+    })
+}
 
 async fn git_log(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let dir = project_dir(ctx, args)?;
@@ -964,11 +986,19 @@ async fn git_log(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
         .unwrap_or(GIT_LOG_DEFAULT_N as i64)
         .clamp(1, GIT_LOG_MAX_N as i64);
 
+    // `-z` makes every chunk — each commit's record and each changed path —
+    // NUL-terminated, so a path with a newline in it is one record rather
+    // than two lines, and no path is ever escaped for display.
     let mut argv: Vec<String> = vec![
         "log".into(),
         "--no-color".into(),
         "--date=short".into(),
-        format!("--pretty=format:{GIT_RECORD}%H{GIT_FIELD}%ad{GIT_FIELD}%s"),
+        // `--format=` and not `--pretty=format:`: the latter is a *separator*
+        // spelling, so under `-z` the NUL lands only between commits and each
+        // commit's `--name-only` paths glue themselves onto the end of its
+        // subject. `--format=` terminates every record, which is what makes
+        // the paths records of their own.
+        format!("--format=%H{GIT_FIELD}%ad{GIT_FIELD}%s"),
         "--name-only".into(),
         format!("-n{n}"),
     ];
@@ -991,29 +1021,43 @@ async fn git_log(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     if let Some(path) = opt_str(args, "path")? {
         path_arg(path, "path")?;
         argv.push("--".into());
-        argv.push(path.to_string());
+        argv.extend(literal_pathspecs(&dir, path).await?);
     }
 
-    let stdout = run_git(&dir, &argv).await?;
-    let commits: Vec<Value> = stdout
-        .split(GIT_RECORD)
-        .filter(|chunk| !chunk.trim().is_empty())
-        .filter_map(|chunk| {
-            let mut lines = chunk.lines();
-            let header = lines.next()?;
-            let mut fields = header.split(GIT_FIELD);
-            let sha = fields.next()?.to_string();
+    let borrowed: Vec<&str> = argv.iter().map(String::as_str).collect();
+    // The door reports git's own stderr bare; the operator's other git verbs
+    // all speak `git failed: …`, so the prefix is added here rather than
+    // leaving one verb in a different voice.
+    let records = crate::feeds::git::git_records(&dir, &borrowed)
+        .await
+        .map_err(|e| format!("git failed: {e}"))?;
+    // A record holding the field separator opens a commit; every record after
+    // it that does not is one of that commit's paths. Git prefixes the first
+    // path of each commit with a newline, which is stripped.
+    let mut commits: Vec<Value> = Vec::new();
+    let mut files: Vec<Vec<String>> = Vec::new();
+    for chunk in &records {
+        let chunk = chunk.trim_start_matches('\n');
+        if chunk.is_empty() {
+            continue;
+        }
+        if let Some((sha, rest)) = chunk.split_once(GIT_FIELD) {
+            let mut fields = rest.split(GIT_FIELD);
             let date = fields.next().unwrap_or_default().to_string();
             let subject = fields.next().unwrap_or_default().to_string();
-            let files: Vec<&str> = lines.filter(|l| !l.trim().is_empty()).collect();
-            Some(json!({
+            commits.push(json!({
                 "sha": sha,
                 "date": date,
                 "subject": subject,
-                "files": files,
-            }))
-        })
-        .collect();
+            }));
+            files.push(Vec::new());
+        } else if let Some(current) = files.last_mut() {
+            current.push(chunk.to_string());
+        }
+    }
+    for (commit, paths) in commits.iter_mut().zip(files) {
+        commit["files"] = json!(paths);
+    }
     Ok(json!({ "commits": commits, "count": commits.len() }))
 }
 
@@ -1050,7 +1094,7 @@ async fn git_show(ctx: &OperatorContext, args: &Value) -> Result<Value, String> 
     if let Some(path) = opt_str(args, "path")? {
         path_arg(path, "path")?;
         argv.push("--".into());
-        argv.push(path.to_string());
+        argv.extend(literal_pathspecs(&dir, path).await?);
     }
 
     let stdout = run_git(&dir, &argv).await?;

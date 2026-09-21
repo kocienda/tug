@@ -420,7 +420,7 @@ fn compute_changes(
     all: bool,
 ) -> Result<Buckets, String> {
     let events = ledger::query_events(conn, selves)?;
-    let status = git::parse_status_porcelain_v2(&status_output(repo_root));
+    let status = status_report(repo_root)?;
     let status_map = status.v1_status_map();
     // A renamed path's former name, straight from git. Rows earned under the
     // old name are the file's own history — without this join a `git mv`
@@ -610,17 +610,29 @@ fn min_live_at_ms(repo_root: &Path, path: &str) -> i64 {
     }
 }
 
-/// Run `git status --porcelain=v2 --untracked-files=all` at `repo_root`,
-/// returning empty on any failure (non-repo, git error). `--untracked-files=all`
-/// expands a fully-untracked directory into its individual files ([P06]/G5) so a
-/// new file inside one joins as itself, never collapsing to a `? dir/` line the
-/// ledger can't match.
-fn status_output(repo_root: &Path) -> String {
-    git::git_stdout(
-        repo_root,
-        &["status", "--porcelain=v2", "--untracked-files=all"],
-    )
-    .unwrap_or_default()
+/// Read `git status --porcelain=v2 --untracked-files=all` at `repo_root`
+/// through the `-z` door ([B01]).
+///
+/// `--untracked-files=all` expands a fully-untracked directory into its
+/// individual files ([P06]/G5) so a new file inside one joins as itself, never
+/// collapsing to a `? dir/` line the ledger can't match.
+///
+/// The door is what makes the join work at all for a file whose name git
+/// considers unusual: the ledger holds the real path from the tool input, and
+/// a status key that is git's C-quoted display form matches none of them —
+/// which left such a file silently unattributed rather than visibly wrong.
+///
+/// An ordinary git failure — a directory that is not a repo, above all — is an
+/// empty report, and everything then reads as non-dirty. A path git cannot
+/// decode is **not** swallowed that way ([B06]): swallowing it would drop a
+/// real file out of the changes list with no sign, which is the silent-wrong
+/// outcome this arc exists to remove.
+fn status_report(repo_root: &Path) -> Result<git::StatusReport, String> {
+    match git::read_status(repo_root, &["--untracked-files=all"]) {
+        Ok(report) => Ok(report),
+        Err(e) if e.is_undecodable() => Err(e.to_string()),
+        Err(_) => Ok(git::StatusReport::default()),
+    }
 }
 
 /// The per-file unified diff for a `--diff`/`context` change (any bucket).
@@ -1733,5 +1745,71 @@ mod tests {
             diff.contains("+dirty"),
             "add-diff carries the content: {diff}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // The hostile-filename fixture [B05] — [F08], the attribution join
+    // -----------------------------------------------------------------------
+
+    /// A file whose name git considers unusual is **attributed**, like any
+    /// other file the session edited.
+    ///
+    /// [F08] is an inference in the brief: the ledger records the real path
+    /// from the tool input, the status side yields git's quoted form ([F01]),
+    /// so the join never matches and the file lands unattributed with no error
+    /// — a silent miss rather than a visible failure. This is that inference
+    /// written as a test, so step 3 either confirms it or refutes it against a
+    /// running fixture instead of against a reading.
+    ///
+    /// The `ó` is deliberately absent from the ledger rows: git precomposes
+    /// what it reports while the ledger stores the tool input's own spelling,
+    /// and whether those can be made to agree is a narrower question than this
+    /// arc's, left where it belongs rather than smuggled into this assertion.
+    ///
+    /// RED until step 3.
+    #[test]
+    fn a_hostile_name_the_session_wrote_is_attributed_to_it() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        let root = repo.path();
+        tugcore::hostile_repo::seed_hostile_repo(root).expect("the fixture seeds");
+
+        let joinable: Vec<&'static str> = tugcore::hostile_repo::HOSTILE_NAMES
+            .iter()
+            .filter(|n| n.label != "decomposed_o")
+            .map(|n| n.path)
+            .collect();
+
+        // The ledger's side: the real path, exactly as a tool input carried it.
+        let events: Vec<(String, &str, &str, bool, i64)> = joinable
+            .iter()
+            .enumerate()
+            .map(|(i, path)| {
+                (
+                    root.join(path).to_string_lossy().into_owned(),
+                    "write",
+                    "exact",
+                    false,
+                    i as i64 + 1,
+                )
+            })
+            .collect();
+        let db = seed_db("s1", &events);
+        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+
+        let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
+
+        let mut got: Vec<&str> = buckets.attributed.iter().map(|f| f.path.as_str()).collect();
+        got.sort_unstable();
+        let mut want = joinable.clone();
+        want.sort_unstable();
+        assert_eq!(got, want, "every hostile name joined to the session");
+
+        for change in &buckets.attributed {
+            assert_eq!(
+                change.git_status, "??",
+                "{:?} carries git's verdict, not an empty one",
+                change.path
+            );
+        }
     }
 }

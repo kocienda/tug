@@ -71,6 +71,10 @@ tempfile = { workspace = true }
 # a tempdir instead of the developer's real state directory; the environment is
 # process-wide, so those tests must not run beside each other.
 serial_test = "3"
+# The shared hostile-filename repo [B05]: a worktree seeded with a `ł`, a tab,
+# a `"`, a newline and the rest, so a feed's path reading is proven against the
+# names git quotes rather than against ASCII.
+tugcore = { workspace = true, features = ["test-fixtures"] }
 
 # Feature flag for real-claude integration tests. These tests spawn a
 # real `claude` (tugcode) subprocess and must NEVER run in standard

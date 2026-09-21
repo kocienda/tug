@@ -25,9 +25,11 @@ pub use changes::{Change, ChangesError, ChangesOptions, ChangesReport, ForeignCh
 pub use commit::{Aggregate, CommitError, CommitOptions, CommitReceipt, LeftBehind, commit};
 pub use contention::{Anchor, Claim, ContentionVerdict, OwnerAnchors, classify_contention};
 pub use git::{
-    DiffFile, DiffFileStatus, FileStat, NumstatEntry, StatusEntry, StatusReport, file_stats,
-    git_output, git_stdout, normalize_xy, parse_name_status, parse_numstat,
-    parse_status_porcelain_v2, parse_unified_diff, repo_root_for,
+    DiffFile, DiffFileStatus, FileStat, ListingError, NumstatEntry, StatusEntry, StatusReport,
+    git_output, git_stdout, listing, listing_with_status, normalize_xy, nul_records,
+    parse_name_status_records, parse_numstat_records, parse_status_records, parse_unified_diff,
+    parse_unified_diff_with, read_file_stats, read_name_status, read_numstat, read_paths,
+    read_rename_pairs, read_status, read_status_from, repo_root_for,
 };
 pub use hunks::{
     HUNK_DIFF_FLAGS, Hunk, HunkDrift, content_hash, file_diff_hunks, file_header, file_hunks,
