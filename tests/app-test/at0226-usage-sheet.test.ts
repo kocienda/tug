@@ -19,7 +19,7 @@
  * @covers tugdeck/src/lib/usage-store.ts
  * @covers tugdeck/src/lib/usage-parse.ts
  * @covers tugdeck/src/lib/usage-context.tsx
- * @covers tugrust/crates/tugcast/
+ * @covers tugrust/crates/tugcast/src/feeds/claude_usage.rs
  * @covers tugdeck/src/components/tugways/cards/usage-sheet.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-gauge.css
  * @covers tugdeck/src/components/tugways/tug-arc-gauge.tsx

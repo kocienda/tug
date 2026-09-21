@@ -639,7 +639,9 @@ fn watch_chain(dir: &Path) -> Vec<PathBuf> {
     };
     let mut current = dir;
     while current != root {
-        let Some(parent) = current.parent() else { break };
+        let Some(parent) = current.parent() else {
+            break;
+        };
         chain.push(parent.to_path_buf());
         if parent == root {
             break;
@@ -831,11 +833,7 @@ mod tests {
         }
 
         /// Frames for `path` until one satisfies `done`; returns that one.
-        async fn next_matching(
-            &mut self,
-            path: &str,
-            done: impl Fn(&Value) -> bool,
-        ) -> Value {
+        async fn next_matching(&mut self, path: &str, done: impl Fn(&Value) -> bool) -> Value {
             loop {
                 let value = self.next_for(path).await;
                 if done(&value) {
