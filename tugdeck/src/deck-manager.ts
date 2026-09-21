@@ -89,6 +89,7 @@ import {
   placeRunsMoved,
   type PlaceRuns,
 } from "./deck-store-selectors";
+import { resolveCloseSuccessor } from "./lib/close-successor";
 import { fitHeights, railNaturalOf } from "./lib/rail-fit";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { sidebarWidthStore } from "./lib/sidebar-width-store";
@@ -4035,12 +4036,28 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * The card a close hands the reader — {@link resolveCloseSuccessor} asked
+   * over the live deck, with the place runs this instance has measured.
+   *
+   * The rule is the pure function's; what belongs to the manager is only the
+   * measurement, which is why the reckoning lives in `lib/close-successor.ts`
+   * where it can be read against a written-out arrangement.
+   */
+  private _closeSuccessorCardId(closingPaneId: string): string | null {
+    const runs: PlaceRuns = {
+      rail: this._placeRunHeight("rail"),
+      column: this._placeRunHeight("column"),
+    };
+    return resolveCloseSuccessor(this.deckState, runs, closingPaneId);
+  }
+
+  /**
    * Close a stack by id.
    *
-   * Ordering: if the closing stack contains the first responder, flip
-   * the composite bit to the new top-of-deck's active card (or `null`
-   * when the deck becomes empty) BEFORE firing
-   * `cardWillBeginDestruction`. Then fire destruction for every card
+   * Ordering: when the close owes a handoff, flip the composite bit to
+   * {@link _closeSuccessorCardId}'s answer (or `null` when the deck becomes
+   * empty) BEFORE firing `cardWillBeginDestruction`. Then fire destruction
+   * for every card
    * in the closed stack, mutate to remove the stack and its cards,
    * and notify.
    *
@@ -4059,30 +4076,53 @@ export class DeckManager implements IDeckManagerStore {
     const closedContainsOldFR =
       currentFR !== null && win.cardIds.includes(currentFR);
 
-    // Phase 1: flip the first responder to the new top-of-deck BEFORE
-    // the destruction events. The closed stack is still in state at
-    // this point — the commit just moves `activePaneId` off the
-    // closing stack.
+    // Phase 1: flip the first responder to the successor BEFORE the
+    // destruction events. The closed stack is still in state at this point,
+    // which is what lets `_closeSuccessorCardId` reckon from the place being
+    // vacated; the commit just moves `activePaneId` off the closing stack.
     //
-    // Routed through `transferFocusForActivation` on the active-pane
-    // branch. The helper
-    // is only called when there is a surviving pane to receive focus
-    // (`newFR !== null`); when the deck becomes empty there is no
-    // incoming card to focus and the raw `_flipFirstResponder` path
-    // applies.
-    if (closedContainsOldFR) {
-      const remainingStacks = this.deckState.panes.filter(
-        (s) => s.id !== paneId,
-      );
-      const newTopStack =
-        remainingStacks.length > 0
-          ? remainingStacks[remainingStacks.length - 1]
-          : null;
-      const newFR = newTopStack?.activeCardId ?? null;
-      const newActivePaneId = newTopStack?.id;
+    // Two cases owe a handoff, and the second is why a close used to leave the
+    // deck dead: the closing pane held the first responder, OR **nobody did**.
+    // A reader who clicked the canvas between cards deselected the deck
+    // (`pane-focus-controller`'s `deselect`), and a close from there left
+    // `activePaneId` undefined with cards still standing — every title bar
+    // inactive, the keyboard nowhere. A close is an activation, so it answers
+    // for the deck it leaves behind in both.
+    //
+    // The third case is deliberately NOT here: a close of some pane while a
+    // different one is active changes nothing about focus. The reader is
+    // typing in that card, and a close elsewhere must not take the keyboard
+    // away from it.
+    //
+    // Routed through `transferFocusForActivation` on the branch that has a
+    // surviving pane to receive focus (`newFR !== null`); when the deck
+    // becomes empty there is no incoming card to focus and the raw
+    // `_flipFirstResponder` path applies. `outgoingCardId` is `currentFR`,
+    // which is `null` in the deselected case — the helper's documented
+    // spelling for an activation with no prior active card.
+    if (closedContainsOldFR || currentFR === null) {
+      const newFR = this._closeSuccessorCardId(paneId);
+      const newHost =
+        newFR === null
+          ? undefined
+          : this.deckState.panes.find(
+              (s) => s.id !== paneId && s.cardIds.includes(newFR),
+            );
+      const newActivePaneId = newHost?.id;
       const flipCommit = (): void => {
         this.deckState = {
           ...this.deckState,
+          // The successor is its pane's front card in every arrangement the
+          // reckoning reads, but the composite bit is the PAIR — write both,
+          // so a successor that is somehow not its host's active card still
+          // leaves `getFirstResponderCardId()` answering `newFR`.
+          ...(newHost !== undefined && newFR !== null
+            ? {
+                panes: this.deckState.panes.map((s) =>
+                  s.id === newHost.id ? { ...s, activeCardId: newFR } : s,
+                ),
+              }
+            : {}),
           ...(newActivePaneId !== undefined
             ? { activePaneId: newActivePaneId }
             : { activePaneId: undefined }),
@@ -6854,8 +6894,9 @@ export class DeckManager implements IDeckManagerStore {
    * save callback is caught and dev-warned; destruction proceeds
    * regardless.
    *
-   * Transition 8a: when the removed card is the first responder, flip
-   * the composite bit to the neighbor BEFORE firing
+   * Transition 8a: when the removed card is the first responder — or when
+   * nothing is, which is a deselected deck the close owes an activation to —
+   * flip the composite bit to the neighbor BEFORE firing
    * `cardWillBeginDestruction`.
    */
   private _removeCard(paneId: string, cardId: string): void {
@@ -6868,7 +6909,14 @@ export class DeckManager implements IDeckManagerStore {
       return;
     }
 
-    const wasRemovingFR = this.getFirstResponderCardId() === cardId;
+    const currentFR = this.getFirstResponderCardId();
+    const wasRemovingFR = currentFR === cardId;
+    // The same two cases `_closePane`'s phase 1 answers for: the tab being
+    // removed held the first responder, or nobody did. A deselected deck that
+    // loses a tab still has the neighbour standing where the reader is
+    // looking, and handing it the bit is what makes the close read as an
+    // activation rather than as a disappearance.
+    const owesHandoff = wasRemovingFR || currentFR === null;
     const spliced = spliceCardFromStack(win, cardId);
     // `cardIds.length > 1` above guarantees a survivor → activeCardId !== null.
     const newActiveCardId = spliced.activeCardId as string;
@@ -6888,9 +6936,11 @@ export class DeckManager implements IDeckManagerStore {
     // save step — phase 2 below runs `flushSaveCallbackBeforeDestruction`
     // for the same card, which is the canonical destruction-flush.
     // Saving twice would mask the destruction-ordering audit (P9).
-    if (wasRemovingFR) {
+    if (owesHandoff) {
       transferFocusForActivation({
-        outgoingCardId: cardId,
+        // `null` in the deselected case: there is no outgoing first responder,
+        // which is the helper's documented spelling for it.
+        outgoingCardId: wasRemovingFR ? cardId : null,
         incomingCardId: newActiveCardId,
         store: this,
         outgoingWillBeDestroyed: true,
@@ -6907,6 +6957,11 @@ export class DeckManager implements IDeckManagerStore {
                 panes: this.deckState.panes.map((s) =>
                   s.id === paneId ? flippedStack : s,
                 ),
+                // The composite bit is the pair, and on a deselected deck the
+                // pane half is missing — without this the flip would write an
+                // active card into a pane the deck does not consider active
+                // and `getFirstResponderCardId()` would still answer `null`.
+                activePaneId: paneId,
               };
               this.notify("_removeCard");
               this.scheduleSave();

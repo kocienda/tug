@@ -52,7 +52,7 @@
  *     slot and hands the first responder to another pane, which is an
  *     activation like any other — and for a while it was the one activation
  *     that revealed nothing, so the inheriting card came up wearing the
- *     active livery while still standing off the band's near edge. The reveal
+ *     active livery while still standing off the band's edge. The reveal
  *     rides the close's own commit rather than the flip beside it, so the
  *     slot emptying and the deck settling onto the survivor are one motion.
  *
@@ -61,6 +61,7 @@
  * @covers tugdeck/src/components/chrome/margin-cap.css
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/deck-manager.ts
+ * @covers tugdeck/src/lib/close-successor.ts
  * @covers tugdeck/src/lib/opening-placement.ts
  * @covers tugdeck/src/components/layout/layout-card.tsx
  * @covers tugdeck/src/components/layout/layout-miniature.tsx
@@ -1026,8 +1027,16 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
       // going there, so it is owed the same minimal reveal a raise is owed.
       // It did not get one — the close's own commit wrote the panes and the
       // flip beside it wrote only the bit — so the survivor came up wearing
-      // the active livery while still standing off the band's near edge, which
-      // is the deck activating something it will not show.
+      // the active livery while still standing off the band's edge, which is
+      // the deck activating something it will not show.
+      //
+      // WHICH card inherits is `lib/close-successor.ts`'s answer and not this
+      // file's to pin: the survivor that takes the closing pane's place in the
+      // arrangement, which for a lone member of a slot is the slot beside it,
+      // right before left. What this case needs from that is only that the
+      // inheritor start OFF the band, so the reveal has something to do — so
+      // the fixture is the wide one, where a slot and a half fill the band and
+      // the next slot along is entirely outside it.
       //
       // Pinned through the real X, because the close box is the gesture that
       // found it. A `hello` card does not opt into `confirmClose`, so a click
@@ -1037,7 +1046,10 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         await app.evalJS<null>(
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({
+          state: deckShape(WIDE_PANE_WIDTH),
+          focusCardId: "A",
+        });
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
@@ -1046,25 +1058,26 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         await setLayout(app, "flow");
         await wait(AFTER_LAND_MS);
 
-        // Raise A, then E. The raises are what order the deck's z-stack, and
-        // the order is what decides who inherits: closing E's pane hands the
-        // bit to the pane raised before it, which is A's — at the strip's
-        // origin, and by then carried off the band's near edge by E's own
-        // reveal. Without that first raise the inheritor is the Layout rail,
-        // which is pinned to its edge and reveals nothing.
-        await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
-        await wait(AFTER_LAND_MS);
+        // Raise E, the strip's last card: it comes to the band's far edge and
+        // carries D — the card its close will hand over — half off the near
+        // one. A slot keeps its place in the strip when a neighbour closes, so
+        // the survivor of a close is wherever it was standing, and here that is
+        // outside the band. The inheritor is D rather than the pane raised
+        // before E, because a close hands over to the survivor that takes its
+        // place in the arrangement, and nothing stands right of the last slot.
         await app.evalJS<null>(`(window.__tug.activateCard("E"), null)`);
         await wait(AFTER_LAND_MS);
 
         const bandBefore = await band(app);
         const survivorBefore = (await slotRects(app)).find(
-          (r) => r.paneId === "p1",
+          (r) => r.paneId === "p4",
         );
         note(
-          `before the close: offset ${await flowOffset(app)}, p1 left ${Math.round(
+          `before the close: offset ${await flowOffset(app)}, p4 spans ${Math.round(
             survivorBefore?.left ?? NaN,
-          )}, band left ${Math.round(bandBefore.left)}`,
+          )}..${Math.round(survivorBefore?.right ?? NaN)}, band ${Math.round(
+            bandBefore.left,
+          )}..${Math.round(bandBefore.right)}`,
         );
         expect(
           survivorBefore?.left ?? NaN,
@@ -1087,19 +1100,19 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         );
         expect(
           activePaneId,
-          "the close hands the first responder to the pane raised before it",
-        ).toBe("p1");
+          "the close hands the first responder to the pane that takes the closing one's place",
+        ).toBe("p4");
 
         const closeCuts = await takeCuts(app);
         await app.evalJS<null>(`(window.__tug.disarmCutDetector(), null)`);
         const bandAfter = await band(app);
-        const survivor = (await slotRects(app)).find((r) => r.paneId === "p1");
+        const survivor = (await slotRects(app)).find((r) => r.paneId === "p4");
         note(
-          `after the close: offset ${await flowOffset(app)}, p1 left ${Math.round(
+          `after the close: offset ${await flowOffset(app)}, p4 spans ${Math.round(
             survivor?.left ?? NaN,
-          )}, band left ${Math.round(bandAfter.left)}, cuts: ${
-            summarize(closeCuts) || "none"
-          }`,
+          )}..${Math.round(survivor?.right ?? NaN)}, band left ${Math.round(
+            bandAfter.left,
+          )}, cuts: ${summarize(closeCuts) || "none"}`,
         );
         expect(
           survivor?.left ?? NaN,
@@ -1107,7 +1120,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         ).toBeGreaterThanOrEqual(bandAfter.left - TOL);
         expect(
           survivor?.left ?? NaN,
-          "and no further in than it had to come — the reveal is minimal, and p1 stands at the strip's origin",
+          "and no further in than it had to come — the reveal is minimal, so it stands ON that edge",
         ).toBeLessThanOrEqual(bandAfter.left + TOL);
         expect(
           closeCuts.length,
