@@ -22,6 +22,7 @@ pub mod defaults;
 pub mod digest_bridge;
 pub mod draft_engine;
 pub mod facts_library;
+pub mod file_watch;
 pub mod file_watcher;
 pub mod filesystem;
 pub mod filetree;

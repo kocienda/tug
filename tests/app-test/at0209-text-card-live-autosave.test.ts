@@ -18,6 +18,15 @@
  *    the edit on disk after process exit. A second app process re-opens
  *    the file and shows the flushed content.
  *
+ * 4. **Undo after a reload.** A reload is not an undo step: a clean
+ *    buffer adopts an external change silently, and one ⌘Z afterwards
+ *    removes the user's own typing and nothing else — the reloaded
+ *    lines stay. The second case has nothing typed at all, so undo has
+ *    nothing to offer and the buffer still equals disk. This is the
+ *    guard on the automatic-mode hazard: an undo that resurrected the
+ *    pre-reload text would be written straight back over the external
+ *    editor's work.
+ *
  * Everything drives real code paths on real files: the fixture is a
  * real temp file, autosave goes through tugcast's `/api/fs/write`, and
  * the assertions read disk with Bun's fs — no mocks anywhere.
@@ -43,7 +52,12 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
+import {
+  mkTempTugbank,
+  rmTempTugbank,
+  seedTugbankForLaunch,
+} from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -177,6 +191,43 @@ async function typeIntoEditor(app: App, text: string): Promise<void> {
   }
 }
 
+/**
+ * Undo once through the control action, never the ⌘Z chord: CM6's keymap
+ * eats the chord before the menu bar sees it (`at0174` records why), and
+ * this file's own docblock rules out native key events unattended. The
+ * editor is focused first so the action resolves to this card.
+ */
+async function undoOnce(app: App): Promise<void> {
+  await app.evalJS<null>(
+    `(function(){
+      var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
+      if (el !== null) el.focus();
+      return null;
+    })()`,
+  );
+  await app.evalJS<void>(`window.__tug.dispatchControlAction("undo")`);
+}
+
+/** Poll the validated Edit ▸ Undo state until it matches, or time out. */
+async function waitForUndoState(
+  app: App,
+  want: { enabled?: boolean; title?: string },
+  timeoutMs = 8000,
+): Promise<{ found: boolean; enabled?: boolean; title?: string }> {
+  const deadline = Date.now() + timeoutMs;
+  let last: { found: boolean; enabled?: boolean; title?: string } = {
+    found: false,
+  };
+  while (Date.now() < deadline) {
+    last = await app.menuItemState("edit.undo");
+    const okEnabled = want.enabled === undefined || last.enabled === want.enabled;
+    const okTitle = want.title === undefined || last.title === want.title;
+    if (last.found && okEnabled && okTitle) return last;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return last;
+}
+
 /** Poll the real file on disk until `predicate` holds. */
 async function waitForDisk(
   file: string,
@@ -192,6 +243,91 @@ async function waitForDisk(
   }
   throw new Error(
     `[at0209] disk predicate not satisfied within ${timeoutMs}ms; last content:\n${last.slice(0, 400)}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A fixture the FILESYSTEM watcher actually reaches
+// ---------------------------------------------------------------------------
+//
+// Scenarios 1–3 drive their reloads by hand (the conflict banner's "Reload
+// from Disk"), so their fixture can live anywhere. Scenario 4 needs the card
+// to hear about an external write on its OWN — and a client only ever
+// receives FILESYSTEM frames for the bootstrap workspace, which under the
+// harness is this checkout. So the fixture has to sit inside it. `.tug/` is
+// the one place that is both inside the watched root and invisible to git
+// (it is gitignored — arc worktrees live there), so a fixture here leaves
+// the checkout clean; the watcher does not gitignore-filter, so its events
+// flow regardless. `at0460` establishes both facts.
+
+const CHECKOUT = fs.realpathSync(path.resolve(import.meta.dir, "..", ".."));
+const WATCHED_HOME = path.join(CHECKOUT, ".tug");
+
+/** The autosave debounce the store arms on every keystroke. */
+const AUTOSAVE_DEBOUNCE_MS = 1000;
+
+const WARMUP_BODY = "WARMUP marker\n";
+
+function mkWatchedFixture(prefix: string): { dir: string; file: string } {
+  fs.mkdirSync(WATCHED_HOME, { recursive: true });
+  const dir = fs.realpathSync(
+    fs.mkdtempSync(path.join(WATCHED_HOME, `${prefix}-`)),
+  );
+  const file = path.join(dir, "sample.txt");
+  fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
+  return { dir, file };
+}
+
+/**
+ * Prove the FILESYSTEM feed reaches this card before anything depends on it.
+ *
+ * Being inside the bootstrap workspace gets the frames routed; it does not
+ * say WHEN the watcher starts delivering. So wait on the card observing two
+ * real changes to its own file — an external rewrite it adopts, and the
+ * original body written back — and only then start the scenario. Until both
+ * land there is nothing watching and every later assertion is vacuous.
+ */
+async function warmUpWatcher(app: App, file: string): Promise<void> {
+  fs.writeFileSync(file, WARMUP_BODY, "utf8");
+  await waitForEditorShowing(app, "WARMUP marker", 60_000);
+  fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
+  await app.waitForCondition<boolean>(
+    `(function(){
+      var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
+      if (el === null) return false;
+      var t = el.innerText;
+      return t.indexOf("fixture line 01") !== -1 && t.indexOf("WARMUP marker") === -1;
+    })()`,
+    { timeoutMs: 20_000 },
+  );
+}
+
+/**
+ * Launch on the checkout — the bootstrap workspace the fixture sits inside —
+ * with a Text card open on the fixture in automatic save mode, and the
+ * watcher proven to be delivering.
+ */
+async function launchOnWatchedFixture(
+  file: string,
+  testName: string,
+): Promise<{ app: App; tugbankPath: string }> {
+  const tugbankPath = mkTempTugbank();
+  seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
+  const app = await launchTugApp({
+    testName,
+    env: { TUGBANK_PATH: tugbankPath },
+  });
+  note(`at0209 watched fixture: ${file}`);
+  await seedTextCard(app, file);
+  await waitForEditorShowing(app, "fixture line 01");
+  await warmUpWatcher(app, file);
+  return { app, tugbankPath };
+}
+
+/** The rendered buffer text. */
+function editorText(app: App): Promise<string> {
+  return app.evalJS<string>(
+    `document.querySelector('${EDITOR_CONTENT_SELECTOR}').innerText`,
   );
 }
 
@@ -394,6 +530,126 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
       } finally {
         await app.close();
+        rmFixture(dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // -------------------------------------------------------------------------
+  // Scenario 4: a reload is not an undo step
+  // -------------------------------------------------------------------------
+  //
+  // In automatic mode the buffer is written back to disk on its own, so an
+  // undo that resurrected the pre-reload text would silently overwrite the
+  // external editor's work with bytes the user never asked for. The reload
+  // therefore goes in with `Transaction.addToHistory.of(false)`: ⌘Z steps
+  // back through the user's typing only, and the reloaded lines stay put.
+
+  test(
+    "undo after reload removes only the user's typing",
+    async () => {
+      const TYPED_RUN = "UNDO-RUN-ONE ";
+      const EXTERNAL_LINE = "EXTERNAL-WRITER LINE TWENTY";
+      const { dir, file } = mkWatchedFixture("at0209-undo");
+      const { app, tugbankPath } = await launchOnWatchedFixture(
+        file,
+        "at0209-undo-after-reload",
+      );
+      try {
+        // One typed run, autosaved to disk. The buffer has to end CLEAN:
+        // only a clean buffer adopts an external change silently — a dirty
+        // automatic one leaves the verdict to its next conditional write.
+        await typeIntoEditor(app, TYPED_RUN);
+        await waitForDisk(file, (c) => c.includes(TYPED_RUN.trim()));
+        // The write landing on disk is not the settle: the baseline moves on
+        // the response, and a further keystroke-free debounce has to expire
+        // before the store is quiet. Write externally before that and the
+        // save races the external writer.
+        await new Promise((resolve) =>
+          setTimeout(resolve, AUTOSAVE_DEBOUNCE_MS + 500),
+        );
+
+        // External change FAR from the typed run — line 20, while the typed
+        // run sits on line 1 — so "the typing went away" and "the reload
+        // stayed" are two separate observations.
+        const external = fs
+          .readFileSync(file, "utf8")
+          .replace(FIXTURE_LINES[19] as string, EXTERNAL_LINE);
+        expect(external).toContain(EXTERNAL_LINE);
+        fs.writeFileSync(file, external, "utf8");
+        await waitForEditorShowing(app, EXTERNAL_LINE, 30_000);
+
+        // The machine's own word for what the next ⌘Z does: the typing is
+        // still one undo step, and the reload added none of its own.
+        const undoState = await waitForUndoState(app, {
+          enabled: true,
+          title: "Undo Typing",
+        });
+        expect(undoState.found, "Edit ▸ Undo must exist").toBe(true);
+        expect(
+          undoState.title,
+          "Undo names the user's typing, not the reload",
+        ).toBe("Undo Typing");
+
+        await undoOnce(app);
+        await app.waitForCondition<boolean>(
+          `(function(){
+            var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
+            return el !== null && el.innerText.indexOf(${JSON.stringify(TYPED_RUN.trim())}) === -1;
+          })()`,
+          { timeoutMs: 8000 },
+        );
+        const afterUndo = await editorText(app);
+        expect(afterUndo).toContain(EXTERNAL_LINE);
+        expect(afterUndo).toContain("fixture line 01");
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+        rmFixture(dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "undo on a freshly reloaded buffer leaves it equal to disk",
+    async () => {
+      const EXTERNAL_LINE = "EXTERNAL-WRITER FRESH OPEN";
+      const { dir, file } = mkWatchedFixture("at0209-undo-fresh");
+      const { app, tugbankPath } = await launchOnWatchedFixture(
+        file,
+        "at0209-undo-fresh-open",
+      );
+      try {
+        // Nothing typed here at all. The reloads this card has already seen
+        // (the watcher warm-up, then this write) are the only transactions
+        // it has ever dispatched, and none of them is undoable.
+        const external = fs
+          .readFileSync(file, "utf8")
+          .replace(FIXTURE_LINES[19] as string, EXTERNAL_LINE);
+        fs.writeFileSync(file, external, "utf8");
+        await waitForEditorShowing(app, EXTERNAL_LINE, 30_000);
+
+        const undoState = await waitForUndoState(app, { enabled: false });
+        expect(undoState.found, "Edit ▸ Undo must exist").toBe(true);
+        expect(
+          undoState.enabled,
+          "a buffer that was only ever reloaded has nothing to undo",
+        ).toBe(false);
+
+        await undoOnce(app);
+        // An undo that DID fire would land within a frame or two; give it
+        // that long before reading, or "nothing happened" is vacuous.
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        const afterUndo = await editorText(app);
+        expect(afterUndo).toContain(EXTERNAL_LINE);
+        expect(afterUndo).not.toContain(FIXTURE_LINES[19] as string);
+        // Nothing was written back either: disk is still the external bytes.
+        expect(fs.readFileSync(file, "utf8")).toBe(external);
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
         rmFixture(dir);
       }
     },

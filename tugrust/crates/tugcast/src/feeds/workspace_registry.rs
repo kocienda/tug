@@ -114,7 +114,6 @@ pub struct WorkspaceEntry {
     /// `git init` target for the non-repo "Initialize git" affordance.
     pub project_dir: PathBuf,
     /// Router watch receivers.
-    pub fs_watch_rx: watch::Receiver<Frame>,
     /// Bootstrap workspace's FILETREE response watch — kept on the
     /// registered snapshot list in `main.rs` because its initial empty
     /// `FileTreeSnapshot` is what unblocks a brand-new session card's
@@ -195,6 +194,7 @@ impl WorkspaceEntry {
         ft_response_tx: tokio::sync::broadcast::Sender<Frame>,
         changeset_all_bump: Arc<tokio::sync::Notify>,
         gh_response_tx: tokio::sync::broadcast::Sender<Frame>,
+        fs_event_tx: tokio::sync::broadcast::Sender<Frame>,
         browse_only: bool,
     ) -> Arc<Self> {
         // Derive a per-entry child cancel token. Firing this child tears
@@ -225,7 +225,6 @@ impl WorkspaceEntry {
         let (ft_query_tx, ft_query_rx) = mpsc::channel::<FileTreeQuery>(16);
 
         // Watch channels — empty payload, same as today's main.rs.
-        let (fs_watch_tx, fs_watch_rx) = watch::channel(Frame::new(FeedId::FILESYSTEM, vec![]));
         let (ft_watch_tx, ft_watch_rx) = watch::channel(Frame::new(FeedId::FILETREE, vec![]));
 
         // Construct feeds — pass `workspace_key.arc()` as a cheap Arc<str>
@@ -262,7 +261,12 @@ impl WorkspaceEntry {
             }
         });
 
-        let filesystem_task = spawn_snapshot_feed(Box::new(fs_feed), fs_watch_tx, cancel.clone());
+        // FILESYSTEM is NOT a `SnapshotFeed`: it publishes onto the one
+        // process-wide broadcast sender every workspace shares, so no batch
+        // is lost to a latest-value channel and a lag is reported rather
+        // than swallowed.
+        let fs_cancel = cancel.clone();
+        let filesystem_task = tokio::spawn(fs_feed.run(fs_event_tx, fs_cancel));
         let filetree_task = spawn_snapshot_feed(Box::new(ft_feed), ft_watch_tx, cancel.clone());
 
         // Event-driven git reactions: ride the FileWatcher batches to drive the
@@ -284,7 +288,6 @@ impl WorkspaceEntry {
         Arc::new(Self {
             workspace_key,
             project_dir,
-            fs_watch_rx,
             ft_watch_rx,
             ft_query_tx,
             file_watcher_task,
@@ -330,6 +333,11 @@ pub struct WorkspaceRegistry {
     /// git watch, which broadcasts a `GitHeadSignal` when that workspace's HEAD
     /// moves. The router subscribes once at the process level (see `main.rs`).
     gh_response_tx: tokio::sync::broadcast::Sender<Frame>,
+    /// The one process-wide `FILESYSTEM` sender every workspace's feed
+    /// publishes onto. Shared rather than per-workspace so the router
+    /// registers it once and a client hears every open project's events on
+    /// one stream, each frame naming its own `workspace_key`.
+    fs_event_tx: tokio::sync::broadcast::Sender<Frame>,
     /// Optional "a workspace just opened" signal, carrying the fresh entry's
     /// canonical key. The base-motion engine listens here because a HEAD signal
     /// is an edge and a newly-opened project may already hold an arc whose base
@@ -350,12 +358,14 @@ impl WorkspaceRegistry {
         ft_response_tx: tokio::sync::broadcast::Sender<Frame>,
         changeset_all_bump: Arc<tokio::sync::Notify>,
         gh_response_tx: tokio::sync::broadcast::Sender<Frame>,
+        fs_event_tx: tokio::sync::broadcast::Sender<Frame>,
     ) -> Self {
         Self {
             inner: Mutex::new(HashMap::new()),
             ft_response_tx,
             changeset_all_bump,
             gh_response_tx,
+            fs_event_tx,
             workspace_open_tx: OnceLock::new(),
         }
     }
@@ -381,10 +391,12 @@ impl WorkspaceRegistry {
     pub fn new_for_test() -> Self {
         let (ft_response_tx, _) = tokio::sync::broadcast::channel(16);
         let (gh_response_tx, _) = tokio::sync::broadcast::channel(16);
+        let (fs_event_tx, _) = tokio::sync::broadcast::channel(16);
         Self::new(
             ft_response_tx,
             Arc::new(tokio::sync::Notify::new()),
             gh_response_tx,
+            fs_event_tx,
         )
     }
 
@@ -489,6 +501,7 @@ impl WorkspaceRegistry {
             self.ft_response_tx.clone(),
             Arc::clone(&self.changeset_all_bump),
             self.gh_response_tx.clone(),
+            self.fs_event_tx.clone(),
             browse_only,
         );
         map.insert(workspace_key.clone(), Arc::clone(&entry));

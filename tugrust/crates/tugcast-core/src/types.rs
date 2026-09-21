@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// Represents changes detected by the filesystem watcher.
 /// Serialized with serde's `tag` attribute to produce tagged JSON
 /// format: `{"kind": "Created", "path": "..."}`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum FsEvent {
     /// File or directory was created

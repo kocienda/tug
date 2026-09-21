@@ -534,6 +534,13 @@ describe("a FILESYSTEM event re-asks the verdicts it contradicts", () => {
     );
   }
 
+  /** The frame the server sends when it dropped events it cannot name. */
+  function resyncFrame(workspaceKey: string): Uint8Array {
+    return new TextEncoder().encode(
+      JSON.stringify({ workspace_key: workspaceKey, resync: true, events: [] }),
+    );
+  }
+
   function harness() {
     let clock = 1_000_000;
     const asked: string[][] = [];
@@ -693,6 +700,58 @@ describe("a FILESYSTEM event re-asks the verdicts it contradicts", () => {
     );
     await h.settle();
     expect(h.asked.length).toBe(1);
+    h.store.dispose();
+  });
+
+  test("a resync re-asks a CONFIRMED path, which no ordinary batch would", async () => {
+    const h = harness();
+    h.answerWith(there);
+    h.store.lookup(PATH, null);
+    await h.settle();
+    expect(h.store.lookup(PATH, null).state).toBe("confirmed");
+    expect(h.asked.length).toBe(1);
+
+    // The deletion that happened inside the lost window. Nothing names the
+    // path — the whole point of a resync is that the server cannot.
+    h.answerWith(gone);
+    h.store.applyFilesystemFrame(resyncFrame("/repo"));
+    await h.settle();
+
+    expect(h.asked.length).toBe(2);
+    expect(h.asked[1]).toEqual([PATH]);
+    expect(h.store.lookup(PATH, null)).toEqual({ state: "missing" });
+    h.store.dispose();
+  });
+
+  test("a resync for another root leaves this one's verdicts alone", async () => {
+    const h = harness();
+    h.answerWith(there);
+    h.store.lookup(PATH, null);
+    await h.settle();
+    expect(h.asked.length).toBe(1);
+
+    h.store.applyFilesystemFrame(resyncFrame("/elsewhere"));
+    await h.settle();
+    expect(h.asked.length).toBe(1);
+    h.store.dispose();
+  });
+
+  test("a resync with an empty key re-asks every root", async () => {
+    const h = harness();
+    h.answerWith({
+      exists: { [PATH]: true, "/elsewhere/x.md": true },
+      canonical: {},
+      isDir: {},
+    });
+    h.store.lookup(PATH, null);
+    h.store.lookup("/elsewhere/x.md", null);
+    await h.settle();
+    expect(h.asked.length).toBe(1);
+
+    h.store.applyFilesystemFrame(resyncFrame(""));
+    await h.settle();
+    expect(h.asked.length).toBe(2);
+    expect([...h.asked[1]].sort()).toEqual(["/elsewhere/x.md", PATH]);
     h.store.dispose();
   });
 

@@ -83,6 +83,7 @@ import {
   EditorState,
   StateEffect,
   StateField,
+  Transaction,
 } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import {
@@ -892,9 +893,15 @@ export const TugTextCardEditor = React.forwardRef<
       // the same measure pass, before paint). Folds, search matches, and the
       // undo history's positions survive the same way. There is nothing to
       // restore afterwards, so nothing races a click or a drag in progress.
+      //
+      // The reload is also kept OUT of the undo history: ⌘Z must never
+      // resurrect the pre-reload text, because in automatic mode the buffer
+      // that comes back is written straight to disk, silently overwriting
+      // whatever the external editor just put there. Undo stays the user's
+      // own typing, one step at a time, with the reloaded lines untouched.
       live.dispatch({
         changes,
-        annotations: externalReplace.of(true),
+        annotations: [externalReplace.of(true), Transaction.addToHistory.of(false)],
       });
     },
     [],

@@ -10,6 +10,8 @@
 
 import { describe, test, expect, mock, beforeAll, beforeEach } from "bun:test";
 
+import type { FileWatchState } from "@/lib/file-watch-client";
+
 interface WriteCall {
   path: string;
   content: string;
@@ -130,38 +132,52 @@ const settle = async () => {
   await tick();
 };
 
-type FrameEvent = { kind: string; path?: string; from?: string; to?: string };
-
-/** Feed a synthetic FILESYSTEM frame to a store (paths are absolute). */
-function fsFrameEvents(
+/**
+ * Deliver one FILE_WATCH state for the store's own path, as the service
+ * would.
+ *
+ * Straight into the store rather than through the client's module-level
+ * delivery: the client dispatches by path to every listener it holds, and
+ * these tests open many stores on the same path without disposing them, so
+ * a shared delivery would wake stores from earlier tests. What is under
+ * test here is the decision table, not the dispatch — `file-watch-client`'s
+ * own suite covers that.
+ *
+ * `seq` climbs globally, which is what the real service does.
+ */
+let watchSeq = 0;
+function deliverState(
   store: InstanceType<typeof TextCardStore>,
-  events: FrameEvent[],
+  patch: Partial<FileWatchState> = {},
 ) {
-  const rel = (p?: string) => (p === undefined ? undefined : p.replace(/^\//, ""));
-  const payload = new TextEncoder().encode(
-    JSON.stringify({
-      workspace_key: "/",
-      events: events.map((e) => ({
-        kind: e.kind,
-        path: rel(e.path),
-        from: rel(e.from),
-        to: rel(e.to),
-      })),
-    }),
-  );
-  (store as unknown as { _onFilesystemFrame(p: Uint8Array): void })._onFilesystemFrame(
-    payload,
-  );
+  const path = patch.path ?? store.getSnapshot().path;
+  if (path === null) throw new Error("deliverState: the store has no path");
+  const file = io.files.get(path);
+  const state: FileWatchState = {
+    path,
+    seq: ++watchSeq,
+    state: "present",
+    sha256: file?.sha256 ?? null,
+    size: file?.content.length ?? null,
+    created: [],
+    renamedTo: null,
+    error: null,
+    ...patch,
+  };
+  (
+    store as unknown as { _onFileWatchState(s: FileWatchState): void }
+  )._onFileWatchState(state);
 }
 
-/** Feed a single-event FILESYSTEM frame naming `fullPath`. */
-function fsFrame(
+/** The service saw our file, and it is there. */
+const deliverPresent = (store: InstanceType<typeof TextCardStore>) =>
+  deliverState(store);
+
+/** The service looked and the path was gone; `created` is the window's. */
+const deliverAbsent = (
   store: InstanceType<typeof TextCardStore>,
-  fullPath: string,
-  kind = "modified",
-) {
-  fsFrameEvents(store, [{ kind, path: fullPath }]);
-}
+  created: string[] = [],
+) => deliverState(store, { state: "absent", sha256: null, size: null, created });
 
 function seedDisk(path: string, content: string, readOnly = false) {
   io.files.set(path, { content, sha256: shaOf(content), readOnly });
@@ -405,7 +421,7 @@ describe("manual mode — dirty + aside flush target", () => {
     // File deleted under a CLEAN buffer — the watcher path sets the
     // conflict without touching saveState.
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     expect(store.getSnapshot().saveState).toBe("clean");
@@ -427,7 +443,7 @@ describe("manual mode — dirty + aside flush target", () => {
     store.attachEditor(bridge(() => "disk\n"));
     await store.openPath("/f.txt");
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     expect(store.getSnapshot().saveState).toBe("clean");
@@ -760,7 +776,7 @@ describe("manual mode — save verbs", () => {
     // Disk changes externally; the watcher frame arrives.
     seedDisk("/f.txt", "foreign\n");
     io.writes = [];
-    fsFrame(store, "/f.txt");
+    deliverPresent(store);
     await tick();
 
     expect(store.getSnapshot().conflict?.reason).toBe("hash");
@@ -776,7 +792,7 @@ describe("rename-follow ([P05])", () => {
     const store = new TextCardStore({ saveMode: "manual" });
     store.attachEditor(bridge(() => buf, (t) => (buf = t)));
     await store.openPath("/a.txt");
-    fsFrameEvents(store, [{ kind: "Renamed", from: "/a.txt", to: "/b.txt" }]);
+    deliverState(store, { state: "absent", sha256: null, renamedTo: "/b.txt" });
     await tick();
     expect(store.getSnapshot().path).toBe("/b.txt");
     expect(store.getSnapshot().fileName).toBe("b.txt");
@@ -798,10 +814,7 @@ describe("rename-follow ([P05])", () => {
     // macOS: the file moves to /moved.txt (same bytes, different dir).
     seedDisk("/moved.txt", "body\n");
     io.files.delete("/a.txt");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/a.txt" },
-      { kind: "Created", path: "/moved.txt" },
-    ]);
+    deliverAbsent(store, ["/moved.txt"]);
     await tick();
 
     expect(store.getSnapshot().path).toBe("/moved.txt");
@@ -821,11 +834,7 @@ describe("rename-follow ([P05])", () => {
     seedDisk("/x.txt", "different\n");
     seedDisk("/y.txt", "other\n");
     io.files.delete("/a.txt");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/a.txt" },
-      { kind: "Created", path: "/x.txt" },
-      { kind: "Created", path: "/y.txt" },
-    ]);
+    deliverAbsent(store, ["/x.txt", "/y.txt"]);
     await settle();
 
     expect(store.getSnapshot().path).toBe("/a.txt"); // not rebound
@@ -895,10 +904,7 @@ describe("replace-in-place — the classification ladder", () => {
 
     // git unlinks and recreates: the path never stops existing for us.
     seedDisk("/f.txt", "joined\n");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/f.txt" },
-      { kind: "Created", path: "/f.txt" },
-    ]);
+    deliverAbsent(store, ["/f.txt"]);
     await tick();
     await tick();
 
@@ -918,10 +924,7 @@ describe("replace-in-place — the classification ladder", () => {
     store.noteEdit();
 
     seedDisk("/f.txt", "joined\n");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/f.txt" },
-      { kind: "Created", path: "/f.txt" },
-    ]);
+    deliverAbsent(store, ["/f.txt"]);
     await tick();
     await tick();
 
@@ -936,7 +939,7 @@ describe("replace-in-place — the classification ladder", () => {
     await store.openPath("/f.txt");
 
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await tick();
     await tick();
     expect(store.getSnapshot().conflict).toBeNull();
@@ -953,7 +956,7 @@ describe("replace-in-place — the classification ladder", () => {
     await store.openPath("/f.txt");
 
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await tick();
     await tick();
     // The checkout finishes and the file lands again before the re-probe.
@@ -986,7 +989,7 @@ describe("replace-in-place — the classification ladder", () => {
     expect(store.getSnapshot().conflict?.diskSha256).toBe(shaOf("joined\n"));
   });
 
-  test("a recheck deferred by the echo guard still runs when the write conflicts", async () => {
+  test("a state deferred by a write still runs when the write conflicts", async () => {
     seedDisk("/f.txt", "v1\n");
     let buf = "v1\n";
     const store = new TextCardStore();
@@ -998,18 +1001,20 @@ describe("replace-in-place — the classification ladder", () => {
     // Someone else writes first, so our conditional write will 409.
     seedDisk("/f.txt", "theirs\n");
     const flushed = store.flush();
-    // A frame arrives mid-write and is deferred by the echo guard.
-    fsFrame(store, "/f.txt", "Modified");
+    // A frame arrives mid-write. Mid-write the baseline is about to move,
+    // so the comparison is ordered after the settle rather than made
+    // against a hash we are in the middle of replacing.
+    deliverPresent(store);
     expect(
-      (store as unknown as { _recheckQueued: boolean })._recheckQueued,
-    ).toBe(true);
+      (store as unknown as { _deferredState: unknown })._deferredState,
+    ).not.toBeNull();
 
     await flushed;
     await tick();
     await tick();
     expect(
-      (store as unknown as { _recheckQueued: boolean })._recheckQueued,
-    ).toBe(false);
+      (store as unknown as { _deferredState: unknown })._deferredState,
+    ).toBeNull();
     expect(store.getSnapshot().conflict?.reason).toBe("hash");
   });
 });
@@ -1025,10 +1030,7 @@ describe("rename-follow by file identity", () => {
     // The move carries the file's identity but not its hash — the case the
     // old baseline-hash match could never recognize.
     renameDisk("/a.txt", "/moved.txt", "body, edited elsewhere\n");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/a.txt" },
-      { kind: "Created", path: "/moved.txt" },
-    ]);
+    deliverAbsent(store, ["/moved.txt"]);
     await tick();
     await tick();
 
@@ -1045,11 +1047,7 @@ describe("rename-follow by file identity", () => {
 
     // Neither the basename nor the hash matches; only the identity does.
     renameDisk("/a.txt", "/renamed-entirely.md", "different now\n");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/a.txt" },
-      { kind: "Created", path: "/unrelated.txt" },
-      { kind: "Created", path: "/renamed-entirely.md" },
-    ]);
+    deliverAbsent(store, ["/unrelated.txt", "/renamed-entirely.md"]);
     await tick();
     await tick();
 
@@ -1068,11 +1066,7 @@ describe("rename-follow by file identity", () => {
     // it read first. The identity says which one is actually ours.
     seedIdentifiedDisk("/decoy.txt", "same bytes\n", 99);
     renameDisk("/a.txt", "/real.txt");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/a.txt" },
-      { kind: "Created", path: "/decoy.txt" },
-      { kind: "Created", path: "/real.txt" },
-    ]);
+    deliverAbsent(store, ["/decoy.txt", "/real.txt"]);
     await tick();
     await tick();
 
@@ -1089,10 +1083,7 @@ describe("rename-follow by file identity", () => {
 
     io.files.delete("/a.txt");
     seedDisk("/sub/a.txt", "body\n");
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/a.txt" },
-      { kind: "Created", path: "/sub/a.txt" },
-    ]);
+    deliverAbsent(store, ["/sub/a.txt"]);
     await tick();
     await tick();
 
@@ -1110,10 +1101,7 @@ describe("rename-follow by file identity", () => {
     // git unlinks and recreates: same path, NEW identity. The ladder settles
     // this by probing the path, never by matching identity.
     seedIdentifiedDisk("/f.txt", "joined\n", 52);
-    fsFrameEvents(store, [
-      { kind: "Removed", path: "/f.txt" },
-      { kind: "Created", path: "/f.txt" },
-    ]);
+    deliverAbsent(store, ["/f.txt"]);
     await tick();
     await tick();
 
@@ -1160,7 +1148,7 @@ describe("arc-worktree retirement", () => {
     // The join squashes the work onto the repo root and removes the worktree.
     seedDisk("/repo/src/x.ts", "joined version\n");
     io.files.delete(inArc);
-    fsFrame(store, inArc, "Removed");
+    deliverAbsent(store);
     await tick();
     await tick();
     await tick();
@@ -1183,7 +1171,7 @@ describe("arc-worktree retirement", () => {
 
     seedDisk("/repo/src/y.ts", "joined version\n");
     io.files.delete(inArc);
-    fsFrame(store, inArc, "Removed");
+    deliverAbsent(store);
     await tick();
     await tick();
     await tick();
@@ -1201,7 +1189,7 @@ describe("arc-worktree retirement", () => {
     await store.openPath(inArc);
 
     io.files.delete(inArc);
-    fsFrame(store, inArc, "Removed");
+    deliverAbsent(store);
     await settle();
 
     expect(store.getSnapshot().path).toBe(inArc);
@@ -1222,7 +1210,7 @@ describe("a removed directory takes its files with it", () => {
     // What `rm -rf` of a worktree actually reports: the directory, and not one
     // event per file beneath it.
     io.files.delete(inArc);
-    fsFrame(store, "/repo/.tug/worktrees/myarc", "Removed");
+    deliverAbsent(store);
     await tick();
     await tick();
     await tick();
@@ -1232,32 +1220,28 @@ describe("a removed directory takes its files with it", () => {
     expect(buf).toBe("joined version\n");
   });
 
-  test("a removed directory we do not live under is ignored", async () => {
+  test("a state for another path is not ours to act on", async () => {
     seedDisk("/repo/src/mine.txt", "mine\n");
     const store = new TextCardStore({ saveMode: "manual" });
     store.attachEditor(bridge(() => "mine\n"));
     await store.openPath("/repo/src/mine.txt");
 
-    fsFrame(store, "/repo/other", "Removed");
+    // Which paths produce a frame at all is the service's question now: it
+    // watches one directory per bound file and matches by name, so a
+    // neighbour's churn never reaches this card. What the store still owes
+    // is the last guard — a state whose path is not ours is dropped rather
+    // than applied to whatever we happen to have open.
+    deliverState(store, {
+      path: "/repo/other/theirs.txt",
+      state: "absent",
+      sha256: null,
+    });
     await settle();
 
     expect(store.getSnapshot().path).toBe("/repo/src/mine.txt");
     expect(store.getSnapshot().conflict).toBeNull();
   });
 
-  test("a sibling whose name prefixes ours is not an ancestor", async () => {
-    seedDisk("/repo/srclib/f.txt", "mine\n");
-    const store = new TextCardStore({ saveMode: "manual" });
-    store.attachEditor(bridge(() => "mine\n"));
-    await store.openPath("/repo/srclib/f.txt");
-
-    // `/repo/src` is a string prefix of `/repo/srclib/...` but not a parent
-    // directory of it — the boundary slash is what tells them apart.
-    fsFrame(store, "/repo/src", "Removed");
-    await settle();
-
-    expect(store.getSnapshot().conflict).toBeNull();
-  });
 });
 
 describe("a missing verdict's modality and its life", () => {
@@ -1269,7 +1253,7 @@ describe("a missing verdict's modality and its life", () => {
     await store.openPath("/f.txt");
 
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     expect(store.getSnapshot().conflict?.raisedOverCleanBuffer).toBe(true);
@@ -1292,7 +1276,7 @@ describe("a missing verdict's modality and its life", () => {
     store.noteEdit();
 
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     expect(store.getSnapshot().conflict?.raisedOverCleanBuffer).toBe(false);
@@ -1306,13 +1290,13 @@ describe("a missing verdict's modality and its life", () => {
     await store.openPath("/f.txt");
 
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
 
     // Someone restores it. No gesture from the user.
     seedDisk("/f.txt", "restored\n");
-    fsFrame(store, "/f.txt", "Created");
+    deliverPresent(store);
     await tick();
     await tick();
 
@@ -1334,7 +1318,7 @@ describe("a missing verdict's modality and its life", () => {
 
     // More external churn must not clear a question the user hasn't answered.
     seedDisk("/f.txt", "theirs again\n");
-    fsFrame(store, "/f.txt", "Modified");
+    deliverPresent(store);
     await tick();
     await tick();
     expect(store.getSnapshot().conflict?.reason).toBe("hash");
@@ -1351,7 +1335,7 @@ describe("a missing verdict's modality and its life", () => {
     store.noteEdit();
 
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
 
@@ -1359,7 +1343,7 @@ describe("a missing verdict's modality and its life", () => {
     // "missing" and the ladder raises the honest question in its place: the
     // unsaved buffer now diverges from what is on disk.
     seedDisk("/f.txt", "came back\n");
-    fsFrame(store, "/f.txt", "Created");
+    deliverPresent(store);
     await tick();
     await tick();
     expect(store.getSnapshot().conflict?.reason).toBe("hash");
@@ -1378,14 +1362,14 @@ describe("a missing verdict's modality and its life", () => {
     await store.openPath("/f.txt");
 
     io.files.delete("/f.txt");
-    fsFrame(store, "/f.txt", "Removed");
+    deliverAbsent(store);
     await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
 
     // Restored with the same bytes: nothing diverges, so the verdict simply
     // clears and the banner's Save has nothing left to do.
     seedDisk("/f.txt", "disk\n");
-    fsFrame(store, "/f.txt", "Created");
+    deliverPresent(store);
     await tick();
     await tick();
     expect(store.getSnapshot().conflict).toBeNull();

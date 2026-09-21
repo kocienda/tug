@@ -128,6 +128,40 @@ enum ClientState {
     Live,
 }
 
+/// One client's forwarder for one broadcast sender: every frame into the
+/// merged snapshot channel, and on a lag the sender's own lag frame.
+///
+/// Split out of the client loop so the lag path can be driven directly — an
+/// overflow needs a receiver that nobody is reading, which is awkward to
+/// arrange through a whole websocket handshake and trivial to arrange here.
+async fn forward_broadcast(
+    mut bcast_rx: broadcast::Receiver<Frame>,
+    snap_tx: mpsc::Sender<Frame>,
+    lag_frame: Option<Frame>,
+) {
+    loop {
+        match bcast_rx.recv().await {
+            Ok(frame) => {
+                if snap_tx.send(frame).await.is_err() {
+                    break;
+                }
+            }
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                warn!(skipped = n, "broadcast snapshot stream lagged");
+                // Tell the client it missed frames, in this feed's own
+                // vocabulary. A silent lag leaves a client rendering a state
+                // it may have missed the correction to.
+                if let Some(frame) = lag_frame.clone() {
+                    if snap_tx.send(frame).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // FeedRouter
 // ---------------------------------------------------------------------------
@@ -154,7 +188,11 @@ pub struct FeedRouter {
     /// producers), this list holds event streams safe to fan in from
     /// many producers. Used by the FILETREE multi-workspace response
     /// path per `arc/dev-atoms.md#step-pre-4`.
-    snapshot_broadcast_senders: Vec<broadcast::Sender<Frame>>,
+    /// Each entry carries an optional LAG FRAME: what to hand the client
+    /// when its own forwarder falls behind and the buffer drops frames.
+    /// Without one, a client that missed frames is told nothing and goes on
+    /// rendering a state it may have missed the correction to.
+    snapshot_broadcast_senders: Vec<(broadcast::Sender<Frame>, Option<Frame>)>,
 
     /// Tracks which client owns each `(input FeedId, tug_session_id?)` key
     /// (P5 single-writer guard, relaxed per [D08]).
@@ -315,7 +353,24 @@ impl FeedRouter {
     /// clients only see frames published *after* their forwarder
     /// subscribes. Used for the FILETREE multi-workspace response fan-in.
     pub(crate) fn add_broadcast_senders(&mut self, senders: Vec<broadcast::Sender<Frame>>) {
-        self.snapshot_broadcast_senders.extend(senders);
+        self.snapshot_broadcast_senders
+            .extend(senders.into_iter().map(|tx| (tx, None)));
+    }
+
+    /// Add one broadcast sender together with the frame to forward when a
+    /// client's forwarder lags.
+    ///
+    /// A lag is a silent hole in an event stream, and the only honest answer
+    /// is to say so: the frame goes into the merged channel in the dropped
+    /// frames' place, and the client re-asks for what it holds rather than
+    /// trusting it.
+    pub(crate) fn add_broadcast_sender_with_lag_frame(
+        &mut self,
+        sender: broadcast::Sender<Frame>,
+        lag_frame: Frame,
+    ) {
+        self.snapshot_broadcast_senders
+            .push((sender, Some(lag_frame)));
     }
 
     /// Assign a unique client ID.
@@ -1150,24 +1205,10 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                 // future frames. Lagged errors (slow client falling
                 // behind the buffer) log and continue.
                 let snapshot_broadcasts = std::mem::take(&mut router.snapshot_broadcast_senders);
-                for tx in snapshot_broadcasts {
-                    let mut bcast_rx = tx.subscribe();
+                for (tx, lag_frame) in snapshot_broadcasts {
+                    let bcast_rx = tx.subscribe();
                     let snap_tx_clone = snap_tx.clone();
-                    tokio::spawn(async move {
-                        loop {
-                            match bcast_rx.recv().await {
-                                Ok(frame) => {
-                                    if snap_tx_clone.send(frame).await.is_err() {
-                                        break;
-                                    }
-                                }
-                                Err(broadcast::error::RecvError::Lagged(n)) => {
-                                    warn!(skipped = n, "broadcast snapshot stream lagged");
-                                }
-                                Err(broadcast::error::RecvError::Closed) => break,
-                            }
-                        }
-                    });
+                    tokio::spawn(forward_broadcast(bcast_rx, snap_tx_clone, lag_frame));
                 }
 
                 drop(snap_tx);
@@ -1513,6 +1554,70 @@ impl axum::extract::FromRef<FeedRouter> for SharedAuthState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- Broadcast forwarding and the lag frame ----
+
+    /// A client that falls behind is TOLD, in the registering feed's own
+    /// words. Registered without a lag frame it is told nothing, which is
+    /// the behaviour every other broadcast feed still relies on.
+    #[tokio::test]
+    async fn a_lagged_forwarder_delivers_the_lag_frame() {
+        // Capacity 1: two sends with nobody reading overflow the receiver.
+        let (bcast_tx, _) = broadcast::channel::<Frame>(1);
+        let (snap_tx, mut snap_rx) = mpsc::channel::<Frame>(16);
+        let lag = Frame::new(FeedId::FILESYSTEM, b"{\"resync\":true}".to_vec());
+        let rx = bcast_tx.subscribe();
+
+        for i in 0..4u8 {
+            let _ = bcast_tx.send(Frame::new(FeedId::FILESYSTEM, vec![i]));
+        }
+        tokio::spawn(forward_broadcast(rx, snap_tx, Some(lag.clone())));
+
+        let frame = tokio::time::timeout(Duration::from_secs(2), snap_rx.recv())
+            .await
+            .expect("the lag frame arrives")
+            .expect("the forwarder is live");
+        assert_eq!(frame.payload, lag.payload);
+    }
+
+    #[tokio::test]
+    async fn a_forwarder_with_no_lag_frame_says_nothing() {
+        let (bcast_tx, _) = broadcast::channel::<Frame>(1);
+        let (snap_tx, mut snap_rx) = mpsc::channel::<Frame>(16);
+        let rx = bcast_tx.subscribe();
+
+        for i in 0..4u8 {
+            let _ = bcast_tx.send(Frame::new(FeedId::FILESYSTEM, vec![i]));
+        }
+        tokio::spawn(forward_broadcast(rx, snap_tx, None));
+
+        // The last frame still in the buffer is the only thing forwarded —
+        // no synthetic frame in the dropped ones' place.
+        let frame = tokio::time::timeout(Duration::from_secs(2), snap_rx.recv())
+            .await
+            .expect("the surviving frame arrives")
+            .expect("the forwarder is live");
+        assert_eq!(frame.payload, vec![3u8]);
+    }
+
+    /// Ordinary traffic is forwarded verbatim, in order.
+    #[tokio::test]
+    async fn every_frame_reaches_the_merged_channel() {
+        let (bcast_tx, _) = broadcast::channel::<Frame>(64);
+        let (snap_tx, mut snap_rx) = mpsc::channel::<Frame>(64);
+        tokio::spawn(forward_broadcast(bcast_tx.subscribe(), snap_tx, None));
+
+        for i in 0..10u8 {
+            let _ = bcast_tx.send(Frame::new(FeedId::FILESYSTEM, vec![i]));
+        }
+        for i in 0..10u8 {
+            let frame = tokio::time::timeout(Duration::from_secs(2), snap_rx.recv())
+                .await
+                .expect("ten frames")
+                .expect("the forwarder is live");
+            assert_eq!(frame.payload, vec![i]);
+        }
+    }
 
     // ---- Handshake response ----
 

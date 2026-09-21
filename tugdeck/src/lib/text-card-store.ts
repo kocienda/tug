@@ -18,11 +18,17 @@
  * mode, a non-modal banner in automatic — so external edits and the user's
  * own are never silently lost.
  *
- * External changes: the store subscribes to the FILESYSTEM feed (0x10) and
- * filters the per-workspace event batches for its own canonical path. When
+ * External changes: the store watches its own path through the per-file
+ * FILE_WATCH stream (`file-watch-client`), which reports one state per real
+ * change to that file wherever it lives — the workspace FILESYSTEM feed
+ * only ever carried the bootstrap workspace, so a file opened anywhere else
+ * was never watched at all. A frame whose sha256 equals the baseline is an
+ * echo of our own write and costs nothing; anything else is looked at. When
  * the buffer has no unflushed edits, an external change auto-reverts the
- * buffer in place (NSDocument-style); while edits are in flight, the
- * hash-conditional write adjudicates instead.
+ * buffer in place (NSDocument-style); when it has them, the two sides are
+ * three-way merged against the baseline text and only a merge that cannot
+ * be made — the same lines moved on both sides — raises the conflict the
+ * user has to answer.
  *
  * The editor (CM6) remains the runtime owner of the text — the store never
  * mirrors keystrokes. It reaches the buffer through an attached
@@ -36,8 +42,6 @@
  * @module lib/text-card-store
  */
 
-import { FeedId } from "../protocol";
-import { getConnection } from "./connection-singleton";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import type {
   FileReadErrorKind,
@@ -55,10 +59,11 @@ import {
 } from "./file-aside";
 import { formatUntitledName } from "./untitled-naming";
 import {
-  frameRoot,
-  parseFilesystemFrame,
-  type FilesystemFrame,
-} from "./filesystem-feed";
+  reask as reaskFileWatch,
+  watchFile,
+  type FileWatchState,
+} from "./file-watch-client";
+import { mergeThreeWay } from "./three-way-merge";
 
 /**
  * Which save contract this store enforces. `automatic` is the
@@ -330,6 +335,17 @@ export class TextCardStore {
   private _asideEditedDuringWrite = false;
   /** sha256 the next write is conditioned on. */
   private _baselineSha256: string | null = null;
+  /**
+   * The LF-normalized TEXT those bytes held — the common ancestor a dirty
+   * buffer's three-way merge is computed against ([P08]/[B08]).
+   *
+   * `null` where no text is known for the baseline sha: an untitled buffer
+   * with nothing on disk, and the window between `resolveConflict`'s
+   * "overwrite" adopting the disk hash and the write that restores the
+   * text. A merge with no ancestor is not a merge, so both raise the
+   * conflict instead.
+   */
+  private _baselineText: string | null = null;
   private _debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private _flushInFlight: Promise<void> | null = null;
   /**
@@ -345,8 +361,19 @@ export class TextCardStore {
    * so dispose-time draft GC reads this instead).
    */
   private _lastKnownEmpty = true;
-  /** A revert fetched while a flush was in flight waits its turn. */
-  private _recheckQueued = false;
+  /**
+   * The latest state frame that arrived while a write held `saveState ===
+   * "writing"`. It is not dropped and not acted on: mid-write the store
+   * cannot yet know the hash it is about to adopt, so the comparison is
+   * ORDERED after the settle rather than suppressed by a time window. An
+   * external write landing inside that window is still seen — its hash will
+   * not equal the new baseline.
+   */
+  private _deferredState: FileWatchState | null = null;
+  /** A disk look is in flight. */
+  private _lookInFlight = false;
+  /** A frame arrived while a look was in flight; one more look is owed. */
+  private _lookPending = false;
   /**
    * An edit (or line-ending change) arrived while a write was in flight.
    * That write captured the buffer at its start, so it persisted stale
@@ -372,22 +399,13 @@ export class TextCardStore {
    * matching back to the hash.
    */
   private _heldIdentity: { dev: number; ino: number } | null = null;
-  /** Unregisters the FILESYSTEM feed callback; called by `dispose()`. */
-  private _unsubscribeFilesystem: (() => void) | null = null;
+  /** The path the per-file watch currently holds, and its release. */
+  private _watchedPath: string | null = null;
+  private _releaseWatch: (() => void) | null = null;
 
   constructor(opts?: { saveMode?: SaveMode }) {
     this._saveMode = opts?.saveMode ?? "automatic";
     this._snapshot = { ...EMPTY_SNAPSHOT, saveMode: this._saveMode };
-    const conn = getConnection();
-    if (conn) {
-      this._unsubscribeFilesystem = conn.onFrame(
-        FeedId.FILESYSTEM,
-        (payload: Uint8Array) => {
-          if (this._disposed) return;
-          this._onFilesystemFrame(payload);
-        },
-      );
-    }
   }
 
   // ── useSyncExternalStore surface ─────────────────────────────────────────
@@ -403,7 +421,32 @@ export class TextCardStore {
 
   private _update(patch: Partial<TextCardSnapshot>): void {
     this._snapshot = { ...this._snapshot, ...patch };
+    this._syncWatch();
     for (const listener of this._listeners) listener();
+  }
+
+  /**
+   * Keep the per-file subscription on exactly `snapshot.path`.
+   *
+   * The path moves in `openPath`, `openUntitled`, `openDraft`, `saveAs` and
+   * `_adoptRename`, and every one of them goes through `_update`. So the
+   * subscription follows from one place instead of five, which is what makes
+   * "released on rebind" true by construction rather than by remembering.
+   * `dispose()` releases explicitly, because it does not call `_update`.
+   */
+  private _syncWatch(): void {
+    const snap = this._snapshot;
+    const wanted =
+      !this._disposed && snap.phase === "ready" ? snap.path : null;
+    if (wanted === this._watchedPath) return;
+    this._releaseWatch?.();
+    this._releaseWatch = null;
+    this._watchedPath = wanted;
+    if (wanted === null) return;
+    this._releaseWatch = watchFile(wanted, (state) => {
+      if (this._disposed) return;
+      this._onFileWatchState(state);
+    });
   }
 
   // ── Editor bridge ────────────────────────────────────────────────────────
@@ -452,7 +495,7 @@ export class TextCardStore {
       return;
     }
     this._noteIdentity(outcome.file);
-    this._baselineSha256 = outcome.file.sha256;
+    this._setBaseline(outcome.file.sha256, normalizeLf(outcome.file.content));
     this._lastKnownEmpty = outcome.file.content === "";
     this._update({
       phase: "ready",
@@ -480,7 +523,7 @@ export class TextCardStore {
   async openUntitled(draftId: string, untitledNumber?: number): Promise<void> {
     this._clearDebounce();
     this._resetAsideState();
-    this._baselineSha256 = null;
+    this._setBaseline(null, null);
     this._lastKnownEmpty = true;
     const asidePath = asidePathForUntitled(draftId);
     const writer = new AsideWriter(asidePath);
@@ -635,7 +678,7 @@ export class TextCardStore {
     const editedDuringWrite =
       this._bridge !== null &&
       serializeEol(this._bridge.getText(), snap.lineEnding) !== content;
-    this._baselineSha256 = outcome.sha256;
+    this._setBaseline(outcome.sha256, normalizeLf(content));
     this._lastKnownEmpty = content === "";
     this._update({
       path: newPath,
@@ -717,10 +760,8 @@ export class TextCardStore {
       baselineSha256: this._baselineSha256,
     });
     if (this._disposed) return "noop";
-    // A frame deferred by the echo-guard while this save held `writing`.
-    this._drainRecheckQueue();
     if (outcome.ok) {
-      this._baselineSha256 = outcome.sha256;
+      this._setBaseline(outcome.sha256, normalizeLf(content));
       const editedDuringWrite = this._editedDuringWrite;
       this._editedDuringWrite = false;
       if (editedDuringWrite) {
@@ -734,6 +775,7 @@ export class TextCardStore {
           lastSavedAt: Date.now(),
         });
         void this._flushAside();
+        this._drainDeferredState();
         return "ok";
       }
       // Drain any in-flight aside write before deleting it — a create-new
@@ -752,6 +794,7 @@ export class TextCardStore {
           lastSavedAt: Date.now(),
         });
         void this._flushAside();
+        this._drainDeferredState();
         return "ok";
       }
       this._update({
@@ -760,6 +803,7 @@ export class TextCardStore {
         writeFailures: 0,
         lastSavedAt: Date.now(),
       });
+      this._drainDeferredState();
       return "ok";
     }
     if (outcome.error === "conflict") {
@@ -767,6 +811,7 @@ export class TextCardStore {
         saveState: "editing",
         conflict: { reason: "hash", diskSha256: outcome.diskSha256 },
       });
+      this._drainDeferredState();
       return "conflict";
     }
     if (outcome.error === "missing") {
@@ -775,6 +820,7 @@ export class TextCardStore {
       // looks like, so the ladder decides which before anything is said to
       // the user.
       this._update({ saveState: "editing" });
+      this._drainDeferredState();
       const verdict = await this._classifyAbsentPath();
       if (this._disposed) return "noop";
       // Present after all: the honest answer is that the bytes on disk are
@@ -791,6 +837,7 @@ export class TextCardStore {
       saveState: "editing",
       writeFailures: this._snapshot.writeFailures + 1,
     });
+    this._drainDeferredState();
     tugDevLogStore.warn("text-card-store", "manual save failed", {
       error: outcome.error,
     });
@@ -884,7 +931,8 @@ export class TextCardStore {
       // to a Save whose premise expired.
       return "conflict";
     }
-    this._baselineSha256 = null;
+    // RECREATE: nothing is on disk to be an ancestor of anything.
+    this._setBaseline(null, null);
     // Mark editing even when the buffer never diverged from the deleted
     // file: "Save" here means RECREATE, and save()'s clean short-circuit
     // would otherwise turn it into a no-op that leaves nothing on disk.
@@ -966,22 +1014,23 @@ export class TextCardStore {
     ).then((outcome) => {
       this._flushInFlight = null;
       if (this._disposed) return;
-      this._onWriteSettled(outcome);
+      this._onWriteSettled(outcome, content);
     });
     this._flushInFlight = flight;
     return flight;
   }
 
-  private _onWriteSettled(outcome: FileWriteOutcome): void {
+  /**
+   * `written` is the content this write carried — the baseline TEXT on a
+   * successful settle. It is passed in rather than re-read from the bridge:
+   * an edit during the write RTT means the buffer is no longer what landed
+   * on disk, and the ancestor a later merge needs is what landed.
+   */
+  private _onWriteSettled(outcome: FileWriteOutcome, written: string): void {
     const editedDuringWrite = this._editedDuringWrite;
     this._editedDuringWrite = false;
-    // A frame that hit our path mid-write was deferred to here. It is
-    // honored on every outcome — a conflict, a failure, or a buffer edited
-    // under the write are exactly the cases where the disk state we
-    // deferred asking about matters most.
-    this._drainRecheckQueue();
     if (outcome.ok) {
-      this._baselineSha256 = outcome.sha256;
+      this._setBaseline(outcome.sha256, normalizeLf(written));
       if (editedDuringWrite) {
         // The buffer changed while this write was in flight, so it wrote
         // stale content. Re-flush the current buffer instead of going
@@ -991,6 +1040,7 @@ export class TextCardStore {
           writeFailures: 0,
           lastSavedAt: Date.now(),
         });
+        this._drainDeferredState();
         void this.flush();
         return;
       }
@@ -999,6 +1049,7 @@ export class TextCardStore {
         writeFailures: 0,
         lastSavedAt: Date.now(),
       });
+      this._drainDeferredState();
       return;
     }
     if (outcome.error === "conflict") {
@@ -1006,6 +1057,7 @@ export class TextCardStore {
         saveState: "editing",
         conflict: { reason: "hash", diskSha256: outcome.diskSha256 },
       });
+      this._drainDeferredState();
       return;
     }
     if (outcome.error === "missing") {
@@ -1013,12 +1065,14 @@ export class TextCardStore {
       // is also what a write landing inside a checkout's unlink window
       // gets. The ladder decides whether the file is actually missing.
       this._update({ saveState: "editing" });
+      this._drainDeferredState();
       void this._classifyAbsentPath();
       return;
     }
     // Transport/server failure: back off and retry from the debounce.
     const failures = this._snapshot.writeFailures + 1;
     this._update({ saveState: "editing", writeFailures: failures });
+    this._drainDeferredState();
     tugDevLogStore.warn("text-card-store", "write failed; will retry", {
       error: outcome.error,
       attempt: failures,
@@ -1028,13 +1082,6 @@ export class TextCardStore {
       8000,
     );
     this._armDebounce(backoff);
-  }
-
-  /** Run a recheck deferred by the write echo-guard, if one is pending. */
-  private _drainRecheckQueue(): void {
-    if (!this._recheckQueued) return;
-    this._recheckQueued = false;
-    void this._classifyAbsentPath();
   }
 
   private _armDebounce(delayMs: number): void {
@@ -1224,7 +1271,11 @@ export class TextCardStore {
     if (conflict.reason !== "hash" || conflict.diskSha256 === undefined) {
       return;
     }
-    this._baselineSha256 = conflict.diskSha256;
+    // Save Anyway adopts the disk HASH without its text; the write that
+    // follows immediately restores both ([P08]). Until it settles there is
+    // no ancestor, so a frame arriving in that window conflicts rather than
+    // merging — which is the honest answer, not a gap.
+    this._setBaseline(conflict.diskSha256, null);
     if (this._saveMode === "manual") {
       // Save Anyway: route to the REAL-file save path, NOT
       // `flush()` — which now writes the aside and would silently drop the
@@ -1235,6 +1286,33 @@ export class TextCardStore {
     }
     this._update({ conflict: null, saveState: "editing" });
     await this.flush();
+  }
+
+  /**
+   * The live buffer's text, for a surface that needs to SHOW it — the
+   * conflict compare sheet. `null` before an editor is attached.
+   *
+   * A read-only window onto the bridge, deliberately not a general escape
+   * hatch: text goes INTO the editor through `replaceText` and nowhere else
+   * ([B12]), and this changes no state at all.
+   */
+  getBufferText(): string | null {
+    return this._bridge?.getText() ?? null;
+  }
+
+  /**
+   * What is on disk right now, without touching a single field.
+   *
+   * The compare sheet cannot use `_recheckDisk` or `_mergeOrConflict`: both
+   * decide something, and opening a diff is the user asking to look before
+   * deciding. `null` when there is no path or the read failed — the caller
+   * shows nothing rather than a diff against a guess.
+   */
+  async readDiskText(): Promise<string | null> {
+    const path = this._snapshot.path;
+    if (path === null) return null;
+    const outcome = await readFileFromDisk(path);
+    return outcome.ok ? outcome.file.content : null;
   }
 
   /**
@@ -1278,94 +1356,109 @@ export class TextCardStore {
 
   // ── External changes ─────────────────────────────────────────────────────
 
-  private _onFilesystemFrame(payload: Uint8Array): void {
+  /**
+   * One state frame for our own path. Spec S03's table, top-down, first
+   * match wins.
+   *
+   * The frame is the trigger, never the content: what the file now holds is
+   * decided by a read, because a hash is identity and nothing more. The one
+   * thing the frame saves is the read itself — a sha equal to the baseline
+   * is our own write echoing back, and there is nothing to ask disk about.
+   */
+  private _onFileWatchState(state: FileWatchState): void {
     const snap = this._snapshot;
     if (snap.phase !== "ready" || snap.path === null) return;
-    const frame = parseFilesystemFrame(payload);
-    if (frame === null) return;
-    const root = frameRoot(frame);
-    const full = (p: string): string => `${root}/${p}`;
+    if (state.path !== snap.path) return;
 
-    // A `Removed` naming a DIRECTORY our file lives under takes our file with
-    // it. Removing a directory tree is reported as the directory going away,
-    // not as an event per file inside it — so a card in a torn-down arc
-    // worktree would otherwise never hear that its path is gone, and would sit
-    // on a dead binding until the next activation recheck.
-    const ourPath = snap.path;
-    const removedUnderUs = frame.events.some(
-      (event) =>
-        event.kind === "Removed" &&
-        event.path !== undefined &&
-        ourPath.startsWith(`${full(event.path)}/`),
-    );
-
-    // Does this batch name our path at all — as a subject, as the source of
-    // a rename, or as its destination?
-    const hit =
-      removedUnderUs ||
-      frame.events.some(
-        (event) =>
-          (event.path !== undefined && full(event.path) === ourPath) ||
-          (event.from !== undefined && full(event.from) === ourPath) ||
-          (event.to !== undefined && full(event.to) === ourPath),
-      );
-    if (!hit) return;
-
-    // Echo guard, ahead of every other branch: our own write is a temp file
-    // plus a rename, so mid-write it produces exactly the Removed/Renamed
-    // shape the branches below interpret as the file moving or vanishing.
-    // Re-check once the write settles, when the baseline is current.
+    // Mid-write the baseline is about to move, so the comparison is ORDERED
+    // after the settle rather than suppressed by a time window. An external
+    // write landing inside it is still seen — its hash will not equal the
+    // new baseline either.
     if (snap.saveState === "writing") {
-      this._recheckQueued = true;
+      this._deferredState = state;
       return;
     }
-
-    // Rename-follow. (a) An explicit `Renamed { from, to }` whose
-    // `from` is our path (the Linux/Windows path) → adopt `to` directly.
-    const renamed = frame.events.find(
-      (e) => e.kind === "Renamed" && e.from !== undefined && full(e.from) === snap.path,
-    );
-    if (renamed?.to !== undefined) {
-      void this._adoptRename(full(renamed.to));
+    // The service saw a paired rename whose source was our file, so it
+    // already knows where the file went and no ladder is needed.
+    if (state.renamedTo !== null) {
+      void this._adoptRename(state.renamedTo);
       return;
     }
-    // (b) macOS delivers a rename — and a replace-in-place — as
-    // Removed{ours} (+ Created) in one batch. The ladder decides which
-    // from disk state, never from the event flags alone.
-    if (
-      removedUnderUs ||
-      frame.events.some(
-        (e) => e.kind === "Removed" && e.path !== undefined && full(e.path) === ourPath,
-      )
-    ) {
-      void this._classifyAbsentPath({ frame, root });
+    // Gone at look time. The ladder decides between replace-in-place, a
+    // rename the same window names, an arc successor, and really missing.
+    if (state.state === "absent") {
+      void this._classifyAbsentPath({ created: state.created });
       return;
     }
-
-    if (snap.conflict !== null) {
-      // A hash conflict is a question only the user can answer, so it stays
-      // until they do. A missing verdict is a claim about the file being
-      // gone, and an event naming our path is reason enough to look again —
-      // otherwise Cancel leaves the card deaf to the file coming back.
-      if (snap.conflict.reason !== "missing") return;
+    // The service could not look (a refused path, an io failure). That says
+    // nothing about the file's content, so there is nothing to act on.
+    if (state.state === "error") return;
+    // A missing verdict is a claim about the file being absent, and a frame
+    // saying otherwise is reason enough to look again — otherwise Cancel
+    // leaves the card deaf to the file coming back.
+    if (snap.conflict?.reason === "missing") {
       void this._classifyAbsentPath();
       return;
     }
-    if (snap.saveState === "editing") {
-      if (this._saveMode === "manual") {
-        // Dirty manual buffer: the unsaved edits live only in the buffer,
-        // so a disk change is a genuine external divergence. Read disk and
-        // raise the conflict immediately — never merge, never
-        // silently revert.
-        void this._raiseConflictIfDiverged();
-        return;
-      }
-      // Automatic: unflushed edits; the conditional write adjudicates —
-      // never revert out from under the user.
+    // A hash conflict is a question only the user can answer.
+    if (snap.conflict !== null) return;
+    // The echo: our own write, or a change that produced the bytes we
+    // already hold. Free — no read, no frame acted on.
+    if (state.sha256 !== null && state.sha256 === this._baselineSha256) return;
+    this._lookAtDisk();
+  }
+
+  /**
+   * The disk-look queue: one running, one pending, trailing look always
+   * runs.
+   *
+   * A burst of frames must not buy a read each, and must not end on a read
+   * that started before the last write landed. So a frame arriving during a
+   * look marks one more look owed rather than starting one, and the action
+   * — revert a clean buffer, adjudicate a dirty one — is chosen from LIVE
+   * state when each look starts, never from the state that queued it.
+   */
+  private _lookAtDisk(): void {
+    if (this._lookInFlight) {
+      this._lookPending = true;
       return;
     }
-    void this._recheckDisk();
+    this._lookInFlight = true;
+    void (async () => {
+      try {
+        if (this._snapshot.saveState === "editing") {
+          await this._mergeOrConflict();
+        } else {
+          await this._recheckDisk();
+        }
+      } finally {
+        this._lookInFlight = false;
+      }
+      if (this._lookPending && !this._disposed) {
+        this._lookPending = false;
+        this._lookAtDisk();
+      }
+    })();
   }
+
+  /**
+   * Run the state a write deferred, now that the baseline has moved.
+   *
+   * Called after the new baseline is assigned AND after `saveState` has left
+   * `"writing"`, on every outcome branch. Earlier than that, the drain
+   * re-enters the deferral — a state deferred to itself, forever — or
+   * compares against a baseline about to be replaced and buys a read on
+   * every echo, which is the whole cost the hash compare exists to remove.
+   * Cleared before dispatching, so a frame arriving during the dispatch is
+   * not swallowed by the one it replaced.
+   */
+  private _drainDeferredState(): void {
+    const state = this._deferredState;
+    if (state === null) return;
+    this._deferredState = null;
+    this._onFileWatchState(state);
+  }
+
 
   /**
    * The one ladder every "is this file gone?" question descends.
@@ -1388,8 +1481,7 @@ export class TextCardStore {
    *    absence becomes the missing verdict.
    */
   private async _classifyAbsentPath(opts?: {
-    frame?: FilesystemFrame;
-    root?: string;
+    created?: string[];
     afterSettle?: boolean;
   }): Promise<"present" | "adopted" | "pending" | "missing"> {
     const path = this._snapshot.path;
@@ -1422,8 +1514,8 @@ export class TextCardStore {
       return "present";
     }
 
-    if (opts?.frame !== undefined && opts.root !== undefined) {
-      const adopted = await this._tryAdoptRemovedRename(opts.frame, opts.root);
+    if (opts?.created !== undefined && opts.created.length > 0) {
+      const adopted = await this._tryAdoptRemovedRename(opts.created);
       if (this._disposed) return "pending";
       if (adopted) {
         this._clearMissingSettle();
@@ -1518,10 +1610,24 @@ export class TextCardStore {
         : null;
   }
 
+  /**
+   * Move the baseline: the sha the next conditional write is keyed on, and
+   * the LF-normalized text a later three-way merge treats as the ancestor.
+   *
+   * The two move together or the merge is wrong — a sha from one moment
+   * paired with text from another would name an ancestor that never
+   * existed. So this is the ONLY writer of either field, and `text` is
+   * `null` exactly where no text is known for that sha ([P08]).
+   */
+  private _setBaseline(sha256: string | null, text: string | null): void {
+    this._baselineSha256 = sha256;
+    this._baselineText = text;
+  }
+
   /** Adopt a disk read into the buffer, baseline, and snapshot. */
   private _applyDiskRead(file: FileReadResult): void {
     this._noteIdentity(file);
-    this._baselineSha256 = file.sha256;
+    this._setBaseline(file.sha256, normalizeLf(file.content));
     if (this._bridge) {
       this._bridge.replaceText(file.content);
     }
@@ -1536,27 +1642,64 @@ export class TextCardStore {
   }
 
   /**
-   * Manual-mode watcher/focus path: re-read disk and, if it diverged from
-   * the baseline the dirty buffer is based on, raise the hash conflict the
-   * card renders as the modal conflict sheet.
+   * The dirty-buffer rung, in BOTH save modes ([B08], [B09]).
+   *
+   * Disk moved under a buffer the user is still typing in. Re-read it and
+   * three-way-merge the external change into the live buffer over the
+   * baseline text — the bytes the buffer was last in step with. A clean
+   * merge lands through `replaceText` (so the caret, scroll and undo
+   * history survive it) and the buffer stays dirty, because the merged text
+   * is on nobody's disk yet: automatic re-arms its debounce, manual
+   * re-captures the aside against the disk's new hash.
+   *
+   * Only a merge this module refuses — or one with no ancestor to merge
+   * over — becomes the hash conflict the card renders as the modal sheet.
+   * That is the change this arc makes: the question is now asked when there
+   * is genuinely a question, rather than at every external write.
    */
-  private async _raiseConflictIfDiverged(): Promise<void> {
+  private async _mergeOrConflict(): Promise<void> {
     const path = this._snapshot.path;
     if (path === null) return;
     const outcome = await readFileFromDisk(path);
     if (this._disposed || this._snapshot.path !== path) return;
-    if (this._snapshot.saveState !== "editing" || this._snapshot.conflict !== null) {
-      return;
-    }
     if (!outcome.ok) {
       if (outcome.error === "not_found") await this._classifyAbsentPath();
       return;
     }
-    if (outcome.file.sha256 !== this._baselineSha256) {
+    // Re-read the live state AFTER the read: the user kept typing through
+    // its RTT, and a save, a reload or a conflict may have landed in it.
+    const snap = this._snapshot;
+    if (snap.saveState !== "editing" || snap.conflict !== null) return;
+    if (outcome.file.sha256 === this._baselineSha256) return;
+
+    const diskText = normalizeLf(outcome.file.content);
+    const ours =
+      this._bridge === null ? null : normalizeLf(this._bridge.getText());
+    const merged =
+      this._baselineText === null || ours === null
+        ? ({ ok: false } as const)
+        : mergeThreeWay(this._baselineText, ours, diskText);
+    if (!merged.ok) {
       this._update({
         conflict: { reason: "hash", diskSha256: outcome.file.sha256 },
       });
+      return;
     }
+    this._clearMissingSettle();
+    this._noteIdentity(outcome.file);
+    this._setBaseline(outcome.file.sha256, diskText);
+    // [B12]: the editor's text moves through `replaceText` and nowhere
+    // else, so the merge is a minimal change set over the live document.
+    this._bridge?.replaceText(merged.text);
+    this._update({
+      seedContent: merged.text,
+      readOnly: outcome.file.readOnly,
+      saveState: "editing",
+      conflict: null,
+      lineEnding: detectLineEnding(outcome.file.content),
+    });
+    if (this._saveMode === "automatic") this._armDebounce(AUTOSAVE_DEBOUNCE_MS);
+    else void this._flushAside();
   }
 
   /**
@@ -1580,14 +1723,10 @@ export class TextCardStore {
    * what that means (a prompt, never a wrong rebind).
    */
   private async _tryAdoptRemovedRename(
-    frame: FilesystemFrame,
-    root: string,
+    created: string[],
   ): Promise<boolean> {
     const path = this._snapshot.path;
     if (path === null) return false;
-    const created = frame.events
-      .filter((e) => e.kind === "Created" && e.path !== undefined)
-      .map((e) => `${root}/${e.path}`);
     const ourBase = baseName(path);
     let narrow = created.filter((c) => baseName(c) === ourBase);
     if (narrow.length === 0 && created.length === 1) narrow = created;
@@ -1619,9 +1758,9 @@ export class TextCardStore {
       await this._adoptRename(hashHit.path, hashHit);
       return true;
     }
-    // Nothing in this batch was ours. We follow moves only for in-workspace
-    // files, via the watcher's paired events above; out-of-workspace moves
-    // fall through to the settle window.
+    // Nothing the window named was ours. A move to a DIFFERENT directory
+    // creates nothing in the watched one, so it falls through to the settle
+    // window and the missing verdict — the same answer it has always had.
     return false;
   }
 
@@ -1657,13 +1796,19 @@ export class TextCardStore {
   }
 
   /**
-   * Focus-time backstop for files outside the watcher's workspace roots.
-   * Clean → silent reload; manual + dirty → raise the conflict on
+   * Activation-time backstop.
+   *
+   * Two things happen here, and they answer different failures. The direct
+   * read works with no WebSocket at all, so a card activated while tugcast
+   * is down still sees disk. The `reask` covers the other direction — a
+   * push this client missed — and costs one idempotent `watch` that always
+   * answers. Clean → silent reload; manual + dirty → raise the conflict on
    * divergence. A no-op while a write is in flight or a sheet is pending.
    */
   async recheckOnActivation(): Promise<void> {
     const snap = this._snapshot;
     if (snap.phase !== "ready" || snap.path === null) return;
+    reaskFileWatch(snap.path);
     if (
       snap.saveState === "writing" ||
       snap.conflict !== null ||
@@ -1674,7 +1819,7 @@ export class TextCardStore {
       return;
     }
     if (snap.saveState === "editing") {
-      if (this._saveMode === "manual") await this._raiseConflictIfDiverged();
+      await this._mergeOrConflict();
       return;
     }
     await this._recheckDisk();
@@ -1710,6 +1855,13 @@ export class TextCardStore {
   dispose(): void {
     this._clearDebounce();
     this._clearMissingSettle();
+    // The one release `_update` cannot make, because dispose does not go
+    // through it. Releasing also drops the listener closure, which would
+    // otherwise pin this store for the life of the connection — every
+    // closed Text card leaking a dead instance.
+    this._releaseWatch?.();
+    this._releaseWatch = null;
+    this._watchedPath = null;
     // Draft GC: an untitled draft that is still empty leaves nothing
     // worth keeping — remove its file (hash-conditional, keepalive so
     // the request survives teardown). A non-empty draft stays; the bag
@@ -1727,12 +1879,6 @@ export class TextCardStore {
       );
     }
     this._disposed = true;
-    // Unregister the FILESYSTEM feed callback — the closure pins this
-    // store for the life of the connection otherwise, so every closed
-    // Text card would leak a dead instance (and add O(cards) work to
-    // every filesystem frame).
-    this._unsubscribeFilesystem?.();
-    this._unsubscribeFilesystem = null;
     this._listeners.clear();
     this._bridge = null;
   }

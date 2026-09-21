@@ -8,16 +8,20 @@
 //! Gitignore filtering is NOT done here — events flow through unfiltered.
 //! FileTreeFeed's initial walk (via `WalkBuilder`) respects gitignore, and
 //! re-walks on `.gitignore` changes to reconcile.
+//!
+//! Nor is `.git/` dropped here: `FilesystemFeed` does that on its own side
+//! of the broadcast, so `git_watch` and `FileTreeFeed` still see every
+//! event. And nothing here polls — the batching loop awaits the notify
+//! callback's channel, so a workspace with a quiet tree costs nothing.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
 
 use ignore::WalkBuilder;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -32,9 +36,6 @@ const BROADCAST_CAPACITY: usize = 256;
 /// Debounce window for batching filesystem events
 pub(crate) const DEBOUNCE_MILLIS: u64 = 100;
 
-/// Poll interval when no events are available
-pub(crate) const POLL_MILLIS: u64 = 50;
-
 /// Maximum number of files returned by walk()
 const WALK_CAP: usize = 50_000;
 
@@ -43,9 +44,14 @@ const WALK_CAP: usize = 50_000;
 /// Held by [`FileWatcher::arm`]'s caller between arming and draining. The
 /// watcher must outlive the drain — dropping it unregisters the OS watch —
 /// so it travels with its receiver rather than being reconstructed.
+///
+/// The channel is a tokio unbounded one rather than `std::sync::mpsc`, which
+/// is what lets the drain AWAIT the next event instead of waking every 50 ms
+/// to ask whether one arrived. `notify` calls its closure from its own
+/// non-async thread, and `UnboundedSender::send` is callable from there.
 pub struct ArmedWatch {
     watcher: notify::RecommendedWatcher,
-    event_rx: std_mpsc::Receiver<notify::Result<Event>>,
+    event_rx: mpsc::UnboundedReceiver<notify::Result<Event>>,
 }
 
 /// Shared filesystem watcher service.
@@ -159,11 +165,18 @@ impl FileWatcher {
     pub fn arm(&self) -> Option<ArmedWatch> {
         let watch_path = self.resolver.watch_path().to_path_buf();
 
-        // Create std::sync::mpsc channel for notify watcher
-        let (event_tx, event_rx) = std_mpsc::channel();
+        // The channel notify's own thread pushes into, and the drain awaits.
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         // Create watcher (must stay alive for the duration)
-        let mut watcher = match notify::recommended_watcher(event_tx) {
+        let mut watcher = match notify::recommended_watcher(
+            move |res: notify::Result<Event>| {
+                // Unbounded, so this never blocks notify's thread; a send
+                // that fails means the drain is gone, which cancellation
+                // already accounts for.
+                let _ = event_tx.send(res);
+            },
+        ) {
             Ok(w) => w,
             Err(e) => {
                 error!(error = %e, "failed to create filesystem watcher");
@@ -182,6 +195,11 @@ impl FileWatcher {
 
     /// Drain an [`ArmedWatch`]: debounce events (100ms), convert to
     /// `Vec<FsEvent>`, and broadcast batches until `cancel` fires.
+    ///
+    /// Parked on `recv()` between batches rather than waking on a timer.
+    /// A watcher with nothing happening costs nothing, which is the point:
+    /// one idle timer per workspace is a cost the product pays forever for
+    /// a signal the kernel already pushes.
     pub async fn run_armed(
         self,
         armed: ArmedWatch,
@@ -193,74 +211,53 @@ impl FileWatcher {
         // unregisters the OS watch.
         let ArmedWatch {
             watcher: _watcher,
-            event_rx,
+            mut event_rx,
         } = armed;
 
         let debounce_duration = Duration::from_millis(DEBOUNCE_MILLIS);
-        let poll_duration = Duration::from_millis(POLL_MILLIS);
         let mut batch: Vec<FsEvent> = Vec::new();
 
         loop {
-            if cancel.is_cancelled() {
-                info!("file watcher shutting down");
-                break;
+            // Park until something happens: an event, or shutdown.
+            let first = tokio::select! {
+                _ = cancel.cancelled() => {
+                    info!("file watcher shutting down");
+                    break;
+                }
+                received = event_rx.recv() => match received {
+                    Some(res) => res,
+                    None => {
+                        error!("filesystem watcher channel disconnected");
+                        return;
+                    }
+                },
+            };
+
+            match first {
+                Ok(event) => batch.extend(convert_event(&event, &self)),
+                Err(e) => warn!(error = %e, "filesystem watcher error"),
             }
 
-            // Drain all available events from the std channel (non-blocking)
-            let mut received_events = false;
-
+            // One debounce window, then take everything that piled up in it.
+            sleep(debounce_duration).await;
             loop {
                 match event_rx.try_recv() {
-                    Ok(Ok(event)) => {
-                        received_events = true;
-                        let fs_events = convert_event(&event, &self);
-                        for ev in fs_events {
-                            batch.push(ev);
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        warn!(error = %e, "filesystem watcher error");
-                    }
-                    Err(std_mpsc::TryRecvError::Empty) => break,
-                    Err(std_mpsc::TryRecvError::Disconnected) => {
+                    Ok(Ok(event)) => batch.extend(convert_event(&event, &self)),
+                    Ok(Err(e)) => warn!(error = %e, "filesystem watcher error"),
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
                         error!("filesystem watcher channel disconnected");
                         return;
                     }
                 }
             }
 
-            if received_events && !batch.is_empty() {
-                sleep(debounce_duration).await;
+            // Deduplicate redundant Modified events
+            deduplicate_batch(&mut batch, &watch_path);
 
-                // Drain any more events that arrived during debounce
-                loop {
-                    match event_rx.try_recv() {
-                        Ok(Ok(event)) => {
-                            let fs_events = convert_event(&event, &self);
-                            for ev in fs_events {
-                                batch.push(ev);
-                            }
-                        }
-                        Ok(Err(e)) => {
-                            warn!(error = %e, "filesystem watcher error");
-                        }
-                        Err(std_mpsc::TryRecvError::Empty) => break,
-                        Err(std_mpsc::TryRecvError::Disconnected) => {
-                            error!("filesystem watcher channel disconnected");
-                            return;
-                        }
-                    }
-                }
-
-                // Deduplicate redundant Modified events
-                deduplicate_batch(&mut batch, &watch_path);
-
-                if !batch.is_empty() {
-                    let _ = tx.send(batch.clone());
-                    batch.clear();
-                }
-            } else {
-                sleep(poll_duration).await;
+            if !batch.is_empty() {
+                let _ = tx.send(batch.clone());
+                batch.clear();
             }
         }
     }
@@ -545,6 +542,64 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    // ── run_armed: parked, not polling ───────────────────────────────────────
+
+    /// With nothing happening, the drain is asleep on `recv()` — it does not
+    /// wake on a timer to ask.
+    ///
+    /// Proved with a paused clock: `tokio::time::pause` makes time advance
+    /// only when every task is idle, so auto-advancing an hour and finding
+    /// no sends means no timer fired in that hour. The old loop woke fifty
+    /// times a second per workspace, forever, to learn nothing.
+    #[tokio::test(start_paused = true)]
+    async fn run_armed_stays_parked_with_no_events() {
+        let temp_dir = TempDir::new().unwrap();
+        let watcher = FileWatcher::new(temp_dir.path().to_path_buf());
+        let armed = watcher.arm().expect("arm the watch");
+        let (tx, mut rx) = broadcast::channel::<Vec<FsEvent>>(16);
+        let cancel = CancellationToken::new();
+        let task = tokio::spawn(watcher.run_armed(armed, tx, cancel.clone()));
+
+        // An hour of (virtual) quiet.
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+
+        assert!(
+            matches!(rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)),
+            "a parked watcher sends nothing"
+        );
+        assert!(!task.is_finished(), "and it is still there, waiting");
+
+        cancel.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+    }
+
+    /// And it is genuinely awake: a real write still produces a batch.
+    ///
+    /// Real time here, not paused — `notify` delivers from an OS thread the
+    /// virtual clock knows nothing about.
+    #[tokio::test]
+    async fn run_armed_still_delivers_a_batch_after_a_write() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let watcher = FileWatcher::new(root.clone());
+        let armed = watcher.arm().expect("arm the watch");
+        let (tx, mut rx) = broadcast::channel::<Vec<FsEvent>>(16);
+        let cancel = CancellationToken::new();
+        let task = tokio::spawn(watcher.run_armed(armed, tx, cancel.clone()));
+
+        sleep(Duration::from_millis(150)).await;
+        fs::write(root.join("hello.txt"), "hi").unwrap();
+
+        let batch = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("a batch within five seconds")
+            .expect("the sender is live");
+        assert!(!batch.is_empty(), "the write produced events");
+
+        cancel.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+    }
 
     // ── walk() tests ─────────────────────────────────────────────────────────
 

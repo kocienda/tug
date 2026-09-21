@@ -28,3 +28,27 @@
   display: flex;
   gap: var(--tugx-alert-space-a);
 }
+
+/**
+ * The compare sheet: a diff document over the same action row. The diff owns
+ * its own tokens and scrolling ([L20]); what this adds is the column and the
+ * ceiling that keeps the action row on screen for a long diff.
+ */
+.text-card-compare-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tugx-alert-space-b);
+  min-height: 0;
+  max-height: 70vh;
+}
+
+.text-card-compare-sheet > :first-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* No icon column here, so the left button starts at the content edge. */
+.text-card-compare-sheet .file-save-sheet-actions {
+  padding-left: 0;
+}

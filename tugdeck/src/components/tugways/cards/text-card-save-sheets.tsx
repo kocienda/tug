@@ -34,6 +34,8 @@ import { useSpatialOrder } from "@/components/tugways/use-spatial-order";
 import type { SpatialOrder } from "@/components/tugways/spatial-order";
 import { presentAlertSheet } from "@/components/tugways/tug-alert-sheet";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
+import { TugDiffDocument } from "@/components/tugways/tug-diff-document";
+import type { GitDiffPayload } from "@/lib/git-diff-store";
 
 type ShowSheet = (options: ShowSheetOptions) => Promise<string | undefined>;
 
@@ -151,7 +153,17 @@ function FileSaveSheetView({
 /** Decision from the close-with-unsaved-changes sheet. */
 export type CloseSheetChoice = "save" | "dont-save" | "cancel";
 /** Decision from the external-change conflict sheet. */
-export type ConflictSheetChoice = "save-anyway" | "reload" | "save-as" | "cancel";
+export type ConflictSheetChoice =
+  | "save-anyway"
+  | "reload"
+  | "save-as"
+  | "diff"
+  | "cancel";
+/**
+ * Decision from the compare sheet. `cancel` returns to whichever conflict
+ * surface opened it — looking at a diff decides nothing by itself.
+ */
+export type CompareSheetChoice = "reload" | "keep-mine" | "cancel";
 /** Decision from the missing-file sheet. */
 export type MissingSheetChoice = "save" | "save-as" | "dont-save" | "cancel";
 /** Decision from the open-time aside-conflict sheet. */
@@ -174,6 +186,15 @@ export interface FileSaveSheets {
   presentRevertSheet(fileName: string): Promise<boolean>;
   presentReloadSheet(fileName: string): Promise<boolean>;
   presentOpenConflictSheet(fileName: string): Promise<OpenConflictChoice>;
+  /**
+   * The disk-versus-buffer diff, with the same two resolutions the conflict
+   * surface offers so the user can decide from inside the view rather than
+   * having to remember what they saw.
+   */
+  presentCompareSheet(
+    fileName: string,
+    payload: GitDiffPayload,
+  ): Promise<CompareSheetChoice>;
 }
 
 export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
@@ -206,8 +227,9 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
       const defaultChoice = opts?.defaultChoice ?? "save-anyway";
       return showSheet({
         title: "Document Changed",
-        // Four buttons in one row — `sm`'s content box cannot hold them.
-        displayWidth: "md",
+        // Five buttons in one row — neither `sm`'s nor `md`'s content box
+        // holds them since Diff… joined the row.
+        displayWidth: "lg",
         hideHeader: true,
         content: (close) => (
           <FileSaveSheetView
@@ -224,6 +246,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
                 result: "save-as",
                 isDefault: defaultChoice === "save-as",
               },
+              { label: "Diff…", result: "diff" },
               { label: "Cancel", result: "cancel" },
               {
                 label: "Save Anyway",
@@ -305,6 +328,60 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
     [showSheet],
   );
 
+  const presentCompareSheet = useCallback(
+    (fileName: string, payload: GitDiffPayload): Promise<CompareSheetChoice> =>
+      showSheet({
+        title: `Changes to “${fileName}”`,
+        // The widest tier: a side-by-side diff in a narrower box wraps every
+        // line, which is the one thing this sheet exists not to do.
+        displayWidth: "xl",
+        hideHeader: true,
+        content: (close) => (
+          <div className="text-card-compare-sheet" data-slot="text-card-compare-sheet">
+            <TugDiffDocument
+              payload={payload}
+              label="Disk → your buffer"
+              // The whole reason to open this sheet is to READ the change; a
+              // collapsed file would make the button below a guess again.
+              openAllByDefault
+            />
+            <div className="file-save-sheet-actions">
+              <div>
+                <TugPushButton
+                  size="sm"
+                  emphasis="outlined"
+                  onClick={() => close("cancel")}
+                  data-testid="text-card-compare-cancel"
+                >
+                  Cancel
+                </TugPushButton>
+              </div>
+              <div className="file-save-sheet-actions-right">
+                <TugPushButton
+                  size="sm"
+                  emphasis="outlined"
+                  onClick={() => close("reload")}
+                  data-testid="text-card-compare-reload"
+                >
+                  Reload from Disk
+                </TugPushButton>
+                <TugPushButton
+                  size="sm"
+                  emphasis="outlined"
+                  role="danger"
+                  onClick={() => close("keep-mine")}
+                  data-testid="text-card-compare-keep-mine"
+                >
+                  Keep Mine
+                </TugPushButton>
+              </div>
+            </div>
+          </div>
+        ),
+      }).then((result) => (result as CompareSheetChoice) ?? "cancel"),
+    [showSheet],
+  );
+
   // Stable identity: the presenters are each `useCallback`-stable, so the
   // returned object must be too — the card's close-guard registration
   // effect depends on it and would otherwise re-run every render.
@@ -316,6 +393,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
       presentRevertSheet,
       presentReloadSheet,
       presentOpenConflictSheet,
+      presentCompareSheet,
     }),
     [
       presentCloseSheet,
@@ -324,6 +402,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
       presentRevertSheet,
       presentReloadSheet,
       presentOpenConflictSheet,
+      presentCompareSheet,
     ],
   );
 }

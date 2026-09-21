@@ -41,7 +41,7 @@ export interface TextChange {
 export const MAX_EDIT_DISTANCE = 1500;
 
 /** Split into lines that KEEP their terminator, so offsets sum exactly. */
-function splitLines(text: string): string[] {
+export function splitLines(text: string): string[] {
   const lines: string[] = [];
   let start = 0;
   for (;;) {
@@ -94,7 +94,7 @@ function tighten(prev: string, from: number, to: number, insert: string): TextCh
  * complement as `[aStart, aEnd, bStart, bEnd]` hunks, or `null` when the edit
  * distance passes `maxD`.
  */
-function diffLines(
+export function diffLines(
   a: readonly string[],
   b: readonly string[],
   maxD: number,

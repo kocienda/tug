@@ -37,8 +37,11 @@
  * answer meanwhile — the re-ask is invisible unless it changes something, and
  * {@link PathResolutionStore.applyProbeResult} notifies only on change, so a
  * still-missing path costs one silent probe a minute. `confirmed` never
- * expires: re-asking it could only ever take a live link away, and the open
- * gesture finds out for real anyway.
+ * expires on the timer: re-asking it could only ever take a live link away,
+ * and the open gesture finds out for real anyway. It IS re-asked when the
+ * world says so — an event naming it, and a `resync` frame, which says the
+ * server dropped events it cannot name and is the only way a deletion that
+ * happened inside a lost window ever reaches a confirmed path.
  *
  * **The store fires that re-ask itself.** It used to be evaluated inside
  * `lookup`, which runs only inside an annotation pass — so the expiry could
@@ -432,6 +435,12 @@ export class PathResolutionStore {
    * keeps being served until the probe replaces it, which is what keeps a
    * path that lights late from flashing on its way ([D04]).
    *
+   * A `resync` frame is the other door: the server is saying it dropped
+   * events rather than naming any, so EVERY held verdict under its root is
+   * re-asked — including a `confirmed` one, which an ordinary batch only
+   * re-probes when something names it. A confirmed path whose deletion
+   * arrived in the lost window would otherwise stay lit forever.
+   *
    * Public for the same reason {@link applyProbeResult} is: it is the door
    * an answer from outside comes in through, and a test that hands it a
    * frame is exercising the real handler rather than a cast into a private.
@@ -440,6 +449,14 @@ export class PathResolutionStore {
     const frame = parseFilesystemFrame(payload);
     if (frame === null) return;
     const root = frameRoot(frame);
+    if (frame.resync) {
+      // An empty key names no root, so it names all of them — the router's
+      // own lag frame, where the client cannot know which project it lost.
+      for (const resolved of this.verdicts.keys()) {
+        if (root === "" || resolved.startsWith(`${root}/`)) this.want(resolved);
+      }
+      return;
+    }
     const named = new Set<string>();
     const containers = new Set<string>();
     for (const event of frame.events) {

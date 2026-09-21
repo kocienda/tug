@@ -112,6 +112,77 @@ pub(crate) fn mtime_ms(metadata: &std::fs::Metadata) -> u64 {
         .unwrap_or(0)
 }
 
+/// Bytes read from a file, paired with the `stat` that describes THOSE
+/// bytes — never one taken before the read.
+pub(crate) struct StableRead {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) metadata: std::fs::Metadata,
+}
+
+/// Attempts a guarded read makes before giving up and reporting what it
+/// last saw.
+const STABLE_READ_ATTEMPTS: usize = 3;
+
+/// Pause between guarded-read attempts — long enough for a writer mid
+/// truncate-and-rewrite to get its bytes down, short enough that a reader
+/// waiting on the answer never notices.
+const STABLE_READ_RETRY: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// Read a file without catching a writer halfway.
+///
+/// A plain `read` between a truncate and the rewrite that follows it
+/// returns the empty file, and nothing in the bytes says so. This brackets
+/// the read with a `stat` on each side and accepts the result only when the
+/// two agree on `(len, mtime, ino)` AND the byte count matches the length
+/// the file claimed — the signature of a file nobody was writing. A
+/// disagreement is retried up to [`STABLE_READ_ATTEMPTS`] times,
+/// [`STABLE_READ_RETRY`] apart.
+///
+/// A file under continuous rewrite never settles, so the last attempt is
+/// returned regardless: this is a guard against a torn read, not a lock.
+/// The metadata returned is always the one taken AFTER the bytes, so a
+/// caller hashing the bytes and reporting the size is reporting one file.
+pub(crate) fn read_stable(path: &Path) -> std::io::Result<StableRead> {
+    let mut last: Option<StableRead> = None;
+    for attempt in 0..STABLE_READ_ATTEMPTS {
+        let before = std::fs::metadata(path)?;
+        let bytes = std::fs::read(path)?;
+        let after = std::fs::metadata(path)?;
+        let settled =
+            same_file_state(&before, &after) && bytes.len() as u64 == after.len();
+        let read = StableRead {
+            bytes,
+            metadata: after,
+        };
+        if settled {
+            return Ok(read);
+        }
+        last = Some(read);
+        if attempt + 1 < STABLE_READ_ATTEMPTS {
+            std::thread::sleep(STABLE_READ_RETRY);
+        }
+    }
+    // The loop body assigns `last` on every non-returning pass, and
+    // STABLE_READ_ATTEMPTS is nonzero, so this is always `Some`.
+    Ok(last.expect("a guarded read makes at least one attempt"))
+}
+
+/// Whether two stats of the same path describe the same file in the same
+/// state — the length, the mtime, and (on unix) the inode.
+fn same_file_state(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
+    if a.len() != b.len() || mtime_ms(a) != mtime_ms(b) {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if a.ino() != b.ino() {
+            return false;
+        }
+    }
+    true
+}
+
 /// Read `canonical` and produce the response payload. Pure and
 /// synchronous so it can be unit-tested directly; the handler runs it
 /// under `spawn_blocking`.
@@ -135,8 +206,12 @@ fn read_file(canonical: &Path) -> (StatusCode, Value) {
             json!({ "error": "too_large", "size": metadata.len() }),
         );
     }
-    let bytes = match std::fs::read(canonical) {
-        Ok(bytes) => bytes,
+    // The guarded read, not a bare one: a save that truncates and rewrites
+    // would otherwise be served as an empty file with nothing in the payload
+    // to say the bytes were caught mid-write. `metadata` above still gates
+    // the size check, so an oversized file is refused without reading it.
+    let read = match read_stable(canonical) {
+        Ok(read) => read,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             return fs_error(StatusCode::NOT_FOUND, "not_found");
         }
@@ -145,6 +220,10 @@ fn read_file(canonical: &Path) -> (StatusCode, Value) {
         }
         Err(_) => return fs_error(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
     };
+    // Every field below describes the bytes that were actually read: the
+    // guarded read's own trailing stat, never the one taken before it.
+    let metadata = read.metadata;
+    let bytes = read.bytes;
     let sha256 = sha256_hex(&bytes);
     let content = match String::from_utf8(bytes) {
         Ok(content) => content,

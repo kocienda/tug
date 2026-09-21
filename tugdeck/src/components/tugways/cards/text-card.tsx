@@ -78,6 +78,8 @@ import { noteRecentDocument } from "@/lib/recent-documents";
 import { openPathInOS } from "@/lib/os-open";
 import { useTugSheet } from "@/components/tugways/tug-sheet";
 import { useFileSaveSheets } from "./text-card-save-sheets";
+import type { CompareSheetChoice } from "./text-card-save-sheets";
+import { buildTwoTextDiffPayload } from "@/lib/diff/two-text-diff";
 
 import { TugTextCardEditor, type TugTextCardEditorDelegate } from "../tug-text-card-editor";
 import { AssetProjection } from "@/lib/asset-projection";
@@ -630,9 +632,10 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       // No focus reclaim here: activation focus rides the engine hook via the
       // framework single channel (see the `useCardDelegate` no-op comment).
       // A reclaim at this activation moment would only duplicate that claim.
-      // Focus-time recheck: files outside the watcher's workspace roots
-      // get no FILESYSTEM events, so activation is when an external change
-      // is caught.
+      // Focus-time recheck, now a BACKSTOP rather than the mechanism: the
+      // card watches its own path through FILE_WATCH wherever the file
+      // lives, so an external change is caught without anybody activating
+      // anything. This rung covers the gap a dropped stream would leave.
       void store.recheckOnActivation();
     },
   });
@@ -720,6 +723,28 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     });
   }, [isManual, cardId, store, sheets, runSaveAsPanel]);
 
+  // ---- The disk-versus-buffer compare sheet ----
+  //
+  // "This file changed on disk while you were editing" is a claim the user
+  // has no way to check, and both resolutions throw one side's work away. So
+  // every conflict surface can open the diff, computed HERE from a fresh disk
+  // read and the live buffer and thrown away when the sheet closes — it is a
+  // view of two texts, not state anything renders from ([L02]).
+  //
+  // A read that fails, or a card with no editor attached, has nothing to
+  // compare: answer `cancel` and leave the conflict surface exactly as it
+  // was, rather than showing a diff against a guess.
+  const openCompareSheet = useCallback(async (): Promise<CompareSheetChoice> => {
+    const fileName = snapshot.fileName ?? "Untitled";
+    const disk = await store.readDiskText();
+    const buffer = store.getBufferText();
+    if (disk === null || buffer === null) return "cancel";
+    return sheets.presentCompareSheet(
+      fileName,
+      buildTwoTextDiffPayload(fileName, disk, buffer),
+    );
+  }, [snapshot.fileName, store, sheets]);
+
   // ---- Conflict / missing sheet presentation (manual mode) ----
   //
   // A store `conflict` in manual mode is a modal sheet, not
@@ -772,10 +797,26 @@ export function TextCardContent({ cardId }: { cardId: string }) {
           });
         }
       } else {
-        const choice = await sheets.presentConflictSheet(fileName);
-        if (choice === "save-anyway") await store.resolveConflict("overwrite");
-        else if (choice === "reload") await store.resolveConflict("reload");
-        else if (choice === "save-as") await runSaveAsPanel();
+        // The loop is what makes "look, then decide" work: the compare sheet
+        // is a detour from the conflict sheet rather than a replacement for
+        // it, so cancelling out of the diff comes back to the question.
+        for (;;) {
+          const choice = await sheets.presentConflictSheet(fileName);
+          if (choice === "save-anyway") {
+            await store.resolveConflict("overwrite");
+          } else if (choice === "reload") {
+            await store.resolveConflict("reload");
+          } else if (choice === "save-as") {
+            await runSaveAsPanel();
+          } else if (choice === "diff") {
+            const verdict = await openCompareSheet();
+            if (verdict === "reload") await store.resolveConflict("reload");
+            else if (verdict === "keep-mine") {
+              await store.resolveConflict("overwrite");
+            } else continue;
+          }
+          break;
+        }
       }
       conflictSheetUpRef.current = false;
     })();
@@ -789,6 +830,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     manager,
     cardId,
     senderId,
+    openCompareSheet,
   ]);
 
   // ---- Open-time aside conflict sheet ----
@@ -820,10 +862,19 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         flushOnHide();
       }
     };
+    // The window coming forward is the other half of "the user is looking
+    // at this again". `visibilitychange` does not fire for a window that
+    // was merely behind another app's, which is exactly the case where an
+    // external editor was the thing in front of it.
+    const onWindowFocus = () => {
+      void store.recheckOnActivation();
+    };
     window.addEventListener("pagehide", flushOnHide);
+    window.addEventListener("focus", onWindowFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("pagehide", flushOnHide);
+      window.removeEventListener("focus", onWindowFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       void store.flush({ keepalive: true });
       store.dispose();
@@ -1351,6 +1402,21 @@ export function TextCardContent({ cardId }: { cardId: string }) {
                   }}
                 >
                   Reload from Disk
+                </TugPushButton>
+                <TugPushButton
+                  data-testid="text-card-conflict-diff"
+                  onClick={() => {
+                    void (async () => {
+                      const verdict = await openCompareSheet();
+                      if (verdict === "reload") {
+                        await store.resolveConflict("reload");
+                      } else if (verdict === "keep-mine") {
+                        await store.resolveConflict("overwrite");
+                      }
+                    })();
+                  }}
+                >
+                  Diff
                 </TugPushButton>
                 <TugPushButton
                   data-testid="text-card-conflict-overwrite"

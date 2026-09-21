@@ -8,6 +8,12 @@
  * workspace**, which is why {@link frameRoot} exists rather than each
  * consumer remembering to trim the key's trailing slash.
  *
+ * A frame may also arrive with `resync` set and no events at all. That is
+ * the feed saying it fell far enough behind on its broadcast channel to
+ * drop batches: nothing names what changed, so every consumer re-asks for
+ * the paths it cares about under that workspace rather than trusting state
+ * it may have missed the correction to.
+ *
  * This module is only the decode. What an event *means* is the consumer's:
  * a Text card asks whether its own file moved; the path resolver asks which
  * of its verdicts the world just contradicted. Both read the same bytes the
@@ -35,6 +41,16 @@ export interface FilesystemEvent {
 /** One `FILESYSTEM` frame, after the workspace_key splice. */
 export interface FilesystemFrame {
   workspace_key: string;
+  /**
+   * The server dropped events it can no longer deliver: trust nothing held
+   * under this key and ask again. `events` is empty on such a frame — it is
+   * a statement about what is MISSING, not a batch.
+   *
+   * An empty `workspace_key` alongside it means every workspace, which is
+   * what the router sends when a client's own forwarder lagged and cannot
+   * say which project's events it lost.
+   */
+  resync: boolean;
   events: FilesystemEvent[];
 }
 
@@ -73,7 +89,13 @@ export function parseFilesystemFrame(
         to: typeof e.to === "string" ? e.to : undefined,
       });
     }
-    return { workspace_key: obj.workspace_key, events };
+    return {
+      workspace_key: obj.workspace_key,
+      // Absent on every ordinary batch, which is the shape the server has
+      // always sent.
+      resync: obj.resync === true,
+      events,
+    };
   } catch {
     return null;
   }

@@ -47,6 +47,12 @@ impl FeedId {
     pub const FILETREE: Self = Self(0x11);
     /// File tree query (tugdeck → tugcast)
     pub const FILETREE_QUERY: Self = Self(0x12);
+    /// Per-file watch state — one frame per watched path whenever that
+    /// path's `(state, sha256, ino)` changes (tugcast → tugdeck)
+    pub const FILE_WATCH: Self = Self(0x13);
+    /// Per-file watch requests — `watch` / `unwatch` / `reset`
+    /// (tugdeck → tugcast)
+    pub const FILE_WATCH_QUERY: Self = Self(0x14);
     /// Retired: the GIT status snapshot feed was replaced by CHANGESET
     /// (0x23) when the git card retired ([P16]). The constant stays
     /// reserved — never reuse 0x20 for another feed.
@@ -198,6 +204,8 @@ impl FeedId {
             Self::FILESYSTEM => Some("Filesystem"),
             Self::FILETREE => Some("FileTree"),
             Self::FILETREE_QUERY => Some("FileTreeQuery"),
+            Self::FILE_WATCH => Some("FileWatch"),
+            Self::FILE_WATCH_QUERY => Some("FileWatchQuery"),
             Self::GIT => Some("Git"),
             Self::GIT_DIFF => Some("GitDiff"),
             Self::GIT_DIFF_QUERY => Some("GitDiffQuery"),
@@ -493,6 +501,10 @@ mod tests {
         assert_eq!(FeedId::FILESYSTEM.as_byte(), 0x10);
         assert_eq!(FeedId::FILETREE.as_byte(), 0x11);
         assert_eq!(FeedId::FILETREE_QUERY.as_byte(), 0x12);
+        assert_eq!(FeedId::FILE_WATCH.as_byte(), 0x13);
+        assert_eq!(FeedId::FILE_WATCH_QUERY.as_byte(), 0x14);
+        assert_eq!(FeedId::FILE_WATCH.name(), Some("FileWatch"));
+        assert_eq!(FeedId::FILE_WATCH_QUERY.name(), Some("FileWatchQuery"));
         assert_eq!(FeedId::GIT.as_byte(), 0x20);
         assert_eq!(FeedId::GIT_DIFF.as_byte(), 0x21);
         assert_eq!(FeedId::GIT_DIFF_QUERY.as_byte(), 0x22);
@@ -557,7 +569,7 @@ mod tests {
 
     /// The size both tables must agree on, so a scanner that silently matches
     /// nothing cannot pass vacuously.
-    const FEED_TABLE_LEN: usize = 38;
+    const FEED_TABLE_LEN: usize = 40;
 
     /// A screaming-snake identifier, and nothing else.
     fn is_feed_constant_name(name: &str) -> bool {

@@ -705,6 +705,25 @@ async fn main() {
     // crash. Per `arc/dev-atoms.md#step-pre-4`.
     let (ft_response_tx, _) = broadcast::channel::<Frame>(64);
 
+    // The one FILESYSTEM stream, shared by every workspace. It replaces a
+    // per-workspace `watch` channel of which only the bootstrap entry's was
+    // ever registered: every other project's events reached nobody, and two
+    // batches between forwarder wakeups coalesced into one even for that
+    // one. A broadcast carries every frame, each naming its own
+    // `workspace_key`, and says so when a client falls behind.
+    let (fs_event_tx, _) = broadcast::channel::<Frame>(256);
+
+    // The per-file watch pair (FILE_WATCH 0x13 / FILE_WATCH_QUERY 0x14).
+    // One service for the process: a Text card watches whatever file it has
+    // open, wherever that file lives, and the workspace FILESYSTEM feed
+    // stops being the only way a card hears about disk. Frames are
+    // broadcast to every client and filtered client-side by path, the same
+    // shape `ft_response_tx` uses.
+    let (file_watch_tx, _) = broadcast::channel::<Frame>(256);
+    let (file_watch_service, file_watch_input_tx) =
+        feeds::file_watch::FileWatchService::new(file_watch_tx.clone());
+    tokio::spawn(file_watch_service.run(cancel.clone()));
+
     // Shared GIT_DIFF-response broadcast channel ([#step-10a]). The
     // GIT_DIFF_QUERY adapter (below) publishes one single-shot
     // `GitDiffSnapshot` here per `/diff` request; the router fans it out to
@@ -761,6 +780,7 @@ async fn main() {
         ft_response_tx.clone(),
         Arc::clone(&changeset_all_bump),
         gh_response_tx.clone(),
+        fs_event_tx.clone(),
     ));
     let bootstrap = registry
         .get_or_create(&watch_dir, cancel.clone())
@@ -1766,6 +1786,7 @@ async fn main() {
     feed_router.register_input(FeedId::SHELL_INPUT, shell_input_tx);
     feed_router.register_input(FeedId::REFS_INPUT, refs_input_tx);
     feed_router.register_input(FeedId::FILETREE_QUERY, ft_input_tx);
+    feed_router.register_input(FeedId::FILE_WATCH_QUERY, file_watch_input_tx);
     feed_router.register_input(FeedId::GIT_DIFF_QUERY, gd_input_tx);
     feed_router.register_input(FeedId::GIT_LOG_QUERY, gl_input_tx);
     feed_router.register_input(FeedId::GIT_COMMIT_FILES_QUERY, gcf_input_tx);
@@ -1932,7 +1953,6 @@ async fn main() {
     let jots_state = Some(jots::JotsState::new(jots_file_path, jots_nudge));
 
     let mut snapshot_watches = vec![
-        bootstrap.fs_watch_rx.clone(),
         bootstrap.ft_watch_rx.clone(),
         changeset_all_rx,
     ];
@@ -1955,6 +1975,20 @@ async fn main() {
         gcf_response_tx,
         usage_response_tx,
     ]);
+    // The two streams whose consumers must KNOW when they missed frames.
+    // An empty `workspace_key` means every workspace: a client that lagged
+    // cannot tell which project's events it lost, so it re-asks for all.
+    feed_router.add_broadcast_sender_with_lag_frame(
+        fs_event_tx,
+        Frame::new(
+            FeedId::FILESYSTEM,
+            br#"{"workspace_key":"","resync":true,"events":[]}"#.to_vec(),
+        ),
+    );
+    feed_router.add_broadcast_sender_with_lag_frame(
+        file_watch_tx,
+        Frame::new(FeedId::FILE_WATCH, br#"{"type":"resync"}"#.to_vec()),
+    );
 
     // Filesystem, filetree, and git feed tasks are owned by the
     // WorkspaceRegistry's bootstrap entry — spawned inside
