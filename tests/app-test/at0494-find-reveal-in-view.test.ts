@@ -1053,3 +1053,136 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a counted match is a paintable match", () 
     TEST_TIMEOUT_MS,
   );
 });
+
+// ---------------------------------------------------------------------------
+// …and a match past a collapsed header's clamp is shown, not ringed in the dark
+// ---------------------------------------------------------------------------
+
+const CLAMP_PROBE = "vermilionclamp";
+const CLAMP_SID = "c7c0d1ea-0000-4000-8000-000000494006";
+
+/**
+ * Where the active range is, against the clamp element that holds it — and
+ * what is actually under the range's centre, which is the only honest
+ * reading of "can the reader see it": a clipped range still has a rect.
+ */
+const CLAMP_STATE_EXPR = `(function () {
+  var hl = CSS.highlights.get('transcript-find-active');
+  var range = null;
+  if (hl) { for (var r of hl) { range = r; break; } }
+  if (range === null) return null;
+  var parent = range.startContainer.parentElement;
+  var clamp = parent ? parent.closest('.tool-call-header-clamp') : null;
+  if (clamp === null) return null;
+  var rect = range.getBoundingClientRect();
+  var box = clamp.getBoundingClientRect();
+  var hit = document.elementFromPoint(
+    rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return {
+    text: range.toString(),
+    rectTop: rect.top, rectBottom: rect.bottom,
+    clampTop: box.top, clampBottom: box.bottom,
+    hitInsideClamp: hit !== null && clamp.contains(hit),
+    unclamped: clamp.hasAttribute('data-tugx-find-unclamp'),
+  };
+})()`;
+
+interface ClampState {
+  text: string;
+  rectTop: number;
+  rectBottom: number;
+  clampTop: number;
+  clampBottom: number;
+  hitInsideClamp: boolean;
+  unclamped: boolean;
+}
+
+describe.skipIf(!SHOULD_RUN)("AT0494: a match past a header clamp is shown", () => {
+  test(
+    "the collapsed command opens around the active match and closes after it",
+    async () => {
+      const app = await launchTugApp({ testName: "at0494-find-header-clamp" });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+          { timeoutMs: 15_000 },
+        );
+        await app.bindSession("A", { tugSessionId: CLAMP_SID });
+        await app.awaitEngineReady("A", { timeoutMs: 20_000 });
+
+        const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
+          app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: FEED_CODE_OUTPUT,
+            decoded: { tug_session_id: CLAMP_SID, ...decoded },
+          });
+
+        // A command long enough that the collapsed header clamps it, with
+        // the probe on its LAST line — in the DOM, projected, and clipped.
+        const lines: string[] = [];
+        for (let i = 0; i < 9; i++) lines.push(`echo "filler line number ${i}" \\`);
+        lines.push(`  && grep -rn "${CLAMP_PROBE}" /tmp/at0494`);
+
+        await app.driveSession("A", { op: "send", text: "run it" });
+        await frame({
+          type: "tool_use",
+          msg_id: "m-clamp",
+          tool_use_id: "tc-clamp",
+          tool_name: "Bash",
+          input: { command: lines.join("\n"), description: "search" },
+        });
+        await frame({
+          type: "tool_result",
+          tool_use_id: "tc-clamp",
+          output: "nothing found",
+          is_error: false,
+        });
+        await frame({ type: "turn_complete", msg_id: "m-clamp", result: "success" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${CARD} [data-slot="bash-tool-block"]') !== null`,
+          { timeoutMs: 10_000 },
+        );
+
+        await app.nativeClickAtElement(EDITOR);
+        await chord(app, "KeyF", "f", { meta: true });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FIND_INPUT)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        await app.nativeType(CLAMP_PROBE);
+        await app.waitForCondition<boolean>(
+          `(function(){ var s = ${CLAMP_STATE_EXPR}; return s !== null && s.unclamped; })()`,
+          { timeoutMs: 10_000 },
+        );
+        // Past the reveal's settle and the landing flash.
+        await new Promise((r) => setTimeout(r, 1500));
+        const state = await app.evalJS<ClampState | null>(CLAMP_STATE_EXPR);
+        note(`clamped-header active match: ${JSON.stringify(state)}`);
+        expect(state, "an active range inside the header clamp").not.toBeNull();
+        if (state === null) return;
+        expect(state.text.toLowerCase()).toBe(CLAMP_PROBE);
+        expect(state.rectTop, "the match is inside its header, not below it")
+          .toBeGreaterThanOrEqual(state.clampTop - 0.5);
+        expect(state.rectBottom).toBeLessThanOrEqual(state.clampBottom + 0.5);
+        expect(
+          state.hitInsideClamp,
+          "what is under the match's centre is the command text itself",
+        ).toBe(true);
+        const reveal = await readReveal(app);
+        expect(reveal?.inView, "and it is in the visible band").toBe(true);
+
+        // Leaving find puts the clamp back.
+        await app.nativeKey("Escape");
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${CARD} .tool-call-header-clamp[data-tugx-find-unclamp]') === null`,
+          { timeoutMs: 8000 },
+        );
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+});

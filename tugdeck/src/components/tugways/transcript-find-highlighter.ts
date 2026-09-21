@@ -93,6 +93,19 @@ export const FIND_HIDDEN_ATTR = "data-tugx-find-hidden";
 const MATCH_HIGHLIGHT = "transcript-find-match";
 const ACTIVE_HIGHLIGHT = "transcript-find-active";
 
+/**
+ * Stamped on the collapsed-header clamp that holds the ACTIVE match, and
+ * nowhere else. A collapsed tool header clamps its command to a few lines
+ * (`tool-call-header-clamp`), but the text past the clamp is still in the
+ * DOM and still projected, so a match there is counted, addressed and
+ * ranged — over glyphs the reader cannot see, at a rect that overlaps the
+ * rows below. `block-header.css` lifts the clamp while this attribute is
+ * present, so the header grows to show the match and shrinks back when the
+ * active match moves on. Appearance through the DOM only ([L06]).
+ */
+const FIND_UNCLAMP_ATTR = "data-tugx-find-unclamp";
+const HEADER_CLAMP_SELECTOR = ".tool-call-header-clamp";
+
 /** What the painter needs each paint — supplied by the transcript host. */
 export interface FindPaintInput {
   matches: readonly SegmentedFindMatch[];
@@ -408,6 +421,8 @@ export class TranscriptFindHighlighter {
   // reveal geometry comes from the editor's own selection, not a Range.
   private activeEditorKey: string | null = null;
   private flash: FindFlashHandle | null = null;
+  // The header clamp currently lifted for the active match, if any.
+  private unclamped: HTMLElement | null = null;
   // Editor delegates driven by the LAST paint, so a later paint (or clear)
   // can retract the in-editor highlights of editors that dropped out.
   private touchedEditors = new Set<string>();
@@ -432,6 +447,28 @@ export class TranscriptFindHighlighter {
     }
     this.ownMatch.clear();
     this.ownActive.clear();
+  }
+
+  /**
+   * Lift the collapsed-header clamp around the active match, and restore
+   * the one lifted for the previous active match. Runs inside `paint`, so
+   * the reveal that measures the rect next measures the unclamped layout.
+   */
+  private liftClampFor(range: Range | null): void {
+    const clamp =
+      range?.startContainer.parentElement?.closest<HTMLElement>(
+        HEADER_CLAMP_SELECTOR,
+      ) ?? null;
+    if (clamp === this.unclamped) {
+      // A re-render may have replaced the attribute's element wholesale.
+      if (clamp !== null && !clamp.hasAttribute(FIND_UNCLAMP_ATTR)) {
+        clamp.setAttribute(FIND_UNCLAMP_ATTR, "");
+      }
+      return;
+    }
+    this.unclamped?.removeAttribute(FIND_UNCLAMP_ATTR);
+    clamp?.setAttribute(FIND_UNCLAMP_ATTR, "");
+    this.unclamped = clamp;
   }
 
   /** Repaint every mounted match and mark the active one. Does not flash. */
@@ -502,11 +539,16 @@ export class TranscriptFindHighlighter {
         activeHL.add(range);
         this.ownActive.add(range);
         this.activeRange = range;
+        this.liftClampFor(range);
       } else {
         matchHL.add(range);
         this.ownMatch.add(range);
       }
     }
+
+    // No DOM-walk active match this paint (unmounted, or an editor match):
+    // whatever clamp the last one lifted goes back.
+    if (this.activeRange === null) this.liftClampFor(null);
 
     // Editor segments: matches inside embedded CodeMirror editors are
     // painted by the editor's OWN search (CM6 virtualizes its DOM, so the
@@ -649,8 +691,65 @@ export class TranscriptFindHighlighter {
    */
   activeRangeRect(): DOMRect | null {
     if (this.activeRange === null) return null;
-    const rect = this.activeRange.getBoundingClientRect();
+    let rect = this.activeRange.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      // A mounted row that is off-screen is `content-visibility: auto`
+      // skipped, and a skipped subtree whose style has been touched — the
+      // unclamp attribute above is such a touch — measures as empty until it
+      // is next rendered. But it is rendered only once it is scrolled to,
+      // and the reveal scrolls only to a rect: measure with skipping off for
+      // the length of this one read. Synchronous and restored before any
+      // paint, so nothing is shown and no observer sees a size change.
+      const cell =
+        this.activeRange.startContainer.parentElement?.closest<HTMLElement>(
+          "[data-tug-list-cell-index]",
+        ) ?? null;
+      if (cell !== null && this.activeRange.startContainer.isConnected) {
+        const prior = cell.style.contentVisibility;
+        cell.style.contentVisibility = "visible";
+        rect = this.activeRange.getBoundingClientRect();
+        cell.style.contentVisibility = prior;
+      }
+    }
     if (rect.width === 0 && rect.height === 0) return null;
+    // A rect is only an answer if its glyphs can be seen. Text clipped away
+    // by an ancestor between the match and the scroller (a clamp, a folded
+    // box) still ranges to a real rect — one that overlaps whatever is laid
+    // out below the clip. Reporting it would let the reveal "land" on, and
+    // the ring be drawn over, a spot that holds none of the match.
+    //
+    // The walk stops at the row's own cell. Above it sits the list's
+    // scrolling box, and a mounted row that is merely off-screen is outside
+    // THAT by definition — which is the reveal's job to fix, not a reason
+    // to withhold the rect it needs to fix it.
+    let el = this.activeRange.startContainer.parentElement;
+    while (
+      el !== null &&
+      el !== this.scroller &&
+      !el.hasAttribute("data-tug-list-cell-index")
+    ) {
+      const style = getComputedStyle(el);
+      // Vertical only: a long line panned out of a horizontally scrolling
+      // code block is a different question, and one the reveal has no
+      // answer for yet.
+      // Only a box can clip: `overflow` does not apply to an inline or a
+      // `display: contents` element, whatever its computed value says, and
+      // such an element reports an empty rect that would fail every match.
+      if (
+        style.overflowY !== "visible" &&
+        style.display !== "inline" &&
+        style.display !== "contents"
+      ) {
+        const box = el.getBoundingClientRect();
+        if (
+          box.height > 0 &&
+          (rect.bottom <= box.top || rect.top >= box.bottom)
+        ) {
+          return null;
+        }
+      }
+      el = el.parentElement;
+    }
     return rect;
   }
 
@@ -754,6 +853,7 @@ export class TranscriptFindHighlighter {
     this.retract();
     this.activeRange = null;
     this.activeEditorKey = null;
+    this.liftClampFor(null);
     if (this.lastFindTargets !== null) {
       for (const key of this.touchedEditors) {
         this.lastFindTargets.resolve(key)?.codeView?.()?.clearSearch();

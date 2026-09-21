@@ -237,6 +237,18 @@ body {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+/* Find's active match sits past the clamp: the painter stamps
+ * `data-tugx-find-unclamp` on this one element and the header shows its
+ * whole text until the active match moves on. Text past a clamp is still in
+ * the DOM and still searchable, so without this a counted match is ranged
+ * over glyphs nobody can see, at a rect that overlaps the rows below. */
+.tool-call-header[data-collapsed="true"]
+  .tool-call-header-clamp[data-tugx-find-unclamp] {
+  display: block;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  overflow: visible;
+}
 .tool-call-header[data-collapsed="true"] .tool-call-header-clamp * {
   white-space: inherit;
 }
