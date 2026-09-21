@@ -12,17 +12,19 @@
  * What the mark buys is a still interior. The card is laid out once at its OPEN
  * size and the pane's content box clips it, so nothing inside the card re-flows
  * while the frame's edge sweeps: a subtree with a definite height that does not
- * change is not dirtied by its ancestor's tween ([B01]). Two facts carry that,
- * and this module is the one place either is written:
+ * change is not dirtied by its ancestor's tween ([B01]). Two facts carry it for
+ * a fold, and this module is the one place either is written:
  *
- * - `FOLD_CROSSING_ATTR` on the frame, for the tween's life. Every stylesheet
- *   that has to hold its open layout keys on it — `.tug-pane-content` turning
+ * - `FOLD_CROSSING_ATTR` on the frame, for the tween's life. What is about
+ *   folding keys on it; the hold itself — `.tug-pane-content` turning
  *   `overflow: hidden` so the overflowing interior draws no scrollbar and takes
- *   no wheel, and the card root taking a definite height.
- * - `FOLD_HELD_HEIGHT_PROP` on the content box's children, which is the height
- *   the interior is held at: the LARGER of the two content heights, First on
- *   the fold in and Last on the unfold, since in both directions that is the
- *   open one ([F06]).
+ *   no wheel, and the card root taking a definite height — keys on the still
+ *   crossing's mark below, which a fold sets beside this one.
+ * - the held height on the content box's children: the LARGER of the two
+ *   content heights, First on the fold in and Last on the unfold, since in both
+ *   directions that is the open one ([F06]). The number the hold resolves
+ *   against is `STILL_HELD_HEIGHT_PROP`; `FOLD_HELD_HEIGHT_PROP` carries the
+ *   fold's own copy of it beside that one, and nothing reads it.
  *
  * The end is an event rather than a `transitionend` or a timer, because the
  * crossing's clock is the imposer's spring and nothing else in the card moves
@@ -32,14 +34,43 @@
  *
  * The event shape is `lib/resize-episode.ts`'s: a `CustomEvent` on the frame
  * carrying an id, so a late end cannot close a newer crossing.
+ *
+ * ## The still crossing — the same hold, for any height tween
+ *
+ * The argument above never depended on the fold. It depends on a height tween
+ * over a subtree that is expensive to lay out, and a stack, a split, a join
+ * and a leave are all that. So the hold has a general form with its own mark
+ * and its own held height — `STILL_CROSSING_ATTR` and `STILL_HELD_HEIGHT_PROP`
+ * — and doors shaped exactly like the fold's. A fold is one kind of still
+ * crossing: `markFoldCrossing` sets both marks and `endFoldCrossing` ends both.
+ *
+ * Two marks rather than one widened, because everything that reads the fold's
+ * reads it as "a fold": the card's terminal-state effect, `afterFoldCrossing`'s
+ * two waiters. A stack that set the fold's mark would have a compaction cover
+ * waiting on, or closed by, a settle that is not a fold. The still crossing
+ * therefore announces nothing — it is a layout hold, and nobody lands on it.
+ *
+ * A re-mark never lowers a held height, in either form. On a retarget the
+ * imposer measures First mid-tween, at an intermediate height, so the larger
+ * of ITS two heights can be smaller than the box the interior is already held
+ * at; taking it would re-lay the interior out once in mid-sweep, which is the
+ * one thing the hold exists to prevent.
  */
 
 /** Stamped on the frame for the length of a crossing. Observable to tests; not React state ([L06]). */
 export const FOLD_CROSSING_ATTR = "data-fold-crossing";
 
 /**
- * The open content height the interior is held at, in CSS pixels, written on
- * the content box's children so it inherits to the card root.
+ * The open content height a FOLD holds the interior at, in CSS pixels, written
+ * on the content box's children so it inherits to the card root.
+ *
+ * No stylesheet reads it. The hold itself reads
+ * {@link STILL_HELD_HEIGHT_PROP}, which a fold sets beside this one and which
+ * is the number the pane's rule resolves against — so changing what is written
+ * here changes no pixels. It stays because the fold's two facts travel
+ * together: a reader or a test asking "what was this fold held at?" asks the
+ * fold's own property rather than the general one, which any other crossing
+ * sharing the window may have raised.
  *
  * On the children rather than on the content box itself because the content box
  * is the thing that SHRINKS: the held height belongs to the layout being held,
@@ -57,10 +88,65 @@ export interface FoldCrossingEventDetail {
   readonly crossingId: number;
 }
 
+/** Stamped on the frame for the length of any held height tween, a fold's included. Observable to tests; not React state ([L06]). */
+export const STILL_CROSSING_ATTR = "data-still-crossing";
+
+/**
+ * The height the interior is held at under the still crossing, written where
+ * `FOLD_HELD_HEIGHT_PROP` is and for the same reason. Its own property so the
+ * pane-level hold reads one name whatever opened the crossing.
+ */
+export const STILL_HELD_HEIGHT_PROP = "--tugx-still-held-height";
+
+/**
+ * Declared by a card ROOT, never by the imposer: which edge its held picture
+ * hangs from. Absent means the top. `"bottom"` hangs it from the content box's
+ * bottom for the length of a still crossing that is not a fold, so content the
+ * card keeps pinned to its bottom rides the frame's edge (`tug-pane.css`). The
+ * card writes it from whatever says its content is pinned there — DOM zone, no
+ * React state ([L06]) — and the imposer still measures nothing inside the card.
+ */
+export const STILL_ANCHOR_ATTR = "data-still-anchor";
+
 let nextCrossingId = 1;
 
-/** The content box a crossing wrote the held height onto, so the end takes it off the same one. */
-const heldBoxes = new WeakMap<HTMLElement, HTMLElement>();
+/** What a standing crossing wrote, so a re-mark can refuse to lower it and the end takes it off the same box. */
+interface Held {
+  /** The content box the held height was written onto. */
+  readonly box: HTMLElement | null;
+  readonly heightPx: number;
+}
+
+/** One kind of crossing: the frame attribute, the held-height property, and what stands on each frame. */
+interface CrossingKind {
+  readonly attr: string;
+  readonly prop: string;
+  readonly held: WeakMap<HTMLElement, Held>;
+}
+
+const FOLD_KIND: CrossingKind = {
+  attr: FOLD_CROSSING_ATTR,
+  prop: FOLD_HELD_HEIGHT_PROP,
+  held: new WeakMap(),
+};
+
+const STILL_KIND: CrossingKind = {
+  attr: STILL_CROSSING_ATTR,
+  prop: STILL_HELD_HEIGHT_PROP,
+  held: new WeakMap(),
+};
+
+/**
+ * The height a mark holds the interior at: the new one, unless a crossing is
+ * already standing at a larger one. `standingPx` is `null` when the frame is
+ * not held.
+ */
+export function heldHeightOnMark(
+  standingPx: number | null,
+  nextPx: number,
+): number {
+  return standingPx === null ? nextPx : Math.max(standingPx, nextPx);
+}
 
 /** The pane's content box — the element that clips the held interior. */
 function contentBoxOf(frame: HTMLElement): HTMLElement | null {
@@ -82,17 +168,47 @@ export function markFoldCrossing(
   frame: HTMLElement,
   heldHeightPx: number,
 ): number {
+  markKind(STILL_KIND, frame, heldHeightPx);
+  return markKind(FOLD_KIND, frame, heldHeightPx);
+}
+
+/**
+ * Open a still crossing on `frame`, held at `heldHeightPx` — the general form
+ * of `markFoldCrossing`, for a height tween that is not a fold. The fold's
+ * mark is left exactly as it stands, present or absent.
+ *
+ * Re-marks in place under a fresh id, like the fold's, and never lowers a
+ * standing held height. Returns the crossing's id.
+ */
+export function markStillCrossing(
+  frame: HTMLElement,
+  heldHeightPx: number,
+): number {
+  return markKind(STILL_KIND, frame, heldHeightPx);
+}
+
+function markKind(
+  kind: CrossingKind,
+  frame: HTMLElement,
+  heldHeightPx: number,
+): number {
   const id = nextCrossingId++;
+  // A standing height counts only while the mark is on the frame: a record
+  // outliving its mark would hold the next crossing at a stale box.
+  const standing = frame.hasAttribute(kind.attr)
+    ? (kind.held.get(frame)?.heightPx ?? null)
+    : null;
+  const heightPx = heldHeightOnMark(standing, heldHeightPx);
   const content = contentBoxOf(frame);
+  kind.held.set(frame, { box: content, heightPx });
   if (content !== null) {
-    heldBoxes.set(frame, content);
     for (const child of content.children) {
       if (child instanceof HTMLElement) {
-        child.style.setProperty(FOLD_HELD_HEIGHT_PROP, `${heldHeightPx}px`);
+        child.style.setProperty(kind.prop, `${heightPx}px`);
       }
     }
   }
-  frame.setAttribute(FOLD_CROSSING_ATTR, String(id));
+  frame.setAttribute(kind.attr, String(id));
   return id;
 }
 
@@ -116,9 +232,22 @@ export function markFoldCrossing(
  * at the same open box, and the new settle has no better number for it.
  */
 export function adoptFoldCrossing(frame: HTMLElement): number | null {
-  if (!frame.hasAttribute(FOLD_CROSSING_ATTR)) return null;
+  return adoptKind(FOLD_KIND, frame);
+}
+
+/**
+ * `adoptFoldCrossing` for the still crossing: the replacement settle takes the
+ * standing hold over under a fresh id, so the cancelled tween's completion
+ * cannot release an interior whose edge is still travelling.
+ */
+export function adoptStillCrossing(frame: HTMLElement): number | null {
+  return adoptKind(STILL_KIND, frame);
+}
+
+function adoptKind(kind: CrossingKind, frame: HTMLElement): number | null {
+  if (!frame.hasAttribute(kind.attr)) return null;
   const id = nextCrossingId++;
-  frame.setAttribute(FOLD_CROSSING_ATTR, String(id));
+  frame.setAttribute(kind.attr, String(id));
   return id;
 }
 
@@ -144,29 +273,57 @@ export function endFoldCrossing(
   frame: HTMLElement,
   crossingId?: number,
 ): void {
-  const stamp = frame.getAttribute(FOLD_CROSSING_ATTR);
+  const stamp = endKind(FOLD_KIND, frame, crossingId);
   if (stamp === null) return;
-  if (crossingId !== undefined && Number(stamp) !== crossingId) return;
-  frame.removeAttribute(FOLD_CROSSING_ATTR);
-  // The box the mark was written on, not the one the frame holds now: a pane
-  // whose content box was replaced mid-crossing left the property on the old
-  // element, and the new one never carried it.
-  const content = heldBoxes.get(frame) ?? contentBoxOf(frame);
-  heldBoxes.delete(frame);
-  if (content !== null) {
-    for (const child of content.children) {
-      if (child instanceof HTMLElement) {
-        child.style.removeProperty(FOLD_HELD_HEIGHT_PROP);
-      }
-    }
-  }
+  // A fold is a still crossing, so its end is the still crossing's end too.
+  // Unguarded, because the id that just matched is the fold's: whoever holds
+  // the live fold id holds the live crossing.
+  endKind(STILL_KIND, frame);
   frame.dispatchEvent(
     new CustomEvent<FoldCrossingEventDetail>(FOLD_CROSSING_END, {
-      detail: { crossingId: Number(stamp) },
+      detail: { crossingId: stamp },
       cancelable: false,
       bubbles: false,
     }),
   );
+}
+
+/**
+ * Close the still crossing on `frame`: take the mark and the held height off.
+ * `crossingId` guards a late end exactly as `endFoldCrossing`'s does, and is
+ * omitted on the same two paths. Announces nothing, and leaves the fold's mark
+ * alone: a fold still running is ended by its own door, which ends this too.
+ */
+export function endStillCrossing(
+  frame: HTMLElement,
+  crossingId?: number,
+): void {
+  endKind(STILL_KIND, frame, crossingId);
+}
+
+/** Take one kind's mark and held height off `frame`. Returns the stamp it closed, or `null` when it closed nothing. */
+function endKind(
+  kind: CrossingKind,
+  frame: HTMLElement,
+  crossingId?: number,
+): number | null {
+  const stamp = frame.getAttribute(kind.attr);
+  if (stamp === null) return null;
+  if (crossingId !== undefined && Number(stamp) !== crossingId) return null;
+  frame.removeAttribute(kind.attr);
+  // The box the mark was written on, not the one the frame holds now: a pane
+  // whose content box was replaced mid-crossing left the property on the old
+  // element, and the new one never carried it.
+  const content = kind.held.get(frame)?.box ?? contentBoxOf(frame);
+  kind.held.delete(frame);
+  if (content !== null) {
+    for (const child of content.children) {
+      if (child instanceof HTMLElement) {
+        child.style.removeProperty(kind.prop);
+      }
+    }
+  }
+  return Number(stamp);
 }
 
 /**

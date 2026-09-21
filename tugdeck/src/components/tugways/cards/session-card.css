@@ -1520,14 +1520,15 @@
 
    Nothing here is animated at all, and that is the point. The imposer owns
    the one clock — its critically damped spring on the frame's height — and
-   marks the frame `data-fold-crossing` for the tween's life, publishing the
-   open interior's height as `--tugx-fold-held-height`
-   (`lib/fold-crossing.ts`, [B04]). These rules read that mark and hold the
-   open layout against it:
+   marks the frame for the tween's life, publishing the open interior's height
+   (`lib/fold-crossing.ts`, [B04]). A fold is one kind of still crossing, so
+   the hold itself is the pane's, under `data-still-crossing`, and the rules
+   here add what only a fold needs:
 
-     - the card root takes a definite pixel height from the held height, so
-       the slot, the column and the entry region keep the boxes they had and
-       nothing inside them is dirtied by the ancestor's tween;
+     - the card root takes a definite pixel height from the held height
+       (`tug-pane.css`), so the slot, the column and the entry region keep the
+       boxes they had and nothing inside them is dirtied by the ancestor's
+       tween;
      - `.tug-pane-content` clips it (`tug-pane.css`), so the overflow draws no
        scrollbar and takes no wheel;
      - Z2 is `position: sticky; bottom: 0`, so the browser holds it at the
@@ -1599,33 +1600,11 @@
   overflow: hidden;
 }
 
-/* The picture, held by ONE declaration: for the length of the crossing the
-   card root has a definite pixel height, the open one, and every box inside
-   it keeps the layout it had.
-
-   `--tugx-fold-held-height` is the imposer's, written on the pane content
-   box's children for the tween's life beside the `data-fold-crossing` mark
-   this rule is keyed on (`lib/fold-crossing.ts`, [B04]). It replaces the
-   `height: 100%` above, which resolved against the box that is tweening and
-   so re-laid-out the whole interior at every intermediate height the settle
-   passed through.
-
-   The point is not that it looks calmer. `TugListView`'s container
-   `ResizeObserver` answers every delivery with `maybePinToBottom()` and
-   `scrollTick()`, so a scrollport that shrinks with the frame slides the text
-   upward by the amount the viewport lost, every frame, and re-windows rows
-   under the closing edge. A subtree with a definite height that does not
-   change delivers nothing to observe, so none of that runs — and the same
-   holds for CodeMirror's host and for this card's own size container, whose
-   height is constant for the crossing's length ([B01]).
-
-   On the frame's mark rather than on the card's own `data-fold="moving"`,
-   because the height it holds arrives with the mark and the two must go on
-   and come off together: a card holding a height after the mark is gone is
-   propped open, and one marked with no height has nothing to hold. */
-.tug-pane[data-fold-crossing] .session-card {
-  height: var(--tugx-fold-held-height);
-}
+/* The picture itself — the card root held at its open height for the length
+   of the crossing — is not this stylesheet's. A fold is one kind of still
+   crossing, and the pane holds every card's root under that mark
+   (`tug-pane.css`, `data-still-crossing`). What stays here is what is about
+   folding: the rows above, and the floor below. */
 
 /* The transcript column's floor is what the transcript needs to stay usable,
    and there is no transcript here — left standing it would hold the card

@@ -26,8 +26,11 @@ import {
 import {
   contentBoxHeight,
   adoptFoldCrossing,
+  adoptStillCrossing,
   endFoldCrossing,
+  endStillCrossing,
   markFoldCrossing,
+  markStillCrossing,
 } from "@/lib/fold-crossing";
 import {
   getTugTiming,
@@ -3441,8 +3444,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           // Same sweep for the fold mark: a crossing whose completion handler
           // never landed would leave the interior held and the card waiting on
           // an end that is not coming. Unguarded by id, because the window is
-          // over and no crossing of any vintage should outlive it.
+          // over and no crossing of any vintage should outlive it. The still
+          // crossing too: a fold's end takes it off, but most held frames
+          // were never folding.
           endFoldCrossing(entry.el);
+          endStillCrossing(entry.el);
         }
         // After the frames, so the flush inside carries their hand-back.
         endSettleMarks(el);
@@ -3882,6 +3888,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         for (const anim of entry.anims) anim.cancel("snap-to-end");
         clearFlip(paneId, entry.el, entry.anims);
         endFoldCrossing(entry.el);
+        endStillCrossing(entry.el);
       }
       for (const [, handle] of settleEpisodesRef.current) handle.end();
       settleEpisodesRef.current.clear();
@@ -4058,6 +4065,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
        */
       handBack: { width?: () => void; height?: () => void };
       crossingId: number | null;
+      /** The still crossing's id — set on every frame with a height term, folding or not. */
+      stillCrossingId: number | null;
     }
     const choreography: Choreographed[] = [];
     /**
@@ -4285,6 +4294,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // only by this id: a cancelled tween's handler lands after a replacement
       // settle has already re-marked the frame.
       let crossingId: number | null = null;
+      let stillCrossingId: number | null = null;
       if (holdPlan.covered.has(paneId)) {
         // A member a column mode flip committed behind its survivor. It does
         // not travel and it does not fade ([B02] of
@@ -4375,6 +4385,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // this case, which is most of them in a wall.
         if (crossingId === null && heightTweens) {
           crossingId = adoptFoldCrossing(frame);
+        }
+        // A STILL CROSSING: the height term alone. The fold's argument never
+        // depended on the fold — a subtree held at one definite height is not
+        // dirtied by its frame's tween — so every frame whose height is a
+        // real term is held at the larger of its two content heights, by the
+        // same two reads the fold uses and nothing inside the card. A stack
+        // or a split marks its survivor, a join or a leave every member whose
+        // tile resizes; a covered member carries no height term and never
+        // reaches here.
+        //
+        // One mark call covers all three cases. A fold above has already set
+        // this mark, and a retarget finds one standing: both are re-marks,
+        // which take a fresh id — so the cancelled tween's completion cannot
+        // release it — and never lower the height already held, which is what
+        // makes First measured mid-tween safe to pass.
+        if (heightTweens) {
+          const stillHeight = Math.max(
+            firstFold?.contentHeight ?? 0,
+            contentBoxHeight(frame) ?? 0,
+          );
+          stillCrossingId =
+            stillHeight > 0
+              ? markStillCrossing(frame, stillHeight)
+              : adoptStillCrossing(frame);
         }
         // A frame that did not move and did not change size gets no animation
         // at all.
@@ -4486,6 +4520,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           restores,
           handBack,
           crossingId,
+          stillCrossingId,
         });
         continue;
       }
@@ -4557,6 +4592,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         restores,
         handBack: {},
         crossingId: null,
+        stillCrossingId: null,
       });
     }
     // The departures. A pane `arm` measured that no longer has a frame closed
@@ -5037,6 +5073,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           }
           for (const c of choreography) {
             if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
+            if (c.stillCrossingId !== null) {
+              endStillCrossing(c.frame, c.stillCrossingId);
+            }
           }
           for (const c of choreography) endEpisode(c.paneId);
           for (const { paneId } of arrivals) endEpisode(paneId);

@@ -233,6 +233,7 @@ import {
   type SessionRowDescriptor,
   type SessionTranscriptCellKind,
 } from "@/lib/session-transcript-data-source";
+import { STILL_ANCHOR_ATTR } from "@/lib/fold-crossing";
 import type { PropertyStore } from "@/components/tugways/property-store";
 
 // ---------------------------------------------------------------------------
@@ -3046,10 +3047,40 @@ export const SessionTranscriptHost = forwardRef<
   // the strip's inert + scrim target when modal — held as state so the strip
   // gets a stable element once it mounts.
   const [regionEl, setRegionEl] = useState<HTMLDivElement | null>(null);
+  const followingBottomRef = useRef(false);
+  const writeStillAnchor = useCallback((): void => {
+    const card = rootRef.current?.closest<HTMLElement>(
+      "[data-slot='session-card']",
+    );
+    if (card == null) return;
+    if (followingBottomRef.current) {
+      card.setAttribute(STILL_ANCHOR_ATTR, "bottom");
+    } else {
+      card.removeAttribute(STILL_ANCHOR_ATTR);
+    }
+  }, []);
   const handleFollowBottomChange = useCallback((following: boolean): void => {
     const btn = jumpButtonRef.current;
     if (btn !== null) btn.dataset.visible = String(!following);
-  }, []);
+    // Which edge the card's held picture hangs from while its frame's height
+    // tweens. A following transcript is pinned to its bottom, so the composer,
+    // Z2 and the pinned text ride the frame's edge together; a scrolled-up one
+    // stays top-anchored, where its resize episode restores a top anchor at
+    // landing. Written on the card root, which is what the pane's rule reads.
+    followingBottomRef.current = following;
+    writeStillAnchor();
+  }, [writeStillAnchor]);
+  // The list view surfaces its initial intent from its own mount effect, which
+  // runs before this component's root ref is attached — so the write above
+  // finds no card then, and this one, after the refs, carries it.
+  useLayoutEffect(() => {
+    writeStillAnchor();
+    // A card whose transcript is gone has nothing pinned to its bottom.
+    const card = rootRef.current?.closest<HTMLElement>(
+      "[data-slot='session-card']",
+    );
+    return () => card?.removeAttribute(STILL_ANCHOR_ATTR);
+  }, [writeStillAnchor]);
   const handleJumpToBottom = useCallback((): void => {
     // Non-animated clamp — the same definite jump to the true bottom
     // the End key performs. The animated path eases toward a sentinel

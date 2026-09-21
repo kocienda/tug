@@ -47,13 +47,23 @@
  * grow and shrink — stays within {@link MAX_FLIP_SCALE_DISTORTION}. Under the
  * cap the smear reads as motion; over it, as deformation. A frame whose size
  * changes by more than the cap crosses by **real geometry** instead:
- * {@link springSettleKeyframes} walks the actual `width` or `height`, the
- * frame's subtree lays out truthfully on every frame of the motion, and the
- * cost — main-thread layout for that frame, for the length of the settle — is
- * the same one the seam drag's live path already pays. Height is never
- * smeared at all: the gestures that change a frame's height (splitting a
- * rail, stacking one, membership churn under a split) halve or double it,
- * which no cap admits.
+ * {@link springSettleKeyframes} walks the actual `width` or `height`, and the
+ * frame's own box is laid out on the main thread on every frame of the motion.
+ * Height is never smeared at all: the gestures that change a frame's height
+ * (splitting a rail, stacking one, membership churn under a split) halve or
+ * double it, which no cap admits.
+ *
+ * What a real term costs differs by axis, because of what is inside the frame.
+ * Over a real `width` the subtree lays out truthfully at every intermediate
+ * width — text re-wraps as the edge moves — which is the same cost the seam
+ * drag's live path already pays. Over a real `height` it does NOT: the imposer
+ * marks the frame as a still crossing (`lib/fold-crossing.ts`), the pane holds
+ * the card's root at the larger of its two content heights and clips it, and
+ * only the frame's edge moves. A subtree with a definite height that does not
+ * change is not dirtied by its ancestor's tween, so the interior is laid out
+ * once, its `ResizeObserver`s deliver nothing mid-tween, and no commit of its
+ * own lands inside the settle window. Holding a height is free of visible
+ * consequence in a way holding a width is not — nothing re-wraps at landing.
  *
  * A frame that carries a real size term therefore forfeits acceleration, and
  * because of that its move rides in the **same keyframe list** rather than a

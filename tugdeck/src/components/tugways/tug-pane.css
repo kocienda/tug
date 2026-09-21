@@ -1312,15 +1312,16 @@ body {
 }
 
 /*
- * For the length of a fold crossing, the content box is a CLIP.
+ * For the length of a still crossing, the content box is a CLIP.
  *
- * `data-fold-crossing` is the imposer's mark, written on the frame for the
- * tween's life (`lib/fold-crossing.ts`, [B04] of
- * `session-fold-still-interior`). Inside it the card is laid out once at its
- * OPEN height and this box tweens past that height, so the card overflows it
- * — which is the whole design: one edge moves and nothing inside the card
- * re-flows, because a subtree with a definite height that does not change is
- * not dirtied by its ancestor's tween ([B01]).
+ * `data-still-crossing` is the imposer's mark, written on the frame for the
+ * life of any tween that carries a real height term — a stack, a split, a
+ * join, a leave, and a fold, which sets it beside its own
+ * (`lib/fold-crossing.ts`). Inside it the card is laid out once at the LARGER
+ * of its two heights and this box tweens past that height, so the card
+ * overflows it — which is the whole design: one edge moves and nothing inside
+ * the card re-flows, because a subtree with a definite height that does not
+ * change is not dirtied by its ancestor's tween.
  *
  * `overflow: hidden` rather than the `auto` above, for the two things `auto`
  * would do with that overflow and neither of which belongs in a 400ms sweep:
@@ -1335,8 +1336,68 @@ body {
  * reason: neither should be a scroll container at all, which is what keeps a
  * sticky descendant legal ([F07]).
  */
-.tug-pane[data-fold-crossing] .tug-pane-content {
+.tug-pane[data-still-crossing] .tug-pane-content {
   overflow: hidden;
+}
+
+/*
+ * The picture, held by ONE declaration, for every card type and with no
+ * opt-in: for the length of the crossing the card root has a definite pixel
+ * height and every box inside it keeps the layout it had.
+ *
+ * `--tugx-still-held-height` is the imposer's, written on the content box's
+ * children for the tween's life beside the mark this rule is keyed on. It
+ * replaces whatever the root's own height resolved against — for most cards a
+ * `height: 100%` of the box that is tweening, which re-laid-out the whole
+ * interior at every intermediate height the settle passed through.
+ *
+ * The point is not that it looks calmer. `TugListView`'s container
+ * `ResizeObserver` answers every delivery with `maybePinToBottom()` and
+ * `scrollTick()`, so a scrollport that resizes with the frame re-pins and
+ * re-windows rows under the moving edge, one render per animation frame. A
+ * subtree with a definite height that does not change delivers nothing to
+ * observe, so none of that runs — and the same holds for CodeMirror's host
+ * and for any card root that is a size container.
+ *
+ * Pane-level rather than per card, because a per-card opt-in leaves the next
+ * expensive card juddering until somebody notices.
+ *
+ * The selector reaches the card ROOT: the content box's child is the portal
+ * slot and the slot's is the card host, both `display: contents` and so both
+ * boxless — a height on either would hold nothing.
+ *
+ * On the frame's mark, because the height arrives with the mark and the two
+ * must go on and come off together: a card holding a height after the mark is
+ * gone is propped open, and one marked with no height has nothing to hold.
+ */
+.tug-pane[data-still-crossing] .tug-pane-content [data-card-host] > * {
+  height: var(--tugx-still-held-height);
+}
+
+/*
+ * The held picture hangs from the edge its content hangs from. Top is the
+ * default and needs no rule: the root sits at the box's top and the moving
+ * edge clips or reveals its bottom.
+ *
+ * A root that declares `data-still-anchor="bottom"` hangs from the box's
+ * bottom instead, so what it keeps at its bottom edge rides the frame's edge
+ * and the clip falls at the top, under the pane's chrome. The content box is
+ * already `position: relative`, so this is its only positioning context. A
+ * card declares it when its content is pinned to its bottom — a transcript
+ * that is following — because that is what its own layout would truthfully do
+ * at every intermediate height, so neither end of the crossing pops.
+ *
+ * Never during a fold crossing: the fold's status row rides the closing edge
+ * by `position: sticky` against a TOP-anchored interior, and when both marks
+ * are on the frame the fold's picture wins.
+ */
+.tug-pane[data-still-crossing]:not([data-fold-crossing])
+  .tug-pane-content
+  [data-card-host]
+  > [data-still-anchor="bottom"] {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 0;
 }
 
 /* Layer 1: partial saturation reduction — desaturates colored content.

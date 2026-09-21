@@ -49,6 +49,11 @@
  *      both gone at rest in each direction. A mark left on a settled card holds
  *      the interior at a height from some earlier fold and clips the pane for
  *      good.
+ *   5. **A fold is a still crossing.** The general mark every held height
+ *      tween carries (`data-still-crossing`) is on for exactly the frames the
+ *      fold's is, and it and its held height clear with the fold's. The pane's
+ *      hold keys on the general mark, so a fold that set only its own would be
+ *      a fold with nothing holding it.
  *
  * The card is bound because an unbound one renders the project picker rather
  * than the card body, and the slot, its transcript pane and the composer are
@@ -124,6 +129,8 @@ interface Sample {
   t: number;
   /** The imposer's own mark, or `""` when this frame is not in a crossing. */
   mark: string;
+  /** The general still-crossing mark, read the same way. */
+  still: string;
   frameHeight: number;
   transcriptTop: number;
   entryTop: number;
@@ -162,6 +169,10 @@ async function census(app: App, folded: boolean): Promise<Sample[]> {
             frame === null
               ? ""
               : frame.getAttribute("data-fold-crossing") || "",
+          still:
+            frame === null
+              ? ""
+              : frame.getAttribute("data-still-crossing") || "",
           frameHeight: frame === null ? -1 : frame.getBoundingClientRect().height,
           transcriptTop: topOf(transcriptSel),
           entryTop: topOf(entrySel),
@@ -242,7 +253,12 @@ async function openCard(app: App): Promise<void> {
 /** The crossing's own two marks: the frame's stamp and the held height. */
 async function readCrossing(
   app: App,
-): Promise<{ mark: string | null; held: string }> {
+): Promise<{
+  mark: string | null;
+  held: string;
+  still: string | null;
+  stillHeld: string;
+}> {
   return app.evalJS(
     `(function () {
       var frame = document.querySelector(${JSON.stringify(FRAME)});
@@ -254,6 +270,13 @@ async function readCrossing(
             ? ""
             : getComputedStyle(card)
                 .getPropertyValue("--tugx-fold-held-height")
+                .trim(),
+        still: frame === null ? null : frame.getAttribute("data-still-crossing"),
+        stillHeld:
+          card === null
+            ? ""
+            : getComputedStyle(card)
+                .getPropertyValue("--tugx-still-held-height")
                 .trim(),
       };
     })()`,
@@ -285,6 +308,13 @@ function assertStillClip(
     frames.length,
     `${label}: the crossing must be sampled mid-motion`,
   ).toBeGreaterThan(5);
+
+  // 5. A fold is a still crossing: the general mark is on for exactly the
+  //    frames the fold's is, no more and no fewer.
+  expect(
+    samples.filter((s) => (s.mark !== "") !== (s.still !== "")).length,
+    `${label}: the still mark is on for exactly the fold's frames`,
+  ).toBe(0);
 
   // 3, first, because 1 and 2 are only claims if there was a real fold to
   // read them over. The frame's own height is the motion.
@@ -332,6 +362,8 @@ describe.skipIf(!SHOULD_RUN)("AT0563: the fold's still picture", () => {
         note("settled crossing", JSON.stringify(settled));
         expect(settled.mark, "the mark is cleared once folded").toBeNull();
         expect(settled.held, "and so is the held height").toBe("");
+        expect(settled.still, "the still mark clears with it").toBeNull();
+        expect(settled.stillHeld, "and its held height").toBe("");
 
         // ── The unfold: Z2 comes back down ──────────────────────────────
         assertStillClip("show", await census(app, false), 1);
@@ -341,6 +373,8 @@ describe.skipIf(!SHOULD_RUN)("AT0563: the fold's still picture", () => {
         note("open crossing", JSON.stringify(open));
         expect(open.mark, "the mark is cleared once open").toBeNull();
         expect(open.held, "and so is the held height").toBe("");
+        expect(open.still, "the still mark clears with it").toBeNull();
+        expect(open.stillHeld, "and its held height").toBe("");
       } finally {
         await app.close();
       }
