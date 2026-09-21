@@ -78,7 +78,6 @@ import React, {
 } from "react";
 import {
   Annotation,
-  ChangeSet,
   Compartment,
   EditorSelection,
   EditorState,
@@ -964,6 +963,37 @@ export const TugTextCardEditor = React.forwardRef<
         changes,
         annotations: [externalReplace.of(true), Transaction.addToHistory.of(false)],
       });
+      // And measure AGAIN, after. The measure above fixes WHERE the anchor is
+      // taken from; it does nothing about WHEN the anchor is applied, and those
+      // are two different bugs. `EditorView.update` writes the new text into the
+      // DOM synchronously and then only calls `requestMeasure()` — the anchor
+      // correction itself, `scrollTop += diff`, runs inside the measure pass,
+      // which is scheduled on an animation frame. Any paint that lands between
+      // those two beats shows the new text at the old offset: the reader's line
+      // jumps a row and jumps back, and a one-frame flash is a bug like any
+      // other. The window is not hypothetical — a dispatch made from inside the
+      // rendering steps registers its frame callback for the NEXT frame by
+      // construction, and a `WKWebView` whose frames are throttled (an occluded
+      // or backgrounded window — an agent rewriting a file while Tug is not
+      // frontmost is the ordinary Tug case) can paint without running them at
+      // all.
+      //
+      // The same two public calls close it, for the same reason as above:
+      // `requestMeasure()` arms the pending-measure flag that `update` just set
+      // anyway, and the public layout read flushes the pass synchronously
+      // through `readMeasured` instead of leaving it to the frame. So the DOM
+      // write and the anchor correction land in one task and no frame can be
+      // painted between them. `EditorView.measure()` is still the method that
+      // wants calling and is still `@internal`; reaching for it, or patching
+      // CM6, buys nothing the public pair does not.
+      //
+      // The correction's own guard — the scroller must be CM6's own
+      // `.cm-scroller`, or the view must have focus, or a wheel/touch gesture
+      // must be recent — passes here without focus, because the element being
+      // corrected IS `.cm-scroller`. An external reload into an unfocused card
+      // is therefore corrected exactly like one into a focused card.
+      live.requestMeasure();
+      live.coordsAtPos(live.state.selection.main.head);
     },
     [],
   );
@@ -992,64 +1022,6 @@ export const TugTextCardEditor = React.forwardRef<
     [dispatchReplacement, viewHasLayout],
   );
 
-  /**
-   * Land a reload that waited for the card to be shown, holding the reader's
-   * place across it.
-   *
-   * CM6's own scroll anchor cannot do this one. The anchor is computed from the
-   * metrics the view cached the last time it measured, and a card that has been
-   * sitting in the background measured nothing — so however long the dispatch
-   * waits after the box reappears, the anchor is derived from a view state that
-   * predates the reader's scroll position being meaningful, and the change lands
-   * holding pixels instead of text. That is the same one-row miss as dispatching
-   * into the hidden view, arriving by a different route.
-   *
-   * So take the place by hand, which is possible here precisely because the view
-   * is visible again: read the document position at the viewport top and how far
-   * down its row starts, map that position through the change set itself — never
-   * a line number, which every insertion above invalidates — and put it back at
-   * the same offset once CM6 has laid the new text out.
-   *
-   * The correction runs in a plain animation frame rather than a `requestMeasure`
-   * write phase. A write phase queued from here does not run: the dispatch's own
-   * measure consumes the scheduled pass, and a write registered around it is
-   * dropped — which is how two earlier shapes of this fix came to land no text
-   * and no correction at all. A frame is the one scheduling primitive whose
-   * ordering here is not CM6's to decide.
-   */
-  const applyDeferredReplacement = useCallback(
-    (live: EditorView, target: string): void => {
-      const changes = minimalTextChanges(live.state.doc.toString(), target);
-      if (changes.length === 0) return;
-
-      const box = live.scrollDOM.getBoundingClientRect();
-      // One pixel inside the top edge, so the hit lands in the first visible row
-      // rather than in the gap above it.
-      const topPos = live.posAtCoords({ x: box.left + 1, y: box.top + 1 }, false);
-      if (topPos === null) {
-        dispatchReplacement(live, target);
-        return;
-      }
-      // Where the held row sits in the DOCUMENT's own height. `lineBlockAt`
-      // reads CM6's height map rather than the rendered DOM, so unlike
-      // `coordsAtPos` it cannot come back empty for a region the freshly shown
-      // view has not painted yet — which is what made a coordinate-based
-      // correction silently do nothing at all.
-      const heightBefore = live.lineBlockAt(topPos).top;
-      const mapped = ChangeSet.of(changes, live.state.doc.length).mapPos(topPos);
-
-      dispatchReplacement(live, target);
-
-      // Whatever height the change added above the held row is exactly what the
-      // scroller has to move by for that row to stay where the reader left it.
-      // Both readings are in the document's own coordinate space, so the
-      // constant padding above the first line cancels between them.
-      const shift = live.lineBlockAt(mapped).top - heightBefore;
-      if (Math.abs(shift) >= 1) live.scrollDOM.scrollTop += shift;
-    },
-    [dispatchReplacement, viewHasLayout],
-  );
-
   // ---- Apply a deferred reload when the card is shown ----
   //
   // The show event, never a clock. A `display: none` scroller reports a 0×0
@@ -1059,40 +1031,39 @@ export const TugTextCardEditor = React.forwardRef<
   // re-checking hidden editors would be answering the same question by asking
   // it over and over.
   //
-  // The dispatch waits one frame past the observer's callback, and that frame is
-  // load-bearing rather than a hedge. While the card was hidden CM6 had no box
-  // to measure, so its height oracle and its cached scroll offset are both
-  // stale; dispatching inside the resize callback anchors the change against
-  // those stale metrics and loses the reader's place by exactly the row that was
-  // inserted — the same one-row miss as dispatching into the hidden view. One
-  // frame is enough for CM6's own measure pass on the new box to run first. It
-  // is still the show event that starts this: nothing polls, and with no card
-  // shown and nothing pending, no frame is ever asked for.
+  // The dispatch happens IN the observer's callback, and CM6's own scroll
+  // anchor holds the reader's place across it. That was not true until the
+  // measure flush moved into the dispatch's own task: while the card was hidden
+  // CM6 had no box to measure, so its height oracle and its cached scroll
+  // offset were both stale, and a change dispatched against them lost the place
+  // by exactly the row that was inserted. `dispatchReplacement` now measures on
+  // both sides of the dispatch — the first flush refreshes those metrics
+  // against the box that has just appeared, the second applies the anchor
+  // before the callback returns — which is the whole of what an extra frame and
+  // a hand-rolled `scrollTop` correction used to buy here.
+  //
+  // That correction is gone, and the history is worth keeping: it mapped the
+  // viewport-top position through the change set and moved the scroller by the
+  // height delta, because two earlier shapes using a `requestMeasure` write
+  // phase had landed neither the text nor the correction. Reinstating any of
+  // the three means the two flushes stopped covering this path, which is a
+  // different bug from the one they were written for.
   useEffect(() => {
     const live = view;
     if (live === null) return;
-    let frame = 0;
     const observer = new ResizeObserver(() => {
       if (pendingHiddenTextRef.current === null) return;
       if (viewRef.current !== live) return;
       if (!viewHasLayout(live)) return;
-      if (frame !== 0) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        if (pendingHiddenTextRef.current === null) return;
-        if (viewRef.current !== live) return;
-        if (!viewHasLayout(live)) return;
-        const pending = pendingHiddenTextRef.current;
-        pendingHiddenTextRef.current = null;
-        applyDeferredReplacement(live, pending);
-      });
+      const pending = pendingHiddenTextRef.current;
+      pendingHiddenTextRef.current = null;
+      dispatchReplacement(live, pending);
     });
     observer.observe(live.scrollDOM);
     return () => {
-      if (frame !== 0) cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [view, applyDeferredReplacement, viewHasLayout]);
+  }, [view, dispatchReplacement, viewHasLayout]);
 
   // ---- Mount the EditorView ----
 

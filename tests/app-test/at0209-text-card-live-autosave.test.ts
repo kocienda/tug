@@ -26,6 +26,14 @@
  *    used to happen and self-correct, which is what made Scenario 3
  *    marginal.
  *
+ * 3c. **A reload with the page's frames held.** The same one-task
+ *    reload, with `requestAnimationFrame` replaced by one that holds
+ *    its callbacks — so the interval between CM6's synchronous DOM
+ *    write and its frame-scheduled scroll-anchor correction is held
+ *    open and the top line is read inside it. With no frame callback
+ *    having run the text must ALREADY be at the top, which is the
+ *    flash of 3b's trace made deterministic rather than load-dependent.
+ *
  * 4. **Undo after a reload.** A reload is not an undo step: a clean
  *    buffer adopts an external change silently, and one ⌘Z afterwards
  *    removes the user's own typing and nothing else — the reloaded
@@ -726,6 +734,278 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         expect(
           hopped.map((s) => `${s.text.slice(0, 14)}@${Math.round(s.scrollTop)}`),
         ).toEqual([]);
+        // And the disk content really is in the buffer.
+        await app.evalJS<null>(
+          `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
+        );
+        await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
+      } finally {
+        await app.close();
+        rmFixture(dir);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // -------------------------------------------------------------------------
+  // Scenario 3c: the reload with the frames held
+  // -------------------------------------------------------------------------
+  //
+  // Scenario 3b makes the window deterministic; it does not make the FLASH
+  // deterministic. The hop it traced — `045@900 | 044@900 | 045@920` — was
+  // seen exactly once, on a loaded machine, and every quiet run traces the
+  // single state. A bug reproducible one run in several is not a bug under
+  // test, and waiting for load is not a test plan.
+  //
+  // So this scenario removes the luck. CM6 applies a change's DOM write
+  // synchronously in `EditorView.update` and then only calls `requestMeasure()`
+  // — the scroll-anchor correction, `scroll.scrollTop += diff`, lives inside
+  // `measure()`, which is scheduled on `requestAnimationFrame`. Anything that
+  // paints between those two beats shows the new text at the old offset. Here
+  // the page's `requestAnimationFrame` is REPLACED before the reload with one
+  // that holds its callbacks, so the interval between the DOM write and the
+  // frame callback is held open for as long as the test likes, and the top
+  // line is read inside it.
+  //
+  // The assertion is therefore the whole of the fix: with the frames held and
+  // no frame callback having run, the text must ALREADY be at the top. A
+  // correction that arrives on a frame callback cannot satisfy it, which is
+  // what makes this red before the post-dispatch measure flush and green after.
+  // That is measured, not argued: a `tugtool file probe` reverting ONLY the
+  // post-dispatch flush reads `tall line 044` at the microtask — the wrong row
+  // at the top — where the tree as it stands reads `045`. (The raw `scrollTop`
+  // in that same sample is 900 on some runs and 920 on others even when the
+  // text is right, so WHICH LINE is at the top is the reading to trust and the
+  // one asserted on; the offset check below is against the row's own position,
+  // which is stable.)
+  // Scenario 3b traced the single settled state `045 @-18/920` under that same
+  // probe — which is the whole reason this scenario exists beside it, and why a
+  // green run of 3b is not evidence about the flash. The stall is released
+  // afterwards and the settled state is read again, so a fix that merely moved
+  // the flash later still fails here.
+  test(
+    "in-place reload holds the text with the page's frames held",
+    async () => {
+      const { dir, file } = mkTallFixture();
+      const app = await launchTugApp({ testName: "at0209-reload-frames-held" });
+      try {
+        await seedTextCard(app, file);
+        await waitForEditorShowing(app, "tall line 001");
+
+        // Same drive to the conflict banner as 3b: its Reload button is a real
+        // in-place reload through the store's `replaceText` bridge.
+        await typeIntoEditor(app, "EDIT1 ");
+        await waitForDisk(file, (c) => c.includes("EDIT1"));
+        const EXTERNAL = "EXTERNAL-WRITER LINE\n" + TALL_CONTENT;
+        fs.writeFileSync(file, EXTERNAL, "utf8");
+        await typeIntoEditor(app, "EDIT2 ");
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="text-card-conflict-reload"]') !== null`,
+          { timeoutMs: 8000 },
+        );
+
+        // Let two real frames pass first, so anything already scheduled — a
+        // CM6 measure from the typing above, most of all — has run and drained.
+        // What the stall holds is then the reload's own callbacks and nothing
+        // that was pending before it.
+        await app.evalJS<null>(`(function(){
+          window.__tugFrames = 0;
+          requestAnimationFrame(function(){
+            window.__tugFrames++;
+            requestAnimationFrame(function(){ window.__tugFrames++; });
+          });
+          return null;
+        })()`);
+        await app.waitForCondition<boolean>(`window.__tugFrames >= 2`, {
+          timeoutMs: 6000,
+        });
+
+        // Install the stall. Held ids start well above any the platform is
+        // handing out, so a `cancelAnimationFrame` for a pre-stall id is
+        // forwarded to the real one instead of evicting a held callback by
+        // collision.
+        await app.evalJS<null>(`(function(){
+          var stall = {
+            raf: window.requestAnimationFrame.bind(window),
+            cancel: window.cancelAnimationFrame.bind(window),
+            held: new Map(),
+            next: 1000000,
+            requested: 0,
+          };
+          window.__tugFrameStall = stall;
+          window.requestAnimationFrame = function(cb){
+            var id = stall.next++;
+            stall.requested++;
+            stall.held.set(id, cb);
+            return id;
+          };
+          window.cancelAnimationFrame = function(id){
+            if (id >= 1000000) stall.held.delete(id);
+            else stall.cancel(id);
+          };
+          return null;
+        })()`);
+
+        // And arm the capture of the flash window itself, from inside the
+        // page. The harness's round trips are whole tasks, so a read driven
+        // from the test side can only ever see the state some tasks later —
+        // which is how the first draft of this scenario read a corrected top
+        // line with nothing held. A `MutationObserver` on the scroller runs as
+        // a MICROTASK, when the dispatch's own call stack empties: that is the
+        // earliest instant the browser could paint the new text, and therefore
+        // the flash window exactly. Whatever it records is what a frame landing
+        // there would have shown.
+        await app.evalJS<null>(`(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          window.__tugFlashSample = null;
+          var obs = new MutationObserver(function(){
+            if (window.__tugFlashSample !== null) return;
+            var box = scroller.getBoundingClientRect();
+            var lines = scroller.querySelectorAll('.cm-line');
+            for (var i = 0; i < lines.length; i++) {
+              var r = lines[i].getBoundingClientRect();
+              if (r.bottom > box.top + 1) {
+                window.__tugFlashSample = { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop };
+                break;
+              }
+            }
+            obs.disconnect();
+          });
+          obs.observe(scroller, { childList: true, subtree: true, characterData: true });
+          return null;
+        })()`);
+
+        // ONE task, exactly as 3b: park the viewport, read the line at the top,
+        // and click Reload. From here until the release below, no frame
+        // callback can run.
+        const before = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        }>(`(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          scroller.scrollTop = 900;
+          var box = scroller.getBoundingClientRect();
+          var lines = scroller.querySelectorAll('.cm-line');
+          var found = null;
+          for (var i = 0; i < lines.length; i++) {
+            var r = lines[i].getBoundingClientRect();
+            if (r.bottom > box.top + 1) {
+              found = { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight };
+              break;
+            }
+          }
+          document.querySelector('[data-testid="text-card-conflict-reload"]').click();
+          return found;
+        })()`);
+        expect(before).not.toBeNull();
+        expect(before.text.indexOf("tall line")).toBe(0);
+        expect(before.scrollTop).toBeGreaterThan(200);
+
+        // The reload landed — banner gone and the inserted row made the
+        // document taller. Both are synchronous consequences of CM6's DOM
+        // write, so neither needs a frame to become true.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="text-card-conflict-reload"]') === null`,
+          { timeoutMs: 6000 },
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
+          { timeoutMs: 6000 },
+        );
+
+        const readTop = `(function(){
+          var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
+          var box = scroller.getBoundingClientRect();
+          var lines = scroller.querySelectorAll('.cm-line');
+          for (var i = 0; i < lines.length; i++) {
+            var r = lines[i].getBoundingClientRect();
+            if (r.bottom > box.top + 1) {
+              return { text: lines[i].textContent, delta: r.top - box.top, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight };
+            }
+          }
+          return null;
+        })()`;
+
+        // Read the top line INSIDE the held interval, and count what is being
+        // held while reading it.
+        const held = await app.evalJS<{
+          top: { text: string; delta: number; scrollTop: number } | null;
+          pending: number;
+        }>(`(function(){
+          return { top: ${readTop}, pending: window.__tugFrameStall.held.size };
+        })()`);
+        const flash = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+        } | null>(`(function(){ return window.__tugFlashSample; })()`);
+        const stallState = await app.evalJS<{ requested: number }>(
+          `(function(){ return { requested: window.__tugFrameStall.requested }; })()`,
+        );
+        note(
+          `flash window: ${stallState.requested} frame(s) requested and held; ` +
+            `top line at the microtask ` +
+            `${JSON.stringify(flash === null ? "(none)" : flash.text.slice(0, 14))}` +
+            `@${flash === null ? "-" : Math.round(flash.scrollTop)}`,
+        );
+        expect(flash).not.toBeNull();
+
+        note(
+          `frames held: ${held.pending} callback(s) pending; top line ` +
+            `${JSON.stringify(before.text.slice(0, 14))} → ` +
+            `${JSON.stringify(held.top === null ? "(none)" : held.top.text.slice(0, 14))}` +
+            `@${held.top === null ? "-" : Math.round(held.top.scrollTop)}`,
+        );
+
+        // A stall that was never asked for a frame proves nothing: the reload's
+        // own measure pass is what must have been scheduled into it.
+        expect(stallState.requested).toBeGreaterThanOrEqual(1);
+        expect(held.top).not.toBeNull();
+
+        // THE assertion. The sample was taken with no frame callback having
+        // run and no task having intervened, so a correction visible in it
+        // landed in the dispatch's own task. Holding the pixel `scrollTop`
+        // instead reads one row EARLIER — `tall line 044` for `045` — because
+        // the external write inserted a row above the viewport.
+        expect(flash!.text).toBe(before.text);
+        expect(Math.abs(flash!.delta - before.delta)).toBeLessThanOrEqual(2);
+
+        // And it still holds after the harness's round trips with the frames
+        // still held, which catches a correction that arrived from a later
+        // task — the assertion above is the sharper one, and catches a
+        // correction that arrived from any task at all.
+        expect(held.top!.text).toBe(before.text);
+        expect(Math.abs(held.top!.delta - before.delta)).toBeLessThanOrEqual(2);
+
+        // Release the stall and run what it held, then read the settled state.
+        // A fix that only moved the flash later would pass the read above and
+        // fail here.
+        const ran = await app.evalJS<number>(`(function(){
+          var stall = window.__tugFrameStall;
+          window.requestAnimationFrame = stall.raf;
+          window.cancelAnimationFrame = stall.cancel;
+          var cbs = [];
+          stall.held.forEach(function(cb){ cbs.push(cb); });
+          stall.held.clear();
+          var t = performance.now();
+          for (var i = 0; i < cbs.length; i++) {
+            try { cbs[i](t); } catch (e) {}
+          }
+          return cbs.length;
+        })()`);
+        note(`stall released: ${ran} held callback(s) run`);
+
+        const after = await app.evalJS<{
+          text: string;
+          delta: number;
+          scrollTop: number;
+          scrollHeight: number;
+        }>(readTop);
+        expect(after.text).toBe(before.text);
+        expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
+
         // And the disk content really is in the buffer.
         await app.evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
