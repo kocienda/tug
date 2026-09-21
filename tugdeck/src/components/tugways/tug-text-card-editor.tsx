@@ -32,8 +32,9 @@
  *     debounce); the store reads the buffer back via `getText()` at
  *     flush time;
  *   - external-change reverts arrive via `replaceText()`, a single
- *     transaction annotated so the update listener does NOT re-arm
- *     autosave, preserving cursor/scroll as far as the new text allows;
+ *     transaction of MINIMAL changes annotated so the update listener
+ *     does NOT re-arm autosave; CM6 maps caret, selection, and the
+ *     scroll anchor through it, so the view holds its place;
  *   - `getPositions()`/`applyPositions()` carry cursor + scroll for
  *     the card bag (positions-only persistence).
  *
@@ -119,6 +120,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { cm6ScrollAnchor } from "@/lib/cm6-scroll-anchor";
+import { minimalTextChanges } from "@/lib/minimal-text-changes";
 import {
   clipboardOriginFor,
   stampClipboardOrigin,
@@ -797,8 +799,9 @@ export const TugTextCardEditor = React.forwardRef<
   // scroll write into `requestMeasure` so it lands AFTER CM6 has measured
   // the current document. A synchronous `scrollTop =` runs before CM6 knows
   // the new line heights, so it re-measures, clamps, and the viewport jumps
-  // (the [L23] regression). This is the shared core behind both the card-bag
-  // restore (`applyPositions`) and the in-place reload (`replaceText`); the
+  // (the [L23] regression). This is the core of the card-bag restore
+  // (`applyPositions`) only — an in-place reload (`replaceText`) has nothing
+  // to restore, because it never discards positions in the first place. The
   // view-identity guard drops the restore if the card re-anchors before the
   // measure fires.
   const restoreSelectionAndScroll = useCallback(
@@ -871,26 +874,30 @@ export const TugTextCardEditor = React.forwardRef<
     (next: string): void => {
       const live = viewRef.current;
       if (live === null) return;
-      if (live.state.doc.toString() === next) return;
-      // Capture the pre-reload selection + scroll in line/ch currency (the
-      // same shape the card bag uses) BEFORE the swap, so an in-place disk
-      // reload — external out-of-process edit, Revert to Saved, Reload from
-      // Disk, conflict "Reload" — really tries to restore where the user
-      // was: both selection ends survive (never flattened to a caret) and
-      // the caret tracks its line/col rather than a raw offset.
-      const before = getPositions();
+      // CM6 holds `\n`-only text; compare and diff in that currency, or a
+      // CRLF file would read as changed on every line.
+      const target = next.replace(/\r\n?/g, "\n");
+      const changes = minimalTextChanges(live.state.doc.toString(), target);
+      if (changes.length === 0) return;
+      // An in-place disk reload — external out-of-process edit, Revert to
+      // Saved, Reload from Disk, conflict "Reload" — is dispatched as the
+      // MINIMAL change set, never a whole-document replace. A whole-document
+      // replace tells CM6 every old position is gone, and then the caret,
+      // the selection, and the viewport all have to be put back by hand from
+      // line/ch and pixel guesses that are wrong the moment a line was added
+      // above them — which is the jump. With only the changed lines
+      // replaced, CM6 maps the selection through the change itself, keeps
+      // the measured heights of every untouched line, and holds the line at
+      // the viewport top where it was (its own scroll anchor, corrected in
+      // the same measure pass, before paint). Folds, search matches, and the
+      // undo history's positions survive the same way. There is nothing to
+      // restore afterwards, so nothing races a click or a drag in progress.
       live.dispatch({
-        changes: { from: 0, to: live.state.doc.length, insert: next },
+        changes,
         annotations: externalReplace.of(true),
       });
-      // Re-apply selection + the exact scroll AFTER CM6 measures the new
-      // document (measure-deferred, so the viewport doesn't clamp/jump).
-      // The revert should read as "the text changed under me", not "the
-      // editor jumped". The selection-only dispatch inside carries no
-      // doc change, so it never re-arms autosave.
-      restoreSelectionAndScroll(before);
     },
-    [getPositions, restoreSelectionAndScroll],
+    [],
   );
 
   // ---- Mount the EditorView ----
