@@ -14,7 +14,7 @@
  * test is which messages go out and which frames are applied.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { TugConnection } from "@/connection";
 import { FeedId } from "@/protocol";
@@ -27,18 +27,13 @@ interface Sent {
 let sent: Sent[] = [];
 let frameCallback: ((payload: Uint8Array) => void) | null = null;
 
-// The singleton is mocked rather than driven through `setConnection`: bun's
-// `mock.module` leaks across files, so another suite's no-op `setConnection`
-// would silently swallow a real registration depending on file order. Pinning
-// `getConnection` to a local is what `landing-press-receipt.test.ts` does for
-// the same reason.
+// The connection is handed to the client through its own seam, not by
+// mocking the singleton module: in a full run the store suites import the
+// client first, so it is already bound to the real singleton by the time a
+// `mock.module` here would run, and every send becomes a silent no-op. This
+// file was green alone and red in the suite for exactly that reason.
 let activeConnection: TugConnection | null = null;
-mock.module("@/lib/connection-singleton", () => ({
-  getConnection: () => activeConnection,
-  setConnection: () => {},
-}));
 
-// Imported after the mock so the client binds to it.
 const {
   watchFile,
   reask,
@@ -46,7 +41,11 @@ const {
   _deliverForTest,
   _connectionDidOpenForTest,
   _resetForTest,
+  _setConnectionSourceForTest,
 } = await import("@/lib/file-watch-client");
+
+_setConnectionSourceForTest(() => activeConnection);
+afterAll(() => _setConnectionSourceForTest(null));
 
 function recordingConnection(): TugConnection {
   return {

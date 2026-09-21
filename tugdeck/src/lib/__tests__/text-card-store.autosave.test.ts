@@ -15,7 +15,7 @@
  * write.
  */
 
-import { describe, test, expect, mock, beforeAll, beforeEach } from "bun:test";
+import { describe, test, expect, mock, afterAll, beforeAll, beforeEach } from "bun:test";
 
 import type { FileWatchState } from "@/lib/file-watch-client";
 
@@ -44,19 +44,36 @@ const releaseRead = async () => {
   await tick();
 };
 
-/** What the watch client would have done, recorded rather than sent. */
+/**
+ * What the watch client put on the wire, read off a recording connection.
+ *
+ * The REAL client, not a `mock.module` stand-in: bun's module mocks are
+ * process-wide, so a stub here replaced the client for every suite that ran
+ * after this one — including the client's own, which went red in a full run
+ * and green alone. A `watch` message is both a subscription and a re-ask,
+ * which is the wire's own truth: `reask` IS a second `watch`.
+ */
+const wire: Array<{ type: string; path?: string }> = [];
 const watch = {
-  watched: [] as string[],
-  released: [] as string[],
-  reasked: [] as string[],
-};
-mock.module("@/lib/file-watch-client", () => ({
-  watchFile: (path: string) => {
-    watch.watched.push(path);
-    return () => watch.released.push(path);
+  get watched() {
+    return wire.filter((m) => m.type === "watch").map((m) => m.path);
   },
-  reask: (path: string) => watch.reasked.push(path),
-}));
+  get released() {
+    return wire.filter((m) => m.type === "unwatch").map((m) => m.path);
+  },
+  get reasked() {
+    return this.watched;
+  },
+  clear() {
+    wire.length = 0;
+  },
+};
+const recordingConnection = {
+  send: (_feedId: number, payload: Uint8Array) => {
+    wire.push(JSON.parse(new TextDecoder().decode(payload)));
+  },
+  onFrame: () => () => {},
+} as unknown as import("@/connection").TugConnection;
 
 mock.module("@/lib/file-io", () => ({
   readFileFromDisk: async (path: string) => {
@@ -86,8 +103,15 @@ mock.module("@/lib/file-io", () => ({
 }));
 
 let TextCardStore: typeof import("@/lib/text-card-store").TextCardStore;
+let fileWatchClient: typeof import("@/lib/file-watch-client");
 beforeAll(async () => {
   ({ TextCardStore } = await import("@/lib/text-card-store"));
+  fileWatchClient = await import("@/lib/file-watch-client");
+  fileWatchClient._setConnectionSourceForTest(() => recordingConnection);
+});
+afterAll(() => {
+  fileWatchClient._resetForTest();
+  fileWatchClient._setConnectionSourceForTest(null);
 });
 
 function bridge(getText: () => string, setText?: (t: string) => void) {
@@ -204,9 +228,10 @@ describe("what a watch frame costs", () => {
     io.holdReads = false;
     io.readContent = "one two\n";
     io.readSha = "sha-read";
-    watch.watched = [];
-    watch.released = [];
-    watch.reasked = [];
+    // Earlier tests leave stores open on the same path; forgetting their
+    // subscriptions is what makes the last release below the LAST one.
+    fileWatchClient._resetForTest();
+    watch.clear();
   });
 
   test("an echoed hash buys no read", async () => {
@@ -349,7 +374,7 @@ describe("what a watch frame costs", () => {
     const store = new TextCardStore();
     store.attachEditor(bridge(() => "one two\n"));
     await store.openPath("/f.txt");
-    watch.reasked = [];
+    watch.clear();
 
     await store.recheckOnActivation();
     // Both halves: the re-ask covers a push we missed, the read covers

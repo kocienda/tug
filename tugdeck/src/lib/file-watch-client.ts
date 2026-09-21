@@ -26,6 +26,7 @@
  */
 
 import { FeedId } from "@/protocol";
+import type { TugConnection } from "../connection";
 import { getConnection } from "./connection-singleton";
 import { getConnectionLifecycle } from "./connection-lifecycle";
 
@@ -56,6 +57,14 @@ interface Held {
 }
 
 const held = new Map<string, Held>();
+
+/**
+ * Where the connection comes from. The singleton in production; a test
+ * substitutes its own through {@link _setConnectionSourceForTest}, because
+ * mocking the singleton MODULE only works for whichever suite loads this
+ * file first — any earlier import binds the real one for the whole process.
+ */
+let connectionSource: () => TugConnection | null = getConnection;
 
 /** Live only while a connection exists; re-attached lazily. */
 let detachFrame: (() => void) | null = null;
@@ -115,7 +124,7 @@ export function reask(path: string): void {
  */
 function attach(): void {
   if (detachFrame !== null) return;
-  const connection = getConnection();
+  const connection = connectionSource();
   if (connection === null) return;
   detachFrame = connection.onFrame(FeedId.FILE_WATCH, (payload: Uint8Array) => {
     deliver(payload);
@@ -138,7 +147,7 @@ function onConnectionDidOpen(): void {
 }
 
 function send(message: Record<string, unknown>): void {
-  const connection = getConnection();
+  const connection = connectionSource();
   if (connection === null) return;
   connection.send(
     FeedId.FILE_WATCH_QUERY,
@@ -220,6 +229,13 @@ export function _deliverForTest(payload: Uint8Array): void {
 /** Drive the connection-open path without a socket. */
 export function _connectionDidOpenForTest(): void {
   onConnectionDidOpen();
+}
+
+/** Substitute the connection this module reaches for; `null` restores the singleton. */
+export function _setConnectionSourceForTest(
+  source: (() => TugConnection | null) | null,
+): void {
+  connectionSource = source ?? getConnection;
 }
 
 /** Forget every subscription and detach. */
