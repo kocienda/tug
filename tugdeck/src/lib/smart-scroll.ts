@@ -709,8 +709,8 @@ export class SmartScroll {
    * outside this class.
    *
    * A handful of writers legitimately bypass SmartScroll — the list
-   * view's front-insert prepend compensation, `focus-reveal`'s
-   * `revealWithin`, the transcript's `settleFindReveal`. Their write
+   * view's front-insert prepend compensation and `focus-reveal`'s
+   * `revealWithin`. Their write
    * lands synchronously but its `scroll` event does not dispatch until
    * the current task ends, so anything reading `lastScrollEventTop` in
    * between sees a stale position and can mistake the write for a
@@ -1170,8 +1170,8 @@ export class SmartScroll {
         // writes: explicit programmatic scrolls arm the one-shot
         // suppression flag (captured above), pins and prepend
         // compensation only ever move `scrollTop` down, and the raw
-        // upward writers (`focus-reveal`'s `revealWithin`, the
-        // transcript's `settleFindReveal`) call `disengage(...)`
+        // upward writers (`focus-reveal`'s `revealWithin`) call
+        // `disengage(...)`
         // themselves before writing. `usePositionStableClick`'s
         // compensation writes on the user's click call-stack to hold
         // the click point under the cursor — attributing that scroll

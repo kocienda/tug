@@ -203,3 +203,78 @@ describe("FindSession", () => {
     expect(snap.wrapSeq).toBe(1);
   });
 });
+
+/**
+ * The failed-reveal flag ([P09]). It is the one piece of the published face
+ * the ENGINE does not own: the host says whether it could put the active
+ * match on screen, and every gesture takes the claim back, because a stale
+ * "not in view" over a match the user has since stepped to is exactly the
+ * confident-but-wrong chip this arc exists to retire.
+ */
+describe("FindSession reveal-failed flag", () => {
+  const failed = (): FindSession => {
+    const { engine } = stubEngine(3);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.setRevealFailed(true);
+    return session;
+  };
+
+  test("setRevealFailed publishes to subscribers", () => {
+    const { engine } = stubEngine(3);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    let notifications = 0;
+    session.subscribe(() => {
+      notifications += 1;
+    });
+    expect(session.getSnapshot().revealFailed).toBe(false);
+    session.setRevealFailed(true);
+    expect(session.getSnapshot().revealFailed).toBe(true);
+    expect(notifications).toBe(1);
+    // Idempotent: a reveal that fails twice does not re-publish.
+    session.setRevealFailed(true);
+    expect(notifications).toBe(1);
+    session.setRevealFailed(false);
+    expect(session.getSnapshot().revealFailed).toBe(false);
+    expect(notifications).toBe(2);
+  });
+
+  test("every gesture resets it", () => {
+    const query = failed();
+    query.setQuery("qq");
+    expect(query.getSnapshot().revealFailed).toBe(false);
+
+    const options = failed();
+    options.setOptions({ caseSensitive: true, wholeWord: false, grep: false });
+    expect(options.getSnapshot().revealFailed).toBe(false);
+
+    const next = failed();
+    next.next();
+    expect(next.getSnapshot().revealFailed).toBe(false);
+
+    const previous = failed();
+    previous.previous();
+    expect(previous.getSnapshot().revealFailed).toBe(false);
+
+    const cleared = failed();
+    cleared.clear();
+    expect(cleared.getSnapshot().revealFailed).toBe(false);
+
+    // The sixth gesture: a surface taking the session over replays the
+    // standing query into the new engine, which owes its own reveal.
+    const replayed = failed();
+    replayed.setDelegate(stubEngine(3).engine);
+    expect(replayed.getSnapshot().revealFailed).toBe(false);
+  });
+
+  test("a background refresh does NOT reset it", () => {
+    const session = failed();
+    // A streaming transcript re-projecting is not the user asking again:
+    // the match is still off screen and the chip must keep saying so.
+    session.refresh();
+    expect(session.getSnapshot().revealFailed).toBe(true);
+  });
+});

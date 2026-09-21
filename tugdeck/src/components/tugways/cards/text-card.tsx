@@ -377,6 +377,15 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   const openFindBar = useCallback(() => {
     // Fresh bar: it focuses its own field on mount. Already open: ⌘F must
     // still land the caret in the query field, unconditionally.
+    //
+    // The anchor is captured only on the OPENING ⌘F. A bar that is already
+    // up has an anchor its own navigation has been keeping current, and
+    // re-reading the viewport here would throw that away — the reader has
+    // been stepping through matches, so the scrollport's top line is a
+    // stale answer to "where are you".
+    if (findBarRef.current === null) {
+      editorRef.current?.captureFindAnchor("viewport");
+    }
     findSeedRef.current = "";
     setFindOpen(true);
     findBarRef.current?.focusQuery();
@@ -387,6 +396,11 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   // never mean "stop searching". The editor supplies the text (it owns the
   // selection) and gates the command; the card owns the bar.
   const findSelection = useCallback((query: string) => {
+    // ⌘E means "find THIS", so the anchor is the selection itself — and it
+    // is taken before either branch, while the selection is still live.
+    // Because the cursor starts AT the anchor, the landing is the selected
+    // text rather than the next occurrence after it.
+    editorRef.current?.captureFindAnchor("selection");
     // The bar's own ref answers "is it up?" without a second flag to keep
     // honest — React nulls it on unmount, which is exactly when the bar is
     // gone and the seed path is the right one.

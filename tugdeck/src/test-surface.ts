@@ -394,8 +394,18 @@ import {
  * `list_card_bindings_ok` frame on the real ledger bus so a test can fill the
  * bindings-ledger cache ([P08]) for cards in a workspace nobody has opened.
  * Additive; minor bump.
+ *
+ * `2.22.0`: adds `startListReveal` / `takeListRevealOutcome`, the door onto
+ * `TugListViewHandle.revealRange` before any product code drives it.
+ * Additive; minor bump.
  */
-export const SURFACE_VERSION = "2.21.0" as const;
+export const SURFACE_VERSION = "2.22.0" as const;
+
+/**
+ * Reveal outcomes in settle order, oldest first — see
+ * {@link TugTestSurface.takeListRevealOutcome}.
+ */
+const listRevealOutcomes: string[] = [];
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -885,6 +895,30 @@ export interface TugTestSurface {
     ring: unknown[];
     floor: { height: number; inset: number };
   };
+
+  /**
+   * Drive `TugListViewHandle.revealRange` against a row's own rect and
+   * resolve with the outcome it settled (SURFACE_VERSION 2.22.0).
+   *
+   * This drives the reveal machine on its own, without find in front of
+   * it: a machine with a deadline, a write budget and a cancellation rule
+   * is worth pinning apart from its one product caller. Nothing here is a
+   * convenience: the outcome is the only observable the machine has,
+   * and `evalJS` cannot await a promise in the page, so a test reads it
+   * back through {@link takeListRevealOutcome}.
+   */
+  startListReveal(selector: string, index: number): void;
+
+  /**
+   * The oldest un-read reveal outcome, or `null` when none has settled
+   * since the last read (SURFACE_VERSION 2.22.0).
+   *
+   * A QUEUE rather than a latch, because the interesting case produces
+   * two outcomes in quick succession: starting a second reveal settles
+   * the first `superseded`, and a latch would lose whichever arrived
+   * first. Read it until it returns `null`.
+   */
+  takeListRevealOutcome(): string | null;
 
   // ---- Introspection (SURFACE_VERSION 1.1.0, harness Phase A) ----
   getElementText(selector: string): string;
@@ -2106,6 +2140,22 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         );
       }
       probe.forceCommitClamp();
+    },
+
+    startListReveal(selector: string, index: number): void {
+      const probe = listViewProbeForScroller(queryRequired(selector));
+      if (probe === null) {
+        throw new Error(
+          `startListReveal: ${selector} is not a list-view scroller`,
+        );
+      }
+      void probe.revealRow(index).then((outcome) => {
+        listRevealOutcomes.push(outcome);
+      });
+    },
+
+    takeListRevealOutcome(): string | null {
+      return listRevealOutcomes.shift() ?? null;
     },
 
     setTranscriptFollowBottom(selector: string, engaged: boolean): void {

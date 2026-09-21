@@ -478,7 +478,13 @@ export const BlockHeader = React.forwardRef<
       // is searchable in both collapse states: it is header text, always on
       // screen, and `tool-header-projection` projects it for every block.
       name={toolName}
-      nameFindable
+      // An EMPTY verb is marked findable by nobody. A shell exchange passes
+      // `toolName=""` — the row identity already frames it — and the strip
+      // still renders the span for its layout box, so marking it would put a
+      // text-less unit in the row's findable list that no projection can
+      // ever match. The units then fall out of correspondence and every
+      // match in the row addresses the wrong container ([P02]).
+      nameFindable={toolName !== undefined && toolName !== ""}
       // The detail column — the target (chip or wrapping command); the strip's
       // flexible spacer when empty.
       detail={target}

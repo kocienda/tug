@@ -280,6 +280,58 @@ export function walkInlineMath(container: HTMLElement): void {
 }
 
 /**
+ * The text of `container` with exactly the math {@link walkInlineMath} would
+ * promote removed, and nothing else — the index-side mirror of this walk.
+ *
+ * The search index projects a block by reducing its HTML to text, and the
+ * painter's DOM walk reads the same block after {@link walkInlineMath} has
+ * replaced each promoted range with a `.tugx-katex` span it excludes. The
+ * two only agree if the index removes the SAME ranges, and the thing that
+ * decides which ranges those are is **the text-node boundary**: a paragraph
+ * whose source held a hard line break renders as `$$<br>…<br>$$`, three text
+ * nodes, none of which holds a whole expression — so the DOM promotes
+ * nothing there and the reader sees the raw `$$`. Stripping over the
+ * container's whole `textContent` removed it anyway, and every offset in
+ * that row after it was wrong. So this walks node by node, exactly as the
+ * promoter does, and skips what the promoter skips.
+ *
+ * Text the promoter skips is kept verbatim rather than dropped: `<code>` is
+ * not math, but it is very much prose the painter walks.
+ */
+export function mathStrippedText(container: HTMLElement): string {
+  const doc = container.ownerDocument;
+  if (doc === null) return container.textContent ?? "";
+  const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let out = "";
+  let n: Node | null = walker.nextNode();
+  while (n !== null) {
+    const text = n.nodeValue ?? "";
+    const parent = n.parentElement;
+    const promotable =
+      text.indexOf("$") !== -1 &&
+      parent !== null &&
+      !SKIP_TAGS.has(parent.tagName) &&
+      !inExistingPlaceholder(parent);
+    out += promotable ? stripMathRanges(text) : text;
+    n = walker.nextNode();
+  }
+  return out;
+}
+
+/** `text` with every {@link findInlineMathRanges} range cut out. */
+function stripMathRanges(text: string): string {
+  const ranges = findInlineMathRanges(text);
+  if (ranges.length === 0) return text;
+  let out = "";
+  let cursor = 0;
+  for (const range of ranges) {
+    out += text.slice(cursor, range.start);
+    cursor = range.end;
+  }
+  return out + text.slice(cursor);
+}
+
+/**
  * Split a text node into a sequence of (literal-text, placeholder-span)
  * fragments based on the math ranges found in its content. Replaces
  * the original node with the resulting fragment in its parent.

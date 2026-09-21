@@ -18,8 +18,8 @@
  *      the head; deleting it latches the decline (typing on, the next space
  *      never re-inserts).
  *
- * Transcript find has its own door (⌘F) and its own suites — at0271 and the
- * find-bar test — so it is not asserted here.
+ * Transcript find has its own door (⌘F) and its own suites — `at0339` for the
+ * bar, `at0602` and `at0603` for the matches — so it is not asserted here.
  *
  * Gating: DISABLED (`describe.skip`) — the auto-insert case pins the
  * bare-command routing decision to the simplistic login-PATH membership

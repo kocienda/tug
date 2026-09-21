@@ -1836,15 +1836,26 @@ export function SessionCardBody({
   const findBarRef = useRef<TugFindBarHandle | null>(null);
   const lastFindQueryRef = useRef("");
 
-  const openFindBar = useCallback(() => {
-    // Find and Changes are mutually exclusive: both are modes that take over
-    // the bottom of the card, so summoning one leaves the other. `leave` (not
-    // a bare `exit`) persists a typed commit message, so coming back to
-    // Changes resumes it exactly as Cancel and the Z4A tab do.
-    commitModeController.leave();
-    // The bar focuses its own query field on mount.
-    setFindBarOpen(true);
-  }, [commitModeController]);
+  const openFindBar = useCallback(
+    (options?: { keepAnchor?: boolean }) => {
+      // Find and Changes are mutually exclusive: both are modes that take over
+      // the bottom of the card, so summoning one leaves the other. `leave` (not
+      // a bare `exit`) persists a typed commit message, so coming back to
+      // Changes resumes it exactly as Cancel and the Z4A tab do.
+      commitModeController.leave();
+      // Where the reader is, captured BEFORE the bar mounts: opening find
+      // shrinks the transcript by the bar's height, so a viewport read taken
+      // afterwards describes a viewport the user never saw. `keepAnchor` is
+      // for ⌘E, which has already captured the selection's row — a viewport
+      // read here would overwrite the more specific answer with a vaguer one.
+      if (options?.keepAnchor !== true) {
+        transcriptRef.current?.captureFindAnchor("viewport");
+      }
+      // The bar focuses its own query field on mount.
+      setFindBarOpen(true);
+    },
+    [commitModeController],
+  );
 
   // The cycle is declared further down (it needs `sessionErrored`), but the
   // find bar's close path has to reach it — a bar dismissed while the ring is
@@ -3954,12 +3965,16 @@ export function SessionCardBody({
       [TUG_ACTIONS.FIND_SELECTION]: (_event: ActionEvent) => {
         const query = cardSelectionQuery();
         if (query === "") return;
+        // ⌘E means "find THIS", so the anchor is the row the selection is
+        // in — and it is captured before either branch, while the selection
+        // is still live. Seeding the query is what clears it.
+        transcriptRef.current?.captureFindAnchor("selection");
         if (findBarOpenRef.current) {
           findBarRef.current?.setQuery(query);
           return;
         }
         lastFindQueryRef.current = query;
-        openFindBar();
+        openFindBar({ keepAnchor: true });
       },
       // ⌥⇥ toggles keyboard-focus-cycling: the editor's Tab gives way to a
       // trapped tour of the card's chrome zones, seeded on the submit

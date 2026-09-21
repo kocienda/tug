@@ -103,6 +103,8 @@ import {
   TugListView,
   type TugListViewCellProps,
   type TugListViewCellRenderer,
+  type TugListRenderedRange,
+  type TugListRevealOutcome,
   type TugListViewHandle,
 } from "@/components/tugways/tug-list-view";
 import { useDeckManager } from "@/deck-manager-context";
@@ -120,7 +122,6 @@ import { TugAtomMarkdownBody } from "@/components/tugways/cards/tug-atom-markdow
 import { SessionContextAttachments } from "@/components/tugways/cards/session-context-attachments";
 import { splitLeadingContext } from "@/lib/pending-context-store";
 import { labFlags } from "@/lib/lab-flags";
-import { smartScrollForElement } from "@/lib/smart-scroll";
 import { TugAttachmentPreview } from "@/components/tugways/cards/tug-attachment-preview";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import { formatModelLabel } from "@/lib/model-label";
@@ -154,6 +155,12 @@ import { TranscriptFindEngine } from "@/lib/transcript-find-engine";
 import type { SegmentedFindMatch } from "@/lib/transcript-search";
 import { buildTranscriptSearchSegments } from "@/lib/transcript-search-index";
 import { TranscriptFindHighlighter } from "@/components/tugways/transcript-find-highlighter";
+import {
+  findTrace,
+  inferFindGesture,
+  type FindAddress,
+  type FindGestureSnapshot,
+} from "@/lib/find-trace";
 import {
   FindTargetRegistry,
   FindTargetRegistryContext,
@@ -2027,101 +2034,6 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
 // Host
 // ---------------------------------------------------------------------------
 
-/**
- * Frames a reveal may spend chasing its match before it stands down and waits
- * for the next windowing commit. Generous, because each pass is a rect read
- * and at most one scroll write, and the alternative — stopping early — is the
- * chip reading "1 of N" over a viewport showing none of them.
- */
-const FIND_REVEAL_ATTEMPTS = 24;
-
-/**
- * Consecutive passes that move the match nowhere before the reveal accepts it
- * cannot be moved (a match the scroller has run out of content to lift).
- */
-const FIND_REVEAL_STALL_LIMIT = 3;
-
-/**
- * One pass at putting the active match inside the transcript's visible band:
- * re-issue the reveal through the list's exact-rect path (which also clears
- * the pending estimated-jump correction that would otherwise re-align the row
- * a commit later and undo the nudges), then nudge the scroll region until the
- * active match lies inside the band — below the pinned chrome
- * (`--tugx-pin-stack-top`) at the top, above the scroller's own bottom edge
- * at the bottom (overscan-mounted rows resolve Ranges below that edge, which
- * reads as "under the prompt entry"). Bottom edge first, then top, so a rect
- * taller than the band keeps its top visible; live Ranges track the scroll,
- * so the rect is re-read between nudges and the answer describes the settled
- * position.
- *
- * The answer is what the CALLER is owed, not what this function attempted:
- *
- *   - `"unpainted"` — no rect yet (row unmounted, editor not yet revealed);
- *   - `"moved"` — a rect existed but the pass did not land it in the band
- *     (a row that re-measures under the nudge, an editor still settling);
- *   - `"settled"` — the match is inside the band, and only now may the
- *     landing flash be drawn.
- *
- * Only `"settled"` ends a reveal. Anything else is retried, because a reveal
- * that stops early leaves the chip reading "1 of N" over a viewport holding
- * none of them.
- */
-function settleFindReveal(
-  highlighter: TranscriptFindHighlighter,
-  root: HTMLElement | null,
-  listView: TugListViewHandle | null,
-  activeRow: number,
-): "unpainted" | "moved" | "settled" {
-  let rect = highlighter.activeMatchRect();
-  if (rect === null) return "unpainted";
-  listView?.scrollToIndex(activeRow, { block: "nearest" });
-  rect = highlighter.activeMatchRect() ?? rect;
-  const scroller =
-    root?.querySelector<HTMLElement>(
-      '[data-tug-scroll-key="session-card-transcript"]',
-    ) ?? null;
-  if (scroller === null) return "moved";
-  // The pin stack is per-ENTRY — each entry root carries its live header
-  // height as `--tugx-pin-stack-top` (the card CSS provides a static
-  // fallback below the host root) — so it must be read from an element
-  // inside the active match's entry, never from the transcript host root,
-  // which sits above every setter and computes 0.
-  const stickyEl = highlighter.activeMatchElement() ?? scroller;
-  const stickyTop =
-    parseFloat(
-      getComputedStyle(stickyEl).getPropertyValue("--tugx-pin-stack-top"),
-    ) || 0;
-  const scrollerRect = scroller.getBoundingClientRect();
-  const bandTop = scrollerRect.top + stickyTop + 8;
-  const bandBottom = scrollerRect.bottom - 8;
-  let wrote = false;
-  if (rect.bottom > bandBottom) {
-    scroller.scrollTop += rect.bottom - bandBottom;
-    wrote = true;
-  }
-  let settled = highlighter.activeMatchRect();
-  if (settled !== null && settled.top < bandTop) {
-    scroller.scrollTop -= bandTop - settled.top;
-    wrote = true;
-    settled = highlighter.activeMatchRect();
-  }
-  // Declare the raw writes. These bypass SmartScroll, so the list
-  // view's displacement bracket would otherwise find the scroller
-  // somewhere its baseline does not explain — a deliberate reveal
-  // recorded as a browser clamp, indicting a defect where the user
-  // asked for the move.
-  if (wrote) smartScrollForElement(scroller)?.noteExternalWrite();
-  if (settled === null) return "unpainted";
-  // A match TALLER than the band can only ever show its top; anything else
-  // owes both edges. The half-pixel slack is the rounding of a rect read
-  // back from a fractional scroll offset, not tolerance for being off.
-  const inBand =
-    settled.top >= bandTop - 0.5 &&
-    (settled.bottom <= bandBottom + 0.5 ||
-      settled.height >= bandBottom - bandTop);
-  return inBand ? "settled" : "moved";
-}
-
 export interface SessionTranscriptHostProps {
   /**
    * Owning card id — keys the replay progress strip's resume display
@@ -2240,6 +2152,19 @@ export interface SessionTranscriptHandle {
    * transcript region, the prompt editor, the status bar.
    */
   pageByEntry(direction: "up" | "down"): void;
+
+  /**
+   * Record where the reader is, so the next search lands there rather than
+   * at match zero. Called by the card as find OPENS — before the bar mounts
+   * and before any query exists — because the viewport the anchor describes
+   * is the one the user is looking at now, not the one left after a landing
+   * moved them.
+   *
+   * `"viewport"` takes the bottom-most visible row; `"selection"` takes the
+   * row holding the document selection (⌘E), falling back to the viewport
+   * rule when the selection is not inside a mounted row.
+   */
+  captureFindAnchor(source: "viewport" | "selection"): void;
 }
 
 export const SessionTranscriptHost = forwardRef<
@@ -2741,6 +2666,9 @@ export const SessionTranscriptHost = forwardRef<
       pageByEntry(direction: "up" | "down"): void {
         listViewRef.current?.pageByEntry(direction);
       },
+      captureFindAnchor(source: "viewport" | "selection"): void {
+        captureFindAnchorRef.current(source);
+      },
     }),
     [],
   );
@@ -2791,8 +2719,10 @@ export const SessionTranscriptHost = forwardRef<
     };
   }, [findSession, findEngine]);
   useEffect(() => {
-    findEngine.setIndex(searchIndex);
-  }, [findEngine, searchIndex]);
+    findEngine.setIndex(searchIndex, (row: number): string =>
+      dataSource.idForIndex(row),
+    );
+  }, [findEngine, searchIndex, dataSource]);
   const engineSnap = useSyncExternalStore(
     findEngine.subscribe,
     findEngine.getSnapshot,
@@ -2832,87 +2762,230 @@ export const SessionTranscriptHost = forwardRef<
   // transcript happens to be. Only gestures bump `navSeq`, so the background
   // re-searches a streaming transcript provokes still move nothing.
   const findRevealedNavRef = useRef<number>(-1);
-  // Armed when a reveal is issued and cleared when it completes (band-settled
-  // + flashed, or handed to CM6). A far jump's target row can mount after the
-  // reveal loop's frame budget — the rendered-range-change handler checks
-  // this flag and finishes the reveal at mount time.
-  const findPendingRevealRef = useRef<boolean>(false);
-  // The reveal loop, shared by the two moments that can start one: an
-  // active match that changed (the effect below) and a windowing commit
-  // that finally mounted the target row (the rendered-range handler). It
-  // runs until the match is INSIDE the band, not until a scroll has been
-  // attempted — a jump whose row re-measures under it, an embedded editor
-  // still revealing, or a fold that opens a frame later all resolve by
-  // being asked again on the next frame.
-  const driveFindReveal = useCallback(
-    (
-      input: Parameters<TranscriptFindHighlighter["paint"]>[0],
-      activeMatch: SegmentedFindMatch,
-      attempt: number,
-      needsPaint: boolean,
-      lastRectTop: number | null,
-      stalls: number,
-    ): void => {
-      const highlighter = findHighlighterRef.current;
-      if (highlighter === null || !findPendingRevealRef.current) return;
-      // The paint is what establishes the active range (and, for an
-      // `editor` segment, what tells the embedded editor to select and
-      // reveal its match) — without it the settle pass would read the
-      // PREVIOUS query's range and land the transcript on a stale match.
-      if (needsPaint) highlighter.paint(input);
-      const outcome = settleFindReveal(
-        highlighter,
-        rootRef.current,
-        listViewRef.current,
-        activeMatch.row,
-      );
-      if (outcome === "settled") {
-        // The landing ring is a DOM-walk affordance: inside CM6 the match
-        // already wears `.cm-searchMatch-selected`.
-        if (activeMatch.segmentKind !== "editor") highlighter.flashActive();
-        findPendingRevealRef.current = false;
+  // The list's last reported mounted range — the rows the painter's
+  // index/DOM comparison can actually see. `onRenderedRangeChange` hands it
+  // over on every windowing commit; the two paint call sites read it here
+  // rather than asking the list again, which would answer from a layout
+  // nobody has committed yet.
+  const findRenderedRangeRef = useRef<TugListRenderedRange | null>(null);
+  // What the last traced gesture knew, so the next one can say what moved.
+  const findGestureSnapRef = useRef<FindGestureSnapshot | null>(null);
+  // The `navSeq` the trace has already recorded a gesture for. Every
+  // gesture bumps `navSeq` exactly once, so this is what keeps a re-render
+  // from recording the same press twice.
+  const findTracedNavRef = useRef<number>(-1);
+  const findRevealCardId = cardId;
+  /**
+   * Where the reader is, for the engine's landing rule. The viewport answer
+   * is the LAST rendered row whose top edge is still above the scroller's
+   * bottom — the bottom-most row the reader can see any of. It is read off
+   * the live rects rather than derived from `scrollTop`, because a
+   * virtualized list's estimated heights are wrong by exactly the rows that
+   * have not been measured yet.
+   */
+  const captureFindAnchor = useCallback(
+    (source: "viewport" | "selection"): void => {
+      const range = findRenderedRangeRef.current;
+      if (range === null) {
+        findEngine.setAnchorRow(null);
         return;
       }
-      // A match hidden by a body kind's INTERNAL fold (a terminal
-      // preview's tail, a folded file body whose editor is unmounted) has
-      // no rect until the fold opens; the unfold commits over the
-      // following frames.
-      const key = activeMatch.segmentKey;
-      if (outcome === "unpainted" && key !== undefined) {
-        findTargets.resolve(key)?.unfold();
+      const rowElement = (index: number): HTMLElement | null =>
+        listViewRef.current?.getElementForIndex(index) ?? null;
+      if (source === "selection") {
+        const sel = rootRef.current?.ownerDocument.getSelection() ?? null;
+        const node =
+          sel !== null && sel.rangeCount > 0
+            ? sel.getRangeAt(0).startContainer
+            : null;
+        const el =
+          node === null
+            ? null
+            : node.nodeType === Node.ELEMENT_NODE
+              ? (node as HTMLElement)
+              : node.parentElement;
+        if (el !== null) {
+          for (let row = range.firstIndex; row <= range.lastIndex; row++) {
+            if (rowElement(row)?.contains(el) === true) {
+              findEngine.setAnchorRow(row);
+              return;
+            }
+          }
+        }
+        // A selection outside any mounted row — a chrome field, a shade —
+        // says nothing about where the transcript is. Fall through.
       }
-      // Stall guard: a pass that moved nothing and left the rect exactly
-      // where it was has nowhere left to go (a match the scroller cannot
-      // lift into the band because the content under it has run out).
-      const rectTop = highlighter.activeMatchRect()?.top ?? null;
-      const stalled =
-        outcome === "moved" &&
-        rectTop !== null &&
-        lastRectTop !== null &&
-        Math.abs(rectTop - lastRectTop) < 0.5;
-      const nextStalls = stalled ? stalls + 1 : 0;
-      if (nextStalls >= FIND_REVEAL_STALL_LIMIT) {
-        findPendingRevealRef.current = false;
+      const scroller =
+        rootRef.current?.querySelector<HTMLElement>(
+          '[data-tug-scroll-key="session-card-transcript"]',
+        ) ?? null;
+      if (scroller === null) {
+        findEngine.setAnchorRow(null);
         return;
       }
-      if (attempt < FIND_REVEAL_ATTEMPTS) {
-        requestAnimationFrame(() =>
-          driveFindReveal(
-            input,
-            activeMatch,
-            attempt + 1,
-            outcome === "unpainted",
-            rectTop,
-            nextStalls,
-          ),
-        );
-        return;
+      const bottom = scroller.getBoundingClientRect().bottom;
+      let anchor: number | null = null;
+      for (let row = range.firstIndex; row <= range.lastIndex; row++) {
+        const rowEl = rowElement(row);
+        if (rowEl === null) continue;
+        if (rowEl.getBoundingClientRect().top < bottom) anchor = row;
       }
-      // Past the budget the reveal stays ARMED: a far jump's target row can
-      // mount on a windowing commit later than any frame count covers, and
-      // the rendered-range handler is the moment it exists.
+      findEngine.setAnchorRow(anchor);
     },
-    [findTargets],
+    [findEngine],
+  );
+  // The imperative handle is declared above this point and holds `[]` deps,
+  // so it reaches the live callback through a ref rather than closing over
+  // one identity ([L24] structure zone).
+  const captureFindAnchorRef = useRef(captureFindAnchor);
+  captureFindAnchorRef.current = captureFindAnchor;
+  // A match in the coordinates the trace reads reveals and gestures in.
+  const findAddressOf = useCallback(
+    (m: SegmentedFindMatch | undefined): FindAddress | null =>
+      m === undefined
+        ? null
+        : {
+            row: m.row,
+            segment: m.segment,
+            start: m.start,
+            end: m.end,
+            kind: m.segmentKind,
+          },
+    [],
+  );
+  /**
+   * The paint input, built fresh from the LIVE session and engine snapshots
+   * every time it is asked for. A reveal outlives the render that started
+   * it — the target row can mount several commits later, and the engine can
+   * have re-projected in between — so a captured input would paint the
+   * match set that existed when the gesture was made rather than the one
+   * the transcript now holds.
+   */
+  const buildPaintInput = useCallback((): Parameters<
+    TranscriptFindHighlighter["paint"]
+  >[0] => {
+    const { query, options } = findSession.getSnapshot();
+    const { matches, activeIndex } = findEngine.getSnapshot();
+    return {
+      matches,
+      activeIndex,
+      query,
+      options,
+      getElementForIndex: (index: number): HTMLElement | null =>
+        listViewRef.current?.getElementForIndex(index) ?? null,
+      findTargets: findTargetsRef.current,
+      scroller:
+        rootRef.current?.querySelector<HTMLElement>(
+          '[data-tug-scroll-key="session-card-transcript"]',
+        ) ?? null,
+      index: findEngine.getIndex(),
+      renderedRange: findRenderedRangeRef.current,
+      getRowId: (row: number): string => dataSource.idForIndex(row),
+      cardId,
+      // [P03]: the painter found rows whose live text the projection got
+      // wrong. Heal the engine from the DOM's own text and hand back a
+      // fresh input — `healRows` re-searches synchronously, so the
+      // snapshot this reads is already the corrected one, and the paint
+      // that follows addresses offsets the DOM agrees with.
+      onDiverged: (entries) => {
+        findEngine.healRows(entries);
+        return buildPaintInputRef.current();
+      },
+    };
+  }, [findSession, findEngine, dataSource, cardId]);
+  // `onDiverged` rebuilds the input it is a member of, so the builder
+  // reaches itself through a ref rather than through its own closure.
+  const buildPaintInputRef = useRef(buildPaintInput);
+  buildPaintInputRef.current = buildPaintInput;
+  /**
+   * Record a reveal's terminal outcome. `navSeq` is passed rather than read
+   * from a ref because a supersede settles the OLD reveal from inside the
+   * new one's `revealRange` call — a ref would already hold the new
+   * gesture's number and the trace would blame the wrong press.
+   */
+  const recordReveal = useCallback(
+    (
+      navSeq: number,
+      match: SegmentedFindMatch,
+      outcome: TugListRevealOutcome,
+      detail: { reason: string | null; ms: number; writes: number },
+    ): void => {
+      findTrace.record({
+        kind: "reveal",
+        cardId: findRevealCardId,
+        navSeq,
+        target: findAddressOf(match),
+        outcome,
+        reason: detail.reason,
+        ms: detail.ms,
+        writes: detail.writes,
+      });
+    },
+    [findRevealCardId, findAddressOf],
+  );
+  /**
+   * Hand the active match to the list view's one live reveal ([P07]). The
+   * host's part is the geometry only it can answer — what to paint, where
+   * the match's rect is, and how much pinned chrome sits over the top of
+   * the band — while the list view owns every scroll write, the mount and
+   * measurement events the answer changes on, and the outcome.
+   */
+  const startFindReveal = useCallback(
+    (match: SegmentedFindMatch, navSeq: number): void => {
+      listViewRef.current?.revealRange(match.row, {
+        source: "find-reveal",
+        onRowMounted: () => {
+          const highlighter = findHighlighterRef.current;
+          if (highlighter === null) return;
+          // The paint is what establishes the active Range — and, for an
+          // `editor` segment, what tells the embedded editor to select and
+          // reveal its own match. Without it `getRect` below would answer
+          // from the PREVIOUS query's range.
+          highlighter.paint(buildPaintInput());
+          if (match.segmentKind === "editor") {
+            // CM6's inner scroll lands on its own measure pass, which the
+            // list view cannot observe: poke the reveal when it does.
+            highlighter.afterActiveEditorMeasure(() => {
+              listViewRef.current?.pokeReveal();
+            });
+          }
+          // A match hidden by a body kind's INTERNAL fold (a terminal
+          // preview's tail, a folded file body whose editor is unmounted)
+          // has no rect until the fold opens; the unfold commits over the
+          // following frames and arrives as a cell re-measurement.
+          const key = match.segmentKey;
+          if (highlighter.activeMatchRect() === null && key !== undefined) {
+            findTargets.resolve(key)?.unfold();
+          }
+        },
+        getRect: () => findHighlighterRef.current?.activeMatchRect() ?? null,
+        getBandInsetTop: () => {
+          // The pin stack is per-ENTRY — each entry root carries its live
+          // header height as `--tugx-pin-stack-top` — so it is read from an
+          // element inside the active match's entry, never from the host
+          // root, which sits above every setter and computes 0.
+          const el = findHighlighterRef.current?.activeMatchElement() ?? null;
+          if (el === null) return 0;
+          return (
+            parseFloat(
+              getComputedStyle(el).getPropertyValue("--tugx-pin-stack-top"),
+            ) || 0
+          );
+        },
+        onSettle: (outcome, detail) => {
+          recordReveal(navSeq, match, outcome, detail);
+          // The landing ring is a DOM-walk affordance: inside CM6 the match
+          // already wears `.cm-searchMatch-selected`.
+          if (outcome === "landed" && match.segmentKind !== "editor") {
+            findHighlighterRef.current?.flashActive();
+          }
+          // Only a reveal that gave up is said on the chip ([P09]); a
+          // supersede or a cancel is a newer gesture's story to tell.
+          findSession.setRevealFailed(outcome === "failed");
+        },
+      });
+    },
+    [buildPaintInput, findTargets, recordReveal, findSession],
   );
   useEffect(() => {
     const highlighter = findHighlighterRef.current;
@@ -2921,8 +2994,9 @@ export const SessionTranscriptHost = forwardRef<
     const { matches, activeIndex } = engineSnap;
     if (matches.length === 0 || query === "") {
       findPrevActiveRef.current = null;
-      findPendingRevealRef.current = false;
       findRevealedNavRef.current = findSnap.navSeq;
+      // The reveal was an answer to a question that no longer has one.
+      listViewRef.current?.cancelReveal("find-cleared");
       highlighter.clear();
       return;
     }
@@ -2946,94 +3020,92 @@ export const SessionTranscriptHost = forwardRef<
       engineSnap.options.grep === options.grep;
     const gestureUnanswered =
       settledForQuery && findSnap.navSeq !== findRevealedNavRef.current;
-    const activeRow = activeMatch?.row;
-    const input = {
-      matches,
-      activeIndex,
-      query,
-      options,
-      getElementForIndex,
-      findTargets,
-      scroller:
-        rootRef.current?.querySelector<HTMLElement>(
-          '[data-tug-scroll-key="session-card-transcript"]',
-        ) ?? null,
-    };
-    if ((activeChanged || gestureUnanswered) && activeRow !== undefined) {
-      // Bring the active match on-screen (mounting it), then paint + reveal
-      // on the next frame once the row is in the DOM. A match hidden by a
-      // body kind's INTERNAL fold (a terminal preview's tail, a folded file
-      // body whose editor is unmounted) unfolds through the find-target
-      // registry — the unfold commits over the following frames, so the
-      // paint retries a bounded handful of times. A far jump can outlive the
-      // frame budget entirely (the estimated scroll mounts the target row on
-      // a later windowing commit), so the reveal stays ARMED
-      // (`findPendingRevealRef`) and the rendered-range-change handler
-      // completes it the moment the row mounts.
-      //
-      // A reveal owns the scroll position: break follow-bottom first, or a
-      // streaming turn's next content-growth pin would slam the view back to
-      // the live edge out from under the match. Once the user is finding,
-      // the find is what the scroller favors; the jump-to-latest affordance
-      // remains one click away.
-      findPendingRevealRef.current = true;
-      findRevealedNavRef.current = findSnap.navSeq;
-      listViewRef.current?.disengageFollowBottom("find-reveal");
-      listViewRef.current?.scrollToIndex(activeRow, { block: "nearest" });
-      if (activeMatch === undefined) {
-        findPendingRevealRef.current = false;
-      } else {
-        const match = activeMatch;
-        requestAnimationFrame(() =>
-          driveFindReveal(input, match, 0, true, null, 0),
-        );
-      }
-    } else {
-      highlighter.paint(input);
+    // The gesture is recorded once per `navSeq`, and only once the engine's
+    // matches ARE this query's — mid-debounce the count and the ordinal
+    // still describe the previous query, and a record made then would say
+    // the user asked one thing and got the answer to another.
+    if (settledForQuery && findSnap.navSeq !== findTracedNavRef.current) {
+      findTracedNavRef.current = findSnap.navSeq;
+      const snap: FindGestureSnapshot = {
+        query,
+        caseSensitive: options.caseSensitive,
+        wholeWord: options.wholeWord,
+        grep: options.grep,
+        activeOrdinal: activeIndex >= 0 ? activeIndex : null,
+        count: matches.length,
+      };
+      findTrace.record({
+        kind: "gesture",
+        surface: "transcript",
+        cardId,
+        gesture: inferFindGesture(findGestureSnapRef.current, snap),
+        navSeq: findSnap.navSeq,
+        query,
+        count: matches.length,
+        activeOrdinal: snap.activeOrdinal,
+        target: findAddressOf(activeMatch),
+      });
+      findGestureSnapRef.current = snap;
     }
-  }, [findSnap, engineSnap, findTargets, driveFindReveal]);
+    const activeRow = activeMatch?.row;
+    if (
+      (activeChanged || gestureUnanswered) &&
+      activeRow !== undefined &&
+      activeMatch !== undefined
+    ) {
+      // The list view owns the reveal from here ([P07]): it performs the
+      // estimated jump for an unmounted row, waits for the mount and the
+      // measurement rather than a frame budget, places the rect the host
+      // measures, and stands down the moment the user takes the scroller.
+      // A reveal still in flight is ended by this one — `revealRange`
+      // settles it `superseded`, so the trace says so rather than leaving
+      // an outcome that never arrives.
+      //
+      // Follow-bottom is broken by `revealRange` itself, under the same
+      // `"find-reveal"` source: a reveal owns the scroll position, and a
+      // streaming turn's next content-growth pin would otherwise slam the
+      // view back to the live edge out from under the match.
+      findRevealedNavRef.current = findSnap.navSeq;
+      startFindReveal(activeMatch, findSnap.navSeq);
+    } else {
+      highlighter.paint(buildPaintInput());
+    }
+  }, [
+    findSnap,
+    engineSnap,
+    findTargets,
+    startFindReveal,
+    cardId,
+    findAddressOf,
+    buildPaintInput,
+  ]);
 
   // Repaint when the list's mounted window turns over (hand-scroll, resize):
   // rows that mount as they enter the viewport get their matches painted, and
   // rows that leave drop cleanly. The count is authoritative from the index and
-  // never changes here — only the paint follows the mounted set (Risk R01). No
-  // flash for the repaint itself — but when a reveal is still ARMED (a far
-  // jump whose target row outlived the reveal loop's frame budget), this is
-  // the moment the row exists: finish the reveal here (band nudge + flash).
-  const handleFindRenderedRangeChange = useCallback((): void => {
+  // never changes here — only the paint follows the mounted set (Risk R01).
+  //
+  // It is PAINT-ONLY, and that is the point: a live reveal is the list
+  // view's, which fires `onRowMounted` on the same commit and asks the host
+  // for a fresh rect. A second path starting or finishing a reveal from here
+  // is how a windowing commit used to race the gesture that provoked it.
+  const handleFindRenderedRangeChange = useCallback((
+    range: TugListRenderedRange,
+  ): void => {
+    // Keep the range whether or not find is open: the painter's index/DOM
+    // comparison sweeps exactly the mounted rows, and the effect above
+    // paints from a range it never receives itself.
+    findRenderedRangeRef.current = range;
     const highlighter = findHighlighterRef.current;
     if (highlighter === null) return;
     const { query, options } = findSession.getSnapshot();
-    const { matches, activeIndex } = findEngine.getSnapshot();
+    const { matches } = findEngine.getSnapshot();
     if (matches.length === 0 || query === "") {
       highlighter.clear();
       return;
     }
-    const input = {
-      matches,
-      activeIndex,
-      query,
-      options,
-      getElementForIndex: (index: number): HTMLElement | null =>
-        listViewRef.current?.getElementForIndex(index) ?? null,
-      findTargets: findTargetsRef.current,
-      scroller:
-        rootRef.current?.querySelector<HTMLElement>(
-          '[data-tug-scroll-key="session-card-transcript"]',
-        ) ?? null,
-    };
-    highlighter.paint(input);
-    if (findPendingRevealRef.current) {
-      const active = activeIndex >= 0 ? matches[activeIndex] : undefined;
-      if (active === undefined) {
-        findPendingRevealRef.current = false;
-      } else {
-        // The row exists now — hand it back to the same loop the effect
-        // runs, which stops only once the match is inside the band.
-        driveFindReveal(input, active, 0, false, null, 0);
-      }
-    }
-  }, [findSession, findEngine, driveFindReveal]);
+    highlighter.paint(buildPaintInput());
+  }, [findSession, findEngine, buildPaintInput]);
 
   // Floating "scroll to latest" button. It is always mounted ([L26]);
   // its visibility is appearance state ([L06]) — `handleFollowBottom

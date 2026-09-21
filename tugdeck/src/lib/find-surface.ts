@@ -33,6 +33,16 @@ export interface FindSurfaceSnapshot {
   capped: boolean;
   /** True when a non-empty query is live (drives the "No results" face). */
   hasQuery: boolean;
+  /**
+   * True when the host's last reveal ended `failed` — the match is real
+   * and counted, and the surface could not put it on screen. The chip says
+   * so ("N of M · not in view") rather than reading as if the reader were
+   * looking at it. Every find gesture resets it, so the flag describes the
+   * reveal the user is waiting on and never an older one. A surface whose
+   * engine owns its own reveal (the Text card, where CM6 does) never sets
+   * it and the face never appears.
+   */
+  revealFailed: boolean;
 }
 
 /** The engine-agnostic surface the shared find UI drives. */

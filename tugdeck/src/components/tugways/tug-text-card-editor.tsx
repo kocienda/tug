@@ -439,14 +439,27 @@ export interface TugTextCardEditorDelegate {
   /** Set / replace the active search query (paints match highlights). */
   setSearchQuery(query: TugTextCardEditorSearchQuery): void;
   /**
-   * Select the active query's FIRST match and reveal it — vertically
-   * centred and horizontally scrolled to the match (a long unwrapped line
-   * must pan). Selection + scroll only; no focus claim, so a find field
-   * driving this keeps its caret. No-op when the query has no match.
-   * The find bar calls this after every query edit (search-as-you-type
-   * lands on the first result the way every find bar does).
+   * Record where the reader is, so the next search lands there rather than
+   * at the top of the file. `"viewport"` takes the first position of the
+   * line block at the scrollport's top edge; `"selection"` takes the main
+   * selection's `from` — which is what makes ⌘E land on the very text the
+   * user selected rather than on the next occurrence after it.
+   *
+   * The card calls this as find OPENS, and only then: a bar already open
+   * has an anchor that its own navigation keeps up to date.
    */
-  selectFirstMatch(): void;
+  captureFindAnchor(source: "viewport" | "selection"): void;
+  /**
+   * Select the first match at or after the anchor and reveal it, wrapping
+   * to the document's first match when there is none. Selection + scroll
+   * only; no focus claim, so a find field driving this keeps its caret.
+   * No-op when the query has no match.
+   *
+   * It scrolls only when the match is not already fully inside the
+   * scrollport: a search whose answer is already on screen should not move
+   * the page out from under the reader to re-centre it.
+   */
+  selectMatchFromAnchor(): void;
   /** Tear down the active search and clear match highlights. */
   clearSearch(): void;
   findNext(): void;
@@ -1313,21 +1326,71 @@ export const TugTextCardEditor = React.forwardRef<
     });
   }, [removeFindFlash]);
 
-  const selectFirstMatchFn = useCallback((): void => {
+  /**
+   * Where the reader is, for the landing rule below. `null` until find
+   * opens — and a landing with no anchor is the document's first match,
+   * which is what a search over a file nobody has scrolled means anyway.
+   */
+  const findAnchorRef = useRef<number | null>(null);
+
+  const captureFindAnchorFn = useCallback(
+    (source: "viewport" | "selection"): void => {
+      const live = viewRef.current;
+      if (live === null) return;
+      if (source === "selection") {
+        findAnchorRef.current = live.state.selection.main.from;
+        return;
+      }
+      // The top of the scrollport, snapped to a line boundary: the first
+      // line the reader can see is the first line a search should consider.
+      findAnchorRef.current = live.lineBlockAtHeight(
+        live.scrollDOM.scrollTop,
+      ).from;
+    },
+    [],
+  );
+
+  const selectMatchFromAnchorFn = useCallback((): void => {
     const live = viewRef.current;
     if (live === null) return;
     const query = getSearchQuery(live.state);
     if (!query.valid) return;
-    const first = query.getCursor(live.state).next();
-    if (first.done) return;
+    const anchor = findAnchorRef.current;
+    // The cursor starts AT the anchor, never at `anchor + 1`: a selection's
+    // own `from` is the anchor, so ⌘E must be able to land on the text the
+    // user selected rather than skip past it to the next occurrence.
+    let hit =
+      anchor === null
+        ? query.getCursor(live.state).next()
+        : query.getCursor(live.state, anchor).next();
+    if (hit.done) hit = query.getCursor(live.state).next();
+    if (hit.done) return;
+    const { from, to } = hit.value;
+    // Already on screen? Then select it and leave the page alone. Scrolling
+    // a visible match to the vertical centre is motion the user did not ask
+    // for and cannot distinguish from the view losing its place.
+    const box = live.scrollDOM.getBoundingClientRect();
+    const start = live.coordsAtPos(from, 1);
+    const end = live.coordsAtPos(to, -1);
+    const visible =
+      start !== null &&
+      end !== null &&
+      start.top >= box.top &&
+      end.bottom <= box.bottom &&
+      start.left >= box.left &&
+      end.right <= box.right;
     live.dispatch({
-      selection: EditorSelection.single(first.value.from, first.value.to),
-      effects: EditorView.scrollIntoView(
-        EditorSelection.range(first.value.from, first.value.to),
-        // `x: "nearest"` pans a long unwrapped line to the match; the
-        // vertical centre matches the findNext/findPrevious landing.
-        { y: "center", x: "nearest" },
-      ),
+      selection: EditorSelection.single(from, to),
+      ...(visible
+        ? {}
+        : {
+            effects: EditorView.scrollIntoView(
+              EditorSelection.range(from, to),
+              // `x: "nearest"` pans a long unwrapped line to the match; the
+              // vertical centre matches the findNext/findPrevious landing.
+              { y: "center", x: "nearest" },
+            ),
+          }),
       userEvent: "select.search",
     });
     settleFindNavigation();
@@ -1380,7 +1443,33 @@ export const TugTextCardEditor = React.forwardRef<
       }
       count += 1;
       if (count >= MATCH_INFO_CAP) {
-        capped = !cursor.next().done;
+        // The cap probe CONSUMES match number `count`, so it is the first
+        // candidate of the continuation below rather than something to skip
+        // — resuming with a fresh `cursor.next()` would make every past-cap
+        // ordinal one too low.
+        const probe = cursor.next();
+        capped = !probe.done;
+        // `count` and `capped` keep their meaning (the chip still reads
+        // `5000+`); only the ORDINAL is uncapped, because a chip that can
+        // count to 5000 and not say which one you are on is no answer. The
+        // walk is bounded by the selection, not the document: it stops at
+        // the first match at or past it.
+        if (activeOrdinal === null && !sel.empty) {
+          let ordinal = count;
+          let candidate = probe;
+          while (!candidate.done) {
+            if (
+              candidate.value.from === sel.from &&
+              candidate.value.to === sel.to
+            ) {
+              activeOrdinal = ordinal;
+              break;
+            }
+            if (candidate.value.from >= sel.from) break;
+            ordinal += 1;
+            candidate = cursor.next();
+          }
+        }
         break;
       }
       next = cursor.next();
@@ -1474,16 +1563,23 @@ export const TugTextCardEditor = React.forwardRef<
       revealLine: revealLineFn,
       revealOffsets: revealOffsetsFn,
       setSearchQuery: setSearchQueryFn,
-      selectFirstMatch: selectFirstMatchFn,
+      captureFindAnchor: captureFindAnchorFn,
+      selectMatchFromAnchor: selectMatchFromAnchorFn,
       clearSearch: clearSearchFn,
       findNext: () => {
         const live = viewRef.current;
         if (live !== null) cmFindNext(live);
+        // Stepping IS the reader moving: the next query edit starts from
+        // the match they stepped to, not from where find opened.
+        findAnchorRef.current =
+          viewRef.current?.state.selection.main.from ?? null;
         settleFindNavigation();
       },
       findPrevious: () => {
         const live = viewRef.current;
         if (live !== null) cmFindPrevious(live);
+        findAnchorRef.current =
+          viewRef.current?.state.selection.main.from ?? null;
         settleFindNavigation();
       },
       getMatchCount: getMatchCountFn,
@@ -1493,7 +1589,8 @@ export const TugTextCardEditor = React.forwardRef<
       revealLineFn,
       revealOffsetsFn,
       setSearchQueryFn,
-      selectFirstMatchFn,
+      captureFindAnchorFn,
+      selectMatchFromAnchorFn,
       clearSearchFn,
       getMatchCountFn,
       getMatchInfoFn,

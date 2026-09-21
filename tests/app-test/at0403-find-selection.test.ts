@@ -361,7 +361,11 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
           { timeoutMs: 6000 },
         );
         await waitForQuery(app, TEXT_INPUT, "meridian");
-        // The search ran through CM6: three matches, landed on the first.
+        // The search ran through CM6: three matches, landed on THE
+        // SELECTION ([B04], user-settled 2026-09-21) — the cursor starts at
+        // the anchor rather than past it, so ⌘E lands on the very text the
+        // double-click selected. `selectWord` takes the first visible
+        // occurrence, which is the one on line 1, so the ordinal is still 1.
         await app.waitForCondition<boolean>(
           `(() => {
             const el = document.querySelector(${JSON.stringify(TEXT_CHIP)});

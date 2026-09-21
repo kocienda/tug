@@ -245,14 +245,20 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
 
         // Case toggle narrows to the two lowercase hits, live — and the
         // toggles ride the shared cluster.
+        //
+        // The ordinal is 2, not 1: an options toggle is a gesture, and a
+        // gesture lands where the READER is ([B04], user-settled
+        // 2026-09-21). The steps above left the active match on the
+        // capital-M hit on line 3, so the anchor is there and the nearest
+        // lowercase hit at or after it is line 4's — the last of the two.
+        // Narrowing to two matches is what this assertion is about, and
+        // that is unchanged.
         await app.click(`${BAR_SELECTOR} button[aria-label="Match case"]`);
-        await waitForChip(app, "1 of 2");
+        await waitForChip(app, "2 of 2");
 
         // Wrapping past the last match raises the SHARED wrap indicator —
         // the same `FindSession`-driven overlay the Session card shows (the two
         // surfaces ride one controller, so the affordance cannot diverge).
-        await app.nativeKey("Return");
-        await waitForChip(app, "2 of 2");
         await app.nativeKey("Return");
         // The panel portals into the canvas overlay root (it centres on the
         // card but lives at deck level), so the probe is document-wide.

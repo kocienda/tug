@@ -120,11 +120,9 @@ describe("buildTranscriptSearchRows — DOM-free projections", () => {
     expect(rows[0]).toEqual(["ls -la"]);
   });
 
-  test("shell output is ANSI-stripped and line-capped", () => {
-    const noisy =
-      "\u001b[31mred\u001b[0m line\n" +
-      Array.from({ length: 12_000 }, (_, i) => `l${i}`).join("\n");
-    const row = {
+  /** A shell row over one exchange's raw output. */
+  function shellOutputRow(output: string): SessionRowDescriptor {
+    return {
       kind: "shell",
       turnKey: "s2",
       turn: {
@@ -135,16 +133,43 @@ describe("buildTranscriptSearchRows — DOM-free projections", () => {
             messageKey: "m1",
             exchangeId: "sh-2",
             command: "noise",
-            output: noisy,
+            output,
           },
         ],
       },
     } as unknown as SessionRowDescriptor;
-    const rows = buildRows([row]);
-    const output = rows[0]![1]!;
-    expect(output.startsWith("red line")).toBe(true);
-    // 10k-line retention cap mirrors the DOM's TerminalBlock.
-    expect(output.split("\n").length).toBe(10_000);
+  }
+
+  test("terminal lines are joined with NOTHING — the DOM holds no separator", () => {
+    // `renderTerminal` gives each line its own `div.tugx-term-line`, so
+    // `.tugx-term-content`'s text runs the lines together. A separator here
+    // would shift every offset past the first line boundary by one per line.
+    expect(buildRows([shellOutputRow("one\ntwo\nthree")])[0]![1]!).toBe(
+      "onetwothree",
+    );
+  });
+
+  test("a blank terminal line projects the nbsp the DOM renders in its place", () => {
+    // `buildLineElement` renders an empty line as `&nbsp;` so it keeps its
+    // line box; that character is a text node the painter's walk reaches.
+    expect(buildRows([shellOutputRow("one\n\ntwo")])[0]![1]!).toBe("one two");
+  });
+
+  test("a stream's trailing empty line is dropped, as parseTerminalLines drops it", () => {
+    expect(buildRows([shellOutputRow("one\ntwo\n")])[0]![1]!).toBe("onetwo");
+  });
+
+  test("shell output is ANSI-stripped and capped to the LAST retained lines", () => {
+    const noisy =
+      "[31mred[0m line\n" +
+      Array.from({ length: 12_000 }, (_, i) => `l${i}`).join("\n");
+    const output = buildRows([shellOutputRow(noisy)])[0]![1]!;
+    expect(output.includes("red line")).toBe(false);
+    // The 10k retention cap keeps the END, which is the end `renderTerminal`
+    // keeps — taking the first counted text no amount of scrolling could
+    // ever reveal.
+    expect(output.startsWith("l2000")).toBe(true);
+    expect(output.endsWith("l11999")).toBe(true);
   });
 
   function bashMessage(overrides: Record<string, unknown> = {}): unknown {
@@ -190,7 +215,9 @@ describe("buildTranscriptSearchRows — DOM-free projections", () => {
       ],
       expandedTu1(),
     );
-    expect(rows[0]).toEqual(["Bash", "echo hi", "out line\nerr line"]);
+    // Joined with nothing, exactly as `renderTerminal` lays the two streams
+    // out: one `div.tugx-term-line` each, no separator character between.
+    expect(rows[0]).toEqual(["Bash", "echo hi", "out lineerr line"]);
   });
 
   test("a streaming Bash call projects the header only (no body yet)", () => {

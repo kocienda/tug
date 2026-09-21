@@ -8,7 +8,9 @@
  * submit path, which is why it needed a dissolve-on-next-submit rule and an
  * Escape-when-empty rule living inside the prompt entry. Those are gone
  * ([D122]); the bar owns the search for exactly as long as it is open. This
- * suite drives the door, not the engine — match correctness is at0271's job.
+ * suite drives the door, not the engine — match correctness belongs to
+ * `at0602` (the index and the DOM agree on every row) and `at0603` (a walk
+ * over a long transcript lands on every match it counted).
  *
  * ## Test matrix
  *

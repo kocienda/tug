@@ -21,8 +21,20 @@
  *
  * | Test              | What would break without it                          |
  * |-------------------|------------------------------------------------------|
- * | search-as-you-type| the first match of a fresh query left off screen      |
+ * | search-as-you-type| the landing match of a fresh query left off screen    |
  * | wrap to the first | ⌘G past the end landing the view nowhere near match 1 |
+ *
+ * ## Where a fresh query lands
+ *
+ * A search no longer starts at match zero. The brief's `[B04]` (user-settled
+ * 2026-09-21) reversed that rule: a transcript is read from the bottom and
+ * grows at the bottom, so the top-most match is almost never the one the
+ * reader meant. Find captures an ANCHOR when it opens — the bottom-most
+ * visible row — and lands on the last match at or above it. So the first
+ * test's landing depends on where the reader is parked, and it checks both
+ * ends: from the live edge the landing is the LAST match, and from the top
+ * it is a match at or above the viewport's bottom edge. The in-band
+ * assertion, which is what this file is really about, is unchanged.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
@@ -175,6 +187,32 @@ async function readReveal(app: App): Promise<Reveal | null> {
   return app.evalJS<Reveal | null>(REVEAL_EXPR);
 }
 
+/** The find chip's `"k of N"` text — the ordinal the user is shown. */
+async function readChip(app: App): Promise<string> {
+  return app.evalJS<string>(
+    `(document.querySelector('${CARD} [data-slot="find-count-value"]')?.textContent || "")`,
+  );
+}
+
+/**
+ * The bottom-most mounted row whose top edge is still above the scroller's
+ * bottom — the transcript host's own anchor rule, computed here so the test
+ * states what it expects rather than reading the engine's answer back.
+ */
+const BOTTOM_VISIBLE_ROW_EXPR = `(function () {
+  var sc = document.querySelector(${JSON.stringify(SCROLLER)});
+  if (!sc) return -1;
+  var bottom = sc.getBoundingClientRect().bottom;
+  var best = -1;
+  document.querySelectorAll('${CARD} [data-tug-list-cell-index]').forEach(function (cell) {
+    if (cell.getBoundingClientRect().top < bottom) {
+      var n = Number(cell.getAttribute("data-tug-list-cell-index"));
+      if (n > best) best = n;
+    }
+  });
+  return best;
+})()`;
+
 async function standUp(testName: string): Promise<App> {
   const app = await launchTugApp({ testName });
   await app.enableDeckTrace(true);
@@ -195,7 +233,7 @@ async function standUp(testName: string): Promise<App> {
 
 describe.skipIf(!SHOULD_RUN)("AT0494: find reveals its active match", () => {
   test(
-    "the first match of a fresh query lands inside the visible band",
+    "a fresh query lands at the reader's anchor, inside the visible band",
     async () => {
       const app = await standUp("at0494-find-reveal");
       try {
@@ -234,14 +272,75 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals its active match", () => {
     evicting: el.hasAttribute("data-evict-active"),
   };
 })()`);
+        const chip = await readChip(app);
         note(`transcript shape: ${JSON.stringify(shape)}`);
-        note(`first-match reveal: ${JSON.stringify(reveal)}`);
+        note(`live-edge reveal: ${JSON.stringify(reveal)} chip: ${JSON.stringify(chip)}`);
         expect(reveal).not.toBeNull();
         expect(reveal!.text.toLowerCase()).toBe(PROBE);
-        expect(reveal!.row, "the first match is the topmost one").toBeLessThan(4);
+        // Parked at the live edge, the anchor is the bottom-most row there
+        // is, so the landing is the transcript's LAST match — the nearest
+        // one above the reader, exactly as ⌘G-backwards would find it.
+        expect(
+          chip,
+          "from the live edge the landing is the last match",
+        ).toBe(`${TURNS} of ${TURNS}`);
         expect(
           reveal!.inView,
           `active match off screen: rect ${reveal!.rectTop}..${reveal!.rectBottom} vs band ${reveal!.bandTop}..${reveal!.bandBottom}`,
+        ).toBe(true);
+
+        // ── The other end: the same query from the top ────────────────────
+        // ⌘F toggles the bar shut, which ends the search; reopening captures
+        // a fresh anchor from wherever the reader now is.
+        await chord(app, "KeyF", "f", { meta: true });
+        await new Promise((r) => setTimeout(r, 300));
+        await app.evalJS<number>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  el.scrollTop = 0;
+  return el.scrollTop;
+})()`);
+        await new Promise((r) => setTimeout(r, 900));
+        // The bottom-most row the reader can see, read BEFORE the bar opens
+        // — which is the same moment, and the same rule, the card captures
+        // its anchor by.
+        const anchorRow = await app.evalJS<number>(BOTTOM_VISIBLE_ROW_EXPR);
+
+        await app.nativeClickAtElement(EDITOR);
+        await chord(app, "KeyF", "f", { meta: true });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FIND_INPUT)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        await app.nativeType(PROBE);
+        await app.waitForCondition<boolean>(
+          `(function(){ var hl = CSS.highlights.get('transcript-find-active');
+             if (!hl) return false; for (var _ of hl) return true; return false; })()`,
+          { timeoutMs: 10_000 },
+        );
+        await new Promise((r) => setTimeout(r, 1500));
+
+        const topReveal = await readReveal(app);
+        const topChip = await readChip(app);
+        note(
+          `from-the-top reveal: ${JSON.stringify(topReveal)} chip: ${JSON.stringify(topChip)} anchor row: ${anchorRow}`,
+        );
+        expect(topReveal).not.toBeNull();
+        expect(topReveal!.text.toLowerCase()).toBe(PROBE);
+        expect(
+          anchorRow,
+          "the fixture must have mounted rows at the top to anchor on",
+        ).toBeGreaterThanOrEqual(0);
+        expect(
+          topReveal!.row <= anchorRow,
+          `landed on row ${topReveal!.row}, below the anchor row ${anchorRow}`,
+        ).toBe(true);
+        expect(
+          topReveal!.row,
+          "and it is near the top, not somewhere down the transcript",
+        ).toBeLessThan(8);
+        expect(
+          topReveal!.inView,
+          `active match off screen: rect ${topReveal!.rectTop}..${topReveal!.rectBottom} vs band ${topReveal!.bandTop}..${topReveal!.bandBottom}`,
         ).toBe(true);
       } finally {
         await app.close();
@@ -727,7 +826,7 @@ const PAINT_CENSUS_EXPR = `(function () {
 
 describe.skipIf(!SHOULD_RUN)("AT0494: every mounted match paints", () => {
   test(
-    "a turn with several tool calls paints all its matches, and the active one is the first",
+    "a turn with several tool calls paints all its matches, and the active one is at the anchor",
     async () => {
       const app = await launchTugApp({ testName: "at0494-find-paint-census" });
       try {
@@ -815,7 +914,17 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every mounted match paints", () => {
           census.filter((c) => c.kind === "active").length,
           "exactly one is the active one",
         ).toBe(1);
-        expect(census[0]?.kind, "and it is the topmost match").toBe("active");
+        // The last one, not the first: every match is on screen, so the
+        // anchor is the bottom-most visible row and the landing is the last
+        // match at or above it ([B04], user-settled 2026-09-21). The two
+        // assertions above — that all five paint and exactly one is active —
+        // are what this test is about and say nothing about ordinal; only
+        // this one does, and it is re-pointed rather than dropped so the
+        // rule keeps a pin.
+        expect(
+          census[census.length - 1]?.kind,
+          "and it is the last match, where the anchor put it",
+        ).toBe("active");
       } finally {
         await app.close();
       }
@@ -924,8 +1033,13 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a counted match is a paintable match", () 
         // Both receipt bodies are mounted and on screen, so the chip's count
         // and the painted count are the same number. A match the index
         // counts and the painter cannot reach is the defect this pins: it
-        // reads "1 of 2" over a transcript that never moves.
-        expect(chip).toBe("1 of 2");
+        // reads "k of 2" over a transcript that never moves.
+        //
+        // The ordinal is 2, not 1: both rows are visible, so the anchor is
+        // the bottom-most of them and the landing is the last match at or
+        // above it ([B04]). Its three neighbours below say nothing about
+        // ordinal and are untouched.
+        expect(chip).toBe("2 of 2");
         expect(census.length, "every counted match is painted").toBe(2);
         expect(
           census.filter((c) => c.kind === "active").length,

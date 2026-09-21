@@ -13,48 +13,66 @@
  *
  * Two registered highlights: `transcript-find-match` (every mounted match) and
  * `transcript-find-active` (the active one, painted with the stronger
- * find-active surface). Because `CSS.highlights` is a document-global registry,
- * the painter (re)claims the names on every paint, so the most recently-painting
- * card owns them — acceptable while one card searches at a time.
+ * find-active surface). `CSS.highlights` is a document-global registry, so the
+ * two names are registered ONCE — one `Highlight` object each, shared by every
+ * card in the document — and never deleted. A painter owns only the ranges it
+ * added and retracts exactly those; it never clears a shared object. That is
+ * what lets two Session cards hold find paint at the same time, and what stops
+ * a repaint in one card from erasing the other's.
  *
  * **Searchability is opt-in and symmetric.** The painter walks ONLY subtrees
  * marked `data-tugx-findable` — the same containers the index projects, one
  * search unit per container, in DOM order. Within a marked container,
- * `.tugx-katex` (math renders the LaTeX source as hidden text) and
- * `.tug-atom-chip-host` (atom chips render their label inside an SVG)
- * subtrees are excluded, as is anything under `data-tugx-find-hidden`
- * (mounted but not visible). A collapsed tool block needs no guard: its
- * body is unmounted, so the only marked containers left in it are its
- * header's name and target — exactly what the index projects for it.
- * Unmarked text — badges, result summaries, the live timing clock — can
- * never paint, so a future body kind is unsearchable until it is
+ * `.tugx-katex` (math renders the LaTeX source as hidden text),
+ * `.tug-atom-chip-host` (atom chips render their label inside an SVG) and
+ * `.tugx-md-chrome-header` (the header the markdown enhancers build over a
+ * fenced code block or a table — a language badge and two buttons, none of
+ * it in the parsed HTML) subtrees are excluded, as is anything under
+ * `data-tugx-find-hidden` (mounted but not visible). A collapsed tool block
+ * needs no guard: its body is unmounted, so the only marked containers left
+ * in it are its header's name and target — exactly what the index projects
+ * for it. Unmarked text — badges, result summaries, the live timing clock —
+ * can never paint, so a future body kind is unsearchable until it is
  * deliberately marked AND projected.
- * **Adding a searchable kind is a two-sided checklist:** stamp the marker on
- * the content container, project the same text (same order) in
- * `transcript-search-index.ts`, and extend the fidelity fixture.
+ * **Adding a searchable kind is a three-sided checklist:** stamp the marker
+ * on the content container, project the same text (same order) in
+ * `transcript-search-index.ts`, and add a row carrying that kind to
+ * `tests/app-test/find-fidelity-fixture.ts`, which `at0602` sweeps.
  *
- * Per-unit it does NOT trust the index's character offsets: it re-runs the
- * matcher over each marked container's live DOM text, so the k-th DOM hit in
- * a row (counting across its containers in order) lines up with the k-th
- * index hit. The active match's ordinal within its row selects which DOM hit
- * is the active one. Searching per container also means a match can never
- * span two containers — mirroring `searchRowParts` on the index side.
+ * **A match is an ADDRESS, and this paints it ([P02]).** The painter does
+ * not search: it takes each match's `(row, segment, start, end)` and builds
+ * the Range at exactly those offsets, over exactly the node list the index
+ * counted. Re-running the matcher here and pairing hits off by ordinal was
+ * the old way, and it was a second opinion pretending to be a lookup — when
+ * the two texts disagreed, the k-th DOM hit was simply not the k-th index
+ * hit, and the highlight landed somewhere nobody could explain.
+ *
+ * What makes the offsets trustworthy is the step before the paint: every
+ * mounted row's live text is compared against its projection, and where
+ * they disagree **the DOM wins** ([P03]) — the host heals the engine's
+ * index from the DOM's own text, the engine re-searches synchronously, and
+ * the paint proceeds over addresses the DOM agrees with. A row's `dom`
+ * segments correspond one-to-one, in order, with its findable containers,
+ * which is what lets a match's segment index name a container.
  *
  * The landing flash is a one-shot **accent ring drawn over the active match's
  * rect only** (an absolutely-positioned child of the transcript scroller, in
  * content coordinates — clipped by the card and scrolling with the content),
  * never the whole row — a large response must not wash the transcript.
- * `paint` and `flashActive` are separate so the host can settle its
- * band-reveal scroll before the ring is drawn.
+ * `paint` and `flashActive` are separate because the ring is drawn in
+ * content coordinates and the reveal is still moving them: the host paints
+ * as each row mounts, and draws the ring only from `TugListView.revealRange`'s
+ * `onSettle`, once that reveal has landed ([P07]).
  *
  * @module components/tugways/transcript-find-highlighter
  */
 
 import {
-  search,
   type FindOptions,
+  type RowSegment,
   type SegmentedFindMatch,
 } from "@/lib/transcript-search";
+import { findTrace, sampleAround } from "@/lib/find-trace";
 import type { EditorView } from "@codemirror/view";
 import type { FindTargetRegistry } from "@/components/tugways/blocks/find-target-registry";
 import { placeFindFlash, type FindFlashHandle } from "@/components/tugways/find-flash";
@@ -98,21 +116,158 @@ export interface FindPaintInput {
    * Optional; without it `flashActive` is a no-op.
    */
   scroller?: HTMLElement | null;
+  /**
+   * The index the matches were searched over — the projection half of the
+   * index/DOM comparison. The painter reads a row's segments from here and
+   * checks them against the row's live DOM before painting, which is the
+   * only moment both texts exist in one place.
+   */
+  index: readonly (readonly RowSegment[])[];
+  /**
+   * The list's currently-mounted contiguous row range, or `null` when the
+   * host does not know one yet. The comparison sweeps exactly these rows:
+   * an unmounted row has no DOM to compare against.
+   */
+  renderedRange: { firstIndex: number; lastIndex: number } | null;
+  /** Stable row identity, for de-duplicating a divergence across paints. */
+  getRowId: (index: number) => string;
+  /**
+   * Heal the rows whose live DOM disagreed with their projection, and hand
+   * back a FRESH paint input built from the engine's new snapshot ([P03]).
+   * The painter cannot heal — the index is the engine's — so this is the
+   * one seam where the comparison's finding becomes a correction.
+   *
+   * Optional: a host that supplies none gets the compare-only behaviour,
+   * and the divergences are recorded `healed: false`.
+   */
+  onDiverged?: (
+    entries: { row: number; rowId: string; domTexts: string[] }[],
+  ) => FindPaintInput;
+  /** Owning card id, so a trace read can tell two searching cards apart. */
+  cardId: string | null;
+}
+
+/** One place a row's projected text and its live DOM text disagree. */
+export interface RowUnitDivergence {
+  /** The unit's ordinal within the row, or `-1` for a `unit-count` cause. */
+  unit: number;
+  cause: "unit-count" | "text";
+  indexUnits: number;
+  domUnits: number;
+  /** First differing character offset; `-1` for `unit-count`. */
+  firstDiffAt: number;
+  indexSample: string;
+  domSample: string;
+  /** Every DOM unit's text, in order — what a heal would write. */
+  domTexts: string[];
+}
+
+/**
+ * One side of a unit-count divergence, as a readable list: each unit's head,
+ * quoted, in order, so the reader can see which unit one side has and the
+ * other does not. Quoted because the interesting units are very often the
+ * empty and the whitespace-only ones, which bare text renders as nothing.
+ */
+function unitListSample(texts: readonly string[], head = 24): string {
+  return texts.map((t) => JSON.stringify(t.slice(0, head))).join(" | ");
+}
+
+/**
+ * Compare one mounted row's live DOM against the segments the index
+ * projected for it, and return every place they disagree (empty when they
+ * agree exactly).
+ *
+ * The row's findable units map one-to-one onto its `dom` segments, in order
+ * — `editor` segments are skipped, because an embedded CodeMirror
+ * virtualizes its own DOM and this walk cannot reach it. A count mismatch is
+ * reported once for the row and stops there: with the units out of
+ * correspondence, per-unit texts are no longer comparable, and pairing them
+ * off anyway would report a cascade of differences that are all one defect.
+ *
+ * **This only ever runs under a query with at least one match.** Both of the
+ * host's call sites return early with `clear()` when `matches.length === 0
+ * || query === ""`, so `paint()` is never reached with an empty match set,
+ * and the sweep can therefore never see a row whose projection found
+ * *nothing* where the DOM has something. A fixture meant to sweep every row
+ * must use a query that matches in every row — a one-letter probe — or it
+ * quietly narrows the sweep to the rows that happened to hit.
+ */
+export function compareRowUnits(
+  rowEl: HTMLElement,
+  segments: readonly RowSegment[],
+): RowUnitDivergence[] {
+  const units = collectFindableUnits(rowEl);
+  const domSegments = segments.filter((s) => s.kind === "dom");
+  const domTexts = units.map((unit) =>
+    collectSearchableTextNodes(unit)
+      .map((n) => n.data)
+      .join(""),
+  );
+  if (units.length !== domSegments.length) {
+    return [
+      {
+        unit: -1,
+        cause: "unit-count",
+        indexUnits: domSegments.length,
+        domUnits: units.length,
+        firstDiffAt: -1,
+        // A count mismatch has no offset to sample around, so each side is
+        // sampled as its LIST of units instead. Without it the report says
+        // only "2 units against 3" and names neither, which is a finding
+        // nobody can act on — the first `at0602` unit-count divergence cost
+        // a whole run to identify for exactly that reason.
+        indexSample: unitListSample(domSegments.map((s) => s.text)),
+        domSample: unitListSample(domTexts),
+        domTexts,
+      },
+    ];
+  }
+  const out: RowUnitDivergence[] = [];
+  for (let u = 0; u < units.length; u++) {
+    const domText = domTexts[u];
+    const indexText = domSegments[u].text;
+    if (domText === indexText) continue;
+    let firstDiffAt = 0;
+    const shared = Math.min(domText.length, indexText.length);
+    while (firstDiffAt < shared && domText[firstDiffAt] === indexText[firstDiffAt]) {
+      firstDiffAt += 1;
+    }
+    out.push({
+      unit: u,
+      cause: "text",
+      indexUnits: domSegments.length,
+      domUnits: units.length,
+      firstDiffAt,
+      indexSample: sampleAround(indexText, firstDiffAt),
+      domSample: sampleAround(domText, firstDiffAt),
+      domTexts,
+    });
+  }
+  return out;
 }
 
 /**
  * True when `node` sits inside an excluded subtree WITHIN a marked container:
- * `.tugx-katex` (math renders the LaTeX source — e.g. `\varepsilon`, which
- * contains "are" — as hidden, non-prose text) or `.tug-atom-chip-host` (atom
- * chips render their label inside an inline SVG; the index projects atoms as
- * no-text). Excluding both mirrors the index so count ↔ paint stay aligned.
+ *
+ *  - `.tugx-katex` — math renders the LaTeX source (e.g. `\varepsilon`,
+ *    which contains "are") as hidden, non-prose text.
+ *  - `.tug-atom-chip-host` — atom chips render their label inside an inline
+ *    SVG; the index projects atoms as no-text.
+ *  - `.tugx-md-chrome-header` — the header the markdown enhancers BUILD over
+ *    a fenced code block, a table, a diagram: its language badge ("ts"), its
+ *    Copy and its fold cue. None of it is in `block.html`, so the projection
+ *    cannot hold it; and none of it is the author's text, which is the same
+ *    reason a tool header's result summary is neither marked nor projected.
+ *
+ * Excluding these mirrors the index so count ↔ paint stay aligned.
  */
 function isInExcludedSubtree(node: Node): boolean {
   let el: HTMLElement | null = node.parentElement;
   while (el !== null) {
     if (
       el.classList.contains("tugx-katex") ||
-      el.classList.contains("tug-atom-chip-host")
+      el.classList.contains("tug-atom-chip-host") ||
+      el.classList.contains("tugx-md-chrome-header")
     ) {
       return true;
     }
@@ -170,6 +325,25 @@ export function collectSearchableTextNodes(el: HTMLElement): Text[] {
 }
 
 /**
+ * The dom ORDINAL of `segment` within its row — the position of the
+ * findable container it names among the row's containers, which is what a
+ * DOM walk can address. `-1` when the segment is an `editor` one (painted
+ * by CodeMirror's own search) or out of range.
+ */
+function domOrdinalOf(
+  segments: readonly RowSegment[] | undefined,
+  segment: number,
+): number {
+  if (segments === undefined || segments[segment] === undefined) return -1;
+  if (segments[segment].kind !== "dom") return -1;
+  let ordinal = 0;
+  for (let i = 0; i < segment; i++) {
+    if (segments[i].kind === "dom") ordinal += 1;
+  }
+  return ordinal;
+}
+
+/**
  * Build a DOM `Range` spanning `[start, end)` over the concatenation of
  * `nodes` — the same node list (and therefore the same text) the search ran
  * over, so offsets map back exactly.
@@ -204,9 +378,30 @@ export function rangeFromNodes(
   return range;
 }
 
+/**
+ * The document's one pair of `Highlight` objects, created and registered on
+ * first use. They are never removed from `CSS.highlights`: an empty highlight
+ * paints nothing, so there is nothing to clean up, and a name that outlives a
+ * card is a name the next card does not have to reclaim.
+ */
+let sharedPair: { match: Highlight; active: Highlight } | null = null;
+
+function sharedHighlights(): { match: Highlight; active: Highlight } | null {
+  if (typeof CSS === "undefined" || CSS.highlights === undefined) return null;
+  if (sharedPair === null) {
+    sharedPair = { match: new Highlight(), active: new Highlight() };
+    CSS.highlights.set(MATCH_HIGHLIGHT, sharedPair.match);
+    CSS.highlights.set(ACTIVE_HIGHLIGHT, sharedPair.active);
+  }
+  return sharedPair;
+}
+
 export class TranscriptFindHighlighter {
-  private readonly matchHighlight: Highlight | null;
-  private readonly activeHighlight: Highlight | null;
+  // The ranges THIS card contributed to each shared highlight. The objects
+  // themselves belong to the document, so a card's paint and its clear both
+  // go through `retract()`, which removes these and nothing else.
+  private readonly ownMatch = new Set<Range>();
+  private readonly ownActive = new Set<Range>();
   private activeRange: Range | null = null;
   // The registry key of the active EDITOR match, when the active match
   // lives inside an embedded CodeMirror rather than the DOM walk. Its
@@ -219,83 +414,97 @@ export class TranscriptFindHighlighter {
   private lastFindTargets: FindTargetRegistry | null = null;
   // The scroll container from the last paint — the flash ring's parent.
   private scroller: HTMLElement | null = null;
+  // Divergences already recorded, keyed by `(rowId, unit, DOM text length,
+  // index text length)`. A diverging row that stays mounted is painted on
+  // every windowing commit and every keystroke; without this the ring would
+  // fill with one row's single defect and drop the evidence of every other.
+  // The key carries the two lengths so a row whose text CHANGES — a
+  // streaming response re-projecting on each token — still records the new
+  // disagreement rather than being silenced by the old one.
+  private readonly recordedDivergences = new Set<string>();
 
-  constructor() {
-    if (typeof CSS !== "undefined" && CSS.highlights !== undefined) {
-      this.matchHighlight = new Highlight();
-      this.activeHighlight = new Highlight();
-    } else {
-      this.matchHighlight = null;
-      this.activeHighlight = null;
+  /** Remove every range this card added from the shared highlights. */
+  private retract(): void {
+    const pair = sharedHighlights();
+    if (pair !== null) {
+      for (const range of this.ownMatch) pair.match.delete(range);
+      for (const range of this.ownActive) pair.active.delete(range);
     }
+    this.ownMatch.clear();
+    this.ownActive.clear();
   }
 
   /** Repaint every mounted match and mark the active one. Does not flash. */
-  paint(input: FindPaintInput): void {
-    const matchHL = this.matchHighlight;
-    const activeHL = this.activeHighlight;
-    if (matchHL === null || activeHL === null) return;
+  paint(given: FindPaintInput): void {
+    const pair = sharedHighlights();
+    if (pair === null) return;
+    const matchHL = pair.match;
+    const activeHL = pair.active;
 
-    matchHL.clear();
-    activeHL.clear();
+    this.retract();
     this.activeRange = null;
     this.activeEditorKey = null;
-    this.scroller = input.scroller ?? null;
+    this.scroller = given.scroller ?? null;
 
-    const { matches, activeIndex, query, options, getElementForIndex } = input;
-    if (matches.length === 0 || query === "") {
-      CSS.highlights.delete(MATCH_HIGHLIGHT);
-      CSS.highlights.delete(ACTIVE_HIGHLIGHT);
-      return;
+    // Compare first, heal second, paint third. The comparison is the only
+    // moment both texts exist in one place, and a paint that ran before it
+    // would be painting the addresses the heal is about to correct.
+    let input = given;
+    if (input.query !== "") {
+      const diverged = this.recordDivergences(input);
+      if (diverged.length > 0 && input.onDiverged !== undefined) {
+        input = input.onDiverged(diverged);
+        this.scroller = input.scroller ?? null;
+      }
     }
+    const { matches, activeIndex, query, options, getElementForIndex } = input;
+    if (matches.length === 0 || query === "") return;
 
     const activeMatch = activeIndex >= 0 ? matches[activeIndex] : undefined;
-    // The DOM-walk ordinal counts only the row's `dom`-segment matches —
-    // `editor` matches live inside embedded CodeMirror editors, which paint
-    // via their own search, not this walk. An active `editor` match has no
-    // DOM-walk ordinal at all.
-    const activeIsDom =
-      activeMatch !== undefined && activeMatch.segmentKind === "dom";
-    const activeOrdinal = activeIsDom
-      ? matches
-          .filter((m) => m.row === activeMatch!.row && m.segmentKind === "dom")
-          .indexOf(activeMatch!)
-      : -1;
 
-    const rows = new Set<number>();
+    // Each row's findable containers and their text nodes, resolved once
+    // and shared by every match addressed into them.
+    const unitsByRow = new Map<number, HTMLElement[]>();
+    const nodesByUnit = new Map<string, Text[]>();
     for (const m of matches) {
-      if (m.segmentKind === "dom") rows.add(m.row);
-    }
-
-    for (const row of rows) {
-      const el = getElementForIndex(row);
+      if (m.segmentKind !== "dom") continue;
+      const el = getElementForIndex(m.row);
       if (el === null) continue;
-      // One search unit per marked container, in DOM order — the k-th hit
-      // across the row's units is the k-th index hit for that row.
-      let k = 0;
-      for (const unit of collectFindableUnits(el)) {
-        const nodes = collectSearchableTextNodes(unit);
-        const text = nodes.map((n) => n.data).join("");
-        const domHits = search([text], query, options);
-        for (const hit of domHits) {
-          const range = rangeFromNodes(nodes, hit.start, hit.end);
-          const ordinal = k;
-          k += 1;
-          if (range === null) continue;
-          // Each match lands in exactly ONE highlight — the active match in
-          // the active highlight only, never both, so its colour doesn't
-          // composite the match + active tints into a muddier blend.
-          if (
-            activeIsDom &&
-            row === activeMatch!.row &&
-            ordinal === activeOrdinal
-          ) {
-            activeHL.add(range);
-            this.activeRange = range;
-          } else {
-            matchHL.add(range);
-          }
-        }
+      let units = unitsByRow.get(m.row);
+      if (units === undefined) {
+        units = collectFindableUnits(el);
+        unitsByRow.set(m.row, units);
+      }
+      // A match's `segment` indexes the row's FULL segment list, editor
+      // segments included; the walk only ever saw the `dom` ones, so the
+      // container is at the segment's dom ORDINAL.
+      const ordinal = domOrdinalOf(input.index[m.row], m.segment);
+      const unit = ordinal < 0 ? undefined : units[ordinal];
+      if (unit === undefined) continue;
+      const cacheKey = `${m.row}:${ordinal}`;
+      let nodes = nodesByUnit.get(cacheKey);
+      if (nodes === undefined) {
+        nodes = collectSearchableTextNodes(unit);
+        nodesByUnit.set(cacheKey, nodes);
+      }
+      const range = rangeFromNodes(nodes, m.start, m.end);
+      if (range === null) {
+        // After a clean comparison this cannot happen: the offsets came
+        // from text the DOM agreed with. Record it rather than dropping
+        // it, so an address the DOM cannot hold is never silent.
+        this.recordUnrangeable(input, m.row, ordinal);
+        continue;
+      }
+      // Each match lands in exactly ONE highlight — the active match in
+      // the active highlight only, never both, so its colour doesn't
+      // composite the match + active tints into a muddier blend.
+      if (m === activeMatch) {
+        activeHL.add(range);
+        this.ownActive.add(range);
+        this.activeRange = range;
+      } else {
+        matchHL.add(range);
+        this.ownMatch.add(range);
       }
     }
 
@@ -347,10 +556,90 @@ export class TranscriptFindHighlighter {
       }
     }
     this.touchedEditors = nowTouched;
+  }
 
-    // (Re)claim the global registry names for this card's highlights.
-    CSS.highlights.set(MATCH_HIGHLIGHT, matchHL);
-    CSS.highlights.set(ACTIVE_HIGHLIGHT, activeHL);
+  /**
+   * Compare every mounted row's projection against its live DOM and record
+   * each disagreement to the find trace, returning one entry per diverging
+   * row — the DOM's own text for every unit, which is what a heal writes.
+   *
+   * The trace record is de-duplicated per `(rowId, unit, both lengths)` so
+   * one stubborn row cannot fill the ring; the RETURN is not, because the
+   * heal has to see a row the trace has already mentioned. In practice it
+   * only happens once anyway: the healed row's text is its DOM text, so
+   * the next comparison finds them equal.
+   */
+  private recordDivergences(
+    input: FindPaintInput,
+  ): { row: number; rowId: string; domTexts: string[] }[] {
+    const { renderedRange, index, getRowId, cardId, getElementForIndex } = input;
+    const healing = input.onDiverged !== undefined;
+    const out: { row: number; rowId: string; domTexts: string[] }[] = [];
+    if (renderedRange === null) return out;
+    const last = Math.min(renderedRange.lastIndex, index.length - 1);
+    for (let row = renderedRange.firstIndex; row <= last; row++) {
+      if (row < 0) continue;
+      const el = getElementForIndex(row);
+      if (el === null) continue;
+      const segments = index[row];
+      if (segments === undefined) continue;
+      const divergences = compareRowUnits(el, segments);
+      if (divergences.length === 0) continue;
+      const rowId = getRowId(row);
+      out.push({ row, rowId, domTexts: divergences[0].domTexts });
+      const domSegments = segments.filter((s) => s.kind === "dom");
+      for (const d of divergences) {
+        const domLen = d.unit >= 0 ? (d.domTexts[d.unit]?.length ?? -1) : d.domUnits;
+        const indexLen =
+          d.unit >= 0 ? (domSegments[d.unit]?.text.length ?? -1) : d.indexUnits;
+        const key = `${rowId}|${d.unit}|${domLen}|${indexLen}`;
+        if (this.recordedDivergences.has(key)) continue;
+        this.recordedDivergences.add(key);
+        findTrace.record({
+          kind: "divergence",
+          cardId,
+          row,
+          unit: d.unit,
+          cause: d.cause,
+          indexUnits: d.indexUnits,
+          domUnits: d.domUnits,
+          firstDiffAt: d.firstDiffAt,
+          indexSample: d.indexSample,
+          domSample: d.domSample,
+          healed: healing,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * An address the DOM could not hold. Recorded as a `text` divergence
+   * with no offset, because the row compared clean and then refused the
+   * offsets anyway — which is a defect in the correspondence, not in the
+   * text, and must not be swallowed by a `continue`.
+   */
+  private recordUnrangeable(
+    input: FindPaintInput,
+    row: number,
+    unit: number,
+  ): void {
+    const key = `${input.getRowId(row)}|${unit}|unrangeable`;
+    if (this.recordedDivergences.has(key)) return;
+    this.recordedDivergences.add(key);
+    findTrace.record({
+      kind: "divergence",
+      cardId: input.cardId,
+      row,
+      unit,
+      cause: "text",
+      indexUnits: -1,
+      domUnits: -1,
+      firstDiffAt: -1,
+      indexSample: "",
+      domSample: "",
+      healed: false,
+    });
   }
 
   /**
@@ -396,6 +685,22 @@ export class TranscriptFindHighlighter {
   /** The element the reveal reads the entry-scoped pin stack from. */
   activeMatchElement(): HTMLElement | null {
     return this.activeRangeElement() ?? this.activeEditorView()?.dom ?? null;
+  }
+
+  /**
+   * Run `cb` once the active `editor` match's embedded view has finished
+   * its own measure pass — the moment CM6's inner scroll has landed and
+   * {@link activeMatchRect} can finally answer. The transcript's reveal is
+   * waiting on geometry the list view cannot observe, and this is how it
+   * learns to ask again. Returns `false` when there is no active editor
+   * view (no embedded match, or the editor is not mounted), so the caller
+   * knows no callback is coming.
+   */
+  afterActiveEditorMeasure(cb: () => void): boolean {
+    const view = this.activeEditorView();
+    if (view === null) return false;
+    view.requestMeasure({ read: () => cb() });
+    return true;
   }
 
   private activeEditorView(): EditorView | null {
@@ -446,19 +751,19 @@ export class TranscriptFindHighlighter {
 
   /** Drop all paint (empty query / leaving Find). */
   clear(): void {
-    this.matchHighlight?.clear();
-    this.activeHighlight?.clear();
+    this.retract();
     this.activeRange = null;
+    this.activeEditorKey = null;
     if (this.lastFindTargets !== null) {
       for (const key of this.touchedEditors) {
         this.lastFindTargets.resolve(key)?.codeView?.()?.clearSearch();
       }
     }
     this.touchedEditors = new Set();
-    if (typeof CSS !== "undefined" && CSS.highlights !== undefined) {
-      CSS.highlights.delete(MATCH_HIGHLIGHT);
-      CSS.highlights.delete(ACTIVE_HIGHLIGHT);
-    }
+    // Leaving find ends the sweep's memory with it: the next search is a
+    // fresh question, and a row that diverged under the last query should
+    // say so again under this one.
+    this.recordedDivergences.clear();
     this.removeFlashOverlay();
   }
 

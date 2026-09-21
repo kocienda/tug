@@ -30,38 +30,103 @@ import {
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { readFindOptions, putFindOptions } from "@/settings-api";
 import { FindSession, type FindEngineDelegate } from "@/lib/find-session";
+import {
+  findTrace,
+  inferFindGesture,
+  type FindGestureSnapshot,
+} from "@/lib/find-trace";
 import type { TugTextCardEditorDelegate } from "@/components/tugways/tug-text-card-editor";
 
 /**
  * The Text card's find engine: CM6 search behind the shared
  * {@link FindEngineDelegate} protocol. Search-as-you-type lands on the
- * first result (select + reveal — vertical centre, horizontal pan); the
- * session owns everything else.
+ * first result AT OR AFTER the reader's anchor — the scrollport's top line
+ * for ⌘F, the selection itself for ⌘E — wrapping to the document's first
+ * match when there is none, and scrolling only when the landing is not
+ * already on screen; the session owns everything else.
  */
 function documentFindEngine(
   getDelegate: () => TugTextCardEditorDelegate | null,
 ): FindEngineDelegate {
+  // The trace's own view of this surface. CM6 owns the document and the
+  // selection, so there is no index/DOM pair to diverge and no reveal to
+  // outlive its budget — a Text card contributes `gesture` events only, and
+  // they are what a walk over a large file is checked against. `navSeq`
+  // counts this engine's own gestures: the session's own counter is not
+  // handed to the delegate, and a per-engine count answers the one question
+  // the trace asks of it (which press produced which landing).
+  let navSeq = 0;
+  let prev: FindGestureSnapshot | null = null;
+  const recordGesture = (
+    query: string,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    grep: boolean,
+  ): void => {
+    const info = getDelegate()?.getMatchInfo() ?? {
+      count: 0,
+      activeOrdinal: null,
+      capped: false,
+    };
+    const snap: FindGestureSnapshot = {
+      query,
+      caseSensitive,
+      wholeWord,
+      grep,
+      activeOrdinal: info.activeOrdinal,
+      count: info.count,
+    };
+    navSeq += 1;
+    findTrace.record({
+      kind: "gesture",
+      surface: "text",
+      cardId: null,
+      gesture: inferFindGesture(prev, snap),
+      navSeq,
+      query,
+      count: info.count,
+      activeOrdinal: info.activeOrdinal,
+      // A Text card match lives in the editor's document, not at a
+      // `(row, segment)` the transcript's coordinates can name.
+      target: null,
+    });
+    prev = snap;
+  };
   return {
-    searchDidChange: (query, options) => {
+    searchDidChange: (query, opts) => {
       const delegate = getDelegate();
       if (delegate === null) return;
       delegate.setSearchQuery({
         search: query,
-        caseSensitive: options.caseSensitive,
-        regexp: options.grep,
-        wholeWord: options.wholeWord,
+        caseSensitive: opts.caseSensitive,
+        regexp: opts.grep,
+        wholeWord: opts.wholeWord,
       });
-      if (query.length > 0) delegate.selectFirstMatch();
+      if (query.length > 0) delegate.selectMatchFromAnchor();
+      recordGesture(query, opts.caseSensitive, opts.wholeWord, opts.grep);
     },
-    findNext: () => getDelegate()?.findNext(),
-    findPrevious: () => getDelegate()?.findPrevious(),
+    findNext: () => {
+      getDelegate()?.findNext();
+      if (prev !== null) {
+        recordGesture(prev.query, prev.caseSensitive, prev.wholeWord, prev.grep);
+      }
+    },
+    findPrevious: () => {
+      getDelegate()?.findPrevious();
+      if (prev !== null) {
+        recordGesture(prev.query, prev.caseSensitive, prev.wholeWord, prev.grep);
+      }
+    },
     matchInfo: () =>
       getDelegate()?.getMatchInfo() ?? {
         count: 0,
         activeOrdinal: null,
         capped: false,
       },
-    clear: () => getDelegate()?.clearSearch(),
+    clear: () => {
+      getDelegate()?.clearSearch();
+      prev = null;
+    },
   };
 }
 

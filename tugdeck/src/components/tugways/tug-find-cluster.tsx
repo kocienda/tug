@@ -140,11 +140,16 @@ export function TugFindCluster({
   );
 
   // Count face: no query → nothing; a query with no hits → "No results";
-  // otherwise the engine's authoritative "N of M" (`M+` when capped).
+  // otherwise the engine's authoritative "N of M" (`M+` when capped), with
+  // "· not in view" appended when the host could not put the active match
+  // on screen ([P09]) — a counted match nobody can see is a fact the chip
+  // owes the reader rather than one it hides behind a confident ordinal.
   const total = snapshot.count;
+  const revealFailed = snapshot.revealFailed && total > 0;
   const countText =
     total > 0
-      ? `${(snapshot.activeOrdinal ?? 0) + 1} of ${total}${snapshot.capped ? "+" : ""}`
+      ? `${(snapshot.activeOrdinal ?? 0) + 1} of ${total}${snapshot.capped ? "+" : ""}` +
+        (revealFailed ? " · not in view" : "")
       : snapshot.hasQuery
         ? "No results"
         : "";
@@ -167,12 +172,27 @@ export function TugFindCluster({
           // invalidation is unreliable when the value span's text mutates
           // in place, leaving the badge stuck hidden with a live count).
           data-empty={countText === "" ? "" : undefined}
+          data-reveal-failed={revealFailed ? "" : undefined}
           aria-live="polite"
           copyText={`Results: ${countText}`}
         >
           <TugStableOverlay
             active={<span data-slot="find-count-value">{countText}</span>}
-            alternates={["No results", "888 of 888"]}
+            // The wide sizer is pushed ONLY while the failed face is live.
+            // `TugStableOverlay` sizes its cell to the widest declared
+            // variant and pins a monotonic `min-width` high-water mark, so
+            // declaring the long face unconditionally would widen the chip
+            // by ~14 characters in every session that ever opens find. The
+            // consequence of the conditional: once a reveal has failed, the
+            // high-water mark holds the wider size for the rest of THIS
+            // bar's life. The bar unmounts on close, so the reservation
+            // resets with it, and within one open bar a chip that has said
+            // "not in view" once keeps the room to say it again.
+            alternates={
+              revealFailed
+                ? ["No results", "888 of 888 · not in view"]
+                : ["No results", "888 of 888"]
+            }
           />
         </TugBadge>
         <TugOptionGroup

@@ -142,6 +142,7 @@ export class FindSession implements FindSurface {
       activeOrdinal: null,
       capped: false,
       hasQuery: false,
+      revealFailed: false,
       wrapped: false,
       wrapDirection: 0,
       wrapSeq: 0,
@@ -162,7 +163,11 @@ export class FindSession implements FindSurface {
     this.engine = engine;
     engine?.didAttach?.(this);
     if (engine !== null && this.state.query !== "") {
-      this.state = { ...this.state, navSeq: this.state.navSeq + 1 };
+      this.state = {
+        ...this.state,
+        revealFailed: false,
+        navSeq: this.state.navSeq + 1,
+      };
       engine.searchDidChange?.(this.state.query, this.state.options);
       this.refresh();
     }
@@ -188,6 +193,7 @@ export class FindSession implements FindSurface {
       ...this.state,
       query,
       hasQuery: query !== "",
+      revealFailed: false,
       navSeq: this.state.navSeq + 1,
     };
     this.engine?.searchDidChange?.(query, this.state.options);
@@ -196,7 +202,12 @@ export class FindSession implements FindSurface {
 
   /** Update the option toggles; the engine re-searches. Clears the wrap flag. */
   setOptions = (options: FindOptions): void => {
-    this.state = { ...this.state, options, navSeq: this.state.navSeq + 1 };
+    this.state = {
+      ...this.state,
+      options,
+      revealFailed: false,
+      navSeq: this.state.navSeq + 1,
+    };
     this.engine?.searchDidChange?.(this.state.query, options);
     this.publishInfo(0);
     this.hooks.onOptionsChanged?.(options);
@@ -205,7 +216,11 @@ export class FindSession implements FindSurface {
   /** Advance the active match. Wrap detection via ordinal movement. */
   next(): void {
     const prev = this.state.activeOrdinal;
-    this.state = { ...this.state, navSeq: this.state.navSeq + 1 };
+    this.state = {
+      ...this.state,
+      revealFailed: false,
+      navSeq: this.state.navSeq + 1,
+    };
     this.engine?.findNext?.();
     const info = this.readInfo();
     const wrapped =
@@ -219,7 +234,11 @@ export class FindSession implements FindSurface {
   /** Retreat the active match. Wrap detection via ordinal movement. */
   previous(): void {
     const prev = this.state.activeOrdinal;
-    this.state = { ...this.state, navSeq: this.state.navSeq + 1 };
+    this.state = {
+      ...this.state,
+      revealFailed: false,
+      navSeq: this.state.navSeq + 1,
+    };
     this.engine?.findPrevious?.();
     const info = this.readInfo();
     const wrapped =
@@ -228,6 +247,18 @@ export class FindSession implements FindSurface {
       info.activeOrdinal !== null &&
       info.activeOrdinal >= prev;
     this.publishInfo(wrapped ? -1 : 0, info);
+  }
+
+  /**
+   * Say whether the host's live reveal failed to put the active match on
+   * screen ([P09]). The host is the only caller: it knows the outcome, and
+   * the session is what the chip reads. A no-op when nothing changed, so a
+   * reveal that lands after a reveal that landed publishes nothing.
+   */
+  setRevealFailed(flag: boolean): void {
+    if (this.state.revealFailed === flag) return;
+    this.state = { ...this.state, revealFailed: flag };
+    this.emit();
   }
 
   /** Clear query + search (leaving find). */
@@ -240,6 +271,7 @@ export class FindSession implements FindSurface {
       count: 0,
       activeOrdinal: null,
       capped: false,
+      revealFailed: false,
       wrapped: false,
       wrapDirection: 0,
     };

@@ -14,10 +14,23 @@
  * part corresponds 1:1, in DOM order, with one marked container in the row's
  * rendered cell (`transcript-find-highlighter.ts` walks exactly those). A
  * query is searched per unit on BOTH sides, so a match can never span two
- * containers — and the k-th index match in a row is the k-th DOM match, which
- * is the invariant navigation relies on. Adding a searchable kind is a
- * two-sided checklist: mark the container, project the same text here in the
- * same order, and extend the fidelity fixture.
+ * containers, and a match is an ADDRESS — a row, a unit, and a character
+ * range within it ([P02]) — which the painter resolves rather than re-finds.
+ *
+ * **What this file writes down is an estimate, and the DOM is the fact**
+ * ([P03]). Almost every row is unmounted, so the projection is the only
+ * answer there is for most of the transcript; but for a row that IS mounted
+ * the painter compares this text against the live container's text before it
+ * paints, and where the two disagree the DOM's text is handed back to the
+ * engine, which re-searches that row at once. So a projection that is
+ * slightly wrong costs a correction rather than a mis-highlight — and
+ * `at0602` still fails on every disagreement, because a correction is a
+ * defect that happened to be caught.
+ *
+ * Adding a searchable kind is therefore a three-sided checklist: mark the
+ * container, project the same text here in the same order, and add a row
+ * carrying that kind to `tests/app-test/find-fidelity-fixture.ts`, which is
+ * what `at0602` sweeps.
  *
  * **Fidelity via the shared parse cache.** Markdown-rendered kinds (assistant
  * text, thinking, user bodies, scheduled wake notes) are reduced to rendered
@@ -56,7 +69,7 @@
  */
 
 import { ensureParsed } from "@/lib/markdown/parse-cache";
-import { findInlineMathRanges } from "@/lib/markdown/block-transformers/inline-math-walker";
+import { mathStrippedText } from "@/lib/markdown/block-transformers/inline-math-walker";
 import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import type { RowSegment } from "@/lib/transcript-search";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
@@ -107,28 +120,6 @@ type RowMessages = NonNullable<SessionRowDescriptor["turn"]>["messages"];
 // a pure unit test over those rows stays DOM-free.
 let htmlScratch: HTMLDivElement | null = null;
 
-/**
- * Strip unfenced `$…$` / `$$…$$` math, using the SAME detector
- * (`findInlineMathRanges`) the render pipeline uses to promote those spans into
- * `.tugx-katex`. pulldown-cmark leaves `$$…$$` as literal text in `block.html`
- * (it isn't a fenced block), so `.tugx-katex` removal alone misses it and the
- * LaTeX source (e.g. `\varepsilon`, which contains "are") leaks into the index.
- * The painter skips the rendered `.tugx-katex` in the DOM, so stripping here
- * keeps index ↔ DOM aligned.
- */
-function stripInlineMath(text: string): string {
-  const ranges = findInlineMathRanges(text);
-  if (ranges.length === 0) return text;
-  let out = "";
-  let cursor = 0;
-  for (const range of ranges) {
-    out += text.slice(cursor, range.start);
-    cursor = range.end;
-  }
-  out += text.slice(cursor);
-  return out;
-}
-
 function htmlToText(html: string): string {
   if (typeof document === "undefined") return html;
   if (htmlScratch === null) htmlScratch = document.createElement("div");
@@ -137,8 +128,11 @@ function htmlToText(html: string): string {
   // LaTeX source as text (e.g. `\varepsilon_0`). The painter skips the rendered
   // `.tugx-katex` in the DOM, so excluding it here keeps them aligned.
   for (const el of htmlScratch.querySelectorAll(".tugx-katex")) el.remove();
-  // Drop UNFENCED `$…$` / `$$…$$` math, which cmark leaves as literal text.
-  return stripInlineMath(htmlScratch.textContent ?? "");
+  // Drop UNFENCED `$…$` / `$$…$$` math, which cmark leaves as literal text —
+  // but only where the renderer's own walk would promote it, which is a
+  // question about text-node boundaries rather than about the block's text.
+  // `mathStrippedText` is that walk's mirror; see its docblock.
+  return mathStrippedText(htmlScratch);
 }
 
 /**
@@ -146,6 +140,17 @@ function htmlToText(html: string): string {
  * Atom placeholders (`U+FFFC`) are removed from the result: the rendered DOM
  * replaces each with a chip host whose SVG label the painter excludes
  * (`.tug-atom-chip-host`), so the aligned projection is "no text there".
+ *
+ * **The blocks are joined with nothing** ([P03]). `renderIncremental` gives
+ * each parsed block its own `.tugx-md-block` wrapper and sets that wrapper's
+ * `innerHTML` to `block.html` verbatim, appending the wrappers into one
+ * container with no separator — so the container's text is the concatenation
+ * of each block's own rendered text and nothing else. Whatever separation
+ * the reader sees between blocks is already inside `block.html` (cmark ends
+ * a block-level element with a newline, which survives as a text node), so a
+ * join character here would be a separator the DOM does not hold: it shifted
+ * every offset after the first block boundary by one, which is the whole of
+ * the `at0602` markdown divergence.
  */
 function markdownToText(
   streamingStore: PropertyStore,
@@ -156,7 +161,7 @@ function markdownToText(
   const blocks = ensureParsed(streamingStore, identity, text);
   return blocks
     .map((b) => htmlToText(b.html))
-    .join("\n")
+    .join("")
     .split(TUG_ATOM_CHAR)
     .join("");
 }
@@ -172,14 +177,53 @@ function stripUserBodyPrefix(text: string): string {
   return text;
 }
 
-/** Terminal output as the DOM renders it: stdout lines, then stderr lines
- *  (`renderTerminal`'s stream order), ANSI-stripped, capped at the
- *  retention limit so the count never exceeds what unfolding can reveal. */
+/**
+ * A blank terminal line, as the DOM holds it. `buildLineElement` renders an
+ * empty line as `&nbsp;` so it keeps its line box instead of collapsing, and
+ * that non-breaking space is a real text node the painter's walk reaches — so
+ * the projection holds it too.
+ */
+const TERMINAL_BLANK_LINE = " ";
+
+/**
+ * Terminal output as the DOM renders it: stdout lines, then stderr lines
+ * (`renderTerminal`'s stream order), ANSI-stripped.
+ *
+ * Three things here are the DOM's rules rather than this module's, and every
+ * one of them was a divergence before it was mirrored ([P03]):
+ *
+ *  - **Lines are joined with nothing.** `renderTerminal` gives each line its
+ *    own `div.tugx-term-line` and the line break is that structure rather
+ *    than a character, so `.tugx-term-content`'s text runs the lines
+ *    together. A `"\n"` here is a separator the DOM does not hold, and every
+ *    offset past the first line boundary would be wrong by one per line. The
+ *    honest cost is a query that can match across a line boundary the reader
+ *    sees as two lines; the alternative — one findable unit per line — is not
+ *    open, because a terminal's internal fold is uncontrolled React state
+ *    this index cannot observe, so the unit COUNT would disagree on every
+ *    folded terminal.
+ *  - **A blank line is a `&nbsp;`**, not nothing.
+ *  - **The retention cap keeps the LAST lines**, which is the end
+ *    `renderTerminal` keeps; taking the first counted text that scrolling to
+ *    the bottom of a long terminal can never reveal.
+ *
+ * A stream's trailing empty line (from a `\n`-terminated stream) is dropped,
+ * exactly as `parseTerminalLines` drops it.
+ */
 function terminalText(stdout: string, stderr: string): string {
   const lines: string[] = [];
-  if (stdout !== "") lines.push(...stripAnsi(stdout).split("\n"));
-  if (stderr !== "") lines.push(...stripAnsi(stderr).split("\n"));
-  return lines.slice(0, RETAINED_LINE_CAP).join("\n");
+  const pushStream = (raw: string): void => {
+    const parts = stripAnsi(raw).split("\n");
+    if (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+    lines.push(...parts);
+  };
+  if (stdout !== "") pushStream(stdout);
+  if (stderr !== "") pushStream(stderr);
+  const retained =
+    lines.length > RETAINED_LINE_CAP ? lines.slice(-RETAINED_LINE_CAP) : lines;
+  return retained
+    .map((line) => (line === "" ? TERMINAL_BLANK_LINE : line))
+    .join("");
 }
 
 /**
@@ -444,10 +488,9 @@ function shellSegments(
   }
   if (expansion.resolve(message.exchangeId, false)) return segments;
   if (message.output !== "") {
-    const visible = stripAnsi(message.output)
-      .split("\n")
-      .slice(0, RETAINED_LINE_CAP)
-      .join("\n");
+    // The row's `TerminalBlock` is fed `{stdout: msg.output, stderr: ""}`
+    // (`deriveShellExchangeView`), so the projection is that same terminal's.
+    const visible = terminalText(message.output, "");
     if (visible !== "") {
       // Keyed: the terminal's internal fold can hide the tail of this unit;
       // navigation unfolds it through the card's FindTargetRegistry.

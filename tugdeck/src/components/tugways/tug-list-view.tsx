@@ -474,6 +474,51 @@ export type TugListViewCellRenderer<
 // ---------------------------------------------------------------------------
 
 /**
+ * How a `revealRange` ended. Exactly one is reported, exactly once.
+ *
+ * `landed` — the thing is inside the band (or the scroller ran out of
+ * content and it is at least visible). `failed` — the budget or the
+ * deadline ran out with it still out of band. `superseded` — a newer
+ * reveal started. `cancelled` — the user moved the scroller, or the list
+ * went away.
+ */
+export type TugListRevealOutcome =
+  | "landed"
+  | "failed"
+  | "superseded"
+  | "cancelled";
+
+/**
+ * What a `revealRange` caller supplies. The list view owns the scrolling
+ * and the settling; the caller owns the one thing the list cannot know —
+ * where inside the row the thing actually is.
+ */
+export interface TugListRevealRequest {
+  /**
+   * Viewport rect of the thing to reveal, or `null` when it cannot be
+   * measured yet (the row is mounted but a fold has not opened, an
+   * embedded editor has not scrolled). A `null` read is a wait, not a
+   * failure: the next resize or `pokeReveal` asks again.
+   */
+  getRect: () => DOMRect | null;
+  /**
+   * Pixels of pinned chrome at the top of the scrollport, read live —
+   * the transcript's pinned entry header, which overlaps the scrollport
+   * and would otherwise cover a "revealed" row. Default 0.
+   */
+  getBandInsetTop?: () => number;
+  /** Fired each time the target row is (or becomes) mounted, before `getRect`. */
+  onRowMounted?: () => void;
+  /** Fired exactly once, with the outcome and what it cost. */
+  onSettle: (
+    outcome: TugListRevealOutcome,
+    detail: { reason: string | null; ms: number; writes: number },
+  ) => void;
+  /** Follow-bottom disengage attribution. Default `"reveal-range"`. */
+  source?: string;
+}
+
+/**
  * Imperative API the list view exposes to its parent via `forwardRef`.
  * v1 surface is deliberately small ([D03]): scroll-into-view and
  * direct DOM access for the rendered window. Animations, batched
@@ -505,6 +550,44 @@ export interface TugListViewHandle {
       animated?: boolean;
     },
   ): void;
+
+  /**
+   * Put something INSIDE the row at `index` on screen, and say whether
+   * it worked.
+   *
+   * `scrollToIndex` places a row and is finished; this places a rect the
+   * caller measures — a find match, a range inside an embedded editor —
+   * and stays live until that rect is in the band or it gives up. There
+   * is exactly one live reveal per list at a time, and starting a second
+   * settles the first `superseded`. The reveal advances on the events
+   * that can change the answer — the target row mounting, the cell
+   * re-measuring, an explicit `pokeReveal` — rather than on a frame
+   * budget, so a far jump across evicted rows waits for the mount
+   * instead of expiring before it.
+   *
+   * It stands down when the user takes the scroller: a reveal is an
+   * answer to a gesture, and the user moving the page is a newer gesture
+   * than the one that asked ([P07], `tuglaws/scroll-intent.md`).
+   *
+   * Out-of-range indices clamp to first / last, as `scrollToIndex` does.
+   * An empty list settles `failed("empty")`.
+   */
+  revealRange(index: number, request: TugListRevealRequest): void;
+
+  /**
+   * Tell the live reveal that something `getRect` depends on changed —
+   * a fold opened, an embedded editor scrolled to its own match. The
+   * list view cannot observe the caller's geometry, so this is how the
+   * caller says "ask again". No-op with no live reveal.
+   */
+  pokeReveal(): void;
+
+  /**
+   * End the live reveal `cancelled`. For a caller that knows its reveal
+   * has been overtaken by something the list view cannot see — the query
+   * changed, the bar closed. No-op with no live reveal.
+   */
+  cancelReveal(reason: string): void;
 
   /**
    * The DOM element for the rendered row at `index`, or `null` if the
@@ -1486,6 +1569,61 @@ const SCROLL_CORRECTION_THRESHOLD_PX = 4;
 const SCROLL_CORRECTION_SUPERSEDE_DRIFT_PX = 8;
 
 /**
+ * How long a `revealRange` may stay live before it gives up and settles
+ * `failed("deadline")`. Generous: a far jump across evicted rows has to
+ * wait for a windowing commit, a mount, and a measurement, and a fold
+ * opening inside the target row adds more. Short enough that a reveal
+ * that is never going to land says so while the user still remembers
+ * asking.
+ */
+const RANGE_REVEAL_DEADLINE_MS = 3000;
+
+/**
+ * How many corrective scroll writes one reveal may issue. Each write is
+ * a measured placement against a live rect, so the second and third only
+ * happen when the geometry moved under the first — a row that re-measured
+ * taller, a fold that opened. Past three the page is moving for reasons
+ * this reveal cannot chase, and chasing it is how a reveal becomes a
+ * judder.
+ */
+const RANGE_REVEAL_MAX_WRITES = 3;
+
+/** Breathing room inside the band, top and bottom (CSS pixels). */
+const RANGE_REVEAL_BAND_PAD_PX = 8;
+
+/**
+ * The one live `revealRange`, or `null`.
+ *
+ * **Read `rangeReveal`, not `reveal`.** This file's bare `reveal*`
+ * vocabulary — `revealSeam`, `revealObserver`, `noteRevealed` — belongs
+ * to an unrelated machine: the list's own box becoming visible again
+ * after a hidden-tab cycle. The prefix keeps the two apart.
+ */
+interface RangeRevealState {
+  /** Bumped per reveal, so a stale timer's callback can tell it is stale. */
+  gen: number;
+  index: number;
+  request: TugListRevealRequest;
+  startedAt: number;
+  writes: number;
+  /**
+   * The post-write `scrollTop` read-back, with browser clamping folded
+   * in. Anything else moving the scroller shows up as drift from this,
+   * which is the only thing that catches the event-silent native
+   * scrollbar — it never raises `isUserScrolling` at all.
+   */
+  armedTop: number | null;
+  /**
+   * Whether the target cell has delivered a `ResizeObserver` entry since
+   * it mounted. A freshly-mounted row is placed against an ESTIMATED
+   * height, so a rect that reads in-band before the first measurement
+   * can be in-band about the wrong geometry.
+   */
+  measuredSinceMount: boolean;
+  deadline: ReturnType<typeof setTimeout> | null;
+}
+
+/**
  * Trailing settle interval for width invalidation (ms). A live
  * splitter drag fires the width observer every frame; wiping the
  * measured-height ledger per fire forces a full remount + re-measure
@@ -1627,6 +1765,17 @@ interface ListViewProbe {
   geometryRing(): CommitGeometryRecord[];
   /** The extent floor's current height and the trailing pad below it. */
   extentFloor(): { height: number; inset: number };
+  /**
+   * Drive `revealRange` against the row's own rect and resolve with the
+   * outcome. (SURFACE_VERSION 2.22.0)
+   *
+   * The reveal machine has no product caller until the transcript host
+   * adopts it, and it is the kind of machine that has to be exercised
+   * before it is trusted. This is the door: the probe registry, not the
+   * imperative handle, for the reason the registry's own docstring gives
+   * — nothing in the app drives these.
+   */
+  revealRow(index: number): Promise<TugListRevealOutcome>;
 }
 
 const listViewProbeRegistry = new Map<Element, ListViewProbe>();
@@ -2275,6 +2424,22 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       armedTop: number;
     } | null>(null);
 
+    // ---- revealRange state, declared early so the machines that ADVANCE
+    // it can reach it. The machine itself is built further down, after
+    // the two-pass correction effect it must run behind; the cell
+    // `ResizeObserver` and the `SmartScroll` callbacks are installed
+    // above that point, so they reach it through these late-bound refs —
+    // the same shape `descendIntoRowRef` uses for the same reason.
+    const rangeRevealRef = React.useRef<RangeRevealState | null>(null);
+    const rangeRevealGenRef = React.useRef(0);
+    const advanceRangeRevealRef = React.useRef<() => void>(() => {});
+    /** The probe registry is installed on mount, so it late-binds too. */
+    const startRangeRevealRef = React.useRef<
+      (index: number, request: TugListRevealRequest) => void
+    >(() => {});
+    /** Settles the live reveal `cancelled` when the user has taken the scroller. */
+    const rangeRevealCancelCheckRef = React.useRef<() => boolean>(() => false);
+
     // Subscribe to the data source. The returned `version` token is a
     // by-product — we don't use it directly. The hook's job is to
     // re-run this component whenever the data source ticks per its
@@ -2891,6 +3056,17 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           const indexAttr = target.getAttribute("data-tug-list-cell-index");
           if (indexAttr === null) continue;
           const index = Number.parseInt(indexAttr, 10);
+          // A delivery for the reveal's own cell is the measurement its
+          // placement was waiting for — recorded before the no-op height
+          // gate below, because "this cell has been measured since it
+          // mounted" is true of a delivery that reports an unchanged
+          // height just as much as of one that reports a new one.
+          {
+            const live = rangeRevealRef.current;
+            if (live !== null && live.index === index) {
+              live.measuredSinceMount = true;
+            }
+          }
           if (Number.isNaN(index) || index < 0 || index >= total) {
             // Stale entry — the cell unmounted or the data source
             // shrank below this index between observation and
@@ -3003,6 +3179,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // One-shot per batch (re-armed on each rising edge); only while
         // a batch is actually frozen, so live streaming never fires it.
         releaseSettleIfArmed();
+        // Heights just moved, so the reveal's rect may have moved with
+        // them. Runs after the pin above, on the geometry this delivery
+        // produced rather than the one it replaced.
+        advanceRangeRevealRef.current();
       });
       observerRef.current = observer;
       // Observe any cells already in the cellElementMap (mounted
@@ -3186,6 +3366,13 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         followBottom: followBottomEffective,
         callbacks: {
           onScroll: () => {
+            // The native scrollbar is event-silent — `isUserScrolling`
+            // never goes true for it — so the drift read-back inside
+            // this check is the only thing that catches it. A reveal
+            // that only looked on its own advances would sit through a
+            // silent mover to the deadline and settle `failed`, which is
+            // the wrong word for what happened.
+            rangeRevealCancelCheckRef.current();
             scrollTick();
             // Top-edge transition for the "load previous" affordance.
             // `scrollTop <= AT_TOP_EPSILON` is "at the top"; fire only on
@@ -3689,6 +3876,25 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         conservationEvents: () => conservationEventsRef.current.slice(),
         geometryRing: () => geometryRingRef.current.slice(),
         extentFloor: () => ({ ...extentFloorStateRef.current }),
+        // `getRect` reads the reveal's OWN clamped index rather than the
+        // one passed in, so an out-of-range probe call measures the row
+        // the clamp actually chose.
+        revealRow: (index: number): Promise<TugListRevealOutcome> =>
+          new Promise<TugListRevealOutcome>((resolve) => {
+            startRangeRevealRef.current(index, {
+              getRect: () => {
+                const live = rangeRevealRef.current;
+                if (live === null) return null;
+                return (
+                  cellElementMapRef.current
+                    .get(live.index)
+                    ?.getBoundingClientRect() ?? null
+                );
+              },
+              onSettle: (outcome) => resolve(outcome),
+              source: "list-view-probe",
+            });
+          }),
         // Same-moment read: ledger charge vs live rendered extent for
         // every mounted cell, right now. Complements the evict-time
         // records above, whose live figures are one commit old.
@@ -4523,12 +4729,24 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         pendingScrollCorrectionRef.current = null;
         return;
       }
+      // A live `revealRange` armed this jump and reads drift against its
+      // own `armedTop`. Pass 2 is the list's write, not the user's, so its
+      // read-back is folded into the reveal — otherwise a correction larger
+      // than the supersede band reads as a user scroll and cancels the
+      // reveal it was made for.
+      const rearmRangeReveal = (): void => {
+        const live = rangeRevealRef.current;
+        if (live !== null && live.index === pending.index) {
+          live.armedTop = scrollEl.scrollTop;
+        }
+      };
       const targetEl = cellElementMapRef.current.get(pending.index);
       if (targetEl !== undefined) {
         ss.scrollToElement(targetEl, {
           block: pending.block,
           animated: false,
         });
+        rearmRangeReveal();
         pendingScrollCorrectionRef.current = null;
         return;
       }
@@ -4541,6 +4759,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         ) + leadingOffsetPx();
       if (Math.abs(correctedTop - pending.estimatedTop) > SCROLL_CORRECTION_THRESHOLD_PX) {
         ss.scrollTo({ top: correctedTop, animated: false });
+        rearmRangeReveal();
       }
       pendingScrollCorrectionRef.current = null;
     });
@@ -4642,6 +4861,335 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       }
       return null;
     }, [estimatedHeightForKindOnly, leadingOffsetPx]);
+
+    // -----------------------------------------------------------------
+    // revealRange
+    // -----------------------------------------------------------------
+
+    /**
+     * Pass 1 of the two-pass protocol, on its own: the estimated jump an
+     * unmounted target needs, plus the `pendingScrollCorrectionRef` arm
+     * that makes the post-commit effect finish the job. Factored out of
+     * `scrollToIndex` so `revealRange` performs the identical jump
+     * rather than a second, subtly different one. Returns the estimated
+     * offset it wrote.
+     */
+    const armEstimatedJump = React.useCallback(
+      (
+        clamped: number,
+        block: ScrollLogicalPosition,
+        animated: boolean,
+      ): number => {
+        const ss = smartScrollRef.current;
+        const estimatedTop =
+          heightIndexRef.current.offsetForIndex(
+            clamped,
+            estimatedHeightForKindOnly,
+          ) +
+          leadingOffsetPx() +
+          (rectSpaceRebasePx() ?? 0);
+        ss?.scrollTo({ top: estimatedTop, animated });
+        // `armedTop` is the post-write read-back, so browser clamping is
+        // folded in and only another actor's movement can register as
+        // drift. An animated jump reads back its starting position
+        // instead — its own tween then registers as drift and voids the
+        // correction, which is the safe outcome for a path whose target
+        // was estimated anyway.
+        pendingScrollCorrectionRef.current = {
+          index: clamped,
+          estimatedTop,
+          block,
+          armedTop: scrollContainerRef.current?.scrollTop ?? estimatedTop,
+        };
+        return estimatedTop;
+      },
+      [estimatedHeightForKindOnly, leadingOffsetPx, rectSpaceRebasePx],
+    );
+
+    /** End the live reveal, once, telling its caller what happened. */
+    const settleRangeReveal = React.useCallback(
+      (outcome: TugListRevealOutcome, reason: string | null): void => {
+        const live = rangeRevealRef.current;
+        if (live === null) return;
+        rangeRevealRef.current = null;
+        if (live.deadline !== null) clearTimeout(live.deadline);
+        live.request.onSettle(outcome, {
+          reason,
+          ms: Math.round(performance.now() - live.startedAt),
+          writes: live.writes,
+        });
+      },
+      [],
+    );
+
+    /**
+     * Has the user taken the scroller? Two signals, because one of them
+     * misses the mover the scroll-intent doctrine cares most about:
+     * `isUserScrolling` never goes true for the event-silent native
+     * scrollbar, so the drift read-back against `armedTop` is what
+     * catches it.
+     *
+     * The reveal's own writes cannot false-positive here — `armedTop` is
+     * the synchronous post-write read-back, and a `scroll` event does not
+     * dispatch until the task ends, so by the time this runs from
+     * `onScroll` the scroller already equals `armedTop`.
+     */
+    const checkRangeRevealCancel = React.useCallback((): boolean => {
+      const live = rangeRevealRef.current;
+      if (live === null) return false;
+      const el = scrollContainerRef.current;
+      const drifted =
+        live.armedTop !== null &&
+        el !== null &&
+        Math.abs(el.scrollTop - live.armedTop) >
+          SCROLL_CORRECTION_SUPERSEDE_DRIFT_PX;
+      if (smartScrollRef.current?.isUserScrolling === true || drifted) {
+        settleRangeReveal("cancelled", "user-scroll");
+        return true;
+      }
+      return false;
+    }, [settleRangeReveal]);
+
+    /**
+     * The reveal's live geometry: the rect the caller measures, the band
+     * it is placed into, and the two verdicts read off them. `null` when the
+     * caller cannot measure a rect yet — a WAIT, not a failure, since a
+     * fold opening or an editor revealing produces a resize or a poke.
+     *
+     * One reader for the advance and the deadline both, so the two can
+     * never come to different conclusions about the same frame.
+     *
+     * **Placing and accepting are different questions, and the pad is the
+     * difference.** A placement aims the rect `RANGE_REVEAL_BAND_PAD_PX`
+     * clear of both edges, because landing flush against the pinned
+     * header reads as half-hidden. Acceptance asks only whether the
+     * reader can see it — anywhere below the pinned chrome and above the
+     * scrollport's bottom. Holding placement to the acceptance test is
+     * what made a virtualized list unrevealable: every write settles the
+     * rows above the target into their measured heights, which shifts the
+     * target by a few pixels, and a reveal that must land inside the pad
+     * spends its whole write budget chasing that residual and then calls
+     * a plainly visible match "not in view".
+     */
+    const rangeRevealGeometry = React.useCallback(
+      (
+        live: RangeRevealState,
+      ): {
+        rect: DOMRect;
+        bandTop: number;
+        bandBottom: number;
+        inBand: boolean;
+        edgeVisible: boolean;
+      } | null => {
+        const el = scrollContainerRef.current;
+        if (el === null) return null;
+        const rect = live.request.getRect();
+        if (rect === null) return null;
+        const box = el.getBoundingClientRect();
+        const portTop = box.top + el.clientTop;
+        const portBottom = portTop + el.clientHeight;
+        const insetTop = live.request.getBandInsetTop?.() ?? 0;
+        const visibleTop = portTop + insetTop;
+        const visibleBottom = portBottom;
+        const bandTop = visibleTop + RANGE_REVEAL_BAND_PAD_PX;
+        const bandBottom = visibleBottom - RANGE_REVEAL_BAND_PAD_PX;
+        // A rect TALLER than the visible area can never have both edges
+        // inside it, so for that one the top edge is the whole question.
+        const inBand =
+          rect.top >= visibleTop - 0.5 &&
+          (rect.bottom <= visibleBottom + 0.5 ||
+            rect.height >= visibleBottom - visibleTop);
+        // Content ran out: the scroller is clamped at an end and the
+        // match is visible anyway. Nothing more can be asked of it.
+        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        const atEdge = el.scrollTop <= 0.5 || el.scrollTop >= maxTop - 0.5;
+        const visible = rect.bottom > portTop && rect.top < portBottom;
+        return { rect, bandTop, bandBottom, inBand, edgeVisible: atEdge && visible };
+      },
+      [],
+    );
+
+    /**
+     * The deadline's verdict. Running out of time is not automatically a
+     * failure: the write budget stops the reveal PLACING, and the
+     * geometry can still settle under it afterwards — a virtualized list
+     * re-measuring the rows above the target is the ordinary case. So
+     * the deadline re-reads rather than assuming, and the chip says "not
+     * in view" only over a match that is genuinely not.
+     */
+    const finishRangeRevealAtDeadline = React.useCallback((): void => {
+      const live = rangeRevealRef.current;
+      if (live === null) return;
+      const geom = rangeRevealGeometry(live);
+      if (geom !== null && (geom.inBand || geom.edgeVisible)) {
+        settleRangeReveal("landed", "settled-late");
+        return;
+      }
+      settleRangeReveal("failed", live.writes > 0 ? "out-of-band" : "deadline");
+    }, [rangeRevealGeometry, settleRangeReveal]);
+
+    /**
+     * Steps 3 and 4 of the reveal: place the rect, then verify it. Runs
+     * from every advance trigger — the post-commit effect, the cell
+     * `ResizeObserver` flush, `pokeReveal` — and does nothing at all
+     * when no reveal is live, which is the steady state.
+     *
+     * The loop is bounded by `writes`: a placement that leaves the rect
+     * out of band means the geometry moved under it — so the advance
+     * places AT MOST ONCE and then waits for the next trigger rather
+     * than re-placing against the same frame. A scroll write in a
+     * virtualized list provokes a windowing commit, which is the
+     * trigger; re-placing synchronously instead would spend the whole
+     * write budget inside one millisecond, against geometry that had
+     * not yet moved, and report `failed` over a reveal that was one
+     * commit from landing.
+     */
+    const advanceRangeReveal = React.useCallback((): void => {
+      const live = rangeRevealRef.current;
+      if (live === null) return;
+      if (checkRangeRevealCancel()) return;
+      const el = scrollContainerRef.current;
+      const ss = smartScrollRef.current;
+      if (el === null || ss === null) return;
+      // Step 2 → 3: nothing to place until the row is actually mounted.
+      if (!cellElementMapRef.current.has(live.index)) return;
+      live.request.onRowMounted?.();
+
+      // At most one placing write per advance — see the docblock. The
+      // loop runs twice at most: verify, place, verify.
+      let placed = false;
+      for (;;) {
+        // ---- Step 4: verify ----
+        const geom = rangeRevealGeometry(live);
+        // A rect the caller cannot measure yet is a WAIT, not a failure:
+        // a fold opening or an editor revealing will produce a resize or
+        // a poke, and this runs again then.
+        if (geom === null) return;
+        const { rect, bandTop, bandBottom, inBand } = geom;
+        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        if (inBand || geom.edgeVisible) {
+          // A freshly-mounted row was placed against an ESTIMATED
+          // height, so "in band" is a claim about geometry nobody has
+          // measured. Wait for the one delivery that makes it a fact.
+          if (!live.measuredSinceMount) return;
+          settleRangeReveal("landed", inBand ? null : "clamped");
+          return;
+        }
+        if (live.writes >= RANGE_REVEAL_MAX_WRITES) {
+          // Out of placing writes, but not out of time: the geometry may
+          // still settle under the last one, and the deadline re-reads
+          // before it calls anything failed.
+          return;
+        }
+        // The placement this advance already made did not land it. The
+        // geometry is still moving; wait for the commit or the
+        // measurement that says it stopped.
+        if (placed) return;
+
+        // ---- Step 3: place ----
+        // Bottom edge first, then top, so a rect taller than the band
+        // keeps its TOP visible rather than its bottom.
+        let delta = rect.bottom > bandBottom ? rect.bottom - bandBottom : 0;
+        if (rect.top - delta < bandTop) delta = rect.top - bandTop;
+        // `inBand` was false, so one of the two edges is outside the
+        // band and `delta` cannot be zero — but a band narrower than the
+        // rect under a pinned header can produce one, and a zero-delta
+        // write would spin. Wait for the geometry to change instead.
+        if (delta === 0) return;
+        // An exact placement outranks the estimate that got us here.
+        pendingScrollCorrectionRef.current = null;
+        ss.scrollTo({
+          top: Math.max(0, Math.min(maxTop, el.scrollTop + delta)),
+          animated: false,
+        });
+        live.writes += 1;
+        live.armedTop = el.scrollTop;
+        placed = true;
+      }
+    }, [checkRangeRevealCancel, rangeRevealGeometry, settleRangeReveal]);
+
+    /** Step 1: start a reveal, ending any live one `superseded`. */
+    const startRangeReveal = React.useCallback(
+      (index: number, request: TugListRevealRequest): void => {
+        settleRangeReveal("superseded", "new-reveal");
+        const total = dataSource.numberOfItems();
+        const ss = smartScrollRef.current;
+        if (Number.isNaN(index) || total === 0 || ss === null) {
+          request.onSettle("failed", {
+            reason: "empty",
+            ms: 0,
+            writes: 0,
+          });
+          return;
+        }
+        const clamped = Math.max(0, Math.min(total - 1, Math.floor(index)));
+        const gen = rangeRevealGenRef.current + 1;
+        rangeRevealGenRef.current = gen;
+        ss.disengage(request.source ?? "reveal-range");
+        const mounted = cellElementMapRef.current.has(clamped);
+        const live: RangeRevealState = {
+          gen,
+          index: clamped,
+          request,
+          startedAt: performance.now(),
+          writes: 0,
+          armedTop: null,
+          // A row that is already mounted AND already in the height
+          // ledger has been measured; only a row arriving now is placed
+          // against an estimate.
+          measuredSinceMount:
+            mounted && heightIndexRef.current.has(clamped),
+          deadline: null,
+        };
+        live.deadline = setTimeout(() => {
+          if (rangeRevealRef.current?.gen !== gen) return;
+          finishRangeRevealAtDeadline();
+        }, RANGE_REVEAL_DEADLINE_MS);
+        rangeRevealRef.current = live;
+        if (mounted) {
+          advanceRangeReveal();
+          return;
+        }
+        // Step 2: the same estimated jump `scrollToIndex` performs, with
+        // `block: "nearest"` — the reveal does its own exact placement
+        // once the row mounts, so the estimate only has to get the row
+        // into the window.
+        const estimatedTop = armEstimatedJump(clamped, "nearest", false);
+        live.armedTop = scrollContainerRef.current?.scrollTop ?? estimatedTop;
+      },
+      [
+        advanceRangeReveal,
+        armEstimatedJump,
+        dataSource,
+        finishRangeRevealAtDeadline,
+        settleRangeReveal,
+      ],
+    );
+
+    // Late-bind the two entry points the machines installed ABOVE this
+    // point call: the cell `ResizeObserver` flush and the `SmartScroll`
+    // `onScroll` callback are both mounted once, with `[]` deps.
+    advanceRangeRevealRef.current = advanceRangeReveal;
+    rangeRevealCancelCheckRef.current = checkRangeRevealCancel;
+    startRangeRevealRef.current = startRangeReveal;
+
+    // Advance trigger: the post-commit layout effect. Placed AFTER the
+    // two-pass correction effect above, deliberately — pass 2 runs
+    // first, so the reveal reads corrected geometry rather than the
+    // estimate it is about to replace.
+    React.useLayoutEffect(() => {
+      advanceRangeReveal();
+    });
+
+    // A reveal is a promise to a caller that is still waiting. Unmount,
+    // and a data-source swap (a different list in the same component),
+    // both break it — say so rather than leaving `onSettle` uncalled.
+    React.useEffect(
+      () => () => {
+        settleRangeReveal("cancelled", "unmount");
+      },
+      [dataSource, settleRangeReveal],
+    );
 
     // Step the scroller one entry up / down — the shared core behind
     // both the PageUp/PageDown key handler below and the imperative
@@ -4811,30 +5359,23 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           // Under `evictOffscreen` this branch is the normal path
           // (the target really is unmounted) and the offset is
           // exact, since every out-of-window row is measured.
-          const estimatedTop =
-            heightIndexRef.current.offsetForIndex(
-              clamped,
-              estimatedHeightForKindOnly,
-            ) +
-            leadingOffsetPx() +
-            (rectSpaceRebasePx() ?? 0);
-          ss.scrollTo({
-            top: estimatedTop,
-            animated: options?.animated ?? false,
-          });
-          // `armedTop` is the post-write read-back, so browser
-          // clamping is folded in and only another actor's movement
-          // can register as drift. An animated jump reads back its
-          // starting position instead — its own tween then registers
-          // as drift and voids the correction, which is the safe
-          // outcome for a path whose target was estimated anyway.
-          pendingScrollCorrectionRef.current = {
-            index: clamped,
-            estimatedTop,
-            block: options?.block ?? "start",
-            armedTop:
-              scrollContainerRef.current?.scrollTop ?? estimatedTop,
-          };
+          //
+          // `revealRange` performs the identical jump through the same
+          // function, which is the point of its being one.
+          armEstimatedJump(
+            clamped,
+            options?.block ?? "start",
+            options?.animated ?? false,
+          );
+        },
+        revealRange(index: number, request: TugListRevealRequest): void {
+          startRangeReveal(index, request);
+        },
+        pokeReveal(): void {
+          advanceRangeReveal();
+        },
+        cancelReveal(reason: string): void {
+          settleRangeReveal("cancelled", reason);
         },
         getElementForIndex(index: number): HTMLElement | null {
           return cellElementMapRef.current.get(index) ?? null;
@@ -4886,10 +5427,12 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         },
       }),
       [
+        advanceRangeReveal,
+        armEstimatedJump,
         dataSource,
-        estimatedHeightForKindOnly,
         pageByEntryStep,
-        rectSpaceRebasePx,
+        settleRangeReveal,
+        startRangeReveal,
       ],
     );
 
