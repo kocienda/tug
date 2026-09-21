@@ -97,9 +97,34 @@ body {
      cannot move a tape on some other mount.
 
      This is the TWO-line value — a nudge off the line it rides. The
-     three-level stack derives its own from the pair it must center on; see
-     below. */
+     three-level stack derives its own from the tape's BAND; see below. */
   --tugx-session-row-spark-rise: 3px;
+  /* THE TAPE'S BAND — where the graph stands on the three-level stack, as a
+     height measured from the top of the description/activity group.
+
+     One number, and it is the whole answer to "where is the tape": the box the
+     graph centres in is the group's first two BANDS — the description's line,
+     the step into the activity, and one activity line box — and NEVER the
+     group's measured height. A measured height is a content fact. The account
+     run is a two-line clamp on the Session card's masthead, so a tape centred
+     on the measured group dropped half a line the moment the Observer's
+     sentence wrapped and rose again when the next one fit, independently on
+     every card; an inline in the description that out-ascends its band would
+     have moved it too. The tape is an instrument on a chrome tier. It reads as
+     one instrument only if it is in the same place on every card and in every
+     state, whatever the lines beside it happen to say.
+
+     Both mounts read it — the masthead centres its absolutely placed tape in a
+     box this tall, and the row below derives its lift from it — so the two
+     cannot land on different verticals.
+
+     Composed from the same bands the lines beside it are set in, so tune those:
+     a hand-typed length here is the number that gets left behind. */
+  --tugx-session-row-spark-band: calc(
+    var(--tugx-session-row-description-line) +
+      var(--tugx-session-identity-line-gap, 1px) +
+      var(--tugx-activity-line-stacked-baseline-step)
+  );
   /* The sub-lines' TIGHT band, as a LENGTH, because more than one rule needs
      the same number: the description sets its leading from it, the arc line
      rides the same rhythm, and the tape's lift is derived from it. Left as a
@@ -319,24 +344,25 @@ body {
    Two hand-tuned lifts cannot agree, and the eye reads the disagreement as two
    different instruments.
 
-   The arithmetic: the tape rides the LAST line of the pair, centered in it.
-   Its center is therefore already the second line's center, and the pair's
-   center is exactly half a first line — plus the step between them — above
-   that. So the lift is half the description's band plus half the step, from
-   the same two values those pieces are built out of.
+   The arithmetic: the tape rides the LAST line of the pair, centered in it,
+   so its center is already that line's center — half an activity step below
+   the band's start. The band's own center is half the band. The lift is the
+   difference, which is why it is stated as one: the number the masthead
+   places its box by and the number this mount lifts its tape by are the same
+   number, read two ways.
 
-   Scoped to the stack: a two-line mount has no pair to center on, and keeps
+   Scoped to the stack: a two-line mount has no band to stand in, and keeps
    the nudge declared above.
 
-   Measured, both mounts land a third of a pixel above the pair's exact center
+   Measured, both mounts land a third of a pixel above the band's exact center
    — the engine lays the description's line box out at whole pixels while its
    leading is fractional. The same third of a pixel on both, which is the
    point: what was two surfaces disagreeing by 9px is now one vertical. */
 .tug-session-row:has(.tug-session-row-description) {
   --tugx-session-row-spark-rise: calc(
     (
-        var(--tugx-session-row-description-line) +
-          var(--tugx-session-identity-line-gap, 1px)
+        var(--tugx-session-row-spark-band) -
+          var(--tugx-activity-line-stacked-baseline-step)
       ) / 2
   );
 }

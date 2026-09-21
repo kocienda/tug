@@ -116,21 +116,33 @@
   color: var(--tugx-pane-title-fg-active);
 }
 
-/* ── Where the tape sits: centred on the GROUP, by layout ───────────────
-   Every other mount rides the tape on the beat's own line and lifts it by
-   half the description's band, which centres it on the pair — correct while
-   the description is one line, and half a line low the moment it is two.
-   This tier is the one surface where the pair is two lines and one — the
-   account run wraps under a one-line sentence — so here the tape
-   comes out of the beat's flex line and centres in the pulse box itself.
-   No arithmetic: the box is the pair, and the pair is what the graph
-   reports on, so the answer holds at either height and would hold at three.
+/* ── Where the tape sits: in the row's BAND, never in the measured box ───
+   Every other mount rides the tape on the beat's own flex line and lifts it.
+   This tier cannot: its account run is a two-line clamp, so the line the tape
+   would ride is one line tall or two depending on what the Observer wrote,
+   and a tape riding it moves with the sentence.
 
-   The lift is cancelled rather than re-tuned — a transform on top of a
-   centred box is the second hand-tuned number this file used to carry. */
-.session-masthead-row .tug-activity-line-trailing {
+   So here the tape comes out of the flex line and is placed against the pulse
+   box — but against a BAND of it, `--tugx-session-row-spark-band`, and not
+   against its height. That distinction is the whole rule. `inset-block: 0`
+   centres on the box, and the box is content: a wrapped post made the group
+   three lines and dropped the graph half a line, a one-line post raised it
+   again, and two cards side by side wore the same instrument at two different
+   heights — which is the report this rule is written against. The band is
+   composed from the bands the lines are SET in rather than the height they
+   came out at, so the answer is the same on every card, in every state, and
+   the row mount below derives its own lift from that same number.
+
+   Scoped to the pulse box, which is also the positioning ancestor: a row with
+   no description has no group to stand in, and must keep the in-flow placement
+   rather than centre itself over the whole three-line column.
+
+   The lift is cancelled rather than re-tuned — a transform on top of a placed
+   box is the second hand-tuned number this file used to carry. */
+.session-masthead-row .tug-session-row-pulse .tug-activity-line-trailing {
   position: absolute;
-  inset-block: 0;
+  inset-block-start: 0;
+  block-size: var(--tugx-session-row-spark-band);
   inset-inline-end: 0;
   align-items: center;
   transform: none;
