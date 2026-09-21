@@ -6,6 +6,7 @@ mod background_session;
 mod changes_journal;
 mod changes_writer;
 mod cli;
+mod client_fault;
 mod control;
 mod dead_branch;
 mod defaults;

@@ -1806,6 +1806,12 @@ pub(crate) fn build_app(
         .route("/api/arc", post(arc_handler))
         .route("/api/session", post(session_handler))
         .route("/api/changes-write", post(changes_write_handler))
+        // A frontend fault outlives the page it happened on: the user's
+        // next act is Reload, which destroys every in-memory record of it.
+        .route(
+            "/api/client-fault",
+            post(crate::client_fault::post_client_fault),
+        )
         .route(
             "/api/workspace/acquire",
             post(crate::workspace_api::post_workspace_acquire),

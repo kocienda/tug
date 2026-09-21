@@ -43,6 +43,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
+import { breadcrumb } from "@/lib/dom-forensics";
 import { fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { FILE_TEXT_ATTRIBUTE } from "@/lib/annotator/annotate-content";
@@ -100,6 +101,7 @@ export function useFileTipPortals(): {
     // Rebuild rather than merge, and only publish a change: a pass that finds
     // the same spans it found last time must not re-render every tip, and a
     // span that has left the DOM must not survive in the list.
+    breadcrumb("portal.hosts", { hook: "file-tip", hosts: next.length });
     setMounts((prev) => (sameMounts(prev, next) ? prev : next));
   }, []);
 

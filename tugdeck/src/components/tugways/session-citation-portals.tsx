@@ -40,6 +40,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
+import { breadcrumb } from "@/lib/dom-forensics";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
 import { SESSION_TEXT_ATTRIBUTE } from "@/lib/annotator/annotate-content";
 
@@ -114,6 +115,7 @@ export function useSessionCitationPortals(
     // Rebuild rather than merge, and only publish a change: a pass that finds
     // the same spans it found last time must not re-render every chip, and a
     // span that has left the DOM must not survive in the list.
+    breadcrumb("portal.hosts", { hook: "session-citation", hosts: next.length });
     setMounts((prev) => (sameMounts(prev, next) ? prev : next));
   }, []);
 

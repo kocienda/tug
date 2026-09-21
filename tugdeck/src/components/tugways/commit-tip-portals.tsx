@@ -76,6 +76,8 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
+import { breadcrumb } from "@/lib/dom-forensics";
+
 import { commitTip } from "@/components/tugways/entity-tips";
 import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
@@ -228,6 +230,7 @@ export function useCommitTipPortals(
       // Rebuild rather than merge, and only publish a change: a pass that
       // finds the same spans it found last time must not re-render every tip,
       // and a span that has left the DOM must not survive in the list.
+      breadcrumb("portal.hosts", { hook: "commit-tip", hosts: next.length });
       setMounts((prev) => (sameMounts(prev, next) ? prev : next));
     },
     [mark],

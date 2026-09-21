@@ -5,6 +5,7 @@ import "./css-imports";
 import initTugmark from "../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 import wasmUrl from "../crates/tugmark-wasm/pkg/tugmark_wasm_bg.wasm?url";
 import { TugConnection } from "./connection";
+import { installDomForensics } from "./lib/dom-forensics";
 import { setConnection } from "./lib/connection-singleton";
 import { TugbankClient } from "./lib/tugbank-client";
 import { setTugbankClient } from "./lib/tugbank-singleton";
@@ -204,6 +205,15 @@ declare global {
     __tugRestoreInTestMode?: boolean;
   }
 }
+
+// DOM forensics FIRST, before a connection is opened or a card is mounted.
+// The three throwing DOM mutators are wrapped here so that any
+// `NotFoundError` — from React's commit, from an imperative renderer, from
+// anywhere — arrives naming the actual parent and child instead of thirty
+// frames of minified recursion, and lands on disk before the user clicks
+// Reload. See `lib/dom-forensics.ts` for the fault that made this
+// necessary.
+installDomForensics();
 
 // Determine WebSocket URL from current page location
 const wsUrl = `ws://${window.location.host}/ws`;

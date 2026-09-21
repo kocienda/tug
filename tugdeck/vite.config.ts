@@ -922,6 +922,19 @@ export default (defineConfig as any)((env: any = {}) => {
     preview: {
       proxy: proxyConfig,
     },
+    // Keep function and class names through minification. Without this a
+    // production stack trace is `Zs@vendor.js:8:99094` repeated thirty
+    // times — which is exactly what the 2026-09-21 `NotFoundError` gave
+    // the user, and it named nothing. React's component stacks are built
+    // from `fn.name`, so this is also what makes an ErrorBoundary report
+    // readable. Vite spreads the top-level `esbuild` options into its
+    // minify step (`resolveEsbuildTranspileOptions`), so this reaches the
+    // production bundle and not merely the transform. The cost is a small
+    // bundle-size increase, which is not a concern for a local-filesystem
+    // load — the same reasoning as `chunkSizeWarningLimit` below.
+    esbuild: {
+      keepNames: true,
+    },
     build: {
       outDir: "dist",
       emptyOutDir: true,

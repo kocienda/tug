@@ -20,6 +20,7 @@
  */
 
 import { stampAnnotation } from "./annotation-element";
+import { breadcrumb } from "../dom-forensics";
 import type { AnnotationPayload } from "./payloads";
 import { ANNOTATION_CLASS } from "./types";
 
@@ -168,6 +169,18 @@ export function wrapMatchesInTextNode(
 export function unwrapMatch(element: HTMLElement, text?: string): void {
   const parent = element.parentNode;
   if (parent === null) return;
+  // An unwrap is the hazard that produced the 2026-09-21 fault, so it
+  // leaves a record: a fault one commit later can then say WHICH run was
+  // unwrapped and whether it was still carrying a portal's children.
+  breadcrumb("annotator.unwrap", {
+    annotation: element.getAttribute("data-tug-annotation") ?? "",
+    target:
+      element.getAttribute("data-target") ??
+      element.getAttribute("data-path") ??
+      "",
+    childElementCount: element.childElementCount,
+    textOverridden: text !== undefined,
+  });
   const words = text ?? element.textContent ?? "";
   parent.replaceChild(element.ownerDocument.createTextNode(words), element);
   parent.normalize();
