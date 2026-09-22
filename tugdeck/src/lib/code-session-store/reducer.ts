@@ -803,7 +803,7 @@ export interface CodeSessionState {
    *
    * Like {@link stopStalled} it is a claim about the *wait*, not about the
    * turn: the turn stays open, `lastError` is not stamped, and Stop stays
-   * deliverable. The card reads "Waiting for network" instead of
+   * deliverable. The card reads "Waiting" instead of
    * "Streaming", which is the difference between a screen that is lying and
    * one that is quiet about a real wait.
    */
@@ -1232,7 +1232,7 @@ export function streamStallEffect(phase: CodeSessionState["phase"]): Effect {
  * after it.
  *
  * `enterErrored` clears the *flag* on its own, because a card that has
- * errored must not still read "Waiting for network"; this cancels the timer
+ * errored must not still read "Waiting"; this cancels the timer
  * behind it.
  */
 export function streamStallCancelEffect(

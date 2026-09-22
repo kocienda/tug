@@ -13,7 +13,7 @@
  * So this drives the full journey with every receipt withheld: a real turn, a
  * real Stop, six seconds of nothing, and then the three things the user sees —
  * the Z5 button reading Force Stop and *enabled* (the defect left it in the
- * inert `stopping` glyph forever), the STATE cell reading "Stop unanswered"
+ * inert `stopping` glyph forever), the STATE cell reading "Unanswered"
  * rather than "Interrupting", and a press that the card recovers from once
  * tugcode's teardown answers.
  *
@@ -186,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The card stops claiming an interrupt is in progress and names
           // what actually happened.
           const stalledState = await app.evalJS<string>(STATE_TEXT);
-          expect(stalledState).toContain("Stop unanswered");
+          expect(stalledState).toContain("Unanswered");
           expect(stalledState).not.toContain("Interrupting");
 
           // ── the user presses Force Stop ─────────────────────────────
@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)(
             timeoutMs: 6000,
           });
           await app.waitForCondition<boolean>(
-            `${STATE_TEXT}.indexOf("Stop unanswered") === -1`,
+            `${STATE_TEXT}.indexOf("Unanswered") === -1`,
             { timeoutMs: 6000 },
           );
           expect(await app.evalJS<boolean>(COMPOSER_ACCEPTS_TEXT)).toBe(true);

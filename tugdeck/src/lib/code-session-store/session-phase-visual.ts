@@ -61,7 +61,7 @@
 import type {
   TugProgressIndicatorPhaseVisual,
 } from "@/components/tugways/tug-progress-indicator";
-import type { ApiRetryState, CodeSessionPhase, TransportState } from "./types";
+import type { CodeSessionPhase, TransportState } from "./types";
 
 // ---------------------------------------------------------------------------
 // Input shape
@@ -211,9 +211,9 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
 export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   offline: "Disconnected",
   restoring: "Reconnecting",
-  stalled: "Waiting for network",
+  stalled: "Waiting",
   interrupting: "Interrupting",
-  stop_stalled: "Stop unanswered",
+  stop_stalled: "Unanswered",
   idle: "Idle",
   ready: "Ready",
   background: "Running",
@@ -308,28 +308,4 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
     default:
       return { role: "inherit", state: "stopped" };
   }
-}
-
-// ---------------------------------------------------------------------------
-// The stalled label
-// ---------------------------------------------------------------------------
-
-/**
- * The visible label for the `stalled` key, with claude's own retry count
- * folded in when it has one: "Waiting for network — retry 3 of 10".
- *
- * A separate helper rather than a richer {@link SESSION_PHASE_LABELS},
- * because that record is a plain `key → string` map that several surfaces
- * index directly, and giving one key a function's worth of behaviour would
- * make every consumer ask which kind of entry it had. The base label stands
- * on its own; this adds the one detail a user actually acts on, which is
- * whether claude is still counting attempts or has simply gone quiet.
- *
- * `null` — the stall arrived as silence rather than as a retry announcement
- * — reads as the bare label, which is exactly what the deck knows.
- */
-export function stallLabel(apiRetry: ApiRetryState | null): string {
-  const base = SESSION_PHASE_LABELS.stalled;
-  if (apiRetry === null) return base;
-  return `${base} — retry ${apiRetry.attempt} of ${apiRetry.maxRetries}`;
 }

@@ -11,7 +11,7 @@ If the answer is "a spinner, and nothing", the wait fails. That is the whole of 
 Three things make an answer pass.
 
 - **A deadline.** The wait ends whether or not the answer comes, and it is event-armed rather than polled: the event that starts the wait arms the timer, the event that ends the wait cancels it, and nothing asks at an interval.
-- **A named terminal state.** The end says *which* wait failed. "Stop unanswered" and "Restore stalled" are different states with different exits; both rendered as a stopped spinner, they are the same unreadable non-event, and a report about either arrives with nothing in it.
+- **A named terminal state.** The end says *which* wait failed. "Unanswered" and "Restore stalled" are different states with different exits; both rendered as a stopped spinner, they are the same unreadable non-event, and a report about either arrives with nothing in it.
 - **A user exit.** Something to press. Force Stop, Retry, Show Log, a composer that still takes text. A named failure with no affordance is a wall with a label on it.
 
 Two of the three is not compliance. The three defects that opened this document's arc each had exactly one of the three, and each read to the user as the app having died.
@@ -118,7 +118,7 @@ Resolving the login shell's PATH ran `/usr/bin/dscl` and then the user's shell t
 
 **Shape.** The wait has a deadline and an exit, and no vocabulary — so a card that is waiting on a network looks exactly like a card that is thinking hard.
 
-**The horizon.** A `stalled` lifecycle overlay raised from claude's own retry announcements, classified on a machine-readable `category` rather than on display copy, with stream silence past `STREAM_SILENCE_STALL_MS` as its second arm. The strip reads "Waiting for network", with the retry count when claude supplied one. Stop stays live throughout — a disabled stop button over work that will not end is the defect the whole arc began from — and the absence of any submit-mode change is pinned by a table in the lifecycle tests. A prompt submitted into that state is held rather than refused, on the queue that already survives quit, released by a proving event and never by a probe.
+**The horizon.** A `stalled` lifecycle overlay raised from claude's own retry announcements, classified on a machine-readable `category` rather than on display copy, with stream silence past `STREAM_SILENCE_STALL_MS` as its second arm. The strip reads "Waiting" — the bare state, with no detail folded into it. Stop stays live throughout — a disabled stop button over work that will not end is the defect the whole arc began from — and the absence of any submit-mode change is pinned by a table in the lifecycle tests. A prompt submitted into that state is held rather than refused, on the queue that already survives quit, released by a proving event and never by a probe.
 
 **The rule it yields.** Naming the state is not decoration; it is the difference between a report that says "it hung" and one that says which wait failed. And a named bad state does not remove affordances — it explains them.
 

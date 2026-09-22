@@ -78,7 +78,6 @@ import { isNetworkStalled } from "@/lib/code-session-store/lifecycle-state";
 import {
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
-  stallLabel,
   SESSION_PHASE_LABELS,
   type SessionPhaseInput,
 } from "@/lib/code-session-store/session-phase-visual";
@@ -1478,13 +1477,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // STATE cell value — the human-readable phase title. The two
   // flanking indicators take the same phase key and derive their
   // own role + state via sessionSessionPhaseVisual.
-  // `stalled` is the one key whose label carries a detail: claude's retry
-  // count, when the stall arrived as a retry announcement rather than as
-  // silence. See `stallLabel` for why that is a helper and not an entry.
-  const stateLabelText =
-    statePhaseKey === "stalled"
-      ? stallLabel(snap.apiRetry)
-      : SESSION_PHASE_LABELS[statePhaseKey];
+  // Every key reads as its bare label: the cell is one word wide and says
+  // what state the session is in, not how it got there.
+  const stateLabelText = SESSION_PHASE_LABELS[statePhaseKey];
 
   // TASKS cell — the numbered checklist alone ([D100]'s derived
   // turn-scoped fold, keeping its idle demotion: a half-done list does

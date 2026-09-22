@@ -15,10 +15,8 @@ import {
   SESSION_PHASE_LABELS,
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
-  stallLabel,
   type SessionPhaseInput,
 } from "../session-phase-visual";
-import type { ApiRetryState } from "../types";
 
 function input(
   overrides: Partial<SessionPhaseInput>,
@@ -93,12 +91,12 @@ describe("sessionSessionPhaseKey — interrupt precedence", () => {
 });
 
 describe("sessionSessionPhaseKey — a stop that went unanswered", () => {
-  test("stopStalled reads 'Stop unanswered' over the still-live turn", () => {
+  test("stopStalled reads 'Unanswered' over the still-live turn", () => {
     const key = sessionSessionPhaseKey(
       input({ phase: "streaming", stopStalled: true }),
     );
     expect(key).toBe("stop_stalled");
-    expect(SESSION_PHASE_LABELS[key]).toBe("Stop unanswered");
+    expect(SESSION_PHASE_LABELS[key]).toBe("Unanswered");
   });
 
   test("interrupt-in-flight still outranks it", () => {
@@ -146,12 +144,12 @@ describe("sessionSessionPhaseKey — a stop that went unanswered", () => {
 });
 
 describe("sessionSessionPhaseKey — a network that stopped answering", () => {
-  test("stalled reads 'Waiting for network' over the still-live turn", () => {
+  test("stalled reads 'Waiting' over the still-live turn", () => {
     const key = sessionSessionPhaseKey(
       input({ phase: "streaming", stalled: true }),
     );
     expect(key).toBe("stalled");
-    expect(SESSION_PHASE_LABELS[key]).toBe("Waiting for network");
+    expect(SESSION_PHASE_LABELS[key]).toBe("Waiting");
   });
 
   test("transport trouble outranks it", () => {
@@ -203,40 +201,6 @@ describe("sessionSessionPhaseKey — a network that stopped answering", () => {
       role: "caution",
       state: "running",
     });
-  });
-});
-
-describe("stallLabel", () => {
-  function retry(attempt: number, maxRetries: number): ApiRetryState {
-    return {
-      attempt,
-      maxRetries,
-      deadline: 0,
-      error: "ECONNRESET",
-      errorStatus: null,
-    };
-  }
-
-  test("a stall that arrived as silence reads the bare label", () => {
-    // Which is exactly what the deck knows: nothing has announced anything,
-    // the turn has simply gone quiet.
-    expect(stallLabel(null)).toBe("Waiting for network");
-  });
-
-  test("a stall claude is counting attempts for says so", () => {
-    expect(stallLabel(retry(3, 10))).toBe("Waiting for network — retry 3 of 10");
-    expect(stallLabel(retry(1, 10))).toBe("Waiting for network — retry 1 of 10");
-    expect(stallLabel(retry(10, 10))).toBe(
-      "Waiting for network — retry 10 of 10",
-    );
-  });
-
-  test("it composes from the record rather than duplicating the copy", () => {
-    // The reason this is a helper and not a `SESSION_PHASE_LABELS` entry: a
-    // copy edit to the base label moves both readings at once.
-    expect(stallLabel(retry(2, 5)).startsWith(SESSION_PHASE_LABELS.stalled)).toBe(
-      true,
-    );
   });
 });
 
@@ -546,7 +510,7 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["interrupting", "Interrupting"],
     ["background", "Running"],
     ["ready", "Ready"],
-    ["stalled", "Waiting for network"],
+    ["stalled", "Waiting"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
   });
