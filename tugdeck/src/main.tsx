@@ -26,7 +26,7 @@ import {
 import { initRecentDocuments } from "./lib/recent-documents";
 import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installNetworkPathBridge } from "./lib/network-path-store";
-import { installUpdateBridge } from "./lib/update-bridge";
+import { installUpdateBridge } from "./lib/update-store";
 import { cardServicesStore } from "./lib/card-services-store";
 import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
 import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
@@ -586,9 +586,10 @@ async function withBootHorizon<T>(
   // persisted MRU.
   initRecentDocuments();
 
-  // Receive the host's "an update is available" push and announce it as a
-  // bulletin. Installed after the provider tree is mounted so the first
-  // push has a Toaster to land in. See `lib/update-bridge.ts`.
+  // Receive the host's update state. What crosses is state rather than an
+  // event, so this is also what catches a reloaded deck up: the host replays
+  // the current snapshot on frontend-ready, and there is no queue on either
+  // side. See `lib/update-store.ts`.
   installUpdateBridge();
 
   // Receive the host's network-path reports. A hint, and asymmetric: the

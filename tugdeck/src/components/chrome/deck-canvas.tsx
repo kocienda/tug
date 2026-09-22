@@ -58,6 +58,7 @@ import {
 import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
+import { UpdateOverlay } from "./update-overlay";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
@@ -6606,6 +6607,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       {/* Deck-global Open Quickly popup (File ▸ Open Quickly). Renders
         * nothing until opened; portals into the overlay root above. */}
       <OpenQuicklyOverlay />
+      {/* Deck-global update pill, upper right. Renders nothing while the
+        * host has nothing to say, and nothing it renders ever takes focus;
+        * portals into the overlay root above. */}
+      <UpdateOverlay />
       </div>
     </ResponderScope>
   );

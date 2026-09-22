@@ -86,6 +86,7 @@ test-ts:
 test-swift:
     bash tests/build-info/test-branch-slug.sh
     bash tests/shell-path/test-shell-path-timeout.sh
+    bash tests/update/test-update-state.sh
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #

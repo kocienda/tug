@@ -145,9 +145,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// `bridgeFrontendReady` and never before. See `NetworkPathMonitor` for
     /// why it starts late and why `satisfied` is not an assurance.
     private let networkPathMonitor = NetworkPathMonitor()
-    /// An update found before the deck was live. Flushed to the bulletin
-    /// bridge once `bridgeFrontendReady` fires, like `pendingOpenPaths`.
-    private var pendingUpdateNotice: (version: String, build: String)?
 
     #if DEBUG
     /// In-app test harness bridge, active only when
@@ -399,8 +396,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         #endif
 
-        updateController.onScheduledUpdateFound = { [weak self] version, build in
-            self?.announceUpdate(version: version, build: build)
+        // Every update transition goes to the deck as a snapshot, and the
+        // current one is replayed on `bridgeFrontendReady`. Nothing is
+        // queued: an update found before the deck was live is still true
+        // when it mounts, so the replay says it [B03].
+        updateController.onSnapshot = { [weak self] snapshot in
+            guard let self, let window = self.window else { return }
+            window.bridgeUpdateState(snapshot)
         }
         updateController.startIfEligible()
         lap("updateController")
@@ -864,23 +866,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    /// Announce an update found by a scheduled Sparkle check, queueing it
-    /// when the deck has not mounted yet. Called from the gentle-reminder
-    /// delegate, which may fire long before or long after first paint.
-    private func announceUpdate(version: String, build: String) {
-        guard frontendHasLoadedOnce, let window = window else {
-            pendingUpdateNotice = (version, build)
-            return
-        }
-        window.bridgeUpdateAvailable(version: version, build: build)
-    }
-
-    /// Flush a queued update notice once the deck is live. Called from
-    /// `bridgeFrontendReady`, beside `flushPendingOpenPaths`.
-    func flushPendingUpdateNotice() {
-        guard let notice = pendingUpdateNotice, let window = window else { return }
-        pendingUpdateNotice = nil
-        window.bridgeUpdateAvailable(version: notice.version, build: notice.build)
+    /// Apply an update decision the deck posted through `updateAction`.
+    /// Ignored when the updater never started, and ignored by the driver
+    /// when the current state holds no reply for it [B03].
+    func performUpdateAction(_ action: UpdateAction) {
+        updateController.perform(action)
     }
 
     /// Whether `url` is a file Tug can open in any card — a regular file whose
@@ -983,8 +973,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Hidden rather than disabled when the updater is inactive — a
         // bundle that cannot replace itself should not advertise the
         // command at all (the Maker-menu pattern).
+        //
+        // The title is a starting value only: it tracks the update flow, and
+        // `validateMenuItem` rewrites it on every menu open from the
+        // driver's snapshot [B07]. Same pattern as Undo / Redo.
         let checkForUpdatesItem = NSMenuItem(
-            title: "Check for Updates...",
+            title: updateController.snapshot.menuTitle(appName: appName),
             action: #selector(checkForUpdates(_:)),
             keyEquivalent: ""
         )
@@ -1662,7 +1656,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
-        updateController.checkForUpdates()
+        // The item is one door onto the whole flow, not just its start:
+        // whatever the current state's decision is — check, install, or
+        // relaunch — this is it [B07]. `menuCommand` is nil only while the
+        // flow is mid-transfer, which `validateMenuItem` has already
+        // disabled the item for.
+        guard let command = updateController.snapshot.menuCommand else { return }
+        updateController.perform(command)
     }
 
     @objc func showAbout(_ sender: Any?) {
@@ -2506,6 +2506,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // has signalled ready.
         case "app.about", "app.settings", "app.keyboardShortcuts":
             return frontendReady
+        // The update door's title AND enablement, set here during the
+        // validation sweep for the same reason Undo / Redo are: the live
+        // truth is the driver's snapshot, which no pushed frontend state can
+        // see. The item is one door onto the whole flow [B07], so its title
+        // names the decision the current state actually offers, and it goes
+        // dark only while the flow is mid-transfer and there is nothing to
+        // decide.
+        case "app.checkForUpdates":
+            let snapshot = updateController.snapshot
+            menuItem.title = snapshot.menuTitle(appName: appDisplayName)
+            return snapshot.menuCommand != nil
         // View zoom. Reads `window.currentPageZoom` live rather than the
         // pushed state: page zoom is the host's own property, changed by
         // these very commands, and the read is a synchronous accessor so it
@@ -2695,9 +2706,12 @@ extension AppDelegate: BridgeDelegate {
             // reach the renderer now that frontendReady has fired.
             self.flushPendingOpenPaths()
 
-            // An update Sparkle found before the deck was live — the
-            // scheduled check can land during launch.
-            self.flushPendingUpdateNotice()
+            // The update state, replayed rather than queued: whatever
+            // Sparkle found before the deck was live is still true now, and
+            // a deck that reloaded mid-download is caught up by this one
+            // line [B03]. Sends `idle` when there is nothing to say, which
+            // is what clears a stale pill after a reload.
+            self.window?.bridgeUpdateState(self.updateController.snapshot)
 
             // Current VoiceOver state, on mount and on every reconnect —
             // the frontend's keyboard-access mode converges without

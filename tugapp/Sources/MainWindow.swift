@@ -498,7 +498,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.add(self, name: "restorePath")
         contentController.add(self, name: "thumbnailPath")
         contentController.add(self, name: "exportSession")
-        contentController.add(self, name: "checkForUpdates")
+        contentController.add(self, name: "updateAction")
 
         // Configure WKWebView
         // No Web Inspector, in any build. `developerExtrasEnabled` stays off
@@ -1152,7 +1152,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.removeScriptMessageHandler(forName: "restorePath")
         contentController.removeScriptMessageHandler(forName: "thumbnailPath")
         contentController.removeScriptMessageHandler(forName: "exportSession")
-        contentController.removeScriptMessageHandler(forName: "checkForUpdates")
+        contentController.removeScriptMessageHandler(forName: "updateAction")
         bridgeCleaned = true
     }
 
@@ -1167,18 +1167,33 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
            .replacingOccurrences(of: "\n", with: "\\n")
     }
 
-    /// Tell the deck that a scheduled Sparkle check found a new version, so
-    /// it can announce it as a bulletin instead of Sparkle's alert window.
-    /// The bulletin's action posts back to the `checkForUpdates` handler.
-    func bridgeUpdateAvailable(version: String, build: String) {
-        let versionArg = escapeForJS(version)
-        let buildArg = escapeForJS(build)
+    /// Hand the deck the current update state.
+    ///
+    /// Called on every transition, and again on `bridgeFrontendReady` — which
+    /// is what lets the deck reload mid-download and be caught up by the next
+    /// line rather than by a queue [B03]. Nothing here is an event, so a
+    /// replay is indistinguishable from the transition that produced it, and
+    /// a snapshot delivered twice costs nothing.
+    ///
+    /// Serialized through JSON rather than interpolated: release notes are
+    /// arbitrary HTML or Markdown, and `escapeForJS` handles three characters.
+    func bridgeUpdateState(_ snapshot: UpdateSnapshot) {
+        guard
+            let jsonData = try? JSONSerialization.data(withJSONObject: snapshot.jsonObject),
+            let jsonString = String(data: jsonData, encoding: .utf8),
+            let quotedData = try? JSONSerialization.data(
+                withJSONObject: jsonString, options: [.fragmentsAllowed]),
+            let quotedString = String(data: quotedData, encoding: .utf8)
+        else {
+            NSLog("MainWindow: JSON serialization failed for onUpdateState")
+            return
+        }
         webView.evaluateJavaScript(
-            "window.__tugBridge?.onUpdateAvailable?.({version: '\(versionArg)', build: '\(buildArg)'})"
+            "window.__tugBridge?.onUpdateState?.(JSON.parse(\(quotedString)))"
         ) { _, error in
             if let error = error {
                 NSLog(
-                    "MainWindow: evaluateJavaScript failed for onUpdateAvailable: %@",
+                    "MainWindow: evaluateJavaScript failed for onUpdateState: %@",
                     error.localizedDescription
                 )
             }
@@ -1825,12 +1840,20 @@ extension MainWindow: WKScriptMessageHandler {
                     "dataUrl": dataUrl ?? NSNull(),
                 ])
             }
-        case "checkForUpdates":
-            // The update bulletin's action. Brings Sparkle's standard update
-            // flow into focus; a no-op when the updater never started (debug
-            // and branch identities, and the app-test harness).
+        case "updateAction":
+            // The deck's one way to answer the update flow — the pill's and
+            // the popover's controls all arrive here [B03]. The host maps the
+            // name onto whichever Sparkle reply closure the current state
+            // holds, and ignores one the state has no closure for, so a stale
+            // click from a deck that reloaded mid-flow does nothing rather
+            // than replying twice.
+            guard let name = message.body as? String,
+                  let action = UpdateAction(rawValue: name) else {
+                NSLog("MainWindow: updateAction with an unreadable body; ignoring")
+                return
+            }
             if let appDelegate = NSApp.delegate as? AppDelegate {
-                appDelegate.checkForUpdates(nil)
+                appDelegate.performUpdateAction(action)
             }
 
         case "exportSession":

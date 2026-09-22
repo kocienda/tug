@@ -6,6 +6,11 @@ set -euo pipefail
 # Single source of truth: tugrust/Cargo.toml [workspace.package] version
 # Propagates to: tugcode/package.json, tugdeck/package.json, tugapp/Info.plist
 #
+# A version bump also seeds release-notes/<version>.md, because the update
+# popover's notes come from that file by way of generate_appcast [B11] and a
+# file nobody is reminded to write is a file nobody writes. Seeding is never
+# overwriting: a notes file that already exists is left exactly as it is.
+#
 # Usage:
 #   version.sh show               Print current version
 #   version.sh set <M.m.p>        Set version everywhere
@@ -18,6 +23,7 @@ CARGO_TOML="$REPO_ROOT/tugrust/Cargo.toml"
 TUGCODE_PKG="$REPO_ROOT/tugcode/package.json"
 TUGDECK_PKG="$REPO_ROOT/tugdeck/package.json"
 INFO_PLIST="$REPO_ROOT/tugapp/Info.plist"
+NOTES_DIR="$REPO_ROOT/release-notes"
 
 # Read current version from workspace Cargo.toml
 read_version() {
@@ -30,6 +36,28 @@ bundle_version() {
     local major minor patch
     IFS='.' read -r major minor patch <<< "$ver"
     echo $(( major * 10000 + minor * 100 + patch ))
+}
+
+# Seed release-notes/<version>.md for a version that has none yet.
+seed_release_notes() {
+    local ver="$1"
+    local notes="$NOTES_DIR/$ver.md"
+
+    if [ -f "$notes" ]; then
+        echo "release notes: $notes (already written)" >&2
+        return
+    fi
+
+    mkdir -p "$NOTES_DIR"
+    cat > "$notes" <<NOTES
+# Tug $ver
+
+<!-- What changed, for someone who has been using $ver's predecessor. This
+     markdown is embedded in the appcast and rendered in the update popover,
+     so write it for that reader: a few sentences or a short list, not a
+     commit log. Delete this comment. -->
+NOTES
+    echo "release notes: $notes (seeded — write it before releasing)" >&2
 }
 
 # Set version in all files
@@ -60,6 +88,10 @@ do_set() {
 
     # 5. Update Cargo.lock
     (cd "$REPO_ROOT/tugrust" && cargo generate-lockfile 2>/dev/null)
+
+    # 6. Seed the release notes. stderr, because stdout is the version and
+    # every caller reads it.
+    seed_release_notes "$ver"
 
     echo "$ver"
 }

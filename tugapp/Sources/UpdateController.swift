@@ -2,8 +2,15 @@ import AppKit
 import Foundation
 import Sparkle
 
-/// Sparkle wrapper. Owns the `SPUStandardUpdaterController` and decides
-/// whether this bundle is allowed to update itself at all.
+/// Sparkle wrapper. Owns the `SPUUpdater` and Tug's own user driver, and
+/// decides whether this bundle is allowed to update itself at all.
+///
+/// The updater is a bare `SPUUpdater` rather than an
+/// `SPUStandardUpdaterController` because Tug presents every update state
+/// itself — the pill, the popover, and the app-menu item — and Sparkle's
+/// standard windows are gone [B01]. Everything below the presentation is
+/// untouched: the same feed, the same signature verification, the same
+/// installer.
 ///
 /// Only the stable release identity (`dev.tugapp.app`) self-updates.
 /// Debug and branch builds get rewritten bundle identifiers from
@@ -12,7 +19,8 @@ import Sparkle
 /// both the gate and the feed URL so the update path can be exercised
 /// against a locally served appcast.
 ///
-/// References: the self-update design record, [P01], [P06], [P07].
+/// References: the self-update design record, [P01], [P06], [P07]; the
+/// non-modal update brief, [B01], [B07], [B09], [F04].
 final class UpdateController: NSObject {
     /// Environment variable that both enables the updater and supplies
     /// the appcast URL, bypassing the bundle-identity gate.
@@ -20,20 +28,48 @@ final class UpdateController: NSObject {
 
     private static let stableBundleIdentifier = "dev.tugapp.app"
 
-    private var updaterController: SPUStandardUpdaterController?
+    private var updater: SPUUpdater?
+    private let driver: TugUpdateDriver
+
+    /// Sparkle's `SPUUpdater` and `SPUUserDriver` are both declared
+    /// `NS_SWIFT_UI_ACTOR`, so `TugUpdateDriver` is `@MainActor` and every
+    /// touch of either has to be isolated. `AppDelegate` is not, and making
+    /// it so to reach one updater would be a concurrency refactor of a
+    /// three-thousand-line file that nothing else here asks for. So the
+    /// isolation stops at this class: every caller is already on the main
+    /// thread — app launch, a menu action, a Sparkle callback — and
+    /// `assumeIsolated` says so rather than hoping.
+    override init() {
+        driver = MainActor.assumeIsolated { TugUpdateDriver() }
+        super.init()
+    }
 
     /// Sparkle's relaunch handler, held while Tug tears itself down.
     /// Non-nil only between `shouldPostponeRelaunchForUpdate` and
     /// `resumePostponedRelaunch`.
     private var pendingRelaunchBlock: (() -> Void)?
 
-    /// Called with an update's `(displayVersion, build)` when a scheduled
-    /// check finds one and the delegate — not Sparkle — is showing it.
-    var onScheduledUpdateFound: ((String, String) -> Void)?
+    /// A check asked for while Sparkle was still winding down the previous
+    /// session. Fired from `didFinishUpdateCycleFor`; see `requestCheck()`.
+    private var pendingCheck = false
+
+    /// Called with every update snapshot that differs from the last. The
+    /// app-menu item's title reads from it today; the deck's pill reads from
+    /// it once the bridge lands.
+    var onSnapshot: ((UpdateSnapshot) -> Void)?
+
+    /// Called when Sparkle asks for a user-initiated update to be brought
+    /// into focus — the one place in the whole flow that may raise anything
+    /// [B06].
+    var onFocusRequested: (() -> Void)?
+
+    /// The current update state. Safe to read before the updater starts, in
+    /// which case it is `idle`.
+    var snapshot: UpdateSnapshot { MainActor.assumeIsolated { driver.snapshot } }
 
     /// True once Sparkle has been started. The "Check for Updates…" menu
     /// item is hidden while this is false.
-    var isActive: Bool { updaterController != nil }
+    var isActive: Bool { updater != nil }
 
     private var feedOverride: String? {
         guard
@@ -45,7 +81,12 @@ final class UpdateController: NSObject {
 
     /// Start Sparkle if this bundle is eligible, otherwise do nothing.
     func startIfEligible() {
-        guard updaterController == nil else { return }
+        MainActor.assumeIsolated { startIfEligibleOnMainActor() }
+    }
+
+    @MainActor
+    private func startIfEligibleOnMainActor() {
+        guard updater == nil else { return }
 
         if let feed = feedOverride {
             NSLog("UpdateController: starting with feed override \(feed)")
@@ -63,11 +104,48 @@ final class UpdateController: NSObject {
             }
         }
 
-        let controller = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: self,
-            userDriverDelegate: self
+        driver.onSnapshot = { [weak self] snapshot in
+            // Logged for the same reason the consent floor below is: this
+            // flow has no window of its own any more, so without a line per
+            // transition the only way to watch an update run is a debugger
+            // — and the end-to-end pass against a local appcast is run on a
+            // release bundle, where there is not one.
+            NSLog(
+                "UpdateController: %@ (version=%@ build=%@ percent=%@ userInitiated=%@)%@",
+                snapshot.stage.rawValue,
+                snapshot.version.isEmpty ? "-" : snapshot.version,
+                snapshot.build.isEmpty ? "-" : snapshot.build,
+                snapshot.percent.map(String.init) ?? "-",
+                snapshot.userInitiated ? "yes" : "no",
+                snapshot.message.isEmpty ? "" : " — \(snapshot.message)"
+            )
+            self?.onSnapshot?(snapshot)
+        }
+        driver.onFocusRequested = { [weak self] in
+            self?.onFocusRequested?()
+        }
+        driver.onCheckRequested = { [weak self] in
+            self?.requestCheck()
+        }
+
+        let updater = SPUUpdater(
+            hostBundle: Bundle.main,
+            applicationBundle: Bundle.main,
+            userDriver: driver,
+            delegate: self
         )
+
+        do {
+            try updater.start()
+        } catch {
+            // Sparkle refuses to start on a misconfigured bundle. There is
+            // no alert to raise — the standard controller's job was to put
+            // one up, and this work removed it — so the updater simply stays
+            // inactive and the menu item stays hidden, as it does for every
+            // ineligible identity.
+            NSLog("UpdateController: inactive — Sparkle refused to start: %@", error.localizedDescription)
+            return
+        }
 
         // Consent is not negotiable, and it must not rest on the
         // driver-delegate handoff alone: a release-configuration bundle was
@@ -79,14 +157,14 @@ final class UpdateController: NSObject {
         // the updater has started so it survives Sparkle's own defaults
         // reading, and logged so the state is observable in a release
         // bundle without a debugger.
-        controller.updater.automaticallyDownloadsUpdates = false
+        updater.automaticallyDownloadsUpdates = false
         NSLog(
             "UpdateController: started (automaticallyDownloadsUpdates=%@, automaticallyChecksForUpdates=%@)",
-            controller.updater.automaticallyDownloadsUpdates ? "yes" : "no",
-            controller.updater.automaticallyChecksForUpdates ? "yes" : "no"
+            updater.automaticallyDownloadsUpdates ? "yes" : "no",
+            updater.automaticallyChecksForUpdates ? "yes" : "no"
         )
 
-        updaterController = controller
+        self.updater = updater
     }
 
     /// Let Sparkle relaunch the freshly installed app. Called by
@@ -103,14 +181,43 @@ final class UpdateController: NSObject {
         block()
     }
 
-    /// Bring Sparkle's standard update flow into focus. Safe to call when
-    /// the updater never started.
-    func checkForUpdates() {
-        guard let updaterController else {
-            NSLog("UpdateController: check requested while inactive; ignoring")
+    /// Apply a user decision — from the app menu today, from the deck's
+    /// popover once the bridge lands. Safe to call when the updater never
+    /// started, and safe to call with an action the current state has no
+    /// reply for; both are ignored [B03].
+    func perform(_ action: UpdateAction) {
+        guard updater != nil else {
+            NSLog("UpdateController: '%@' requested while inactive; ignoring", action.rawValue)
             return
         }
-        updaterController.checkForUpdates(nil)
+        MainActor.assumeIsolated { driver.perform(action) }
+    }
+
+    /// Start a check, or hold it until Sparkle can accept one.
+    ///
+    /// Retry and Check for Updates both arrive here with a notice still
+    /// standing — that is what the user is answering — and Tug's driver
+    /// acknowledges that notice immediately before asking. Sparkle's
+    /// acknowledgement does not end the session: it *dispatches* the abort to
+    /// the next main-loop turn, so `sessionInProgress` is still true when the
+    /// ask lands and `checkForUpdates()` logs and returns having done nothing.
+    /// The visible symptom is a Retry button that clears the error and never
+    /// checks again.
+    ///
+    /// So a check asked for mid-session is held rather than dropped, and
+    /// `didFinishUpdateCycleFor` — Sparkle's own "the session is over" —
+    /// releases it. No timer and no retry loop: the end of a cycle is an event
+    /// Sparkle already reports.
+    @MainActor
+    private func requestCheck() {
+        guard let updater else { return }
+        guard !updater.sessionInProgress else {
+            pendingCheck = true
+            NSLog("UpdateController: check requested while a session is in progress — held until it ends")
+            return
+        }
+        pendingCheck = false
+        updater.checkForUpdates()
     }
 
     /// Both keys must be present for Sparkle to have a feed to fetch and a
@@ -154,42 +261,19 @@ extension UpdateController: SPUUpdaterDelegate {
         pendingRelaunchBlock = installHandler
         return true
     }
-}
 
-// MARK: - SPUStandardUserDriverDelegate
-
-extension UpdateController: SPUStandardUserDriverDelegate {
-    var supportsGentleScheduledUpdateReminders: Bool { true }
-
-    /// User-initiated checks never reach here — Sparkle always handles those.
-    /// Scheduled finds are handed to the deck instead of Sparkle's alert,
-    /// unless nothing is listening, in which case Sparkle's own alert is
-    /// still better than a silently swallowed update.
-    func standardUserDriverShouldHandleShowingScheduledUpdate(
-        _ update: SUAppcastItem,
-        andInImmediateFocus immediateFocus: Bool
-    ) -> Bool {
-        let handled = onScheduledUpdateFound == nil
-        NSLog(
-            "UpdateController: scheduled update %@ — sparkle shows it: %@",
-            update.displayVersionString,
-            handled ? "yes" : "no"
-        )
-        return handled
-    }
-
-    func standardUserDriverWillHandleShowingUpdate(
-        _ handleShowingUpdate: Bool,
-        forUpdate update: SUAppcastItem,
-        state: SPUUserUpdateState
+    /// Sparkle's own signal that a session is over and a new one may start.
+    /// Releases a check `requestCheck()` had to hold, on the next main-loop
+    /// turn so Sparkle finishes unwinding this cycle before the next begins.
+    func updater(
+        _ updater: SPUUpdater,
+        didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
+        error: (any Error)?
     ) {
-        NSLog(
-            "UpdateController: will show update %@ (sparkle handles: %@, userInitiated: %@)",
-            update.displayVersionString,
-            handleShowingUpdate ? "yes" : "no",
-            state.userInitiated ? "yes" : "no"
-        )
-        guard !handleShowingUpdate else { return }
-        onScheduledUpdateFound?(update.displayVersionString, update.versionString)
+        guard pendingCheck else { return }
+        pendingCheck = false
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.requestCheck() }
+        }
     }
 }

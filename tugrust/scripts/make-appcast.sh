@@ -11,6 +11,14 @@
 #
 # Output defaults to products/appcast.xml.
 #
+# Release notes [B11]: generate_appcast embeds a same-named .html/.md/.txt
+# sitting beside the archive, so this script stages one into the scratch
+# directory before it runs. The file is looked for at
+# release-notes/<version>.md, where <version> is read out of the archive's own
+# Tug-<version>.zip name, or named outright with --notes. A release with no
+# notes file is a warning and nothing more: the popover shows the version and
+# its controls without them, and an absent file never blocks an update.
+#
 # Key material, two modes:
 #   - $SPARKLE_ED_PRIVATE_KEY set (CI): piped to generate_appcast on stdin.
 #   - unset (a developer machine that ran generate_keys): omitted entirely, so
@@ -29,22 +37,45 @@ set -euo pipefail
 DOWNLOAD_URL_PREFIX="https://github.com/kocienda/tug/releases/download/updates/"
 PROJECT_LINK="https://github.com/kocienda/tug"
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-    echo "usage: $(basename "$0") <archive.zip> [<output-appcast.xml>]" >&2
+usage() {
+    echo "usage: $(basename "$0") [--notes <file>] <archive.zip> [<output-appcast.xml>]" >&2
     exit 2
+}
+
+NOTES=""
+POSITIONAL=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --notes)
+            [ "$#" -ge 2 ] || usage
+            NOTES="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [ "${#POSITIONAL[@]}" -lt 1 ] || [ "${#POSITIONAL[@]}" -gt 2 ]; then
+    usage
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-ARCHIVE="$1"
+ARCHIVE="${POSITIONAL[0]}"
 if [ ! -f "$ARCHIVE" ]; then
     echo "error: archive not found: $ARCHIVE" >&2
     exit 1
 fi
 ARCHIVE="$(cd "$(dirname "$ARCHIVE")" && pwd)/$(basename "$ARCHIVE")"
 
-OUTPUT="${2:-$REPO_ROOT/products/appcast.xml}"
+OUTPUT="${POSITIONAL[1]:-$REPO_ROOT/products/appcast.xml}"
 
 PACKAGE_RESOLVED="$REPO_ROOT/tugapp/Tug.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 if [ ! -f "$PACKAGE_RESOLVED" ]; then
@@ -112,10 +143,35 @@ WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 cp "$ARCHIVE" "$WORK_DIR/"
 
+# Stage the release notes beside the archive under the archive's own stem,
+# which is the whole of generate_appcast's convention for finding them.
+ARCHIVE_STEM="$(basename "$ARCHIVE")"
+ARCHIVE_STEM="${ARCHIVE_STEM%.*}"
+
+if [ -z "$NOTES" ]; then
+    # Tug-0.8.0.zip -> release-notes/0.8.0.md. A stem that is not in that
+    # shape simply leaves NOTES empty and takes the warning below.
+    case "$ARCHIVE_STEM" in
+        Tug-*) NOTES="$REPO_ROOT/release-notes/${ARCHIVE_STEM#Tug-}.md" ;;
+    esac
+fi
+
+NOTES_ARGS=()
+if [ -n "$NOTES" ] && [ -f "$NOTES" ]; then
+    cp "$NOTES" "$WORK_DIR/$ARCHIVE_STEM.${NOTES##*.}"
+    NOTES_ARGS=(--embed-release-notes)
+    echo "==> Release notes: $NOTES"
+else
+    # Never fatal [B11]. The popover shows the version and its controls with
+    # no notes, and a release is worth more than its changelog.
+    echo "==> Release notes: none found${NOTES:+ at $NOTES} — the feed will carry no description" >&2
+fi
+
 ARGS=(
     --download-url-prefix "$DOWNLOAD_URL_PREFIX"
     --link "$PROJECT_LINK"
     -o "$WORK_DIR/appcast.xml"
+    "${NOTES_ARGS[@]+"${NOTES_ARGS[@]}"}"
 )
 
 if [ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]; then

@@ -36,6 +36,7 @@ Tug is distributed as `Tug.app` to people whose projects have nothing to do with
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
 | `briefs/` | Working papers — briefs, audits, sketches that became files. Its address is the Briefs Directory setting; the vocabulary (idea → sketch → brief → plan) is [tuglaws/work-grammar.md](tuglaws/work-grammar.md). |
 | `tests/` | App-test harness that drives the real Tug.app |
+| `release-notes/` | One `<version>.md` per release, embedded in the Sparkle appcast and rendered in the update popover. Seeded by `version.sh`; see its `README.md`. |
 
 ## Build Policy
 

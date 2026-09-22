@@ -31,6 +31,8 @@
 		AA0000010000000000000020 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001D /* ShellPathResolver.swift */; };
 		AA0000010000000000000021 /* NetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001E /* NetworkPathMonitor.swift */; };
 		AA0000010000000000000018 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000018 /* UpdateController.swift */; };
+		AA0000010000000000000022 /* UpdateState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001F /* UpdateState.swift */; };
+		AA0000010000000000000023 /* TugUpdateDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000020 /* TugUpdateDriver.swift */; };
 		AA0000010000000000000019 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000140000000000000001 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -61,6 +63,8 @@
 		AA000002000000000000001D /* ShellPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolver.swift; sourceTree = "<group>"; };
 		AA000002000000000000001E /* NetworkPathMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkPathMonitor.swift; sourceTree = "<group>"; };
 		AA0000020000000000000018 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateController.swift; sourceTree = "<group>"; };
+		AA000002000000000000001F /* UpdateState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateState.swift; sourceTree = "<group>"; };
+		AA0000020000000000000020 /* TugUpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TugUpdateDriver.swift; sourceTree = "<group>"; };
 		AA0000030000000000000001 /* Tug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tug.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -101,6 +105,8 @@
 				AA0000020000000000000015 /* BranchSlug.swift */,
 				AA0000020000000000000017 /* InstanceConfig.swift */,
 				AA0000020000000000000018 /* UpdateController.swift */,
+				AA000002000000000000001F /* UpdateState.swift */,
+				AA0000020000000000000020 /* TugUpdateDriver.swift */,
 				AA000002000000000000001C /* TugLog.swift */,
 				AA000002000000000000001D /* ShellPathResolver.swift */,
 				AA000002000000000000001E /* NetworkPathMonitor.swift */,
@@ -226,6 +232,8 @@
 				AA0000010000000000000015 /* BranchSlug.swift in Sources */,
 				AA0000010000000000000017 /* InstanceConfig.swift in Sources */,
 				AA0000010000000000000018 /* UpdateController.swift in Sources */,
+				AA0000010000000000000022 /* UpdateState.swift in Sources */,
+				AA0000010000000000000023 /* TugUpdateDriver.swift in Sources */,
 				AA000001000000000000001F /* TugLog.swift in Sources */,
 				AA0000010000000000000020 /* ShellPathResolver.swift in Sources */,
 				AA0000010000000000000021 /* NetworkPathMonitor.swift in Sources */,
