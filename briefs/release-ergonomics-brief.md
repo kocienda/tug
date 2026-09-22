@@ -70,7 +70,7 @@ The non-modal update work has just landed (`b8d3043e2`), so an update now announ
 
 - **A local end-to-end release path.** [B05] — a second implementation of signing, notarizing, appcast generation and asset upload, kept in agreement with the CI one. The scripts are already runnable by hand for the contingency this would serve.
 
-- **Changing `release.yml`, `build-app.sh`, `make-appcast.sh` or `version.sh`.** [B01] — the pipeline is correct. The one thing a recipe might be tempted to fix in CI is the late arrival of the already-published check [F06], and `bless` answers that locally instead, which is better placed and costs nothing in the workflow.
+- **Changing `release.yml`, `build-app.sh` or `make-appcast.sh`.** [B01] — the pipeline is correct. The one thing a recipe might be tempted to fix in CI is the late arrival of the already-published check [F06], and `bless` answers that locally instead, which is better placed and costs nothing in the workflow. `version.sh` was on this list until the first real `version-bump` showed what its writes cost: `cargo generate-lockfile` re-resolved every dependency and PlistBuddy's `Set` re-sorted every key in `Info.plist`, so a one-line bump arrived as a thousand-line diff. That was fixed at the source rather than worked around — `cargo update --workspace` and an in-place edit of the two plist lines — because a bump whose diff cannot be read is a tool that will not be used.
 
 - **A stub guard in CI.** The notes check belongs where it can be acted on in five seconds [B02]. Adding it to `release.yml` as well would fail a run forty minutes in to tell the user something `bless` said before they pressed anything.
 

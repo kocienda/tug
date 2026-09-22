@@ -38,6 +38,21 @@ bundle_version() {
     echo $(( major * 10000 + minor * 100 + patch ))
 }
 
+# Set one <string> value in Info.plist, touching nothing but that line. The
+# key's line is matched and the value is on the next; the read-back through
+# PlistBuddy (a read, which does not rewrite) is what makes a silent no-match
+# a loud failure instead.
+set_plist_string() {
+    local key="$1" value="$2"
+    sed -i '' "/<key>$key<\/key>/{n;s|<string>[^<]*</string>|<string>$value</string>|;}" "$INFO_PLIST"
+    local got
+    got="$(/usr/libexec/PlistBuddy -c "Print :$key" "$INFO_PLIST")"
+    if [ "$got" != "$value" ]; then
+        echo "error: $INFO_PLIST $key reads '$got' after setting it to '$value'" >&2
+        exit 1
+    fi
+}
+
 # Seed release-notes/<version>.md for a version that has none yet.
 seed_release_notes() {
     local ver="$1"
@@ -83,11 +98,17 @@ do_set() {
     sed -i '' "s/\"version\": \".*\"/\"version\": \"$ver\"/" "$TUGDECK_PKG"
 
     # 4. tugapp/Info.plist — CFBundleShortVersionString and CFBundleVersion
-    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $ver" "$INFO_PLIST"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $bv" "$INFO_PLIST"
+    #    Edited in place rather than through PlistBuddy: `Set` rewrites the
+    #    whole file with its keys sorted, so two changed values arrive as an
+    #    80-line diff that buries them. The value sits on the line after its
+    #    key, and that is the only line touched.
+    set_plist_string "CFBundleShortVersionString" "$ver"
+    set_plist_string "CFBundleVersion" "$bv"
 
-    # 5. Update Cargo.lock
-    (cd "$REPO_ROOT/tugrust" && cargo generate-lockfile 2>/dev/null)
+    # 5. Cargo.lock — only the workspace crates' own entries. `generate-lockfile`
+    #    would resolve every dependency afresh, so a version bump carried a
+    #    thousand-line upgrade of crates nobody asked to move.
+    (cd "$REPO_ROOT/tugrust" && cargo update --workspace --offline --quiet)
 
     # 6. Seed the release notes. stderr, because stdout is the version and
     # every caller reads it.
