@@ -44,7 +44,7 @@
 
 import type React from "react";
 import { useCallback, useContext, useSyncExternalStore } from "react";
-import { Play } from "lucide-react";
+import { GitBranch } from "lucide-react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "@/components/tugways/blocks/collapse-context";
@@ -577,7 +577,7 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
   }, [arc, cardId]);
   return (
     <TugInlineDialog
-      icon={<Play />}
+      icon={<GitBranch />}
       title={ARC_RESUME_OFFER_TITLE}
       className="arc-receipt-resume"
       actions={
