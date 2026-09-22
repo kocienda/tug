@@ -103,3 +103,14 @@
 .session-boundary-detail code {
   font-family: var(--tug-font-family-mono);
 }
+
+/* …but not the header's optical drop. `.tool-call-header-detail code` nudges
+   a `<code>` down 1px, and that nudge is earned where a bare mono command IS
+   the whole detail, sitting against the sans name column beside it. A
+   boundary's `<code>` is a run INSIDE the detail's own sans prose, on a
+   baseline the slot has already placed — so the drop lands a second time and
+   the path rides a pixel below `Stage · devise` and the trailing badge, which
+   agree with each other. Return it to the run's baseline. */
+.session-boundary-bar .tool-call-header-detail code {
+  top: 0;
+}
