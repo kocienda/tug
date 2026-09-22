@@ -17,6 +17,13 @@
  *      it, because a card with a name of its own no longer needs to be
  *      announced by its type.
  *
+ * A card that is not standing publishes nothing, so a fourth source stands
+ * behind the third: the DURABLE half of {@link cardIdentity} ([B05]). The
+ * override store is a mounted-card channel by design, and a surface that read
+ * it alone could only ever name a card some deck happens to be holding up.
+ * Where the store is silent and the resolver answers from the durable record,
+ * that answer takes the override's place.
+ *
  * Before this module existed the composition lived inside `CardTitleBar`'s
  * render and a *different*, simpler rule (`CardState.title` with a fallback
  * chain) lived in the menu-state projection. They disagreed exactly where it
@@ -39,17 +46,51 @@
  * `cardTitleStore` for its rows to repaint when an override lands — the
  * store's `version()` exists for exactly that, and reading it through
  * `useSyncExternalStore` is what keeps [L02] intact. A non-React caller (the
- * menu-state projection) re-projects from its own subscription instead.
+ * menu-state projection) re-projects from its own subscription instead. The
+ * durable half carries the same obligation and a second input: the bindings
+ * ledger cache a parked Session card resolves through, which lands on a frame
+ * rather than on a deck mutation.
  *
  * @module lib/pane-title
  */
 
 import type { CardState, TugPaneState } from "../layout-tree";
 import { getRegistration } from "../card-registry";
+import { cardIdentity } from "./card-identity";
 import { cardTitleStore } from "./card-title-store";
 
 /** Shown when a pane resolves to no name at all. */
 const UNTITLED = "Untitled";
+
+/**
+ * The name to compose with: the live override a standing card published, or —
+ * where there is none — what the card holds according to the durable record
+ * ([B05]).
+ *
+ * **The store wins wherever it speaks, and a live resolver never overrules
+ * it.** A mounted card publishing an override is the live truth, and a mounted
+ * card publishing NOTHING is saying it would rather be called by its type: the
+ * Diff card is the worked example, naming the file on its masthead while its
+ * string channel stays the registry's "Diff", because an override replaces the
+ * registry title and a tab wants to keep saying "Diff". So only the DURABLE
+ * half of the resolution is promoted here — `source === "parked"`, which is
+ * reached exactly when nothing of the card is up to answer.
+ *
+ * What that buys is the guarantee rather than a repair. Every workspace the
+ * canvas mounts mounts its cards ([B06] — a hidden one is `display: none`,
+ * not unmounted), so the surfaces composing through this module name standing
+ * cards today and the durable answer is unreachable from them. It is what
+ * makes a surface that names a card in an UNMOUNTED workspace correct by
+ * construction rather than by somebody remembering — the same argument [B02]
+ * makes for declaring the resolvers on the registration at all.
+ */
+function titleOverrideFor(cardId: string | null): string | null {
+  const published = cardTitleStore.get(cardId);
+  if (published !== null) return published;
+  if (cardId === null) return null;
+  const identity = cardIdentity(cardId);
+  return identity.source === "parked" ? identity.title : null;
+}
 
 /**
  * The exact string a pane's title bar renders, from its three parts.
@@ -109,7 +150,7 @@ export function cardTitleTextFor(
 ): string {
   return composePaneTitleBarText({
     metaTitle: registryTitle,
-    titleOverride: cardTitleStore.get(cardId),
+    titleOverride: titleOverrideFor(cardId),
   });
 }
 
@@ -137,7 +178,7 @@ export function paneTitleBarTextFor(
       // Only a multi-tab pane's group name prefixes the title, matching
       // what `CardTitleBar` is handed.
       paneTitle: pane.cardIds.length > 1 ? pane.title : undefined,
-      titleOverride: cardTitleStore.get(pane.activeCardId),
+      titleOverride: titleOverrideFor(pane.activeCardId),
     }) || UNTITLED
   );
 }

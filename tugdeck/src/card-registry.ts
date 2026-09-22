@@ -76,6 +76,63 @@ export type LayoutRole = "content" | "sidebar";
 export const DEFAULT_LAYOUT_ROLE: LayoutRole = "content";
 
 /**
+ * What a card holds, as its own registration reports it.
+ *
+ * The fields a resolver leaves out are the ones it has nothing to say about —
+ * a file card answers with a `path` and no session, a Session card the other
+ * way round — and the caller fills the gaps from the registration's defaults
+ * rather than from a second resolver. The two halves are never merged
+ * field-by-field ([B03]): a half-live identity is a state nobody can reason
+ * about, so whichever resolver answers, answers wholly.
+ */
+export interface CardIdentityFacts {
+  /** The name the card is called by. The one required field. */
+  title: string;
+  /**
+   * A second line the card is also findable by — a session's
+   * `<project>/<callsign>` Line, say. Not every kind has one.
+   */
+  secondary?: string | null;
+  /** The file this card holds, for the kinds that hold one. */
+  path?: string | null;
+  /** The session this card is bound to, for the kinds that bind one. */
+  tugSessionId?: string | null;
+  /** That session's project directory. */
+  projectDir?: string | null;
+  /** A lucide icon name, when the card's own content names one. */
+  icon?: string | null;
+  /** The card wears its unsaved-changes mark. */
+  unsaved?: boolean;
+}
+
+/**
+ * How a card type answers "what do you hold?" — the identity capability a
+ * registration declares, read only by `cardIdentity` (in `lib/card-identity.ts`).
+ *
+ * Both halves are optional, and a registration declaring neither is a valid
+ * declaration rather than an oversight: a card whose identity is exactly its
+ * type name — Settings, Keyboard, the About box — has nothing to add, and
+ * `cardIdentity` answers for it from `defaultMeta` the same way
+ * `resolveCardsGroup` answers `"tools"` for a registration that declares no
+ * group. That fallback is what makes coverage total by construction ([B02]),
+ * and it is why identity is declared here rather than switched on inside
+ * whichever consumer happens to be naming cards that day.
+ *
+ * `live` is asked first and answers only for a MOUNTED card — it reads the
+ * open registries, the binding store, the card's own published title. `parked`
+ * is the durable record behind it ([P08]): the persisted bag, the bindings
+ * ledger cache — whatever still knows what the card holds when nothing of it
+ * is standing. A resolver that cannot answer returns `null` and the next
+ * source is tried.
+ */
+export interface CardIdentityResolution {
+  /** What a mounted card of this type holds, or `null` when none is mounted. */
+  live?: (cardId: string) => CardIdentityFacts | null;
+  /** What the durable record remembers, or `null` when it remembers nothing. */
+  parked?: (cardId: string) => CardIdentityFacts | null;
+}
+
+/**
  * Metadata describing a card's default appearance and behavior.
  *
  * **Authoritative reference:** CardMeta.
@@ -254,6 +311,14 @@ export interface CardRegistration {
    * home in the list.
    */
   cardsGroup?: "sessions" | "files" | "tools" | "none";
+  /**
+   * How this card type answers what it holds, live and parked.
+   *
+   * Read only by `cardIdentity` (in `lib/card-identity.ts`), which falls back
+   * to `defaultMeta` — so omitting this is a valid declaration, not an
+   * oversight. See {@link CardIdentityResolution}.
+   */
+  identity?: CardIdentityResolution;
   /**
    * Hide this registration from the type-picker [+] menu while keeping it
    * fully registered (seedable by `componentId`, resolvable by

@@ -16,6 +16,8 @@ import {
 import { TUG_ACTIONS } from "../../components/tugways/action-vocabulary";
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
+import { registerDeckStore } from "../deck-store-registry";
+import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 import type { SpacesSnapshot } from "../../spaces";
 
@@ -76,6 +78,15 @@ registerCard({
   contentFactory: () => null,
   defaultMeta: { title: "", closable: true },
 });
+// A card whose name lives in the DURABLE record rather than in an override —
+// the Commit card's shape ([B05]). It publishes nothing, so before the
+// composer learned to ask the registration its Window-menu row read "Commit".
+registerCard({
+  componentId: "menu-state-parked",
+  contentFactory: () => null,
+  defaultMeta: { title: "Commit", closable: true },
+  identity: { parked: () => ({ title: "Commit abcdef012" }) },
+});
 // A rail, for the card-width projection: a sidebar pane has no preset to set.
 registerCard({
   componentId: "menu-state-rail",
@@ -131,6 +142,28 @@ describe("projectDeckState", () => {
     const [entry] = projectDeckState(state).panes;
     expect(entry.cardCount).toBe(2);
     expect(entry.closable).toBe(false);
+  });
+
+  test("a card that is not standing is named by what it holds", () => {
+    // The step's own check: the Window menu is the most visible of the
+    // surfaces that compose through `paneTitleBarTextFor`, and a card nothing
+    // is holding up publishes no override — so the row read the registry's
+    // bare "Commit", which every Commit card would wear identically.
+    const cards = [card("a", { componentId: "menu-state-parked" })];
+    const state = deck(cards, [pane("p1", ["a"])]);
+    registerDeckStore({
+      spaceOf: () => "space-1",
+      getSpaceDeck: (spaceId: string) =>
+        spaceId === "space-1" ? state : null,
+      getCardState: () => undefined,
+    } as unknown as IDeckManagerStore);
+    try {
+      const [entry] = projectDeckState(state).panes;
+      expect(entry.title).not.toBe("Commit");
+      expect(entry.title).toBe("Commit abcdef012");
+    } finally {
+      registerDeckStore(null);
+    }
   });
 
   test("a pane is named the way its own title bar names it", () => {

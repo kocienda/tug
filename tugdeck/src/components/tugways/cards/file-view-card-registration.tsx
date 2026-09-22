@@ -14,11 +14,33 @@
 
 import React from "react";
 import { registerCard } from "@/card-registry";
+import type { CardIdentityFacts } from "@/card-registry";
+import { parkedBagPath } from "@/lib/card-identity";
+import { basename } from "@/lib/display-path";
+import { getOpenFileViewCard } from "@/lib/file-view-open-registry";
 import {
   CONTENT_WIDTH_COMFY_PX,
   CONTENT_WIDTH_SLIM_PX,
 } from "@/lib/layout-imposer";
 import { FileViewCardContent } from "./file-view-card";
+
+/** What a mounted viewer holds — the open registry's bound path. */
+function liveFileViewIdentity(cardId: string): CardIdentityFacts | null {
+  const path = getOpenFileViewCard(cardId)?.getPath() ?? null;
+  if (path === null) return null;
+  return { title: basename(path), path };
+}
+
+/**
+ * What a parked viewer's bag remembers ([P08]) — the same durable door the
+ * Text card reads, and for the same reason: a viewer in a workspace nobody
+ * has stood up was called "File".
+ */
+function parkedFileViewIdentity(cardId: string): CardIdentityFacts | null {
+  const path = parkedBagPath(cardId);
+  if (path === null) return null;
+  return { title: basename(path), path };
+}
 
 export function registerFileViewCard(): void {
   registerCard({
@@ -27,6 +49,7 @@ export function registerFileViewCard(): void {
     defaultMeta: { title: "File", icon: "FileText", closable: true },
     category: { label: "Files", icon: "FileText" },
     cardsGroup: "files",
+    identity: { live: liveFileViewIdentity, parked: parkedFileViewIdentity },
     sizePolicy: {
       // Sized like the Text card so a viewer opens at the same stature next
       // to one — see `text-card-registration.tsx` for the shared rationale.

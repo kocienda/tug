@@ -12,14 +12,69 @@
  */
 
 import { registerCard } from "@/card-registry";
+import type { CardIdentityFacts } from "@/card-registry";
+import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import {
   CONTENT_WIDTH_COMFY_PX,
   CONTENT_WIDTH_SLIM_PX,
 } from "@/lib/layout-imposer";
+import {
+  sessionDisplayTitleForBinding,
+  sessionDisplayTitleFor,
+  sessionIdentityLineFor,
+  sessionIdentityLineForBinding,
+} from "@/lib/session-identity";
+import { spaceBindingsLedgerStore } from "@/lib/space-bindings-ledger-store";
 import { FeedId } from "@/protocol";
 import { SessionCardContent } from "./session-card";
 import { sessionPickerPanel } from "./session-picker-panel";
 import { sessionPickerQuiet } from "./session-picker-quiet";
+
+/**
+ * What a MOUNTED Session card is seated on — the live binding the
+ * `spawn_session_ok` ack writes.
+ *
+ * A card receives a binding only when it mounts, which is exactly why the
+ * parked resolver below exists: a workspace nobody has activated mounts no
+ * cards, so this answers `null` for every card in one.
+ */
+function liveSessionIdentity(cardId: string): CardIdentityFacts | null {
+  const binding = cardSessionBindingStore.getBinding(cardId);
+  if (binding === undefined) return null;
+  return {
+    title: sessionDisplayTitleForBinding(binding),
+    secondary: sessionIdentityLineForBinding(binding),
+    tugSessionId: binding.tugSessionId,
+    projectDir: binding.projectDir,
+  };
+}
+
+/**
+ * What the bindings ledger remembers this card is seated on ([F02], [P08]).
+ *
+ * The boot `list_card_bindings_ok` frame lists EVERY card id the ledger knows
+ * rather than only the active deck's, precisely so it can answer for a
+ * workspace nobody has opened — and the Cards card read all of that for a
+ * single `N live` boolean while the row above it drew as a generic `session`
+ * cell with a close × where its identity should be.
+ *
+ * The ids are the whole of the fix ([B04]). The name, tag and synopsis stores
+ * are already seeded for every card at boot by the same frame's handler, keyed
+ * by the row's line — so handing back the session id and the project dir is
+ * enough for the identity projection to compose the same title and Line a
+ * bound card gets, with no round trip and no second description ladder.
+ */
+function parkedSessionIdentity(cardId: string): CardIdentityFacts | null {
+  const row = spaceBindingsLedgerStore.get(cardId);
+  if (row === undefined) return null;
+  const context = { projectDir: row.project_dir };
+  return {
+    title: sessionDisplayTitleFor(row.session_id, context),
+    secondary: sessionIdentityLineFor(row.session_id, context),
+    tugSessionId: row.session_id,
+    projectDir: row.project_dir,
+  };
+}
 
 /**
  * The height a folded Session card stands at, in pixels ([P04]).
@@ -53,6 +108,7 @@ export function registerSessionCard(): void {
     contentFactory: (cardId) => <SessionCardContent cardId={cardId} />,
     defaultMeta: { title: "", icon: "MessageSquareText", closable: true, confirmClose: true },
     cardsGroup: "sessions",
+    identity: { live: liveSessionIdentity, parked: parkedSessionIdentity },
     cardFeedIds: [
       FeedId.CODE_INPUT,
       FeedId.CODE_OUTPUT,

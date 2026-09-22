@@ -48,6 +48,17 @@ export function unregisterOpenCommitCard(cardId: string): void {
 }
 
 /**
+ * The mounted Commit card with this id, or null when none is standing.
+ *
+ * The by-id read beside {@link findCommitCardByTarget}'s by-target one. It is
+ * what the registration's LIVE identity resolver asks, so a mounted card and
+ * a parked one answer "which commit is this?" from the same vocabulary.
+ */
+export function getOpenCommitCard(cardId: string): CommitCardOpenEntry | null {
+  return entries.get(cardId) ?? null;
+}
+
+/**
  * Whether two targets name the same commit: the same root, and one sha a
  * prefix of the other. Case-insensitive on the hash, since a sha pasted from
  * elsewhere may arrive upper-case and git does not care.

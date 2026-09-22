@@ -591,6 +591,26 @@ export function sessionIdentityLineForBinding(
 }
 
 /**
+ * The display title for a session, resolved and formatted in one call —
+ * {@link sessionIdentityLineFor}'s twin, and the non-React shorthand for a
+ * projection that holds a session id rather than a card's live binding.
+ *
+ * The Session card's PARKED identity resolver is what this exists for: the
+ * bindings ledger's row carries a session id and a project dir and no binding
+ * at all, because a workspace nobody has activated holds none. It lives here
+ * rather than at the call site for the reason the grep gate below the module
+ * header states — `resolveSessionIdentity` is not a component's to call, and
+ * a registration under `components/` is on the wrong side of that line even
+ * when it is a projection rather than a render.
+ */
+export function sessionDisplayTitleFor(
+  sessionId: string,
+  context?: SessionIdentityContext,
+): string {
+  return sessionDisplayTitle(resolveSessionIdentity(sessionId, context));
+}
+
+/**
  * The display title for a card's session binding — the flat-row half of the
  * Cards card's own projection, beside {@link sessionIdentityLineForBinding}.
  *

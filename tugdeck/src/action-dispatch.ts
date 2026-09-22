@@ -69,6 +69,7 @@ import {
   sessionLineStore,
 } from "./lib/session-line-store";
 import { sessionTagStore } from "./lib/session-tag-store";
+import { getSessionLedgerStore } from "./lib/session-ledger-store";
 import { sessionPrivateStore } from "./lib/session-private-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
 import { sessionUsageStore } from "./lib/session-usage-store";
@@ -1813,6 +1814,27 @@ export function initActionDispatch(
       // moment its card rebinds (parity with the name seed).
       sessionTagStore.seedTag(lineId, b.tag ?? null);
       sessionSynopsisStore.seedSynopsis(lineId, b.synopsis ?? null);
+    }
+    // One `list_sessions` per distinct project the deck spans, kicked here
+    // rather than left to whichever row happens to mount first ([B09]).
+    //
+    // The on-demand path is conditioned on a surface being OPEN ([F08]):
+    // `SessionIdentityRow` builds its rest line from `useSessionLedgerRow`,
+    // whose hook kicks the listing for that project — so with the Workspaces
+    // card closed nothing is fetched at all, and the first open pays the
+    // latency on every project at once. The fan-out is bounded by the number
+    // of distinct projects the deck spans, a handful rather than a per-session
+    // cost, and `getSnapshot` is keyed by project directory and idempotent: a
+    // row mounting later finds the listing settled and kicks nothing.
+    const ledger = getSessionLedgerStore();
+    if (ledger !== null) {
+      const projects = new Set<string>();
+      for (const b of rows) {
+        if (typeof b.project_dir === "string" && b.project_dir.length > 0) {
+          projects.add(b.project_dir);
+        }
+      }
+      for (const projectDir of projects) ledger.getSnapshot(projectDir);
     }
     publishListCardBindingsOk({ bindings: rows });
   });

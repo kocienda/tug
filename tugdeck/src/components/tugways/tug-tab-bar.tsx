@@ -198,9 +198,15 @@ function useTabOverflow(
   // without recomputing overflow, leaving them clipped until an unrelated
   // resize.
   //
-  // This key is deliberately a superset of what `cardTitleTextFor` reads: the
-  // registry titles are already folded in below, so two override-less tabs of
-  // different types cannot collide on it. Nothing more is needed here.
+  // The key covers the two inputs that MOVE under a standing tab: the card's
+  // registry title (folded in below) and its override. `cardTitleTextFor` has
+  // a third rung behind those — what the durable record says a card that is
+  // not standing holds — and this key deliberately does not track it. A tab
+  // only ever draws a card its own pane is holding up, so that rung is
+  // reached here only for a background tab whose content has come down, and
+  // its answer is fixed for as long as that is true: the bag and the bindings
+  // ledger are written when a card is parked, not while it sits in a strip
+  // somebody is looking at. There is no width change for this key to miss.
   const overrideKey = useSyncExternalStore(cardTitleStore.subscribe, () =>
     cards.map((c) => cardTitleStore.get(c.id) ?? "").join("|"),
   );

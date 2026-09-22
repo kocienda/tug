@@ -51,6 +51,7 @@ import {
   type ArcSessionFact,
 } from "@/lib/arc-session-index";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { cardIdentity } from "@/lib/card-identity";
 import { spaceBindingsLedgerStore } from "@/lib/space-bindings-ledger-store";
 import {
   countedFileType,
@@ -84,43 +85,6 @@ import {
   type CardsGroup,
 } from "./cards-groups";
 import { basename, dirname } from "@/lib/display-path";
-import { formatUntitledName } from "@/lib/untitled-naming";
-
-/**
- * What a card's PERSISTED bag remembers about the file it holds — the answer
- * for a card the open registries cannot answer for at all.
- *
- * A file card's name is read off the mounted card: the Text card and the
- * viewer each register a live entry exposing `getPath()`, and an unmounted
- * card has no entry. That is fine while every card in the list is standing,
- * and it is wrong the moment a row draws a card in a workspace nobody has
- * visited — dragging a file card onto a parked workspace unregisters it, and
- * the row fell back to the registration's own `defaultMeta.title`, so the file
- * the user had just moved was thereafter called "File".
- *
- * The bag is where that card's path already lives. `moveCardToSpace` captures
- * every moving card before React takes its pane down ([L23]), and a workspace
- * switch does the same — so by the time a row has to draw an unmounted card,
- * `getCardState` holds the `{ path }` that card's
- * `useCardStatePreservation.onSave` wrote. This reads it and nothing else, and
- * it is the precedent [P08] already set for a session in an unvisited
- * workspace: where the live map cannot answer, the durable record does.
- */
-function parkedBagContent(cardId: string): {
-  path?: unknown;
-  untitled?: unknown;
-  untitledNumber?: unknown;
-} | null {
-  const content = getDeckStore()?.getCardState(cardId)?.content;
-  if (typeof content !== "object" || content === null) return null;
-  return content as { path?: unknown };
-}
-
-/** The path a parked card's bag remembers, or null when it holds none. */
-function parkedBagPath(cardId: string): string | null {
-  const path = parkedBagContent(cardId)?.path;
-  return typeof path === "string" && path.length > 0 ? path : null;
-}
 
 // ---------------------------------------------------------------------------
 // Path helpers — the display vocabulary shared by every file-kind row.
@@ -382,6 +346,31 @@ export interface CardsResolvers {
   parkedFile: (
     cardId: string,
   ) => { path: string | null; name: string } | null;
+  /**
+   * What a card of any OTHER kind holds, live or durable — the generic
+   * branch's answer for every kind the two file branches above do not name.
+   *
+   * A Session card in a workspace nobody has activated is the case this
+   * exists for: it holds no binding, so without this the row fell through to
+   * `card.title || defaultTitle(componentId)` and drew as a generic `session`
+   * cell with a close × instead of the session it is seated on ([F01]).
+   *
+   * It answers for a MOUNTED card of those kinds too, and must: a Commit card
+   * standing in the active workspace holds the same commit it held while it
+   * was parked, so a row that named the commit until the user clicked into
+   * the workspace and read a bare "Commit" afterwards would be this arc's own
+   * defect wearing the other face ([B01]). Live is asked first and the two
+   * answers are spelled in one place per kind, so the transition between them
+   * is invisible. `null` when the registration declares no resolver at all,
+   * or when neither source knows anything.
+   */
+  resolvedIdentity: (cardId: string) => {
+    title: string;
+    callsignLine: string | null;
+    path: string | null;
+    tugSessionId: string | null;
+    projectDir: string | null;
+  } | null;
   /** The title a bound session row displays — the identity's display title. */
   sessionLabel: (binding: CardSessionBinding) => string;
   /** That session's `<project>/<callsign>` Line, for the filter to match on. */
@@ -415,18 +404,36 @@ export const DEFAULT_RESOLVERS: CardsResolvers = {
   textDisplayName: (cardId) => getOpenTextCard(cardId)?.getDisplayName() ?? null,
   textUnsaved: (cardId) => getOpenTextCard(cardId)?.hasUnsavedMark() ?? false,
   viewPath: (cardId) => getOpenFileViewCard(cardId)?.getPath() ?? null,
+  // The durable answer is the card's own registration's ([B02]), reached
+  // through the one public resolution function ([B03]) rather than
+  // hand-rolled here per kind — which is how `text` and `file-view` came to
+  // have one fallback each while Commit and Diff had none. `cardIdentity`
+  // asks the live resolver first; this seam is reached only once the live
+  // registries have already come up empty, so the parked answer is the one
+  // that can arrive here.
   parkedFile: (cardId) => {
-    const content = parkedBagContent(cardId);
-    if (content === null) return null;
-    const path = parkedBagPath(cardId);
-    if (path !== null) return { path, name: basename(path) };
-    // An untitled buffer has no path to take a name from, and the number it
-    // was allocated rides the bag beside one. Same call the card itself makes,
-    // so a parked `Untitled-2` is still called that in the list.
-    if (content.untitled !== true) return null;
-    const number =
-      typeof content.untitledNumber === "number" ? content.untitledNumber : null;
-    return { path: null, name: formatUntitledName(number) };
+    const resolved = cardIdentity(cardId);
+    if (resolved.source !== "parked") return null;
+    return { path: resolved.path, name: resolved.title };
+  },
+  // The same door, for every kind whose identity is not a file's — and this
+  // one takes the LIVE answer as readily as the durable one, because the
+  // generic branch has no live path of its own the way the two file branches
+  // above do. A Session card in a workspace nobody has activated holds no
+  // binding by design ([B04]) and the ledger's own row for it comes back
+  // through here; a Commit card that IS standing answers from its open
+  // registry through the same call, rather than falling back to the bare type
+  // name the moment somebody visits the workspace.
+  resolvedIdentity: (cardId) => {
+    const resolved = cardIdentity(cardId);
+    if (resolved.source === "default") return null;
+    return {
+      title: resolved.title,
+      callsignLine: resolved.secondary,
+      path: resolved.path,
+      tugSessionId: resolved.tugSessionId,
+      projectDir: resolved.projectDir,
+    };
   },
   // A projection, not a render: this recomputes when the identity stores'
   // version tokens move (they are inputs to the section's memo), which is the
@@ -582,6 +589,10 @@ function resolveCard(
   let callsignLine: string | null = null;
   let path: string | null = null;
   let unsaved = false;
+  // What the card's own registration says it holds, for every kind the two
+  // file branches below do not name. Null when the registration declares no
+  // resolver, or when neither of its halves knows anything.
+  let held: ReturnType<CardsResolvers["resolvedIdentity"]> = null;
 
   if (card.componentId === "text") {
     path = r.textPath(card.id);
@@ -608,7 +619,14 @@ function resolveCard(
     title = r.sessionLabel(binding);
     callsignLine = r.sessionCallsignLine(binding);
   } else {
-    title = card.title || r.defaultTitle(card.componentId) || card.componentId;
+    held = r.resolvedIdentity(card.id);
+    title =
+      held?.title ??
+      (card.title || r.defaultTitle(card.componentId) || card.componentId);
+    callsignLine = held?.callsignLine ?? null;
+    // A Diff card scoped to one file holds a path, and the row files as that
+    // file rather than as a nameless entry in the Files group.
+    path = held?.path ?? null;
   }
 
   return {
@@ -619,8 +637,8 @@ function resolveCard(
     callsignLine,
     path,
     unsaved,
-    tugSessionId: binding?.tugSessionId ?? null,
-    projectDir: binding?.projectDir ?? null,
+    tugSessionId: binding?.tugSessionId ?? held?.tugSessionId ?? null,
+    projectDir: binding?.projectDir ?? held?.projectDir ?? null,
     closable: card.closable,
     icon: card.icon ?? r.icon(card.componentId),
   };

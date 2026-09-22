@@ -720,6 +720,76 @@ describe("filtering", () => {
     ).toEqual(["header:sessions(1)", "pane:session-pane:proj/refactor"]);
   });
 
+  it("a session in a workspace nobody has activated says what it is seated on", () => {
+    // The defect this arc exists to close ([F01]). A parked workspace mounts
+    // no cards, so its Session cards hold no binding — and the row fell
+    // through to `card.title || defaultTitle("session")` with a null
+    // `tugSessionId`, which is what makes the cell draw generic. The durable
+    // record answers instead, and the two ids are the whole of it ([B04]).
+    const d = deck([card("s1", "session")], [pane("p1", ["s1"])]);
+    const r: Partial<CardsResolvers> = {
+      ...resolvers({ groups: STANDARD_GROUPS }),
+      resolvedIdentity: (cardId) =>
+        cardId === "s1"
+          ? {
+              title: "parser rewrite",
+              callsignLine: "proj/frothy-nurse",
+              path: null,
+              tugSessionId: "sess-1",
+              projectDir: "/Users/k/src/proj",
+            }
+          : null,
+    };
+    const rows = innerRows(inputs(d, { bindings: new Map() }), r);
+    expect(shape(rows)).toEqual([
+      "header:sessions(1)",
+      "pane:session-pane:parser rewrite",
+    ]);
+    const paneRow = rows[1];
+    expect(paneRow?.type === "pane" && paneRow.identity.tugSessionId).toBe(
+      "sess-1",
+    );
+    expect(paneRow?.type === "pane" && paneRow.identity.projectDir).toBe(
+      "/Users/k/src/proj",
+    );
+    // The callsign rides it too, so the parked row is as findable as a bound
+    // one by the handle the user never stopped being able to type.
+    expect(
+      shape(innerRows(inputs(d, { filterQuery: "frothy" }), r)),
+    ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
+  });
+
+  it("a live binding outranks the durable record", () => {
+    // Live before parked ([B03]): the parked resolver is the answer for a
+    // card no live source can speak for, never a second opinion beside one.
+    const d = deck([card("s1", "session")], [pane("p1", ["s1"])]);
+    const r: Partial<CardsResolvers> = {
+      ...resolvers({
+        groups: STANDARD_GROUPS,
+        labels: { "sess-live": "the live one" },
+      }),
+      resolvedIdentity: () => ({
+        title: "the stale one",
+        callsignLine: null,
+        path: null,
+        tugSessionId: "sess-stale",
+        projectDir: "/elsewhere",
+      }),
+    };
+    const rows = innerRows(
+      inputs(d, { bindings: new Map([["s1", binding("sess-live")]]) }),
+      r,
+    );
+    expect(shape(rows)).toEqual([
+      "header:sessions(1)",
+      "pane:session-pane:the live one",
+    ]);
+    const paneRow = rows[1];
+    expect(paneRow?.type === "pane" && paneRow.identity.tugSessionId).toBe(
+      "sess-live",
+    );
+  });
+
   it("a named session is found by its name AND by the callsign it stopped showing", () => {
     // The row shows the user's own name and no callsign ([D141]). Both still
     // have to find it: the name because it is what they chose and what they

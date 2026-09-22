@@ -18,6 +18,16 @@ import type { DiffDescriptor } from "./git-diff-store";
 export interface DiffCardOpenEntry {
   /** The card's current descriptor key (`diffDescriptorKey`), or null. */
   getKey(): string | null;
+  /**
+   * The descriptor itself, or null before the card is seeded.
+   *
+   * Beside {@link DiffCardOpenEntry.getKey} rather than replacing it: a key
+   * answers "is this the same diff?" and a descriptor answers "which diff is
+   * it?", and the registration's LIVE identity resolver needs the second.
+   * Without it a mounted Diff card could only be named from its persisted
+   * bag, which is the durable record rather than the live truth.
+   */
+  getDescriptor(): DiffDescriptor | null;
   /** Re-point this card at a new descriptor (fires a fresh request). */
   setDescriptor(descriptor: DiffDescriptor): void;
 }
@@ -30,6 +40,11 @@ export function registerOpenDiffCard(cardId: string, entry: DiffCardOpenEntry): 
 
 export function unregisterOpenDiffCard(cardId: string): void {
   entries.delete(cardId);
+}
+
+/** The mounted Diff card with this id, or null when none is standing. */
+export function getOpenDiffCard(cardId: string): DiffCardOpenEntry | null {
+  return entries.get(cardId) ?? null;
 }
 
 /** The Diff card currently showing `key`, or null. */

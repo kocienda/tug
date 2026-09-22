@@ -11,10 +11,16 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { composePaneTitleBarText, paneTitleBarTextFor } from "../pane-title";
+import {
+  cardTitleTextFor,
+  composePaneTitleBarText,
+  paneTitleBarTextFor,
+} from "../pane-title";
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
-import type { CardState, TugPaneState } from "../../layout-tree";
+import { registerDeckStore } from "../deck-store-registry";
+import type { IDeckManagerStore } from "../../deck-manager-store";
+import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 
 // Two stand-ins for the two shapes that matter: a card whose name is baked
 // into the registry, and a card (the Session card's shape) whose registry
@@ -29,6 +35,36 @@ registerCard({
   contentFactory: () => null,
   defaultMeta: { title: "", closable: true },
 });
+
+/**
+ * A card whose identity is DURABLE: it publishes no override, and what it
+ * holds is answered by the parked half of its registration ([B05]). The
+ * Commit card's shape, standing in for it here so this file stays a unit test
+ * of the composer rather than of any one card kind.
+ */
+registerCard({
+  componentId: "pane-title-parked",
+  contentFactory: () => null,
+  defaultMeta: { title: "Commit", closable: true },
+  identity: {
+    parked: (cardId) =>
+      cardId === "a" ? { title: "Commit abcdef012" } : null,
+  },
+});
+
+/**
+ * A deck store holding `cards` in one workspace — the reads `cardIdentity`
+ * makes to reach a card nobody is looking at.
+ */
+function installDeckStore(cards: readonly CardState[]): void {
+  const deck = { cards } as unknown as DeckState;
+  registerDeckStore({
+    spaceOf: (cardId: string) =>
+      cards.some((c) => c.id === cardId) ? "space-1" : null,
+    getSpaceDeck: (spaceId: string) => (spaceId === "space-1" ? deck : null),
+    getCardState: () => undefined,
+  } as unknown as IDeckManagerStore);
+}
 
 function card(id: string, componentId: string): CardState {
   // `title` is deliberately something no rule should surface — the old one
@@ -54,6 +90,7 @@ const byId = (...cards: CardState[]): ReadonlyMap<string, CardState> =>
 afterEach(() => {
   cardTitleStore.clear("a");
   cardTitleStore.clear("b");
+  registerDeckStore(null);
 });
 
 describe("composePaneTitleBarText", () => {
@@ -160,5 +197,64 @@ describe("paneTitleBarTextFor", () => {
 
   test('falls back to "Untitled" only when nothing resolves', () => {
     expect(paneTitleBarTextFor(pane("p", ["gone"]), byId())).toBe("Untitled");
+  });
+});
+
+/**
+ * The durable half ([B05]) — a card that is not standing has published no
+ * override, and the composer asks the registration what it holds rather than
+ * settling for the type name.
+ *
+ * Every surface that names a card composes through this module, so pinning it
+ * here pins the tab strip, the slot-stack picker and the Window menu's pane
+ * list at once — which is the whole reason the composition lives in one file.
+ */
+describe("a card that is not standing", () => {
+  test("is named by what it holds, not by its type", () => {
+    const cards = byId(card("a", "pane-title-parked"));
+    installDeckStore([...cards.values()]);
+
+    // What the Window menu's row said before: the registry's bare type name,
+    // which two Commit cards would wear identically.
+    expect(paneTitleBarTextFor(pane("p", ["a"]), cards)).not.toBe("Commit");
+    expect(paneTitleBarTextFor(pane("p", ["a"]), cards)).toBe(
+      "Commit abcdef012",
+    );
+    // And the tab strip, which composes the same rule per tab.
+    expect(cardTitleTextFor("a", "Commit")).toBe("Commit abcdef012");
+  });
+
+  test("a live override still outranks the durable record", () => {
+    // The store is the live truth and nothing behind it overrules one: a
+    // mounted card saying what it is called is the answer, always.
+    const cards = byId(card("a", "pane-title-parked"));
+    installDeckStore([...cards.values()]);
+    cardTitleStore.set("a", "Commit ffffffff0");
+
+    expect(paneTitleBarTextFor(pane("p", ["a"]), cards)).toBe(
+      "Commit ffffffff0",
+    );
+  });
+
+  test("a card whose durable record says nothing keeps its type name", () => {
+    // `pane-title-parked`'s resolver answers for "a" and nothing else, so
+    // this is the registration declining — the default rung, which must not
+    // leak `cardIdentity`'s own fallback into the composition.
+    const cards = byId(card("b", "pane-title-parked"));
+    installDeckStore([...cards.values()]);
+
+    expect(paneTitleBarTextFor(pane("p", ["b"]), cards)).toBe("Commit");
+  });
+
+  test("a group name still prefixes the durable name", () => {
+    const cards = byId(
+      card("a", "pane-title-parked"),
+      card("b", "pane-title-parked"),
+    );
+    installDeckStore([...cards.values()]);
+
+    expect(paneTitleBarTextFor(pane("p", ["a", "b"], "Review"), cards)).toBe(
+      "Review : Commit abcdef012",
+    );
   });
 });

@@ -39,6 +39,8 @@ import React, {
 } from "react";
 
 import { registerCard } from "@/card-registry";
+import type { CardIdentityFacts } from "@/card-registry";
+import { parkedCardBag } from "@/lib/card-identity";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { CONTENT_WIDTH_COMFY_PX } from "@/lib/layout-imposer";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -54,6 +56,7 @@ import {
   type GitDiffSnapshot,
 } from "@/lib/git-diff-store";
 import {
+  getOpenDiffCard,
   registerOpenDiffCard,
   unregisterOpenDiffCard,
 } from "@/lib/diff-card-open-registry";
@@ -133,6 +136,52 @@ function descriptorLabel(descriptor: DiffDescriptor): string {
   return "Uncommitted changes (git diff HEAD)";
 }
 
+/**
+ * What a Diff card holds, from a descriptor — the one place this card's name
+ * is spelled for the resolver, so a mounted card and a parked one cannot
+ * disagree about it.
+ *
+ * The three cases are the masthead's own, and deliberately so: a whole-project
+ * diff is "Project Diff", a pop-out scoped to one file is that file, and
+ * anything else takes {@link descriptorLabel}. A scoped one carries its path
+ * too, which is what lets the row file as the FILE it is showing rather than
+ * as a nameless entry in the Files group.
+ *
+ * Note what this does NOT touch: the string channel of `cardTitleStore`, which
+ * the card still publishes only for a project diff, because that override
+ * replaces the registry title and a tab wants to keep saying "Diff". Naming a
+ * card and titling its tab are two questions, and this answers the first.
+ */
+function diffIdentityOf(descriptor: DiffDescriptor): CardIdentityFacts {
+  if (isProjectDiffDescriptor(descriptor)) return { title: "Project Diff" };
+  const scopedPath = scopedFilePath(descriptor);
+  if (scopedPath !== null) {
+    return {
+      title: basename(scopedPath),
+      path: scopedDisplayPath(descriptor, scopedPath),
+    };
+  }
+  return { title: descriptorLabel(descriptor) };
+}
+
+/** The diff a MOUNTED card is pointed at. */
+function liveDiffIdentity(cardId: string): CardIdentityFacts | null {
+  const descriptor = getOpenDiffCard(cardId)?.getDescriptor() ?? null;
+  return descriptor === null ? null : diffIdentityOf(descriptor);
+}
+
+/**
+ * The diff a PARKED card's bag remembers ([P08]).
+ *
+ * Read through the card's own {@link coerceDescriptor}, so what the resolver
+ * believes the bag holds is exactly what `onRestore` will put back rather than
+ * a second guess at the same shape.
+ */
+function parkedDiffIdentity(cardId: string): CardIdentityFacts | null {
+  const descriptor = coerceDescriptor(parkedCardBag(cardId));
+  return descriptor === null ? null : diffIdentityOf(descriptor);
+}
+
 export function DiffCardContent({ cardId }: { cardId: string }): React.ReactElement {
   const [descriptor, setDescriptor] = useState<DiffDescriptor | null>(null);
   // One store per card, created at mount; owned here, disposed on unmount.
@@ -165,6 +214,7 @@ export function DiffCardContent({ cardId }: { cardId: string }): React.ReactElem
         descriptorRef.current !== null
           ? diffDescriptorKey(descriptorRef.current)
           : null,
+      getDescriptor: () => descriptorRef.current,
       setDescriptor: (next) => setDescriptor(next),
     });
     return () => unregisterOpenDiffCard(cardId);
@@ -342,6 +392,7 @@ export function registerDiffCard(): void {
     contentFactory: (cardId) => <DiffCardContent cardId={cardId} />,
     defaultMeta: { title: "Diff", icon: "GitCompareArrows", closable: true },
     category: { label: "Files", icon: "GitCompareArrows" },
+    identity: { live: liveDiffIdentity, parked: parkedDiffIdentity },
     sizePolicy: {
       // Opens at the deck's content width, the one the Session, Text, and File
       // cards open at, so a diff popped out beside one reads at the same

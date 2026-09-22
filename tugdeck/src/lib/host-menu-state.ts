@@ -34,6 +34,7 @@ import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
 import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
 import { cardSessionBindingStore } from "./card-session-binding-store";
+import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { visibleCardCount } from "./card-ring";
 import { getAllRegistrations, isSidebarCard } from "../card-registry";
 import {
@@ -713,9 +714,11 @@ export interface MenuStatePayload {
  * Pane names come from {@link paneTitleBarTextFor} — the same string the
  * pane's own title bar renders — so the Window menu, the slot-stack picker,
  * and the title bar cannot disagree about what a pane is called. That read
- * folds in the live `cardTitleStore` override, which is not deck state; the
- * publisher wiring below subscribes to that store as well as to the deck, so
- * a card that renames itself renames its menu entry.
+ * folds in the live `cardTitleStore` override and, behind it, what the
+ * durable record says a card that is not standing holds ([B05]) — neither of
+ * which is deck state. The publisher wiring below subscribes to both stores
+ * as well as to the deck, so a card that renames itself renames its menu
+ * entry.
  */
 export function projectDeckState(
   state: DeckState,
@@ -1263,6 +1266,11 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // diffs the serialized payload, so a push that changes nothing costs
   // nothing.
   cardTitleStore.subscribe(push);
+  // And the durable half behind it: a card that is not standing takes its
+  // name from the bindings ledger cache, which fills on a FRAME rather than
+  // on any deck mutation. Without this the menu would hold whatever it could
+  // say before the listing landed.
+  spaceBindingsLedgerStore.subscribe(push);
   // Every chord the host applies is projected from the keymap registry, so a
   // rebind has to republish or the menu bar keeps the chord the user just
   // moved away.

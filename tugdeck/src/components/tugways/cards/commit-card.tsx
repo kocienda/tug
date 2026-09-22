@@ -39,6 +39,8 @@ import "./commit-card.css";
 import React, { useLayoutEffect, useRef, useState } from "react";
 
 import { registerCard } from "@/card-registry";
+import type { CardIdentityFacts } from "@/card-registry";
+import { parkedCardBag } from "@/lib/card-identity";
 import {
   cardTitleStore,
   type CommitMastheadFile,
@@ -51,6 +53,7 @@ import {
 } from "@/components/tugways/commit-presentation";
 import { useCardStatePreservation } from "@/components/tugways/use-card-state-preservation";
 import {
+  getOpenCommitCard,
   registerOpenCommitCard,
   unregisterOpenCommitCard,
   type CommitCardTarget,
@@ -79,6 +82,40 @@ function coerceSeed(value: unknown): CommitCardSeed | null {
     };
   }
   return seed;
+}
+
+/**
+ * What a Commit card holds, from a target — the one place this card's name is
+ * spelled, so the live and the parked resolver cannot disagree about it.
+ *
+ * `Commit <sha9>` is the Diff card's own vocabulary for a commit descriptor,
+ * and the two are peers. The root rides `secondary` rather than the title
+ * because it is what tells two cards on the same sha in different repositories
+ * apart, and a filter is where that question gets asked.
+ */
+function commitIdentityOf(target: CommitCardTarget): CardIdentityFacts {
+  return {
+    title: `Commit ${target.sha.slice(0, 9)}`,
+    secondary: target.root.length > 0 ? target.root : null,
+  };
+}
+
+/** The commit a MOUNTED card is pointed at. */
+function liveCommitIdentity(cardId: string): CardIdentityFacts | null {
+  const target = getOpenCommitCard(cardId)?.getTarget() ?? null;
+  return target === null ? null : commitIdentityOf(target);
+}
+
+/**
+ * The commit a PARKED card's bag remembers ([P08]).
+ *
+ * Read through the card's own {@link coerceSeed}, so what the resolver
+ * believes the bag holds is exactly what `onRestore` will put back rather than
+ * a second guess at the same shape.
+ */
+function parkedCommitIdentity(cardId: string): CardIdentityFacts | null {
+  const seed = coerceSeed(parkedCardBag(cardId));
+  return seed === null ? null : commitIdentityOf(seed.target);
 }
 
 /**
@@ -267,6 +304,7 @@ export function registerCommitCard(): void {
     contentFactory: (cardId) => <CommitCardContent cardId={cardId} />,
     defaultMeta: { title: "Commit", icon: "GitCommitHorizontal", closable: true },
     category: { label: "Files", icon: "GitCommitHorizontal" },
+    identity: { live: liveCommitIdentity, parked: parkedCommitIdentity },
     sizePolicy: {
       // The Diff card's stature, for the reason a commit and its diff are
       // peers: a commit popped out beside a session reads at the deck's
