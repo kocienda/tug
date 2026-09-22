@@ -76,7 +76,7 @@ The non-modal update work has just landed (`b8d3043e2`), so an update now announ
 
 - **A nightly update feed.** `UpdateController` records that the nightly identity has no feed of its own, and `nightly.yml` publishes no appcast. Giving the nightly channel self-update is separate work with its own questions about channel selection, and nothing here depends on it.
 
-- **Automating the release notes from the commit log.** `release-notes/README.md` already decided this: the notes are addressed to someone who does not read this repository. The recipes make writing them easy to reach and hard to forget; they do not write them.
+- **Generating the release notes mechanically from the commit log.** `release-notes/README.md` already decided this: the notes are addressed to someone who does not read this repository, and a commit list is not that. What the person will honestly never do is write them from a blank file, so the first draft is the model's — the `/release-notes` skill reads the range since the last release and writes for that reader — and the person's job is the edit and the confirmation. The recipes make that easy to reach and hard to skip; `bless` makes it impossible to forget.
 
 - **A tag-triggered release.** `release.yml` is `workflow_dispatch` on purpose, and a push-to-tag trigger would move the decision to ship into a `git push` — the opposite of what a blessing gate is for.
 
