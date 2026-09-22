@@ -700,6 +700,378 @@ dmg:
 notarize:
     tugrust/scripts/build-app.sh
 
+# ─── Cutting a release ──────────────────────────────────────────────────────
+
+# The CFBundleVersion for a M.m.p version, by version.sh's own formula
+# (major*10000 + minor*100 + patch). Hidden, and the only copy in this file:
+# `version` prints it and `bless` checks Info.plist against it, so a second
+# copy would be a second thing to keep in agreement. version.sh exposes no
+# subcommand for it, and this is not the change that alters version.sh.
+_bundle-version VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    IFS='.' read -r MAJ MIN PAT <<< "{{VERSION}}"
+    echo $(( MAJ * 10000 + MIN * 100 + PAT ))
+
+# Print the current version and the CFBundleVersion derived from it.
+version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION="$(tugrust/scripts/version.sh show)"
+    echo "version          $VERSION"
+    echo "CFBundleVersion  $(just _bundle-version "$VERSION")"
+
+# Bump the version everywhere and say what has to be written next. The bump
+# is version.sh's — Cargo.toml, both package.json files, Info.plist, the
+# lockfile, and a seeded release-notes/<version>.md. What this adds is the
+# hand-off: the seeded notes file is the step that gets skipped, so the bump
+# ends by naming it rather than leaving it to be remembered.
+#
+# Bump the version everywhere (major|minor|patch) and name the notes to write.
+version-bump COMPONENT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{COMPONENT}}" in
+        major|minor|patch) ;;
+        *) echo "usage: just version-bump major|minor|patch" >&2; exit 1 ;;
+    esac
+    OLD="$(tugrust/scripts/version.sh show)"
+    NEW="$(tugrust/scripts/version.sh bump {{COMPONENT}})"
+    echo
+    echo "$OLD -> $NEW (CFBundleVersion $(just _bundle-version "$NEW"))"
+    echo
+    echo "Not ready to release. Write release-notes/$NEW.md first: the update"
+    echo "popover renders that file in front of the user, so leaving it seeded"
+    echo "ships the placeholder rather than nothing at all. just bless refuses"
+    echo "a release until it is written."
+    echo
+    echo "    just release-notes"
+
+# Open this version's release notes in the editor. No version argument: the
+# notes that matter are always the current version's, and having to name it
+# is how you end up editing the wrong file.
+#
+# Open release-notes/<current version>.md in $VISUAL or $EDITOR.
+release-notes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION="$(tugrust/scripts/version.sh show)"
+    NOTES="release-notes/$VERSION.md"
+    if [ ! -f "$NOTES" ]; then
+        echo "error: $NOTES does not exist — a version bump seeds it" >&2
+        exit 1
+    fi
+    exec "${VISUAL:-${EDITOR:-vi}}" "$NOTES"
+
+# Would I be happy to have shipped this? A local, read-only gate that never
+# builds, signs, pushes or dispatches, and answers in seconds. Everything it
+# checks is something CI either cannot check or checks too late to be useful:
+# the version has to read the same in four files, the release notes for that
+# version have to have actually been written, the tree has to be clean and
+# pushed (CI builds the pushed ref, not yours), and the version must not
+# already be published.
+#
+# CI's own state on HEAD is REPORTED, NOT REQUIRED. Two facts decided that:
+# over the last 40 recorded runs of ci.yml on main, 15 were red; and the
+# workflow does not run on every commit, so an arbitrary HEAD usually has no
+# run at all. A gate that blocked on either would be a gate that is always
+# forced, which teaches the habit this recipe exists to build against.
+#
+# Read-only by construction: it writes no file and moves no ref — the remote
+# is asked with ls-remote rather than fetched from.
+#
+# Check a release before cutting it — version, notes, tree, remote (read-only).
+bless:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    #
+    # Findings accumulate; the recipe reports all of them rather than stopping
+    # at the first, because fixing one at a time is how a gate becomes tedious.
+    FAILED=0
+    fail() { printf 'FAIL  %s\n' "$1"; FAILED=1; }
+    ok()   { printf '  ok  %s\n' "$1"; }
+    note() { printf 'note  %s\n' "$1"; }
+    #
+    VERSION="$(tugrust/scripts/version.sh show)"
+    if [ -z "$VERSION" ]; then
+        echo "bless: cannot read a version from tugrust/Cargo.toml" >&2
+        exit 1
+    fi
+    BUNDLE="$(just _bundle-version "$VERSION")"
+    echo "bless $VERSION (CFBundleVersion $BUNDLE)"
+    echo
+    #
+    # 1. One version, four files.
+    pkg_version() { sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -1; }
+    plist_get()   { /usr/libexec/PlistBuddy -c "Print :$1" tugapp/Info.plist 2>/dev/null; }
+    TUGCODE_V="$(pkg_version tugcode/package.json)"
+    TUGDECK_V="$(pkg_version tugdeck/package.json)"
+    PLIST_SHORT="$(plist_get CFBundleShortVersionString)"
+    PLIST_BUNDLE="$(plist_get CFBundleVersion)"
+    VERSIONS_AGREE=1
+    [ "$TUGCODE_V" = "$VERSION" ] || { fail "tugcode/package.json says '$TUGCODE_V', not $VERSION"; VERSIONS_AGREE=0; }
+    [ "$TUGDECK_V" = "$VERSION" ] || { fail "tugdeck/package.json says '$TUGDECK_V', not $VERSION"; VERSIONS_AGREE=0; }
+    [ "$PLIST_SHORT" = "$VERSION" ] || { fail "Info.plist CFBundleShortVersionString is '$PLIST_SHORT', not $VERSION"; VERSIONS_AGREE=0; }
+    [ "$PLIST_BUNDLE" = "$BUNDLE" ] || { fail "Info.plist CFBundleVersion is '$PLIST_BUNDLE', not the derived $BUNDLE"; VERSIONS_AGREE=0; }
+    [ "$VERSIONS_AGREE" -eq 1 ] && ok "version $VERSION reads the same in all four files"
+    #
+    # 2. The release notes exist and are not still the seed. This is the check
+    #    with the most value in it: the notes are rendered in the update
+    #    popover, so a stub ships in front of the user rather than merely
+    #    being absent. The test is for version.sh's known seed text, never a
+    #    length heuristic — a word count gets this wrong in both directions.
+    NOTES="release-notes/$VERSION.md"
+    if [ ! -f "$NOTES" ]; then
+        fail "$NOTES does not exist (version.sh seeds it on a bump)"
+    elif grep -q "What changed, for someone who has been using" "$NOTES" || grep -q "Delete this comment" "$NOTES"; then
+        fail "$NOTES is still version.sh's seeded stub — write it before releasing"
+    elif [ -z "$(sed -e 's/<!--.*-->//' -e '/<!--/,/-->/d' -e '/^#/d' -e '/^[[:space:]]*$/d' "$NOTES")" ]; then
+        fail "$NOTES has a heading and nothing else — write it before releasing"
+    else
+        ok "$NOTES is written"
+    fi
+    #
+    # 3. The commit CI would build is the one you are looking at.
+    if [ -n "$(git status --porcelain)" ]; then
+        fail "the working tree is dirty — CI builds the pushed ref, not this one"
+    else
+        ok "the working tree is clean"
+    fi
+    BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    if [ "$BRANCH" != "main" ]; then
+        fail "HEAD is on '$BRANCH', not main"
+    else
+        ok "HEAD is on main"
+    fi
+    HEAD_SHA="$(git rev-parse HEAD)"
+    # `ls-remote`, not `fetch`: asking is enough, and it is the only spelling
+    # that keeps this recipe's read-only claim true. `git fetch origin main`
+    # writes FETCH_HEAD and, under origin's wildcard refspec, moves
+    # refs/remotes/origin/main — a gate that reports on the tree should not
+    # be editing it. It is also the idiom the tag check below already uses.
+    REMOTE_SHA="$(git ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}')"
+    if [ -z "$REMOTE_SHA" ]; then
+        fail "cannot reach origin to compare HEAD against origin/main"
+    elif [ "$HEAD_SHA" != "$REMOTE_SHA" ]; then
+        fail "HEAD ${HEAD_SHA:0:9} is not origin/main ${REMOTE_SHA:0:9} — push before releasing"
+    else
+        ok "HEAD is pushed and equals origin/main"
+    fi
+    #
+    # 4. This version is not already published. release.yml checks the second
+    #    of these itself, but only after a run has been queued and the
+    #    keychain built; asking here costs a second.
+    if [ -n "$(git ls-remote --tags origin "refs/tags/v$VERSION" 2>/dev/null)" ]; then
+        fail "tag v$VERSION already exists on origin — bump the version first"
+    else
+        ok "no v$VERSION tag on origin"
+    fi
+    if command -v gh >/dev/null 2>&1; then
+        ASSETS="$(gh release view updates --json assets --jq '.assets[].name' 2>/dev/null || true)"
+        if printf '%s\n' "$ASSETS" | grep -qx "Tug-$VERSION.zip"; then
+            fail "Tug-$VERSION.zip is already on the 'updates' release — bump the version first"
+        else
+            ok "Tug-$VERSION.zip is not published yet"
+        fi
+        # `.[]` rather than `.[0]`: an empty array yields no line at all,
+        # where `.[0]` would render the string "null/null null".
+        CI_STATE="$(gh run list --workflow ci.yml --commit "$HEAD_SHA" --limit 1 --json status,conclusion,url --jq '.[] | "\(.status)/\(.conclusion) \(.url)"' 2>/dev/null || true)"
+        if [ -z "$CI_STATE" ]; then
+            note "no ci.yml run recorded for ${HEAD_SHA:0:9} (reported, not required)"
+        else
+            note "ci.yml on ${HEAD_SHA:0:9}: $CI_STATE (reported, not required)"
+        fi
+    else
+        note "gh not found — skipped the published-version and CI checks"
+    fi
+    #
+    echo
+    if [ "$FAILED" -ne 0 ]; then
+        echo "NOT blessed — fix the FAIL lines above."
+        exit 1
+    fi
+    # The last thing seen before a dispatch is the thing being shipped.
+    echo "Blessed:"
+    echo "  version          $VERSION"
+    echo "  CFBundleVersion  $BUNDLE"
+    echo "  commit           $(git log -1 --format='%h %s')"
+    echo
+    echo "  $NOTES"
+    sed 's/^/  | /' "$NOTES" | head -20
+    echo
+    echo "bless is read-only: nothing was built, signed or dispatched."
+    exit 0
+
+# Cut a release: bless, confirm, dispatch, watch. The release itself is CI's
+# — this runs `gh workflow run` on .github/workflows/release.yml and follows
+# with `gh run watch`. There is deliberately no local release path: CI is the
+# reproducible one and the one whose credential handling has been thought
+# about, and a second implementation of signing, notarizing, appcast
+# generation and asset upload would be a second thing to keep correct.
+#
+# The blessing blocks here rather than warning, because a gate that warns is
+# a gate that is read past. `--force` dispatches over a failed blessing, and
+# it exists because a checklist this young will be wrong about something —
+# the right answer to a wrong check is to ship and then fix the check, not to
+# delete the gate. The escape lives on this composed gesture only; `just
+# bless` on its own stays a pure query with no flags at all.
+#
+# Bless, confirm, then dispatch the Stable Release workflow and watch it.
+release *FLAGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    FORCE=0
+    for FLAG in {{FLAGS}}; do
+        case "$FLAG" in
+            --force) FORCE=1 ;;
+            *) echo "usage: just release [--force]" >&2; exit 1 ;;
+        esac
+    done
+    if ! command -v gh >/dev/null 2>&1; then
+        echo "error: gh not found — the release is dispatched through GitHub Actions" >&2
+        exit 1
+    fi
+    if just bless; then
+        BLESSED=1
+    else
+        BLESSED=0
+    fi
+    if [ "$BLESSED" -eq 0 ]; then
+        if [ "$FORCE" -eq 0 ]; then
+            echo "Refusing to dispatch. Fix what bless named above — or, if the check"
+            echo "itself is wrong, 'just release --force' and then fix the check."
+            exit 1
+        fi
+        echo "==> --force: dispatching over a failed blessing."
+    fi
+    VERSION="$(tugrust/scripts/version.sh show)"
+    echo
+    printf 'Dispatch Stable Release for %s on main? [y/N] ' "$VERSION"
+    read -r REPLY || REPLY=""
+    case "$REPLY" in
+        y|Y|yes|Yes) ;;
+        *) echo "Not dispatched."; exit 1 ;;
+    esac
+    # The newest run before the dispatch, so the one that appears after it can
+    # be told apart. `gh workflow run` returns before its run is listed, and
+    # watching whatever happens to be newest would follow the previous
+    # release.
+    PRIOR="$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[].databaseId' 2>/dev/null || true)"
+    echo "==> Dispatching Stable Release on main"
+    gh workflow run release.yml --ref main
+    echo "==> Waiting for the run to appear"
+    RUN_ID=""
+    for _ in $(seq 1 30); do
+        sleep 2
+        CANDIDATE="$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[].databaseId' 2>/dev/null || true)"
+        if [ -n "$CANDIDATE" ] && [ "$CANDIDATE" != "$PRIOR" ]; then
+            RUN_ID="$CANDIDATE"
+            break
+        fi
+    done
+    if [ -z "$RUN_ID" ]; then
+        echo "Dispatched, but no new run appeared within a minute."
+        echo "Follow it with: gh run list --workflow release.yml"
+        exit 0
+    fi
+    echo "==> Watching run $RUN_ID"
+    gh run watch "$RUN_ID" --exit-status
+
+# Watch the update pill without publishing anything. Resolves the Release
+# bundle out of DerivedData (building one if there is none), stands up the
+# local signed feed through tests/update/local-appcast.sh, and runs that
+# bundle under TUG_SPARKLE_FEED — which is the only way to see the pill and
+# the popover before two releases exist, since Sparkle offers an update only
+# to an installed app already polling a feed.
+#
+# It quits the cwd-derived release instance first, through the same
+# quit-tug-bundle.sh that `just app-release` and `just launch-release`
+# already call. Every recipe in the release lane quits before it launches;
+# a rehearsal that refused to would leave the user doing by hand the one
+# thing all of its neighbours do for them.
+#
+# "If one is not current" is read as "if one is not there". Deciding whether
+# an Xcode bundle is stale is xcodebuild's job, not this recipe's, so a
+# bundle that exists is reported with its build time and the call is left to
+# you — `just app-release` rebuilds.
+#
+# The app is run directly rather than through `open`, the way
+# local-appcast.sh's own printed instruction does: that spelling is the one
+# that certainly hands TUG_SPARKLE_FEED to the process, and it puts the
+# "UpdateController: <stage>" lines in this terminal, which is the thing
+# being watched. The cost is that ^C ends the whole rehearsal — feed,
+# scratch directory and app together.
+#
+# Stand up a local signed feed and run the app against it (watch the pill).
+update-rehearse PORT="8765":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Dev loop = cwd-derived identity; the forced bundle id is app-test-only.
+    unset TUG_FORCE_BUNDLE_ID
+    export TUG_PRODUCT_NAME="$(bash tugrust/scripts/product-name-from-cwd.sh release)"
+    PRODUCT_NAME="$TUG_PRODUCT_NAME"
+    APP_DIR="$(bash tugrust/scripts/derived-data-path.sh release)/Build/Products/Release/${PRODUCT_NAME}.app"
+    if [ ! -d "$APP_DIR" ]; then
+        echo "==> No Release bundle at $APP_DIR — building one"
+        just app-release
+    else
+        echo "==> Release bundle: $APP_DIR"
+        echo "    built $(date -r "$APP_DIR" '+%Y-%m-%d %H:%M') — run 'just app-release' first if that predates your work"
+    fi
+    INSTANCE_ID="$(bash tugrust/scripts/instance-id-from-cwd.sh release)"
+    BUNDLE_ID="$(bash tugrust/scripts/bundle-id-from-cwd.sh release)"
+    echo "==> Quitting $INSTANCE_ID, if running"
+    bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$INSTANCE_ID"
+    FEED_URL="http://127.0.0.1:{{PORT}}/appcast.xml"
+    # The feed clones, re-signs and archives a ~90 MB bundle before it serves
+    # anything, so this takes a minute. It has to be answering before the app
+    # starts: automatic checks are on, and a check against a dead port is an
+    # error alert rather than a pill.
+    bash tests/update/local-appcast.sh "$APP_DIR" "{{PORT}}" &
+    FEED_PID=$!
+    echo "==> Waiting for $FEED_URL"
+    for _ in $(seq 1 300); do
+        if /usr/bin/curl -fsS "$FEED_URL" >/dev/null 2>&1; then break; fi
+        if ! kill -0 "$FEED_PID" 2>/dev/null; then
+            echo "error: the feed exited before it came up — see its output above" >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    if ! /usr/bin/curl -fsS "$FEED_URL" >/dev/null 2>&1; then
+        echo "error: $FEED_URL never came up" >&2
+        kill "$FEED_PID" 2>/dev/null || true
+        exit 1
+    fi
+    echo "==> Launching $INSTANCE_ID under TUG_SPARKLE_FEED=$FEED_URL"
+    echo "    Drive it from the app: check for updates, then watch the pill and"
+    echo "    its popover. Every transition logs as 'UpdateController: <stage>'."
+    echo "==> ^C ends the rehearsal — feed, scratch directory and app together."
+    # Scrub the launching instance's identity/resource env, the same three
+    # variables every other launch in this file scrubs.
+    TUG_SPARKLE_FEED="$FEED_URL" \
+        env -u TUG_INSTANCE_ID -u TUG_BUNDLE_PATH -u TUGCAST_RESOURCE_ROOT \
+        "$APP_DIR/Contents/MacOS/$PRODUCT_NAME" &
+    wait "$FEED_PID" || true
+
+# Generate the Sparkle appcast for a release archive. This is the rare one:
+# the CI release path runs make-appcast.sh itself, with the signing key in
+# the environment, so reaching for this by hand means inspecting what a feed
+# would advertise or regenerating one outside a release. Nothing here is a
+# second implementation — the script is the implementation, and every
+# argument goes straight through to it.
+#
+# With SPARKLE_ED_PRIVATE_KEY set the feed is signed with it; unset, the
+# script signs with the login-Keychain key that `generate_keys` wrote. Output
+# defaults to products/appcast.xml.
+#
+#   just appcast products/Tug-0.8.0.zip
+#   just appcast --notes notes.md products/Tug-0.8.0.zip /tmp/appcast.xml
+#
+# Generate the Sparkle appcast for a release archive (CI runs its own).
+appcast *ARGS:
+    tugrust/scripts/make-appcast.sh {{ARGS}}
+
 # Build a Tug.dmg and stage it on the external VM-lab disk for the
 # share-into-guest step (`lab-run <run> --dir=drop:/Volumes/Lab-A/share`).
 # Default mode is the canonical signed+notarized build (installs like a
