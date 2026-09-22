@@ -16,9 +16,9 @@
     "golden_status": "untested"
   },
   {
-    "key": "goldengate",
+    "key": "golden-gate",
     "codename": "Golden Gate",
-    "tart_base": "base-goldengate",
+    "tart_base": "base-golden-gate",
     "macos_version": "27.0",
     "min_version": "27.0",
     "golden_status": "untested"

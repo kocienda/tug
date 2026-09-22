@@ -3,7 +3,7 @@
 How to build and prep the factory-fresh golden base VMs the lab clones for
 install/onboarding testing. One base per supported macOS line, named
 `base-<key>` (the keys in [`matrix.json`](matrix.json)): `base-sequoia`,
-`base-tahoe`, `base-goldengate`.
+`base-tahoe`, `base-golden-gate`.
 
 A golden base is prepped **once** and then never used to run Tug directly —
 every test boots a throwaway clone (`just lab-cycle <key>`, see the lab recipes
@@ -41,7 +41,7 @@ No Cirrus prebuilt exists for the 27 beta, so build from the downloaded IPSW:
 
 ```sh
 export TART_HOME=/Volumes/Lab-A/tart
-tart create --from-ipsw /Volumes/Lab-A/ipsw/UniversalMac_27.0_26A5368g_Restore.ipsw base-goldengate
+tart create --from-ipsw /Volumes/Lab-A/ipsw/UniversalMac_27.0_26A5368g_Restore.ipsw base-golden-gate
 ```
 
 This restores a **fresh** OS, so the first boot lands in Setup Assistant —
@@ -52,7 +52,7 @@ Screen Time, analytics, Siri).
 >
 > **Apple has since fixed it.** Apple DTS confirms the OS-level fix ships in macOS 26.6 beta 3 / 25G5052e (r. 179068335), verified by third parties. The fix is *host-side* and lands in the 26.x line, so it does not reach this host: we are on Sequoia 15.6, and 15.x will never receive it.
 >
-> The gate is therefore the host OS version. This machine restores a 27 IPSW once it *is* on 27 — a same-major restore is the ordinary supported case, not the cross-version case Apple had to patch. Golden Gate is expected to ship around mid-to-late September 2026 (developer betas are on a clean two-week cadence; beta 4 / 26A5388g landed 2026-07-20). **Re-attempt `tart create --from-ipsw base-goldengate` after this host is upgraded to Golden Gate.** Everything else is already wired: `matrix.json` carries the `goldengate` entry, and `just lab-cycle goldengate` needs no changes once the base exists.
+> The gate is therefore the host OS version. This machine restores a 27 IPSW once it *is* on 27 — a same-major restore is the ordinary supported case, not the cross-version case Apple had to patch. Golden Gate is expected to ship around mid-to-late September 2026 (developer betas are on a clean two-week cadence; beta 4 / 26A5388g landed 2026-07-20). **Re-attempt `tart create --from-ipsw base-golden-gate` after this host is upgraded to Golden Gate.** Everything else is already wired: `matrix.json` carries the `golden-gate` entry, and `just lab-cycle golden-gate` needs no changes once the base exists.
 >
 > Until then Golden Gate is **deferred** — its `matrix.json` `golden_status` stays `untested`, because there was no golden run to fail; the base simply can't be built here yet. Sequoia + Tahoe stay golden, and they keep cycling normally after the host upgrade (older guests on a newer host is the well-trodden direction).
 >
@@ -114,7 +114,7 @@ just lab-cycle <key>
 ```
 
 `TART_HOME=/Volumes/Lab-A/tart tart list` should show `base-sequoia`,
-`base-tahoe`, and `base-goldengate`.
+`base-tahoe`, and `base-golden-gate`.
 
 ## 4. Record results in matrix.json
 

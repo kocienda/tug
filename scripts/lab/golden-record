@@ -10,7 +10,7 @@
 # Usage:
 #   scripts/lab/golden-record <os-key> <pass|fail|untested> [host-version]
 #
-#   <os-key>        a `key` present in matrix.json (sequoia | tahoe | goldengate)
+#   <os-key>        a `key` present in matrix.json (sequoia | tahoe | golden-gate)
 #   <status>        pass | fail | untested   -> matrix `golden_status`
 #   [host-version]  optional exact point release the run was performed on
 #                   (e.g. 15.7.7) -> recorded as `golden_host` (empirical Q01
