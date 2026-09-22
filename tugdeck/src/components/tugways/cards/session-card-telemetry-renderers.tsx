@@ -74,7 +74,6 @@ import {
   TugProgressIndicator,
   type TugProgressIndicatorState,
 } from "@/components/tugways/tug-progress-indicator";
-import { isNetworkStalled } from "@/lib/code-session-store/lifecycle-state";
 import {
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
@@ -1456,10 +1455,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     // The stop went out and nothing answered it. The cell says so rather
     // than falling back to whatever the turn phase still claims.
     stopStalled: snap.stopStalled,
-    // The network claude needs has stopped answering — claude's own retry
-    // report or a turn that has gone silent. The cell says so rather than
-    // going on claiming to stream.
-    stalled: isNetworkStalled(snap),
     // A committed turn can leave agents running behind it; without this
     // the cell would read "Idle" over live work.
     runningJobCount: countRunningJobs(jobsLedger),

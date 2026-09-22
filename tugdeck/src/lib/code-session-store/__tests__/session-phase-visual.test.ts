@@ -16,6 +16,7 @@ import {
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
   type SessionPhaseInput,
+  type SessionPhaseKey,
 } from "../session-phase-visual";
 
 function input(
@@ -144,63 +145,27 @@ describe("sessionSessionPhaseKey — a stop that went unanswered", () => {
 });
 
 describe("sessionSessionPhaseKey — a network that stopped answering", () => {
-  test("stalled reads 'Waiting' over the still-live turn", () => {
-    const key = sessionSessionPhaseKey(
-      input({ phase: "streaming", stalled: true }),
-    );
-    expect(key).toBe("stalled");
-    expect(SESSION_PHASE_LABELS[key]).toBe("Waiting");
+  // Caution on the dot is a summons: the turn is parked on a person. A
+  // quiet wire is not that, so the lifecycle matrix's `stalled` overlay has
+  // no key here — the input shape does not even carry it, and the caution
+  // set is exactly the states a person can end.
+  test("the caution set is the user's to end", () => {
+    const caution = (Object.keys(SESSION_PHASE_LABELS) as SessionPhaseKey[])
+      .filter((key) => sessionSessionPhaseVisual(key).role === "caution")
+      .sort();
+    expect(caution).toEqual([
+      "awaiting_approval",
+      "interrupting",
+      "restoring",
+      "stop_stalled",
+    ]);
   });
 
-  test("transport trouble outranks it", () => {
-    // A dead wire is the bigger fact: the deck cannot reach tugcode at all,
-    // which is more than a statement about what claude is waiting on.
-    for (const transportState of ["offline", "restoring"] as const) {
-      expect(
-        sessionSessionPhaseKey(
-          input({ phase: "streaming", transportState, stalled: true }),
-        ),
-      ).toBe(transportState === "offline" ? "offline" : "restoring");
+  test("no key reads 'Waiting' in caution", () => {
+    for (const [key, label] of Object.entries(SESSION_PHASE_LABELS)) {
+      if (label !== "Waiting") continue;
+      expect(sessionSessionPhaseVisual(key).role).not.toBe("caution");
     }
-  });
-
-  test("it outranks an in-flight interrupt", () => {
-    // The order that matters, and the one this key was inserted for: the
-    // stall is *why* nothing is answering, and the stop is deliverable
-    // either way, so "Interrupting" over a healthy wire would tell the user
-    // nothing about the wait they are actually in.
-    expect(
-      sessionSessionPhaseKey(
-        input({ phase: "streaming", interruptInFlight: true, stalled: true }),
-      ),
-    ).toBe("stalled");
-  });
-
-  test("it outranks stop_stalled, a pending ask, and the phase itself", () => {
-    expect(
-      sessionSessionPhaseKey(
-        input({
-          phase: "tool_work",
-          stalled: true,
-          stopStalled: true,
-          pendingAsk: true,
-        }),
-      ),
-    ).toBe("stalled");
-  });
-
-  test("absent and false both read as no claim", () => {
-    expect(sessionSessionPhaseKey(input({ phase: "streaming" }))).toBe("streaming");
-    expect(
-      sessionSessionPhaseKey(input({ phase: "streaming", stalled: false })),
-    ).toBe("streaming");
-  });
-
-  test("it breathes in caution — nothing has failed or been abandoned", () => {
-    expect(sessionSessionPhaseVisual("stalled")).toEqual({
-      role: "caution",
-      state: "running",
-    });
   });
 });
 
@@ -510,7 +475,6 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["interrupting", "Interrupting"],
     ["background", "Running"],
     ["ready", "Ready"],
-    ["stalled", "Waiting"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
   });

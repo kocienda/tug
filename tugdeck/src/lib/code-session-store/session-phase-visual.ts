@@ -90,12 +90,6 @@ export interface SessionPhaseInput {
    * correctly reads as "makes no claim". Every live surface passes it.
    */
   readonly stopStalled?: boolean;
-  /**
-   * Whether the network claude needs has stopped answering — the lifecycle
-   * matrix's `stalled` overlay, flattened. Optional on the same terms as
-   * `stopStalled`: a replayed historical row makes no claim.
-   */
-  readonly stalled?: boolean;
   readonly runningJobCount?: number;
   /**
    * Whether a question from outside the turn stream (`/api/ask`) is on
@@ -122,7 +116,6 @@ export interface SessionPhaseInput {
 export type SessionPhaseKey =
   | "offline"
   | "restoring"
-  | "stalled"
   | "interrupting"
   | "stop_stalled"
   | "ready"
@@ -156,14 +149,14 @@ export type SessionPhaseKey =
  * `interrupting` does: an unanswered stop is the most recent thing the
  * user asked for and has not got.
  *
- * `stalled` sits below the two transport keys and above `interrupting`, and
- * the order is the argument. A dead wire outranks a stalled API because the
- * deck cannot reach tugcode at all, which is a bigger fact about the card
- * than anything claude is doing. But a stall outranks a stop in flight
- * because the stall is *why* nothing is answering, and the two readings are
- * about to agree anyway — the stop is deliverable either way, and the card
- * saying "Interrupting" over a wire that is fine tells the user nothing
- * about the wait they are actually in.
+ * The lifecycle matrix's `stalled` overlay — a live turn gone quiet, or
+ * claude reporting a connection retry — is deliberately **not** a key
+ * here. It was once, wearing caution and the word "Waiting", and that
+ * put the summons colour on every long tool call and every long think:
+ * a `cargo build` produces no stream event for minutes, and nothing
+ * about that wait is the user's to end. Caution on the dot means the
+ * turn is parked on a person. The stall still reaches the card as a
+ * banner, which is where a fact about the wire belongs.
  *
  * `ready` promotes from `idle` alone, on the same terms as
  * `background` and for the same reason: every other phase is a turn
@@ -175,7 +168,6 @@ export type SessionPhaseKey =
 export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKey {
   if (input.transportState === "offline") return "offline";
   if (input.transportState === "restoring") return "restoring";
-  if (input.stalled === true) return "stalled";
   if (input.interruptInFlight) return "interrupting";
   if (input.stopStalled === true) return "stop_stalled";
   if (input.pendingAsk === true) return "awaiting_approval";
@@ -211,7 +203,6 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
 export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   offline: "Disconnected",
   restoring: "Reconnecting",
-  stalled: "Waiting",
   interrupting: "Interrupting",
   stop_stalled: "Unanswered",
   idle: "Idle",
@@ -272,13 +263,6 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
       return { role: "danger", state: "aborted" };
     case "restoring":
     case "interrupting":
-      return { role: "caution", state: "running" };
-    case "stalled":
-      // Caution, and still breathing. Nothing has failed and nothing has
-      // been abandoned: claude is retrying or the far end is quiet, the turn
-      // is open, and Stop works. `danger`/`aborted` would claim an ending
-      // that has not happened, and a still glyph would claim a settled
-      // session — both are the confident lie this arc is removing.
       return { role: "caution", state: "running" };
     case "stop_stalled":
       // Still breathing, and still caution: the turn is not over, the
