@@ -28,6 +28,12 @@
 	<string>q1ZnWaJQvmQgBTgfqGaN/GamMadfQ0K4U48E3kCse48=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<!-- Two hours between background feed checks (Sparkle's default is a day,
+	     its floor an hour). Tug is left running for days, so a release — and
+	     a critical one especially — has to reach a running copy on its own
+	     without waiting a day or a relaunch. -->
+	<key>SUScheduledCheckInterval</key>
+	<integer>7200</integer>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>CFBundleDocumentTypes</key>
