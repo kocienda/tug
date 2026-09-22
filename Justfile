@@ -1101,7 +1101,53 @@ lab-dmg MODE="notarized":
     esac
     mkdir -p "$LAB_SHARE"
     cp -f products/Tug.dmg "$LAB_SHARE/Tug.dmg"
+    # A marker left by a prior `lab-release-dmg` would now name a release these
+    # bytes did not come from.
+    rm -f "$LAB_SHARE/Tug.dmg.release"
     echo "==> staged for the VM lab: $LAB_SHARE/Tug.dmg"
+    ls -lh "$LAB_SHARE/Tug.dmg"
+
+# Download a *published* Tug.dmg and stage it on the VM-lab disk — the exact
+# bytes a first-install customer downloads, signed and notarized, so a clean
+# guest installs it without the right-click -> Open bypass an unsigned local
+# build needs. That bypass is the one thing a lab run must never rehearse.
+#
+#   just lab-release-dmg          # newest stable v* release
+#   just lab-release-dmg 0.7.2    # a pinned version (leading 'v' optional)
+#
+# Override the staging dir with LAB_SHARE=/some/path.
+#
+# Download a published Tug.dmg and stage it on the VM-lab disk (default: newest stable).
+lab-release-dmg VERSION="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    LAB_SHARE="${LAB_SHARE:-/Volumes/Lab-A/share}"
+    LAB_ROOT="$(dirname "$LAB_SHARE")"
+    if [ ! -d "$LAB_ROOT" ]; then
+        echo "error: VM-lab disk not mounted (missing $LAB_ROOT)" >&2
+        exit 1
+    fi
+    if ! command -v gh >/dev/null 2>&1; then
+        echo "error: gh is not installed — it is how a release is fetched (brew install gh)" >&2
+        exit 1
+    fi
+    # No argument means the newest stable release: bare `gh release view`
+    # resolves the one GitHub marks Latest, which skips the `updates` and
+    # `nightly` prereleases. A pinned version is the v<version> tag.
+    WANT='{{VERSION}}'
+    if [ -n "$WANT" ]; then
+        TAG="v${WANT#v}"
+    else
+        TAG="$(gh release view --json tagName -q .tagName)"
+    fi
+    echo "==> downloading Tug.dmg from release $TAG"
+    mkdir -p "$LAB_SHARE"
+    gh release download "$TAG" --pattern Tug.dmg --dir "$LAB_SHARE" --clobber
+    # Record which release is sitting in the share. A cycle that boots the
+    # wrong dmg is otherwise indistinguishable from one that boots the right
+    # one, and the guest cannot tell you.
+    printf '%s\n' "$TAG" > "$LAB_SHARE/Tug.dmg.release"
+    echo "==> staged for the VM lab: $LAB_SHARE/Tug.dmg ($TAG)"
     ls -lh "$LAB_SHARE/Tug.dmg"
 
 # VM-lab (Tart) recipes — thin wrappers over scripts/lab/*, vendored into the
@@ -1131,19 +1177,28 @@ lab-run *ARGS:
 lab-wipe *ARGS:
     scripts/lab/lab-wipe {{ARGS}}
 
-# The one reliable inner loop ([P02]): build an unsigned Tug.dmg, stage it to
-# the lab share, wipe any prior run for this OS, clone a fresh factory-fresh
-# guest, and boot it with the share mounted — in one command. There is
-# deliberately NO install-into-running-VM path: VirtioFS caching + a stale
-# /Applications/Tug.app make reinstall-in-place unreliable, so every cycle
-# boots a fresh clone. The run for OS <x> is run-<x> (replacing the prior one).
+# The one reliable inner loop ([P02]): stage a Tug.dmg on the lab share, wipe
+# any prior run for this OS, clone a fresh factory-fresh guest, and boot it
+# with the share mounted — in one command. There is deliberately NO
+# install-into-running-VM path: VirtioFS caching + a stale /Applications/Tug.app
+# make reinstall-in-place unreliable, so every cycle boots a fresh clone. The
+# run for OS <x> is run-<x> (replacing the prior one).
 #
-#   just lab-cycle sequoia
+# SOURCE decides where that dmg comes from, and the default is `release`: a
+# clean guest is where a *shipped* build earns its trust, and only the
+# signed + notarized release installs the way a customer's does. `local` is the
+# working-tree unsigned build — faster, but Gatekeeper blocks it on a fresh
+# guest, so it needs a right-click -> Open that proves nothing about the real
+# install. Reach for it when the change under test is not yet released.
+#
+#   just lab-cycle sequoia                  # newest stable release
+#   just lab-cycle sequoia release 0.7.2    # a pinned release
+#   just lab-cycle sequoia local            # this working tree, unsigned
 #
 # Inside the booted guest, the dmg appears at:
 #   /Volumes/My Shared Files/drop/Tug.dmg
-# Build + stage an unsigned dmg, then boot a fresh clone with it mounted (the inner loop).
-lab-cycle OS="sequoia":
+# Stage a dmg (released by default), then boot a fresh clone with it mounted (the inner loop).
+lab-cycle OS="sequoia" SOURCE="release" VERSION="":
     #!/usr/bin/env bash
     set -euo pipefail
     # Export so the nested lab-dmg recipe and scripts/lab/* honor overrides.
@@ -1154,8 +1209,24 @@ lab-cycle OS="sequoia":
         echo "error: VM-lab disk not mounted (missing $LAB_ROOT)" >&2
         exit 1
     fi
-    echo "==> [1/4] Build + stage unsigned Tug.dmg -> $LAB_SHARE"
-    just lab-dmg unsigned
+    case "{{SOURCE}}" in
+        release)
+            echo "==> [1/4] Download + stage the released Tug.dmg -> $LAB_SHARE"
+            just lab-release-dmg '{{VERSION}}'
+            ;;
+        local)
+            if [ -n "{{VERSION}}" ]; then
+                echo "error: a VERSION only means something with SOURCE=release" >&2
+                exit 1
+            fi
+            echo "==> [1/4] Build + stage unsigned Tug.dmg -> $LAB_SHARE"
+            just lab-dmg unsigned
+            ;;
+        *)
+            echo "unknown source: {{SOURCE}} (use 'release' or 'local')" >&2
+            exit 1
+            ;;
+    esac
     echo "==> [2/4] Wipe any prior run-{{OS}} (fresh-clone discipline)"
     scripts/lab/lab-wipe {{OS}} || true
     echo "==> [3/4] Clone a fresh run-{{OS}} from base-{{OS}}"

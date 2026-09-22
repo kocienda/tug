@@ -31,7 +31,11 @@ state is automatic but transient.
 
 ## Unhappy-path induction recipes
 
-Run each in the guest, on the unsigned dmg from `just lab-cycle <os>`.
+Run each in the guest, on the dmg staged by `just lab-cycle <os>` — by default
+the signed, notarized dmg from the newest stable release, which is what a
+customer's first install actually is. `just lab-cycle <os> local` stages this
+working tree's unsigned build instead; Gatekeeper blocks that one on a fresh
+guest, so it needs a right-click → **Open**.
 
 | State | Induce it | Expected |
 |-------|-----------|----------|
