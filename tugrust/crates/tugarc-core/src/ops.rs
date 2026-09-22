@@ -15547,17 +15547,9 @@ Some context.
         let worktree = worktree_path(&repo, "hostile");
 
         // Git's own spelling of the roster: verbatim, except the decomposed
-        // name, which git precomposes (measured in `tugcore::hostile_repo`).
-        let mut want: Vec<String> = tugcore::hostile_repo::HOSTILE_NAMES
-            .iter()
-            .map(|n| {
-                if n.path == "No\u{301}tes.txt" {
-                    "N\u{f3}tes.txt".to_string()
-                } else {
-                    n.path.to_string()
-                }
-            })
-            .collect();
+        // name, which git precomposes where the platform precomposes at all
+        // (measured in `tugcore::hostile_repo`).
+        let mut want = tugcore::hostile_repo::hostile_paths_as_git_reports_them();
         want.sort();
 
         // A round that brings them in.

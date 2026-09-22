@@ -1269,19 +1269,10 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Git's own spelling of a name, as the door will hand it back: the roster
-    /// verbatim, except that git precomposes the decomposed one (measured in
-    /// `tugcore::hostile_repo`).
+    /// verbatim, except that git precomposes the decomposed one where the
+    /// platform precomposes at all (measured in `tugcore::hostile_repo`).
     fn hostile_paths_as_git_reports_them() -> Vec<String> {
-        tugcore::hostile_repo::HOSTILE_NAMES
-            .iter()
-            .map(|n| {
-                if n.path == "No\u{301}tes.txt" {
-                    "N\u{f3}tes.txt".to_string()
-                } else {
-                    n.path.to_string()
-                }
-            })
-            .collect()
+        tugcore::hostile_repo::hostile_paths_as_git_reports_them()
     }
 
     /// A file whose NAME is a glob commits as itself and takes nothing with

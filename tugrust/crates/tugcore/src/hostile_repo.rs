@@ -47,8 +47,11 @@ pub const HOSTILE_NAMES: &[HostileName] = &[
         // Written decomposed on purpose: `o` + U+0301, not U+00F3. On macOS
         // APFS preserves the bytes as written, while git precomposes what it
         // reports whenever `core.precomposeunicode` is on — which `git init`
-        // turns on. This is the one name whose disk spelling and git spelling
-        // can differ, which is why it is in the roster.
+        // turns on there. Off macOS there is no such default and nothing to
+        // precompose, so the disk's bytes are what git reports. This is the
+        // one name whose disk spelling and git spelling can differ, which is
+        // why it is in the roster — and why every expectation about it goes
+        // through [`as_git_reports_it`] rather than through `path`.
         label: "decomposed_o",
         path: "No\u{301}tes.txt",
         why: "NFD — decomposes to o + U+0301, where git may report NFC",
@@ -103,6 +106,47 @@ pub fn hostile(label: &str) -> &'static HostileName {
         .iter()
         .find(|n| n.label == label)
         .unwrap_or_else(|| panic!("no hostile name labelled {label:?}"))
+}
+
+/// `decomposed_o` as it is written to disk: `o` + U+0301.
+pub const NFD_NAME: &str = "No\u{301}tes.txt";
+
+/// `decomposed_o` composed: U+00F3. What git reports where it precomposes.
+pub const NFC_NAME: &str = "N\u{f3}tes.txt";
+
+/// Whether git precomposes the names it reports on this platform.
+///
+/// `core.precomposeunicode` is a macOS-only default — `git init` turns it on
+/// there and nowhere else — so this is a platform fact, not a repo setting,
+/// and reading it off `cfg!` keeps a caller from having to spawn git to find
+/// out. Measured against git's actual behaviour in this module's tests.
+pub const GIT_PRECOMPOSES: bool = cfg!(target_os = "macos");
+
+/// The spelling git reports for a roster name on this platform.
+///
+/// Every name in the roster is reported verbatim except the decomposed one,
+/// and that one only where git precomposes. This is the one place that
+/// knowledge lives: a test asserting on the names a listing hands back maps
+/// the roster through here rather than hard-coding a spelling, because a
+/// hard-coded spelling is right on one platform and wrong on the other.
+pub fn as_git_reports_it(path: &str) -> &str {
+    if GIT_PRECOMPOSES && path == NFD_NAME {
+        NFC_NAME
+    } else {
+        path
+    }
+}
+
+/// The whole roster as git reports it, in roster order.
+///
+/// Unsorted on purpose: a caller that compares against a listing sorts both
+/// sides itself, and a caller that cares about order should not have had one
+/// imposed here.
+pub fn hostile_paths_as_git_reports_them() -> Vec<String> {
+    HOSTILE_NAMES
+        .iter()
+        .map(|n| as_git_reports_it(n.path).to_string())
+        .collect()
 }
 
 /// Seed `root` as a git repo holding one committed ASCII file (`base.txt`) and
@@ -180,24 +224,29 @@ mod tests {
         out.stdout
     }
 
-    const NFD: &str = "No\u{301}tes.txt"; // o + U+0301
-    const NFC: &str = "N\u{f3}tes.txt"; // U+00F3
+    const NFD: &str = NFD_NAME; // o + U+0301
+    const NFC: &str = NFC_NAME; // U+00F3
 
-    /// The measurement the door's design turns on: **git precomposes what it
-    /// reports, and accepts either spelling as a pathspec.**
+    /// The measurement the door's design turns on: **git reports a name as
+    /// this platform's precomposition leaves it, and accepts every spelling it
+    /// precomposes as a pathspec.**
     ///
     /// `git init` sets `core.precomposeunicode=true` on macOS, so a file whose
     /// bytes on disk are NFD is reported as NFC — in the quoted listing and in
     /// the `-z` one alike, because precomposition happens before the quoting
-    /// does. Both spellings resolve as operands, because git precomposes a
-    /// pathspec too.
+    /// does. Both spellings resolve as operands there, because git precomposes
+    /// a pathspec too. Off macOS there is no such default and nothing to
+    /// precompose: the listing is the disk's bytes, NFD *is* the reported
+    /// name, and NFC is a different byte string that matches no file.
     ///
     /// The conclusion for `[B01]`: **the door does not normalize on
     /// construction.** Where git precomposes, normalizing again is redundant;
-    /// where it does not (`core.precomposeunicode=false`, exercised below), the
-    /// file's real name *is* the decomposed one, and precomposing it would
-    /// manufacture a different, nonexistent path — the very failure shape this
-    /// arc exists to remove. The door hands back git's bytes and nothing else.
+    /// where it does not — off macOS, and on macOS under
+    /// `core.precomposeunicode=false`, exercised below — the file's real name
+    /// *is* the decomposed one, and precomposing it would manufacture a
+    /// different, nonexistent path: the very failure shape this arc exists to
+    /// remove. The door hands back git's bytes and nothing else, which is the
+    /// one rule that is right on both platforms.
     ///
     /// What this leaves open is the attribution join: the ledger stores the
     /// spelling the tool input carried, git's side is whatever git reports, and
@@ -211,14 +260,31 @@ mod tests {
         git(root, &["config", "user.email", "t@t.test"]).unwrap();
         git(root, &["config", "user.name", "t"]).unwrap();
 
-        // macOS `git init` turns precomposition on; the measurement below is a
-        // measurement of that default, so assert it rather than assume it.
-        let configured = stdout(root, &["config", "core.precomposeunicode"]);
-        assert_eq!(
-            String::from_utf8_lossy(&configured).trim(),
-            "true",
-            "git init sets precomposition on this platform"
-        );
+        // macOS `git init` turns precomposition on and nothing else does; the
+        // measurements below are measurements of that default, so assert it
+        // rather than assume it. `config` exits non-zero when the key is
+        // unset, which is the off-macOS answer, so read it without the success
+        // check `stdout` applies.
+        let configured = command(root, &["config", "core.precomposeunicode"])
+            .output()
+            .expect("git runs");
+        let configured = String::from_utf8_lossy(&configured.stdout)
+            .trim()
+            .to_owned();
+        if GIT_PRECOMPOSES {
+            assert_eq!(
+                configured, "true",
+                "git init sets precomposition on this platform"
+            );
+        } else {
+            assert_eq!(
+                configured, "",
+                "git init leaves precomposition unset off macOS"
+            );
+        }
+
+        // What a listing will say, here.
+        let reported = as_git_reports_it(NFD);
 
         // Written decomposed. APFS preserves the bytes as written.
         std::fs::write(root.join(NFD), "hello\n").unwrap();
@@ -230,31 +296,37 @@ mod tests {
             .collect();
         assert_eq!(on_disk, [NFD.to_string()], "the disk kept the NFD bytes");
 
-        // Git reports NFC, through `-z` as much as without it.
+        // Git reports its precomposed spelling, through `-z` as much as
+        // without it.
         let untracked = stdout(root, &["status", "--porcelain=v2", "-z"]);
         assert_eq!(
             untracked,
-            format!("? {NFC}\0").into_bytes(),
-            "git precomposed the name it reported"
+            format!("? {reported}\0").into_bytes(),
+            "git reported the name as this platform leaves it"
         );
 
-        // And takes either spelling as a pathspec, answering with NFC both times.
+        // And takes as a pathspec every spelling it precomposes — both where
+        // it precomposes, the decomposed one alone where it does not — always
+        // answering in the spelling it reports.
         git(root, &["add", "--", NFD]).unwrap();
         git(root, &["commit", "-q", "-m", "add it"]).unwrap();
-        for spelling in [NFD, NFC] {
+        let resolvable: &[&str] = if GIT_PRECOMPOSES { &[NFD, NFC] } else { &[NFD] };
+        for spelling in resolvable {
             assert_eq!(
                 stdout(root, &["ls-files", "-z", "--", spelling]),
-                format!("{NFC}\0").into_bytes(),
-                "{spelling:?} resolved, and answered in NFC"
+                format!("{reported}\0").into_bytes(),
+                "{spelling:?} resolved, and answered as git reports it"
             );
         }
 
         // With precomposition off, the worktree scan yields the disk's own
         // bytes — so NFD *is* the real name there, and a door that precomposed
-        // would hand git a path that does not exist. The committed file shows
-        // up again here precisely because of the disagreement: the index holds
-        // it as NFC while the disk holds NFD, so the unprecomposed scan sees a
-        // name the index does not have and calls it untracked.
+        // would hand git a path that does not exist. Where git was
+        // precomposing, the committed file shows up again here precisely
+        // because of the disagreement: the index holds it as NFC while the
+        // disk holds NFD, so the unprecomposed scan sees a name the index does
+        // not have and calls it untracked. Where it was not, the index already
+        // holds the disk's bytes and the file stays committed and quiet.
         std::fs::write(root.join("ru\u{308}ck.txt"), "x\n").unwrap();
         let raw = stdout(
             root,
@@ -266,9 +338,14 @@ mod tests {
                 "-z",
             ],
         );
+        let disagreed = if GIT_PRECOMPOSES {
+            format!("? {NFD}\0")
+        } else {
+            String::new()
+        };
         assert_eq!(
             raw,
-            format!("? {NFD}\0? ru\u{308}ck.txt\0").into_bytes(),
+            format!("{disagreed}? ru\u{308}ck.txt\0").into_bytes(),
             "unprecomposed, the listing is the disk's bytes verbatim"
         );
     }

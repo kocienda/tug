@@ -1111,16 +1111,7 @@ Binary files a/img.png and b/img.png differ
         let root = dir.path();
         tugcore::hostile_repo::seed_hostile_repo(root).expect("the fixture seeds");
 
-        let mut want: Vec<String> = tugcore::hostile_repo::HOSTILE_NAMES
-            .iter()
-            .map(|n| {
-                if n.path == "No\u{301}tes.txt" {
-                    "N\u{f3}tes.txt".to_owned()
-                } else {
-                    n.path.to_owned()
-                }
-            })
-            .collect();
+        let mut want = tugcore::hostile_repo::hostile_paths_as_git_reports_them();
         want.sort();
 
         let mut untracked = read_status(root, &["--branch"]).unwrap().untracked;
