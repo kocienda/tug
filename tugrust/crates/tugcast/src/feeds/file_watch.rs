@@ -759,7 +759,10 @@ fn release_one(dirs: &mut HashMap<PathBuf, usize>, dir: &Path) -> bool {
 /// spells that `//name` — a path the card would carry into its rename ladder
 /// and hand back to a read as a spelling nobody asked for ([L29]).
 fn created_path(client_dir: &str, name: &std::ffi::OsStr) -> String {
-    Path::new(client_dir).join(name).to_string_lossy().to_string()
+    Path::new(client_dir)
+        .join(name)
+        .to_string_lossy()
+        .to_string()
 }
 
 /// The directories to watch on one file's behalf: its parent first, then

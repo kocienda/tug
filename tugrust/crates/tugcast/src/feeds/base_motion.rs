@@ -1598,12 +1598,22 @@ mod tests {
         // Quiet, never silent: the motion left a record.
         // Resolved through the same root normalization the library applies, so
         // the test cannot read a different project slug than the code wrote.
+        //
+        // Settled, not read once: `log_replay` appends *after* the
+        // compare-and-swap that moved the branch, so the tip this test waited
+        // on is reached a moment before the line exists. Reading it straight
+        // through is a race that only widens under a loaded workspace run.
         let root = tugtool_core::find_repo_root_from(repo.path()).unwrap();
-        let log = std::fs::read_to_string(
-            tugtool_core::project_state_dir(&root).join(tugtool_core::paths::ARC_LOG),
-        )
-        .unwrap_or_default();
-        assert!(log.contains("replayed"), "the arc log names the replay");
+        let log_path = tugtool_core::project_state_dir(&root).join(tugtool_core::paths::ARC_LOG);
+        let names_the_replay = || {
+            std::fs::read_to_string(&log_path)
+                .unwrap_or_default()
+                .contains("replayed")
+        };
+        assert!(
+            settles(names_the_replay).await,
+            "the arc log names the replay"
+        );
 
         drop(gh_tx);
         cancel.cancel();
