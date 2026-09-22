@@ -1935,6 +1935,41 @@ export const TugPromptEntry = React.forwardRef<
     codeSessionStore.consumePendingAtomInsert();
   }, [pendingAtomInsert, codeSessionStore]);
 
+  // File insert. A surface outside this entry — the Session card's content
+  // area — accepted a file drop and parked the files here, because
+  // `processAttachmentFiles` needs the `EditorView` and the bytes store,
+  // both of which live in here. This effect runs them through that one
+  // pipeline at the caret, so nothing about what a dropped file *becomes*
+  // depends on which surface caught the drop.
+  //
+  // [L02] slot via the snapshot; [L03] useLayoutEffect so the insertion is
+  // dispatched in the paint that observed the slot; the slot survives until
+  // an editor exists (no consume on a missing view) so a drop that lands
+  // mid-mount is never silently dropped.
+  //
+  // No focus claim, the drop rule the jot path above keeps: a drop inserts
+  // content and leaves focus where the user left it
+  // (focus-language.md § Drag and the keyboard).
+  const pendingFileInsert = snap.pendingFileInsert;
+  useLayoutEffect(() => {
+    if (pendingFileInsert === null) return;
+    const view = textEditorRef.current?.view() ?? null;
+    if (view === null) return;
+    void processAttachmentFiles(
+      view,
+      pendingFileInsert,
+      view.state.selection.main.from,
+      attachmentBytesStore,
+      publishAttachmentError,
+    );
+    codeSessionStore.consumePendingFileInsert();
+  }, [
+    pendingFileInsert,
+    codeSessionStore,
+    attachmentBytesStore,
+    publishAttachmentError,
+  ]);
+
   // Code's Z5 button follows the Claude session lifecycle unchanged.
   const submitButtonMode = claudeSubmitButtonMode;
   const submitView = resolveSubmitButtonView(submitButtonMode);

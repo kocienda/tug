@@ -1211,6 +1211,16 @@ export interface CodeSessionSnapshot {
    */
   pendingAtomInsert: AtomSegment | null;
 
+  /**
+   * Files a surface outside the prompt entry accepted on this card's behalf
+   * — the card content area's drop surface, which holds no `EditorView` and
+   * no bytes store. Set by {@link CodeSessionStore.insertFiles}, cleared by
+   * {@link CodeSessionStore.consumePendingFileInsert} once the prompt entry
+   * has taken them. Survives snapshot rebuilds until consumed so a
+   * re-mounted entry still picks the drop up.
+   */
+  pendingFileInsert: File[] | null;
+
   lastCost: CostSnapshot | null;
   /**
    * Live API-retry announcement, or `null` when no retry is in flight.

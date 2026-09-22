@@ -632,6 +632,31 @@ export interface ConsumeAtomInsertActionEvent {
 }
 
 /**
+ * Internal action injected by `CodeSessionStore.insertFiles`. Not a wire
+ * event. Parks the dropped `File` objects on `pendingFileInsert` when a
+ * surface outside the prompt entry accepts a file drop — the Session card's
+ * content area, which has no `EditorView` and no bytes store of its own. The
+ * prompt entry observes the slot via `useSyncExternalStore`, runs the files
+ * through its own `processAttachmentFiles` pipeline at the caret inside a
+ * `useLayoutEffect`, and dispatches `consume_file_insert`.
+ */
+export interface InsertFilesActionEvent {
+  type: "insert_files";
+  files: File[];
+}
+
+/**
+ * Internal action injected by `CodeSessionStore.consumePendingFileInsert`.
+ * Clears `pendingFileInsert` to `null` once the prompt entry has taken the
+ * files. Idempotent — a consume while already `null` is a state-ref-stable
+ * no-op, so the consuming `useLayoutEffect` can fire it without a
+ * notification storm.
+ */
+export interface ConsumeFileInsertActionEvent {
+  type: "consume_file_insert";
+}
+
+/**
  * Internal action injected by `CodeSessionStore.cancelQueuedSend`. Not
  * a wire event. Removes one entry from `queuedSends` by `turnKey` — a
  * true un-send of a mid-turn submission that was queued but never
@@ -1651,6 +1676,8 @@ export type CodeSessionEvent =
   | ConsumeJotInsertActionEvent
   | InsertAtomDraftActionEvent
   | ConsumeAtomInsertActionEvent
+  | InsertFilesActionEvent
+  | ConsumeFileInsertActionEvent
   | CancelQueuedSendActionEvent
   | CostUpdateEvent
   | StreamingUsageEvent

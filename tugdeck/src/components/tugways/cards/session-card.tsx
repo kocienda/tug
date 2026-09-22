@@ -110,9 +110,12 @@ import { useRenameSessionSheet } from "./rename-session-sheet";
 import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
 import { SessionFoldControl } from "./session-fold-control";
+import { useSessionCardDrop } from "./use-session-card-drop";
 import { sessionPickerPanel } from "./session-picker-panel";
 import { noticeContent } from "./session-picker-notice-content";
 import { isTugMotionEnabled } from "../scale-timing";
+import { EditorView } from "@codemirror/view";
+import { useSessionPromptInsertTarget } from "@/components/tugways/use-prompt-insert-target";
 import {
   FOLD_CROSSING_ATTR,
   FOLD_CROSSING_END,
@@ -2174,6 +2177,36 @@ export function SessionCardBody({
     }
     prevEntryStoodDownRef.current = entryStoodDown;
   }, [entryStoodDown]);
+
+  // The card's content area is a file-drop surface, not just its composer:
+  // a file dragged over the transcript is the same gesture, aimed at the same
+  // prompt, and it lands at the caret through the composer's own attachment
+  // pipeline. The handlers go on the content root below; the three layers
+  // compose by `defaultPrevented`, so this one only ever sees a drag the
+  // editor substrate and the composer chrome both declined.
+  //
+  // `accepting` is derived from state this body already observes ([L02] — no
+  // second subscription, no mirrored copy): the entry is `inert` through a
+  // replay, read-only under an inline dialog, and a shade standing over the
+  // transcript makes the visible surface the shade rather than the card. In
+  // each of those there is no composer to insert into, so the drag is
+  // declined rather than swallowed ([B06]). The unbound card needs no term
+  // here — its picker renders in place of this root.
+  const cardInsertTarget = useSessionPromptInsertTarget(codeSessionStore);
+  // The composer's `EditorView`, for the drag cues only — resolved at event
+  // time ([L07]) from the entry element the delegate already publishes, so
+  // nothing private to the entry is pushed out through a new ref. A card
+  // holds more than one CM6 editor (the Changes shade's composer, a
+  // transcript code view), and this is the one the drop is aimed at.
+  const cardEntryView = useCallback((): EditorView | null => {
+    const el = entryDelegateRef.current?.getEditorElement() ?? null;
+    return el === null ? null : EditorView.findFromDOM(el);
+  }, [entryDelegateRef]);
+  const cardDrop = useSessionCardDrop({
+    insertTarget: cardInsertTarget,
+    view: cardEntryView,
+    accepting: !replayHoldActive && !inlineDialogPending && shadeView === "none",
+  });
 
   // `/rewind` rewinds the transcript, not the prompt corpus. A rewound-away
   // turn is one the conversation no longer contains, but the user still typed
@@ -4522,6 +4555,11 @@ export function SessionCardBody({
         // why the Changes Z5 wore no ring ([#chord-ring]). Appearance via the
         // attribute, never React state ([L06]).
         data-shade-open={shadeView === "none" ? undefined : shadeView}
+        // The card's content area accepts a file drop and lands it at the
+        // composer's caret ([B01]). Outermost of the three drop layers, so
+        // these handlers see only what the editor substrate and the
+        // composer's own surface declined.
+        {...cardDrop}
       >
         {/*
           Card body is a plain flex column ([L06]/[L13] — no JS sizing).

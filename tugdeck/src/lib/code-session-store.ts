@@ -901,6 +901,7 @@ export class CodeSessionStore {
       pendingCommandInsert: this.state.pendingCommandInsert,
       pendingJotInsert: this.state.pendingJotInsert,
       pendingAtomInsert: this.state.pendingAtomInsert,
+      pendingFileInsert: this.state.pendingFileInsert,
       lastCost: this.state.lastCost,
       // Live API-retry announcement (or null). The reducer assigns a
       // fresh object only on an `api_retry` frame and clears it to null
@@ -1717,6 +1718,31 @@ export class CodeSessionStore {
   consumePendingAtomInsert(): void {
     if (this._disposed) return;
     this.dispatch({ type: "consume_atom_insert" });
+  }
+
+  /**
+   * Park dropped files on `pendingFileInsert` for the prompt entry to run
+   * through its own attachment pipeline at the caret. Used by the Session
+   * card's content-area drop surface, which accepts the gesture but holds
+   * neither the `EditorView` nor the bytes store `processAttachmentFiles`
+   * needs — so the entry stays the one place that decides what a dropped
+   * file becomes. The entry observes the slot, inserts, and calls
+   * {@link consumePendingFileInsert}. An empty list is not a gesture and
+   * parks nothing.
+   */
+  insertFiles(files: readonly File[]): void {
+    if (this._disposed) return;
+    if (files.length === 0) return;
+    this.dispatch({ type: "insert_files", files: [...files] });
+  }
+
+  /**
+   * Clear `pendingFileInsert` once the prompt entry has taken the files.
+   * Idempotent — a call while already `null` is a state-ref-stable no-op.
+   */
+  consumePendingFileInsert(): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "consume_file_insert" });
   }
 
   /**

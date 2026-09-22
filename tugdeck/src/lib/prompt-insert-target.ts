@@ -14,19 +14,20 @@
  *  - **raise** the composer that is about to receive it, so the prompt the
  *    entity lands in is the one the user is looking at.
  *
- * That is this interface, and a composer that can do those three can be sent
- * to. The Session card satisfies it through {@link sessionPromptInsertTarget},
- * an adapter over the store's own pending-insert slots, so the Session path
- * is byte-for-byte what it was. The Overview satisfies it over its editor
- * delegate.
+ * Those three are the whole of the required interface, and a composer that
+ * can do them can be sent to. The Session card satisfies it through
+ * {@link sessionPromptInsertTarget}, an adapter over the store's own
+ * pending-insert slots, so the Session path is byte-for-byte what it was.
+ * The Overview satisfies it over its editor delegate.
  *
- * **`insertCommand` and `runCommand` are optional, and that is the seam
- * between the two.** Seeding a clicked slash or shell command as a
+ * **`insertCommand`, `runCommand` and `insertFiles` are optional, and that is
+ * the seam between the two.** Seeding a clicked slash or shell command as a
  * ready-to-run draft — and running one outright — is a session semantic:
  * the Overview protocol has no commands to run, so a target that cannot do
  * it simply does not offer it, and the registry's `seedCommand` returns
- * without one. Every other operation is required, because every composer
- * can do them.
+ * without one. Taking a dropped file is the same kind of fact: it needs an
+ * attachment pipeline, which not every composer has. Every other operation
+ * is required, because every composer can do them.
  *
  * @module lib/prompt-insert-target
  */
@@ -73,6 +74,19 @@ export interface PromptInsertTarget {
    * rather than dropped, so what the surface cannot do is visible.
    */
   runCommand?(name: string, args: string): void;
+  /**
+   * Hand dropped files to the composer, to land at the caret through
+   * whatever pipeline that composer uses for an attachment — images become
+   * atoms, other files their basename, and this seam decides none of that.
+   * Additive, like {@link insertAtom}: an in-progress draft survives it.
+   *
+   * Optional on the same seam and for the same reason as `insertCommand` /
+   * `runCommand`: a composer with no attachment pipeline has nothing to do
+   * with a file. A caller that finds it absent declines the drop — leaves
+   * `preventDefault` uncalled, so the drag reads as refused — rather than
+   * accepting a payload it cannot deliver.
+   */
+  insertFiles?(files: readonly File[]): void;
 }
 
 /**
@@ -91,5 +105,6 @@ export function sessionPromptInsertTarget(
     raise,
     insertCommand: (name, args) => store.insertCommandDraft(name, args),
     runCommand: (name, args) => store.runCommandDraft(name, args),
+    insertFiles: (files) => store.insertFiles(files),
   };
 }

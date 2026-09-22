@@ -47,6 +47,7 @@ import type {
   InsertCommandDraftActionEvent,
   InsertJotActionEvent,
   InsertAtomDraftActionEvent,
+  InsertFilesActionEvent,
   CodeSessionEvent,
   ContentBlockStartEvent,
   ContextBreakdownEvent,
@@ -466,6 +467,13 @@ export interface CodeSessionState {
    * seeding `useLayoutEffect` fires once per gesture.
    */
   pendingAtomInsert: AtomSegment | null;
+  /**
+   * Files a surface outside the prompt entry accepted on the card's behalf,
+   * parked by `insert_files` and cleared by `consume_file_insert`. Mirrored
+   * onto `CodeSessionSnapshot.pendingFileInsert` with a shared reference so
+   * the consuming `useLayoutEffect` fires once per drop.
+   */
+  pendingFileInsert: File[] | null;
   /**
    * Counter of outstanding CASE A wire echoes the reducer expects to
    * suppress. Incremented every time `handleInterrupt` fires from
@@ -1270,6 +1278,7 @@ export function createInitialState(
     pendingCommandInsert: null,
     pendingJotInsert: null,
     pendingAtomInsert: null,
+    pendingFileInsert: null,
     pendingCaseAEchoes: 0,
     queuedSends: [],
     lastError: null,
@@ -1908,6 +1917,29 @@ function handleConsumeAtomInsert(
   }
   return {
     state: { ...state, pendingAtomInsert: null },
+    effects: [],
+  };
+}
+
+function handleInsertFiles(
+  state: CodeSessionState,
+  event: InsertFilesActionEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  return {
+    state: { ...state, pendingFileInsert: event.files },
+    effects: [],
+  };
+}
+
+function handleConsumeFileInsert(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  // Idempotent — ref-stable no-op when the slot is already null.
+  if (state.pendingFileInsert === null) {
+    return { state, effects: [] };
+  }
+  return {
+    state: { ...state, pendingFileInsert: null },
     effects: [],
   };
 }
@@ -7652,6 +7684,10 @@ export function reduce(
       return handleInsertAtomDraft(state, event);
     case "consume_atom_insert":
       return handleConsumeAtomInsert(state);
+    case "insert_files":
+      return handleInsertFiles(state, event);
+    case "consume_file_insert":
+      return handleConsumeFileInsert(state);
     case "cancel_queued_send":
       return handleCancelQueuedSend(state, event);
     case "cost_update":

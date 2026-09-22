@@ -319,7 +319,22 @@ export function paintDropCaret(
   clientX: number,
   clientY: number,
 ): void {
-  const pos = dropOffsetAtCoords(view, clientX, clientY);
+  paintDropCaretAt(view, dropOffsetAtCoords(view, clientX, clientY));
+}
+
+/**
+ * Paint the drop caret at a document position the caller already knows —
+ * the coordinate-free half of {@link paintDropCaret}.
+ *
+ * A drag over the *card* around this editor has no document under the
+ * pointer at all: the transcript is not the composer, and there is no
+ * position for a coordinate to resolve to. The honest thing the cue can say
+ * there is where the files will actually land, which is the composer's live
+ * selection — so the caret points at the insertion point rather than
+ * tracking the cursor. No-ops if the position is unchanged; `null` hides the
+ * caret, same as {@link clearDropCaret}.
+ */
+export function paintDropCaretAt(view: EditorView, pos: number | null): void {
   if (view.state.field(tugDropCaretField) !== pos) {
     view.dispatch({ effects: setTugDropCaretPos.of(pos) });
   }

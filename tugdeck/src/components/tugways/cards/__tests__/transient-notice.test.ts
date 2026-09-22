@@ -45,6 +45,7 @@ function baseSnap(
     pendingCommandInsert: null,
     pendingJotInsert: null,
     pendingAtomInsert: null,
+    pendingFileInsert: null,
     lastCost: null,
     apiRetry: null,
     refusalFallback: null,
