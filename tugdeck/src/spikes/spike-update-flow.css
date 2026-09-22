@@ -1,0 +1,199 @@
+/*
+ * spike-update-flow.css — styling for the update-flow design spike
+ * (spike-update-flow.tsx). Scoped to `.sp-update-*`.
+ *
+ * The step rows mirror the ConfigureTug spike's rhythm so a decision made here
+ * transfers back to `configure-tug.css` and forward to whatever replaces
+ * `update-overlay.css`. The shipping pill is reproduced from
+ * `update-overlay.css` token for token, so the comparison is honest.
+ */
+
+/* ---- Section 1: pill grid -------------------------------------------- */
+
+.sp-update-pill-grid {
+  display: grid;
+  grid-template-columns: max-content repeat(4, max-content);
+  gap: var(--tug-space-sm) var(--tug-space-lg);
+  align-items: center;
+}
+
+.sp-update-pill-grid-head {
+  font-family: var(--tug-font-family-mono);
+}
+
+.sp-update-pill-cell {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+}
+
+/* The shipping pill, as `update-overlay.css` paints it. */
+.sp-update-shipping-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  padding: var(--tug-space-2xs) var(--tug-space-sm);
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-xl);
+  background-color: var(--tug7-surface-global-primary-normal-overlay-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  box-shadow: var(--tug7-element-global-shadow-normal-md-rest);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  font-weight: var(--tug-font-weight-medium);
+  line-height: var(--tug-line-height-tight);
+  white-space: nowrap;
+}
+
+.sp-update-shipping-pill[data-stage="error"] {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+  border-color: var(--tug7-element-global-border-normal-accent-rest);
+}
+
+.sp-update-shipping-glyph {
+  width: var(--tug-icon-size-xs);
+  height: var(--tug-icon-size-xs);
+}
+
+/* ---- Sections 2 & 3: the panel -------------------------------------- */
+
+.sp-update-scenarios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sp-update-panel {
+  max-width: 600px;
+  /* A little larger than the dialog's defaults: this is a decision, read
+   * from across the room, not a permission strip in a transcript. */
+  --tugx-idialog-title-size: 1.0625rem;
+  --tugx-idialog-description-size: 0.9375rem;
+}
+
+/* The header's trailing slot holds one icon button, not the balanced pair the
+ * dialog sizes that slot for: release it from the pair's fixed width so the
+ * glyph sits on the right margin instead of centred in a button-wide box. */
+.sp-update-panel .tug-inline-dialog-actions .tug-button,
+.sp-update-panel .tug-inline-dialog-actions .tug-icon-button {
+  width: auto;
+  min-width: 0;
+  /* Half the pair-width's dead space back: off the frame edge, but not
+   * parked a full button's width in from it. */
+  margin-right: 1rem;
+}
+
+/* The standard bottom row: the rare action alone on the left, the decision
+ * as a pair on the right. */
+.sp-update-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tug-space-md);
+  padding-top: var(--tug-space-sm);
+}
+
+.sp-update-footer-left,
+.sp-update-footer-right {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+/* The corner the surface lives in — a strip with the pill or the dialog at
+ * its right edge, where the canvas puts it. */
+.sp-update-corner {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: var(--tug-space-sm);
+  min-height: 48px;
+  border: 1px dashed var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tugx-block-chrome-radius);
+}
+
+.sp-update-corner[data-expanded="true"] .sp-update-panel {
+  width: 100%;
+}
+
+.sp-update-pill-button {
+  all: unset;
+  display: inline-flex;
+  cursor: default;
+}
+
+.sp-update-pill-button:focus-visible {
+  outline: 2px solid var(--tug7-element-global-border-normal-accent-rest);
+  outline-offset: 2px;
+  border-radius: var(--tug-radius-xl);
+}
+
+.sp-update-notes {
+  font-size: var(--tug-font-size-sm);
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+/* ---- Step list (mirrors spike-configure-tug.css) ---------------------- */
+
+.sp-update-steps {
+  list-style: none;
+  margin: var(--tug-space-sm) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tugx-block-stack-gap);
+  --sp-update-row-h: 60px;
+  --sp-update-dot: 14px;
+  --sp-update-headline-gap: 10px;
+}
+
+.sp-update-step {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: var(--sp-update-row-h);
+  padding: 0 var(--tug-space-md);
+  background: var(--tugx-block-surface);
+  border-radius: var(--tugx-block-chrome-radius);
+}
+
+.sp-update-step[data-status="pending"] {
+  opacity: 0.5;
+}
+
+.sp-update-step-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sp-update-step-headline {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-update-headline-gap);
+}
+
+.sp-update-step-dot {
+  flex: 0 0 auto;
+}
+
+.sp-update-step-label {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.sp-update-step-detail {
+  padding-left: calc(var(--sp-update-dot) + var(--sp-update-headline-gap));
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+.sp-update-step-check {
+  flex: 0 0 auto;
+  color: var(--tug7-element-tone-text-normal-success-rest);
+}
