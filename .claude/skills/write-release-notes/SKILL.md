@@ -1,5 +1,5 @@
 ---
-name: release-notes
+name: write-release-notes
 description: Draft release-notes/<current version>.md from the commits since the last release, for the person to edit and confirm — the seed that version-bump leaves is never written from scratch
 argument-hint: "[anything to emphasise or leave out]"
 disable-model-invocation: true
@@ -9,7 +9,9 @@ disallowed-tools: Task
 
 ## What this is
 
-`release-notes` writes the **first draft** of the current version's release notes. `just version-bump` seeds `release-notes/<version>.md` with a heading and an instructional comment, `just bless` refuses to release while that comment is still there, and this skill is what fills the space between: it reads what landed since the last release and writes the notes a person then edits and confirms with `just release-notes`.
+Named with the verb because `/release-notes` is Claude Code's own command — it shows Claude Code's release notes — and a project skill cannot take a built-in's name.
+
+`write-release-notes` writes the **first draft** of the current version's release notes. `just version-bump` seeds `release-notes/<version>.md` with a heading and an instructional comment, `just bless` refuses to release while that comment is still there, and this skill is what fills the space between: it reads what landed since the last release and writes the notes a person then edits and confirms with `just release-notes`.
 
 The draft is a draft. The person's edit is the notes.
 
@@ -24,11 +26,11 @@ The file is embedded in the Sparkle appcast and rendered in the update popover, 
 
 ## The flow
 
-1. **Find the file.** `VERSION="$(tugrust/scripts/version.sh show)"`; the target is `release-notes/$VERSION.md`. If it does not exist, say that `just version-bump` seeds it and stop. If it exists and is **not** the seed — no `Delete this comment` line, prose outside the heading — someone has already written it. Leave it alone and say so; `/release-notes rewrite` is the only thing that overwrites written notes.
+1. **Find the file.** `VERSION="$(tugrust/scripts/version.sh show)"`; the target is `release-notes/$VERSION.md`. If it does not exist, say that `just version-bump` seeds it and stop. If it exists and is **not** the seed — no `Delete this comment` line, prose outside the heading — someone has already written it. Leave it alone and say so; `/write-release-notes rewrite` is the only thing that overwrites written notes.
 
 2. **Find the range.** The previous release is the newest `v*` tag on the remote: `git ls-remote --tags origin 'refs/tags/v*' | sed 's|.*refs/tags/||' | sort -V | tail -1`. The range is `<that tag>..HEAD`. If there is no tag, use the commit that set the previous version — `git log --format=%h -S'version = "<prev>"' -- tugrust/Cargo.toml | tail -1`, where `<prev>` is the newest other file in `release-notes/` — and if there is none of that either, this is the first release: skip the log and write what Tug *is*.
 
-3. **Read the range.** `git log --format='%s%n%b' <range>` — subjects and bodies. The bodies are where the reader-facing sentence usually already is: the join messages on `main` open with a summary paragraph written for someone who never saw the work. Group what you find by what it means to the person using the app; drop everything internal (tests, laws, briefs, refactors, tooling that only this repo uses). If an argument was given, weight it — `/release-notes emphasise the update pill` or `/release-notes leave out the arc changes`.
+3. **Read the range.** `git log --format='%s%n%b' <range>` — subjects and bodies. The bodies are where the reader-facing sentence usually already is: the join messages on `main` open with a summary paragraph written for someone who never saw the work. Group what you find by what it means to the person using the app; drop everything internal (tests, laws, briefs, refactors, tooling that only this repo uses). If an argument was given, weight it — `/write-release-notes emphasise the update pill` or `/write-release-notes leave out the arc changes`.
 
 4. **Write the file.** Keep the `# Tug <version>` heading. Replace the seeded comment with the draft. Nothing else in the file.
 

@@ -679,6 +679,74 @@ describe("SessionMetadataStore handshake command catalog (from the drop)", () =>
   });
 });
 
+describe("SessionMetadataStore catalog union (resumed card, stale system frame)", () => {
+  // On a resumed card the system_metadata frame is the ledger's stored copy
+  // from an earlier run, and the turn-free handshake is the only live source.
+  // A project skill added between the two runs is reported by the handshake
+  // and by nothing else. The catalog is the union by name — whichever order
+  // the two frames land in — so the new skill is offered and the unknown-
+  // command guard does not refuse the turn that would have refreshed the list.
+  test("a command only the live handshake reports survives a stored system catalog", () => {
+    const feedStore = new MockFeedStore();
+    const store = new SessionMetadataStore(feedStore as never, FEED_ID as never);
+
+    // Stored frame replayed at bind: the catalog as it was last run.
+    feedStore.emit(FEED_ID, {
+      type: "system_metadata",
+      slash_commands: ["init", "spike-card", "tugplug:brief"],
+    });
+    // Live handshake from this spawn: a skill added since, plus the metadata
+    // the system emitter never carries.
+    feedStore.emit(FEED_ID, {
+      type: "session_capabilities",
+      models: [],
+      commands: [
+        { name: "init" },
+        { name: "spike-card", argumentHint: "[what you want to explore]" },
+        { name: "write-release-notes", description: "Draft the notes" },
+      ],
+    });
+
+    const names = store.getSnapshot().slashCommands.map((c) => c.name);
+    expect(names).toEqual([
+      "init",
+      "spike-card",
+      "tugplug:brief",
+      "write-release-notes",
+    ]);
+    // The stored entry is still backfilled from the handshake by name.
+    expect(
+      store.getSnapshot().slashCommands.find((c) => c.name === "spike-card")
+        ?.argumentHint,
+    ).toBe("[what you want to explore]");
+
+    store.dispose();
+  });
+
+  test("the union holds in the other order too (handshake first, then system)", () => {
+    const feedStore = new MockFeedStore();
+    const store = new SessionMetadataStore(feedStore as never, FEED_ID as never);
+
+    feedStore.emit(FEED_ID, {
+      type: "session_capabilities",
+      models: [],
+      commands: [{ name: "init" }, { name: "write-release-notes" }],
+    });
+    feedStore.emit(FEED_ID, {
+      type: "system_metadata",
+      slash_commands: ["init", "tugplug:brief"],
+    });
+
+    expect(store.getSnapshot().slashCommands.map((c) => c.name)).toEqual([
+      "init",
+      "tugplug:brief",
+      "write-release-notes",
+    ]);
+
+    store.dispose();
+  });
+});
+
 describe("SessionMetadataStore reconciliation (optimistic overrides)", () => {
   // Optimistic overrides win until the authoritative frame that OWNS the field
   // lands and drops the override — proving the two sources reconcile through a

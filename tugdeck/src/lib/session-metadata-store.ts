@@ -219,16 +219,26 @@ function reconcileSnapshot(
 
 /**
  * Merge the post-turn system catalog (the base) with the from-the-drop
- * capabilities catalog (the metadata source). The system list is authoritative
- * for *which* commands exist — by the first turn claude has loaded plugins, so
- * it lists plugin commands the turn-free handshake may not have — but the
- * current emitter ships those entries as bare strings: no `argumentHint`, no
- * `description`. The capabilities catalog carries that richer metadata (tugcode
- * reads it from each command's frontmatter). So keep every system entry and
- * backfill its missing `argumentHint` / `description` from the matching
- * capabilities entry by name. Without this, an explicit argument hint shown
- * from the drop would silently regress to the generic slot the moment the first
- * turn's sparse catalog landed — the same command, hint lost on re-invocation.
+ * capabilities catalog (the metadata source). The result is the **union** by
+ * name: a command exists if either source reports it.
+ *
+ * Neither list is a superset of the other. By the first turn claude has loaded
+ * plugins, so the system list carries plugin commands the turn-free handshake
+ * may not have. But on a resumed card the system frame is the ledger's stored
+ * copy from an *earlier* run, and the handshake is the only live source — a
+ * project skill added since (a new `.claude/skills/<name>/`) is in the
+ * handshake and nowhere else. Letting the stored list decide membership made
+ * that skill unreachable, and the unknown-command guard then refused the very
+ * turn whose `system/init` would have refreshed the list.
+ *
+ * The system emitter ships its entries as bare strings — no `argumentHint`, no
+ * `description` — while the capabilities catalog carries that richer metadata
+ * (tugcode reads it from each command's frontmatter). So every system entry is
+ * kept and backfilled by name from the matching capabilities entry, and every
+ * capabilities entry the system list lacks is appended as-is. Without the
+ * backfill, an explicit argument hint shown from the drop would silently
+ * regress to the generic slot the moment the first turn's sparse catalog
+ * landed — the same command, hint lost on re-invocation.
  */
 function mergeCatalogs(
   sys: SlashCommandInfo[],
@@ -236,7 +246,8 @@ function mergeCatalogs(
 ): SlashCommandInfo[] {
   if (cap.length === 0) return sys;
   const capByName = new Map(cap.map((c) => [c.name, c]));
-  return sys.map((s) => {
+  const sysNames = new Set(sys.map((s) => s.name));
+  const merged = sys.map((s) => {
     if (s.argumentHint !== undefined && s.description !== undefined) return s;
     const rich = capByName.get(s.name);
     if (rich === undefined) return s;
@@ -246,6 +257,10 @@ function mergeCatalogs(
       description: s.description ?? rich.description,
     };
   });
+  for (const c of cap) {
+    if (!sysNames.has(c.name)) merged.push(c);
+  }
+  return merged;
 }
 
 /**

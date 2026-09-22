@@ -21,7 +21,7 @@ sentences or a short list about what changed, not a commit log.
 
 `tugrust/scripts/version.sh set` and `version.sh bump` seed an empty file here
 for the version they set, so the reminder arrives with the bump. Seeding never
-overwrites a file that already exists. `/release-notes` in the Session card
+overwrites a file that already exists. `/write-release-notes` in the Session card
 writes the first draft from the commits since the last release — for the
 reader who does not read this repository, not as a commit log — and
 `just release-notes` opens it. Editing and confirming that draft is a person's
