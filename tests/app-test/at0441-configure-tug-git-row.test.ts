@@ -34,6 +34,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/configure-tug.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-row.tsx
  * @covers tugdeck/src/components/tugways/configure-tug-copy.ts
  * @covers tugdeck/src/lib/host-tools-store.ts
  * @covers tugdeck/src/settings-api.ts
@@ -49,9 +50,9 @@ const TEST_TIMEOUT_MS = 120_000;
 const SID = "at0441-configure-tug-git-row";
 const SETUP = '[data-slot="configure-tug"]';
 const GIT_ROW = `${SETUP} .configure-tug-step[data-step="host-tools"]`;
-const GIT_LABEL = `${GIT_ROW} .configure-tug-step-label`;
-const GIT_DETAIL = `${GIT_ROW} .configure-tug-step-detail`;
-const GIT_ACTION = `${GIT_ROW} .configure-tug-step-action`;
+const GIT_LABEL = `${GIT_ROW} .tug-step-row-label`;
+const GIT_DETAIL = `${GIT_ROW} .tug-step-row-detail`;
+const GIT_ACTION = `${GIT_ROW} .tug-step-row-action`;
 // The secondary CTA renders before the primary, so the first button in the
 // action slot is Skip / Recheck and the last is Install / Retry.
 const GIT_SECONDARY = `${GIT_ACTION} [data-slot="tug-push-button"]:first-child`;

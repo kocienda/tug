@@ -1,38 +1,58 @@
 /**
- * AT0612: the update pill and its popover, driven entirely from the bridge.
+ * AT0612: the update surface — badge and dialog — driven entirely from the bridge.
  *
  * ## What this pins
  *
- * Tug's update presentation is a pill in the upper right of the deck canvas
- * and a popover behind it, and the only thing that moves either of them is a
- * snapshot arriving on `window.__tugBridge.onUpdateState`. That is the whole
- * contract with the host: state in, one action name out. So this test speaks
- * the host's side of it directly — no Sparkle, no updater, no feed, and no
- * network anywhere [B12] [F10]. Every stage the driver can report is injected
- * as a snapshot and the deck is required to draw it.
+ * Tug's update presentation is one surface with two sizes in the upper right of
+ * the deck canvas: a badge collapsed, a dialog expanded. The only thing that
+ * moves what it *says* is a snapshot arriving on
+ * `window.__tugBridge.onUpdateState`, and the only things that move its *size*
+ * are a click on the badge and a click on the collapse control. That is the
+ * whole contract with the host: state in, one action name out. So this test
+ * speaks the host's side of it directly — no Sparkle, no updater, no feed, and
+ * no network anywhere. Every stage the driver can report is injected as a
+ * snapshot and the deck is required to draw it.
  *
- * Three claims are worth naming, because they are the ones the arc rests on
- * and the ones a plausible refactor would quietly lose:
+ * Two briefs decided this surface and both are cited below. Bare `[B##]`/`[F##]`
+ * are `briefs/update-surface-brief.md`, which decided the two sizes; the host
+ * flow underneath them is `briefs/non-modal-app-updates-brief.md`, cited by
+ * name where it is the one that answers.
  *
- * 1. **Nothing announces itself by taking focus.** An update found by a
- *    scheduled check lights the pill and does nothing else, and even the one
- *    permitted self-open — a check the *user* started reaching its answer —
- *    leaves the caret where it was. The answer to a check can land seconds
- *    after it was asked for, by which time the user is typing somewhere else,
- *    so an open nobody asked for must not move the keyboard [B06].
- * 2. **Progress never reaches React.** The percent is written onto the DOM as
- *    a custom property from a direct store subscription, so the bar moves
- *    while the rendered tree stands still [B05] [L06].
- * 3. **Absent release notes never block an update.** A feed item with no
- *    description leaves the version, the heading and every control exactly
- *    where they were [B11].
+ * Four claims are worth naming, because they are the ones the arc rests on and
+ * the ones a plausible refactor would quietly lose:
+ *
+ * 1. **Arrival size follows who asked.** A scheduled check that finds something
+ *    arrives collapsed — the badge lights and nothing else moves. A check the
+ *    *user* started arrives expanded on its answer, because being shown the
+ *    answer is what they asked for [B02].
+ * 2. **Nothing else changes the size, ever.** Not a stage transition, not the
+ *    `upToDate` timer, not a decision button. Collapsing an update is how a
+ *    decision waits for a convenient moment, and a surface that re-expanded
+ *    itself would take that back [B01].
+ * 3. **Nothing announces itself by taking focus.** The answer to a check can
+ *    land seconds after it was asked for, by which time the user is typing
+ *    somewhere else, so even the one permitted self-expansion must not move the
+ *    keyboard (non-modal-app-updates [B06]).
+ * 4. **Progress never reaches React.** The percent is written onto the download
+ *    row's own span from a direct store subscription, so the words move while
+ *    the rendered tree stands still ([L06]; non-modal-app-updates [B05]). There
+ *    is no progress bar; the wizard standard is a dot and a detail line, and a
+ *    bar was tried and rejected [F04] [B05].
+ *
+ * Absent release notes still never block an update: a feed item with no
+ * description leaves the version, the heading and every control exactly where
+ * they were [B07].
  *
  * The actions are read back through a recorder standing in for the host's
  * `updateAction` message handler — which is also what keeps the test from
- * driving a real install: no click here reaches Sparkle.
+ * driving a real install: no click here reaches Sparkle. The recorder swallows
+ * the action rather than forwarding it, so nothing ever pushes the deck back to
+ * `idle` on its own; every stage this test stands in, it stands in until the
+ * next snapshot is pushed.
  *
  * @covers tugdeck/src/components/chrome/update-overlay.tsx
  * @covers tugdeck/src/components/chrome/update-overlay.css
+ * @covers tugdeck/src/components/tugways/tug-step-row.tsx
  * @covers tugdeck/src/lib/update-store.ts
  * @covers tugdeck/src/lib/update-relaunch-warning.ts
  */
@@ -44,17 +64,22 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const PILL = `[data-testid="update-pill"]`;
-const POPOVER = `[data-testid="update-popover"]`;
-/**
- * The popover's chrome — the element Radix focuses and dismisses, one level
- * out from the body {@link POPOVER} names. Focus questions are asked against
- * this, because "focus is inside the popover" includes the frame.
- */
-const POPOVER_FRAME = `[data-slot="tug-popover"]`;
-const CONTROLS = `${POPOVER} .tugx-update-controls button`;
+/** The collapsed form. */
+const BADGE = `[data-testid="update-badge"]`;
+/** The expanded form. */
+const DIALOG = `[data-testid="update-dialog"]`;
+/** The one control in the dialog's header slot: it collapses to the badge. */
+const COLLAPSE = `[data-testid="update-collapse"]`;
+/** The bottom row, in DOM order: the rare action first, then the decision pair. */
+const DECISIONS = `${DIALOG} .tugx-update-decisions button`;
+/** One decision button, addressed by the action it posts. */
+const decision = (action: string): string =>
+  `${DIALOG} [data-testid="update-action-${action}"]`;
+const STEPS = `[data-testid="update-steps"]`;
+const STEP_ROWS = `${STEPS} [data-slot="tug-step-row"]`;
+/** The download row's detail line — the whole of what progress is now. */
+const PROGRESS_DETAIL = `[data-testid="update-progress-detail"]`;
 const NOTES = `[data-testid="update-release-notes"]`;
-const PROGRESS = `[data-testid="update-progress"]`;
 const ERROR_MESSAGE = `[data-testid="update-error-message"]`;
 
 /** A snapshot in the shape `UpdateSnapshot.jsonObject` emits, host-side. */
@@ -157,11 +182,11 @@ async function elementCount(app: App, selector: string): Promise<number> {
   );
 }
 
-/** The popover's control labels, in the order they are laid out. */
-async function controlLabels(app: App): Promise<string[]> {
+/** The bottom row's labels, in the order they are laid out. */
+async function decisionLabels(app: App): Promise<string[]> {
   return app.evalJS<string[]>(
     `Array.prototype.map.call(
-       document.querySelectorAll(${JSON.stringify(CONTROLS)}),
+       document.querySelectorAll(${JSON.stringify(DECISIONS)}),
        function (b) { return (b.textContent || "").trim(); }
      )`,
   );
@@ -170,17 +195,11 @@ async function controlLabels(app: App): Promise<string[]> {
 /**
  * Wait until `selector` is a thing a click can actually land on.
  *
- * Present in the DOM is not the same as ready: the popover is positioned by a
- * collision-aware layout pass and animates in, so a click dispatched the
- * instant the content mounts can land where the content is no longer — which
- * Radix reads as a pointer-down *outside* and answers by dismissing. The
- * symptom is a popover that vanishes with no action posted, and it is a race
- * rather than a defect, so the answer is to wait for the thing the click needs
- * rather than to click again and hope.
- *
- * Ready means two polls agree on the element's box AND the centre of that box
- * hit-tests back to the element itself — the box has stopped moving and
- * nothing is over it.
+ * Present in the DOM is not the same as ready: the surface is laid out and
+ * transitions in, so a click dispatched the instant it mounts can land where
+ * the element is no longer. Ready means two polls agree on the element's box
+ * AND the centre of that box hit-tests back to the element itself — the box has
+ * stopped moving and nothing is over it.
  */
 async function waitForClickable(app: App, selector: string): Promise<void> {
   await app.evalJS<null>(`(window.__at0612.box = null, null)`);
@@ -201,69 +220,64 @@ async function waitForClickable(app: App, selector: string): Promise<void> {
   );
 }
 
-async function waitForPill(app: App, stage: string): Promise<void> {
+/** Wait until the collapsed form is up, on `stage`. */
+async function waitForBadge(app: App, stage: string): Promise<void> {
   await app.waitForCondition<boolean>(
     `(function () {
-       var p = document.querySelector(${JSON.stringify(PILL)});
-       return p !== null && p.getAttribute("data-stage") === ${JSON.stringify(stage)};
+       var b = document.querySelector(${JSON.stringify(BADGE)});
+       return b !== null && b.getAttribute("data-stage") === ${JSON.stringify(stage)};
      })()`,
     { timeoutMs: 10_000 },
   );
 }
 
-async function waitForNoPill(app: App): Promise<void> {
+/** Wait until the expanded form is up, on `stage`. */
+async function waitForDialog(app: App, stage: string): Promise<void> {
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(PILL)}) === null`,
+    `(function () {
+       var d = document.querySelector(${JSON.stringify(DIALOG)});
+       return d !== null && d.getAttribute("data-stage") === ${JSON.stringify(stage)};
+     })()`,
     { timeoutMs: 10_000 },
   );
 }
 
-async function openPopover(app: App): Promise<void> {
-  await waitForPopoverGone(app);
-  await waitForClickable(app, PILL);
-  await app.click(PILL);
-  await waitForPopoverOpen(app);
+/** Click the badge, which is the one gesture that expands the surface. */
+async function expand(app: App, stage: string): Promise<void> {
+  await waitForClickable(app, BADGE);
+  await app.click(BADGE);
+  await waitForDialog(app, stage);
+  await waitForClickable(app, DIALOG);
+}
+
+/** Click the collapse control, which is the one gesture that collapses it. */
+async function collapse(app: App, stage: string): Promise<void> {
+  await waitForClickable(app, COLLAPSE);
+  await app.click(COLLAPSE);
+  await waitForBadge(app, stage);
+}
+
+/** Put the deck back to having nothing to say, so the surface remounts clean. */
+async function goIdle(app: App): Promise<void> {
+  await push(app, snapshot("idle"));
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(BADGE)}) === null
+       && document.querySelector(${JSON.stringify(DIALOG)}) === null`,
+    { timeoutMs: 10_000 },
+  );
 }
 
 /**
- * Wait until the popover is *open*, which is not the same as present.
+ * Push a stage and get to the expanded form, whatever size it arrived at.
  *
- * Radix keeps the content mounted through its exit animation, so an element
- * matching {@link POPOVER} can be one React has already unmounted from its
- * tree — the DOM node lingers, `__reactProps$` and all, and a click on a
- * button inside it reaches no handler and posts nothing. `data-state` is the
- * fact: `open` while the popover is live, `closed` while it is leaving.
+ * A scheduled snapshot arrives collapsed, which is the point of [B02] and is
+ * asserted on its own below; here it is only the road to the dialog.
  */
-async function waitForPopoverOpen(app: App): Promise<void> {
-  await app.waitForCondition<boolean>(
-    `(function () {
-       var f = document.querySelector(${JSON.stringify(`${POPOVER_FRAME}[data-state="open"]`)});
-       return f !== null && f.querySelector(${JSON.stringify(POPOVER)}) !== null;
-     })()`,
-    { timeoutMs: 10_000 },
-  );
-  await waitForClickable(app, POPOVER);
-}
-
-/** Wait until the popover has finished leaving and nothing of it is left. */
-async function waitForPopoverGone(app: App): Promise<void> {
-  await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(POPOVER_FRAME)}) === null`,
-    { timeoutMs: 10_000 },
-  );
-}
-
-/** True only while the popover is live — never while it is animating out. */
-async function popoverIsOpen(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(
-    `document.querySelector(${JSON.stringify(`${POPOVER_FRAME}[data-state="open"]`)}) !== null`,
-  );
-}
-
-/** Put the deck back to having nothing to say, so the panel remounts clean. */
-async function goIdle(app: App): Promise<void> {
-  await push(app, snapshot("idle"));
-  await waitForNoPill(app);
+async function showDialog(app: App, payload: Payload): Promise<void> {
+  await goIdle(app);
+  await push(app, payload);
+  await waitForBadge(app, payload.stage);
+  await expand(app, payload.stage);
 }
 
 /**
@@ -297,9 +311,9 @@ function deckShape() {
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
+describe.skipIf(!SHOULD_RUN)("AT0612: the update badge and dialog", () => {
   test(
-    "every stage draws, every control posts its action, and nothing takes focus",
+    "every stage draws, the size is the user's, every control posts its action, and nothing takes focus",
     async () => {
       const app = await launchTugApp({ testName: "at0612-update-pill-popover" });
       try {
@@ -320,27 +334,69 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
 
         // ---- Idle says nothing at all ----------------------------------
         await goIdle(app);
-        expect(await elementCount(app, PILL)).toBe(0);
-        expect(await elementCount(app, POPOVER)).toBe(0);
+        expect(await elementCount(app, BADGE)).toBe(0);
+        expect(await elementCount(app, DIALOG)).toBe(0);
 
-        // ---- Every stage the driver reports puts a pill up -------------
+        // ---- Every stage the driver reports puts a badge up -------------
         const labels: Array<[string, string]> = [
           ["checking", "Checking…"],
           ["available", "0.9.0"],
           ["downloading", "0.9.0"],
-          ["extracting", "0.9.0"],
+          ["extracting", "Unpacking"],
           ["readyToInstall", "Ready to install"],
           ["installing", "Installing…"],
+          ["upToDate", "Up to date"],
           ["error", "Update failed"],
         ];
         for (const [stage, label] of labels) {
           await push(app, snapshot(stage));
-          await waitForPill(app, stage);
-          expect(await app.getElementText(PILL)).toContain(label);
+          await waitForBadge(app, stage);
+          expect(await app.getElementText(BADGE)).toContain(label);
         }
-        note("at0612 pill labels", JSON.stringify(labels.map((l) => l[0])));
+        note("at0612 badge stages", JSON.stringify(labels.map((l) => l[0])));
+        await clearPosted(app);
+
+        // ---- Arrival size follows who asked [B02] -----------------------
+        //
+        // A scheduled check lights the badge and moves nothing else. This is
+        // the whole reason the surface is not a dialog that opens itself.
+        await goIdle(app);
+        await push(app, snapshot("available", { userInitiated: false }));
+        await waitForBadge(app, "available");
+        expect(await elementCount(app, DIALOG)).toBe(0);
+
+        // A stage transition under a collapsed surface changes the words and
+        // not the size [B01].
+        await push(app, snapshot("downloading", { userInitiated: false }));
+        await waitForBadge(app, "downloading");
+        expect(await elementCount(app, DIALOG)).toBe(0);
+
+        // The badge expands, and the collapse control is its inverse.
+        await expand(app, "downloading");
+        expect(await elementCount(app, BADGE)).toBe(0);
+        await collapse(app, "downloading");
+        expect(await elementCount(app, DIALOG)).toBe(0);
+        note("at0612 size", "badge expands, collapse control collapses");
+
+        // A check the user started arrives expanded on its answer.
+        await goIdle(app);
+        await push(app, snapshot("available", { userInitiated: true }));
+        await waitForDialog(app, "available");
+        expect(await elementCount(app, BADGE)).toBe(0);
+
+        // And a transition inside that same flow does not resize it either —
+        // the surface the user is looking at stays the surface they are
+        // looking at.
+        await push(app, snapshot("downloading", { userInitiated: true }));
+        await waitForDialog(app, "downloading");
+        expect(await elementCount(app, BADGE)).toBe(0);
 
         // ---- The controls each stage allows, and what they post --------
+        //
+        // In DOM order: the rare left-hand action first, then the quiet one
+        // and the primary. A click posts and changes nothing else — the
+        // recorder swallows the action, so the surface stays exactly as it is
+        // and the next control is ready to click.
         const controlCases: Array<{
           stage: string;
           expected: string[];
@@ -349,38 +405,35 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
           { stage: "checking", expected: ["Cancel"], actions: ["cancel"] },
           {
             stage: "available",
-            expected: ["Install and Relaunch", "Later", "Skip This Version"],
-            actions: ["install", "later", "skip"],
+            expected: ["Skip This Version", "Later", "Download"],
+            actions: ["skip", "later", "install"],
           },
           { stage: "downloading", expected: ["Cancel"], actions: ["cancel"] },
           {
             stage: "readyToInstall",
-            expected: ["Install and Relaunch", "Later"],
-            actions: ["install", "later"],
+            expected: ["Later", "Install and Relaunch"],
+            actions: ["later", "install"],
           },
           {
             stage: "error",
-            expected: ["Retry", "Dismiss"],
-            actions: ["retry", "dismiss"],
+            expected: ["Dismiss", "Retry"],
+            actions: ["dismiss", "retry"],
           },
           { stage: "extracting", expected: [], actions: [] },
           { stage: "installing", expected: [], actions: [] },
         ];
 
         for (const { stage, expected, actions } of controlCases) {
-          await goIdle(app);
-          await push(app, snapshot(stage, { message: "the feed did not answer" }));
-          await waitForPill(app, stage);
-          await openPopover(app);
+          await showDialog(
+            app,
+            snapshot(stage, { message: "the feed did not answer" }),
+          );
 
-          expect(await controlLabels(app)).toEqual(expected);
+          expect(await decisionLabels(app)).toEqual(expected);
 
-          // Each control in turn: click it, read what the host would have
-          // been sent, and re-open for the next one.
           for (let i = 0; i < actions.length; i++) {
-            if (!(await popoverIsOpen(app))) await openPopover(app);
             await clearPosted(app);
-            const target = `${POPOVER} .tugx-update-controls button:nth-child(${i + 1})`;
+            const target = decision(actions[i]!);
             await waitForClickable(app, target);
             await app.click(target);
             try {
@@ -389,17 +442,14 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
                 { timeoutMs: 10_000 },
               );
             } catch (err) {
-              // Enough context to tell a dead control from a popover that was
-              // not open when the click landed — the two failures this loop
-              // can produce, and they want different answers.
               note(
                 `at0612 no post from ${stage}/${actions[i]}`,
                 await app.evalJS<string>(
                   `(function () {
-                     var frame = document.querySelector(${JSON.stringify(POPOVER_FRAME)});
+                     var d = document.querySelector(${JSON.stringify(DIALOG)});
                      var t = document.querySelector(${JSON.stringify(target)});
                      return JSON.stringify({
-                       frameState: frame === null ? null : frame.getAttribute("data-state"),
+                       dialogStage: d === null ? null : d.getAttribute("data-stage"),
                        targetFound: t !== null,
                        targetText: t === null ? null : (t.textContent || "").trim(),
                        targetDisabled: t === null ? null : t.disabled,
@@ -411,18 +461,50 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
             }
             note(`at0612 posted`, `${stage}/${actions[i]}`);
             expect(await postedActions(app)).toEqual([actions[i]!]);
+            // A decision posts and nothing more: the surface it was pressed on
+            // is still the surface, at the size it was pressed at [B01].
+            expect(await elementCount(app, DIALOG)).toBe(1);
           }
-          note(`at0612 controls for ${stage}`, JSON.stringify(expected));
+          note(`at0612 decisions for ${stage}`, JSON.stringify(expected));
         }
 
+        // ---- The flow is a step list, not a bar [B05] [F04] -------------
+        //
+        // Three rows, whatever the stage, and the dot says where the flow has
+        // got to. `checking`, `upToDate` and `error` show none: the first two
+        // have no flow, and `error` has lost one — the snapshot never says
+        // which step failed, so a red dot anywhere would assert something
+        // nobody reported.
+        const stepCases: Array<[string, number, string[]]> = [
+          ["available", 3, ["active", "pending", "pending"]],
+          ["downloading", 3, ["busy", "pending", "pending"]],
+          ["extracting", 3, ["done", "busy", "pending"]],
+          ["readyToInstall", 3, ["done", "done", "active"]],
+          ["installing", 3, ["done", "done", "busy"]],
+          ["checking", 0, []],
+          ["upToDate", 0, []],
+          ["error", 0, []],
+        ];
+        for (const [stage, count, statuses] of stepCases) {
+          await showDialog(app, snapshot(stage, { message: "no answer" }));
+          expect(await elementCount(app, STEP_ROWS)).toBe(count);
+          const read = await app.evalJS<string[]>(
+            `Array.prototype.map.call(
+               document.querySelectorAll(${JSON.stringify(STEP_ROWS)}),
+               function (r) { return r.getAttribute("data-status"); }
+             )`,
+          );
+          note(`at0612 steps ${stage}`, JSON.stringify(read));
+          expect(read).toEqual(statuses);
+        }
+        // No bar survived the rewrite, in any stage.
+        expect(await elementCount(app, `[role="progressbar"]`)).toBe(0);
+
         // ---- An error says what went wrong, and does not leave on a timer
-        await goIdle(app);
-        await push(
+        await showDialog(
           app,
           snapshot("error", { message: "the feed did not answer" }),
         );
-        await waitForPill(app, "error");
-        await openPopover(app);
         expect(await app.getElementText(ERROR_MESSAGE)).toContain(
           "the feed did not answer",
         );
@@ -430,37 +512,35 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
         // Longer than the `upToDate` self-dismiss, which is the only timer in
         // the component. An error that cleared itself would be gone by now.
         await letTimePass(app, 8_000);
-        expect(await elementCount(app, PILL)).toBe(1);
+        expect(await elementCount(app, DIALOG)).toBe(1);
         expect(await postedActions(app)).toEqual([]);
 
         // ---- `upToDate` is an answer with nothing left to decide --------
         //
         // It clears itself after a few seconds, and that half is deliberately
-        // NOT asserted here: the dismissal rides a `window.setTimeout`, and an
+        // NOT asserted: the dismissal rides a `window.setTimeout`, and an
         // app-test's harness window can be occluded, where WebKit throttles
         // timers hard enough that a four-second timer has not fired a minute
-        // later. Asserting it would be asserting the window manager. What is
-        // asserted is what the stage draws — the pill, and a popover offering
-        // nothing to press, because there is no decision left to make.
-        await goIdle(app);
+        // later. Asserting it would be asserting the window manager.
+        //
+        // What IS asserted is that the timer never touches the size. A user
+        // who expanded the answer is still looking at it, expanded, well past
+        // the moment the timer would have fired [B01] [B08].
+        await showDialog(app, snapshot("upToDate"));
+        expect(await app.getElementText(DIALOG)).toContain("Tug is up to date");
+        expect(await decisionLabels(app)).toEqual(["OK"]);
+        await letTimePass(app, 6_000);
+        expect(await elementCount(app, DIALOG)).toBe(1);
+        expect(await elementCount(app, BADGE)).toBe(0);
         await clearPosted(app);
-        await push(app, snapshot("upToDate"));
-        await waitForPill(app, "upToDate");
-        expect(await app.getElementText(PILL)).toContain("Up to date");
-        await openPopover(app);
-        expect(await app.getElementText(POPOVER)).toContain("Tug is up to date");
-        expect(await controlLabels(app)).toEqual([]);
 
         // ---- Release notes render, and their absence changes nothing ----
-        await goIdle(app);
-        await push(
+        await showDialog(
           app,
           snapshot("available", {
             releaseNotes: "## What changed\n\nA `notable` thing.\n",
           }),
         );
-        await waitForPill(app, "available");
-        await openPopover(app);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(NOTES)}) !== null`,
           { timeoutMs: 10_000 },
@@ -470,31 +550,28 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
         expect(notesText).toContain("What changed");
         expect(notesText).toContain("notable");
 
-        // The same update with no notes at all — B11's floor. The version,
+        // The same update with no notes at all — [B07]'s floor. The version,
         // the heading and every control stand exactly as they did.
-        await goIdle(app);
-        await push(app, snapshot("available", { releaseNotes: null }));
-        await waitForPill(app, "available");
-        await openPopover(app);
+        await showDialog(app, snapshot("available", { releaseNotes: null }));
         expect(await elementCount(app, NOTES)).toBe(0);
-        expect(await app.getElementText(POPOVER)).toContain("Tug 0.9.0 is available");
-        expect(await controlLabels(app)).toEqual([
-          "Install and Relaunch",
-          "Later",
+        expect(await app.getElementText(DIALOG)).toContain("Tug 0.9.0 is available");
+        expect(await decisionLabels(app)).toEqual([
           "Skip This Version",
+          "Later",
+          "Download",
         ]);
 
-        // ---- Progress is appearance, never a render [B05] [L06] ---------
-        await goIdle(app);
-        await push(
+        // ---- Progress is words, and never a render [B05] [L06] ----------
+        await showDialog(
           app,
           snapshot("downloading", { percent: null, cancellable: true }),
         );
-        await waitForPill(app, "downloading");
-        await openPopover(app);
-        // No total yet: no property, no attribute, and so no bar claiming a
-        // progress nobody has reported.
-        expect(await app.getElementAttribute(PROGRESS, "data-progress")).toBeNull();
+        // No total yet: no attribute, and a phrase rather than a number,
+        // because `null` is not zero.
+        expect(
+          await app.getElementAttribute(PROGRESS_DETAIL, "data-progress"),
+        ).toBeNull();
+        expect(await app.getElementText(PROGRESS_DETAIL)).toContain("Starting");
 
         for (const percent of [7, 42, 99]) {
           await push(
@@ -502,50 +579,46 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and popover", () => {
             snapshot("downloading", { percent, cancellable: true }),
           );
           await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(PROGRESS)})
+            `(document.querySelector(${JSON.stringify(PROGRESS_DETAIL)})
                 ?.getAttribute("data-progress")) === ${JSON.stringify(String(percent))}`,
             { timeoutMs: 10_000 },
           );
-          // The property, not the rendered width: the fill transitions, so a
-          // width read the instant the property moves is still the old one.
-          const property = await app.getComputedStyleValue(
-            PROGRESS,
-            "--tugx-update-progress",
-          );
-          note(`at0612 progress ${percent}%`, property.trim());
-          expect(property.trim()).toBe(`${percent}%`);
+          const text = await app.getElementText(PROGRESS_DETAIL);
+          note(`at0612 progress ${percent}%`, text);
+          expect(text).toContain(`${percent}%`);
         }
-        // The popover has not been re-rendered out from under itself: the
-        // element that was there at 7% is the element that is there at 99%.
-        expect(await elementCount(app, PROGRESS)).toBe(1);
-        expect(await app.getElementAttribute(PILL, "data-progress")).toBe("99");
+        // The dialog has not been re-rendered out from under itself: the span
+        // that was there at 7% is the span that is there at 99%, and the
+        // surface never changed size while the percent moved.
+        expect(await elementCount(app, PROGRESS_DETAIL)).toBe(1);
+        expect(await elementCount(app, DIALOG)).toBe(1);
 
         // ---- Nothing takes focus ----------------------------------------
         // First the unsolicited case: an update found by a scheduled check
-        // lights the pill and opens nothing.
+        // lights the badge and expands nothing.
         await goIdle(app);
         const before = await app.getActiveElement();
         await push(app, snapshot("available", { userInitiated: false }));
-        await waitForPill(app, "available");
-        expect(await elementCount(app, POPOVER)).toBe(0);
+        await waitForBadge(app, "available");
+        expect(await elementCount(app, DIALOG)).toBe(0);
         expect(await app.getActiveElement()).toEqual(before);
 
-        // Then the one permitted self-open: a check the user started reaching
-        // its answer. The popover opens — and the caret stays where it was.
+        // Then the one permitted self-expansion: a check the user started
+        // reaching its answer. The dialog opens — and the caret stays put.
         await goIdle(app);
         await push(app, snapshot("available", { userInitiated: true }));
-        await waitForPopoverOpen(app);
+        await waitForDialog(app, "available");
         const afterSelfOpen = await app.getActiveElement();
         note("at0612 focus after self-open", JSON.stringify(afterSelfOpen));
-        const focusInsidePopover = await app.evalJS<boolean>(
+        const focusInsideDialog = await app.evalJS<boolean>(
           `(function () {
-             var pop = document.querySelector(${JSON.stringify(POPOVER_FRAME)});
+             var d = document.querySelector(${JSON.stringify(DIALOG)});
              var active = document.activeElement;
-             return pop !== null && active !== null
-               && (pop === active || pop.contains(active));
+             return d !== null && active !== null
+               && (d === active || d.contains(active));
            })()`,
         );
-        expect(focusInsidePopover).toBe(false);
+        expect(focusInsideDialog).toBe(false);
 
         await goIdle(app);
 

@@ -25,6 +25,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/configure-tug.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-row.tsx
  * @covers tugdeck/src/components/tugways/configure-tug-copy.ts
  * @covers tugdeck/src/lib/logout-store.ts
  */

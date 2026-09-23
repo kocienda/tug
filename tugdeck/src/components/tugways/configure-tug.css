@@ -1,10 +1,10 @@
 /*
  * ConfigureTug wizard body. The modal chrome (overlay, panel, shadow, z-index)
  * comes from the inherited `tug-alert-content`/`tug-alert-overlay` classes and
- * the header from the shared `.tug-alert-*` header classes; this file styles
- * only the wizard's step list. Steps inherit text
- * color from the panel (no color-setting rules → no @tug-renders-on needed); a
- * pending step dims via opacity.
+ * the header from the shared `.tug-alert-*` header classes; the step rows
+ * themselves are `TugStepRow` (`tug-step-row.css`). This file styles only the
+ * list around them and the two things the wizard adds to a row: the taller
+ * projects-folder step and the settled step's green check.
  */
 
 /* Wider than the default alert (460px): the step rows are horizontal plinths
@@ -26,107 +26,26 @@
   gap: var(--tugx-block-stack-gap);
 }
 
-/* Each step is its own little job — a rounded plinth on the same surface the
- * transcript's block renderers use ([D106]). Every row is the SAME fixed
- * height (`--configure-tug-row-h`) whatever its state, so a step growing from one
- * line (pending) to label+detail+CTA (active) never makes the dialog hop. The
- * content block is vertically centered in that height. */
-.configure-tug-steps {
-  --configure-tug-row-h: 60px;
-  /* The projects-folder row carries a real control, not prose: label, one
-   * line of detail, and a full-width path field with its confirm button. Sized
-   * to seat those three on the same ~10px margins the one-line rows keep, and
-   * held constant across choose / creating / failed / chosen so the panel
-   * never hops as the step settles. */
-  --configure-tug-row-dir-h: 104px;
-  /* Dot diameter (mirrors DOT_SIZE in configure-tug.tsx) + the headline gap; used
-   * to indent the detail line so it aligns under the label, not the dot. */
-  --configure-tug-dot: 14px;
-  --configure-tug-headline-gap: 10px;
-}
-
-.configure-tug-step {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  min-height: var(--configure-tug-row-h);
-  padding: 0 var(--tug-space-md);
-  background: var(--tugx-block-surface);
-  border-radius: var(--tugx-block-chrome-radius);
-}
-
+/* The projects-folder row carries a real control, not prose: label, one line of
+ * detail, and a full-width path field with its confirm button. Sized to seat
+ * those three on the same ~10px margins the one-line rows keep, and held
+ * constant across choose / creating / failed / chosen so the panel never hops
+ * as the step settles. */
 .configure-tug-step[data-step="project-dir"] {
-  min-height: var(--configure-tug-row-dir-h);
-}
-
-.configure-tug-step[data-status="pending"] {
-  opacity: 0.5;
-}
-
-.configure-tug-step-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-
-/* Dot + label share one line so the dot rides the label's baseline even though
- * the whole main block is vertically centered in the row. */
-.configure-tug-step-headline {
-  display: flex;
-  align-items: center;
-  gap: var(--configure-tug-headline-gap);
-}
-
-.configure-tug-step-dot {
-  flex: 0 0 auto;
-}
-
-.configure-tug-step-label {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.configure-tug-step-detail {
-  /* Align under the label (clear of the dot), not under the dot. */
-  padding-left: calc(var(--configure-tug-dot) + var(--configure-tug-headline-gap));
-  font-size: 13px;
-  line-height: 1.45;
-  opacity: 0.8;
-}
-
-/* The detail line's slot, occupied by content instead of text — today the
- * projects-folder chooser, which spans the main block's full width. It takes
- * the detail's place rather than stacking below it, so such a row is the same
- * two lines as every other row. */
-.configure-tug-step-body {
-  padding-left: calc(var(--configure-tug-dot) + var(--configure-tug-headline-gap));
-  min-height: calc(13px * 1.45);
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
+  --tugx-step-row-h: 104px;
 }
 
 /* The projects-folder chooser takes the row's full slack; its confirm button
  * keeps its intrinsic width beside it. The chooser's row gets its own gap
  * above — the detail line is prose about the control, and they should not
  * read as one block. */
-.configure-tug-step-body .tug-file-chooser {
+.configure-tug-step .tug-step-row-body .tug-file-chooser {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.configure-tug-step[data-step="project-dir"] .configure-tug-step-body {
+.configure-tug-step[data-step="project-dir"] .tug-step-row-body {
   margin-top: var(--tug-space-sm);
-  gap: var(--tug-space-md);
-}
-
-.configure-tug-step-action {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
   gap: var(--tug-space-md);
 }
 

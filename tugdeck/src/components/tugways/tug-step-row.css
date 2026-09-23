@@ -1,0 +1,84 @@
+/*
+ * tug-step-row.css — one checklist step: a rounded plinth on the transcript's
+ * block surface, the dot and label on one line, the detail indented under the
+ * label. The row sets no color of its own (it inherits the host panel's text),
+ * so it needs no @tug-renders-on; a pending row dims via opacity.
+ *
+ * Every row is the SAME fixed height whatever its state, so a step growing from
+ * one line to label + detail + CTA never makes its host hop. A host whose row
+ * carries a control rather than prose raises `--tugx-step-row-h` on that row.
+ */
+
+.tug-step-row {
+  /* [L20] the row's own knobs. The height is at the point of use so a host can
+     scope a taller row without reaching into this element. */
+  --tugx-step-row-h: 60px;
+  /* Dot diameter (mirrors TUG_STEP_ROW_DOT_SIZE) + the headline gap; used to
+     indent the detail line so it aligns under the label, not the dot. */
+  --tugx-step-row-dot: 14px;
+  --tugx-step-row-headline-gap: 10px;
+
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: var(--tugx-step-row-h);
+  padding: 0 var(--tug-space-md);
+  background: var(--tugx-block-surface);
+  border-radius: var(--tugx-block-chrome-radius);
+}
+
+.tug-step-row[data-status="pending"] {
+  opacity: 0.5;
+}
+
+.tug-step-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Dot + label share one line so the dot rides the label's baseline even though
+ * the whole main block is vertically centered in the row. */
+.tug-step-row-headline {
+  display: flex;
+  align-items: center;
+  gap: var(--tugx-step-row-headline-gap);
+}
+
+.tug-step-row-dot {
+  flex: 0 0 auto;
+}
+
+.tug-step-row-label {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.tug-step-row-detail {
+  /* Align under the label (clear of the dot), not under the dot. */
+  padding-left: calc(var(--tugx-step-row-dot) + var(--tugx-step-row-headline-gap));
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+/* The detail line's slot, occupied by content instead of text. It takes the
+ * detail's place rather than stacking below it, so such a row is the same two
+ * lines as every other row. */
+.tug-step-row-body {
+  padding-left: calc(var(--tugx-step-row-dot) + var(--tugx-step-row-headline-gap));
+  min-height: calc(13px * 1.45);
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+.tug-step-row-action {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-md);
+}

@@ -36,6 +36,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/configure-tug.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-row.tsx
  * @covers tugdeck/src/components/tugways/configure-tug-copy.ts
  * @covers tugdeck/src/lib/claude-version-store.ts
  * @covers tugrust/crates/tugcast/src/feeds/claude_auth.rs
@@ -51,14 +52,14 @@ const TEST_TIMEOUT_MS = 120_000;
 const SID = "at0440-configure-tug-version-row";
 const SETUP = '[data-slot="configure-tug"]';
 const INSTALL_ROW = `${SETUP} .configure-tug-step[data-step="install"]`;
-const INSTALL_DETAIL = `${INSTALL_ROW} .configure-tug-step-detail`;
+const INSTALL_DETAIL = `${INSTALL_ROW} .tug-step-row-detail`;
 const INSTALL_CTA = `${INSTALL_ROW} [data-slot="tug-push-button"]`;
 const INSTALL_CHECK = `${INSTALL_ROW} .configure-tug-step-check`;
-const STEP_LABEL = `${SETUP} .configure-tug-step-label`;
+const STEP_LABEL = `${SETUP} .tug-step-row-label`;
 const SETUP_DONE = `${SETUP} .tug-alert-actions [data-slot="tug-push-button"]`;
 const SIGNIN_ROW = `${SETUP} .configure-tug-step[data-step="signin"]`;
-const SIGNIN_LABEL = `${SIGNIN_ROW} .configure-tug-step-label`;
-const SIGNIN_DETAIL = `${SIGNIN_ROW} .configure-tug-step-detail`;
+const SIGNIN_LABEL = `${SIGNIN_ROW} .tug-step-row-label`;
+const SIGNIN_DETAIL = `${SIGNIN_ROW} .tug-step-row-detail`;
 const SIGNIN_CTA = `${SIGNIN_ROW} [data-slot="tug-push-button"]`;
 
 /** `Version 2.1.222`, `… — up to date.`, `… — 2.1.226 is available.` */

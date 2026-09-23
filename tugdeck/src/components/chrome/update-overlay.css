@@ -1,42 +1,23 @@
-/* @tug-pairings {
-  --tugx-update-pill-fg      | --tugx-update-pill-bg | content
-  --tugx-update-pill-border  | --tugx-update-pill-bg | informational
-  --tugx-update-caution-fg   | --tugx-update-pill-bg | content
-} */
-
 /**
- * update-overlay — the update pill in the canvas's upper right, and the
- * popover's own body.
+ * update-overlay — the update surface in the canvas's upper right: a badge
+ * collapsed, a dialog expanded.
  *
- * @tug-pairings
- * | Element                    | Surface                | Role          | Context                          |
- * |----------------------------|------------------------|---------------|----------------------------------|
- * | --tugx-update-pill-fg      | --tugx-update-pill-bg  | content       | .tugx-update-pill (color)        |
- * | --tugx-update-pill-border  | --tugx-update-pill-bg  | informational | .tugx-update-pill (border-color) |
- * | --tugx-update-caution-fg   | --tugx-update-pill-bg  | content       | [data-stage="error"] (color)     |
+ * Almost nothing is painted here. The badge is `TugBadge` and the dialog is
+ * `TugInlineDialog`, both shipping components with theme-aware tokens of their
+ * own, so this file owns only what composing them needs: where the corner is,
+ * how wide the panel may grow, the header slot's one exception, the bottom
+ * row, and the two sentences the surface adds to the dialog's own copy.
  *
- * Progress is appearance [L06]: `--tugx-update-progress` is written onto the
- * pill and the bar by `update-overlay.tsx` from a direct store subscription,
- * so a download moves a line's width without a React render.
+ * There is no progress bar and no progress property. Progress is the download
+ * row's detail text, written onto its span by `update-overlay.tsx` from a
+ * direct store subscription — appearance through the DOM [L06], with no width
+ * for CSS to animate.
  */
 
-/* ---- Component-tier aliases — resolve to base tier in one hop [L17] ---- */
-
-body {
-  --tugx-update-pill-bg:      var(--tug7-surface-global-primary-normal-overlay-rest);
-  --tugx-update-pill-fg:      var(--tug7-element-global-text-normal-default-rest);
-  --tugx-update-pill-muted:   var(--tug7-element-global-text-normal-muted-rest);
-  --tugx-update-pill-border:  var(--tug7-element-global-border-normal-default-rest);
-  --tugx-update-pill-shadow:  var(--tug7-element-global-shadow-normal-md-rest);
-  --tugx-update-accent:       var(--tug7-element-global-fill-normal-accent-rest);
-  --tugx-update-caution-fg:   var(--tug7-element-global-text-normal-caution-rest);
-  --tugx-update-caution-edge: var(--tug7-element-global-border-normal-accent-rest);
-}
-
-/* ---- The corner the pill lives in ----
+/* ---- The corner ----
  *
- * Fixed, because CanvasOverlayRoot is. `pointer-events: auto` on the pill
- * alone — the positioning wrapper stays transparent to the pointer so the
+ * Fixed, because CanvasOverlayRoot is. `pointer-events: auto` goes on the two
+ * things that are pressable — the badge button and the dialog panel — so the
  * corner is not a dead zone the width of the overlay. */
 
 .tugx-update-overlay {
@@ -44,148 +25,106 @@ body {
   top: calc(var(--tug-chrome-height, 0px) + var(--tug-space-sm));
   right: var(--tug-space-sm);
   pointer-events: none;
+  display: flex;
+  justify-content: flex-end;
 }
 
-/* ---- The pill ---- */
+/* ---- The collapsed form ----
+ *
+ * A bare button around the badge: the badge is display-only by design, so the
+ * hit target and the focus ring are this file's, and everything visible is
+ * the badge's own. */
 
-/* @tug-renders-on: --tugx-update-pill-bg */
-.tugx-update-pill {
-  position: relative;
+.tugx-update-badge-button {
+  all: unset;
   display: inline-flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-  padding: var(--tug-space-2xs) var(--tug-space-sm);
-  border: 1px solid var(--tugx-update-pill-border);
-  border-radius: var(--tug-radius-xl);
-  background-color: var(--tugx-update-pill-bg);
-  color: var(--tugx-update-pill-fg);
-  box-shadow: var(--tugx-update-pill-shadow);
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-xs);
-  font-weight: var(--tug-font-weight-medium);
-  line-height: var(--tug-line-height-tight);
-  white-space: nowrap;
-  overflow: hidden;
   cursor: default;
   pointer-events: auto;
-  transition: border-color var(--tug-motion-duration-fast) var(--tug-motion-easing-standard);
+  border-radius: var(--tug-radius-xl);
 }
 
-.tugx-update-pill:hover {
-  border-color: var(--tugx-update-caution-edge);
+.tugx-update-badge-button:focus-visible {
+  outline: 2px solid var(--tug7-element-global-border-normal-accent-rest);
+  outline-offset: 2px;
 }
 
-.tugx-update-pill-glyph {
-  width: var(--tug-icon-size-xs);
-  height: var(--tug-icon-size-xs);
-  flex: none;
+/* ---- The expanded form ---- */
+
+.tugx-update-panel {
+  pointer-events: auto;
+  width: 600px;
+  max-width: calc(100vw - 2 * var(--tug-space-lg));
+  /* A little larger than the dialog's defaults: this is a decision read from
+   * across a window, not a permission strip in a transcript. Scoped, so no
+   * other consumer of the dialog moves with it. */
+  --tugx-idialog-title-size: 1.0625rem;
+  --tugx-idialog-description-size: 0.9375rem;
 }
 
-/* Transient stages read quieter than the ones holding a decision. */
-.tugx-update-pill[data-stage="checking"] .tugx-update-pill-label,
-.tugx-update-pill[data-stage="installing"] .tugx-update-pill-label,
-.tugx-update-pill[data-stage="upToDate"] .tugx-update-pill-label {
-  color: var(--tugx-update-pill-muted);
+/* The header's trailing slot holds one icon button, not the balanced pair the
+ * dialog sizes that slot for: release it from the pair's fixed width so the
+ * glyph sits on the right margin instead of centred in a button-wide box. */
+.tugx-update-panel .tug-inline-dialog-actions .tug-button,
+.tugx-update-panel .tug-inline-dialog-actions .tug-icon-button {
+  width: auto;
+  min-width: 0;
+  /* Half the pair-width's dead space back: off the frame edge, but not parked
+   * a full button's width in from it. */
+  margin-right: 1rem;
 }
 
-/* @tug-renders-on: --tugx-update-pill-bg */
-.tugx-update-pill[data-stage="error"] {
-  color: var(--tugx-update-caution-fg);
-  border-color: var(--tugx-update-caution-edge);
-}
-
-/* ---- The progress underline ----
+/* ---- The step list ----
  *
- * Inset along the pill's bottom edge, scaled by the custom property the
- * component writes. Absent (zero width) for every stage that never sets the
- * property, which is what keeps the underline from flashing full-width for a
- * frame when a download starts before its total is known. */
+ * The rows are `TugStepRow`; this is only the stack around them. */
 
-.tugx-update-pill-underline {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 2px;
-  width: var(--tugx-update-progress, 0%);
-  background-color: var(--tugx-update-accent);
-  transition: width var(--tug-motion-duration-fast) linear;
-}
-
-/* ---- The popover body ---- */
-
-.tugx-update-popover {
+.tugx-update-steps {
+  list-style: none;
+  margin: var(--tug-space-sm) 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-sm);
-  max-width: 34rem;
-  min-width: 20rem;
+  gap: var(--tugx-block-stack-gap);
 }
 
-.tugx-update-title {
-  margin: 0;
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-sm);
-  font-weight: var(--tug-font-weight-semibold);
-  line-height: var(--tug-line-height-tight);
-}
+/* ---- The two sentences the surface adds ---- */
 
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .tugx-update-message,
-.tugx-update-note,
 .tugx-update-warning {
   margin: 0;
   font-size: var(--tug-font-size-xs);
   line-height: var(--tug-line-height-normal);
+  color: var(--tug7-element-global-text-normal-caution-rest);
 }
 
-.tugx-update-note {
-  color: var(--tugx-update-pill-muted);
-}
-
-/* The two sentences that are a caution rather than an aside: the failure
- * itself, and the turns a relaunch is about to end. */
-/* @tug-renders-on: --tugx-update-pill-bg */
-.tugx-update-message,
 .tugx-update-warning {
-  color: var(--tugx-update-caution-fg);
+  padding-top: var(--tug-space-sm);
 }
 
-/* Release notes are arbitrary length; the popover caps them and scrolls
- * rather than growing past the window. */
+/* Release notes are arbitrary length; the dialog caps them and scrolls rather
+ * than growing past the window. */
 .tugx-update-notes {
-  max-height: 16rem;
+  max-height: 12rem;
   overflow-y: auto;
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tug-font-size-sm);
 }
 
-/* ---- The popover's own progress bar ---- */
+/* ---- The bottom row ----
+ *
+ * The rare action alone on the left, the decision as a pair on the right —
+ * the alert-dialog shape the app uses everywhere. */
 
-.tugx-update-progress {
-  position: relative;
-  height: 4px;
-  border-radius: var(--tug-radius-xs);
-  background-color: var(--tugx-update-pill-border);
-  overflow: hidden;
-}
-
-.tugx-update-progress-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--tugx-update-progress, 0%);
-  background-color: var(--tugx-update-accent);
-  transition: width var(--tug-motion-duration-fast) linear;
-}
-
-/* A download whose total is not yet known sets no property and gets no bar —
- * a fill sitting at zero would claim a progress nobody has reported. */
-.tugx-update-progress:not([data-progress]) .tugx-update-progress-fill {
-  display: none;
-}
-
-/* ---- Controls ---- */
-
-.tugx-update-controls {
+.tugx-update-decisions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--tug-space-xs);
+  justify-content: space-between;
+  gap: var(--tug-space-md);
+  padding-top: var(--tug-space-md);
+}
+
+.tugx-update-decisions-left,
+.tugx-update-decisions-right {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
 }

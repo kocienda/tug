@@ -135,11 +135,7 @@ import {
 } from "./configure-tug-copy";
 import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser } from "./tug-file-chooser";
-import {
-  TugProgressIndicator,
-  type TugProgressIndicatorRole,
-  type TugProgressIndicatorState,
-} from "./tug-progress-indicator";
+import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
 import "./tug-alert.css";
 import "./configure-tug.css";
 
@@ -149,14 +145,8 @@ import "./configure-tug.css";
 const SESSION_FORCE_SETUP: "claude_missing" | "logged_out" | "open_session" | false =
   false;
 
-/**
- * A step's lifecycle status, encoded by the left-hand pulsing dot ([D106]):
- * `pending` (dimmed), `active` (the user's turn — a CTA shows), `busy` (an
- * async action in flight), `error` (failed — a retry CTA shows), `done`.
- */
-type StepStatus = "pending" | "active" | "busy" | "error" | "done";
-
-const DOT_SIZE = 14;
+/** The shared row's status vocabulary, under the name this file reads by. */
+type StepStatus = TugStepRowStatus;
 
 /**
  * How long to wait on a browser sign-in before offering a re-try (ms). Generous
@@ -173,27 +163,11 @@ function parseProjectPath(entry: TaggedValue | undefined): string {
   return "";
 }
 
-/** Map a step status onto the dot's role + state ([D02]/[D106]). */
-function dotVisual(status: StepStatus): {
-  role: TugProgressIndicatorRole;
-  state: TugProgressIndicatorState;
-} {
-  switch (status) {
-    case "pending":
-      return { role: "inherit", state: "stopped" };
-    case "active":
-      // The user's turn is not activity: a full, still blue dot. Only `busy`
-      // breathes.
-      return { role: "action", state: "paused" };
-    case "busy":
-      return { role: "agent", state: "running" };
-    case "error":
-      return { role: "danger", state: "aborted" };
-    case "done":
-      return { role: "success", state: "completed" };
-  }
-}
-
+/**
+ * The wizard's step row: {@link TugStepRow} with ConfigureTug's own trailing
+ * slot composed around it — the CTA pair, or the green check on a settled step.
+ * The plinth, the dot, the label and the detail line are the shared row's.
+ */
 function StepRow({
   stepKey,
   status,
@@ -214,64 +188,52 @@ function StepRow({
   /** This row's button is Return's home and wears the double ring. */
   returnHome: boolean;
 }): ReactElement {
-  const { role, state } = dotVisual(status);
+  const secondary = secondaryCta && (
+    <TugPushButton size="sm" emphasis="ghost" onClick={secondaryCta.onClick}>
+      {secondaryCta.label}
+    </TugPushButton>
+  );
+  // A settled step normally shows the green check. When it carries a CTA
+  // anyway — the installed-but-updatable row — the offer takes the slot: the
+  // dot already says "done", and a check next to an Update button would be two
+  // answers to the same question. A secondary CTA is not an answer — the
+  // logged-in row's Log Out… — so it rides to the left of the check.
+  const action =
+    status === "done" && !cta ? (
+      <>
+        {secondary}
+        <CircleCheck className="configure-tug-step-check" size={28} aria-hidden="true" />
+      </>
+    ) : cta || secondaryCta ? (
+      <>
+        {secondary}
+        {cta && (
+          <TugPushButton
+            size="sm"
+            // A settled row's offer is optional, so it stays quieter than the
+            // filled CTA of the step the user is actually on.
+            emphasis={status === "error" || status === "done" ? "outlined" : "filled"}
+            role={status === "error" ? "danger" : "action"}
+            disabled={status === "busy"}
+            persistentDefaultRing={returnHome}
+            neverDefaultButton={!returnHome}
+            onClick={cta.onClick}
+          >
+            {cta.label}
+          </TugPushButton>
+        )}
+      </>
+    ) : null;
   return (
-    <li className="configure-tug-step" data-step={stepKey} data-status={status}>
-      <div className="configure-tug-step-main">
-        <div className="configure-tug-step-headline">
-          <TugProgressIndicator
-            variant="pulsing-dot"
-            size={DOT_SIZE}
-            role={role}
-            state={state}
-            className="configure-tug-step-dot"
-            aria-hidden
-          />
-          <span className="configure-tug-step-label">{label}</span>
-        </div>
-        {detail && <span className="configure-tug-step-detail">{detail}</span>}
-        {body && <div className="configure-tug-step-body">{body(returnHome)}</div>}
-      </div>
-      {/* A settled step normally shows the green check. When it carries a CTA
-          anyway — the installed-but-updatable row — the offer takes the slot:
-          the dot already says "done", and a check next to an Update button
-          would be two answers to the same question. A secondary CTA is not an
-          answer — the logged-in row's Log Out… — so it rides to the left of
-          the check. */}
-      {status === "done" && !cta ? (
-        <div className="configure-tug-step-action">
-          {secondaryCta && (
-            <TugPushButton size="sm" emphasis="ghost" onClick={secondaryCta.onClick}>
-              {secondaryCta.label}
-            </TugPushButton>
-          )}
-          <CircleCheck className="configure-tug-step-check" size={28} aria-hidden="true" />
-        </div>
-      ) : cta || secondaryCta ? (
-        <div className="configure-tug-step-action">
-          {secondaryCta && (
-            <TugPushButton size="sm" emphasis="ghost" onClick={secondaryCta.onClick}>
-              {secondaryCta.label}
-            </TugPushButton>
-          )}
-          {cta && (
-            <TugPushButton
-              size="sm"
-              // A settled row's offer is optional, so it stays quieter than the
-              // filled CTA of the step the user is actually on.
-              emphasis={status === "error" || status === "done" ? "outlined" : "filled"}
-              role={status === "error" ? "danger" : "action"}
-              disabled={status === "busy"}
-              persistentDefaultRing={returnHome}
-              neverDefaultButton={!returnHome}
-              onClick={cta.onClick}
-            >
-              {cta.label}
-            </TugPushButton>
-          )}
-        </div>
-      ) : null}
-    </li>
+    <TugStepRow
+      className="configure-tug-step"
+      stepKey={stepKey}
+      status={status}
+      label={label}
+      detail={detail}
+      body={body?.(returnHome)}
+      action={action}
+    />
   );
 }
 
