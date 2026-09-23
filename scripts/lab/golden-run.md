@@ -54,6 +54,51 @@ guest, so it needs a right-click → **Open**.
   test account's actual tier renders live; the rest are pinned in
   `configure-tug-copy.test.ts`.
 
+## The Gatekeeper gap, and why `spctl` can't close it
+
+A golden run on a base prepped per `base-prep.md` has **Gatekeeper disabled**
+(`spctl --master-disable`, step 2). So a pass certifies that Tug *works* on that
+macOS line — not that it *installs* past the first-launch gate a customer meets.
+That gap is by design (the bases stay open for fast unsigned iteration), but do
+not let a green run be read as install-path coverage.
+
+**Do not try to close it with `spctl --assess`.** On macOS 26 and 27 that tool
+reports `rejected / source=Notarized Developer ID` for *every* Developer ID
+app, and the verdict is not about the app under test. Measured 2026-09-23 on
+this lab, same notarized `Tug.dmg` throughout:
+
+| Guest | `spctl --assess` | `syspolicy_check` |
+|-------|------------------|-------------------|
+| Sequoia 15.7.7 | accepted (exit 0) | passed, ready for distribution |
+| Tahoe 26.6.2 | rejected (exit 3) | Fatal "Internal Xprotect Error" |
+| Golden Gate 27.0 | rejected (exit 3) | Fatal "Internal Xprotect Error" |
+
+The controls are what settle it. `codesign --verify --deep --strict` passes on
+all three and `stapler validate` confirms the ticket is stapled, so the build is
+sound. Sparkle's nested `Updater.app` is rejected the same way, and so is
+**`tart.app`, signed by Cirrus Labs** — an unrelated vendor whose app is
+obviously fine. Apple-signed `Safari.app` is accepted. XProtect is healthy and
+current in the guest (5360), and its version does not correlate: the newest
+scanner rejects and the oldest rejects while the middle one accepts.
+
+Everything Developer ID fails and only Apple System passes, which is a statement
+about the instrument, not the software. Apple has been deprecating `spctl`'s
+assessment semantics; on 26+ it is not a usable oracle.
+
+**Confirmed by hand, 2026-09-23.** Golden Gate 27.0, Gatekeeper re-enabled, the
+release dmg downloaded in Safari inside the guest so it carried a real
+`com.apple.quarantine` bit: Tug **opens**. So `spctl`'s `rejected` on 27 does
+not describe what Gatekeeper actually does — the install path is clean on the
+newest line, on the same build the tool refused. Tahoe was not re-checked by
+hand; it is the same signature and the same notarized dmg, and the 27 result is
+what the `spctl` verdict there is worth.
+
+**What actually closes the gap:** boot a clone, re-enable Gatekeeper with
+`sudo spctl --master-enable`, get the dmg onto the guest *through a browser* so
+it carries a real `com.apple.quarantine` bit (a file copied off the virtiofs
+share has none, and without it the gate never engages), then double-click and
+watch. It is a human check, and a few minutes.
+
 ## Recording
 
 Per List L02 step 7, write the verdict back:
