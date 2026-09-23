@@ -28,6 +28,10 @@
  *    neighbor, **⌘Z / ⇧⌘Z** undo/redo (via a chain responder, active only
  *    in list mode so the editor's CM6 undo wins while typing). Each display
  *    row also carries a hover-reveal delete button for the pointer.
+ *  - A **right-click** on a display row opens the jot's own menu — Edit, the
+ *    four standard clipboard verbs acting on the whole jot, New and Delete
+ *    (`jot-row-menu`). Every one of them names the jot the press landed on,
+ *    which is why none is a chord.
  *  - A row's incipit is draggable into a session prompt (native HTML5 drag,
  *    `jotDragStart`); dragging the row VERTICALLY reorders instead
  *    (commit on drop, [Q02]). One surface, two drags, told apart by axis in
@@ -103,6 +107,7 @@ import {
 import { useResponder } from "@/components/tugways/use-responder";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
+import { useJotRowMenu } from "./jot-row-menu";
 import { JotsDataSource, useJotsDataSource } from "./jots-data-source";
 import "./jots-card.css";
 
@@ -205,6 +210,8 @@ interface JotsCellContextValue {
   onRowPointerDown: (id: string, event: React.PointerEvent) => void;
   /** Open the destructive-delete confirm popover over the row's ✕. */
   onRequestDelete: (id: string, anchor: TugPopoverMeasurable) => void;
+  /** Open the row's context menu over the press — the jot's text verbs. */
+  onRowContextMenu: (jot: Jot, event: React.MouseEvent) => void;
   /** The query the rows mark their matches against. */
   filterQuery: string;
 }
@@ -325,6 +332,9 @@ function JotDisplayRow({
       // horizontal one is left to the incipit's native drag-out below, which
       // is why the two can share the same surface ([P08]).
       onPointerDown={(e) => ctx?.onRowPointerDown(jot.id, e)}
+      // Every text verb the row offers is behind this press ([D132] — no
+      // surface in the suite answers a right-click with "No Actions").
+      onContextMenu={(e) => ctx?.onRowContextMenu(jot, e)}
       trailing={
         ctx !== null ? (
           <>
@@ -1172,13 +1182,89 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
     },
     [filtering, beginRowReorder],
   );
+  // ---- The row's context menu ----
+
+  // The row a menu stands over wears the pointer's own graze for as long as
+  // the menu is up, so the reader can still see which jot it is about once the
+  // pointer has left the row to reach the menu. A DOM attribute and a CSS rule
+  // ([L06]) — the mark is appearance, and routing it through React would
+  // re-render every cell to paint one of them.
+  const menuRowRef = useRef<HTMLElement | null>(null);
+  const markMenuRow = useCallback((row: HTMLElement | null): void => {
+    menuRowRef.current?.removeAttribute("data-menu-open");
+    menuRowRef.current = row;
+    row?.setAttribute("data-menu-open", "true");
+  }, []);
+
+  // The ✕'s column on the row holding `id` — the anchor the delete confirm
+  // wants, found from the ROW rather than from the press. The menu's Delete is
+  // the ✕'s act, so its question has to sit over the ✕ and not over wherever
+  // the right-click happened to land (`accessoryColumnAnchor`). A row rendering
+  // no verbs anchors on itself, the same fallback the keyboard verb takes.
+  const anchorForJot = useCallback((id: string): TugPopoverMeasurable | null => {
+    const row = listWrapRef.current?.querySelector<HTMLElement>(
+      `.jot-row-content[data-jot-id="${CSS.escape(id)}"]`,
+    );
+    const cell = row?.closest(".tug-list-view-cell");
+    if (!(cell instanceof HTMLElement)) return null;
+    const button = cell.querySelector(".jot-row-delete");
+    return button instanceof HTMLElement
+      ? accessoryColumnAnchor(cell, button)
+      : cell;
+  }, []);
+
+  const rowMenu = useJotRowMenu({
+    onEdit: (jot) => {
+      lastSelectedJotId = jot.id;
+      store.beginEdit(jot.id);
+    },
+    onCreateBelow: (jot) => store.createJot(jot.id),
+    // Through `requestDeleteJot`, never around it: the confirm, the
+    // empty-jot carve-out, and the cursor landing are all on that one path.
+    onRequestDelete: (jot) => {
+      const anchor = anchorForJot(jot.id);
+      if (anchor !== null) requestDeleteJot(jot.id, anchor);
+    },
+    // Cut's second half. No confirm — see `jot-row-menu`.
+    onDelete: (jot) => deleteJotKeepingCursor(jot.id),
+    onReplace: (jot, paste) => {
+      store.updateJot(jot.id, paste.text, paste.atoms);
+      // The roots the pasted text was read against, ADDED to whatever the jot
+      // already carried: a jot pasted into twice from two projects is about
+      // both, which is the whole reason `origins` is a list.
+      if (paste.origins.length > 0) store.addJotOrigins(jot.id, paste.origins);
+    },
+    onClose: () => markMenuRow(null),
+  });
+
+  const onRowContextMenu = useCallback(
+    (jot: Jot, event: React.MouseEvent): void => {
+      event.preventDefault();
+      // Claimed, not merely handled: the row is inside the card's own
+      // right-click ground, and a press that only suppressed the native menu
+      // would open this one under whatever claims the card.
+      event.stopPropagation();
+      markMenuRow(event.currentTarget as HTMLElement);
+      // Carry the movement cursor to the row the menu names, so the keyboard
+      // and the menu can never be pointed at two different jots.
+      const index = dataSource.indexForId(jot.id);
+      if (index >= 0) {
+        lastSelectedJotId = jot.id;
+        listRef.current?.moveCursorTo(index);
+      }
+      rowMenu.openAt(jot, event.clientX, event.clientY);
+    },
+    [dataSource, markMenuRow, rowMenu],
+  );
+
   const cellContext = useMemo<JotsCellContextValue>(
     () => ({
       onRowPointerDown,
       onRequestDelete: requestDeleteJot,
+      onRowContextMenu,
       filterQuery,
     }),
-    [onRowPointerDown, requestDeleteJot, filterQuery],
+    [onRowPointerDown, requestDeleteJot, onRowContextMenu, filterQuery],
   );
 
   // The keyboard's current row — the movement cursor's cell (`data-key-cursor`),
@@ -1376,6 +1462,10 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
           }}
           onCancel={() => setPendingDelete(null)}
         />
+        {/* One menu serves every row, beside the one confirm that already
+            does: the target is the jot the press landed on, so a menu per row
+            would be as many idle portals as there are jots. */}
+        {rowMenu.menu}
       </div>
     </ResponderScope>
   );

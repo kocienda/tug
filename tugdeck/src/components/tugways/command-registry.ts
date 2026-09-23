@@ -3159,6 +3159,14 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   // rather than the rule — the verbs now take an optional `spaceId` and mean
   // the ACTIVE workspace without one, which is a target every door can name,
   // so they are table commands above.
+  // The jot row's verbs, on the same terms as the arc row's: each means "the
+  // jot this row is", which no chord and no menu-bar item can name — and the
+  // delete is a "request", raising the card's confirm rather than performing
+  // anything. The row's CLIPBOARD verbs are the table's own Cut / Copy /
+  // Paste, which is the point: they mean here what they mean everywhere.
+  TUG_ACTIONS.EDIT_JOT,
+  TUG_ACTIONS.NEW_JOT_BELOW,
+  TUG_ACTIONS.DELETE_JOT,
   // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.

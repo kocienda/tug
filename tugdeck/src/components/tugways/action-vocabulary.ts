@@ -799,6 +799,21 @@ export const TUG_ACTIONS = {
   // NEW_JOT:                payload — none. Capture a jot in one gesture:
   //                         reveal the Jots card if it is hidden, create an
   //                         empty jot, and land the caret in its editor.
+  // EDIT_JOT:               payload — none. Open the in-place editor on the
+  //                         jot the right-click landed on. Menu-only, like
+  //                         every sampled-target verb: "the jot this row is"
+  //                         names something no chord can reach. The keyboard
+  //                         does the same act with ⏎, which needs no name for
+  //                         its target because the cursor IS the target.
+  // NEW_JOT_BELOW:          payload — none. Make a jot directly after the one
+  //                         the right-click landed on, and open it. Distinct
+  //                         from NEW_JOT, which captures into the card without
+  //                         naming a position — this one is Space's act with a
+  //                         pointed-at row instead of a cursor row.
+  // DELETE_JOT:             payload — none. ASK to delete the jot the
+  //                         right-click landed on — the same confirm the row's
+  //                         ✕ raises, never a delete performed outright. A
+  //                         "request", for the reason REQUEST_DISCARD_ARC is.
   // RESET_LAYOUT:           payload — none. Reset card positions.
   // ADD_CARD_TO_ACTIVE_PANE: payload — none. Add a new card to the active pane
   //                         via the global menu / ⌘T (canvas targets the first responder).
@@ -998,6 +1013,9 @@ export const TUG_ACTIONS = {
   TOGGLE_OVERVIEW:         "toggle-overview",
   TOGGLE_RAIL:            "toggle-rail",
   NEW_JOT:                "new-jot",
+  EDIT_JOT:               "edit-jot",
+  NEW_JOT_BELOW:          "new-jot-below",
+  DELETE_JOT:             "delete-jot",
   // SET_CARD_WIDTH: payload — `{ paneId, preset }`. Set one content pane's
   //                 width to a named preset (slim / comfy / wide), clamped up
   //                 to the pane's stack floor and stamped so a picker can show

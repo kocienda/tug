@@ -126,6 +126,16 @@
   z-index: 2;
 }
 
+/* The row a context menu stands over keeps the pointer's own graze for as long
+   as the menu is up — the pointer has to leave the row to reach the menu, and a
+   menu naming a jot with nothing marked is a menu about no row in particular.
+   The same token `:hover` paints with, so the menu simply holds the hover
+   rather than inventing a state of its own; a SELECTED row keeps its selection
+   fill, which already says more than the graze would. */
+.jot-row-content[data-menu-open="true"]:not([data-selected="true"]) {
+  background-color: var(--tugx-list-row-flush-hover-bg);
+}
+
 /* The OPEN CARD — the editing jot's row stays as the card HEADER (the
    selection fill, rendered by `TugListRow` inside the editor cell) and the
    editor is the WELL beneath it. The card spans the full list width and draws
