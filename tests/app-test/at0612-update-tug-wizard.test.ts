@@ -499,12 +499,14 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         expect(
           Math.abs(centreX(pillBox) - pillBox.windowWidth / 2),
         ).toBeLessThanOrEqual(1);
-        // Dropped from the top edge, not parked a fifth of the way down: the
-        // pill reads as arriving from the top. The transitional offset that
-        // stepped it below the old badge went with the old badge, so this is
-        // now the chrome's height plus one small gap and nothing else.
-        expect(pillBox.top).toBeGreaterThanOrEqual(0);
-        expect(pillBox.top).toBeLessThan(pillBox.windowHeight * 0.15);
+        // Pinned to the top edge, not dropped below it. Pinned down to the
+        // pixel on purpose: the offset this replaced was `--tug-chrome-height`
+        // plus a gap, which is a *card's* title-bar height applied to an
+        // overlay root that covers the whole window and has no chrome above it
+        // — so the pill cleared a bar that was not there and floated in the
+        // canvas gap. A tolerance band is what let that read as passing, and an
+        // exact zero is the only assertion that says "against the edge".
+        expect(pillBox.top).toBe(0);
 
         // ---- Door one: the pill opens the wizard [B01] -------------------
         //

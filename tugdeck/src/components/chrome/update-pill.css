@@ -23,8 +23,16 @@
  * for `position: fixed` descendants, so anything portaled inside would resolve
  * its coordinates against the pill and be clipped by its overflow.
  *
- * The drop is the chrome's height plus one small gap: the pill should read as
- * arriving from the top edge.
+ * Pinned to the top edge, at `top: 0`, and not dropped below it. The drop used
+ * to be `--tug-chrome-height` plus a gap, which was wrong twice over: that token
+ * is a *card's* title-bar height, and the overlay root this portals into is the
+ * whole window, which carries no chrome band of its own. So the pill cleared a
+ * bar that was not above it and came to rest in mid-air over the canvas gap,
+ * aligned with nothing — which is exactly how it read.
+ *
+ * The top corners are squared with it. A rounded corner against an edge leaves a
+ * sliver of background above it, and two slivers are the whole difference
+ * between a thing that is pinned and a thing that is floating.
  *
  * Non-modal, still and always: no scrim, no focus claim, no responder
  * participation. `pointer-events: auto` goes on the two things that are
@@ -32,7 +40,7 @@
  */
 .tugx-update-pill-anchor {
   position: absolute;
-  top: calc(var(--tug-chrome-height, 0px) + var(--tug-space-sm));
+  top: 0;
   left: 0;
   right: 0;
   margin-inline: auto;
@@ -57,7 +65,17 @@
   display: inline-flex;
   cursor: default;
   pointer-events: auto;
-  border-radius: var(--tug-radius-xl);
+  border-radius: var(--tug-radius-xs);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Square the badge's top corners where it meets the window's edge. Scoped to
+   this mount rather than set on `TugBadge`, which is display-only and shared —
+   the shape belongs to where this one badge sits, not to the badge. */
+.tugx-update-pill-button .tug-badge {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .tugx-update-pill-button:focus-visible {
