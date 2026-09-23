@@ -508,6 +508,28 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         // exact zero is the only assertion that says "against the edge".
         expect(pillBox.top).toBe(0);
 
+        // The label is not clipped. `.tug-badge` sets `line-height: 1`, which
+        // makes the line box exactly the font size while the descenders fall
+        // below it, and `.tug-badge-text` hides its overflow — so the bottom of
+        // the `g` in *Tug* was being cut off. Measured as overflow rather than
+        // read off the line-height, because what matters is whether any ink is
+        // outside the box that clips it, and that is the thing a later change
+        // to the font, the size rung or the badge's own metrics would break.
+        const labelOverflow = await app.evalJS<{
+          scrollHeight: number;
+          clientHeight: number;
+        }>(
+          `(function () {
+             var el = document.querySelector('${PILL} .tug-badge-text');
+             if (el === null) return null;
+             return { scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
+           })()`,
+        );
+        note("at0612 pill label", JSON.stringify(labelOverflow));
+        expect(labelOverflow.scrollHeight).toBeLessThanOrEqual(
+          labelOverflow.clientHeight,
+        );
+
         // ---- Door one: the pill opens the wizard [B01] -------------------
         //
         // And the pill goes away while it is open, because the two say the

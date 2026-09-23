@@ -904,7 +904,10 @@ bless:
 
 # Cut a release: bless, confirm, dispatch, watch. The release itself is CI's
 # — this runs `gh workflow run` on .github/workflows/release.yml and follows
-# with `gh run watch`. There is deliberately no local release path: CI is the
+# with scripts/watch-release-run.sh. That script replaced `gh run watch`,
+# which prints a checklist and no durations, so a run that is working and a
+# run that is wedged look the same for the six minutes the DMG step takes.
+# There is deliberately no local release path: CI is the
 # reproducible one and the one whose credential handling has been thought
 # about, and a second implementation of signing, notarizing, appcast
 # generation and asset upload would be a second thing to keep correct.
@@ -974,8 +977,7 @@ release *FLAGS:
         echo "Follow it with: gh run list --workflow release.yml"
         exit 0
     fi
-    echo "==> Watching run $RUN_ID"
-    gh run watch "$RUN_ID" --exit-status
+    bash scripts/watch-release-run.sh "$RUN_ID"
 
 # Watch the update pill without publishing anything. Resolves the Release
 # bundle out of DerivedData (building one if there is none), stands up the

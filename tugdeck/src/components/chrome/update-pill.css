@@ -78,6 +78,18 @@
   border-top-right-radius: 0;
 }
 
+/* Give the descenders room. `.tug-badge` sets `line-height: 1`, so the line box
+   is exactly the font size — 12px at this rung — while the glyphs' descenders
+   fall below it, and `.tug-badge-text` clips them with `overflow: hidden`. The
+   bottom of the `g` in *Tug* and *available* was being cut off.
+   `line-height: 1` is right for a two-character chip and wrong for a sentence,
+   which is what this one badge carries; the 28px badge box has ample room, so
+   the taller line box changes nothing but the clip. Scoped here rather than
+   fixed on the badge, which every other mount in the app shares. */
+.tugx-update-pill-button .tug-badge-text {
+  line-height: 1.4;
+}
+
 .tugx-update-pill-button:focus-visible {
   outline: 2px solid var(--tug7-element-global-border-normal-accent-rest);
   outline-offset: 2px;
