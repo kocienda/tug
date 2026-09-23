@@ -216,11 +216,14 @@ do {
     check("a finished install is idle", installed.snapshot.stage == .idle)
 }
 
-// ── The menu door [B07] ──────────────────────────────────────────────────
+// ── The menu door [B05] ──────────────────────────────────────────────────
 //
 // The app-menu item is the update's second door, and a release that ships a
-// broken deck must not also break the only way past it. So every state has
-// a title and either a command or a reason to be dark.
+// broken deck must not also break the only way past it. The door raises
+// `UpdateTug` and decides nothing, so what is left to test is the title —
+// which is the whole of what the item says. Every stage has one, every one
+// reads as a status line rather than as a command, and every one ends in the
+// ellipsis an item that opens a dialog owes.
 do {
     print("the app-menu door")
 
@@ -228,47 +231,65 @@ do {
 
     var machine = UpdateStateMachine()
     check("idle offers a check", title(machine.snapshot) == "Check for Updates...")
-    check("idle's command is check", machine.snapshot.menuCommand == .check)
 
     machine.apply(.checkStarted(userInitiated: true))
     check("checking says so", title(machine.snapshot) == "Checking for Updates...")
-    check("checking has nothing to decide", machine.snapshot.menuCommand == nil)
 
     machine.apply(.updateFound(version: "0.9.0", build: "412", notes: nil, userInitiated: true))
     check("an available update names its version",
           title(machine.snapshot) == "Update to Tug 0.9.0...", "got \(title(machine.snapshot))")
-    check("an available update installs", machine.snapshot.menuCommand == .install)
 
     machine.apply(.downloadStarted)
     check("downloading names the version too",
           title(machine.snapshot) == "Downloading Tug 0.9.0...", "got \(title(machine.snapshot))")
-    check("downloading has nothing to decide", machine.snapshot.menuCommand == nil)
 
     machine.apply(.extractionStarted)
     check("extracting reads as downloading", title(machine.snapshot) == "Downloading Tug 0.9.0...")
-    check("extracting has nothing to decide", machine.snapshot.menuCommand == nil)
 
     machine.apply(.readyToInstall)
-    check("ready offers the relaunch", title(machine.snapshot) == "Install and Relaunch")
-    check("ready's command is install", machine.snapshot.menuCommand == .install)
+    check("ready names the relaunch and its version",
+          title(machine.snapshot) == "Install and Relaunch Tug 0.9.0...",
+          "got \(title(machine.snapshot))")
 
     machine.apply(.installing(applicationTerminated: false))
     check("installing names the version",
           title(machine.snapshot) == "Installing Tug 0.9.0...", "got \(title(machine.snapshot))")
-    check("installing has nothing to decide", machine.snapshot.menuCommand == nil)
 
     var upToDate = UpdateStateMachine()
     upToDate.apply(.updateNotFound)
     check("upToDate offers another check", title(upToDate.snapshot) == "Check for Updates...")
-    check("upToDate's command is check", upToDate.snapshot.menuCommand == .check)
 
     var failed = UpdateStateMachine()
     failed.apply(.failed("nope"))
     check("an error offers another check", title(failed.snapshot) == "Check for Updates...")
-    check("an error's command is check", failed.snapshot.menuCommand == .check)
 
     check("the app name is the caller's",
           upToDate.snapshot.menuTitle(appName: "Tug-nightly") == "Check for Updates...")
+
+    // The door names no act it does not perform. Choosing the item raises the
+    // wizard, so a title that reads as an imperative would promise an install
+    // the item no longer starts [F05] — the ellipsis is what says "this opens
+    // something". Every stage, not just the one that used to get it wrong.
+    var everyStage = UpdateStateMachine()
+    var titles = [title(everyStage.snapshot)]
+    everyStage.apply(.checkStarted(userInitiated: true))
+    titles.append(title(everyStage.snapshot))
+    everyStage.apply(.updateFound(version: "0.9.0", build: "412", notes: nil, userInitiated: true))
+    titles.append(title(everyStage.snapshot))
+    everyStage.apply(.downloadStarted)
+    titles.append(title(everyStage.snapshot))
+    everyStage.apply(.extractionStarted)
+    titles.append(title(everyStage.snapshot))
+    everyStage.apply(.readyToInstall)
+    titles.append(title(everyStage.snapshot))
+    everyStage.apply(.installing(applicationTerminated: false))
+    titles.append(title(everyStage.snapshot))
+    titles.append(title(upToDate.snapshot))
+    titles.append(title(failed.snapshot))
+    check("every stage's title ends in an ellipsis",
+          titles.allSatisfy { $0.hasSuffix("...") },
+          "got \(titles.filter { !$0.hasSuffix("...") })")
+    check("every stage has a title", titles.allSatisfy { !$0.isEmpty })
 }
 
 // ── Reveal is a count, not an event [B06] ────────────────────────────────

@@ -1,7 +1,7 @@
 /**
  * update-store — the host's update state, folded, and the one message back.
  *
- * The claims pinned here are the ones the pill and the popover rest on. A
+ * The claims pinned here are the ones the pill and the wizard rest on. A
  * bridge payload lands on the snapshot whole. An identical payload replaces
  * nothing and notifies nobody, which is what makes the host's replay on
  * frontend-ready free rather than a re-render on every mount. A payload this
@@ -151,6 +151,19 @@ describe("update-store: the idle case", () => {
     updateStore.apply(updateFromPayload(available()));
     updateStore.apply(updateFromPayload({ stage: "idle", version: "0.9.0" }));
     expect(updateStore.getSnapshot().version).toBe("");
+  });
+
+  it("still carries the reveal count at idle", () => {
+    // The one field `idle` does not flatten, and it has to be: the Tug-menu
+    // item is enabled in every stage and does nothing but bump this number, so
+    // an idle snapshot that dropped the bump would make the item dead in the
+    // state a user most often reaches for it from — no flow yet, and a wizard
+    // that should open on its Check row.
+    updateStore.apply(updateFromPayload({ stage: "idle", revealCount: 4 }));
+    const snap = updateStore.getSnapshot();
+    expect(snap.stage).toBe("idle");
+    expect(snap.revealCount).toBe(4);
+    expect(snap.version).toBe("");
   });
 });
 

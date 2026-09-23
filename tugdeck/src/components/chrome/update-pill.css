@@ -1,0 +1,73 @@
+/*
+ * update-pill — the modeless update notice, anchored at the window's top centre.
+ *
+ * Almost nothing is painted here. The pill is `TugBadge` and the hide control is
+ * `TugIconButton`, both shipping components with theme-aware tokens of their
+ * own, so this file owns only what composing them needs: where the anchor is,
+ * and the two hit targets.
+ */
+
+/* ---- The anchor ----
+ *
+ * The anchor the update-surface arc settled on, kept exactly ([B02]): top centre
+ * of the window.
+ *
+ * Centred on the *window*, not on the canvas region. `CanvasOverlayRoot` is
+ * `position: fixed; inset: 0` over the whole window, so the anchor does not move
+ * when the sidebar opens, closes or resizes — a canvas-relative anchor would
+ * reintroduce the instability this placement exists to remove.
+ *
+ * Centred with auto margins over a `width: fit-content` box, and never with
+ * `transform: translateX(-50%)` — the rule `tug-modal-input-dialog.css` records
+ * for the Open Quickly panel. A transform makes this element a containing block
+ * for `position: fixed` descendants, so anything portaled inside would resolve
+ * its coordinates against the pill and be clipped by its overflow.
+ *
+ * The drop is the chrome's height plus one small gap: the pill should read as
+ * arriving from the top edge.
+ *
+ * Non-modal, still and always: no scrim, no focus claim, no responder
+ * participation. `pointer-events: auto` goes on the two things that are
+ * pressable, so the anchor is not a dead zone the width of the window.
+ */
+.tugx-update-pill-anchor {
+  position: absolute;
+  top: calc(var(--tug-chrome-height, 0px) + var(--tug-space-sm));
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100vw - 2 * var(--tug-space-lg));
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tug-space-2xs);
+}
+
+/* A bare button around the badge: `TugBadge` is display-only by design and
+ * carries no interactive affordance, so the hit target and the focus ring are
+ * this file's and everything visible is the badge's own.
+ *
+ * The `x` is a sibling rather than a child, and that is structural — a button
+ * inside a button is not a thing the DOM allows. So the pill is a row of two hit
+ * targets: press the badge to open the wizard, press the `x` to hide. */
+.tugx-update-pill-button {
+  all: unset;
+  display: inline-flex;
+  cursor: default;
+  pointer-events: auto;
+  border-radius: var(--tug-radius-xl);
+}
+
+.tugx-update-pill-button:focus-visible {
+  outline: 2px solid var(--tug7-element-global-border-normal-accent-rest);
+  outline-offset: 2px;
+}
+
+/* The hide control is quiet already — `TugIconButton` is a ghost-emphasis icon
+ * button, which is the treatment this wants — so all that is owed here is the
+ * hit target the anchor's `pointer-events: none` would otherwise swallow. */
+.tugx-update-pill-hide {
+  pointer-events: auto;
+}

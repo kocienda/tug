@@ -275,6 +275,13 @@ export function useUpdateState(): UpdateRenderSnapshot {
  * cannot draw", which is the same answer as nothing to draw. Every other
  * field falls back to its idle value rather than to a guess, so a partial
  * payload cannot produce a pill that claims a version it was not given.
+ *
+ * `revealCount` is the one field that crosses even at `idle`, and it has to.
+ * The Tug-menu item is enabled in every stage and does exactly one thing —
+ * bump the count — so an `idle` snapshot that dropped the bump would make the
+ * menu item dead precisely in the state a user reaches for it from: no flow
+ * yet, and a wizard that should open on its Check row. Everything else about
+ * `idle` is still flattened, because there is nothing to draw.
  */
 export function updateFromPayload(
   payload: Record<string, unknown>,
@@ -283,9 +290,15 @@ export function updateFromPayload(
   const stage: UpdateStage = STAGES.includes(rawStage as UpdateStage)
     ? (rawStage as UpdateStage)
     : "idle";
-  if (stage === "idle") return IDLE_UPDATE;
-
   const percent = payload.percent;
+  const revealCount =
+    typeof payload.revealCount === "number" &&
+    Number.isFinite(payload.revealCount)
+      ? payload.revealCount
+      : 0;
+
+  if (stage === "idle") return { ...IDLE_UPDATE, revealCount };
+
   return {
     stage,
     version: typeof payload.version === "string" ? payload.version : "",
@@ -300,11 +313,7 @@ export function updateFromPayload(
         : null,
     message: typeof payload.message === "string" ? payload.message : "",
     cancellable: payload.cancellable === true,
-    revealCount:
-      typeof payload.revealCount === "number" &&
-      Number.isFinite(payload.revealCount)
-        ? payload.revealCount
-        : 0,
+    revealCount,
   };
 }
 

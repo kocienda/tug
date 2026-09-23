@@ -1,0 +1,39 @@
+/*
+ * UpdateTug wizard body. The modal chrome (overlay, panel, shadow, z-index)
+ * comes from the inherited `tug-alert-content`/`tug-alert-overlay` classes and
+ * the header from the shared `.tug-alert-*` header classes; the rows themselves
+ * are `TugStepRow` (`tug-step-row.css`). This file styles only the list around
+ * them and the settled row's check — the same three things configure-tug.css
+ * styles, because the two wizards are siblings and share everything else.
+ */
+
+/* Wider than the default alert (460px), and the same width as ConfigureTug: the
+ * rows are horizontal plinths with a CTA hung on the right, and a Download row
+ * carrying a version reaches further than a setup row does. */
+.tug-alert-content.update-tug {
+  text-align: left;
+  max-width: 560px;
+}
+
+.update-tug-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tugx-block-stack-gap);
+}
+
+/* Green success check in the button's place on a settled row, keeping the row's
+ * left-right balance — the same gesture ConfigureTug makes for the same reason. */
+.update-tug-step-check {
+  display: block;
+  color: var(--tug7-element-tone-text-normal-success-rest);
+}
+
+/* The panel's one bottom button. The row list ends flush against the panel
+ * padding, so the actions row carries the gap — the same header rhythm the title
+ * uses above the list. */
+.update-tug .tug-alert-actions {
+  margin-top: var(--tugx-header-margin);
+}

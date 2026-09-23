@@ -61,6 +61,23 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     /// Re-sends the quit event when the app declined to terminate.
     private var retryTermination: (() -> Void)?
 
+    /// Which reply closures are held right now, as a stable `+`-joined list.
+    ///
+    /// The whole of what a press does is decided by which of these is non-nil,
+    /// so the pair of readings either side of `perform` says which closure
+    /// answered without a log line per branch — and, when none did, says why
+    /// the refusal was the only possible outcome.
+    private var heldClosures: String {
+        var held: [String] = []
+        if cancelCheck != nil { held.append("cancelCheck") }
+        if updateChoice != nil { held.append("updateChoice") }
+        if cancelDownload != nil { held.append("cancelDownload") }
+        if installChoice != nil { held.append("installChoice") }
+        if acknowledgement != nil { held.append("acknowledgement") }
+        if retryTermination != nil { held.append("retryTermination") }
+        return held.isEmpty ? "none" : held.joined(separator: "+")
+    }
+
     // MARK: - Actions in
 
     /// Apply a user decision. An action the current state holds no closure
@@ -74,6 +91,25 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     /// pressed them and the app did not move. `refuse` now answers on the
     /// surface as well as in the log; see it for what each action gets.
     func perform(_ action: UpdateAction) {
+        // One line per press, in `tugapp.log` rather than in `NSLog` — and for
+        // an accepted press as well as a refused one. `refuse` already said why
+        // a button did nothing; nothing said what a button that *worked* did,
+        // so a press that was honoured and then went wrong somewhere further
+        // down left the file every instruction says to read completely silent.
+        //
+        // Held-before against held-after is the reading: exactly one closure
+        // leaves the set on an accepted press, and it names itself by going.
+        let askedIn = snapshot.stage
+        let heldBefore = heldClosures
+        defer {
+            TugLog.info("update", "action performed", [
+                TugLog.field("action", action.rawValue),
+                TugLog.field("asked_in", askedIn.rawValue),
+                TugLog.field("held_before", heldBefore),
+                TugLog.field("held_after", heldClosures),
+                TugLog.field("landed_in", snapshot.stage.rawValue),
+            ])
+        }
         switch action {
         case .install:
             if let reply = take(&updateChoice) {

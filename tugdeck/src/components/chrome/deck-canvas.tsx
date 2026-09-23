@@ -58,7 +58,8 @@ import {
 import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
-import { UpdateOverlay } from "./update-overlay";
+import { UpdateTug } from "@/components/tugways/update-tug";
+import { UpdatePill } from "./update-pill";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
@@ -6607,11 +6608,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       {/* Deck-global Open Quickly popup (File ▸ Open Quickly). Renders
         * nothing until opened; portals into the overlay root above. */}
       <OpenQuicklyOverlay />
-      {/* Deck-global update surface, on one anchor at the window's top
-        * centre. Renders nothing while the host has nothing to say, and
-        * nothing it renders ever takes focus; portals into the overlay root
-        * above. */}
-      <UpdateOverlay />
+      {/* UpdateTug — the app-modal update wizard. Renders nothing until one of
+        * its two doors raises it: the host's reveal count, or a pill click. */}
+      <UpdateTug />
+      {/* The one modeless piece of the update feature: an update exists, top
+        * centre of the window, with an x. Shows only while an update is live
+        * and the wizard is closed; clicking it opens the wizard. */}
+      <UpdatePill />
       </div>
     </ResponderScope>
   );

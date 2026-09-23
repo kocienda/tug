@@ -110,6 +110,21 @@ final class UpdateController: NSObject {
             // transition the only way to watch an update run is a debugger
             // — and the end-to-end pass against a local appcast is run on a
             // release bundle, where there is not one.
+            //
+            // Both facilities, and they are not redundant. `NSLog` is what the
+            // rehearsal watches, because `just update-rehearse` runs the bundle
+            // in the foreground and reads these lines in the terminal. `TugLog`
+            // is what `tugapp.log` gets, and every instruction about diagnosing
+            // this flow says to read that file — so a transition that only ever
+            // reached Console left the file silent for the whole of an update.
+            TugLog.info("update", "stage", [
+                TugLog.field("stage", snapshot.stage.rawValue),
+                TugLog.field("version", snapshot.version.isEmpty ? "-" : snapshot.version),
+                TugLog.field("build", snapshot.build.isEmpty ? "-" : snapshot.build),
+                TugLog.field("percent", snapshot.percent.map(String.init) ?? "-"),
+                TugLog.field("user_initiated", snapshot.userInitiated ? "yes" : "no"),
+                TugLog.field("message", snapshot.message.isEmpty ? "-" : snapshot.message),
+            ])
             NSLog(
                 "UpdateController: %@ (version=%@ build=%@ percent=%@ userInitiated=%@)%@",
                 snapshot.stage.rawValue,

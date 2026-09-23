@@ -468,11 +468,12 @@ export type TurnEndReason =
   | "transport_lost";
 
 /**
- * Why an interrupt fired when it wasn't a plain user Stop. Both values name an
+ * Why an interrupt fired when it wasn't a plain user Stop. Three of the values name an
  * app-level flow that stops every turn before it changes app-wide state:
  * `"logout"` before `claude auth logout`, `"configure-tug"` before the Configure Tug wizard
- * takes the whole app modal. The end-state badge names the flow so a turn the
- * user didn't personally stop doesn't read as an anonymous "Interrupted".
+ * takes the whole app modal, `"update-tug"` before an update installs and relaunches
+ * the app. The end-state badge names the flow so a turn the user didn't
+ * personally stop doesn't read as an anonymous "Interrupted".
  *
  * `"recovery"` is the third and it comes from the other direction: not a flow
  * the deck started, but tugcode's own `turn_cancelled{is_recovery: true}`,
@@ -480,7 +481,11 @@ export type TurnEndReason =
  * respawned it. The user asked for nothing, so the badge must not say they
  * stopped anything — and it stays tonally quiet for the same reason.
  */
-export type InterruptReason = "logout" | "configure-tug" | "recovery";
+export type InterruptReason =
+  | "logout"
+  | "configure-tug"
+  | "update-tug"
+  | "recovery";
 
 /**
  * Immutable transcript entry appended once per completed turn.

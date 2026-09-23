@@ -122,6 +122,13 @@ struct UpdateSnapshot: Equatable {
     /// The app-menu item's title, which tracks the flow so the menu is a
     /// complete second door and not just a way to start one [B07].
     ///
+    /// The title is the whole of what the item says now. Choosing it raises
+    /// `UpdateTug` and decides nothing [B05], so every stage's title reads as a
+    /// status line rather than as a command — and each one ends in an ellipsis,
+    /// because by the platform's own convention that is what an item opening a
+    /// dialog promises. `readyToInstall` used to read "Install and Relaunch",
+    /// which named an act the item no longer performs.
+    ///
     /// `appName` is passed in rather than read from the bundle so this file
     /// stays Foundation-only and the titles stay testable.
     func menuTitle(appName: String) -> String {
@@ -135,28 +142,9 @@ struct UpdateSnapshot: Equatable {
         case .downloading, .extracting:
             return "Downloading \(appName) \(version)..."
         case .readyToInstall:
-            return "Install and Relaunch"
+            return "Install and Relaunch \(appName) \(version)..."
         case .installing:
             return "Installing \(appName) \(version)..."
-        }
-    }
-
-    /// What choosing the menu item decides, or `nil` when there is no Sparkle
-    /// decision to make.
-    ///
-    /// `nil` does **not** mean the item is disabled. The item always reveals
-    /// the surface [B07] — that is its first job, and it is the whole of the
-    /// job while the flow is mid-transfer — so a stage with nothing to decide
-    /// still has somewhere to take the user. Only the decision half is
-    /// conditional.
-    var menuCommand: UpdateAction? {
-        switch stage {
-        case .idle, .upToDate, .error:
-            return .check
-        case .available, .readyToInstall:
-            return .install
-        case .checking, .downloading, .extracting, .installing:
-            return nil
         }
     }
 

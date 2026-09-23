@@ -1664,15 +1664,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
-        // Reveal, then decide — in that order, and the reveal is
-        // unconditional [B07]. The item is one door onto the whole flow, and
-        // the first thing a user picking it wants is to be looking at the
-        // update again: mid-download there is nothing to decide, and that is
-        // exactly the state in which somebody reaches for the menu to see
-        // where the download got to.
+        // Reveal, and nothing else [B05]. The item is one door onto the
+        // wizard, and a door does not decide what is on the other side of it:
+        // it used to reveal and then `perform(menuCommand)`, which at
+        // `available` meant choosing *Update to Tug 0.8.3…* started the
+        // download outright, with no dialog in between [F05]. Every decision
+        // the flow offers now lives on a row of `UpdateTug`, where the user
+        // can see what they are agreeing to before they agree to it.
+        //
+        // Unconditional, and enabled in every stage including `idle` — where
+        // the wizard opens on its Check row with nothing having happened yet.
         updateController.requestReveal()
-        guard let command = updateController.snapshot.menuCommand else { return }
-        updateController.perform(command)
     }
 
     @objc func showAbout(_ sender: Any?) {
@@ -2526,12 +2528,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "app.checkForUpdates":
             let snapshot = updateController.snapshot
             menuItem.title = snapshot.menuTitle(appName: appDisplayName)
-            // Always enabled while the updater is running. The item's first
-            // job is to bring the surface back, which every stage can do, so
-            // a `nil` menuCommand means "nothing to decide" and never
-            // "nothing to do" [B07]. It used to go grey through `checking`,
-            // `downloading`, `extracting` and `installing` — the stages a
-            // user is most likely to want to look at.
+            // Always enabled while the updater is running. Raising the wizard
+            // is the item's whole job [B05] and every stage can do it, so
+            // there is no stage in which the item has nothing to do. It used
+            // to go grey through `checking`, `downloading`, `extracting` and
+            // `installing` — the stages a user is most likely to want to look
+            // at.
             return true
         // View zoom. Reads `window.currentPageZoom` live rather than the
         // pushed state: page zoom is the host's own property, changed by

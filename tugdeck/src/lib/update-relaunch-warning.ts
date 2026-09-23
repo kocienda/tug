@@ -3,10 +3,11 @@
  * the sessions it is about to end.
  *
  * Sparkle's own relaunch dialog could never say this, and it is the reason
- * the update popover is worth building in the deck rather than natively: the
+ * the update surface is worth building in the deck rather than natively: the
  * deck knows which sessions have a turn in flight, and a relaunch ends every
  * one of them mid-sentence. Telling the user *which* is the difference
- * between an informed click and a lost turn.
+ * between an informed click and a lost turn. `UpdateTug`'s install gate is
+ * the one caller.
  *
  * The fold is here rather than in the component so it can be read without
  * mounting one, and so the wording lives in one place instead of in three
@@ -27,7 +28,7 @@ export const MAX_NAMED_SESSIONS = 3;
  * something real to lose.
  *
  * Past {@link MAX_NAMED_SESSIONS} the sentence stops naming and starts
- * counting — a list of nine titles in a popover is a wall, and the thing the
+ * counting — a list of nine titles in a confirm is a wall, and the thing the
  * user needs to know at that point is that it is *several*, not which.
  * Untitled sessions are counted rather than named for the same reason: "and
  * one more" says more than an empty pair of quotes.
