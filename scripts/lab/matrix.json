@@ -5,7 +5,8 @@
     "tart_base": "base-sequoia",
     "macos_version": "15.7.7",
     "min_version": "15.6",
-    "golden_status": "untested"
+    "golden_status": "pass",
+    "golden_host": "15.7.7"
   },
   {
     "key": "tahoe",
@@ -13,7 +14,8 @@
     "tart_base": "base-tahoe",
     "macos_version": "26.6.2",
     "min_version": "26.0",
-    "golden_status": "untested"
+    "golden_status": "pass",
+    "golden_host": "26.6.2"
   },
   {
     "key": "golden-gate",
@@ -21,6 +23,7 @@
     "tart_base": "base-golden-gate",
     "macos_version": "27.0",
     "min_version": "27.0",
-    "golden_status": "untested"
+    "golden_status": "pass",
+    "golden_host": "27.0"
   }
 ]

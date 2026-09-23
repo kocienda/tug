@@ -54,6 +54,11 @@ describe("isHostBelowFloor", () => {
     expect(isHostBelowFloor(mac("15.6"))).toBe(false);
     expect(isHostBelowFloor(mac("15.7.7"))).toBe(false);
     expect(isHostBelowFloor(mac("26.0"))).toBe(false);
+    // The three versions certified in the VM lab on 2026-09-23. 27.0 is the
+    // 27 line's floor exactly, and was the first real Golden Gate host — the
+    // boundary the other two lines already cover at 15.6 and 26.0.
+    expect(isHostBelowFloor(mac("26.6.2"))).toBe(false);
+    expect(isHostBelowFloor(mac("27.0"))).toBe(false);
     expect(isHostBelowFloor(mac("27.1"))).toBe(false);
   });
   test("line older than anything supported → true (block)", () => {

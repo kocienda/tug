@@ -79,6 +79,11 @@ inherit everything:
 TART_HOME=/Volumes/Lab-A/tart tart run base-<key>
 ```
 
+**`base-<key>`, not `run-<key>`.** The VM name is in the window's title bar —
+check it before you touch anything. Prep done in a `run-` clone looks identical
+while you are doing it and is silently destroyed by the next
+`just lab-cycle <key>`, which wipes the run and re-clones from the base.
+
 Inside the guest:
 
 1. **Account:** confirm/create `admin` / `admin` (Cirrus prebuilts already have
@@ -88,7 +93,12 @@ Inside the guest:
    ```sh
    sudo spctl --master-disable
    ```
-   Verify System Settings → Privacy & Security shows "Anywhere". The signed
+   **The command alone does nothing.** Since macOS 13 it only *unlocks* the
+   option; an "Anywhere" row then appears under System Settings → Privacy &
+   Security → "Allow applications from", and you have to select it and
+   authenticate. Confirm with `spctl --status`, which must say
+   `assessments disabled`. The row vanishes again if you switch away from it,
+   and needs another `--master-disable` to come back. The signed
    golden pass ([#step-12]) is what certifies the real Gatekeeper path; the
    bases stay open for fast unsigned iteration.
 
@@ -99,9 +109,14 @@ Inside the guest:
    (`sudo spctl --master-enable`) in the clone when that is the thing under
    test, or keep relying on the signed golden pass for the certifying run.
 3. **Display resolution — 2048×1660:** System Settings → Displays → select
-   **2048 × 1660** (flip on "Show all resolutions" if needed). Clones inherit
-   this because `lab-new` does not randomize the VM serial, so the per-display
-   preference propagates.
+   **2048 × 1660**. Clones inherit this because `lab-new` does not randomize
+   the VM serial, so the per-display preference propagates.
+   - **Where the resolution list is depends on the macOS line.** On Sequoia it
+     is right there, behind "Show all resolutions". On **Tahoe and Golden
+     Gate** the pane opens on a scaling strip (Larger Text … More Space) with
+     no list at all: click **Advanced…**, turn on **"Show resolutions as
+     list"**, and the list comes back. Option-clicking a scaling thumbnail is
+     the older fallback. Verified on all three lines 2026-09-23.
    - **Do NOT use `tart set --display`.** Giving a clone a different virtual
      panel than the base breaks the saved-preference match, and macOS reverts
      to its default scaled mode at login (the "starts big, then pops back to
