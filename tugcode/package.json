@@ -1,6 +1,6 @@
 {
   "name": "tugcode",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
     "@anthropic-ai/tokenizer": "^0.0.4",

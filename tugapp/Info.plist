@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.8.3</string>
+	<string>0.8.4</string>
 	<key>CFBundleVersion</key>
-	<string>803</string>
+	<string>804</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>SUFeedURL</key>
