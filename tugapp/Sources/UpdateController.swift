@@ -44,11 +44,6 @@ final class UpdateController: NSObject {
         super.init()
     }
 
-    /// Sparkle's relaunch handler, held while Tug tears itself down.
-    /// Non-nil only between `shouldPostponeRelaunchForUpdate` and
-    /// `resumePostponedRelaunch`.
-    private var pendingRelaunchBlock: (() -> Void)?
-
     /// A check asked for while Sparkle was still winding down the previous
     /// session. Fired from `didFinishUpdateCycleFor`; see `requestCheck()`.
     private var pendingCheck = false
@@ -182,20 +177,6 @@ final class UpdateController: NSObject {
         self.updater = updater
     }
 
-    /// Let Sparkle relaunch the freshly installed app. Called by
-    /// `AppDelegate` at the very end of termination, immediately before it
-    /// replies to `applicationShouldTerminate` — so the new instance never
-    /// boots while the old one's children still hold sockets and ports.
-    ///
-    /// Invokes the handler exactly once (it is cleared first), and is a
-    /// no-op on every quit that is not an update install.
-    func resumePostponedRelaunch() {
-        guard let block = pendingRelaunchBlock else { return }
-        pendingRelaunchBlock = nil
-        NSLog("UpdateController: teardown complete — releasing the postponed relaunch")
-        block()
-    }
-
     /// Apply a user decision — from the app menu today, from the deck's
     /// popover once the bridge lands. Safe to call when the updater never
     /// started, and safe to call with an action the current state has no
@@ -271,26 +252,6 @@ extension UpdateController: SPUUpdaterDelegate {
     /// sanctioned way to override the feed (`setFeedURL` is discouraged).
     func feedURLString(for updater: SPUUpdater) -> String? {
         feedOverride
-    }
-
-    /// Hold the relaunch until Tug's own termination has finished.
-    ///
-    /// Sparkle quits the app through the normal `NSApp.terminate` path, so
-    /// the termination pipeline already runs — but without this the
-    /// relaunched instance can start booting while the outgoing one is
-    /// still shutting down its children, racing them for the instance's
-    /// control socket and port.
-    func updater(
-        _ updater: SPUUpdater,
-        shouldPostponeRelaunchForUpdate item: SUAppcastItem,
-        untilInvokingBlock installHandler: @escaping () -> Void
-    ) -> Bool {
-        NSLog(
-            "UpdateController: postponing relaunch for %@ until teardown completes",
-            item.displayVersionString
-        )
-        pendingRelaunchBlock = installHandler
-        return true
     }
 
     /// Sparkle's own signal that a session is over and a new one may start.

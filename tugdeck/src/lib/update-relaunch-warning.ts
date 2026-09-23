@@ -1,13 +1,13 @@
 /**
- * update-relaunch-warning.ts — what *Install and Relaunch* has to say about
- * the sessions it is about to end.
+ * update-relaunch-warning.ts — what the wizard's *Stop work in flight* row has
+ * to say about the sessions it is offering to end.
  *
  * Sparkle's own relaunch dialog could never say this, and it is the reason
  * the update surface is worth building in the deck rather than natively: the
  * deck knows which sessions have a turn in flight, and a relaunch ends every
  * one of them mid-sentence. Telling the user *which* is the difference
- * between an informed click and a lost turn. `UpdateTug`'s install gate is
- * the one caller.
+ * between an informed click and a lost turn. `deriveUpdateRows` is the one
+ * caller, and it uses the line as the Stop-work row's detail.
  *
  * The fold is here rather than in the component so it can be read without
  * mounting one, and so the wording lives in one place instead of in three
@@ -20,16 +20,17 @@
 export const MAX_NAMED_SESSIONS = 3;
 
 /**
- * The sentence *Install and Relaunch* carries, or `null` when nothing is
- * mid-turn and the button needs no caveat at all.
+ * The sentence the Stop-work row carries, or `null` when nothing is mid-turn —
+ * which is also how the row knows it is already done.
  *
  * Silence is the common case and it is deliberate: a warning that appears on
  * every relaunch is a warning nobody reads, so it appears only when there is
  * something real to lose.
  *
  * Past {@link MAX_NAMED_SESSIONS} the sentence stops naming and starts
- * counting — a list of nine titles in a confirm is a wall, and the thing the
- * user needs to know at that point is that it is *several*, not which.
+ * counting — a list of nine titles in one row's detail is a wall, and the
+ * thing the user needs to know at that point is that it is *several*, not
+ * which.
  * Untitled sessions are counted rather than named for the same reason: "and
  * one more" says more than an empty pair of quotes.
  */

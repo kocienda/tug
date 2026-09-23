@@ -923,6 +923,21 @@ export interface IDeckManagerStore {
     cardId: string,
     listener: () => void,
   ) => () => void;
+
+  /**
+   * Interrupt every session with a turn in flight and wait, bounded, for each
+   * to settle. Resolves with the sessions that acknowledged and the ones that
+   * did not; never rejects and never waits indefinitely.
+   *
+   * On the interface because it has a caller outside the quit pipeline that
+   * owns it: the update wizard's *Stop work in flight* row. "Live" is each
+   * session's own published `canInterrupt` ([L28]), so a caller here re-derives
+   * nothing and cannot drift from the implementation that acts.
+   */
+  interruptLiveSessions: () => Promise<{
+    interrupted: string[];
+    unacknowledged: string[];
+  }>;
 }
 
 /**

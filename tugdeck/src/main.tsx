@@ -28,6 +28,7 @@ import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installNetworkPathBridge } from "./lib/network-path-store";
 import { installUpdateBridge } from "./lib/update-store";
 import { cardServicesStore } from "./lib/card-services-store";
+import { attachLiveTurnsDeck } from "./lib/live-turns-store";
 import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
 import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
@@ -630,6 +631,13 @@ async function withBootHorizon<T>(
   // user-close gestures flow through deck-manager.removeCard, and the
   // services store reacts on its own.
   cardServicesStore.attachDeckManager(deck);
+
+  // The update wizard's *Stop work in flight* row is derived from the deck,
+  // so the aggregate it reads needs the deck too — the card set for its
+  // membership and titles, each card's session for `canInterrupt`. Wired
+  // here for the same reason the line above is: this is where the deck
+  // first exists.
+  attachLiveTurnsDeck(deck);
 
   // Sweep durable card-state bags for cards no longer in the deck. The
   // close path flushes a card's last bag to tugbank but never deletes it,

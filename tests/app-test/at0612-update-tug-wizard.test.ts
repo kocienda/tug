@@ -5,10 +5,10 @@
  *
  * Tug's update presentation is exactly two things. A **pill** at the window's top
  * centre that says an update exists and nothing else, and **UpdateTug**, an
- * app-modal wizard walking Check / Download / Install and relaunch. There is no
- * badge, no inline dialog, no collapsed and expanded size, and no collapse
- * control: this file is the rewrite that followed their deletion, and the old
- * surface's claims are gone from it rather than relaxed.
+ * app-modal wizard walking Check / Download / Stop work in flight / Install and
+ * relaunch. There is no badge, no inline dialog, no collapsed and expanded size,
+ * and no collapse control: this file is the rewrite that followed their
+ * deletion, and the old surface's claims are gone from it rather than relaxed.
  *
  * The contract with the host is unchanged and is still the whole of what this
  * test speaks: state in on `window.__tugBridge.onUpdateState`, one action name
@@ -38,10 +38,10 @@
  *    no flow state of its own [B04]. The two terminal stages are the exception,
  *    and about Sparkle rather than about the wizard: `upToDate` and `error`
  *    acknowledge with `dismiss`.
- * 5. **Three rows, always, and the dot says where the flow is** [B08]. Unpacking
- *    is the download row's detail phase rather than a fourth row, and a failure
- *    lands on the row that was waiting rather than on a row the snapshot never
- *    named.
+ * 5. **Four rows, always, and the dot says where the flow is** [B02]. Unpacking
+ *    is the download row's detail phase rather than a row of its own, and a
+ *    failure lands on the row that was waiting rather than on a row the
+ *    snapshot never named.
  * 6. **Progress is words on one span, never a render** [L06]. The span that is
  *    there at 7% is the span that is there at 99%.
  *
@@ -52,16 +52,22 @@
  * `idle` on its own; every stage this test stands in, it stands in until the
  * next snapshot is pushed.
  *
- * The one thing deliberately not pinned here is the install gate's confirm. It
- * counts cards whose turn can be interrupted, and this deck has none — so what
- * this file pins is the other half of that branch, which is the common one:
- * with nothing running, *Install and Relaunch* posts `install` and asks nothing.
+ * The one thing deliberately not pinned here is the with-turns branch of the
+ * *Stop work in flight* row. The row derives from the deck, and this deck has
+ * no session mid-turn — so what this file pins is the other half, which is the
+ * common one: the row reads done, and *Install and Relaunch* is there and posts
+ * `install` with no confirm in the way. That the install button is absent while
+ * a turn exists, and comes back when the last one ends, is pinned on
+ * `deriveUpdateRows` in `tugdeck/src/components/tugways/__tests__/update-tug-rows.test.ts`,
+ * where the deck's answer is an argument [B08].
  *
  * @covers tugdeck/src/components/tugways/update-tug.tsx
+ * @covers tugdeck/src/components/tugways/update-tug-rows.tsx
  * @covers tugdeck/src/components/tugways/update-tug.css
  * @covers tugdeck/src/components/chrome/update-pill.tsx
  * @covers tugdeck/src/components/chrome/update-pill.css
  * @covers tugdeck/src/components/tugways/tug-step-row.tsx
+ * @covers tugdeck/src/lib/live-turns-store.ts
  * @covers tugdeck/src/lib/update-store.ts
  * @covers tugdeck/src/lib/update-tug-request-store.ts
  */
@@ -91,7 +97,7 @@ const PILL = `[data-testid="update-pill"]`;
 const PILL_HIDE = `[data-testid="update-pill-hide"]`;
 /** The wizard's panel. Absent from the DOM entirely while it is closed. */
 const WIZARD = `[data-testid="update-tug"]`;
-/** The three step rows, in the order they are walked. */
+/** The four step rows, in the order they are walked. */
 const STEP_ROWS = `${WIZARD} .update-tug-steps [data-slot="tug-step-row"]`;
 /** One row's CTA, addressed by the action it posts. */
 const cta = (action: string): string =>
@@ -295,7 +301,7 @@ async function waitForPill(app: App, stage: string): Promise<void> {
   );
 }
 
-/** The three rows' statuses, in layout order. */
+/** The rows' statuses, in layout order. */
 async function stepStatuses(app: App): Promise<string[]> {
   return app.evalJS<string[]>(
     `Array.prototype.map.call(
@@ -305,7 +311,7 @@ async function stepStatuses(app: App): Promise<string[]> {
   );
 }
 
-/** The three rows' step keys, which must stay Check / Download / Relaunch. */
+/** The rows' step keys — Check / Download / Stop work / Relaunch. */
 async function stepKeys(app: App): Promise<string[]> {
   return app.evalJS<string[]>(
     `Array.prototype.map.call(
@@ -315,7 +321,7 @@ async function stepKeys(app: App): Promise<string[]> {
   );
 }
 
-/** The three rows' labels, which are the same three in every stage. */
+/** The rows' labels, which are the same four in every stage. */
 async function stepLabels(app: App): Promise<string[]> {
   return app.evalJS<string[]>(
     `Array.prototype.map.call(
@@ -573,24 +579,28 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         expect(await elementCount(app, WIZARD)).toBe(0);
         note("at0612 replay", "the same count re-read opens nothing");
 
-        // ---- Three rows, always, and the dot says where the flow is [B08]
+        // ---- Four rows, always, and the dot says where the flow is [B02]
         //
         // Unpacking is the download row's detail phase rather than a fourth
-        // row: the user named three steps, and "Verifying the signature…" is a
+        // row: the user named four steps, and "Verifying the signature…" is a
         // sentence about the download rather than a step anybody can act on.
+        //
+        // The third column is the deck's row, and on this deck it has one
+        // answer: nothing is mid-turn, so it is pending until the download
+        // lands and done from there. Its other branch is a unit test.
         const stepCases: Array<[string, string[]]> = [
-          ["idle", ["active", "pending", "pending"]],
-          ["checking", ["busy", "pending", "pending"]],
-          ["available", ["done", "active", "pending"]],
-          ["downloading", ["done", "busy", "pending"]],
-          ["extracting", ["done", "busy", "pending"]],
-          ["readyToInstall", ["done", "done", "active"]],
-          ["installing", ["done", "done", "busy"]],
-          ["upToDate", ["done", "pending", "pending"]],
+          ["idle", ["active", "pending", "pending", "pending"]],
+          ["checking", ["busy", "pending", "pending", "pending"]],
+          ["available", ["done", "active", "pending", "pending"]],
+          ["downloading", ["done", "busy", "pending", "pending"]],
+          ["extracting", ["done", "busy", "pending", "pending"]],
+          ["readyToInstall", ["done", "done", "done", "active"]],
+          ["installing", ["done", "done", "done", "busy"]],
+          ["upToDate", ["done", "pending", "pending", "pending"]],
           // A failure lands on the row that was waiting. Reached from idle,
           // that row is Check — the snapshot never says which step failed, so
           // a red dot anywhere else would assert something nobody reported.
-          ["error", ["error", "pending", "pending"]],
+          ["error", ["error", "pending", "pending", "pending"]],
         ];
         for (const [stage, statuses] of stepCases) {
           await goIdle(app);
@@ -602,14 +612,20 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
             }),
           );
           await waitForWizard(app, stage);
-          expect(await elementCount(app, STEP_ROWS)).toBe(3);
-          expect(await stepKeys(app)).toEqual(["check", "download", "relaunch"]);
-          // The labels are the same three in every stage and carry no version:
+          expect(await elementCount(app, STEP_ROWS)).toBe(4);
+          expect(await stepKeys(app)).toEqual([
+            "check",
+            "download",
+            "stop-work",
+            "relaunch",
+          ]);
+          // The labels are the same four in every stage and carry no version:
           // the panel's title says which update this is, and a label that grew
           // and shrank with the version number was the one row that reflowed.
           expect(await stepLabels(app)).toEqual([
             "Check for an update",
             "Download the update",
+            "Stop work in flight",
             "Install and relaunch",
           ]);
           const read = await stepStatuses(app);
@@ -623,7 +639,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         expect(await elementCount(app, `[data-variant="bar"]`)).toBe(0);
         expect(
           await elementCount(app, `${WIZARD} [data-variant="pulsing-dot"]`),
-        ).toBe(3);
+        ).toBe(4);
 
         // ---- Close then reopen lands on the same step [B04] --------------
         //
@@ -655,7 +671,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         await waitForWizardGone(app);
         await push(app, snapshot("installing", { revealCount: nextReveal() }));
         await waitForWizard(app, "installing");
-        expect(await stepStatuses(app)).toEqual(["done", "done", "busy"]);
+        expect(await stepStatuses(app)).toEqual(["done", "done", "done", "busy"]);
 
         // ---- The controls each stage offers, and what they post ---------
         //
@@ -665,8 +681,10 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         //
         // `install` appears twice and means two different presses: Download at
         // `available`, Install and Relaunch at `readyToInstall`. Only the
-        // second one is gated on live turns, and with nothing running in this
-        // deck the gate is transparent — which is the branch asserted here.
+        // second one waits on the Stop-work row, and with nothing running in
+        // this deck that row is already done — so the install press is offered
+        // and posts `install` with nothing in the way, which is the branch
+        // asserted here [B04].
         const controlCases: Array<{
           stage: string;
           over?: Partial<Payload>;

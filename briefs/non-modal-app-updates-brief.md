@@ -102,3 +102,17 @@ Updates are "important information, but not an emergency." The ask is to bring t
 4. The deletions [B10], landed with the step that replaces each thing rather than saved for the end.
 5. Release notes in the release workflow [B11], independent of the rest and landable at any point.
 6. The app-test and the manual end-to-end pass, which also settles the install-on-quit question [B12].
+
+---
+
+## Correction: the postponed relaunch was the bug {#correction-postponed-relaunch}
+
+*Added 2026-09-23, from `briefs/update-install-gate-brief.md`.*
+
+`[F04]` called the postponed relaunch load-bearing and carried it over intact, and the exit's first step carried it over again. It was not load-bearing. It was the reason *Install and Relaunch* never installed anything, across this arc and the two after it.
+
+`shouldPostponeRelaunchForUpdate` is the **first** thing `SPUInstallerDriver` asks — before it opens the installer connection and before it requests any quit. Returning `true` and holding the block meant Sparkle waited for a block whose only caller ran at the end of a termination that was itself downstream of the quit Sparkle had not yet requested. Each side waited on the other, silently: the press consumed the install choice, no `installing` stage followed, and a second press found no closure and reported that the update was no longer active.
+
+The race `[F04]` cited as the reason for the hook cannot happen. Sparkle's `Autoupdate` watches the outgoing process id with a kqueue `NOTE_EXIT` filter and installs and relaunches only after that process has exited; Tug's `applicationShouldTerminate` returns `.terminateLater` and the process cannot exit until the deck pipeline, `processManager.shutdown()` and the reply have all run. The children are always gone before the new instance starts, with no help from the hook.
+
+So the hook, its stored block and its release from `tearDownAndReplyToTerminate()` are deleted. The open question at `[Q]` above — how install-on-quit interacts with the postponed relaunch — is answered by there no longer being one.

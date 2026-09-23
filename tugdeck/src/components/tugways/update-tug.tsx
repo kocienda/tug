@@ -1,11 +1,12 @@
 /**
  * UpdateTug — the app-modal update wizard, and a sibling of ConfigureTug.
  *
- * One wizard, three steps: Check, Download, Install and relaunch ([B08]). It
- * borrows TugAlert's app-modal chrome the same way ConfigureTug does (a Radix
- * AlertDialog portalled into the canvas overlay, `tug-alert-overlay` /
- * `tug-alert-content` at z-index 99990/99991, which actually blocks the deck)
- * and hangs a `TugStepRow` checklist in it. Siblings, never merged ([B01]):
+ * One wizard, four steps: Check, Download, Stop work in flight, Install and
+ * relaunch ([B02]). It borrows TugAlert's app-modal chrome the same way
+ * ConfigureTug does (a Radix AlertDialog portalled into the canvas overlay,
+ * `tug-alert-overlay` / `tug-alert-content` at z-index 99990/99991, which
+ * actually blocks the deck) and hangs a `TugStepRow` checklist in it. The two
+ * are siblings and are never merged ([B01]):
  * setup can be *required* and blocks until it is done, and an update is always
  * optional and always pausable — which is the whole of why ConfigureTug's
  * request store needs an `onDemand` flag and this one does not.
@@ -38,16 +39,25 @@
  * what the button does, on every stage, so there is never a way out that leaves
  * the host waiting on a reply the user thinks they sent.
  *
- * # The interrupt gate sits on the install CTA
+ * # Stopping work is a step, not a consequence
  *
- * Not on opening the wizard ([B07]). Looking at the update, checking for one and
- * downloading one end no turns, so there is nothing to confirm on the way in —
- * unlike ConfigureTug, whose steps re-run the install and can't share the app
- * with live work. Exactly one press in the whole flow ends turns: *Install and
- * Relaunch*, which quits the app. That press runs the same count-and-confirm
- * `ConfigureTugRequest` runs, in its own words, interrupts every card whose
- * `canInterrupt` is true, and only then answers Sparkle ([F09]) — the order
- * matters, because the reply is what starts the quit.
+ * The user ends their own work ([B03]). Looking at the update, checking for one
+ * and downloading one end no turns, so nothing is gated on the way in — unlike
+ * ConfigureTug, whose steps re-run the install and can't share the app with
+ * live work. What ends turns is the relaunch, and the press that ends them is
+ * a row of its own: *Stop work in flight* stands between Download and Install,
+ * reads the deck through `liveTurnsStore`, and holds the install row pending
+ * until it is done ([B04]).
+ *
+ * Derived, so it latches nothing. A user who stops their turns in the cards
+ * themselves sees the row settle with nothing pressed here, and a turn started
+ * after a Stop Work press takes the install button away again. The install is
+ * never offered while a turn exists, which is how it can never be the thing
+ * that ended one.
+ *
+ * The rows themselves are {@link deriveUpdateRows}, in the module beside this
+ * one: a function of the host's snapshot and the deck's, so the crossings can
+ * be checked without mounting a modal ([B07]).
  *
  * # [L33], and why an app-modal is allowed to wait here at all
  *
@@ -70,9 +80,11 @@
  *
  * [L02] — the host's snapshot enters through `useUpdateState`, and the request
  * nonce and the open flag through `useUpdateTugRequest` / `useUpdateTugOpen`;
- * all three are `useSyncExternalStore`.
+ * the deck's live-turn count through `useLiveTurns`; all four are
+ * `useSyncExternalStore`.
  * [L06] — download progress is written onto its own span from a direct store
- * subscription and never renders. See {@link ProgressDetail}.
+ * subscription and never renders. See `ProgressDetail` in
+ * `update-tug-rows.tsx`.
  * [L19] — `.tsx`/`.css` pair, `data-slot`.
  * [L33] — every wait is bounded; see above.
  *
@@ -86,18 +98,15 @@ import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { ArrowDownToLine, CircleCheck, TriangleAlert } from "lucide-react";
 import {
   type ReactElement,
-  type ReactNode,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
-import { cardServicesStore } from "@/lib/card-services-store";
 import { useDeckManager } from "@/deck-manager-context";
-import { relaunchWarningLine } from "@/lib/update-relaunch-warning";
+import { useLiveTurns } from "@/lib/live-turns-store";
 import {
   postUpdateAction,
   updateStore,
@@ -112,8 +121,13 @@ import {
   useUpdateTugRequest,
 } from "@/lib/update-tug-request-store";
 import { TugPushButton } from "./tug-push-button";
-import { useTugAlert } from "./tug-alert";
-import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
+import { TugStepRow } from "./tug-step-row";
+import {
+  deriveUpdateRows,
+  rowForStage,
+  STOP_WORK,
+  type RowKey,
+} from "./update-tug-rows";
 
 /**
  * How long each waiting stage may sit with nothing moving before it is called
@@ -136,34 +150,6 @@ const WAIT_DEADLINE_MS: Partial<Record<UpdateStage, number>> = {
   extracting: 120_000,
   installing: 180_000,
 };
-
-/** The three rows, in the order they are walked. */
-type RowKey = "check" | "download" | "relaunch";
-
-/**
- * Which row a stage is standing on, or `null` for the two stages that are an
- * answer rather than a position.
- *
- * `available` belongs to the download row rather than the check row: the check
- * is over, and what the update is waiting on is the user pressing Download.
- */
-function rowForStage(stage: UpdateStage): RowKey | null {
-  switch (stage) {
-    case "idle":
-    case "checking":
-      return "check";
-    case "available":
-    case "downloading":
-    case "extracting":
-      return "download";
-    case "readyToInstall":
-    case "installing":
-      return "relaunch";
-    case "upToDate":
-    case "error":
-      return null;
-  }
-}
 
 /**
  * The row a terminal stage settles on ([B08]).
@@ -226,50 +212,6 @@ function useStalled(stage: UpdateStage, rearm: number): boolean {
   return stalled;
 }
 
-/**
- * The download row's detail line while bytes are arriving, written onto its own
- * span from a direct store subscription.
- *
- * The whole of [L06] for this component, and the same span the inline surface
- * used: the percent moves about once a second through a download, and routing it
- * through a render would re-render the panel and its three rows for a word.
- */
-function ProgressDetail(): ReactElement {
-  const [el, setEl] = useState<HTMLSpanElement | null>(null);
-  useLayoutEffect(() => {
-    if (el === null) return;
-    const paint = (): void => {
-      const percent = updateStore.getSnapshot().percent;
-      // `null` is not zero: a total nobody has reported yet is "starting", and
-      // a bar sitting at 0% would be saying something false.
-      el.textContent = percent === null ? "Starting…" : `${percent}% downloaded`;
-      if (percent === null) el.removeAttribute("data-progress");
-      else el.setAttribute("data-progress", String(percent));
-    };
-    paint();
-    return updateStore.subscribe(paint);
-  }, [el]);
-  return <span ref={setEl} data-testid="update-tug-progress" />;
-}
-
-/** One row, before its CTA is composed. */
-interface RowModel {
-  key: RowKey;
-  label: string;
-  status: TugStepRowStatus;
-  detail?: ReactNode;
-  cta?: {
-    label: string;
-    action: UpdateAction;
-    /**
-     * Whether this press has to stop live turns first ([B07]). It rides the CTA
-     * rather than being read off the action, because `install` is also the
-     * download's action and downloading ends no turns.
-     */
-    gated?: boolean;
-  };
-}
-
 /** The panel's title, which tracks the stage the way the menu item's does. */
 function title(state: UpdateRenderSnapshot): string {
   switch (state.stage) {
@@ -299,124 +241,6 @@ function StageIcon({ stage }: { stage: UpdateStage }): ReactElement {
 }
 
 /**
- * The three rows for the stage in hand.
- *
- * Unpacking is the download row's detail phase rather than a fourth row ([B08]):
- * the user named three things, and "Verifying the signature…" is a sentence
- * about the download rather than a step they can do anything about.
- */
-function rows(
-  state: UpdateRenderSnapshot,
-  waitingRow: RowKey,
-  stalled: boolean,
-): RowModel[] {
-  const stage = state.stage;
-
-  // Three plain steps, in one register, and none of them carries the version.
-  // The panel's title already says which update this is, and a label that
-  // changed length as the version changed was the one row that reflowed.
-  const check: RowModel = { key: "check", label: "Check for an update", status: "pending" };
-  const download: RowModel = { key: "download", label: "Download the update", status: "pending" };
-  const relaunch: RowModel = {
-    key: "relaunch",
-    label: "Install and relaunch",
-    status: "pending",
-  };
-
-  switch (stage) {
-    case "idle":
-      check.status = "active";
-      check.detail = "Look for a newer version of Tug.";
-      check.cta = { label: "Check Now", action: "check" };
-      break;
-    case "checking":
-      check.status = "busy";
-      check.detail = "Looking for a newer version…";
-      if (state.cancellable) check.cta = { label: "Cancel", action: "cancel" };
-      break;
-    case "available":
-      check.status = "done";
-      check.detail = state.version === "" ? "An update is available." : `Tug ${state.version} is available.`;
-      download.status = "active";
-      // Said here because it is the one thing the user cannot tell by looking:
-      // downloading costs nothing, and only the last step ends any work ([B07]).
-      download.detail = "Downloading won't interrupt your work.";
-      download.cta = { label: "Download", action: "install" };
-      break;
-    case "downloading":
-      check.status = "done";
-      download.status = "busy";
-      download.detail = <ProgressDetail />;
-      if (state.cancellable) download.cta = { label: "Cancel", action: "cancel" };
-      break;
-    case "extracting":
-      check.status = "done";
-      download.status = "busy";
-      download.detail = "Verifying the signature…";
-      break;
-    case "readyToInstall":
-      check.status = "done";
-      download.status = "done";
-      download.detail = "Downloaded and verified.";
-      relaunch.status = "active";
-      relaunch.detail =
-        "Tug quits and reopens on the new version. Work in flight stops with it.";
-      relaunch.cta = { label: "Install and Relaunch", action: "install", gated: true };
-      break;
-    case "installing":
-      check.status = "done";
-      download.status = "done";
-      download.detail = "Downloaded and verified.";
-      relaunch.status = "busy";
-      relaunch.detail = "Installing. Tug reopens in a moment…";
-      break;
-    case "upToDate":
-      check.status = "done";
-      // Not "Tug is up to date": that is the title, one line above, and a panel
-      // that says its one sentence twice reads as a stutter rather than as an
-      // answer.
-      check.detail = "No newer version has been released.";
-      break;
-    case "error":
-      break;
-  }
-
-  const all = [check, download, relaunch];
-
-  // `error` lands on the row that was waiting, because the snapshot says a
-  // failure happened and not which step it happened in ([B08]). Putting the red
-  // dot anywhere else would be asserting something nobody said.
-  if (stage === "error") {
-    for (const row of all) {
-      if (row.key === waitingRow) break;
-      row.status = "done";
-    }
-    const failed = all.find((row) => row.key === waitingRow);
-    if (failed) {
-      failed.status = "error";
-      failed.detail =
-        state.message === "" ? "Tug could not finish the update." : state.message;
-      failed.cta = { label: "Retry", action: "retry" };
-    }
-  }
-
-  // A wait that passed its horizon is a failed step with a way out ([L33]). It
-  // overwrites whatever the stage had to say, because what the stage has to say
-  // is that it is still working, and the point of the horizon is that nobody
-  // should have to keep believing that.
-  if (stalled) {
-    const waiting = all.find((row) => row.key === waitingRow);
-    if (waiting) {
-      waiting.status = "error";
-      waiting.detail = "Tug has heard nothing back for a while.";
-      waiting.cta = { label: "Retry", action: "retry" };
-    }
-  }
-
-  return all;
-}
-
-/**
  * The panel's one bottom button.
  *
  * Close is pause and posts nothing. The two terminal stages are the exception,
@@ -439,13 +263,19 @@ export function UpdateTug(): ReactElement {
   const overlayRoot = useCanvasOverlay();
   const requestNonce = useUpdateTugRequest();
   const deck = useDeckManager();
-  const showAlert = useTugAlert();
+  // The deck's half of the rows ([B05]) — how many cards have a turn in
+  // flight, and their titles, republished whenever that answer moves.
+  const liveTurns = useLiveTurns();
   // Open/closed lives in the request store rather than here, because the pill
   // reads it: it shows only while an update is live and this wizard is closed
   // ([B02]), and the two have no parent between them. This component is still
   // the only writer.
   const open = useUpdateTugOpen();
   const [retryNonce, setRetryNonce] = useState(0);
+  // True only while a Stop Work press is still inside its bounded wait. The
+  // row cannot derive this from the count: a press whose sessions have not
+  // acknowledged yet leaves the count exactly where it was.
+  const [interrupting, setInterrupting] = useState(false);
 
   const waitingRow = useWaitingRow(state.stage);
   const stalled = useStalled(state.stage, retryNonce);
@@ -518,65 +348,27 @@ export function UpdateTug(): ReactElement {
   }, []);
 
   /**
-   * The one press in the flow that ends turns ([B07]): install and relaunch
-   * quits the app, so every live turn stops with it whether or not anybody says
-   * so. Count first, confirm in the update's own words, interrupt each card, and
-   * only then answer Sparkle — the reply is what starts the quit, so a reply
-   * sent before the interrupts would race the very work it is stopping ([F09]).
+   * The Stop Work press ([B03]). It asks the deck to end the turns and waits
+   * for them, which is the quit pipeline's own bounded interrupt rather than a
+   * second copy of it ([B06]) — one implementation of "interrupt and wait,
+   * bounded", and the settle test is the lifecycle owner's own ([L28]).
    *
-   * The confirm is the TugAlert singleton, opened over this wizard rather than
-   * in place of it: the panel behind it is the context for the question, and
-   * Radix stacks the two layers with the newer one holding focus.
+   * Nothing is latched on the way out. The row goes back to reading the deck
+   * the moment the wait ends, whatever the wait achieved: sessions that never
+   * acknowledged leave the row active with the same button on it, which is the
+   * honest answer and the one the user can act on again.
    *
-   * It names the sessions rather than counting them, up to the point where a
-   * list becomes a wall — {@link relaunchWarningLine} is where that fold lives,
-   * and it is the one thing Sparkle's own relaunch dialog could never say,
-   * since only the deck knows which cards have a turn in flight.
+   * No confirm. The press *is* the confirmation — it does one thing, it says
+   * which sessions it will do it to in the row's own detail line, and a dialog
+   * asking whether the user meant the button they just pressed to stop work is
+   * asking them to press stop twice.
    */
-  const installWithGate = useCallback(() => {
-    // `canInterrupt` is the store's own answer to "is there a turn to stop" —
-    // the same read the logout and setup gates take.
-    const running: Array<() => void> = [];
-    const titles: string[] = [];
-    for (const card of deck.getSnapshot().cards) {
-      const services = cardServicesStore.getServices(card.id);
-      if (services?.codeSessionStore.getSnapshot().canInterrupt) {
-        running.push(() => services.codeSessionStore.interrupt("update-tug"));
-        titles.push(card.title);
-      }
-    }
+  const stopWork = useCallback(() => {
+    setInterrupting(true);
+    void deck.interruptLiveSessions().finally(() => setInterrupting(false));
+  }, [deck]);
 
-    if (running.length === 0) {
-      postUpdateAction("install");
-      return;
-    }
-
-    void (async () => {
-      // `running` is non-empty here, so the line is never null: the null case
-      // is "nothing is mid-turn", and that took the branch above.
-      const warning = relaunchWarningLine(titles) ?? "";
-      const confirmed = await showAlert({
-        title: "Stop Work and Relaunch?",
-        message: `${warning} Tug quits and reopens on the new version.`,
-        confirmLabel: "Stop and Relaunch",
-        cancelLabel: "Cancel",
-        confirmRole: "danger",
-      });
-      if (!confirmed) return;
-      // Guarded: a card whose session went away between the count and the
-      // confirm must not strand the install.
-      for (const interrupt of running) {
-        try {
-          interrupt();
-        } catch {
-          // Session already gone — the install proceeds.
-        }
-      }
-      postUpdateAction("install");
-    })();
-  }, [deck, showAlert]);
-
-  const model = rows(state, waitingRow, stalled);
+  const model = deriveUpdateRows(state, liveTurns, waitingRow, stalled, interrupting);
   const exit = closeAction(state.stage);
 
   return (
@@ -636,7 +428,7 @@ export function UpdateTug(): ReactElement {
                       data-testid={`update-tug-action-${row.cta.action}`}
                       onClick={() => {
                         if (!row.cta) return;
-                        if (row.cta.gated) installWithGate();
+                        if (row.cta.action === STOP_WORK) stopWork();
                         else act(row.cta.action);
                       }}
                     >

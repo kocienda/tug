@@ -6530,6 +6530,13 @@ export class DeckManager implements IDeckManagerStore {
    * Interrupt every live session and wait for each to settle, up to
    * {@link TERMINATION_INTERRUPT_AWAIT_MS}.
    *
+   * Public because it has two callers with the same need and one correct
+   * implementation. The termination pipeline runs it because a quit ends
+   * every turn whether or not anybody says so; the update wizard's *Stop
+   * work in flight* row runs it because the user asked to stop them. A
+   * second copy of "interrupt and wait, bounded" would drift from this one
+   * the first time either changed.
+   *
    * "Live" is the session's own published `canInterrupt` — [L28]: the
    * lifecycle owner decides what can be interrupted, and a caller that
    * re-derived the phase test would drift from it. In particular a
@@ -6543,7 +6550,7 @@ export class DeckManager implements IDeckManagerStore {
    * `turn_complete(error)` commits the interrupted entry. Every
    * subscription is released on acknowledgment *and* on expiry ([L27]).
    */
-  private async interruptLiveSessions(): Promise<{
+  async interruptLiveSessions(): Promise<{
     interrupted: string[];
     unacknowledged: string[];
   }> {

@@ -93,7 +93,11 @@ check = ["cd tests/app-test && bunx tsc --noEmit", "just app-test-changed {paths
 
 [[tugtool.arc.surface]]
 name  = "prose"
-paths = ["tuglaws/", "briefs/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
+# `release-notes/` is prose too: one `<version>.md` per release, seeded by
+# `version.sh` and embedded in the appcast. Nothing builds it, and the one
+# thing that could go wrong with it — saying something the release does not
+# do — is not a thing a command can check.
+paths = ["tuglaws/", "briefs/", "release-notes/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
 check = []
 
 [[tugtool.arc.surface]]

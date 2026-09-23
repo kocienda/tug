@@ -693,11 +693,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         testHarnessBridge?.close()
         testHarnessBridge = nil
         #endif
-        // An update-driven quit holds Sparkle's relaunch here, so the new
-        // version starts only once this instance's children are gone. A
-        // no-op on every other quit — and reached from every completion
-        // path, including the degraded one, so an update can never stall.
-        updateController.resumePostponedRelaunch()
         NSApp.reply(toApplicationShouldTerminate: true)
     }
 
