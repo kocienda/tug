@@ -1849,7 +1849,12 @@ extension MainWindow: WKScriptMessageHandler {
             // than replying twice.
             guard let name = message.body as? String,
                   let action = UpdateAction(rawValue: name) else {
-                NSLog("MainWindow: updateAction with an unreadable body; ignoring")
+                // To `tugapp.log` rather than `NSLog`: a press that vanishes
+                // here is indistinguishable from a dead button, and the line
+                // that says otherwise has to be in the log somebody reads.
+                TugLog.warn("update", "updateAction with an unreadable body; ignoring", [
+                    TugLog.field("body", String(describing: message.body)),
+                ])
                 return
             }
             if let appDelegate = NSApp.delegate as? AppDelegate {

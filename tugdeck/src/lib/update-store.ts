@@ -125,6 +125,15 @@ export interface UpdateSnapshot {
   message: string;
   /** Whether the current stage holds something the user can call off. */
   cancellable: boolean;
+  /**
+   * How many times the host has asked for the surface to be shown.
+   *
+   * Monotonic, and the whole of how "reveal yourself now" crosses a bridge
+   * that carries state and never events. The surface remembers the last value
+   * it acted on: a replay after a reload re-reads the same number and does
+   * nothing, and a number it has not seen is a reveal it owes an answer to.
+   */
+  revealCount: number;
 }
 
 /**
@@ -142,6 +151,7 @@ export const IDLE_UPDATE: UpdateSnapshot = {
   percent: null,
   message: "",
   cancellable: false,
+  revealCount: 0,
 };
 
 const STAGES: readonly UpdateStage[] = [
@@ -166,7 +176,8 @@ function snapshotsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
     a.userInitiated === b.userInitiated &&
     a.percent === b.percent &&
     a.message === b.message &&
-    a.cancellable === b.cancellable
+    a.cancellable === b.cancellable &&
+    a.revealCount === b.revealCount
   );
 }
 
@@ -187,7 +198,10 @@ function renderFieldsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
     a.releaseNotesFailed === b.releaseNotesFailed &&
     a.userInitiated === b.userInitiated &&
     a.message === b.message &&
-    a.cancellable === b.cancellable
+    a.cancellable === b.cancellable &&
+    // A reveal moves nothing else, so if this did not count as a render
+    // field a reveal-only snapshot would never reach React at all.
+    a.revealCount === b.revealCount
   );
 }
 
@@ -286,6 +300,11 @@ export function updateFromPayload(
         : null,
     message: typeof payload.message === "string" ? payload.message : "",
     cancellable: payload.cancellable === true,
+    revealCount:
+      typeof payload.revealCount === "number" &&
+      Number.isFinite(payload.revealCount)
+        ? payload.revealCount
+        : 0,
   };
 }
 

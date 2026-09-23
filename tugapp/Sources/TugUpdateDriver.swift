@@ -64,9 +64,15 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     // MARK: - Actions in
 
     /// Apply a user decision. An action the current state holds no closure
-    /// for is ignored, which is the whole of the "state, not events" contract
-    /// [B03]: a stale click from a deck that reloaded mid-flow does nothing
-    /// rather than replying twice.
+    /// for is *refused* rather than replied to, which is the whole of the
+    /// "state, not events" contract [B03]: a stale click from a deck that
+    /// reloaded mid-flow never replies twice.
+    ///
+    /// Refused is not the same as silent, and it used to be. A press that
+    /// reached `refuse` wrote one `NSLog` line and changed nothing on screen,
+    /// so *Later* and *Install and Relaunch* read as dead buttons — the user
+    /// pressed them and the app did not move. `refuse` now answers on the
+    /// surface as well as in the log; see it for what each action gets.
     func perform(_ action: UpdateAction) {
         switch action {
         case .install:
@@ -75,7 +81,7 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
             } else if let reply = take(&installChoice) {
                 reply(.install)
             } else {
-                logIgnored(action)
+                refuse(action)
             }
 
         case .later, .dismiss:
@@ -96,7 +102,7 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
                 ack()
                 publish(.dismissed)
             } else {
-                logIgnored(action)
+                refuse(action)
             }
 
         case .skip:
@@ -108,7 +114,7 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
                 // reinterpretation.
                 reply(.skip)
             } else {
-                logIgnored(action)
+                refuse(action)
             }
 
         case .cancel:
@@ -117,7 +123,7 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
             } else if let cancel = take(&cancelCheck) {
                 cancel()
             } else {
-                logIgnored(action)
+                refuse(action)
             }
 
         case .retry:
@@ -156,9 +162,46 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
         return value
     }
 
-    private func logIgnored(_ action: UpdateAction) {
-        NSLog("TugUpdateDriver: ignoring '%@' — state %@ holds no reply for it",
-              action.rawValue, snapshot.stage.rawValue)
+    /// An action the current state holds no reply for: record it, and answer
+    /// it somewhere the user can see.
+    ///
+    /// **The record goes to `tugapp.log`, not to `NSLog`.** It was an `NSLog`,
+    /// which lands in Console and the unified log rather than in the file
+    /// `just logs-*` reads — so the one line that would have said why a button
+    /// did nothing was never in the log anybody looks at. `TugLog` is the
+    /// facility that fixes that, and this is one of the call sites its own
+    /// docblock says should move.
+    ///
+    /// **The answer on screen depends on what was asked for.** A silent
+    /// no-op is its own defect whatever the cause, but "say nothing" and
+    /// "raise an error" are both wrong for some of these:
+    ///
+    /// - *Install* is the one the user is owed an answer to: they asked for
+    ///   something to happen and it will not. It surfaces as a failure with
+    ///   the escape the error stage already carries — but only while the
+    ///   surface still shows an install decision. Past that, the install is
+    ///   already under way and the refusal is a second click on a button that
+    ///   worked the first time.
+    /// - *Later*, *Dismiss*, *Skip* and *Cancel* all mean some version of
+    ///   "stop showing me this". Sparkle cannot be told, but the user can be
+    ///   given the thing they asked for: the notice goes away.
+    /// - *Retry* and *Check* never reach here; both have a path that does not
+    ///   depend on a held closure.
+    private func refuse(_ action: UpdateAction) {
+        TugLog.warn("update", "refused an action with no reply to send", [
+            TugLog.field("action", action.rawValue),
+            TugLog.field("stage", snapshot.stage.rawValue),
+        ])
+
+        switch action {
+        case .install:
+            guard snapshot.stage == .available || snapshot.stage == .readyToInstall else { return }
+            publish(.failed("This update is no longer active. Check for updates again."))
+        case .later, .dismiss, .skip, .cancel:
+            publish(.dismissed)
+        case .retry, .check:
+            break
+        }
     }
 
     /// Drop every outstanding closure. Called when Sparkle tears the session
@@ -177,6 +220,17 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     private func publish(_ event: UpdateEvent) {
         guard let snapshot = machine.apply(event) else { return }
         onSnapshot?(snapshot)
+    }
+
+    /// Ask the presentation to show itself, without touching the flow.
+    ///
+    /// The menu door and Sparkle's own `showUpdateInFocus` both land here.
+    /// It bumps the snapshot's reveal counter and publishes, which is how a
+    /// "show yourself" instruction crosses a bridge that carries only state
+    /// [B03]: the deck acts on a count it has not seen before, and a reload
+    /// that re-reads the same count does nothing.
+    func requestReveal() {
+        onSnapshot?(machine.requestReveal())
     }
 
     // MARK: - SPUUserDriver

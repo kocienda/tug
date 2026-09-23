@@ -101,6 +101,17 @@ struct UpdateSnapshot: Equatable {
     var percent: Int?
     /// The failure text in `error`, empty in every other stage.
     var message: String = ""
+    /// How many times the host has asked for the surface to be shown.
+    ///
+    /// Monotonic, and never reset by a transition. The bridge carries state
+    /// and never an event [B03] — that is what makes a deck reload idempotent
+    /// and queue-free — so "show yourself now" crosses as a *count* the deck
+    /// compares against the last value it acted on. A reload re-reads the
+    /// same number and does nothing; a fresh increment is a reveal it has not
+    /// answered yet. A counter that went backwards would read as one of
+    /// those, which is why `UpdateStateMachine` holds it outside the snapshot
+    /// and stamps it on.
+    var revealCount: Int = 0
 
     /// Whether the current stage holds something the user can call off.
     /// Extraction and installation are past the point of no return.
@@ -130,9 +141,14 @@ struct UpdateSnapshot: Equatable {
         }
     }
 
-    /// What choosing the menu item does, or `nil` when the item should be
-    /// disabled because the flow is mid-transfer and there is nothing to
-    /// decide.
+    /// What choosing the menu item decides, or `nil` when there is no Sparkle
+    /// decision to make.
+    ///
+    /// `nil` does **not** mean the item is disabled. The item always reveals
+    /// the surface [B07] — that is its first job, and it is the whole of the
+    /// job while the flow is mid-transfer — so a stage with nothing to decide
+    /// still has somewhere to take the user. Only the decision half is
+    /// conditional.
     var menuCommand: UpdateAction? {
         switch stage {
         case .idle, .upToDate, .error:
@@ -166,6 +182,7 @@ struct UpdateSnapshot: Equatable {
             "percent": percent ?? NSNull(),
             "message": message,
             "cancellable": isCancellable,
+            "revealCount": revealCount,
         ]
     }
 }
@@ -222,6 +239,10 @@ struct UpdateStateMachine {
     /// The download's total, or 0 while it is unknown — in which case
     /// progress stays `nil` rather than pretending to be 0%.
     private var expectedBytes: UInt64 = 0
+    /// The reveal counter, held here rather than in the snapshot because
+    /// most transitions replace the snapshot wholesale and it must survive
+    /// every one of them.
+    private var revealCount: Int = 0
 
     init() {}
 
@@ -231,7 +252,19 @@ struct UpdateStateMachine {
     mutating func apply(_ event: UpdateEvent) -> UpdateSnapshot? {
         let before = snapshot
         reduce(event)
+        // Stamped after the reduction, so the transitions that assign a whole
+        // new `UpdateSnapshot` cannot take the count back to zero.
+        snapshot.revealCount = revealCount
         return snapshot == before ? nil : snapshot
+    }
+
+    /// The host wants the surface shown. Bumps the counter and hands back the
+    /// snapshot to publish; the stage is untouched, because revealing is not
+    /// a thing that happens to the update.
+    mutating func requestReveal() -> UpdateSnapshot {
+        revealCount &+= 1
+        snapshot.revealCount = revealCount
+        return snapshot
     }
 
     private mutating func reduce(_ event: UpdateEvent) {

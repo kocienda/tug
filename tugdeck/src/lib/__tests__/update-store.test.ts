@@ -39,6 +39,7 @@ function available(overrides: Record<string, unknown> = {}) {
     percent: null,
     message: "",
     cancellable: false,
+    revealCount: 0,
     ...overrides,
   };
 }
@@ -56,6 +57,7 @@ describe("update-store: a host snapshot lands whole", () => {
       percent: null,
       message: "",
       cancellable: false,
+      revealCount: 0,
     });
   });
 
@@ -246,6 +248,43 @@ describe("update-store: progress never reaches React [L06]", () => {
       updateFromPayload(available({ stage: "downloading", percent: 6 })),
     );
     expect(notifications).toBe(1);
+    unsubscribe();
+  });
+});
+
+describe("update-store: reveal is a count, not an event", () => {
+  it("carries the host's reveal count", () => {
+    updateStore.apply(updateFromPayload(available({ revealCount: 3 })));
+    expect(updateStore.getSnapshot().revealCount).toBe(3);
+    expect(updateStore.getRenderSnapshot().revealCount).toBe(3);
+  });
+
+  it("reads a payload with no count at all as zero", () => {
+    const { revealCount: _omitted, ...withoutCount } = available();
+    updateStore.apply(updateFromPayload(withoutCount));
+    expect(updateStore.getSnapshot().revealCount).toBe(0);
+  });
+
+  it("moves the render snapshot when the count is the only thing that moved", () => {
+    updateStore.apply(updateFromPayload(available({ revealCount: 1 })));
+    const before = updateStore.getRenderSnapshot();
+    updateStore.apply(updateFromPayload(available({ revealCount: 2 })));
+    // A reveal moves nothing else in the snapshot, so a render surface that
+    // elided the count would swallow it and the surface would never open.
+    expect(updateStore.getRenderSnapshot()).not.toBe(before);
+    expect(updateStore.getRenderSnapshot().revealCount).toBe(2);
+  });
+
+  it("is idempotent under the replay a reload gets", () => {
+    updateStore.apply(updateFromPayload(available({ revealCount: 7 })));
+    const first = updateStore.getRenderSnapshot();
+    let notifications = 0;
+    const unsubscribe = updateStore.subscribe(() => {
+      notifications += 1;
+    });
+    updateStore.apply(updateFromPayload(available({ revealCount: 7 })));
+    expect(notifications).toBe(0);
+    expect(updateStore.getRenderSnapshot()).toBe(first);
     unsubscribe();
   });
 });

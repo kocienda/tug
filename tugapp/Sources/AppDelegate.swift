@@ -404,6 +404,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self, let window = self.window else { return }
             window.bridgeUpdateState(snapshot)
         }
+        // Sparkle's one sanctioned "bring the update into focus" callback
+        // [B06]. It fires when the user asks a second time to be shown a
+        // check they already started, which is the same thing the menu item
+        // asks for — so it reaches the same reveal, and the seam that had no
+        // consumer has one.
+        updateController.onFocusRequested = { [weak self] in
+            self?.updateController.requestReveal()
+        }
         updateController.startIfEligible()
         lap("updateController")
 
@@ -1656,11 +1664,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
-        // The item is one door onto the whole flow, not just its start:
-        // whatever the current state's decision is — check, install, or
-        // relaunch — this is it [B07]. `menuCommand` is nil only while the
-        // flow is mid-transfer, which `validateMenuItem` has already
-        // disabled the item for.
+        // Reveal, then decide — in that order, and the reveal is
+        // unconditional [B07]. The item is one door onto the whole flow, and
+        // the first thing a user picking it wants is to be looking at the
+        // update again: mid-download there is nothing to decide, and that is
+        // exactly the state in which somebody reaches for the menu to see
+        // where the download got to.
+        updateController.requestReveal()
         guard let command = updateController.snapshot.menuCommand else { return }
         updateController.perform(command)
     }
@@ -2516,7 +2526,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "app.checkForUpdates":
             let snapshot = updateController.snapshot
             menuItem.title = snapshot.menuTitle(appName: appDisplayName)
-            return snapshot.menuCommand != nil
+            // Always enabled while the updater is running. The item's first
+            // job is to bring the surface back, which every stage can do, so
+            // a `nil` menuCommand means "nothing to decide" and never
+            // "nothing to do" [B07]. It used to go grey through `checking`,
+            // `downloading`, `extracting` and `installing` — the stages a
+            // user is most likely to want to look at.
+            return true
         // View zoom. Reads `window.currentPageZoom` live rather than the
         // pushed state: page zoom is the host's own property, changed by
         // these very commands, and the read is a synchronous accessor so it

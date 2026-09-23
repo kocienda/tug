@@ -1,19 +1,21 @@
 /**
- * update-overlay.tsx — the update surface: one thing with two sizes.
+ * update-overlay.tsx — the update surface: one thing with three sizes.
  *
- * The whole of Tug's update presentation, in the **upper right of the deck
- * canvas**. Collapsed it is a `TugBadge` in the theme accent; expanded it is a
+ * The whole of Tug's update presentation, on one anchor at the **top centre of
+ * the window**. Collapsed it is a `TugBadge` in the theme accent; expanded it is a
  * `TugInlineDialog` carrying the version, the release notes, a ConfigureTug
  * step list, and whichever decision the current stage holds. It is not a
- * trigger and a popover — it is one surface, and the only two things that
- * change its size are the collapse control in the dialog's header and a click
- * on the badge, each the other's inverse.
+ * trigger and a popover — it is one surface, and the only things that change
+ * its size are the collapse control in the dialog's header, a click on the
+ * badge, and the badge's `x`, which takes it off the screen entirely.
  *
  * Mounted once at the deck level (in `DeckCanvas`, beside
  * {@link OpenQuicklyOverlay}) and portaled into `CanvasOverlayRoot`, so it
- * floats above every pane's `overflow: hidden` clip. The upper-right corner
- * has no other tenant; the surface may overlap a card parked there, and that is
- * the accepted trade — it exists only while there is something to say.
+ * floats above every pane's `overflow: hidden` clip. Both sizes sit on that one
+ * anchor, so expanding and collapsing changes the surface's size around a fixed
+ * point rather than moving it; the anchor is on the window, so the sidebar
+ * opening or closing does not shift it. The corner it used to occupy was the
+ * Workspaces sidebar's, which is the whole reason the anchor moved.
  *
  * ## The size is the user's
  *
@@ -30,6 +32,13 @@
  * press changes the size. Pressing *Download* leaves the dialog open on the
  * downloading stage; collapsing it leaves a badge that waits until a convenient
  * moment. Deferral is the gesture this shape exists to make first-class.
+ *
+ * ## Hidden is the third size
+ *
+ * The badge's `x` hides the surface and does nothing else — it answers Sparkle
+ * nothing and changes no host state, so the update stays exactly as live as it
+ * was and can be brought back. {@link SurfaceSize} carries what that costs and
+ * what it survives.
  *
  * ## Progress is words, not a bar
  *
@@ -61,6 +70,7 @@ import {
   CircleCheck,
   RefreshCw,
   TriangleAlert,
+  X,
 } from "lucide-react";
 
 import { TugBadge, type TugBadgeRole } from "@/components/tugways/tug-badge";
@@ -125,31 +135,76 @@ const ANSWER_STAGES: ReadonlySet<UpdateStage> = new Set<UpdateStage>([
   "error",
 ]);
 
+/**
+ * The three sizes the surface has, and the whole of what the deck decides.
+ *
+ * `hidden` is the third, and it is the deck's alone: the host's stage still
+ * decides whether there is anything to show at all, and hiding answers Sparkle
+ * nothing — no reply, no consumed closure, no host state change. The update
+ * stays exactly as live as it was, which is what makes getting it off the
+ * screen a deferral rather than a dismissal.
+ *
+ * Three things about `hidden` were decided rather than fallen into:
+ *
+ * - **It survives a stage transition.** A badge hidden while `downloading` does
+ *   not come back at `readyToInstall`. A hide that the next transition undid
+ *   would be worth nothing at exactly the stages a user reaches for it.
+ * - **It does not survive the flow.** The size is this component's state and
+ *   the component unmounts when the host says `idle`, so the next update starts
+ *   visible. Nor does it survive a deck reload: the store is in-memory and the
+ *   host replays its snapshot to a fresh deck. That is the accepted answer —
+ *   the surface returns when there is something new to say.
+ * - **The `x` is offered at every stage.** Hiding `installing`, seconds from a
+ *   relaunch, is pointless rather than harmful, and a control that came and
+ *   went per stage would be its own small version of the inconsistency this
+ *   work exists to remove.
+ */
+type SurfaceSize = "hidden" | "collapsed" | "expanded";
+
 // ---------------------------------------------------------------------------
 // The stage table — what each stage looks like, said once
 // ---------------------------------------------------------------------------
 
-/** What the badge reads, per stage. Short enough to sit in a corner. */
+/**
+ * What the badge reads, per stage.
+ *
+ * The badge is the one part of the surface that carries no context of its
+ * own: the dialog has a title, an icon and a step list around every sentence
+ * it says, and the badge has a few words alone on the window's top edge. So
+ * each label names its subject — `Tug`, or the update — rather than assuming
+ * the reader already knows what is being checked, downloaded or installed.
+ * `Ready to install` said nothing about *what* was ready; `0.9.0` alone said
+ * nothing at all.
+ *
+ * Short is still the constraint. These are a few words, not sentences: the
+ * badge says which thing and which stage, and the dialog behind it says the
+ * rest.
+ */
 function badgeLabel(state: UpdateRenderSnapshot): string {
+  const version = state.version === "" ? "" : ` ${state.version}`;
   switch (state.stage) {
     case "checking":
-      return "Checking…";
+      return "Checking for updates…";
     case "available":
-      return state.version === "" ? "Update available" : state.version;
+      return version === "" ? "Tug update available" : `Tug${version} available`;
     case "downloading":
-      return state.version === ""
-        ? "Downloading…"
-        : `Downloading ${state.version}…`;
+      return version === ""
+        ? "Downloading the update…"
+        : `Downloading Tug${version}…`;
     case "extracting":
-      return "Unpacking…";
+      return version === ""
+        ? "Unpacking the update…"
+        : `Unpacking Tug${version}…`;
     case "readyToInstall":
-      return "Ready to install";
+      return "Ready to install update";
     case "installing":
-      return "Installing…";
+      return version === ""
+        ? "Installing the update…"
+        : `Installing Tug${version}…`;
     case "upToDate":
-      return "Up to date";
+      return "Tug is up to date";
     case "error":
-      return "Update failed";
+      return "Tug update failed";
     case "idle":
       return "";
   }
@@ -234,7 +289,13 @@ function dialogTitle(state: UpdateRenderSnapshot): string {
   }
 }
 
-/** The line under the title: what is happening, and what it costs. */
+/**
+ * The line under the title: what is happening, and what it costs.
+ *
+ * Read with the title above it, which is where the subject is named — so
+ * these say what the stage means for the person reading, and never repeat
+ * what the heading just said.
+ */
 function dialogDescription(stage: UpdateStage): string {
   switch (stage) {
     case "checking":
@@ -251,7 +312,7 @@ function dialogDescription(stage: UpdateStage): string {
     case "upToDate":
       return "This is the newest version. Tug checks again on its own.";
     case "error":
-      return "Nothing was changed.";
+      return "Nothing was installed; Tug is unchanged.";
     case "idle":
       return "";
   }
@@ -635,43 +696,70 @@ function UpdateDialog({
   );
 }
 
-/** The collapsed form: the badge, which expands on click. */
+/**
+ * The collapsed form: the badge, which expands on click, beside the one
+ * control that hides the surface.
+ *
+ * The `x` is a sibling of the badge button rather than a child of it, and that
+ * is structural: `TugBadge` is display-only by design and carries no
+ * interactive affordance, and a button inside a button is not a thing the DOM
+ * allows. So the row is the composition — press the badge to expand, press the
+ * `x` to hide — and the two are separate hit targets with separate labels.
+ */
 function UpdateBadge({
   state,
   onExpand,
+  onHide,
 }: {
   state: UpdateRenderSnapshot;
   onExpand: () => void;
+  onHide: () => void;
 }): React.ReactElement {
   const role = badgeRole(state.stage);
   return (
-    <button
-      type="button"
-      className="tugx-update-badge-button"
-      data-testid="update-badge"
-      data-stage={state.stage}
-      aria-label={`${dialogTitle(state)} — expand`}
-      onClick={onExpand}
-    >
-      <TugBadge
-        emphasis={role === "inherit" ? "outlined" : "filled"}
-        role={role}
-        size="lg"
-        icon={badgeGlyph(state.stage)}
+    <div className="tugx-update-badge-row">
+      <button
+        type="button"
+        className="tugx-update-badge-button"
+        data-testid="update-badge"
+        data-stage={state.stage}
+        aria-label={`${dialogTitle(state)} — expand`}
+        onClick={onExpand}
       >
-        {badgeLabel(state)}
-      </TugBadge>
-    </button>
+        <TugBadge
+          emphasis={role === "inherit" ? "outlined" : "filled"}
+          role={role}
+          size="lg"
+          icon={badgeGlyph(state.stage)}
+        >
+          {badgeLabel(state)}
+        </TugBadge>
+      </button>
+      <TugIconButton
+        icon={<X size={14} aria-hidden />}
+        aria-label="Hide the update notice"
+        title="Hide"
+        data-testid="update-hide"
+        className="tugx-update-badge-hide"
+        onClick={onHide}
+      />
+    </div>
   );
 }
 
-/** The surface, at whichever of its two sizes the user last left it. */
-function UpdatePanel({ state }: { state: UpdateRenderSnapshot }): React.ReactElement {
+/** The surface, at whichever of its three sizes the user last left it. */
+function UpdatePanel({
+  state,
+}: {
+  state: UpdateRenderSnapshot;
+}): React.ReactElement | null {
   // Arrival size follows who asked. A flow that begins user-initiated on its
   // answer stage is expanded from its first frame; everything else lights the
   // badge and waits.
-  const [expanded, setExpanded] = useState(
-    () => state.userInitiated && ANSWER_STAGES.has(state.stage),
+  const [size, setSize] = useState<SurfaceSize>(() =>
+    state.userInitiated && ANSWER_STAGES.has(state.stage)
+      ? "expanded"
+      : "collapsed",
   );
 
   const midTurnTitles = useMidTurnSessionTitles();
@@ -693,8 +781,27 @@ function UpdatePanel({ state }: { state: UpdateRenderSnapshot }): React.ReactEle
     }
     if (announced.current === state.stage) return;
     announced.current = state.stage;
-    setExpanded(true);
+    // This is the one thing that reaches past `hidden`, and deliberately: the
+    // user asked for a check, so they are shown its answer wherever they left
+    // the surface.
+    setSize("expanded");
   }, [state.userInitiated, state.stage]);
+
+  // The host asking for the surface, which is the Tug menu item and Sparkle's
+  // own `showUpdateInFocus` behind it. It crosses as a monotonic count rather
+  // than a callback, so the reload that replays the current snapshot re-reads
+  // a number this ref has already seen and nothing happens; a number it has
+  // not seen is a reveal, acted on exactly once.
+  //
+  // Reveal means *expanded, in the state it was left*: the menu item exists to
+  // put the user back in front of the update, and handing them a badge would
+  // make it a second click.
+  const revealed = useRef(state.revealCount);
+  useEffect(() => {
+    if (revealed.current === state.revealCount) return;
+    revealed.current = state.revealCount;
+    setSize("expanded");
+  }, [state.revealCount]);
 
   // `upToDate` is an answer with nothing left to do once read, so it clears
   // itself — acknowledging to the host on the way out, which is what lets
@@ -715,18 +822,27 @@ function UpdatePanel({ state }: { state: UpdateRenderSnapshot }): React.ReactEle
     postUpdateAction(action);
   }, []);
 
+  // Hidden renders nothing at all rather than an empty overlay box: the
+  // surface is off the screen, and a zero-size element sitting on the anchor
+  // is not the same thing.
+  if (size === "hidden") return null;
+
   return (
-    <div className="tugx-update-overlay" data-expanded={expanded ? "true" : "false"}>
-      {expanded ? (
+    <div className="tugx-update-overlay" data-size={size}>
+      {size === "expanded" ? (
         <UpdateDialog
           state={state}
           warning={warning}
           relaunchDetail={relaunchDetail}
           onAct={act}
-          onCollapse={() => setExpanded(false)}
+          onCollapse={() => setSize("collapsed")}
         />
       ) : (
-        <UpdateBadge state={state} onExpand={() => setExpanded(true)} />
+        <UpdateBadge
+          state={state}
+          onExpand={() => setSize("expanded")}
+          onHide={() => setSize("hidden")}
+        />
       )}
     </div>
   );

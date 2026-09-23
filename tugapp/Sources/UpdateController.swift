@@ -187,10 +187,26 @@ final class UpdateController: NSObject {
     /// reply for; both are ignored [B03].
     func perform(_ action: UpdateAction) {
         guard updater != nil else {
-            NSLog("UpdateController: '%@' requested while inactive; ignoring", action.rawValue)
+            // `tugapp.log`, not `NSLog`: this is the other way a press can
+            // disappear without a trace, and the trace is the point.
+            TugLog.warn("update", "action requested while the updater is inactive; ignoring", [
+                TugLog.field("action", action.rawValue),
+            ])
             return
         }
         MainActor.assumeIsolated { driver.perform(action) }
+    }
+
+    /// Ask the deck to show the update surface, in whatever state it holds.
+    ///
+    /// Publishes a snapshot whose reveal counter has moved and nothing else,
+    /// so the flow is untouched: revealing is not something that happens to
+    /// the update. The app-menu item calls this before it decides anything
+    /// [B07], and Sparkle's own `showUpdateInFocus` reaches it through
+    /// `onFocusRequested`.
+    func requestReveal() {
+        guard updater != nil else { return }
+        MainActor.assumeIsolated { driver.requestReveal() }
     }
 
     /// Start a check, or hold it until Sparkle can accept one.

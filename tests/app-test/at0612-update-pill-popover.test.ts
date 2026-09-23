@@ -3,8 +3,8 @@
  *
  * ## What this pins
  *
- * Tug's update presentation is one surface with two sizes in the upper right of
- * the deck canvas: a badge collapsed, a dialog expanded. The only thing that
+ * Tug's update presentation is one surface with two sizes on one anchor at the
+ * top centre of the window: a badge collapsed, a dialog expanded. The only thing that
  * moves what it *says* is a snapshot arriving on
  * `window.__tugBridge.onUpdateState`, and the only things that move its *size*
  * are a click on the badge and a click on the collapse control. That is the
@@ -18,7 +18,7 @@
  * flow underneath them is `briefs/non-modal-app-updates-brief.md`, cited by
  * name where it is the one that answers.
  *
- * Four claims are worth naming, because they are the ones the arc rests on and
+ * Six claims are worth naming, because they are the ones the arc rests on and
  * the ones a plausible refactor would quietly lose:
  *
  * 1. **Arrival size follows who asked.** A scheduled check that finds something
@@ -38,6 +38,17 @@
  *    the rendered tree stands still ([L06]; non-modal-app-updates [B05]). There
  *    is no progress bar; the wizard standard is a dot and a detail line, and a
  *    bar was tried and rejected [F04] [B05].
+ * 5. **Every size sits on one anchor, and the anchor is the window's.** The
+ *    surface is centred horizontally on the window and dropped just below the
+ *    chrome, so expanding changes its size around a fixed point rather than
+ *    moving it (update-surface-anchor [B01] [B02] [B03]). It used to be pinned
+ *    to the window's upper right, which is where the Workspaces sidebar lives
+ *    — a regression back to any corner is what the centre assertions catch.
+ * 6. **The badge's `x` hides and hides only.** It is the third size, and it
+ *    answers Sparkle nothing: no action crosses the bridge, the host's stage
+ *    is untouched, and the update stays as live as it was
+ *    (update-surface-anchor [B04] [B05]). A hidden surface stays hidden across
+ *    a stage transition and comes back with the next flow.
  *
  * Absent release notes still never block an update: a feed item with no
  * description leaves the version, the heading and every control exactly where
@@ -64,8 +75,12 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
+/** The surface itself — whichever size it is wearing. */
+const OVERLAY = `.tugx-update-overlay`;
 /** The collapsed form. */
 const BADGE = `[data-testid="update-badge"]`;
+/** The badge's `x`: takes the surface off the screen, and nothing else. */
+const HIDE = `[data-testid="update-hide"]`;
 /** The expanded form. */
 const DIALOG = `[data-testid="update-dialog"]`;
 /** The one control in the dialog's header slot: it collapses to the badge. */
@@ -93,6 +108,7 @@ interface Payload {
   percent?: number | null;
   message?: string;
   cancellable?: boolean;
+  revealCount?: number;
 }
 
 function snapshot(stage: string, over: Partial<Payload> = {}): Payload {
@@ -106,6 +122,7 @@ function snapshot(stage: string, over: Partial<Payload> = {}): Payload {
     percent: null,
     message: "",
     cancellable: false,
+    revealCount: 0,
     ...over,
   };
 }
@@ -180,6 +197,40 @@ async function elementCount(app: App, selector: string): Promise<number> {
   return app.evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
+}
+
+/** One element's box, with the window it is anchored against. */
+interface AnchoredBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  windowWidth: number;
+  windowHeight: number;
+}
+
+/** Measure `selector`'s box against the window it is centred on. */
+async function anchoredBox(app: App, selector: string): Promise<AnchoredBox> {
+  return app.evalJS<AnchoredBox>(
+    `(function () {
+       var el = document.querySelector(${JSON.stringify(selector)});
+       if (el === null) return null;
+       var r = el.getBoundingClientRect();
+       return {
+         left: r.left,
+         top: r.top,
+         width: r.width,
+         height: r.height,
+         windowWidth: window.innerWidth,
+         windowHeight: window.innerHeight,
+       };
+     })()`,
+  );
+}
+
+/** The horizontal centre of a measured box. */
+function centreX(b: AnchoredBox): number {
+  return b.left + b.width / 2;
 }
 
 /** The bottom row's labels, in the order they are laid out. */
@@ -338,15 +389,22 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update badge and dialog", () => {
         expect(await elementCount(app, DIALOG)).toBe(0);
 
         // ---- Every stage the driver reports puts a badge up -------------
+        //
+        // The badge stands alone on the window's top edge with nothing
+        // around it, so every label names its subject rather than assuming
+        // the reader has the context the dialog supplies
+        // (update-surface-anchor [B08]). `Ready to install` did not say what
+        // was ready and the bare version said nothing at all; a label that
+        // drops back to either is what these strings catch.
         const labels: Array<[string, string]> = [
-          ["checking", "Checking…"],
-          ["available", "0.9.0"],
-          ["downloading", "0.9.0"],
-          ["extracting", "Unpacking"],
-          ["readyToInstall", "Ready to install"],
-          ["installing", "Installing…"],
-          ["upToDate", "Up to date"],
-          ["error", "Update failed"],
+          ["checking", "Checking for updates…"],
+          ["available", "Tug 0.9.0 available"],
+          ["downloading", "Downloading Tug 0.9.0…"],
+          ["extracting", "Unpacking Tug 0.9.0…"],
+          ["readyToInstall", "Ready to install update"],
+          ["installing", "Installing Tug 0.9.0…"],
+          ["upToDate", "Tug is up to date"],
+          ["error", "Tug update failed"],
         ];
         for (const [stage, label] of labels) {
           await push(app, snapshot(stage));
@@ -377,6 +435,128 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update badge and dialog", () => {
         await collapse(app, "downloading");
         expect(await elementCount(app, DIALOG)).toBe(0);
         note("at0612 size", "badge expands, collapse control collapses");
+
+        // ---- One anchor, top centre of the window ----------------------
+        //
+        // The surface was pinned to the window's upper right, which is where
+        // the Workspaces sidebar lives: the badge landed on the sidebar's
+        // filter row and the 600px panel spilled across it onto the canvas.
+        // Both sizes now sit on one window-centred anchor, so expanding
+        // changes the size around a fixed point instead of moving the surface
+        // (update-surface-anchor [B01] [B02] [B03]).
+        //
+        // Measured rather than read off the CSS: `width: fit-content` under
+        // auto margins is the whole mechanism, and a rule that computes to
+        // anything else — a stray `right:`, a transform, a `flex-end` — shows
+        // up here as a centre that is not the window's.
+        // The *surface* is what is anchored, so the surface is what is
+        // measured: the collapsed form is a row — the badge and its `x` — and
+        // the badge alone sits off-centre inside it by half that control.
+        const collapsedBox = await anchoredBox(app, OVERLAY);
+        await expand(app, "downloading");
+        const expandedBox = await anchoredBox(app, OVERLAY);
+        note(
+          "at0612 anchor",
+          JSON.stringify({ collapsed: collapsedBox, expanded: expandedBox }),
+        );
+
+        // Each size is centred on the window. One pixel of slack, for the
+        // subpixel rounding an odd-width window leaves behind.
+        const windowCentre = collapsedBox.windowWidth / 2;
+        expect(Math.abs(centreX(collapsedBox) - windowCentre)).toBeLessThanOrEqual(1);
+        expect(Math.abs(centreX(expandedBox) - windowCentre)).toBeLessThanOrEqual(1);
+
+        // And they are centred on the *same* point, which is the claim the
+        // user's complaint was actually about: the surface must not appear to
+        // jump when it changes size.
+        expect(
+          Math.abs(centreX(expandedBox) - centreX(collapsedBox)),
+        ).toBeLessThanOrEqual(1);
+
+        // The dialog is the wide size and it is genuinely wider than the
+        // badge, so the centre agreement above is not two boxes of the same
+        // width agreeing by accident.
+        expect(expandedBox.width).toBeGreaterThan(collapsedBox.width);
+
+        // Dropped from the top edge, not parked a fifth of the way down like
+        // Open Quickly's 22vh: the surface reads as arriving from the top.
+        expect(collapsedBox.top).toBeGreaterThanOrEqual(0);
+        expect(collapsedBox.top).toBeLessThan(collapsedBox.windowHeight * 0.15);
+        expect(Math.abs(expandedBox.top - collapsedBox.top)).toBeLessThanOrEqual(1);
+
+        await collapse(app, "downloading");
+
+        // ---- The badge's `x` hides, and hides only ----------------------
+        //
+        // The third size. Hiding answers Sparkle nothing — no action crosses
+        // the bridge — so the update stays as live as it was and the host's
+        // stage is untouched (update-surface-anchor [B04] [B05]). `dismiss`
+        // could not have done this job: it is already a Sparkle reply, and it
+        // ends the session.
+        await clearPosted(app);
+        await waitForClickable(app, HIDE);
+        await app.click(HIDE);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(BADGE)}) === null
+             && document.querySelector(${JSON.stringify(DIALOG)}) === null`,
+          { timeoutMs: 10_000 },
+        );
+        expect(await elementCount(app, OVERLAY)).toBe(0);
+        expect(await postedActions(app)).toEqual([]);
+        note("at0612 hide", "x removes the surface and posts nothing");
+
+        // A hidden surface stays hidden across a stage transition: a hide the
+        // next transition undid would be worth nothing at the stages a user
+        // reaches for it.
+        await push(app, snapshot("readyToInstall", { userInitiated: false }));
+        await letTimePass(app, 500);
+        expect(await elementCount(app, OVERLAY)).toBe(0);
+        expect(await postedActions(app)).toEqual([]);
+
+        // And the host saying there is nothing to say, then something new,
+        // brings the surface back: hidden belongs to this flow, not to the
+        // deck.
+        await goIdle(app);
+        await push(app, snapshot("available", { userInitiated: false }));
+        await waitForBadge(app, "available");
+
+        // ---- The host's reveal is a count, acted on once ----------------
+        //
+        // The Tug menu item — and Sparkle's `showUpdateInFocus` behind it —
+        // asks for the surface by bumping `revealCount` on the snapshot, not
+        // by firing an event across the bridge. So the deck compares the
+        // number against the last one it acted on: a replay after a reload
+        // re-reads the same count and does nothing, a new count opens the
+        // surface expanded, in the state it was left
+        // (update-surface-anchor [B06] [B07]).
+        //
+        // From hidden, which is the case the menu door exists for.
+        await waitForClickable(app, HIDE);
+        await app.click(HIDE);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(OVERLAY)}) === null`,
+          { timeoutMs: 10_000 },
+        );
+
+        await push(app, snapshot("available", { revealCount: 1 }));
+        await waitForDialog(app, "available");
+        note("at0612 reveal", "a bumped count opens the surface expanded");
+
+        // The same count again is the replay a reload gets, and it is inert:
+        // the user's own collapse stands.
+        await collapse(app, "available");
+        await push(app, snapshot("available", { revealCount: 1 }));
+        await letTimePass(app, 500);
+        expect(await elementCount(app, DIALOG)).toBe(0);
+        expect(await elementCount(app, BADGE)).toBe(1);
+
+        // A count the deck has not seen opens it again.
+        await push(app, snapshot("available", { revealCount: 2 }));
+        await waitForDialog(app, "available");
+
+        // And a reveal posts nothing back: it is the host asking to be
+        // looked at, not a decision.
+        expect(await postedActions(app)).toEqual([]);
 
         // A check the user started arrives expanded on its answer.
         await goIdle(app);

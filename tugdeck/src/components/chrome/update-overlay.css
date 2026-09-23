@@ -1,10 +1,10 @@
 /**
- * update-overlay — the update surface in the canvas's upper right: a badge
- * collapsed, a dialog expanded.
+ * update-overlay — the update surface anchored at the window's top centre: a
+ * badge collapsed, a dialog expanded.
  *
  * Almost nothing is painted here. The badge is `TugBadge` and the dialog is
  * `TugInlineDialog`, both shipping components with theme-aware tokens of their
- * own, so this file owns only what composing them needs: where the corner is,
+ * own, so this file owns only what composing them needs: where the anchor is,
  * how wide the panel may grow, the header slot's one exception, the bottom
  * row, and the two sentences the surface adds to the dialog's own copy.
  *
@@ -14,26 +14,65 @@
  * for CSS to animate.
  */
 
-/* ---- The corner ----
+/* ---- The anchor ----
  *
- * Fixed, because CanvasOverlayRoot is. `pointer-events: auto` goes on the two
- * things that are pressable — the badge button and the dialog panel — so the
- * corner is not a dead zone the width of the overlay. */
+ * One anchor, top centre of the window, with both sizes on it: collapsing and
+ * expanding changes the surface's size around a fixed point rather than moving
+ * it. The upper right was the corner the Workspaces sidebar lives in, so the
+ * badge landed on the sidebar's filter row and the 600px panel spilled across
+ * the sidebar onto the canvas.
+ *
+ * Centred on the *window*, not on the canvas region: CanvasOverlayRoot is
+ * `position: fixed; inset: 0` over the whole window, so the anchor does not
+ * move when the sidebar opens, closes or resizes. A canvas-relative anchor
+ * would reintroduce, in a subtler form, the instability this placement exists
+ * to remove.
+ *
+ * Centred with auto margins over a `width: fit-content` box, and never with
+ * `transform: translateX(-50%)` — the same rule `tug-modal-input-dialog.css`
+ * records for the Open Quickly panel. A transform makes this element a
+ * containing block for `position: fixed` descendants, so anything portaled
+ * inside would resolve its coordinates against the surface and be clipped by
+ * its overflow.
+ *
+ * The drop is the chrome's height plus one small gap: the surface should read
+ * as arriving from the top edge, which is not the same shape as Open Quickly's
+ * 22vh — that is a search field the user summoned, this is a notice that came
+ * to them.
+ *
+ * Non-modal, still and always: no scrim, no focus claim, no responder
+ * participation. `pointer-events: auto` goes on the two things that are
+ * pressable — the badge button and the dialog panel — so the anchor is not a
+ * dead zone the width of the overlay. */
 
 .tugx-update-overlay {
   position: absolute;
   top: calc(var(--tug-chrome-height, 0px) + var(--tug-space-sm));
-  right: var(--tug-space-sm);
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100vw - 2 * var(--tug-space-lg));
   pointer-events: none;
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
 }
 
 /* ---- The collapsed form ----
  *
  * A bare button around the badge: the badge is display-only by design, so the
  * hit target and the focus ring are this file's, and everything visible is
- * the badge's own. */
+ * the badge's own.
+ *
+ * The `x` rides beside the badge rather than inside it — `TugBadge` carries no
+ * interactive affordance, and a button nested in a button is not valid DOM —
+ * so the collapsed form is a row of two hit targets. */
+
+.tugx-update-badge-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
 
 .tugx-update-badge-button {
   all: unset;
@@ -46,6 +85,14 @@
 .tugx-update-badge-button:focus-visible {
   outline: 2px solid var(--tug7-element-global-border-normal-accent-rest);
   outline-offset: 2px;
+}
+
+/* The hide control is quiet already — `TugIconButton` is a ghost-emphasis
+ * icon button, which is the treatment this wants — so all that is owed here
+ * is the hit target the overlay's `pointer-events: none` would otherwise
+ * swallow. */
+.tugx-update-badge-hide {
+  pointer-events: auto;
 }
 
 /* ---- The expanded form ---- */

@@ -6607,9 +6607,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       {/* Deck-global Open Quickly popup (File ▸ Open Quickly). Renders
         * nothing until opened; portals into the overlay root above. */}
       <OpenQuicklyOverlay />
-      {/* Deck-global update pill, upper right. Renders nothing while the
-        * host has nothing to say, and nothing it renders ever takes focus;
-        * portals into the overlay root above. */}
+      {/* Deck-global update surface, on one anchor at the window's top
+        * centre. Renders nothing while the host has nothing to say, and
+        * nothing it renders ever takes focus; portals into the overlay root
+        * above. */}
       <UpdateOverlay />
       </div>
     </ResponderScope>

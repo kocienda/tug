@@ -271,6 +271,50 @@ do {
           upToDate.snapshot.menuTitle(appName: "Tug-nightly") == "Check for Updates...")
 }
 
+// ── Reveal is a count, not an event [B06] ────────────────────────────────
+//
+// The bridge carries state and never events, which is what makes a deck
+// reload idempotent. So "show the surface now" crosses as a monotonic count
+// the deck compares against the last one it acted on — and the one thing
+// that has to be true of it is that it never goes backwards. Most of the
+// reducer's transitions assign a whole new snapshot, so a count held inside
+// one would reset on nearly every event and read to the deck as a reveal it
+// had not answered.
+do {
+    print("the reveal count")
+
+    var machine = UpdateStateMachine()
+    check("starts at zero", machine.snapshot.revealCount == 0)
+
+    let revealed = machine.requestReveal()
+    check("a reveal bumps the count", revealed.revealCount == 1)
+    check("a reveal leaves the stage alone", revealed.stage == .idle)
+
+    machine.apply(.checkStarted(userInitiated: true))
+    check("a fresh-snapshot transition keeps the count", machine.snapshot.revealCount == 1)
+
+    machine.apply(
+        .updateFound(version: "0.9.0", build: "412", notes: nil, userInitiated: true)
+    )
+    check("finding an update keeps it", machine.snapshot.revealCount == 1)
+
+    machine.requestReveal()
+    machine.apply(.downloadStarted)
+    machine.apply(.readyToInstall)
+    check("it survives the whole flow", machine.snapshot.revealCount == 2)
+
+    machine.apply(.dismissed)
+    check("even a teardown keeps it", machine.snapshot.revealCount == 2)
+
+    // The reveal's own publish: `apply` returns nil for an event that changed
+    // nothing, but a reveal always changed something, so it always publishes.
+    var quiet = UpdateStateMachine()
+    quiet.apply(.checkStarted(userInitiated: false))
+    let before = quiet.snapshot
+    let after = quiet.requestReveal()
+    check("a reveal is a change", after != before)
+}
+
 // ── The wire form [B03] ──────────────────────────────────────────────────
 //
 // The snapshot crosses to the deck as JSON, and a payload
@@ -299,6 +343,7 @@ do {
     check("carries the notes", payload(machine.snapshot)["releaseNotes"] as? String == "<p>a & b</p>")
     check("carries userInitiated", payload(machine.snapshot)["userInitiated"] as? Bool == true)
     check("carries cancellable", payload(machine.snapshot)["cancellable"] as? Bool == false)
+    check("carries the reveal count", payload(machine.snapshot)["revealCount"] as? Int == 0)
 
     machine.apply(.downloadStarted)
     machine.apply(.downloadExpectedLength(200))
