@@ -11,7 +11,7 @@
     "key": "tahoe",
     "codename": "Tahoe",
     "tart_base": "base-tahoe",
-    "macos_version": "26.0",
+    "macos_version": "26.6.2",
     "min_version": "26.0",
     "golden_status": "untested"
   },

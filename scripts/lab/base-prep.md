@@ -11,19 +11,18 @@ in the `Justfile`). Keep the bases pristine.
 
 ## Prerequisites
 
-- [Tart](https://tart.run) (`brew install cirruslabs/cli/tart`).
+- [Tart](https://tart.run) 2.33+ (`brew install openai/tools/tart`). The project
+  moved from Cirrus to OpenAI and relicensed under FSL-1.1-ALv2; the old
+  `cirruslabs/cli` tap is frozen at 2.32.1, which predates ASIF and cannot read
+  the Golden Gate images at all.
 - The lab disk mounted at `/Volumes/Lab-A` (override with `LAB_ROOT`).
 - `TART_HOME=/Volumes/Lab-A/tart` — set inline on raw `tart` commands; the
   `scripts/lab/*` wrappers default it from `LAB_ROOT`.
-- For Golden Gate: the IPSW at
-  `/Volumes/Lab-A/ipsw/UniversalMac_27.0_26A5368g_Restore.ipsw`.
 
 ## 1. Acquire the base image
 
-### Sequoia / Tahoe — Cirrus prebuilt (preferred)
-
-Cirrus publishes prebuilt bases that are already past Setup Assistant with an
-`admin`/`admin` account — ideal for repeatable onboarding tests.
+Every base comes from a Cirrus prebuilt. They are already past Setup Assistant
+with an `admin`/`admin` account — ideal for repeatable onboarding tests.
 
 ```sh
 export TART_HOME=/Volumes/Lab-A/tart
@@ -33,34 +32,43 @@ tart clone ghcr.io/cirruslabs/macos-sequoia-base:latest base-sequoia
 # Tahoe:
 tart pull ghcr.io/cirruslabs/macos-tahoe-base:latest
 tart clone ghcr.io/cirruslabs/macos-tahoe-base:latest base-tahoe
+# Golden Gate (note the hyphens — the image is macos-golden-gate-base):
+tart pull ghcr.io/cirruslabs/macos-golden-gate-base:latest
+tart clone ghcr.io/cirruslabs/macos-golden-gate-base:latest base-golden-gate
 ```
 
-### Golden Gate (macOS 27 beta) — from the local IPSW ([P04])
+**The Golden Gate line requires a host on macOS 26 or newer.** Cirrus publishes
+every 27 image — `base`, `vanilla` and `xcode`, all tags — in ASIF (Apple
+Sparse Image Format), where the Sequoia and Tahoe images are raw. ASIF is a
+host capability, not a guest one: macOS 15 has no concept of it, so
+`diskutil image create --format ASIF` is rejected there and `tart` gates the
+format on `#available(macOS 26, *)`. The failure mode is confusing enough to be
+worth naming: `pull` and `clone` both *succeed*, because they only move bytes,
+and only `run` fails. There is no raw 27 variant to fall back on.
 
-No Cirrus prebuilt exists for the 27 beta, so build from the downloaded IPSW:
+**Re-pull the bases when they go stale.** Cirrus rebuilds these images
+regularly, and a base more than a few months old drifts away from the tooling
+in a way that is easy to misread as a broken VM. The concrete trap: Cirrus
+switched to installing the Tart Guest Agent **from the OpenAI tap on
+2026-08-15**, tracking tart's own move, so an image built before that date
+carries an agent the current `tart` cannot talk to — `tart exec <vm> sw_vers`
+returns nothing at all while the guest boots and networks perfectly. That is a
+stale image, not a broken one. Re-pulling is the fix; note it discards the
+in-place prep below, so budget a prep pass with it.
 
-```sh
-export TART_HOME=/Volumes/Lab-A/tart
-tart create --from-ipsw /Volumes/Lab-A/ipsw/UniversalMac_27.0_26A5368g_Restore.ipsw base-golden-gate
-```
-
-This restores a **fresh** OS, so the first boot lands in Setup Assistant —
-complete it manually (create the `admin`/`admin` account; skip Apple ID,
-Screen Time, analytics, Siri).
-
-> **[R01] — BLOCKED on this host; waiting on the host upgrade, not on Apple (reviewed 2026-07-27).** `tart create --from-ipsw` on the 27 IPSW fails at 0% with *"An error occurred during installation."* The cause was a late incompatibility between the `VZMacOSInstaller` API and the macOS 27 IPSW — not Tart-specific, every Virtualization.framework tool (UTM, Parallels, Anka) hit it.
+> **[R01] — RESOLVED 2026-09-22, by deletion rather than by fix.** This section
+> used to build Golden Gate from a local IPSW, because no prebuilt existed; that
+> path hit a `VZMacOSInstaller` incompatibility between the 26.x hosts and the
+> 27 IPSW, and was blocked for two months. Cirrus published
+> `macos-golden-gate-base` on 2026-09-21, one week after macOS 27 shipped, and
+> the prebuilt path never touches the installer — so the bug stopped applying
+> rather than getting fixed. The IPSW under `/Volumes/Lab-A/ipsw/` is no longer
+> referenced by anything here and can be deleted.
 >
-> **Apple has since fixed it.** Apple DTS confirms the OS-level fix ships in macOS 26.6 beta 3 / 25G5052e (r. 179068335), verified by third parties. The fix is *host-side* and lands in the 26.x line, so it does not reach this host: we are on Sequoia 15.6, and 15.x will never receive it.
->
-> The gate is therefore the host OS version. This machine restores a 27 IPSW once it *is* on 27 — a same-major restore is the ordinary supported case, not the cross-version case Apple had to patch. Golden Gate is expected to ship around mid-to-late September 2026 (developer betas are on a clean two-week cadence; beta 4 / 26A5388g landed 2026-07-20). **Re-attempt `tart create --from-ipsw base-golden-gate` after this host is upgraded to Golden Gate.** Everything else is already wired: `matrix.json` carries the `golden-gate` entry, and `just lab-cycle golden-gate` needs no changes once the base exists.
->
-> Until then Golden Gate is **deferred** — its `matrix.json` `golden_status` stays `untested`, because there was no golden run to fail; the base simply can't be built here yet. Sequoia + Tahoe stay golden, and they keep cycling normally after the host upgrade (older guests on a newer host is the well-trodden direction).
->
-> Rejected alternatives, for the record: upgrading this host to macOS 26.x is a standing non-option (the plan is to leapfrog Tahoe entirely); and building a Tahoe base then OTA-upgrading the guest to 27 is too manual to maintain — a VZ guest has no Apple-ID sign-in, so beta access needs a hand-installed enrollment profile.
->
-> No Cirrus prebuilt exists as an escape hatch: `cirruslabs/macos-image-templates` publishes only `macos-{tahoe,sequoia,sonoma}-*`, with no macOS 27 image or work in flight (checked 2026-07-27). Worth re-checking around release — a prebuilt base would make this trivial regardless of host.
->
-> Refs: [Apple Developer Forums 830118](https://developer.apple.com/forums/thread/830118), [OS X Daily](https://osxdaily.com/2026/06/12/macos-golden-gate-27-beta-wont-install-in-a-virtual-machine-its-a-known-issue/), [motionbug](https://motionbug.com/virtualising-macos-27/).
+> Worth keeping from that episode: a prebuilt is *not* automatically a
+> host-independent escape hatch. The old note claimed one "would make this
+> trivial regardless of host," and that was wrong — the 27 prebuilt carries its
+> own macOS 26 floor through ASIF. The host version gated this work either way.
 
 ## 2. Factory-fresh prep (apply to every base, once)
 
@@ -74,15 +82,22 @@ TART_HOME=/Volumes/Lab-A/tart tart run base-<key>
 Inside the guest:
 
 1. **Account:** confirm/create `admin` / `admin` (Cirrus prebuilts already have
-   it; the IPSW build sets it in Setup Assistant).
-2. **Gatekeeper off** (so the unsigned `lab-dmg` runs without a right-click →
-   Open dance):
+   it).
+2. **Gatekeeper off** (so a `lab-cycle <key> local` unsigned build runs without
+   a right-click → Open dance):
    ```sh
    sudo spctl --master-disable
    ```
    Verify System Settings → Privacy & Security shows "Anywhere". The signed
    golden pass ([#step-12]) is what certifies the real Gatekeeper path; the
    bases stay open for fast unsigned iteration.
+
+   **Know what this costs you.** `lab-cycle` now defaults to `release`, which
+   stages the signed, notarized dmg — but a base with Gatekeeper disabled does
+   not exercise the first-launch gate a real customer meets, so a green default
+   cycle says the app *works*, not that it *installs cleanly*. Re-enable it
+   (`sudo spctl --master-enable`) in the clone when that is the thing under
+   test, or keep relying on the signed golden pass for the certifying run.
 3. **Display resolution — 2048×1660:** System Settings → Displays → select
    **2048 × 1660** (flip on "Show all resolutions" if needed). Clones inherit
    this because `lab-new` does not randomize the VM serial, so the per-display
