@@ -37,6 +37,7 @@ function pane(
     opacity: 1,
     animations: 0,
     offendingProperties: [],
+    offCurve: false,
     ...overrides,
   };
 }
@@ -68,6 +69,7 @@ function run(opts: {
     samples.push({
       t,
       moveCurrentTime: moving ? clock : null,
+      movePending: false,
       frames: panes?.(i) ?? [pane("p1", { animations: moving ? 1 : 0 })],
       fixedDescendants: 0,
     });

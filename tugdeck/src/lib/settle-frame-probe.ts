@@ -103,6 +103,23 @@ export interface SettleFramePaneSample {
    * `opacity` — `[P08]`'s subject, recorded from the first day.
    */
   readonly offendingProperties: readonly string[];
+  /**
+   * The frame carries a transform-bearing effect that has NOT STARTED, and is
+   * therefore painting its base style — which for a FLIP is the DESTINATION.
+   *
+   * The move beat inverts: keyframe 0 is `translate(first - last)`, so the
+   * pose that holds a frame at its ORIGIN is the animation's own first
+   * keyframe. Under `fill: none` an animation whose local time is unresolved
+   * applies NOTHING, and `el.animate()` returns an animation that is
+   * play-pending — its start time unresolved until the next update after it is
+   * ready, which for a COMPOSITED animation means after the compositor has
+   * been handed it. Every tick inside that window paints the frame where the
+   * commit already put it: at the end of the travel, with none of it shown.
+   *
+   * Invisible to every other field here. A gap counter sees frames arriving on
+   * time, because they did arrive; they simply arrived carrying the wrong pose.
+   */
+  readonly offCurve: boolean;
 }
 
 /** One rAF tick's raw sample. Pure data — no DOM in the classifier's input. */
@@ -114,6 +131,14 @@ export interface SettleFrameSample {
    * running a transform-bearing effect at this instant.
    */
   readonly moveCurrentTime: number | null;
+  /**
+   * A transform-bearing effect exists somewhere on the deck but has no
+   * resolved start time — the pending window {@link
+   * SettleFramePaneSample.offCurve} is about, read once per tick rather than
+   * per frame so a run can be summarised as "N ticks with a move nobody could
+   * see".
+   */
+  readonly movePending: boolean;
   readonly frames: readonly SettleFramePaneSample[];
   /** Elements under any shown frame computing `position: fixed` — R01's runtime half. */
   readonly fixedDescendants: number;
@@ -133,6 +158,18 @@ export interface SettleFrameReading {
   readonly minOpacity: number;
   readonly minOpacityPaneId: string;
   readonly rectsChangedAfterLanding: readonly string[];
+  /**
+   * Ticks at which a move existed and had not started ([Q-pop]).
+   *
+   * The whole of the pop, as a number. Zero is the bar: a settle whose tween
+   * is pending for even one tick has shown the reader one frame of the
+   * destination before any of the travel.
+   */
+  readonly pendingTicks: number;
+  /** Ticks at which at least one frame painted off its own curve. */
+  readonly offCurveTicks: number;
+  /** Every pane that painted off-curve at any tick. */
+  readonly offCurvePaneIds: readonly string[];
   /** `"paneId:property"` for every paint-property animation seen — `[P08]`. */
   readonly violations: readonly string[];
   readonly fixedDescendants: number;
@@ -151,6 +188,9 @@ const EMPTY_READING: SettleFrameReading = {
   minOpacity: 1,
   minOpacityPaneId: "-",
   rectsChangedAfterLanding: [],
+  pendingTicks: 0,
+  offCurveTicks: 0,
+  offCurvePaneIds: [],
   violations: [],
   fixedDescendants: 0,
   suspended: true,
@@ -236,7 +276,12 @@ export function classifySettleFrames(
   let minOpacityPaneId = "-";
   let fixedDescendants = 0;
   const violations = new Set<string>();
+  let pendingTicks = 0;
+  let offCurveTicks = 0;
+  const offCurvePaneIds = new Set<string>();
   for (const sample of samples) {
+    if (sample.movePending) pendingTicks += 1;
+    let offCurveHere = false;
     if (sample.moveCurrentTime !== null) {
       if (moveBornAt === null) moveBornAt = sample.t;
       if (moveAdvancedAt === null && sample.moveCurrentTime > 0) {
@@ -254,7 +299,12 @@ export function classifySettleFrames(
       for (const property of frame.offendingProperties) {
         violations.add(`${frame.paneId}:${property}`);
       }
+      if (frame.offCurve) {
+        offCurveHere = true;
+        offCurvePaneIds.add(frame.paneId);
+      }
     }
+    if (offCurveHere) offCurveTicks += 1;
   }
 
   // The landing is the last tick at which anything on the deck was animating.
@@ -298,6 +348,9 @@ export function classifySettleFrames(
     minOpacity,
     minOpacityPaneId,
     rectsChangedAfterLanding: [...rectsChangedAfterLanding],
+    pendingTicks,
+    offCurveTicks,
+    offCurvePaneIds: [...offCurvePaneIds],
     violations: [...violations],
     fixedDescendants,
     suspended: samples.length < SUSPENSION_FLOOR_TICKS,
@@ -382,6 +435,31 @@ function moveCurrentTimeOf(animations: readonly Animation[]): number | null {
 }
 
 /**
+ * Whether this frame is carrying a move that has NOT STARTED.
+ *
+ * `startTime === null` is the read, and it is the one {@link
+ * moveCurrentTimeOf} cannot make: a play-pending animation's `currentTime` is
+ * `null` too, so that function's `typeof === "number"` guard skips it and the
+ * caller cannot tell a pending move from no move at all. Every tick of the
+ * pending window therefore reads as "the deck is not animating", which is why
+ * `firstPaintDelayMs` has been `0` on every run ever recorded — it starts its
+ * clock at the first tick it can SEE the animation, which is already the first
+ * tick the animation has started.
+ */
+function movePendingOf(animations: readonly Animation[]): boolean {
+  for (const animation of animations) {
+    const effect = animation.effect;
+    if (effect === null || !("getKeyframes" in effect)) continue;
+    const carriesTransform = (effect as KeyframeEffect)
+      .getKeyframes()
+      .some((keyframe) => "transform" in keyframe);
+    if (!carriesTransform) continue;
+    if (animation.startTime === null) return true;
+  }
+  return false;
+}
+
+/**
  * Read one tick's sample off the DOM under `root`.
  *
  * The fixed-descendant sweep is R01's runtime half and costs one
@@ -408,12 +486,15 @@ export function sampleSettleFrame(
   const countFixed = options?.countFixedDescendants === true;
   const frames: SettleFramePaneSample[] = [];
   let moveCurrentTime: number | null = null;
+  let movePending = false;
   let fixedDescendants = 0;
   for (const frame of root.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
     const paneId = frame.getAttribute("data-pane-id");
     if (paneId === null) continue;
     const rect = frame.getBoundingClientRect();
     const animations = ownEffectsOf(frame);
+    const pendingHere = movePendingOf(animations);
+    if (pendingHere) movePending = true;
     if (moveCurrentTime === null) {
       moveCurrentTime = moveCurrentTimeOf(animations);
     }
@@ -426,6 +507,7 @@ export function sampleSettleFrame(
       opacity: Number.parseFloat(getComputedStyle(frame).opacity),
       animations: animations.length,
       offendingProperties: offendingPropertiesOf(animations),
+      offCurve: pendingHere,
     });
     if (countFixed) {
       for (const descendant of frame.querySelectorAll<HTMLElement>("*")) {
@@ -438,6 +520,7 @@ export function sampleSettleFrame(
   return {
     t: performance.now(),
     moveCurrentTime,
+    movePending,
     frames,
     fixedDescendants,
   };
