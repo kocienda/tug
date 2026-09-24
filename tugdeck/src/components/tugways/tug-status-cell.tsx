@@ -7,9 +7,10 @@
  * `TugPlacard` open on this cell's detail surface. The cell is
  * **button-rooted** — the activatable element is a real `<button>`, not a
  * `<span>` — so keyboard activation and the focus ring come for free when
- * the row is later authored into a focus cycle. It carries
- * `data-placard-trigger` so the placard's auto-dismiss watcher treats a
- * click on it as a toggle, not an outside dismissal.
+ * the row is later authored into a focus cycle. The placard's auto-dismiss
+ * watcher is handed the one cell a placard was opened from and exempts that
+ * node alone, so this component carries no trigger marker: the exemption is a
+ * node the row names rather than a class of nodes every card matches.
  *
  * The button is `tabIndex={-1}` and focus-refusing
  * (`data-tug-focus="refuse"`): the cell is not a *native* Tab stop and
@@ -164,10 +165,6 @@ export function TugStatusCell({
       data-slot="tug-status-cell"
       className="session-telemetry-status-cell session-telemetry-status-anchor"
       data-priority={priority}
-      // Marks the cell as placard trigger chrome: the shared placard's
-      // auto-dismiss watcher excludes `[data-placard-trigger]`, so a click
-      // here toggles the placard instead of being read as an outside dismiss.
-      data-placard-trigger=""
       // Not a *native* Tab stop and never steals the responder chain
       // on click; the engine drives DOM focus here during the cycle
       // walk (a `<button>` is programmatically focusable at -1). [L06]

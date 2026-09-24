@@ -1546,6 +1546,16 @@ body {
  * appearance through a DOM attribute and a stylesheet rule ([F07], [L06]), with
  * the deck's focus-order z-index map neither read nor written.
  *
+ * The value is the base token plus the frame's position in the RAISE order,
+ * which `pane-raise.ts` publishes as `--tugx-pane-raise-rank` ([B03]). Two
+ * frames can hold an overhanging surface at once — a sheet on one card and a
+ * folded card's Z2 placard on another — and on one flat value they tie, leaving
+ * paint order to decide. The rank orders only those frames, and the absent
+ * property falls back to 0, so one raised frame is the flat value it has always
+ * been. The deck's focus-order map is still neither read nor written ([B04]):
+ * raise order is a different axis, and releasing the surface puts the frame
+ * back on its array-order z.
+ *
  * The `!important` is load-bearing rather than a shortcut. The deck writes each
  * pane's z-index as an INLINE style (`style={{ zIndex }}` in `tug-pane.tsx`),
  * and an inline declaration outranks a stylesheet rule at any specificity. The
@@ -1566,7 +1576,9 @@ body {
  * correct value for a rail holding a sheet is the one it already has.
  */
 .tug-pane[data-sheet-open]:not([data-sidebar-pane]) {
-  z-index: var(--tug-z-pane-sheet-open) !important;
+  z-index: calc(
+    var(--tug-z-pane-sheet-open) + var(--tugx-pane-raise-rank, 0)
+  ) !important;
 }
 
 /*

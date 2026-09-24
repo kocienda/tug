@@ -1028,6 +1028,14 @@ export const SessionTelemetryStatusRow = React.forwardRef<
      * vertical placement is the stylesheet's `bottom: 100%`.
      */
     foldedTop: number | null;
+    /**
+     * The cell this placard was opened from — the ONE node its auto-dismiss
+     * watcher exempts ([B01]), so a pointerdown on any other card's cell closes
+     * this placard rather than being read as its own trigger. `null` for the
+     * `/btw` surface, which has no cell: nothing is exempt, and the toggle it
+     * never had is nothing to preserve.
+     */
+    triggerEl: HTMLElement | null;
   } | null>(null);
   // Mirror the open key so the toggle can read it without a stale closure.
   const placardKeyRef = useRef<PlacardKind | null>(null);
@@ -1137,8 +1145,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // hangs from is the Z2 row's own bottom edge, which only the frame's
   // coordinates can state.
   const measurePlacement = useCallback(
-    (key: PlacardKind): { anchorCenter: number; foldedTop: number | null } => {
-      const nowhere = { anchorCenter: 0, foldedTop: null };
+    (
+      key: PlacardKind,
+    ): { anchorCenter: number; foldedTop: number | null; triggerEl: HTMLElement | null } => {
+      const nowhere = { anchorCenter: 0, foldedTop: null, triggerEl: null };
       const row = rowRef.current;
       if (row === null) return nowhere;
       const statusBar = row.closest<HTMLElement>(
@@ -1150,6 +1160,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       const originX = containerRect.left + container.clientLeft;
       const barRect = statusBar.getBoundingClientRect();
       let anchorCenter: number;
+      let triggerEl: HTMLElement | null = null;
       if (key === "btw") {
         anchorCenter =
           container === statusBar ? statusBar.clientWidth : barRect.right - originX;
@@ -1161,11 +1172,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         if (cell === null) return nowhere;
         const cellRect = cell.getBoundingClientRect();
         anchorCenter = cellRect.left + cellRect.width / 2 - originX;
+        triggerEl = cell;
       }
       const foldedTop = foldedForm
         ? barRect.bottom - (containerRect.top + container.clientTop)
         : null;
-      return { anchorCenter, foldedTop };
+      return { anchorCenter, foldedTop, triggerEl };
     },
     [foldedForm, paneFrameEl],
   );
@@ -1707,7 +1719,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         open
         onClose={closePlacard}
         dismiss="auto"
-        triggerSelector="[data-placard-trigger]"
+        triggerEl={placard.triggerEl}
         anchorCenter={placard.anchorCenter}
         growth={foldedForm ? "down" : "up"}
         // The visible canvas is what caps a downward panel, not the window top

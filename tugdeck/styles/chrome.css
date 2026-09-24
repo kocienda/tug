@@ -59,9 +59,20 @@
  * edge, and above those the overlay root at `--tug-z-overlay-base`. 8900 clears
  * every card with room to spare and leaves all of that untouched.
  *
- * Flat rather than ranked, deliberately: the deck's focus-order z-index map is
- * neither consulted nor changed, so focusing another pane still reorders the
- * rest of the wall exactly as it does today.
+ * The token is the BASE of a small band rather than the whole value. Two frames
+ * can hold an overhanging surface at once — a sheet on one card, a folded card's
+ * Z2 placard hanging off another — and on one flat value they tie, leaving paint
+ * order to decide which the reader sees whole. So `pane-raise.ts` publishes each
+ * raised frame's position in the RAISE order as `--tugx-pane-raise-rank` and the
+ * lift rule adds it here ([B03]); with one raised frame the absent property
+ * falls back to 0 and the value is the flat 8900 it has always been. The band's
+ * ceiling is the drop-zone indicator at 8950 below, which has to keep painting
+ * over a raised pane, so the rank caps at 49 (`MAX_RANK` in `pane-raise.ts`).
+ *
+ * Ranked by raise order is not the same axis as ranked by focus order: the
+ * deck's focus-order z-index map is still neither consulted nor changed, so
+ * focusing another pane reorders the rest of the wall exactly as it does today,
+ * and a frame that releases its surface returns to its array-order z ([B04]).
  */
 :root {
   --tug-z-pane-sheet-open: 8900;
@@ -78,11 +89,13 @@
  * `deck-canvas.tsx`) and so below the rail band above them
  * (`SIDEBAR_PANE_ZINDEX_BASE`, 8990). Its floor is the free panes' array-order
  * z (`CARD_ZINDEX_BASE + i`, 1..N): the outline has to be readable over the
- * deck it is drawn on, including a pane raised to `--tug-z-pane-sheet-open`.
- * 8950 clears both with room to spare.
+ * deck it is drawn on, including a pane raised to `--tug-z-pane-sheet-open` and
+ * every rank above it. 8950 clears the cards with room to spare and the raise
+ * band by exactly one, which is the ceiling that band's rank cap holds to.
  *
- * Flat rather than ranked, like the tier above it: one outline stands at a
- * time, and the deck's focus-order map is neither consulted nor changed.
+ * Flat, and unlike the tier above it there is nothing to rank: one outline
+ * stands at a time. Its floor is the TOP of that tier's band (8949) rather than
+ * the band's base, which is what the cap on the rank there is for.
  *
  * The RAIL value is the other half of the same argument, and the reason there
  * are two. [B02] reads "the outline lives under the same occlusion its place

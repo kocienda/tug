@@ -147,11 +147,14 @@ export interface TugPlacardProps {
    */
   anchorCenter?: number;
   /**
-   * CSS predicate for the trigger chrome an auto-dismiss placard must NOT treat
-   * as an outside pointerdown (so the trigger's own click toggles cleanly).
-   * Only meaningful with `dismiss="auto"`.
+   * The placard's OWN trigger node — the one element an auto-dismiss placard
+   * must not treat as an outside pointerdown, so that element's click toggles
+   * cleanly ([B01]). It is a node rather than a selector on purpose: a selector
+   * describes a class of nodes, and every other card's trigger matches the
+   * same class, so a selector exempts triggers this placard knows nothing
+   * about. Only meaningful with `dismiss="auto"`.
    */
-  triggerSelector?: string;
+  triggerEl?: HTMLElement | null;
   /**
    * Tugbank key persisting the horizontal drag position. Only meaningful with
    * `reposition`; omit for an ephemeral position.
@@ -221,8 +224,10 @@ function applyPlacement(
 /**
  * While an auto-dismiss placard is open, close it on an outside pointerdown or
  * Escape / Cmd-. Registered capture-phase so it precedes the trigger's own
- * bubble handler; the trigger chrome is excluded so its click toggles the
- * placard rather than being read as "outside" ([P04]). Chain-free by design —
+ * bubble handler; the placard's own trigger node is excluded so its click
+ * toggles the placard rather than being read as "outside" ([P04]). Any OTHER
+ * trigger is an ordinary outside pointerdown, which is what keeps two of these
+ * from being open at once ([B01]). Chain-free by design —
  * placards do not participate in the responder chain
  * ({@link file://./internal/floating-surface-notes.ts}).
  */
@@ -230,10 +235,10 @@ function usePlacardAutoDismiss(args: {
   open: boolean;
   dismiss: TugPlacardDismiss;
   panelRef: React.RefObject<HTMLDivElement | null>;
-  triggerSelector: string | undefined;
+  triggerEl: HTMLElement | null | undefined;
   onClose: () => void;
 }): void {
-  const { open, dismiss, panelRef, triggerSelector, onClose } = args;
+  const { open, dismiss, panelRef, triggerEl, onClose } = args;
   const onCloseRef = React.useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -244,7 +249,7 @@ function usePlacardAutoDismiss(args: {
       if (target === null) return;
       const panel = panelRef.current;
       if (panel !== null && panel.contains(target)) return;
-      if (triggerSelector !== undefined && target.closest(triggerSelector)) return;
+      if (triggerEl != null && triggerEl.contains(target)) return;
       onCloseRef.current();
     };
     // Surface-local dismiss, live only while this placard is open. A placard
@@ -264,7 +269,7 @@ function usePlacardAutoDismiss(args: {
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [open, dismiss, panelRef, triggerSelector]);
+  }, [open, dismiss, panelRef, triggerEl]);
 }
 
 /**
@@ -283,7 +288,7 @@ export function TugPlacard({
   growth = "up",
   bottomBoundEl,
   anchorCenter,
-  triggerSelector,
+  triggerEl,
   persistKey,
   closeLabel = "Close",
   "aria-label": ariaLabel,
@@ -297,7 +302,7 @@ export function TugPlacard({
   const persistedOffset = usePlacardOffset(reposition ? persistKey : undefined);
   const fraction = persistedOffset ?? DEFAULT_FRACTION;
 
-  usePlacardAutoDismiss({ open, dismiss, panelRef, triggerSelector, onClose });
+  usePlacardAutoDismiss({ open, dismiss, panelRef, triggerEl, onClose });
 
   // Initial placement + upward guard, reclamped on container resize / window
   // resize. The live drag writes `style.left` directly and must not be
