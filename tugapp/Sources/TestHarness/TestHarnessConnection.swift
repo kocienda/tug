@@ -227,6 +227,8 @@ final class TestHarnessConnection {
             dispatchMenuItemState(id: id, identifier: identifier)
         case "screenshot":
             dispatchScreenshot(id: id)
+        case "captureWindow":
+            dispatchCaptureWindow(id: id)
         default:
             respondError(id: id, name: "NotImplemented", message: "Unknown method: \(method)")
         }
@@ -430,6 +432,49 @@ final class TestHarnessConnection {
                 }
                 self.respond(id: id, ok: true, payload: ["value": ["path": path]])
             }
+        }
+    }
+
+    /// Capture the harness window as the window server composited it. This
+    /// is UI-process side: a frozen or busy web process does not stall it,
+    /// and an animation the compositor is driving is seen where it actually
+    /// is, which `takeSnapshot` — a web-process paint — cannot show. An app
+    /// may capture its own window without a Screen Recording grant.
+    private func dispatchCaptureWindow(id: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard let window = self.webView?.window else {
+                self.respondError(id: id, name: "CaptureError", message: "no window")
+                return
+            }
+            let wid = CGWindowID(window.windowNumber)
+            guard let cg = CGWindowListCreateImage(
+                .null, .optionIncludingWindow, wid, [.boundsIgnoreFraming, .bestResolution]
+            ) else {
+                self.respondError(id: id, name: "CaptureError", message: "CGWindowListCreateImage returned nil")
+                return
+            }
+            let rep = NSBitmapImageRep(cgImage: cg)
+            guard let png = rep.representation(using: .png, properties: [:]) else {
+                self.respondError(id: id, name: "CaptureError", message: "PNG encoding failed")
+                return
+            }
+            let path = (NSTemporaryDirectory() as NSString)
+                .appendingPathComponent("tugapp-capture-\(UUID().uuidString).png")
+            do {
+                try png.write(to: URL(fileURLWithPath: path))
+            } catch {
+                self.respondError(id: id, name: "CaptureError", message: "write failed: \(error.localizedDescription)")
+                return
+            }
+            let content = window.contentView?.bounds.size ?? .zero
+            self.respond(id: id, ok: true, payload: ["value": [
+                "path": path,
+                "width": cg.width,
+                "height": cg.height,
+                "contentWidth": Double(content.width),
+                "contentHeight": Double(content.height),
+            ]])
         }
     }
 

@@ -25,6 +25,7 @@ export type RpcMethod =
   | "menuSnapshot"
   | "menuItemState"
   | "screenshot"
+  | "captureWindow"
   | "nativeClick"
   | "nativeDoubleClick"
   | "nativeRightClick"
@@ -232,6 +233,10 @@ export type Request =
   | {
       id: number;
       method: "screenshot";
+    }
+  | {
+      id: number;
+      method: "captureWindow";
     }
   | {
       id: number;

@@ -1627,12 +1627,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         helpMenu.addItem(NSMenuItem.separator())
         helpMenu.addItem(NSMenuItem(title: "Project Home", action: #selector(openProjectHome(_:)), keyEquivalent: "").identified("help.projectHome"))
         helpMenu.addItem(NSMenuItem(title: "GitHub", action: #selector(openGitHub(_:)), keyEquivalent: "").identified("help.github"))
+        helpMenu.addItem(NSMenuItem.separator())
+        // A diagnostic, in the one menu a release build shows: a burst of
+        // composited frames of this window to /tmp, for reading an animation
+        // as the window server actually painted it. See `captureFrameBurst`.
+        helpMenu.addItem(NSMenuItem(title: "Capture Frames (Diagnostic)", action: #selector(captureFramesDiagnostic(_:)), keyEquivalent: "").identified("help.captureFrames"))
         NSApp.helpMenu = helpMenu
 
         NSApp.mainMenu = mainMenu
     }
 
     // MARK: - Actions
+
+    /// Help ▸ Capture Frames (Diagnostic): thirty composited frames of the
+    /// main window at ~80ms, written under /tmp and revealed in Finder.
+    @objc private func captureFramesDiagnostic(_ sender: Any?) {
+        window.captureFrameBurst { dir in
+            guard let dir = dir else { return }
+            NSLog("Capture Frames: wrote %@", dir.path)
+            NSWorkspace.shared.activateFileViewerSelecting([dir])
+        }
+    }
 
     /// One command for Settings, whichever door the user came through.
     /// The menu item used to send `show-card {component: "settings"}` while

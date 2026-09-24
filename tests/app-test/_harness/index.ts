@@ -804,6 +804,22 @@ export class App {
     return shot;
   }
 
+  /**
+   * The window as composited, from the UI process — see
+   * `client.captureWindow`. The file is reclaimed with the screenshots.
+   */
+  async captureWindow(): Promise<{
+    path: string;
+    width: number;
+    height: number;
+    contentWidth: number;
+    contentHeight: number;
+  }> {
+    const shot = await client.captureWindow(this as HarnessCaller);
+    this.screenshots.push(shot.path);
+    return shot;
+  }
+
   /** Unlink every screenshot this app handed out. Idempotent. */
   private reclaimScreenshots(): void {
     const paths = this.screenshots.splice(0);

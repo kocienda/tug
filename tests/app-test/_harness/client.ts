@@ -996,6 +996,25 @@ export function screenshot(
   return caller.rpcCall<{ path: string }>("screenshot", {});
 }
 
+/**
+ * Capture the harness WINDOW as the window server composited it — a
+ * UI-process capture (`CGWindowListCreateImage` on the app's own window, no
+ * Screen Recording grant needed). Unlike `screenshot`, a frozen web process
+ * does not stall it and a compositor-driven animation is seen mid-flight.
+ * `width`/`height` are the PNG's pixels; `contentWidth`/`contentHeight` are
+ * the window's content view in points, so a page rect maps to pixels by
+ * `width / contentWidth`, with the content anchored at the image's bottom.
+ */
+export function captureWindow(caller: HarnessCaller): Promise<{
+  path: string;
+  width: number;
+  height: number;
+  contentWidth: number;
+  contentHeight: number;
+}> {
+  return caller.rpcCall("captureWindow", {});
+}
+
 // ---- native gestures ----
 
 export interface NativeClickOptions {

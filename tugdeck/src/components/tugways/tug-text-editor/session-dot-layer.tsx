@@ -470,6 +470,14 @@ export const sessionDotLayer: Extension = [
     [`.${LAYER_CLASS} > .cm-tug-session-dot-host`]: {
       position: "absolute",
       pointerEvents: "none",
+      // The indicator's root is an inline-level box. Left in flow it sits
+      // on the host's line box, whose height is the editor's inherited
+      // line-height rather than the host's 12px — and the glyph lands a
+      // pixel and a half below the well. A flex host centres the mark on
+      // the box itself, which is the point the layer measured.
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
       // The pill's cap on the mark inside it. The enclosure is still a 22px
       // pill two pixels from the ring — it is painted in the bitmap now
       // rather than mounted as DOM, which changes nothing about the wall.

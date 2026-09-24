@@ -842,6 +842,95 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     }
 
 
+    // MARK: - Frame burst (diagnostic)
+
+    /// Capture this window as the window server composited it, `count` times
+    /// at `intervalMs`, into `/tmp/tug-frames-<stamp>/`. This is UI-process
+    /// side: a busy or frozen web process does not stall it, and an animation
+    /// the compositor is driving is seen where it actually is — which a
+    /// `takeSnapshot` (a web-process paint) cannot show. An app may capture
+    /// its own window without a Screen Recording grant. Beside the frames,
+    /// `rects.json` locates every composer dot host and masthead dot in page
+    /// coordinates, with the animation each one is running, so a script can
+    /// crop the regions that matter and diff them frame to frame.
+    ///
+    /// The loop runs off the main thread on purpose: the point is to observe
+    /// the deck, not to add a main-thread burst to what it is already doing.
+    func captureFrameBurst(
+        count: Int = 30,
+        intervalMs: Int = 80,
+        completion: @escaping (URL?) -> Void
+    ) {
+        let stamp = Int(Date().timeIntervalSince1970)
+        let dir = URL(fileURLWithPath: "/tmp/tug-frames-\(stamp)")
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            NSLog("captureFrameBurst: cannot create %@: %@", dir.path, error.localizedDescription)
+            completion(nil)
+            return
+        }
+        let rectsScript = """
+        (function(){
+          function r(el){ var b = el.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; }
+          function anim(dot){ var a = dot && dot.getAnimations()[0]; return a ? { name: a.animationName, playState: a.playState, startTime: a.startTime, currentTime: a.currentTime } : null; }
+          return JSON.stringify({
+            innerWidth: window.innerWidth, innerHeight: window.innerHeight, dpr: window.devicePixelRatio,
+            hosts: Array.from(document.querySelectorAll('.cm-tug-session-dot-host')).map(function(h){
+              var root = h.querySelector('[data-slot="tug-progress-pulsing-dot"]');
+              return { rect: r(h), session: h.getAttribute('data-session-id'), missing: h.getAttribute('data-missing'),
+                selected: h.getAttribute('data-selected'), state: root && root.getAttribute('data-state'),
+                breathing: !!(root && root.dataset.breathing !== undefined),
+                animation: anim(root && root.querySelector('.tug-progress-pulsing-dot-dot')) };
+            }),
+            mastheads: Array.from(document.querySelectorAll('[data-slot="session-masthead"] [data-slot="tug-progress-pulsing-dot"]')).map(function(m){
+              return { rect: r(m), state: m.getAttribute('data-state'), breathing: m.dataset.breathing !== undefined,
+                animation: anim(m.querySelector('.tug-progress-pulsing-dot-dot')) };
+            })
+          });
+        })()
+        """
+        evaluateJavaScript(rectsScript) { result, error in
+            if let json = result as? String {
+                try? json.write(to: dir.appendingPathComponent("rects.json"), atomically: true, encoding: .utf8)
+            } else if let error = error {
+                NSLog("captureFrameBurst: rects failed: %@", error.localizedDescription)
+            }
+        }
+        let wid = CGWindowID(windowNumber)
+        DispatchQueue.global(qos: .userInitiated).async {
+            var times: [Double] = []
+            let encode = DispatchQueue(label: "dev.tugapp.frame-burst.encode")
+            let group = DispatchGroup()
+            for index in 0..<count {
+                let t0 = CFAbsoluteTimeGetCurrent()
+                if let cg = CGWindowListCreateImage(
+                    .null, .optionIncludingWindow, wid, [.boundsIgnoreFraming, .bestResolution]
+                ) {
+                    let target = dir.appendingPathComponent(String(format: "frame-%02d.png", index))
+                    group.enter()
+                    encode.async {
+                        let rep = NSBitmapImageRep(cgImage: cg)
+                        if let png = rep.representation(using: .png, properties: [:]) {
+                            try? png.write(to: target)
+                        }
+                        group.leave()
+                    }
+                }
+                times.append(t0)
+                let elapsed = CFAbsoluteTimeGetCurrent() - t0
+                let remaining = Double(intervalMs) / 1000 - elapsed
+                if remaining > 0 { usleep(UInt32(remaining * 1_000_000)) }
+            }
+            group.wait()
+            let meta: [String: Any] = ["count": count, "intervalMs": intervalMs, "times": times]
+            if let data = try? JSONSerialization.data(withJSONObject: meta) {
+                try? data.write(to: dir.appendingPathComponent("times.json"))
+            }
+            DispatchQueue.main.async { completion(dir) }
+        }
+    }
+
     #if DEBUG
     /// Test-harness accessor: hand the live WKWebView to
     /// `TestHarnessBridge` so it can forward `evalJS` /

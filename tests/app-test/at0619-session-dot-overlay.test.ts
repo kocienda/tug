@@ -216,16 +216,28 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           dots: number;
           dx: number;
           dy: number;
+          glyphDx: number;
+          glyphDy: number;
         }>(
           `(function(){
             var layer = document.querySelector(${JSON.stringify(LAYER)});
             var host = layer.querySelector(${JSON.stringify(HOST)});
             var o = ${READ_OFFSET};
+            // The glyph inside the host, against the well: the host can be
+            // seated exactly and still show the mark low if the indicator
+            // sits on a line box inside it rather than being centred.
+            var img = document.querySelector(${JSON.stringify(CHIP)});
+            var ir = img.getBoundingClientRect();
+            var g = host.querySelector('[data-slot="tug-progress-pulsing-dot"]').getBoundingClientRect();
             return {
               hosts: layer.children.length,
               dots: host.childElementCount,
               dx: o.dx,
               dy: o.dy,
+              glyphDx: g.left + g.width / 2
+                - (ir.left + parseFloat(img.getAttribute('data-atom-well-x'))),
+              glyphDy: g.top + g.height / 2
+                - (ir.top + parseFloat(img.getAttribute('data-atom-well-y'))),
             };
           })()`,
         );
@@ -237,6 +249,10 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // CSS-px centre the bake computed and the host is placed from it.
         expect(Math.abs(atRest.dx)).toBeLessThan(0.5);
         expect(Math.abs(atRest.dy)).toBeLessThan(0.5);
+        // And the MARK is seated, not just its host: the glyph's own box is
+        // centred on the well too.
+        expect(Math.abs(atRest.glyphDx)).toBeLessThan(0.5);
+        expect(Math.abs(atRest.glyphDy)).toBeLessThan(0.5);
 
         // ---- D. The reference that resolves to nothing wears an inert dot. -
         //
