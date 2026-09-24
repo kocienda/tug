@@ -61,12 +61,32 @@
  * so it dissolves as a single picture rather than as N frames that show
  * through each other wherever they overlap.
  *
- * The geometry survives the change because the box is the same box. The canvas
+ * The box a pane's position resolves against is the same box. The canvas
  * container is `position: absolute; inset: 0` with no padding and no border,
- * and so is this — so a pane's absolute position resolves against a padding
- * box identical to the one it resolved against a frame ago, and nothing moves
- * on the way out. `overflow` is left alone for the same reason: the wrapper
- * must clip nothing the container did not.
+ * and so is this, so a departing pane's padding box is identical to the one it
+ * resolved against a frame ago. `overflow` is left alone for the same reason:
+ * the wrapper must clip nothing the container did not.
+ *
+ * But the same box was never what held the frames still, and for a long time
+ * this comment claimed it was. What a pane resolves INSIDE that box is its own
+ * arrangement, and the commit that hides a layer withholds every prop the
+ * arrangement comes from — so a departing slotted pane fell back to its stored
+ * free frame and a departing rail card stopped being pinned at all, and the
+ * dissolve faded a spray of cards nobody had laid out. A pane that had kept its
+ * placement would have been no better: the imposer's `calc()` chains read the
+ * `--tug-imposer-*` custom properties off the shared canvas container, and
+ * during the beat those hold the ARRIVING workspace's rails and columns.
+ *
+ * So the frames hold still because they are FROZEN, not because nothing
+ * disturbed them. For the length of the beat the departing workspace is a
+ * picture rather than a live layer: `deck-canvas.tsx` writes each frame's
+ * measured rect on as inline `left`/`top`/`width`/`height` in the same layout
+ * effect that writes this attribute, and re-stamps the arrangement attributes
+ * the frame lost with its props — `data-rail-side` above all, which the whole
+ * `[data-rail-treatment="panel"]` family in `tug-pane.css` keys on. The rect
+ * is measured by `DeckManager` an instant before the swap commit, because that
+ * is the last moment the outgoing frames still stand where the user saw them.
+ * Every write is owed back by the same `teardown()` that sweeps this attribute.
  *
  * `pointer-events: none` inherits to the whole subtree, so the departing
  * workspace takes no click, no hover and no drop while it is still painted —

@@ -186,6 +186,7 @@ import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
 import {
+  FROZEN_FRAME_ATTRIBUTES,
   SHOWN_PANE_FRAMES,
   SPACE_CROSSING_ATTRIBUTE,
   SPACE_LAYER_ATTRIBUTE,
@@ -786,6 +787,9 @@ function arrangementSignature(
  * frame against the live expressions its geometry keeps reading (a seam drag,
  * a window resize). The restorer runs in the settle's completion handler,
  * after that commit lands.
+ *
+ * The switch freeze wants a hand-back too and does NOT use this one: see
+ * {@link freezeInline} for why a property React renders needs one that yields.
  */
 function inlineRestorer(
   el: HTMLElement,
@@ -795,6 +799,91 @@ function inlineRestorer(
   return () => {
     if (prev === "") el.style.removeProperty(property);
     else el.style.setProperty(property, prev);
+  };
+}
+
+/**
+ * Whether a frame's workspace is the one on screen — the question every switch
+ * freeze hand-back asks before it writes.
+ *
+ * A frame in a layer with no wrapper at all (a unit harness, a deck rendered
+ * without layers) answers `false`, which is the honest answer there: nothing
+ * is switching, so nothing owns the property but the freeze that wrote it.
+ */
+function frameIsInShownLayer(el: HTMLElement): boolean {
+  const layer = el.closest<HTMLElement>(`.${SPACE_LAYER_CLASS}`);
+  return layer !== null && layer.hasAttribute(SPACE_SHOWN_ATTRIBUTE);
+}
+
+/**
+ * Write `value` over an inline property for the length of a switch beat, and
+ * return a hand-back that pays the debt only while it is still owed.
+ *
+ * The plain {@link inlineRestorer} is right for a property React does not
+ * render — `opacity` on a pane frame — where the captured value is `""` and
+ * the hand-back is a removal. It is wrong for the switch freeze, which
+ * overrides `left`/`top`/`width`/`height`: React renders all four out of
+ * `modeStyle`, so the captured value is whatever React wrote in the commit
+ * that HID the layer. If the layer is shown again before the beat tears down —
+ * an interrupted beat is exactly that, since the switch back re-shows the layer
+ * and the first beat's landing arrives afterwards — React has already written
+ * the layer's real geometry, and writing the captured value over it would pin
+ * the returning workspace at the stale free frames the freeze existed to hide.
+ *
+ * So the rule is OWNERSHIP rather than equality: a frame whose workspace is on
+ * screen again is React's, and the freeze owes it nothing. Equality alone is
+ * not enough and was tried — React re-writing the same value it wrote before
+ * looks identical to nobody having written at all, which is the common case for
+ * an attribute and possible for a rect. The value check stays as the second
+ * condition, for the hidden frame some other writer has since taken over.
+ *
+ * While the layer stays hidden the captured value is exactly right: a hidden
+ * layer's `style` prop is identical from render to render, so React's diff
+ * writes nothing to the DOM until the layer is shown again ([B03]).
+ */
+function freezeInline(
+  el: HTMLElement,
+  property: "width" | "height" | "left" | "top",
+  value: string,
+): () => void {
+  const prev = el.style.getPropertyValue(property);
+  el.style.setProperty(property, value);
+  return () => {
+    if (frameIsInShownLayer(el)) return;
+    if (el.style.getPropertyValue(property) !== value) return;
+    if (prev === "") el.style.removeProperty(property);
+    else el.style.setProperty(property, prev);
+  };
+}
+
+/**
+ * The same write and the same hand-back for an attribute.
+ *
+ * `null` for "was not there" is the whole reason the recorded value is not a
+ * string: an attribute the frame never had is handed back by REMOVING it, and
+ * one it had with an empty value — `data-rail-member-last`, which is a
+ * presence bit — by writing `""` back. Collapsing the two would strip a bit
+ * that was set or set one that never was.
+ *
+ * The ownership test in {@link freezeInline} matters most here. A departing
+ * rail is frozen with `data-rail-side="right"`, and the workspace coming back
+ * has React write that same value — so an equality check would read it as the
+ * freeze's own write and hand back the hidden layer's `null`, stripping the
+ * panel treatment off a rail that is on screen.
+ */
+function freezeAttribute(
+  el: HTMLElement,
+  name: string,
+  value: string | null,
+): () => void {
+  const prev = el.getAttribute(name);
+  if (value === null) el.removeAttribute(name);
+  else el.setAttribute(name, value);
+  return () => {
+    if (frameIsInShownLayer(el)) return;
+    if (el.getAttribute(name) !== value) return;
+    if (prev === null) el.removeAttribute(name);
+    else el.setAttribute(name, prev);
   };
 }
 
@@ -6299,6 +6388,78 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // canvas container's box — and the whole layer takes no pointer.
     outgoing.setAttribute(SPACE_CROSSING_ATTRIBUTE, "");
 
+    // ---- The picture, applied ([B01], [B03], [B04]). ----------------------
+    //
+    // The panes under the crossing wrapper have boxes again, but NOT at the
+    // positions they had a frame ago: this commit withheld `placement`,
+    // `sidebarStack`, `columnMember` and `contentWidthPx` from every pane in
+    // a layer that is no longer shown, so a departing slotted pane fell back
+    // to its stored free frame and a departing rail card stopped being pinned
+    // at all. Even a pane that had kept its placement would resolve it
+    // against the ARRIVING deck's inset variables, which are written on the
+    // shared canvas container. Either way the dissolve would fade a picture
+    // nobody laid out.
+    //
+    // So the departing layer is frozen as a picture rather than kept live: the
+    // rect the manager measured an instant before this commit is written back
+    // as inline `left`/`top`/`width`/`height`, and the five arrangement
+    // attributes the frame lost with its props are re-stamped. Writing all
+    // four sides of the rect is what makes the override total — an imposed
+    // frame pins `top` and `bottom` and a rail pins `height: auto`, and CSS
+    // drops `bottom` when `top` and `height` are both given, so a px height
+    // wins over the live pin rather than fighting it.
+    //
+    // The attributes are not garnish. `tug-pane.css` keys the whole
+    // `[data-rail-treatment="panel"]` family on
+    // `[data-role="sidebar"][data-rail-side]`, so a departing rail card
+    // without `data-rail-side` loses its panel background, chrome and seams
+    // as well as its place — the frozen rect alone would hold a card that has
+    // gone transparent exactly where it stood.
+    //
+    // This is a layout effect, so every write lands before paint and the
+    // mis-placed frame is never seen. Each write pushes its hand-back onto
+    // `state.restores`, the same list the opacity tween uses, so the residue
+    // comes off by every exit `teardown()` has — the tween completing, the
+    // deadline firing, the next switch arriving, the effect's own cleanup.
+    // Each hand-back pays only while the debt is still owed — a frame whose
+    // workspace is on screen again is React's, and the freeze writes nothing
+    // over it. That is what makes an interrupted beat safe: the switch back
+    // re-shows this layer and React writes its real geometry, and only then
+    // does the beat tear down ([B03]). See {@link freezeInline}.
+    //
+    // Below the `isTugMotionEnabled()` return above, so a reduced-motion
+    // switch freezes nothing — there is no dissolve to freeze, and the
+    // manager took no picture ([B05]).
+    //
+    // Only the OUTGOING side, and nothing in the arriving layer, which is
+    // opaque underneath from the first frame and is what makes shared pixels
+    // stand still ([B04]).
+    const picture = store.departingSpacePicture();
+    if (picture !== null) {
+      for (const frame of outgoingFrames) {
+        if (!(frame instanceof HTMLElement)) continue;
+        const paneId = frame.getAttribute("data-pane-id");
+        if (paneId === null) continue;
+        const frozen = picture.get(paneId);
+        // A pane the picture does not name was not on screen when the switch
+        // committed — it arrived into the hidden layer afterwards, or the
+        // sweep found no canvas. Left alone rather than guessed at: a frame
+        // with no recorded place has no place to be put back to.
+        if (frozen === undefined) continue;
+        state.restores.push(
+          freezeInline(frame, "left", `${frozen.rect.x}px`),
+          freezeInline(frame, "top", `${frozen.rect.y}px`),
+          freezeInline(frame, "width", `${frozen.rect.width}px`),
+          freezeInline(frame, "height", `${frozen.rect.height}px`),
+        );
+        for (const name of FROZEN_FRAME_ATTRIBUTES) {
+          const value = frozen.attributes[name];
+          if (value === undefined) continue;
+          state.restores.push(freezeAttribute(frame, name, value));
+        }
+      }
+    }
+
     // And the switch epoch is re-opened, for the length of the hold (Spec
     // S02).
     //
@@ -6897,6 +7058,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                   // one has no imposition to stand in — its panes come back
                   // through these same props the moment it is shown, which is
                   // the commit that also reveals them.
+                  //
+                  // Which leaves the ONE layer that is hidden and still
+                  // painted: the crossing layer of a switch dissolve. It takes
+                  // its frame from the FREEZE rather than from these props —
+                  // the crossfade effect above writes each departing frame's
+                  // measured rect and re-stamps the arrangement attributes
+                  // these props would have carried, for the length of the beat
+                  // and no longer. So withholding them here is correct for
+                  // that layer too, and deliberately so: a departing pane
+                  // holding a live placement would resolve it against the
+                  // ARRIVING deck's inset variables, which is a different
+                  // wrong answer rather than a right one.
                   placement={layer.shown ? placementFor(stackState) : undefined}
                   bullseye={layer.shown && bullseyePaneId === stackState.id}
                   // Every OTHER content pane leaves the canvas while bullseye

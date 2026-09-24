@@ -38,6 +38,18 @@ export const SPACE_LAYER_ATTRIBUTE = "data-space-layer";
  * removed by `deck-canvas.tsx` alone, never present on the shown layer, and
  * never on any layer once the beat lands — see `space-layer.css` for the rule
  * and `[L32]` for why the beat carries a deadline.
+ *
+ * **And a picture rather than a live layer.** The commit that hides a layer
+ * withholds every arrangement prop from its panes, so a departing frame left to
+ * itself falls back to a stale free position and a departing rail stops being
+ * pinned at all; the same commit's inset variables belong to the ARRIVING
+ * workspace, so keeping the props would have been no better. The frames hold
+ * still because the effect that writes this attribute also freezes them —
+ * {@link FrozenSpacePicture}, measured before the swap commit and applied as
+ * inline rects and re-stamped attributes for the length of the beat. Nothing
+ * about the crossing state is live, and that is the definition rather than a
+ * limitation of it: a picture cannot re-lay-out, which is exactly the property
+ * a dissolve needs.
  */
 export const SPACE_CROSSING_ATTRIBUTE = "data-space-crossing";
 
@@ -92,6 +104,66 @@ export const SPACE_SWITCHING_ATTRIBUTE = "data-space-switching";
  */
 export const SHOWN_PANE_FRAMES =
   `.tug-pane[data-pane-id]:not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
+
+/**
+ * The frame attributes a departing pane loses along with its arrangement
+ * props, and so the ones the picture has to carry.
+ *
+ * Every one of them is written by `TugPane` out of a prop the layer render
+ * withholds from a hidden layer — `data-rail-side` and the two rail-member
+ * bits out of `sidebarStack`, `data-column-member` out of `columnMember`,
+ * `data-imposed` out of `placement`. They are not decoration: `tug-pane.css`
+ * keys the whole `[data-rail-treatment="panel"]` family on
+ * `[data-role="sidebar"][data-rail-side]`, so a departing rail card that has
+ * lost `data-rail-side` loses its panel background, chrome and seams as well
+ * as its place.
+ *
+ * The list is the contract between the sweep that records them and the effect
+ * that re-stamps them, which is why it lives here rather than in either.
+ */
+export const FROZEN_FRAME_ATTRIBUTES = [
+  "data-rail-side",
+  "data-rail-member-index",
+  "data-rail-member-last",
+  "data-column-member",
+  "data-imposed",
+] as const;
+
+/**
+ * One departing pane frame, as the picture holds it: where it stood and what
+ * it was wearing.
+ *
+ * The rect is in canvas coordinates and in LAYOUT space — divided by
+ * `body { zoom }` the same way every other canvas-relative reading in
+ * `DeckManager` is — because that is the space inline `left`/`top`/`width`/
+ * `height` are interpreted in. `attributes` carries one entry per name in
+ * {@link FROZEN_FRAME_ATTRIBUTES}, `null` meaning the frame did not have it,
+ * so a re-stamp can tell "absent" from "unrecorded" without consulting the
+ * live pane.
+ */
+export interface FrozenPaneFrame {
+  readonly rect: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly attributes: Readonly<Record<string, string | null>>;
+}
+
+/**
+ * The departing workspace, as a picture: every frame that was on screen the
+ * instant before the switch commit, keyed by pane id ([B01], [B02]).
+ *
+ * Taken by `DeckManager.activateSpace` inside the swap batch and before its
+ * `notify`, which is the last instant the outgoing frames still stand where
+ * the user saw them — after the commit they have been re-laid-out against the
+ * arriving deck and the information is gone, so no layout effect in
+ * `DeckCanvas` can take this measurement itself. Read imperatively by the
+ * crossfade effect, which applies it for the length of one beat and hands it
+ * back.
+ */
+export type FrozenSpacePicture = ReadonlyMap<string, FrozenPaneFrame>;
 
 /**
  * Whether the workspace a card is mounted in is the one on screen.

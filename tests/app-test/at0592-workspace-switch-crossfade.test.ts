@@ -46,6 +46,21 @@
  * still landed and left no inline residue; and with motion off the attribute
  * is never written at all.
  *
+ * And one more, which is about the picture rather than the beat: every frame of
+ * the departing workspace stood at the canvas-relative rect it stood at the
+ * instant before the switch, wearing the same arrangement attributes, at every
+ * sample the crossing attribute was seen at. The layer is FROZEN for the beat,
+ * because a switch withholds every arrangement prop from the layer it hides in
+ * the same commit that starts the dissolve — so left to itself a departing
+ * slotted pane falls back to its stored free frame and a departing rail card
+ * stops being pinned at all. Every other leg above is true of that spray of
+ * mis-placed cards, which is why this one had to be added.
+ *
+ * The fixture's two workspaces therefore differ in imposition kind AND in rail
+ * side: over two like workspaces a re-derived frame lands about where it
+ * started, and the positional leg would pass on a canvas that was visibly
+ * wrong.
+ *
  * The opaque-arrival leg is the dissolve's own. A crossfade passes this file's
  * other legs unchanged — it too paints both layers, inertly, for a bounded
  * beat — and fails only that one, because a crossfade's arriving frames are
@@ -96,6 +111,8 @@ const CROSSING_LAYERS = ".tug-space-layer[data-space-crossing]";
 const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
 /** Every pane frame in the document, crossing layer included. */
 const ALL_FRAMES = ".tug-pane[data-pane-id]";
+/** The canvas container every pane's absolute position resolves against. */
+const CANVAS = "[data-deck-canvas-background]";
 
 /**
  * How long the attribute may stand. The beat is `divide-join` at 0.6× the
@@ -140,6 +157,20 @@ interface Sample {
   /** First and last sample times the attribute was seen, in ms. */
   firstCross: number;
   lastCross: number;
+  /**
+   * Of the crossing samples, the ones at which EVERY departing frame stood at
+   * the canvas-relative rect it stood at before the switch. The freeze's own
+   * reading ([B01], [B06]).
+   */
+  crossHeld: number;
+  /** Of those, the ones at which every departing frame also wore the arrangement attributes it wore before the switch. */
+  crossDressed: number;
+  /** The first departing frame seen out of place, and where — empty when none was. */
+  firstDrift: string;
+  /** The first departing frame seen out of its recorded attributes. */
+  firstUndressed: string;
+  /** How many departing frames the sampler could compare at all. */
+  compared: number;
 }
 
 /**
@@ -149,13 +180,21 @@ interface Sample {
  * suspends rAF, and a sampler that never ran would report zero ghosts and zero
  * held frames whatever the switch actually did — a green that measures
  * nothing. The sample count is asserted for the same reason.
+ *
+ * It takes the PRE-SWITCH reading as its baseline, because the freeze's claim
+ * is a comparison rather than a value: every departing frame stands where it
+ * stood the instant before the switch, for the whole beat. `PRE_READING` below
+ * is what the caller hands in; `SAMPLER_START` is a function of it.
  */
-const SAMPLER_START = `(function () {
+const samplerStart = (pre: string): string => `(function () {
+  var pre = ${pre};
   var s = {
     samples: 0, ghosts: 0, zero: 0,
     crossing: 0, crossLive: 0, crossInert: 0, crossPainted: 0,
     crossOpaqueArrival: 0, crossAbove: 0, crossFading: 0,
     firstCross: 0, lastCross: 0,
+    crossHeld: 0, crossDressed: 0, firstDrift: "", firstUndressed: "",
+    compared: 0,
   };
   window.__at0592 = s;
   s.timer = setInterval(function () {
@@ -217,8 +256,108 @@ const SAMPLER_START = `(function () {
     }
     if (above) s.crossAbove += 1;
     if (fading) s.crossFading += 1;
+    // ---- The freeze's own reading ([B01], [B06]). -------------------------
+    //
+    // Canvas-relative and rounded, so a sub-pixel difference in the canvas's
+    // own box is not read as a frame that moved. The rect is compared against
+    // the pre-switch one for the SAME pane id; a departing pane the baseline
+    // does not name is skipped rather than guessed at.
+    //
+    // Both counters are raised per SAMPLE and only when every comparable frame
+    // passed, which is what makes the assertion below an "at every sample"
+    // one: a beat in which one frame drifted at one sample reads short of
+    // \`crossLive\` and the leg goes red.
+    var canvasBox = document.querySelector(${JSON.stringify(CANVAS)});
+    if (canvasBox === null) return;
+    var origin = canvasBox.getBoundingClientRect();
+    var held = true;
+    var dressed = true;
+    var seen = 0;
+    for (var q = 0; q < crossing.length; q++) {
+      var departing = crossing[q].querySelectorAll(${JSON.stringify(ALL_FRAMES)});
+      for (var t = 0; t < departing.length; t++) {
+        var f = departing[t];
+        var was = pre[f.getAttribute("data-pane-id")];
+        if (was === undefined) continue;
+        seen += 1;
+        var fr = f.getBoundingClientRect();
+        var now = Math.round(fr.left - origin.left) + "," +
+          Math.round(fr.top - origin.top) + "," +
+          Math.round(fr.width) + "," + Math.round(fr.height);
+        if (now !== was.rect) {
+          held = false;
+          if (s.firstDrift === "") {
+            s.firstDrift = f.getAttribute("data-pane-id") + " was " + was.rect + " now " + now;
+          }
+        }
+        var dress = "";
+        for (var u = 0; u < was.names.length; u++) {
+          dress += was.names[u] + "=" + f.getAttribute(was.names[u]) + ";";
+        }
+        if (dress !== was.dress) {
+          dressed = false;
+          if (s.firstUndressed === "") {
+            s.firstUndressed = f.getAttribute("data-pane-id") + " was " + was.dress + " now " + dress;
+          }
+        }
+      }
+    }
+    if (seen > s.compared) s.compared = seen;
+    if (seen > 0 && held) s.crossHeld += 1;
+    if (seen > 0 && held && dressed) s.crossDressed += 1;
   }, 8);
   return null;
+})()`;
+
+/** One frame in a {@link PRE_READING}: where it stood, and what it wore. */
+interface PreFrame {
+  /** Canvas-relative, `left,top,width,height`, rounded. */
+  rect: string;
+  names: string[];
+  /** `name=value;` for each of {@link PreFrame.names}, in order. */
+  dress: string;
+}
+
+/**
+ * The shown workspace's frames as they stand RIGHT NOW: each one's
+ * canvas-relative rect, and the arrangement attributes it is wearing.
+ *
+ * Read immediately before a switch is dispatched, and handed to the sampler as
+ * the baseline it compares every crossing sample against. It has to be taken
+ * from the SHOWN layer: the whole defect is that a layer stops being shown and
+ * its frames are re-derived in the same commit, so a reading taken afterwards
+ * is a reading of the thing under test.
+ *
+ * The attribute names are the ones a hidden layer's frame loses with its
+ * arrangement props, and they are spelled out here rather than imported
+ * because a test asserting a contract should not read the contract from the
+ * code that implements it — a list that shrank on both sides at once would
+ * take this leg with it.
+ */
+const PRE_READING = `(function () {
+  var names = [
+    "data-rail-side", "data-rail-member-index", "data-rail-member-last",
+    "data-column-member", "data-imposed",
+  ];
+  var canvasBox = document.querySelector(${JSON.stringify(CANVAS)});
+  var origin = canvasBox.getBoundingClientRect();
+  var out = {};
+  var frames = document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)});
+  for (var i = 0; i < frames.length; i++) {
+    var f = frames[i];
+    var r = f.getBoundingClientRect();
+    var dress = "";
+    for (var j = 0; j < names.length; j++) {
+      dress += names[j] + "=" + f.getAttribute(names[j]) + ";";
+    }
+    out[f.getAttribute("data-pane-id")] = {
+      rect: Math.round(r.left - origin.left) + "," + Math.round(r.top - origin.top) +
+        "," + Math.round(r.width) + "," + Math.round(r.height),
+      names: names,
+      dress: dress,
+    };
+  }
+  return out;
 })()`;
 
 const SAMPLER_READ = `(function () {
@@ -231,6 +370,9 @@ const SAMPLER_READ = `(function () {
     crossOpaqueArrival: s.crossOpaqueArrival,
     crossAbove: s.crossAbove, crossFading: s.crossFading,
     firstCross: s.firstCross, lastCross: s.lastCross,
+    crossHeld: s.crossHeld, crossDressed: s.crossDressed,
+    firstDrift: s.firstDrift, firstUndressed: s.firstUndressed,
+    compared: s.compared,
   };
 })()`;
 
@@ -274,6 +416,7 @@ const contentPane = (
   id: string,
   cardId: string,
   y: number,
+  slot: number,
 ): Record<string, unknown> => ({
   id,
   position: { x: 60, y },
@@ -282,6 +425,13 @@ const contentPane = (
   activeCardId: cardId,
   title: "",
   acceptsFamilies: ["standard"],
+  // The slot is what makes the pane IMPOSED rather than free ([F03]): an
+  // imposed frame's rect is a `calc()` chain over the canvas's inset
+  // variables, and its stored `position` is the stale last-known value a
+  // departing pane used to fall back to. Without a slot every pane here would
+  // already be standing at its stored position and the positional leg below
+  // could not tell a freeze from a coincidence.
+  slot,
 });
 
 /**
@@ -291,6 +441,17 @@ const contentPane = (
  * mass arrival, so a fixture with one pane a side could report zero ghosts by
  * accident of timing. Each workspace stands its own Workspaces card, so the
  * card is on screen whichever one the switch lands in.
+ *
+ * **And the two arrangements differ in kind AND in rail side**, which is what
+ * the positional leg needs ([B06], [F06]). One is `three-up` with its rail on
+ * the right; Two is `one-up` with its rail on the left. Two workspaces sharing
+ * one arrangement would place every frame at nearly the same rect on both
+ * sides, so a departing frame re-derived against the ARRIVING deck would land
+ * about where it started and a positional leg over them would prove nothing —
+ * which is exactly why the old fixture could not see the freeze's absence. The
+ * rail is the sharpest of the two: right to left moves it most of the canvas's
+ * width, and it is also the frame whose whole panel treatment hangs off
+ * `data-rail-side`.
  */
 function twoSpaceBlob(): Record<string, unknown> {
   const deck = (
@@ -298,6 +459,7 @@ function twoSpaceBlob(): Record<string, unknown> {
     railId: string,
     texts: string[],
     paneBase: string,
+    imposition: Record<string, unknown>,
   ): Record<string, unknown> => ({
     cards: [
       { id: cardsId, componentId: "cards", title: "Workspaces", closable: true },
@@ -310,10 +472,10 @@ function twoSpaceBlob(): Record<string, unknown> {
     ],
     panes: [
       railPane(railId, cardsId),
-      ...texts.map((id, i) => contentPane(`${paneBase}${i}`, id, 40 + i * 60)),
+      ...texts.map((id, i) => contentPane(`${paneBase}${i}`, id, 40 + i * 60, i)),
     ],
     activePaneId: `${paneBase}0`,
-    imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+    imposition,
     hasFocus: true,
   });
   return {
@@ -323,12 +485,19 @@ function twoSpaceBlob(): Record<string, unknown> {
       {
         id: SPACE_ONE,
         name: "One",
-        deck: deck("C1", "pc1", ["A1", "A2", "A3"], "pa"),
+        deck: deck("C1", "pc1", ["A1", "A2", "A3"], "pa", {
+          kind: "three-up",
+          layout: "flow",
+          sidebars: { cards: { side: "right" } },
+        }),
       },
       {
         id: SPACE_TWO,
         name: "Two",
-        deck: deck("C2", "pc2", ["B1", "B2", "B3"], "pb"),
+        deck: deck("C2", "pc2", ["B1", "B2", "B3"], "pb", {
+          kind: "one-up",
+          sidebars: { cards: { side: "left" } },
+        }),
       },
     ],
   };
@@ -364,10 +533,25 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await settle();
 
+          /**
+           * Read the shown workspace, then install the sampler against that
+           * reading.
+           *
+           * Two calls rather than one because the baseline must be taken while
+           * the workspace being left is still shown, and the sampler's script
+           * is a function of it. Every leg arms through here, so no leg can
+           * sample without a baseline to compare against.
+           */
+          const armSampler = async (): Promise<Record<string, PreFrame>> => {
+            const pre = await app.evalJS<Record<string, PreFrame>>(PRE_READING);
+            await app.evalJS<null>(samplerStart(JSON.stringify(pre)));
+            return pre;
+          };
+
           const mark = await app.evalJS<number>(
             `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
           );
-          await app.evalJS<null>(SAMPLER_START);
+          await armSampler();
           await app.evalJS<null>(
             `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_TWO)} }), null)`,
           );
@@ -482,6 +666,53 @@ describe.skipIf(!SHOULD_RUN)(
             "the crossing layer computed pointer-events: none at every sample",
           ).toBe(sample.crossLive);
 
+          // ---- 5b. The departing picture never moved ([B01], [B06]). ------
+          //
+          // The leg this file did not have, and the one the defect lived
+          // behind. A workspace switch withholds every arrangement prop from
+          // the layer it hides, in the same commit that starts the beat — so a
+          // departing slotted pane fell back to its stored free frame and a
+          // departing rail card stopped being pinned at all, and the dissolve
+          // faded a picture nobody had laid out. Nothing above could see it:
+          // opacity, z-order, inertness and the attribute's hand-back are all
+          // true of a spray of mis-placed cards.
+          //
+          // So: every departing frame stood at the canvas-relative rect it
+          // stood at before the switch, at every sample of the beat. The
+          // fixture's two workspaces differ in imposition kind and in rail
+          // side precisely so that this can fail — over two like workspaces a
+          // re-derived frame lands about where it started and the leg proves
+          // nothing ([F06]).
+          expect(
+            sample.compared,
+            "the sampler compared the departing frames at all — otherwise the two readings below mean nothing",
+          ).toBeGreaterThan(1);
+          expect(
+            sample.firstDrift,
+            "no departing frame was ever seen away from where it stood before the switch",
+          ).toBe("");
+          // The same claim as a count, which is what makes it "at EVERY
+          // sample" rather than "at the ones anybody looked at": the attribute
+          // is never observed on a layer whose frames differ from the
+          // pre-switch rects.
+          expect(
+            sample.crossHeld,
+            "and the crossing layer held its pre-switch geometry at every sample it was seen at",
+          ).toBe(sample.crossLive);
+          // And wearing what it wore. `data-rail-side` is the one that matters
+          // most: `tug-pane.css` keys the whole `[data-rail-treatment="panel"]`
+          // family on `[data-role="sidebar"][data-rail-side]`, so a departing
+          // rail that lost it would dissolve without its panel background,
+          // chrome or seams — standing in the right place and looking wrong.
+          expect(
+            sample.firstUndressed,
+            "no departing frame lost an arrangement attribute for the beat",
+          ).toBe("");
+          expect(
+            sample.crossDressed,
+            "and every departing frame wore its pre-switch attributes at every sample",
+          ).toBe(sample.crossLive);
+
           // The attribute is off, and the debt with it.
           const residue = await app.evalJS<string[]>(OPACITY_RESIDUE);
           note(
@@ -507,7 +738,9 @@ describe.skipIf(!SHOULD_RUN)(
           // second switch arrives while the first beat is mid-flight, and the
           // landing the first beat still has coming must not take the second
           // one's attribute off — nor leave its own standing.
-          await app.evalJS<null>(SAMPLER_START);
+          // The baseline this returns is the workspace the interruption
+          // returns TO, which is what the hand-back leg below compares against.
+          const beforeInterruption = await armSampler();
           await app.evalJS<null>(
             `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_ONE)} }), null)`,
           );
@@ -549,6 +782,47 @@ describe.skipIf(!SHOULD_RUN)(
             interrupted.zero,
             "and holds no shown frame at zero on the way through",
           ).toBe(0);
+          // The freeze survives the interruption too. The baseline here is the
+          // workspace shown when this leg armed, so it names only the FIRST of
+          // the two beats' frames and the second beat's are skipped — which is
+          // why this asserts a drift of none over what was comparable rather
+          // than full coverage of both beats. The hand-back is what the
+          // interruption tests: the second switch re-shows the layer the first
+          // beat froze, and the first beat's teardown arrives afterwards, so a
+          // hand-back that asserted what it captured would pin the returning
+          // workspace at the stale free frames the freeze exists to hide.
+          expect(
+            interrupted.crossHeld,
+            "the interrupted beat held its departing frames too",
+          ).toBeGreaterThan(0);
+          expect(
+            interrupted.firstDrift,
+            "and no departing frame drifted across either beat of the interruption",
+          ).toBe("");
+          expect(
+            interrupted.firstUndressed,
+            "nor lost an arrangement attribute across either beat",
+          ).toBe("");
+          // What the hand-back is owed on: the workspace the interruption
+          // returned to is standing exactly where a switch into it puts it,
+          // rather than at the frames the first beat froze.
+          const afterInterruption =
+            await app.evalJS<Record<string, PreFrame>>(PRE_READING);
+          note(
+            `at0592 the shown workspace after the interruption: ${JSON.stringify(
+              afterInterruption,
+            )}`,
+          );
+          for (const [paneId, was] of Object.entries(beforeInterruption)) {
+            expect(
+              afterInterruption[paneId]?.rect,
+              `${paneId} is back at its own arrangement's rect, not at the one the interrupted beat froze it at`,
+            ).toBe(was.rect);
+            expect(
+              afterInterruption[paneId]?.dress,
+              `${paneId} is back in its own arrangement's attributes`,
+            ).toBe(was.dress);
+          }
 
           // ---- 7. Reduced motion is a cut. --------------------------------
           // Not a shorter fade: the attribute is never written at all, so a
@@ -558,7 +832,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(document.documentElement.style.setProperty("--tug-motion", "0"), null)`,
           );
           try {
-            await app.evalJS<null>(SAMPLER_START);
+            await armSampler();
             await app.evalJS<null>(
               `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_ONE)} }), null)`,
             );

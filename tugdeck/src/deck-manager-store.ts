@@ -13,6 +13,7 @@
 
 import type { DeckState, CardStateBag } from "./layout-tree";
 import type { SpacesSnapshot } from "./spaces";
+import type { FrozenSpacePicture } from "./components/chrome/space-layer";
 import type {
   ColumnMoveTarget,
   ContentWidth,
@@ -592,6 +593,19 @@ export interface IDeckManagerStore {
    * replayed when the workspace returns.
    */
   activateSpace: (spaceId: string) => void;
+
+  /**
+   * The departing workspace of the switch now on screen, as a picture — every
+   * frame that was painted the instant before the swap commit, keyed by pane
+   * id — or `null` when there is none ([B01], [B02]).
+   *
+   * Read imperatively by the crossfade effect in `DeckCanvas`, which is the
+   * only reader, and only for the length of one beat. Not part of any
+   * snapshot: a picture is a measurement one effect takes and another applies
+   * inside the same switch, and a store would hand it over one render too
+   * late.
+   */
+  departingSpacePicture: () => FrozenSpacePicture | null;
 
   /**
    * Add a workspace, activate it, and stand its factory rail ([P05]). The
