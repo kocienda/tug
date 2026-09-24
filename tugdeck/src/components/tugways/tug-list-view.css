@@ -349,6 +349,58 @@ body {
   content-visibility: auto;
 }
 
+/* A pane in a settle holds its cells' relevance ([B07], [P07]).
+
+   `content-visibility: auto` resolves relevance against the viewport, and the
+   engine's own note two rules down says the quiet part out loud: content-
+   visibility OUTRANKS COMPOSITING. Promoting a pane frame to a standing
+   compositor layer ([B01]) therefore changes which cells the engine considers
+   relevant, and it changes it DURING a translate — so cells are styled, laid
+   out and painted inside the animation, and the transcript's top drifts
+   relative to the frame carrying it.
+
+   That drift is measured and is not theoretical: `at0566` pins that no top
+   inside a card moves more than 1.5px relative to its frame during the move
+   beat, and the standing promotion alone takes it to ~2.1px.
+
+   **The blunt form of this rule was tried first and does not fix that.** It
+   read `content-visibility: visible` for every ready cell under a settling
+   canvas, and repeated runs of `at0566` were red with it in place — so it was
+   taken out again and the claim it carried was withdrawn. What stands here is
+   the rule on its own terms rather than as a cure: the frame's content is
+   decided before it moves and does not change while it moves, which is the
+   same principle as [B03] applied to layout.
+
+   And the honest form of "held" is not "rendered". Turning `auto` into
+   `visible` forces every skipped cell to render at the worst possible moment,
+   which is precisely backwards. `hidden` skips the contents unconditionally,
+   never re-resolves against the viewport, and preserves rendering state for a
+   fast re-show — so the set the engine had already decided is the set that
+   stands for the length of the settle, and nothing is styled, laid out or
+   painted inside the tween on account of having crossed the boundary.
+
+   The set is read from `data-cv-skipped`, which the engine's own
+   `contentvisibilityautostatechange` keeps current (see the handler in the
+   .tsx pair). No measurement is taken at settle time: asking each cell where
+   it stood would be exactly the per-frame-proportional read [B06] exists to
+   remove.
+
+   A cell that is `data-cv-ready` and NOT marked skipped was being rendered
+   when the settle armed, so it is pinned `visible` — which is also the arm
+   the tail cell's opt-out below lands on, since the tail is never skippable
+   and therefore never marked. */
+[data-imposer-settling]
+  .tug-list-view[data-offscreen-skip]
+  .tug-list-view-cell[data-cv-ready] {
+  content-visibility: visible;
+}
+
+[data-imposer-settling]
+  .tug-list-view[data-offscreen-skip]
+  .tug-list-view-cell[data-cv-ready][data-cv-skipped] {
+  content-visibility: hidden;
+}
+
 /* The tail cell opts out. It is the auto-follow target — always on
    screen, so skipping it saves nothing — and it is the cell whose
    height churns during streaming, restamping `contain-intrinsic-size`

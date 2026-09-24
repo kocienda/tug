@@ -132,6 +132,12 @@ import {
   type InterruptedBeat,
   type SettleBeat,
 } from "@/lib/pane-flip";
+import { installPaneRecede } from "@/lib/pane-recede";
+import {
+  classifySettleFrames,
+  sampleSettleFrame,
+  type SettleFrameSample,
+} from "@/lib/settle-frame-probe";
 import {
   dispatchImposerSettleEnd,
   IMPOSER_SETTLE_END,
@@ -154,7 +160,11 @@ import {
 } from "@/components/cards/cards-selection-store";
 import { shrinkCardsState } from "@/components/cards/cards-escape";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
-import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
+import {
+  dropPendingFlash,
+  flashCardPane,
+  flashSlot,
+} from "@/lib/flash-pane-border";
 import {
   isFocusDirection,
   resolveDirectionalFocus,
@@ -565,11 +575,33 @@ const UNMEASURED_RUNS: PlaceRuns = { rail: null, column: null };
 let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
 
 /**
- * Everything the imposer reads, as one string: the imposition record, which
- * pane holds which slot, and the pinned rail's width. Two decks with the same
- * signature put every derived frame in the same place, so a change to it is
- * exactly the set of moments the deck should cross to a new arrangement rather
- * than cut.
+ * The arrangement signature, in its two readings.
+ *
+ * `full` is the whole of it — every term, the one the settle arms on. `size`
+ * is the same string with the two terms a PURE SLIDE moves taken out: the flow
+ * offset, and each pane's slot. Two commits with the same `size` put every
+ * frame at the same WIDTH and in the same tier, however far they have
+ * travelled across the band, which is the exact predicate for "is this a
+ * resize?" ([P07], [B06]).
+ *
+ * It cannot go stale by construction: `size` is built from the same terms
+ * `full` is, in the same pass, so a width-bearing term added to one is added
+ * to the other by the act of adding it.
+ */
+interface ArrangementSignature {
+  /** Every term. What the settle arms on. */
+  readonly full: string;
+  /** Every term except the flow offset and each pane's slot. */
+  readonly size: string;
+}
+
+/**
+ * Everything the imposer reads, as one string — and that string again with the
+ * two purely positional terms dropped ({@link ArrangementSignature}). The
+ * imposition record, which pane holds which slot, and the pinned rail's width.
+ * Two decks with the same `full` signature put every derived frame in the same
+ * place, so a change to it is exactly the set of moments the deck should cross
+ * to a new arrangement rather than cut.
  *
  * The pane terms are sorted, so the signature is blind to the panes array's
  * ORDER — which is z-order, and z-order moves nothing: `imposeRect` reads a
@@ -652,8 +684,11 @@ let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
  * term only moves while bullseye is actually on, which is exactly when there
  * is a frame to move.
  */
-function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
-  const panes = state.panes
+function arrangementSignature(
+  state: DeckState,
+  runs: PlaceRuns,
+): ArrangementSignature {
+  const paneTerms = state.panes
     // A pane still marked ARRIVING is no term of the arrangement, on the same
     // rule that keeps it out of its column's division ([B08]) and out of the
     // strip: it is drawn hidden at the seat it will take, so nothing about it
@@ -665,12 +700,20 @@ function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
     // arrival is.
     .filter((pane) => state.arriving?.[pane.id] !== true)
     .map(
-      (pane) =>
-        `${pane.id}:${pane.slot ?? ""}:${pane.size.width}:${
-          pane.folded === true ? "m" : ""
-        }`,
+      (pane) => ({
+        id: pane.id,
+        slot: pane.slot ?? "",
+        // Everything about the pane that is not its slot: the two terms that
+        // decide how big the frame is drawn.
+        size: `${pane.size.width}:${pane.folded === true ? "m" : ""}`,
+      }),
     )
-    .sort();
+    // By id alone, which is exactly what the string sort here always was —
+    // every term starts with the id and ids are unique, so no term after it
+    // ever reached the comparison.
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const panes = paneTerms.map((pane) => `${pane.id}:${pane.slot}:${pane.size}`);
+  const panesSize = paneTerms.map((pane) => `${pane.id}:${pane.size}`);
   const bullseye = bullseyePaneIdOf(state) ?? "";
   const rails = sidebarRailsOf(state, runs)
     .map(
@@ -692,6 +735,11 @@ function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
   // The offset, rounded to the pixel it is written at. Sub-pixel churn is not
   // an arrangement change, and the property carries the rounded value anyway.
   const flow = `${layout}:${Math.round(state.flowOffset ?? 0)}`;
+  // The size half takes the mode and leaves the offset. A fit↔flow toggle
+  // re-solves the chain and can land a frame at a different width; a slide
+  // along the band is the gesture this arc exists for and changes no size at
+  // all.
+  const flowSize = layout;
   // A slot's MODE and its ALLOCATED HEIGHTS are terms for exactly the reasons a
   // rail's are: a split flip changes every member's height, and a seam drag
   // changes two. The pane terms above would not cover either — a flip moves no
@@ -716,7 +764,17 @@ function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
         )}:${Math.round(state.columnOffsets?.[column.slot] ?? 0)}`,
     )
     .join(";");
-  return `${state.imposition.kind ?? ""}|${flow}|${bullseye}|${rails}|${columns}|${panes.join(",")}`;
+  const kind = state.imposition.kind ?? "";
+  return {
+    full: `${kind}|${flow}|${bullseye}|${rails}|${columns}|${panes.join(",")}`,
+    // The rail and column terms stay in whole. Each carries an offset of its
+    // own, and a strip that slides moves no frame's size — but each also
+    // carries a mode and an allocation that move every member's HEIGHT, and
+    // the terms are one string apiece. Keeping them is the conservative side
+    // of the gate: an episode raised where none was needed costs what today
+    // costs, where one skipped costs the reader their place.
+    size: `${kind}|${flowSize}|${bullseye}|${rails}|${columns}|${panesSize.join(",")}`,
+  };
 }
 
 /**
@@ -2994,8 +3052,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // What `animate()` is handed is that RAW number, because TugAnimator scales
   // its own durations by `getTugTiming()`; the window timer is handed the
   // scaled product, so the two can never disagree.
-  const arrangement = arrangementSignature(deckState, placeRuns);
+  const arrangementSig = arrangementSignature(deckState, placeRuns);
+  // The placement memo reads the FULL signature: it re-places every frame, and
+  // a pure slide is exactly a re-placement.
+  const arrangement = arrangementSig.full;
   const arrangementRef = useRef(arrangement);
+  /**
+   * The size half, as `arm` last saw it. What decides whether a commit is a
+   * RESIZE — and therefore whether the scrollers under it are walked and
+   * anchored ([P07], [B06]). A pure flow slide leaves this string alone and
+   * raises no episode.
+   */
+  const sizeSignatureRef = useRef(arrangementSig.size);
   const settleTimerRef = useRef<number | null>(null);
   /**
    * Re-arms the settle's window sweep — the timer that takes the settling
@@ -3018,6 +3086,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     ((source: "completion" | "sweep" | "unmount") => void) | null
   >(null);
   const settleReleasedRef = useRef(true);
+  /**
+   * The settle's own frame-gap sampler ([B10], [P09]).
+   *
+   * `samples` collects one reading per rendering opportunity for the length of
+   * a settle and nothing else; `raf` is the pump's handle, and its being
+   * `null` at rest is the whole of this record's [D1] compliance — the pump
+   * is armed by the same commit that marks the canvas and is cancelled by the
+   * release, so a settled deck holds no timer and no animation frame on its
+   * account.
+   */
+  const settleFramesRef = useRef<{
+    samples: SettleFrameSample[];
+    raf: number | null;
+  }>({ samples: [], raf: null });
   /**
    * Which launch the running choreography belongs to. A beat's completion
    * launches the next beat, and a retarget that landed in between has already
@@ -3376,11 +3458,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // `translate(0px, 0px)`, and React will never remove it: `transform` is not
   // among the style keys TugPane renders, and React only clears keys it set
   // itself. A frame left wearing any transform is a containing block for its
-  // `position: fixed` descendants — and TugSheet portals into the frame, while
-  // completion popups, alerts, and banners all position from viewport
-  // coordinates — so the residue would offset every one of them by the pane's
-  // origin, and only after the first arrangement change. Removing it is not
-  // tidiness; it is what keeps the frame's geometry the store's to own ([L09]).
+  // `position: fixed` descendants — but that is no longer what makes the
+  // residue a hazard, because every frame is a containing block by design now:
+  // `.tug-pane` carries a standing `will-change: transform` and nothing with
+  // `position: fixed` lives inside a frame ([B01], [B02]).
+  //
+  // The residue is still removed, for the reason the paragraph above already
+  // gave: the frame's geometry is the store's to own ([L09]). A committed
+  // `translate(0px, 0px)` is the settle's leftover opinion about where the
+  // frame sits, outliving the settle that formed it, and the next reader of
+  // the frame's box — a measurement, a hit test, the settle after this one —
+  // has no way to tell it from a pose somebody meant.
   //
   // The size and fade tweens leave residue of their own — a committed pixel
   // length where React rendered `auto` or a `calc()`, a committed opacity —
@@ -3448,12 +3536,85 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
       }
     }
+    /**
+     * Arm the settle's own frame-gap record, and stop it.
+     *
+     * The pump is a finisher in [D7]'s sense: started by the commit that
+     * marked the canvas, stopped by the release on every path the release can
+     * take — completion, sweep, and the unmount teardown. Nothing here runs
+     * on a settled deck, which is what lets the product measure itself
+     * without spending anything to do it ([D1], [B10]).
+     */
+    const startSettleFrameRecord = (el: HTMLElement): void => {
+      const record = settleFramesRef.current;
+      // A retarget arms again inside a window that is already being recorded,
+      // and the record belongs to the WINDOW rather than to the arm: the
+      // release fires once for the whole chain, and a reader asking how the
+      // gesture went is asking about every frame of it. So a pump already
+      // running is left alone rather than restarted over a fresh array,
+      // which would silently drop the gaps before the retarget.
+      if (record.raf !== null) return;
+      record.samples = [];
+      const tick = (): void => {
+        // The plain reading, which is the one that costs a bounded amount:
+        // a rect and a computed opacity per shown frame, and that frame's own
+        // effects. NOT the fixed-descendant sweep, which walks every element
+        // under every frame asking each for its computed style — R01's
+        // runtime half, which the bench probe asks for by name and Spec S03's
+        // row carries no field for. Sampling it here would put a cost
+        // proportional to how much transcript a card holds inside the one
+        // window [D9] forbids main-thread work in, to compute a number
+        // nothing reads.
+        record.samples.push(sampleSettleFrame(el));
+        record.raf = requestAnimationFrame(tick);
+      };
+      record.raf = requestAnimationFrame(tick);
+    };
+
+    const stopSettleFrameRecord = (): void => {
+      const record = settleFramesRef.current;
+      if (record.raf !== null) {
+        cancelAnimationFrame(record.raf);
+        record.raf = null;
+      }
+      if (record.samples.length === 0) return;
+      const reading = classifySettleFrames(record.samples);
+      const panes = record.samples[0]?.frames.length ?? 0;
+      record.samples = [];
+      deckTrace.record({
+        kind: "settle-frames",
+        panes,
+        ticks: reading.ticks,
+        longestGapMs: reading.longestGapMs,
+        longestGapFrames: reading.longestGapFrames,
+        gapsOverOneFrame: reading.gapsOverOneFrame,
+        firstPaintDelayMs: reading.firstPaintDelayMs,
+        violations: reading.violations,
+      });
+      // [D9]'s runtime guard. One row per offending pane/property, split out
+      // of the same reading rather than sampled a second time — a guard that
+      // read the deck on its own clock could disagree with the record beside
+      // it, and then neither would be evidence.
+      for (const violation of reading.violations) {
+        const colon = violation.indexOf(":");
+        if (colon < 0) continue;
+        deckTrace.record({
+          kind: "settle-motion-violation",
+          paneId: violation.slice(0, colon),
+          property: violation.slice(colon + 1),
+        });
+      }
+    };
+
     const releaseSettle = (
       source: "completion" | "sweep" | "unmount",
     ): void => {
       if (settleReleasedRef.current) return;
       settleReleasedRef.current = true;
       releaseSessions();
+      // Before the release row, so a reader scanning the trace meets the
+      // numbers and then the release that ended them.
+      stopSettleFrameRecord();
       deckTrace.record({ kind: "settle-release", source });
       pendingArrivalsRef.current.clear();
     };
@@ -3540,14 +3701,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         rail: store.getRailRunHeight(),
         column: store.getColumnRunHeight(),
       });
-      if (next === arrangementRef.current) {
+      if (next.full === arrangementRef.current) {
         // Nothing the imposer reads moved. Recorded rather than passed over,
         // because "the subscriber ran and found nothing" and "the subscriber
         // never ran" are the same silence otherwise, and only one of them is
         // a defect ([B06]).
         deckTrace.record({
           kind: "settle-arm",
-          signature: next,
+          signature: next.full,
           panes: 0,
           armed: false,
           landing,
@@ -3555,7 +3716,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         });
         return;
       }
-      arrangementRef.current = next;
+      arrangementRef.current = next.full;
+      // Is this commit a resize? Read once, here, off data the arm has
+      // already computed — and banked BEFORE the cut's early return below, so
+      // a cut cannot leave the next commit reading itself against a shore two
+      // arrangements old. `[B06]`: the anchor discovery of `[F06]` belongs to
+      // the moment an episode actually needs to re-anchor, which is a resize
+      // and not a translate.
+      const sizeChanged = next.size !== sizeSignatureRef.current;
+      sizeSignatureRef.current = next.size;
 
       // The commit said the frames are already drawn where it puts them — a
       // per-frame writer catching the store up after the fact ([B01]). There
@@ -3587,7 +3756,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         );
         deckTrace.record({
           kind: "settle-arm",
-          signature: next,
+          signature: next.full,
           panes: 0,
           armed: false,
           landing,
@@ -3644,6 +3813,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // re-wrapped. Unconditional on `motion`: reduced motion still changes
       // the width, it just changes it in one step, and a step the eye cannot
       // follow is exactly the one worth anchoring.
+      //
+      // Conditional on the SIZE half of the signature, though ([P07]). An
+      // episode is a promise to hold the reader's place across a reflow, and
+      // a frame that only travels does not reflow: its scrollers keep every
+      // line where it was. Raising one anyway is what `[F06]` measured —
+      // `discoverScrollers` → `watchGeneric` → `firstBoxReaching`, a
+      // `getComputedStyle` and a `getBoundingClientRect` per candidate up to
+      // twelve deep, per frame, inside the click task that is about to hand
+      // the compositor its first frame. The gate is read from `sizeChanged`
+      // above; the ORDER is untouched, because when an episode does run it
+      // must still open on the near side of the commit after every
+      // measurement (#settle-invariants).
       const episodes = settleEpisodesRef.current;
       for (const [, handle] of episodes) handle.end();
       episodes.clear();
@@ -3840,7 +4021,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // is what the registry's own doc asks for; it goes back a few lines
       // later in that tick, and nothing paints in between.
       for (const { paneId, frame, running } of armed) {
-        episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
+        if (sizeChanged) {
+          episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
+        }
         if (running !== undefined) {
           // The `snap-to-end` the hold above replaces committed the tween's
           // FINAL value into inline style instead, and the microtask that took
@@ -3906,7 +4089,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // move went uncarried".
       deckTrace.record({
         kind: "settle-arm",
-        signature: next,
+        signature: next.full,
         panes: firstRects.size,
         armed: motion && firstRects.size > 0,
         landing,
@@ -3941,6 +4124,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (motion) {
         settleReleasedRef.current = false;
         holdSessions(Math.max(2 * windowMs, 1000));
+        startSettleFrameRecord(el);
       }
 
       // Generous against the window it guards, like the hold's cap: the
@@ -3989,8 +4173,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // down, every sheet listening on it is coming down with it, and the
       // notice's only answer is a clamp measure against a container that is
       // about to leave the document.
+      //
+      // One listener does NOT come down with it, because it is not a sheet's
+      // and not React's: a flash parked on the settle that was running when
+      // this canvas was taken away. Its record is module-local, so nothing
+      // collects it and the next canvas's first settle would ring a pane this
+      // one no longer holds. This teardown being the one path with no notice
+      // is exactly why the drop has to be made here by hand.
+      dropPendingFlash();
     };
   }, [store, holdSessions, releaseSessions]);
+
+  // The recede's two marks — which frames wear it, and the one window in which
+  // it may move ([B04], [P05]). `pane-recede.ts` owns both and states why;
+  // what belongs here is the ORDER. This effect is declared before the tween
+  // below because the tween's early returns dispatch `IMPOSER_SETTLE_END`
+  // synchronously, inside the same layout-effect pass — a listener registered
+  // after them would miss the first settle of the canvas's life. The
+  // registration is a layout effect for the reason [L03] gives, and both marks
+  // are DOM writes rather than React state ([L06]).
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    return installPaneRecede(el);
+  }, []);
 
   // Last, and the tween. Declared AFTER the inset effect above, and that order
   // is load-bearing: React runs layout effects in declaration order, and the

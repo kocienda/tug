@@ -2,7 +2,7 @@
 
 *Motion in Tug is event-clocked and quiet by construction. Every animated surface owns its silence; every running animation is authored in a form whose cost is known, measured, and paid at gesture edges — never per frame, never at rest.*
 
-*Cross-references: `[L##]` → [tuglaws.md](tuglaws.md). `[D##]` (two digits) → [design-decisions.md](design-decisions.md). The laws in this document are the single-digit `[D1]`–`[D8]` coined by the *jul30 perf program* — code comments already cite them by those names, so the names are permanent.*
+*Cross-references: `[L##]` → [tuglaws.md](tuglaws.md). `[D##]` (two digits) → [design-decisions.md](design-decisions.md). The laws in this document are the single-digit `[D1]`–`[D9]`. `[D1]`–`[D8]` were coined by the *jul30 perf program* and `[D9]` by the *deck-animation-pipeline* arc — code comments already cite them by those names, so the names are permanent.*
 
 ---
 
@@ -20,7 +20,7 @@ The corollary that organizes everything else: **the disease was only ever per-fr
 
 ## The laws {#laws}
 
-Two of the eight organize the rest: **[D1] the quiet contract** governs what a surface may cost at rest (nothing), and **[D7] the event clock** governs how a surface knows it is at rest (it is told, it never asks). The other six are consequences and disciplines.
+Two of the nine organize the rest: **[D1] the quiet contract** governs what a surface may cost at rest (nothing), and **[D7] the event clock** governs how a surface knows it is at rest (it is told, it never asks). The other seven are consequences and disciplines.
 
 ### [D1] The quiet contract — every animated surface owns its silence {#d1-quiet-contract}
 
@@ -61,6 +61,25 @@ A stop must ride the **falling edge** of the data it depicts, on every path that
 [D7] applied at the producer: an emitter publishes **change**, not state — an unchanged reading sends nothing, silence means "unchanged," and consumers hold the last published value indefinitely on the strength of that. Two obligations make the contract sound: the emitter must publish the **falling edge** (a final zero when the measured thing dies — silence must never be ambiguous between "steady" and "gone"), and no consumer may time out a held value (a TTL decay under this contract turns a steady reading into a lie).
 
 Change thresholds layer by knowledge, each gate owning exactly the judgment it is positioned to make — wire-level dedup at the emitter, display-grain recognition at ingestion, plot-pixel recognition at the surface — and every gate compares against the value at the last *published/recognized* change, never the previous sample, so sub-threshold drift accumulates against a fixed reference and eventually fires instead of ratcheting under the threshold forever.
+
+---
+
+### [D9] The settle window is compositor-only {#d9-compositor-only-settle}
+
+**While a settle is running, the only properties a frame or anything inside it may animate are `transform` and `opacity`, and every layer those effects run on must already exist at rest.** The list is those two and no others — not `height`, not `width`, not `box-shadow`, not `background-color`, not `filter`, and not `content-visibility` re-deciding mid-tween which of a scroller's rows are rendered. A settle is the one window where the deck has already committed to a frame budget it does not control, so it is the one window where a main-thread property is not a cost to weigh but a thing to forbid.
+
+The second half is the half that is easy to lose. An effect animating only `transform` still lands on the critical path if the layer it needs is created at the gesture's first frame — the promotion, the raster and the tile upload all fall inside the frame the eye is watching. So a gesture may not create a layer, and may not destroy one either: an overlay that comes into existence on the outgoing frame and out of existence on the incoming one is two layer transactions inside the first tick. Layers stand at rest; the gesture only moves them.
+
+**The price of standing layers is real, and it is [D1]'s to arbitrate.** The residency section below measures it: `will-change` buys nothing against the style-recalc walk, and a hinted layer still costs population — while the walk's price scales with population. So this law spends something. It is worth spending where the layer is one per frame and the frame count is what the arrangement already is. It is not worth spending where the hint would ride every row of an unbounded list, and there the gesture-scoped fallback — hint on the gesture's near side, drop it at the settle's release — is the correct reading of this law rather than an exception to it.
+
+Enforced twice, because a rule with one guard is a rule with a hole:
+
+- **Statically**, by `tugdeck/scripts/audit-settle-motion.ts` (`bun run audit:settle-motion`, inside `just lint`). It refuses a `transition` or `animation` naming any property but `transform` and `opacity` on a selector that can match `.tug-pane` or a descendant, and it refuses `position: fixed` on a selector that can match a descendant of `.tug-pane` — the containing-block trap a promoted frame springs.
+- **At runtime**, by the settle's own record. While the settling mark is on, the frame-gap sampler reads each shown frame's effects and records a `settle-motion-violation` trace row naming the pane and the property — so an effect built with `element.animate()`, which no stylesheet scan can see and which is how TugAnimator works, is caught by the guard it would otherwise have walked past.
+
+A hit from either guard is a finding to read, not a reason to loosen the rule.
+
+**One standing hit is known, and naming it is what keeps the rest evidence.** A column that DIVIDES gives each member a share of the slot's height, and the settle carries that as a real `height` tween on every frame in the column — a main-thread property inside the settle window, which this law forbids. It is recorded rather than excused: the runtime guard reports it, `at0622-deck-settle-frames.test.ts` asserts those rows are present on a height-bearing gesture and that every one of them names `height` and nothing else. So a new property appearing there is a failure rather than a number to tune, and the zero the same file asserts over a pure slide means something because this non-zero exists beside it. Closing it means giving the division a form the compositor can run, which is its own work and is not this law's to assume.
 
 ---
 

@@ -673,7 +673,20 @@ export function applyBagFocus(
     ? ({ modality: "keyboard" } as const)
     : ({ modality: "pointer", preventScroll: true } as const);
   traceApplyDefaultFocus(`${site}-default`, cardId, resolution.cardRoot, {
-    ...(options?.preventScroll === true ? { preventScroll: true } : {}),
+    // The raw `.focus()` inside `traceApplyDefaultFocus` takes the opt-in for
+    // a POINTER activation, which is the channel `[F06]` names: a bare
+    // `target.focus()` on the incoming editor, inside the click task that is
+    // about to hand the compositor the settle's first frame, and a
+    // scroll-into-view the click never asked for ([P07], `[B06]`).
+    //
+    // Keyed to modality for `walkOpts`' own reason, one line above: a
+    // keyboard activation's landing must wear the ring and BE REVEALED, or
+    // the gesture ends with the keyboard somewhere invisible. So a keyboard
+    // gesture keeps today's behaviour exactly, and an explicit
+    // `options.preventScroll` still wins on either.
+    ...(options?.preventScroll === true || !keyboardGesture
+      ? { preventScroll: true }
+      : {}),
     placeViaEngine: (target) => {
       const fm = getFocusManager();
       if (fm === null) return false;

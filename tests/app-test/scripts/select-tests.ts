@@ -193,7 +193,16 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // module it also names, `lib/cut-detector.ts`, covers the census rule but
     // not the settle that writes the mark; naming only it would leave the
     // hold's release — the defect the file exists to pin — covered by nothing.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 22,
+    //
+    // Re-recorded at 23, the same way, for at0622: the settle frame probe asks
+    // whether the deck's motion ARRIVED, which every earlier file took for
+    // granted once it had established that a rect was on a tween. The frame
+    // promotion, the recede layer and the settle's own frame record all land in
+    // this file, so the paths at0622 will hold to a bar are this file's. The
+    // narrower module it also names, `lib/settle-frame-probe.ts`, is the
+    // instrument rather than the subject; naming only it would leave every
+    // surface the bar is actually about covered by nothing.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 23,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that

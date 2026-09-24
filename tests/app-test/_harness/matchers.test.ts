@@ -516,6 +516,21 @@ const EVENT_FIXTURES: Record<
     kind: "settle-release",
     source: "completion",
   },
+  "settle-frames": {
+    kind: "settle-frames",
+    panes: 4,
+    ticks: 26,
+    longestGapMs: 33,
+    longestGapFrames: 1.94,
+    gapsOverOneFrame: 1,
+    firstPaintDelayMs: 0,
+    violations: [],
+  },
+  "settle-motion-violation": {
+    kind: "settle-motion-violation",
+    paneId: "p1",
+    property: "height",
+  },
   "session-lifecycle": {
     kind: "session-lifecycle",
     event: "perf.replay_ingest",

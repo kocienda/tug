@@ -581,6 +581,87 @@ export function getComputedStyleValue(
   return caller.evalJS<string>(script, evalOpts);
 }
 
+// ---------------------------------------------------------------------------
+// The settle frame probe (SURFACE_VERSION 2.24.0)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors `tugdeck/src/lib/settle-frame-probe.ts` → `SettleFrameReading`.
+ *
+ * `suspended` is the field to read first: an occluded harness window suspends
+ * `requestAnimationFrame`, and a suspended run's zeros look exactly like a deck
+ * that stopped dropping frames.
+ */
+export interface SettleFrameReading {
+  ticks: number;
+  framePeriodMs: number;
+  longestGapMs: number;
+  longestGapFrames: number;
+  gapsOverOneFrame: number;
+  firstPaintDelayMs: number;
+  minOpacity: number;
+  minOpacityPaneId: string;
+  rectsChangedAfterLanding: string[];
+  violations: string[];
+  fixedDescendants: number;
+  suspended: boolean;
+}
+
+/**
+ * Start sampling the deck's settle once per animation frame. Nothing samples
+ * at rest; arm immediately before the gesture and disarm after it lands.
+ */
+export function armSettleFrameProbe(
+  caller: HarnessCaller,
+  evalOpts?: EvalJsOptions,
+): Promise<void> {
+  return caller.evalJS<void>(
+    callSurface(`window.__tug.armSettleFrameProbe()`),
+    evalOpts,
+  );
+}
+
+/** Stop the settle frame probe and drop its sampling state. */
+export function disarmSettleFrameProbe(
+  caller: HarnessCaller,
+  evalOpts?: EvalJsOptions,
+): Promise<void> {
+  return caller.evalJS<void>(
+    callSurface(`window.__tug.disarmSettleFrameProbe()`),
+    evalOpts,
+  );
+}
+
+/** Classify everything the probe has recorded so far. */
+export function takeSettleFrameReading(
+  caller: HarnessCaller,
+  evalOpts?: EvalJsOptions,
+): Promise<SettleFrameReading> {
+  return caller.evalJS<SettleFrameReading>(
+    callSurface(`window.__tug.takeSettleFrameReading()`),
+    evalOpts,
+  );
+}
+
+/**
+ * Plant a deliberate long task of `ms` on the probe's next sampled tick — the
+ * forcing probe that proves the instrument is live.
+ *
+ * A reading that notices nothing and a sampler that has stopped observing are
+ * the same reading, so a file whose claims are all "it was smooth" needs one
+ * leg where the smoothness was sabotaged and the probe said so.
+ */
+export function forceSettleStall(
+  caller: HarnessCaller,
+  ms: number,
+  evalOpts?: EvalJsOptions,
+): Promise<void> {
+  return caller.evalJS<void>(
+    callSurface(`window.__tug.forceSettleStall(${ms})`),
+    evalOpts,
+  );
+}
+
 /**
  * Register `selector` as a selection boundary under the given
  * `cardId`. Thin wrapper over tugdeck's

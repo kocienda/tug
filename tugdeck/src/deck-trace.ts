@@ -705,6 +705,40 @@ export type DeckTraceEvent = {
       source: "completion" | "sweep" | "unmount";
     }
   | {
+      // The settle's own frame-gap record ([B10], [P09], Spec S03). Written
+      // once per settle, at release, beside `settle-release` — never when no
+      // settle ran, because the sampler that feeds it is armed by the settle
+      // and stops with it ([D1]'s quiet contract: nothing runs at rest).
+      //
+      // The numbers are computed by `classifySettleFrames`, the same pure
+      // function the bench probe's reading goes through. That sharing is the
+      // point rather than a convenience: the product's self-report and the
+      // test's assertion cannot drift into two definitions of "a dropped
+      // frame" if there is only one definition to drift from.
+      kind: "settle-frames";
+      panes: number;
+      ticks: number;
+      longestGapMs: number;
+      longestGapFrames: number;
+      gapsOverOneFrame: number;
+      firstPaintDelayMs: number;
+      violations: readonly string[];
+    }
+  | {
+      // [D9]'s runtime guard. One row per pane per offending property, from
+      // the same per-settle sampler, whenever a frame is running an effect
+      // that animates anything but `transform` and `opacity` while the
+      // settling mark is on.
+      //
+      // It exists because the stylesheet audit cannot see an effect built
+      // with `element.animate()`, which is how TugAnimator makes every tween
+      // the settle runs — so the guard that reads the live deck is the only
+      // one that can catch the settle breaking its own law.
+      kind: "settle-motion-violation";
+      paneId: string;
+      property: string;
+    }
+  | {
       // Fired when a member's FIRST live reservation report disagrees with
       // the opening bid the reveal commit wrote for it ([P04]). The bid is
       // kept and the report is NOT committed: the bid is the very panel's own
@@ -830,6 +864,11 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "settle-arm" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-release" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-frames" }>, StampedFields>
+  | Omit<
+      Extract<DeckTraceEvent, { kind: "settle-motion-violation" }>,
+      StampedFields
+    >
   | Omit<
       Extract<DeckTraceEvent, { kind: "opening-bid-mismatch" }>,
       StampedFields

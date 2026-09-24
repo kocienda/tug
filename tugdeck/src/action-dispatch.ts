@@ -39,7 +39,11 @@ import { dispatchCommand } from "./command-dispatch";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { openCommitInCard } from "@/lib/open-commit-in-card";
 import { isFocusDirection } from "@/lib/directional-focus";
-import { flashCardPane, flashPaneBorder } from "@/lib/flash-pane-border";
+import {
+  flashCardPane,
+  flashPaneBorder,
+  flashPaneBorderOnSettle,
+} from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { isDiffDescriptor } from "@/lib/git-diff-store";
 import {
@@ -961,6 +965,13 @@ export function initActionDispatch(
   // will/didDeactivate + will/didActivate transition; the flash is pure
   // appearance (a CSS class toggled on the pane header DOM, removed on
   // `animationend`), never React state ([L06]).
+  //
+  // The flash waits for the settle this raise may have armed. On a flow deck
+  // the raise walks the strip, and a ring that starts in the same frame runs
+  // its first third over the motion it is announcing — so it is parked on
+  // `IMPOSER_SETTLE_END` instead ([B05]). A raise that moves nothing arms no
+  // settle and `flashPaneBorderOnSettle` rings immediately, which is what
+  // keeps a card already in the reader's slot from going unanswered.
   registerAction("focus-session-card", (payload) => {
     const cardId = payload.cardId;
     if (typeof cardId !== "string") {
@@ -988,7 +999,7 @@ export function initActionDispatch(
       return;
     }
     raiseCard(deckManager, cardId);
-    flashPaneBorder(pane.id);
+    flashPaneBorderOnSettle(pane.id);
   });
 
   // resume-session: open a fresh session card and restore a session into it.

@@ -265,8 +265,18 @@ fmt:
 
 # Run clippy + fmt check, plus the deck's own tripwires. audit:visibility is
 # [L32]'s: a mechanism that decides visibility must own the state it fails to.
+# audit:settle-motion is the settle pipeline's, and it is [D9]'s static half.
+# Rule 1: a pane frame is a containing block for its `position: fixed`
+# descendants, so a surface that positions from the viewport inside one
+# positions from the frame's corner instead — silently, and only once the
+# frames have moved. Rule 2: the settle window is compositor-only, so a
+# `transition` or `animation` on a frame may name only `transform` and
+# `opacity` unless it stands itself down under `[data-imposer-settling]`.
+# [D9]'s runtime half is the settle's own `settle-frames` trace row — which
+# catches the effects no stylesheet scan can see.
 lint: tugplug-lint
     cd tugdeck && bun run audit:visibility
+    cd tugdeck && bun run audit:settle-motion
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
 

@@ -96,6 +96,10 @@ import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clip
 import type { ListOverviewPostsOk, RateLimitInfo } from "./protocol";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { cutDetector } from "./lib/cut-detector";
+import {
+  settleFrameProbe,
+  type SettleFrameReading,
+} from "./lib/settle-frame-probe";
 import { cardsSelectionStore } from "./components/cards/cards-selection-store";
 import type { TaggedValue } from "./lib/tugbank-client";
 import type {
@@ -398,8 +402,20 @@ import {
  * `2.22.0`: adds `startListReveal` / `takeListRevealOutcome`, the door onto
  * `TugListViewHandle.revealRange` before any product code drives it.
  * Additive; minor bump.
+ *
+ * `2.24.0`: adds the settle-frame-probe quartet — {@link
+ * TugTestSurface.armSettleFrameProbe}, {@link
+ * TugTestSurface.disarmSettleFrameProbe}, {@link
+ * TugTestSurface.takeSettleFrameReading} and {@link
+ * TugTestSurface.forceSettleStall}. The cut detector answers "did a card move
+ * without moving?"; this answers "did the card's motion arrive on time?" — a
+ * settle whose first painted frame lands three display frames late has not
+ * travelled to the eye even though every rect was on a tween. The fourth
+ * method is the forcing probe ([D5]): it plants a deliberate long task inside
+ * the settle window so a reading that notices nothing can be told from a
+ * sampler that stopped observing. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.23.0" as const;
+export const SURFACE_VERSION = "2.24.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1611,6 +1627,44 @@ export interface TugTestSurface {
 
   /** Stop the cut detector and drop its sampling state. */
   disarmCutDetector(): void;
+
+  /**
+   * Arm the settle frame probe (SURFACE_VERSION 2.24.0) — start recording, once
+   * per animation frame, every shown frame's rect, opacity, animation count and
+   * offending paint properties, beside the move animation's own `currentTime`.
+   *
+   * The cut detector's question is whether a card moved without moving. This
+   * one's is whether the move arrived on time: a settle whose first painted
+   * frame lands three display frames after the animation started reads as a cut
+   * to the eye even though every rect was on a tween. Armed only between this
+   * call and {@link TugTestSurface.disarmSettleFrameProbe}; nothing samples at
+   * rest.
+   */
+  armSettleFrameProbe(): void;
+
+  /** Stop the settle frame probe and drop its sampling state. */
+  disarmSettleFrameProbe(): void;
+
+  /**
+   * Classify everything the probe has recorded so far — Spec S01's reading.
+   *
+   * `suspended` is the receipt that the window was actually being served: an
+   * occluded harness window suspends `requestAnimationFrame`, and a suspended
+   * run's zeros are indistinguishable from a deck that stopped dropping frames.
+   */
+  takeSettleFrameReading(): SettleFrameReading;
+
+  /**
+   * Plant a deliberate long task of `ms` on the probe's next sampled tick —
+   * [D5]'s forcing probe.
+   *
+   * A driver that silently does nothing and a change that genuinely costs
+   * nothing produce the same reading, so the instrument has to be shown
+   * noticing a defect that was put there on purpose before any green reading it
+   * takes means anything. Requires the probe to be armed; a disarmed probe has
+   * no tick to plant it on.
+   */
+  forceSettleStall(ms: number): void;
 
   /**
    * Exercise the store's gesture transaction (SURFACE_VERSION 2.11.0) and
@@ -3036,6 +3090,22 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     disarmCutDetector(): void {
       cutDetector.disarm();
+    },
+
+    armSettleFrameProbe(): void {
+      settleFrameProbe.arm();
+    },
+
+    disarmSettleFrameProbe(): void {
+      settleFrameProbe.disarm();
+    },
+
+    takeSettleFrameReading(): SettleFrameReading {
+      return settleFrameProbe.take();
+    },
+
+    forceSettleStall(ms: number): void {
+      settleFrameProbe.forceStall(ms);
     },
 
     probeStripCommit(

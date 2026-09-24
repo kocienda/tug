@@ -905,6 +905,41 @@ export class App {
     return client.getEmCardState(this as HarnessCaller, cardId);
   }
 
+  // -------------------------------------------------------------------
+  // The settle frame probe (tugdeck SURFACE_VERSION 2.24.0)
+  // -------------------------------------------------------------------
+
+  /**
+   * Start sampling the deck's settle once per animation frame. Nothing
+   * samples at rest; arm immediately before the gesture and disarm once
+   * it has landed.
+   */
+  armSettleFrameProbe(): Promise<void> {
+    return client.armSettleFrameProbe(this as HarnessCaller);
+  }
+
+  /** Stop the settle frame probe and drop its sampling state. */
+  disarmSettleFrameProbe(): Promise<void> {
+    return client.disarmSettleFrameProbe(this as HarnessCaller);
+  }
+
+  /**
+   * Classify everything the probe recorded. Read `suspended` first — an
+   * occluded harness window suspends rAF, and its zeros are
+   * indistinguishable from a deck that stopped dropping frames.
+   */
+  takeSettleFrameReading(): Promise<client.SettleFrameReading> {
+    return client.takeSettleFrameReading(this as HarnessCaller);
+  }
+
+  /**
+   * Plant a deliberate long task of `ms` on the probe's next sampled
+   * tick — the forcing probe that proves the instrument is live.
+   */
+  forceSettleStall(ms: number): Promise<void> {
+    return client.forceSettleStall(this as HarnessCaller, ms);
+  }
+
   /** Synchronous probe: has `engine-ready` been recorded for `cardId`? */
   isEngineReady(cardId: string): Promise<boolean> {
     return client.isEngineReady(this as HarnessCaller, cardId);

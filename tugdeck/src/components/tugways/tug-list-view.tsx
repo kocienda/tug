@@ -1862,6 +1862,43 @@ function resolveSelectionIndex(
 }
 
 /**
+ * The mark a settle freezes cell relevance against ([B07], [P07]).
+ *
+ * `content-visibility: auto` resolves relevance against the viewport, and a
+ * pane frame translating three slots carries its cells across that boundary
+ * mid-tween — so each newly relevant cell is styled, laid out and painted
+ * inside the animation. The rule is that a frame's content is decided before
+ * it moves and does not change while it moves, and the only way to hold a set
+ * without measuring one is to already know it.
+ *
+ * The engine tells us. `contentvisibilityautostatechange` fires on the skipped
+ * subtree's own element every time the engine changes its mind, so the mark is
+ * always current and the settle pays nothing to read it: the CSS pins
+ * `[data-cv-skipped]` cells to `hidden` and every other `[data-cv-ready]` cell
+ * to `visible` while `data-imposer-settling` is on, and the frozen set is
+ * whatever the engine had already decided when the settle armed.
+ *
+ * ONE handler for every cell of every list view, on purpose. It reads
+ * everything it needs off the event, so there is nothing to close over — and
+ * `addEventListener` de-duplicates by function identity, which is what lets
+ * the stamping site below re-add it on every delivery without keeping a second
+ * record of which cells are already listening.
+ */
+const CV_SKIPPED_ATTRIBUTE = "data-cv-skipped";
+
+function onCellContentVisibilityChange(event: Event): void {
+  const cell = event.currentTarget;
+  if (!(cell instanceof HTMLElement)) return;
+  // `ContentVisibilityAutoStateChangeEvent` is not in the DOM lib this project
+  // builds against, so the one field it adds is read structurally rather than
+  // asserted. An engine that fired a bare `Event` here would mark nothing,
+  // which is the safe direction: an unmarked cell lands on the `visible` arm.
+  const skipped = (event as Event & { skipped?: boolean }).skipped;
+  if (skipped === true) cell.setAttribute(CV_SKIPPED_ATTRIBUTE, "");
+  else cell.removeAttribute(CV_SKIPPED_ATTRIBUTE);
+}
+
+/**
  * `TugListView` implementation — windowing + cell reuse + delegate
  * lifecycle + SmartScroll-driven scroll-position writes, layered on
  * a sparse height index.
@@ -3109,6 +3146,16 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
             if (!target.hasAttribute("data-cv-ready")) {
               target.setAttribute("data-cv-ready", "");
             }
+            // The relevance mark rides with the readiness mark ([B07]). The
+            // listener is idempotent by function identity, so this runs on
+            // every qualifying delivery and installs once; a cell that has
+            // never been skipped carries no `data-cv-skipped` and lands on
+            // the settle rule's `visible` arm, which is also where the tail
+            // cell's existing opt-out lands.
+            target.addEventListener(
+              "contentvisibilityautostatechange",
+              onCellContentVisibilityChange,
+            );
           }
 
           // Skip no-op updates — sub-pixel ResizeObserver noise
@@ -3268,6 +3315,16 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           for (const el of cellElementMapRef.current.values()) {
             el.removeAttribute("data-cv-ready");
             el.style.removeProperty("contain-intrinsic-size");
+            // The relevance mark goes with the readiness mark it was earned
+            // under: with `content-visibility: auto` no longer applying, the
+            // engine will fire nothing more for this cell, and a stale
+            // `data-cv-skipped` left behind would hide a rendered cell the
+            // next time a settle armed.
+            el.removeAttribute(CV_SKIPPED_ATTRIBUTE);
+            el.removeEventListener(
+              "contentvisibilityautostatechange",
+              onCellContentVisibilityChange,
+            );
           }
         }
         if (evictModeEnabled) {

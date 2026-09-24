@@ -44,6 +44,7 @@ const TUGX_SHORT_NAMES = new Set<string>([
   "pane-accessory-border",
   "pane-content-dim-desat-amount",
   "pane-content-dim-desat-color",
+  "pane-content-dim-wash-amount",
   "pane-content-dim-wash-blend",
   "pane-content-dim-wash-color",
   "pane-control-off-bg-active",

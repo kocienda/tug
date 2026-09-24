@@ -442,12 +442,18 @@ body {
   --tug7-element-card-border-normal-muted-active: --tug-color(black, a: 70);
 
   /* Card — Inactive Content Overlay (two layers: desaturate + wash) */
+  /* The wash is ONE colour at two strengths, and the strength is an opacity
+     rather than a second colour, so the recede fades on `opacity` alone
+     ([B03], [B04] of the deck-animation-pipeline brief). The held colour is
+     the deeper of the two former values; the amounts are their alpha ratio
+     (`a: 150` over `a: 700` is 0.214), so both depths render as they did. */
   --tug7-effect-card-desat-normal-dim-inactive: --tug-color(gray, l: 780);
   --tug7-effect-card-desat-normal-amount-inactive: 0.1;
-  --tug7-effect-card-wash-normal-dim-inactive: --tug-color(gray, l: 960, a: 150);
+  --tug7-effect-card-wash-normal-dim-inactive: --tug-color(gray, l: 960, a: 700);
+  --tug7-effect-card-wash-normal-amount-inactive: 0.214;
   --tug7-effect-card-wash-normal-blend-inactive: screen;
   --tug7-effect-card-desat-normal-amount-bullseye: 0.85;
-  --tug7-effect-card-wash-normal-dim-bullseye: --tug-color(gray, l: 960, a: 700);
+  --tug7-effect-card-wash-normal-amount-bullseye: 1;
 
   /* Card — Findbar Highlights */
   --tug7-surface-card-primary-normal-findmatch-rest: --tug-color(yellow, l: 900, c: 260, a: 300);

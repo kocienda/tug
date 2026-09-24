@@ -117,6 +117,7 @@ body {
   --tugx-pane-content-dim-desat-color: var(--tug7-effect-card-desat-normal-dim-inactive);
   --tugx-pane-content-dim-desat-amount: var(--tug7-effect-card-desat-normal-amount-inactive);
   --tugx-pane-content-dim-wash-color: var(--tug7-effect-card-wash-normal-dim-inactive);
+  --tugx-pane-content-dim-wash-amount: var(--tug7-effect-card-wash-normal-amount-inactive);
   --tugx-pane-content-dim-wash-blend: var(--tug7-effect-card-wash-normal-blend-inactive);
 
   /* --- The same two layers, deepened, while one pane stands in bullseye ---
@@ -127,7 +128,7 @@ body {
      bullseye's exit doors. The blend mode is deliberately NOT re-declared:
      the recede is a matter of degree, not of a different effect. */
   --tugx-pane-content-dim-desat-amount-bullseye: var(--tug7-effect-card-desat-normal-amount-bullseye);
-  --tugx-pane-content-dim-wash-color-bullseye: var(--tug7-effect-card-wash-normal-dim-bullseye);
+  --tugx-pane-content-dim-wash-amount-bullseye: var(--tug7-effect-card-wash-normal-amount-bullseye);
 
   /* --- Pane scrim (built-in modal scrim layer inside .tug-pane-chrome) --- */
   --tugx-pane-scrim-bg: var(--tug7-surface-overlay-primary-normal-dim-rest);
@@ -293,6 +294,27 @@ body {
    Session pane's chrome is 88 + 36. */
 .tug-pane {
   --tugx-pane-chrome-height: var(--tug-chrome-height);
+  /* Every frame is a compositor layer at rest, permanently ([B01]).
+
+     The deck's promise is that activating a card in another slot is a
+     translate the compositor performs over layers that ALREADY EXIST. A frame
+     that is not a layer until the tween starts must be promoted inside the
+     first frame of that tween, and the whole session card — masthead,
+     composer, transcript — is rasterized at Retina scale in that frame; when
+     the tween ends the layer is dropped and the content is rasterized again
+     into the parent. Two raster spikes, at the two instants the eye is
+     judging a slide, each proportional to how many session cards are on the
+     deck.
+
+     `will-change` rather than an identity `transform`: it says "this will be
+     transformed" without asserting a pose, so it cannot interact with the
+     inline `transform` and `transform-origin` the settle's FLIP writes and
+     takes away.
+
+     Promoting at the moment of need is the hack this refuses. A layer that
+     exists only while it is needed is created at the moment it is needed
+     most, which is the spike rather than the cure. */
+  will-change: transform;
 }
 
 .tug-pane[data-masthead="true"] {
@@ -773,16 +795,30 @@ body {
    rather than in a declaration, so a caller can override it from any ancestor.
    Nothing else hard-codes this length: `flashPaneBorder` reads the animation's
    computed duration off the layer for its backstop timer, so the timer
-   follows the token instead of shadowing it. */
+   follows the token instead of shadowing it.
+
+   **The ring is drawn once and only its opacity moves.** The keyframes used
+   to walk `box-shadow` from the accent colour to `transparent` over the
+   token's whole length, which is a repaint of a full-pane layer on every one
+   of those frames ([F05]) — and the flash starts when a card is put in front
+   of the reader, which is the same instant the deck starts moving. The shadow
+   is now a static declaration on the layer and the keyframes carry `opacity`
+   alone, which the compositor runs without repainting anything ([B03],
+   [B05]). `will-change: opacity` rides the flash class rather than standing on
+   every frame: the ring's own layer is wanted for the length of the run and a
+   standing hint on every pane would be one more layer per card at rest, which
+   is the population cost `[D1]` is about. Creating it at the flash's start is
+   free of `[F03]`'s objection because `flashPaneBorderOnSettle` starts the run
+   when the frames have already stopped. */
 @keyframes tug-pane-border-flash {
   0% {
-    box-shadow: inset 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
+    opacity: 1;
   }
   70% {
-    box-shadow: inset 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
+    opacity: 1;
   }
   100% {
-    box-shadow: inset 0 0 0 2px transparent;
+    opacity: 0;
   }
 }
 .tug-pane-flash::before {
@@ -790,8 +826,20 @@ body {
   position: absolute;
   inset: 0;
   border-radius: var(--tugx-pane-flash-radius, var(--tug-radius-md));
+  box-shadow: inset 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
   pointer-events: none;
   z-index: 3;
+  /* The rest value, and `animation-fill-mode` is left at `none` — so the
+     moment the run ends the ring falls back to invisible rather than to the
+     full-strength shadow declared above. That fallback is the whole reason
+     this line exists: `animationend` and the class removal share one task, so
+     the ordinary path never paints between them, but the backstop path does
+     not — a window whose rendering was suspended resumes with the run already
+     finished and the class still on, and without this the ring would stand at
+     full strength until the timer fired. The keyframes drive it to 1 while
+     they run, which is what makes the rest value free. */
+  opacity: 0;
+  will-change: opacity;
   animation: tug-pane-border-flash var(--tugx-card-flash-duration, 1750ms) ease-out;
 }
 
@@ -1424,67 +1472,125 @@ body {
   inset-inline: 0;
 }
 
+/* ----------------------------------------------------------------------------
+   The recede — the two blend layers here, and the frame dim in `chrome.css`.
+
+   Three facts about these layers, all three established by measurement on a
+   real deck (`briefs/deck-animation-pipeline-findings.md`):
+
+   **They exist on every frame, focused and receded alike.** Keyed on
+   `:not([data-focused="true"])`, they came into existence on the outgoing
+   pane and out of existence on the incoming one at the instant a settle
+   started — a layer created and rasterized inside the first frame of a tween,
+   which is exactly the work that reads as a cut ([F04], [B04]). The existence
+   rules below match EVERY frame; the frame the deck is reading simply carries
+   them at `opacity: 0`.
+
+   **Opacity is the only property that ever moves.** The wash transitioned
+   `background-color`, and the bullseye depth was a second colour; both are now
+   one held colour at two opacity amounts. That is the same pixel — the amounts
+   are the two former alphas' ratio — and a compositor property rather than a
+   paint one ([B03]).
+
+   **They change at the settle's landing, not during it.** These rules do not
+   read `data-focused` at all. They read `data-receded`, which `deck-canvas.tsx`
+   writes on each frame and which a running settle defers to its own
+   completion, so the frames are already still when the recede paints. The
+   transition does not stand either: `[data-recede-armed]` on the frames
+   container arms it for the length of the fade and comes off when the fade
+   lands, so a settled deck retains no finished `CSSTransition` on any frame
+   ([D6], [D1]) — which matters precisely because these layers are now on every
+   frame rather than on the unfocused ones.
+   -------------------------------------------------------------------------- */
+
 /* Layer 1: partial saturation reduction — desaturates colored content.
    Opacity controls the strength: 0 = no effect, 1 = full desaturation.
    Positioned on .tug-pane-chrome (not .tug-pane-content) so the overlay covers the
    full pane chrome bounds and does not scroll with content. */
-.tug-pane:not([data-focused="true"]) .tug-pane-chrome::before {
+.tug-pane .tug-pane-chrome::before {
   content: "";
   position: absolute;
   inset: 0;
   background-color: var(--tugx-pane-content-dim-desat-color);
   mix-blend-mode: saturation;
-  opacity: var(--tugx-pane-content-dim-desat-amount);
+  opacity: 0;
   pointer-events: none;
   z-index: 10;
-  /* Fades with the settle rather than cutting, so the recede arrives with the
-     motion it belongs to. One knob times both: the duration is the same
-     `--tugx-imposer-settle-duration` `deck-canvas.tsx` writes onto the frames
-     container, with the default riding as a `var()` fallback here at the point
-     of use — the container carries no value until the first arrangement
-     gesture. */
-  transition: opacity
-    var(--tugx-imposer-settle-duration, 300ms) ease-out;
 }
 
-/* Layer 2: lightness wash — dims achromatic content when the pane is unfocused */
-.tug-pane:not([data-focused="true"]) .tug-pane-chrome::after {
+/* Layer 2: lightness wash — dims achromatic content on a receded pane. The
+   colour is held constant and the strength is this layer's opacity; see the
+   block above for why it is not two colours. */
+.tug-pane .tug-pane-chrome::after {
   content: "";
   position: absolute;
   inset: 0;
   background-color: var(--tugx-pane-content-dim-wash-color);
   mix-blend-mode: var(--tugx-pane-content-dim-wash-blend);
+  opacity: 0;
   pointer-events: none;
   z-index: 11;
-  transition: background-color
-    var(--tugx-imposer-settle-duration, 300ms) ease-out;
+}
+
+.tug-pane[data-receded] .tug-pane-chrome::before {
+  opacity: var(--tugx-pane-content-dim-desat-amount);
+}
+
+.tug-pane[data-receded] .tug-pane-chrome::after {
+  opacity: var(--tugx-pane-content-dim-wash-amount);
 }
 
 /* ----------------------------------------------------------------------------
    The recede, while one pane stands in bullseye.
 
-   `data-bullseye` on the frames container is the selector hook; the dim itself
-   is these same two layers at deeper values. The per-pane half of the selector
-   is `:not([data-focused="true"])`, which already means exactly "every pane but
-   the bullseyed one" — the bullseyed pane is ALWAYS the focused pane, because
-   the posture is derived from the first responder. So no new per-pane bit is
-   needed, and nothing here can disagree with the geometry.
+   The dim is these same two layers at deeper values. The depth is carried by
+   the frame's own `data-receded="deep"` rather than by a `[data-bullseye]`
+   ancestor selector, and that is not a refactor: the mark is what the canvas
+   defers, so entering and leaving bullseye fades on the settle's landing for
+   the same reason a focus change does, instead of cutting while the frames
+   are still travelling. The canvas resolves the depth from the posture, which
+   is derived from the first responder, so nothing here can disagree with the
+   geometry.
 
-   Only the two values change. NOTHING lands on `.tug-pane` itself — no
-   `filter`, no `transform`, no `backdrop-filter`, no `contain`, no
-   `will-change`. Any of those would make every receded frame a containing
-   block for its `position: fixed` descendants, and `TugSheet` portals into the
-   frame while completion popups, alerts, and banners position from viewport
-   coordinates. These two layers are safe because they are pseudo-elements
-   confined by `.tug-pane-chrome`'s own `isolation: isolate`, and they already
-   carry `pointer-events: none`.
+   Only the two values change; the recede is these two pseudo-elements, and
+   nothing here needs to reach the frame itself.
+
+   This block used to forbid anything landing on `.tug-pane` — no `filter`, no
+   `transform`, no `contain`, no `will-change` — on the grounds that any of
+   them would make a receded frame a containing block for its `position:
+   fixed` descendants. That prohibition is RETIRED, and the frame now carries
+   a standing `will-change: transform` ([B01], and see the rule at the top of
+   this file).
+
+   The dependency the prohibition protected is real, and it is answered rather
+   than ignored: **every frame is a containing block by design now, and
+   nothing with `position: fixed` lives inside one** ([B02]). Viewport-
+   positioned surfaces — completion menus, alerts, banners, bulletins, the
+   modal input dialog, the key sink — are portaled to the canvas overlay root,
+   which is a sibling of the frames rather than a descendant of one, and
+   `tugdeck/scripts/audit-settle-motion.ts` fails the lint on any selector
+   that reintroduces one. `TugSheet` stays portaled into the frame on purpose,
+   because following the pane through every move is its contract, and an
+   absolutely positioned descendant follows a transformed ancestor correctly.
    -------------------------------------------------------------------------- */
-[data-bullseye] .tug-pane:not([data-focused="true"]) .tug-pane-chrome::before {
+.tug-pane[data-receded="deep"] .tug-pane-chrome::before {
   opacity: var(--tugx-pane-content-dim-desat-amount-bullseye);
 }
 
-[data-bullseye] .tug-pane:not([data-focused="true"]) .tug-pane-chrome::after {
-  background-color: var(--tugx-pane-content-dim-wash-color-bullseye);
+.tug-pane[data-receded="deep"] .tug-pane-chrome::after {
+  opacity: var(--tugx-pane-content-dim-wash-amount-bullseye);
+}
+
+/* The fade itself, armed for its own length and no longer.
+
+   One knob times it: the duration is the same `--tugx-imposer-settle-duration`
+   `deck-canvas.tsx` writes onto the frames container, with the default riding
+   as a `var()` fallback here at the point of use — the container carries no
+   value until the first arrangement gesture. `deck-canvas.tsx` reads the same
+   property to size the backstop that guarantees the disarm. */
+[data-recede-armed] .tug-pane .tug-pane-chrome::before,
+[data-recede-armed] .tug-pane .tug-pane-chrome::after {
+  transition: opacity var(--tugx-imposer-settle-duration, 300ms) ease-out;
 }
 
 /* ============================================================================

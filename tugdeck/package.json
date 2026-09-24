@@ -11,6 +11,7 @@
     "extract:tug-token-names": "bun run scripts/extract-tug-token-names.ts",
     "audit:tokens": "bun run scripts/audit-tokens.ts",
     "audit:visibility": "bun run scripts/audit-visibility.ts",
+    "audit:settle-motion": "bun run scripts/audit-settle-motion.ts",
     "audit:theme-contrast": "bun run scripts/audit-theme-contrast.ts",
     "audit:gamut": "bun run scripts/audit-gamut.ts",
     "generate:rename-maps": "bun run scripts/generate-rename-maps.ts",

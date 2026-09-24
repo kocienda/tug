@@ -28,14 +28,30 @@
  * an animation's final value into `el.style` when it completes — whatever
  * `fill` says — and React never clears it, because `transform` is not a key
  * TugPane renders. A frame wearing any transform is a containing block for its
- * `position: fixed` descendants, and TugSheet portals into the frame while
- * completion popups, alerts, and banners all position from viewport
- * coordinates. The residue would offset all of them by the pane's origin, and
- * only after the FIRST arrangement change — so this test asserts the inline
- * style directly (the computed value of an untransformed element is `none`,
- * which would pass vacuously), asserts it again after a SECOND settle, and
- * then measures the consequence: a fixed-position probe planted inside a frame
- * must resolve against the viewport, not against the pane.
+ * `position: fixed` descendants. The residue is still forbidden, and this test
+ * asserts the inline style directly (the computed value of an untransformed
+ * element is `none`, which would pass vacuously) and asserts it again after a
+ * SECOND settle. What has changed is the REASON, and with it what the probe
+ * below can prove.
+ *
+ * This file used to plant a `position: fixed` probe inside a frame and require
+ * it to resolve against the VIEWPORT — a proxy for "no frame is a containing
+ * block", which was the deck's rule when that was written. That rule is
+ * retired ([B01], [B02]): `.tug-pane` now carries a standing
+ * `will-change: transform`, so every frame is a containing block from mount,
+ * by design and at rest, and a gesture can no longer create or destroy a
+ * compositor layer. The probe is kept and its claim inverted, because the
+ * inversion is the rule: a fixed-position descendant resolves against its
+ * FRAME. What keeps that from breaking anything real is that nothing with
+ * `position: fixed` lives inside a frame — viewport-positioned surfaces are
+ * portaled to the canvas overlay root, and `audit:settle-motion` fails the
+ * lint on any selector that puts one back.
+ *
+ * Note what the probe no longer does: it cannot discriminate residue. A frame
+ * is a containing block whether or not a stale `translate(0px, 0px)` is on it,
+ * so the residue claim now rests entirely on the direct `inlineTransforms`
+ * read above — which is the better assertion anyway, and was always the one
+ * doing the work.
  *
  * A slot assignment carries a fourth rule. It raises the card it slots, and
  * the raise is a precondition of the motion rather than its epilogue — a frame
@@ -146,8 +162,17 @@ function deckShape() {
   };
 }
 
-/** Every animation currently running on a pane frame, with its keyframes'
- *  property names — the census the transform-only rule is read from. */
+/**
+ * Every animation currently running on a pane frame's own BOX, with its
+ * keyframes' property names — the census the transform-only rule is read from.
+ *
+ * A pseudo-element effect reports the originating element as its `target`, so
+ * a fade on `.tug-pane::after` would arrive here wearing the frame's identity
+ * while animating nothing about the frame. The recede is exactly that: three
+ * pseudo layers whose opacity fades on the settle's landing, which this file's
+ * claims are not about and which `at0622` asserts on its own terms. The
+ * subject of every claim below is the frame itself, so the census is too.
+ */
 interface FrameAnimation {
   paneId: string;
   properties: string[];
@@ -157,6 +182,7 @@ async function frameAnimations(app: App): Promise<FrameAnimation[]> {
   return app.evalJS<FrameAnimation[]>(
     `document.getAnimations()
       .map(function (a) {
+        if (!a.effect || a.effect.pseudoElement) return null;
         var target = a.effect && a.effect.target;
         if (!target || !target.classList || !target.classList.contains("tug-pane")) return null;
         var props = {};
@@ -471,12 +497,18 @@ describe.skipIf(!SHOULD_RUN)(
             0,
           );
 
-          // The consequence the residue would actually cause: a frame wearing
-          // a transform becomes the containing block for its fixed-position
-          // descendants — which is what TugSheet portals into and what every
-          // popup positions against. The probe resolves at the viewport
-          // origin only if the frame is not one.
+          // Every frame is a containing block, by design and at rest ([B01]).
+          // The probe therefore resolves at the FRAME's origin rather than the
+          // viewport's, and that is the rule rather than a defect — see this
+          // file's docblock for why the claim was inverted rather than deleted.
           {
+            const frameBox = await app.evalJS<{ x: number; y: number }>(
+              `(function () {
+                var r = document.querySelector('.tug-pane[data-pane-id="p2"]')
+                  .getBoundingClientRect();
+                return { x: r.left, y: r.top };
+              })()`,
+            );
             const probeOrigin = await app.evalJS<{ x: number; y: number }>(
               `(function () {
                 var frame = document.querySelector('.tug-pane[data-pane-id="p2"]');
@@ -492,8 +524,16 @@ describe.skipIf(!SHOULD_RUN)(
                 return { x: r.left, y: r.top };
               })()`,
             );
-            expect(probeOrigin.x).toBeCloseTo(0, 0);
-            expect(probeOrigin.y).toBeCloseTo(0, 0);
+            expect(
+              probeOrigin.x,
+              "a fixed descendant resolves against its frame, not the viewport",
+            ).toBeCloseTo(frameBox.x, 0);
+            expect(probeOrigin.y).toBeCloseTo(frameBox.y, 0);
+            expect(
+              frameBox.x,
+              "and the frame is genuinely off the viewport origin, or the " +
+                "claim above would hold either way",
+            ).toBeGreaterThan(1);
           }
         } finally {
           await app.close();

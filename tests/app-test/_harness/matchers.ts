@@ -248,6 +248,24 @@ export type DeckTraceEventShape = {
       source: "completion" | "sweep" | "unmount";
     }
   | {
+      /** The settle's own frame-gap record, written once at release ([B10]). */
+      kind: "settle-frames";
+      panes: number;
+      ticks: number;
+      longestGapMs: number;
+      longestGapFrames: number;
+      gapsOverOneFrame: number;
+      firstPaintDelayMs: number;
+      violations: readonly string[];
+    }
+  | {
+      /** [D9]'s runtime guard: a frame animating a non-compositor property
+       *  while the settling mark was on. One row per pane per property. */
+      kind: "settle-motion-violation";
+      paneId: string;
+      property: string;
+    }
+  | {
       kind: "opening-bid-mismatch";
       memberId: string;
       /** The height the arrival commit bid, and the panel's own first reading. */
@@ -315,6 +333,8 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-arm",
   "settle-retarget",
   "settle-release",
+  "settle-frames",
+  "settle-motion-violation",
   "opening-bid-mismatch",
   "session-lifecycle",
   "space-switch-timing",
@@ -573,6 +593,15 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `settle-retarget ${e.mode} beat=${fmt(e.beat)} pane=${fmt(e.paneId)}`;
     case "settle-release":
       return `settle-release ${e.source}`;
+    case "settle-frames":
+      return (
+        `settle-frames panes=${e.panes} ticks=${e.ticks} ` +
+        `gap=${e.longestGapMs}ms/${e.longestGapFrames.toFixed(2)}f ` +
+        `over1=${e.gapsOverOneFrame} firstPaint=${e.firstPaintDelayMs}ms ` +
+        `violations=[${e.violations.join(", ")}]`
+      );
+    case "settle-motion-violation":
+      return `settle-motion-violation ${e.paneId}:${e.property}`;
     case "opening-bid-mismatch":
       return `opening-bid-mismatch ${fmt(e.memberId)} bid=${e.bid} report=${e.report} (${e.report - e.bid >= 0 ? "+" : ""}${e.report - e.bid})`;
     case "session-lifecycle":

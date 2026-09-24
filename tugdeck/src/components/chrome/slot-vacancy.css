@@ -95,10 +95,12 @@
  * first is a state and is written as one, below; the second is an event with a
  * shape, so it lives inside the flash's own keyframes rather than beside them.
  *
- * Hidden by `opacity`, never by `display`: the flash animates the badge's own
- * box shadow, so the badge has to be laid out and measurable before the flash
- * class arrives — mounting it in the same frame the animation starts would
- * drop the first keyframe.
+ * Hidden by `opacity`, never by `display`: the flash fades the badge's own
+ * opacity and draws its ring on the badge, so the badge has to be laid out and
+ * have a box before the flash class arrives — mounting it in the same frame
+ * the animation starts would drop the first keyframe. `opacity` is also the
+ * property the flash animates, which is the point: a box that is already
+ * there and already a layer is one the compositor can fade on its own.
  */
 .tug-slot-vacancy .tug-slot {
   opacity: 0;
@@ -139,19 +141,29 @@
    ends every property falls back to what the rules declare — the ring to
    nothing, the badge to `opacity: 0`. That is the same state the last keyframe
    painted, so the handoff is invisible, and it means the class can be removed
-   late without showing anything. */
+   late without showing anything.
+
+   **The ring is a static declaration and only `opacity` is animated**, the
+   same rebuild the card's ring had and for the same reason ([F05], [B05]): a
+   `box-shadow` walked across the token's whole length is a repaint per frame,
+   and the two subjects are read the same by the reader so they are not built
+   two ways. The badge already faded by `opacity`, and the ring is drawn ON the
+   badge, so the badge's own fade carries the ring with it — the shadow only has
+   to be declared, under the flash class rather than at rest so a badge shown by
+   a drag (`[data-carrying="card"]`, above) still shows plain.
+
+   This subject sits outside the pane-scoped stylesheet guard, so nothing
+   mechanical will notice if a paint property comes back here ([D9] by
+   reading). */
 @keyframes tug-slot-vacancy-flash {
   0% {
     opacity: 1;
-    box-shadow: 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
   }
   70% {
     opacity: 1;
-    box-shadow: 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
   }
   100% {
     opacity: 0;
-    box-shadow: 0 0 0 2px transparent;
   }
 }
 
@@ -159,6 +171,8 @@
    nobody looks at, and a several-hundred-pixel rectangle lighting up would read
    as a card arriving rather than as a place being pointed at. */
 .tug-slot-vacancy-flash .tug-slot {
+  box-shadow: 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
+  will-change: opacity;
   animation: tug-slot-vacancy-flash var(--tugx-card-flash-duration, 1750ms)
     ease-out;
 }
