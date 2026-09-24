@@ -523,19 +523,19 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         // exact zero is the only assertion that says "against the edge".
         expect(pillBox.top).toBe(0);
 
-        // The label is not clipped. `.tug-badge` sets `line-height: 1`, which
-        // makes the line box exactly the font size while the descenders fall
-        // below it, and `.tug-badge-text` hides its overflow — so the bottom of
-        // the `g` in *Tug* was being cut off. Measured as overflow rather than
-        // read off the line-height, because what matters is whether any ink is
+        // The label is not clipped. The label rides its own span so a narrow
+        // window ellipsizes rather than clips, and that span hides its
+        // overflow — with a line box exactly the font size, the bottom of the
+        // `g` in *Tug* was being cut off. Measured as overflow rather than read
+        // off the line-height, because what matters is whether any ink is
         // outside the box that clips it, and that is the thing a later change
-        // to the font, the size rung or the badge's own metrics would break.
+        // to the font or the pill's metrics would break.
         const labelOverflow = await app.evalJS<{
           scrollHeight: number;
           clientHeight: number;
         }>(
           `(function () {
-             var el = document.querySelector('${PILL} .tug-badge-text');
+             var el = document.querySelector('${PILL} .tugx-update-pill-text');
              if (el === null) return null;
              return { scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
            })()`,
@@ -543,6 +543,39 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         note("at0612 pill label", JSON.stringify(labelOverflow));
         expect(labelOverflow.scrollHeight).toBeLessThanOrEqual(
           labelOverflow.clientHeight,
+        );
+
+        // The `x` is inside the pill, not hanging off it. It used to be a bare
+        // sibling beyond the fill's right edge, floating over whatever the
+        // canvas had at that spot and reading as a second, unrelated object.
+        // Measured as containment in the painted box, which is the fact the
+        // eye is actually reporting.
+        const hideInside = await app.evalJS<{
+          fill: { left: number; right: number; top: number; bottom: number };
+          hide: { left: number; right: number; top: number; bottom: number };
+        }>(
+          `(function () {
+             var fill = document.querySelector('.tugx-update-pill');
+             var hide = document.querySelector(${JSON.stringify(PILL_HIDE)});
+             if (fill === null || hide === null) return null;
+             var f = fill.getBoundingClientRect();
+             var h = hide.getBoundingClientRect();
+             return {
+               fill: { left: f.left, right: f.right, top: f.top, bottom: f.bottom },
+               hide: { left: h.left, right: h.right, top: h.top, bottom: h.bottom },
+             };
+           })()`,
+        );
+        note("at0612 pill hide", JSON.stringify(hideInside));
+        expect(hideInside.hide.left).toBeGreaterThanOrEqual(
+          hideInside.fill.left,
+        );
+        expect(hideInside.hide.right).toBeLessThanOrEqual(
+          hideInside.fill.right,
+        );
+        expect(hideInside.hide.top).toBeGreaterThanOrEqual(hideInside.fill.top);
+        expect(hideInside.hide.bottom).toBeLessThanOrEqual(
+          hideInside.fill.bottom,
         );
 
         // ---- Door one: the pill opens the wizard [B01] -------------------

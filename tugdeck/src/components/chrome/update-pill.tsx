@@ -8,6 +8,21 @@
  * *Installing…* — which is the opposite of one purpose ([F08]), and is what the
  * wizard is for. Clicking the pill opens `UpdateTug`; the `x` puts the pill away.
  *
+ * # One object, two hit targets
+ *
+ * The pill is a single painted surface holding both controls: the label on the
+ * left opens the wizard, the `x` at its right edge hides it. The `x` used to
+ * hang outside the pill as a bare sibling floating over whatever the canvas had
+ * at that spot, which read as a second, unrelated thing rather than as part of
+ * the notice — so it is inside the fill now, sharing its background and its
+ * squared top corners.
+ *
+ * That is also why the surface is painted here rather than by `TugBadge`. A
+ * badge is display-only and puts its children inside a clipping text span, so a
+ * badge can be the pill *or* it can hold the two buttons, never both. The fill
+ * is two shipping tokens — the same `filled` / `accent` pair the badge would
+ * have resolved — so nothing about the colour is invented here ([L20]).
+ *
  * # When it shows
  *
  * Whenever an update is **live** and the wizard is **closed**. Live means an
@@ -68,8 +83,6 @@ import {
   requestUpdateTug,
   useUpdateTugOpen,
 } from "@/lib/update-tug-request-store";
-import { TugBadge } from "@/components/tugways/tug-badge";
-import { TugIconButton } from "@/components/tugways/tug-icon-button";
 
 /**
  * The stages in which an update exists.
@@ -118,31 +131,31 @@ export function UpdatePill(): ReactElement | null {
 
   return createPortal(
     <div className="tugx-update-pill-anchor" data-slot="update-pill">
-      <button
-        type="button"
-        className="tugx-update-pill-button"
-        data-testid="update-pill"
-        data-stage={state.stage}
-        aria-label={`${pillLabel(state.version)} — open the update wizard`}
-        onClick={requestUpdateTug}
-      >
-        <TugBadge
-          emphasis="filled"
-          role="accent"
-          size="lg"
-          icon={<ArrowDownToLine aria-hidden />}
+      <div className="tugx-update-pill" data-stage={state.stage}>
+        <button
+          type="button"
+          className="tugx-update-pill-open"
+          data-testid="update-pill"
+          data-stage={state.stage}
+          aria-label={`${pillLabel(state.version)} — open the update wizard`}
+          onClick={requestUpdateTug}
         >
-          {pillLabel(state.version)}
-        </TugBadge>
-      </button>
-      <TugIconButton
-        icon={<X size={14} aria-hidden />}
-        aria-label="Hide the update notice"
-        title="Hide"
-        data-testid="update-pill-hide"
-        className="tugx-update-pill-hide"
-        onClick={() => setHidden(true)}
-      />
+          <ArrowDownToLine size={12} aria-hidden />
+          <span className="tugx-update-pill-text">
+            {pillLabel(state.version)}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="tugx-update-pill-hide"
+          data-testid="update-pill-hide"
+          aria-label="Hide the update notice"
+          title="Hide"
+          onClick={() => setHidden(true)}
+        >
+          <X size={12} aria-hidden />
+        </button>
+      </div>
     </div>,
     overlayRoot,
   );

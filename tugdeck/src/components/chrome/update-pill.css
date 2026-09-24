@@ -1,10 +1,23 @@
 /*
  * update-pill — the modeless update notice, anchored at the window's top centre.
  *
- * Almost nothing is painted here. The pill is `TugBadge` and the hide control is
- * `TugIconButton`, both shipping components with theme-aware tokens of their
- * own, so this file owns only what composing them needs: where the anchor is,
- * and the two hit targets.
+ * One object, painted once: an accent fill holding two hit targets — the label,
+ * which opens the wizard, and the `x` at the fill's right edge, which puts the
+ * notice away. The `x` was a bare sibling outside the fill, hanging over
+ * whatever the canvas had at that spot; it is inside the pill now, on the pill's
+ * own background, and the pill is one shape again.
+ *
+ * The fill is painted here rather than by `TugBadge` because a badge is
+ * display-only and wraps its children in a clipping text span — it can be the
+ * pill or it can hold the two buttons, not both. The colours are the very
+ * `filled` / `accent` pair the badge resolved, and the metrics are its `lg`
+ * rung, so nothing here is a new token or a new size ([L20]).
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role    | Context |
+ * |--------------------------------------------------|---------------------------------------------------|---------|---------|
+ * | --tug7-element-control-text-filled-accent-rest   | --tug7-surface-control-primary-filled-accent-rest | control | .tugx-update-pill label + icons |
+ * | --tug7-element-control-border-filled-accent-rest | --tug7-surface-control-primary-filled-accent-rest | control | .tugx-update-pill border |
  */
 
 /* ---- The anchor ----
@@ -47,57 +60,90 @@
   width: fit-content;
   max-width: calc(100vw - 2 * var(--tug-space-lg));
   pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--tug-space-2xs);
 }
 
-/* A bare button around the badge: `TugBadge` is display-only by design and
- * carries no interactive affordance, so the hit target and the focus ring are
- * this file's and everything visible is the badge's own.
+/* ---- The pill ----
  *
- * The `x` is a sibling rather than a child, and that is structural — a button
- * inside a button is not a thing the DOM allows. So the pill is a row of two hit
- * targets: press the badge to open the wizard, press the `x` to hide. */
-.tugx-update-pill-button {
+ * The badge's `filled accent` pair and its `lg` metrics — 28px tall, 12px text —
+ * with the right padding pulled in to `2xs` so the `x`'s own hit target supplies
+ * the rest of the inset. Asymmetric padding is what keeps the two sides looking
+ * equally inset: a glyph in a 20px target is already carrying padding of its
+ * own, and a full 0.75rem after it would read as a gap.
+ */
+.tugx-update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  height: 1.75rem; /* 28px — the badge's `lg` rung, by value: [L20] keeps this
+                      file out of the badge's token namespace. */
+  padding-inline: 0.75rem var(--tug-space-2xs);
+  border: 1px solid var(--tug7-element-control-border-filled-accent-rest);
+  background-color: var(--tug7-surface-control-primary-filled-accent-rest);
+  color: var(--tug7-element-control-text-filled-accent-rest);
+  border-radius: var(--tug-radius-xs);
+  /* Square where it meets the window's edge; see the anchor note. */
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  font-size: 0.75rem; /* 12px — the same rung's text. */
+  font-weight: var(--tug-font-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* The two hit targets. Both are bare — everything visible around them is the
+ * pill's — so all either owns is its box, its cursor and its focus ring. `color:
+ * inherit` is what makes the icons and the text read as one object rather than
+ * as controls dropped onto a coloured strip. */
+.tugx-update-pill-open,
+.tugx-update-pill-hide {
   all: unset;
   display: inline-flex;
+  align-items: center;
+  color: inherit;
   cursor: default;
   pointer-events: auto;
   border-radius: var(--tug-radius-xs);
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
 }
 
-/* Square the badge's top corners where it meets the window's edge. Scoped to
-   this mount rather than set on `TugBadge`, which is display-only and shared —
-   the shape belongs to where this one badge sits, not to the badge. */
-.tugx-update-pill-button .tug-badge {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+.tugx-update-pill-open {
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  /* The label is the pill's whole height, so the press target is the sentence
+     and its margins rather than the glyph run alone. */
+  align-self: stretch;
 }
 
-/* Give the descenders room. `.tug-badge` sets `line-height: 1`, so the line box
-   is exactly the font size — 12px at this rung — while the glyphs' descenders
-   fall below it, and `.tug-badge-text` clips them with `overflow: hidden`. The
-   bottom of the `g` in *Tug* and *available* was being cut off.
-   `line-height: 1` is right for a two-character chip and wrong for a sentence,
-   which is what this one badge carries; the 28px badge box has ample room, so
-   the taller line box changes nothing but the clip. Scoped here rather than
-   fixed on the badge, which every other mount in the app shares. */
-.tugx-update-pill-button .tug-badge-text {
-  line-height: 1.4;
+/* The label's own box, so a constrained pill ellipsizes instead of clipping —
+   the flex parent has no elidable text box of its own. */
+.tugx-update-pill-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.tugx-update-pill-button:focus-visible {
-  outline: 2px solid var(--tug7-element-global-border-normal-accent-rest);
-  outline-offset: 2px;
-}
-
-/* The hide control is quiet already — `TugIconButton` is a ghost-emphasis icon
- * button, which is the treatment this wants — so all that is owed here is the
- * hit target the anchor's `pointer-events: none` would otherwise swallow. */
+/* The `x` is quiet at rest — no plate, no border — and answers the pointer with
+   a wash of its own ink over the accent fill. Drawn from `currentColor` rather
+   than from a token so it stays correct in every theme without either half of
+   the pair being named twice. */
 .tugx-update-pill-hide {
-  pointer-events: auto;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  opacity: 0.85;
+}
+
+.tugx-update-pill-hide:hover {
+  opacity: 1;
+  background-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.tugx-update-pill-hide:active {
+  background-color: color-mix(in srgb, currentColor 32%, transparent);
+}
+
+.tugx-update-pill-open:focus-visible,
+.tugx-update-pill-hide:focus-visible {
+  outline: 2px solid var(--tug7-element-control-text-filled-accent-rest);
+  outline-offset: -2px;
 }
