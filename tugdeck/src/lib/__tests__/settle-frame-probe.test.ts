@@ -37,9 +37,33 @@ function pane(
     opacity: 1,
     animations: 0,
     offendingProperties: [],
-    offCurve: false,
+    appliedTranslate: null,
+    curveTranslate: null,
+    hasTransformEffect: false,
     ...overrides,
   };
+}
+
+/**
+ * A pane standing exactly where its own curve says it should.
+ *
+ * The default `pane()` carries no transform-bearing effect at all, which is
+ * Spec S01's fourth case — never comparable. This is the on-curve pane for a
+ * run that is actually animating: an effect present, and the applied pose
+ * equal to the expected one.
+ */
+function onCurve(
+  paneId: string,
+  at: readonly [number, number],
+  overrides: Partial<SettleFramePaneSample> = {},
+): SettleFramePaneSample {
+  return pane(paneId, {
+    hasTransformEffect: true,
+    appliedTranslate: at,
+    curveTranslate: at,
+    animations: 1,
+    ...overrides,
+  });
 }
 
 /**
@@ -54,9 +78,18 @@ function run(opts: {
   quiet: number;
   gapAt?: { index: number; extraMs: number };
   zeroClockTicks?: number;
+  /** Ticks from the head of the move that read `movePending` — the window. */
+  pendingTicks?: number;
   panes?: (tick: number) => SettleFramePaneSample[];
 }): SettleFrameSample[] {
-  const { ticks, quiet, gapAt, zeroClockTicks = 0, panes } = opts;
+  const {
+    ticks,
+    quiet,
+    gapAt,
+    zeroClockTicks = 0,
+    pendingTicks = 0,
+    panes,
+  } = opts;
   const samples: SettleFrameSample[] = [];
   let t = 0;
   let clock = 0;
@@ -69,7 +102,7 @@ function run(opts: {
     samples.push({
       t,
       moveCurrentTime: moving ? clock : null,
-      movePending: false,
+      movePending: moving && i < quiet + pendingTicks,
       frames: panes?.(i) ?? [pane("p1", { animations: moving ? 1 : 0 })],
       fixedDescendants: 0,
     });
@@ -259,6 +292,323 @@ describe("classifySettleFrames", () => {
       reading.framePeriodMs,
       "the probe armed mid-settle; the run's own gaps answer",
     ).toBe(PERIOD);
+  });
+
+  test("a frame standing where its curve says is on-curve, and half a pixel out still is", () => {
+    const exact = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) =>
+          tick < 10 ? [pane("p1")] : [onCurve("p1", [12, 4])],
+      }),
+    );
+    expect(exact.offCurveTicks, "the applied pose equals the expected one").toBe(
+      0,
+    );
+
+    const inside = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) =>
+          tick < 10
+            ? [pane("p1")]
+            : [onCurve("p1", [12, 4], { appliedTranslate: [12.4, 4] })],
+      }),
+    );
+    expect(
+      inside.offCurveTicks,
+      "0.4px is inside the half-pixel floor pane-flip's callers round to",
+    ).toBe(0);
+
+    const outside = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) =>
+          tick < 10
+            ? [pane("p1")]
+            : [onCurve("p1", [12, 4], { appliedTranslate: [12.6, 4] })],
+      }),
+    );
+    expect(outside.offCurveTicks, "0.6px is off the curve").toBe(30);
+    expect(outside.offCurvePaneIds).toEqual(["p1"]);
+  });
+
+  test("a pane that never carried a transform effect is never off-curve", () => {
+    // Spec S01's fourth case: a `holdPlan.held` frame wears an inline inverse
+    // and never animates, and a survivor in a three-beat settle wears its
+    // opening pose through the beats that run before its own. Both compute a
+    // translate nothing is carrying, and neither is a defect.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => [
+          tick < 10 ? pane("mover") : onCurve("mover", [0, 0]),
+          pane("held", { appliedTranslate: [-300, 0] }),
+        ],
+      }),
+    );
+
+    expect(
+      reading.offCurveTicks,
+      "a pose with no curve to be off is not comparable",
+    ).toBe(0);
+    expect(reading.offCurvePaneIds).toEqual([]);
+  });
+
+  test("a pane whose beat has ended owes the identity, and a residual translate is off it", () => {
+    // Spec S01's case 3: the effect appeared at tick 3 and is gone by tick 9.
+    // TugAnimator commits and cancels, so the frame carries no effect — but it
+    // is committed at Last, so the only pose it may compute is the identity.
+    const withResidue = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 0,
+        panes: (tick) => [
+          tick >= 3 && tick < 9
+            ? onCurve("p1", [10, 0])
+            : tick >= 9
+              ? pane("p1", { appliedTranslate: [10, 0] })
+              : pane("p1"),
+        ],
+      }),
+    );
+    expect(
+      withResidue.offCurveTicks,
+      "an opening pose outliving its own beat is the land() hop — from tick " +
+        "10 rather than 9, because the hand-off tick itself is admitted: the " +
+        "frame may still be reading the pose its own last effect held",
+    ).toBe(30);
+
+    const landed = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 0,
+        panes: (tick) => [
+          tick >= 3 && tick < 9
+            ? onCurve("p1", [10, 0])
+            : tick >= 9
+              ? pane("p1", { appliedTranslate: null })
+              : pane("p1"),
+        ],
+      }),
+    );
+    expect(
+      landed.offCurveTicks,
+      "the same pane computing no transform is standing at Last",
+    ).toBe(0);
+  });
+
+  test("a frame painting its destination while its curve says its origin is off-curve", () => {
+    // The pending window, which is the defect itself: the effect exists, its
+    // local time is unresolved so the expected pose is keyframe 0 — the
+    // origin — and the element is computing the identity, which for a FLIP is
+    // where the commit already put it.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        pendingTicks: 4,
+        panes: (tick) =>
+          tick < 10
+            ? [pane("p1")]
+            : tick < 14
+              ? [
+                  pane("p1", {
+                    hasTransformEffect: true,
+                    animations: 1,
+                    curveTranslate: [-200, 0],
+                    appliedTranslate: [0, 0],
+                  }),
+                ]
+              : [onCurve("p1", [-100, 0])],
+      }),
+    );
+
+    expect(
+      reading.offCurveTicks,
+      "four ticks of the destination shown while the curve said the origin",
+    ).toBe(4);
+    expect(reading.longestOffCurveRunTicks).toBe(4);
+  });
+
+  test("a null applied translate reads as the identity on both sides of the comparison", () => {
+    const atRest = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) =>
+          tick < 10
+            ? [pane("p1")]
+            : [
+                pane("p1", {
+                  hasTransformEffect: true,
+                  animations: 1,
+                  curveTranslate: [0, 0],
+                  appliedTranslate: null,
+                }),
+              ],
+      }),
+    );
+    expect(
+      atRest.offCurveTicks,
+      "no transform computed and a curve saying the identity agree",
+    ).toBe(0);
+
+    const adrift = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) =>
+          tick < 10
+            ? [pane("p1")]
+            : [
+                pane("p1", {
+                  hasTransformEffect: true,
+                  animations: 1,
+                  curveTranslate: [-200, 0],
+                  appliedTranslate: null,
+                }),
+              ],
+      }),
+    );
+    expect(
+      adrift.offCurveTicks,
+      "computing no transform is standing at the committed pose, not an absence of one — every tick but the last, which is the one tick the curve's pinned end pose is admitted on",
+    ).toBe(29);
+  });
+
+  test("the longest off-curve run is the island, measured from the move's own start", () => {
+    // An island at ticks 20-24 of a run whose move began at tick 10.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => {
+          if (tick < 10) return [pane("p1")];
+          if (tick >= 20 && tick < 25) {
+            return [onCurve("p1", [5, 0], { appliedTranslate: [50, 0] })];
+          }
+          return [onCurve("p1", [5, 0])];
+        },
+      }),
+    );
+
+    expect(reading.longestOffCurveRunTicks, "the island's length").toBe(5);
+    expect(
+      reading.longestOffCurveRunOffsetMs,
+      "ten periods from the first tick a transform effect existed",
+    ).toBe(PERIOD * 10);
+  });
+
+  test("the off-curve run offset is -1 on a clean run", () => {
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => (tick < 10 ? [pane("p1")] : [onCurve("p1", [5, 0])]),
+      }),
+    );
+
+    expect(reading.offCurveTicks).toBe(0);
+    expect(reading.longestOffCurveRunTicks).toBe(0);
+    expect(
+      reading.longestOffCurveRunOffsetMs,
+      "no run means no offset, and zero would read as a run at the start",
+    ).toBe(-1);
+  });
+
+  test("firstPaintDelayMs measures the pending window rather than skipping it", () => {
+    // Three ticks with a move that exists and has not started — `movePending`
+    // with a `currentTime` of 0 — before the clock advances. The shipped read
+    // opened its window on `moveCurrentTime !== null` alone and so started
+    // counting at the first tick the move was ALREADY running, which is why
+    // this field could only ever report ~0 however wide the window was.
+    const reading = classifySettleFrames(
+      run({ ticks: 40, quiet: 10, zeroClockTicks: 3, pendingTicks: 3 }),
+    );
+
+    expect(
+      reading.firstPaintDelayMs,
+      "the wall-clock span of the three pending ticks",
+    ).toBe(PERIOD * 3);
+    expect(reading.pendingTicks, "and the window is counted separately").toBe(3);
+  });
+
+  test("firstPaintDelayMs is -1 when no transform-bearing effect ever appeared", () => {
+    const reading = classifySettleFrames(run({ ticks: 40, quiet: 40 }));
+
+    expect(reading.firstPaintDelayMs).toBe(-1);
+    expect(reading.pendingTicks).toBe(0);
+  });
+
+  test("pendingTicks counts the window and says nothing about off-curve", () => {
+    // The two are separate facts now: a move can be pending for four ticks and
+    // the frame can be holding its origin through every one of them, which is
+    // what a backwards fill buys and what a pendingness-derived `offCurve`
+    // could never have reported.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        pendingTicks: 4,
+        panes: (tick) =>
+          tick < 10 ? [pane("p1")] : [onCurve("p1", [-200, 0])],
+      }),
+    );
+
+    expect(reading.pendingTicks, "the window is still measured").toBe(4);
+    expect(
+      reading.offCurveTicks,
+      "and the frame held its start pose through all of it",
+    ).toBe(0);
+  });
+
+  test("a frame already at its destination on its effect's LAST tick is on-curve", () => {
+    // The curve's final keyframe is pinned to the identity, so a frame that
+    // reaches it a fraction of a frame early on the tick the effect ends has
+    // arrived rather than skipped its travel. There is no tick after it to
+    // bound the band, so the end pose has to be admitted by name.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => {
+          if (tick < 10 || tick > 30) return [pane("p1")];
+          const curve: [number, number] = [-200 + (tick - 10) * 9, 0];
+          // The last tick carrying an effect computes the identity already.
+          return tick === 30
+            ? [onCurve("p1", curve, { appliedTranslate: [0, 0] })]
+            : [onCurve("p1", curve)];
+        },
+      }),
+    );
+
+    expect(reading.offCurveTicks).toBe(0);
+  });
+
+  test("a frame at its destination BEFORE its effect's last tick is still off-curve", () => {
+    // The widening above is one tick wide on purpose: the defect this bar
+    // exists to catch is a frame wearing Last while its curve says it is still
+    // travelling, and admitting the end pose everywhere would retire the bar.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => {
+          if (tick < 10 || tick > 30) return [pane("p1")];
+          const curve: [number, number] = [-200 + (tick - 10) * 9, 0];
+          return tick === 20
+            ? [onCurve("p1", curve, { appliedTranslate: [0, 0] })]
+            : [onCurve("p1", curve)];
+        },
+      }),
+    );
+
+    expect(reading.offCurveTicks).toBe(1);
   });
 
   test("the fixed-descendant count is the worst tick, not the last", () => {

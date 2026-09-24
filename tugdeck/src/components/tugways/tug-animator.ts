@@ -60,6 +60,25 @@ export interface AnimateOptions {
   composite?: CompositeOperation;
   /** WAAPI fill mode. Default: 'forwards'. */
   fill?: FillMode;
+  /**
+   * Raw ms to wait before the active phase begins. Default: 0.
+   *
+   * Scaled by getTugTiming() exactly as {@link AnimateOptions.duration} is, so
+   * a caller that sizes a delay from an unscaled duration gets a sequence that
+   * stays in step at every timing scale.
+   *
+   * A delay is what lets a caller create a whole SEQUENCE of effects in one
+   * frame rather than chaining each on the previous one's `finished`. That
+   * chain costs a frame at every hand-off: the next effect is created in a
+   * microtask after the previous one has already committed and cancelled, so
+   * it is play-pending for the frame that follows and the element wears the
+   * finished pose through it. A delayed effect's start time resolves during
+   * its delay instead, so its first active frame paints its own keyframe 0
+   * with nothing pending. What holds the element WHILE it waits is the
+   * caller's business — a fill of `backwards`, or an inline pose the caller
+   * wrote itself.
+   */
+  delay?: number;
 }
 
 /**
@@ -285,6 +304,7 @@ export function animate(
     slotCancelMode = "snap-to-end",
     composite = "replace",
     fill = "forwards",
+    delay = 0,
   } = options ?? {};
 
   // Reduced-motion: strip spatial properties and fade instead. [D06]
@@ -325,6 +345,9 @@ export function animate(
   // Create the WAAPI animation.
   const wapiAnim = el.animate(resolvedKeyframes, {
     duration: resolvedDuration,
+    // The one place the scale is applied to a delay, for the reason
+    // `resolveDuration` applies it to a duration exactly once.
+    delay: delay * getTugTiming(),
     easing: easing ?? "ease",
     composite,
     fill,

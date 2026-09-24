@@ -3678,6 +3678,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         longestGapFrames: reading.longestGapFrames,
         gapsOverOneFrame: reading.gapsOverOneFrame,
         firstPaintDelayMs: reading.firstPaintDelayMs,
+        pendingTicks: reading.pendingTicks,
+        offCurveTicks: reading.offCurveTicks,
+        offCurvePaneIds: reading.offCurvePaneIds,
+        longestOffCurveRunTicks: reading.longestOffCurveRunTicks,
+        longestOffCurveRunOffsetMs: reading.longestOffCurveRunOffsetMs,
         violations: reading.violations,
       });
       // [D9]'s runtime guard. One row per offending pane/property, split out
@@ -4527,8 +4532,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const settleOpts = {
       // Raw ms: TugAnimator scales by getTugTiming() itself.
       duration: crossing.durationMs,
-      // No retained effect after the tween ends ([D6]).
-      fill: "none",
+      // **A frame's start pose is held by the FRAME, never by the animation's
+      // clock.** That is the rule, and `backwards` is what enforces it.
+      //
+      // The move beat inverts: keyframe 0 is `translate(first - last)`, so the
+      // pose that holds a frame at its ORIGIN is the effect's own first
+      // keyframe. `el.animate()` returns a PLAY-PENDING animation whose start
+      // time stays unresolved until the compositor has been handed the effect,
+      // and under `fill: "none"` an effect whose local time is unresolved
+      // applies NOTHING. Every tick inside that window painted the frame where
+      // the commit had already put it — at the END of the travel, with none of
+      // it shown. A gap counter cannot see that: the frames arrived on time,
+      // they simply arrived carrying the wrong pose.
+      //
+      // This does not break [D6], which forbids a RETAINED effect after the
+      // tween. A backwards fill applies only in the BEFORE phase; in the after
+      // phase it applies nothing, exactly as `none` does. So what TugAnimator
+      // commits at an effect's end is unchanged, and so is every hand-back
+      // that reads it.
+      fill: "backwards",
       composite: "replace",
       // Cancelled by the arm above, which reads progress and velocity off the
       // curve before it does — holding where the eye is, never snapping to an
@@ -5132,13 +5154,91 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         settleSweepRef.current?.(Math.max(2 * totalWindowMs, 1000));
         holdSessions(Math.max(2 * totalWindowMs, 1000));
       }
-      const runBeat = (kind: BeatKind): Promise<void> => {
-        // A retarget landed between beats: `arm` has already cancelled,
-        // restored and re-planned every frame, and a later Last pass owns
-        // them now. Nothing here is this chain's to touch.
-        if (settleGenerationRef.current !== generation) {
-          return Promise.resolve();
+      // Every launched beat's effect is created in THIS frame, each held off
+      // by the sum of the durations of the launched beats before it, and the
+      // chain that used to sequence them is gone. That chain cost a frame at
+      // every hand-off: the next beat's effect was created in a microtask
+      // after the previous one had already committed and cancelled, so it was
+      // play-pending for the frame that followed and the frame wore the
+      // finished pose through it. `at0566` measured the hole at both seams —
+      // `shrink=64..237ms` then `move=254..653ms`, and `move=23..414ms` then
+      // `grow=433..664ms` — and the off-curve probe read it as a single tick
+      // at an offset near the first beat's end.
+      //
+      // What closes that hole is the CREATION, not a fill. A delayed beat
+      // fills `none` — `runBeat` says why, and it is not a detail — so it
+      // applies nothing through its delay and its opening pose is held by
+      // the inline write `applyHolds` makes at launch, for every beat at
+      // once, exactly as it always was. What a beat no longer arrives at its
+      // boundary needing is a COMPOSITOR: its animation was created frames
+      // earlier and its start time resolved long before its active phase
+      // begins, so its first active frame paints its own keyframe 0 with
+      // nothing pending. That window, once per seam, was the whole hole.
+      //
+      // What remains of the chain is a NOTIFIER: each beat still lands itself
+      // off its own `Promise.allSettled`, and the settle's one completion
+      // waits on all of them.
+      const beatMarkers: Animation[] = [];
+      // A beat's own clock starts when its ACTIVE PHASE does, not when its
+      // effect is created. The retarget reads velocity off the beat that is
+      // UP, and with a delayed launch that is a function of elapsed time
+      // rather than of which promise resolved — so `settleBeatRef` and the
+      // container's `data-imposer-beat` are advanced at the moment the beat's
+      // active phase begins.
+      //
+      // On the ANIMATION clock rather than on a timer, and the difference is
+      // measurable: a `setTimeout` sized to the delay fires whenever the task
+      // queue gets to it, which under a settle's own load is tens of ms late,
+      // and `data-imposer-beat` would then name the previous beat for frames
+      // in which this one is already painting — `at0566` reads the beat
+      // windows off that attribute and measured the lag as a resident's top
+      // edge travelling 37px "during the shrink". An empty effect of exactly
+      // the delay's length shares the document timeline with the beat it
+      // announces, so it resolves on the beat's own first active frame and
+      // never after it.
+      const whenBeatBegins = (delayMs: number, begin: () => void): void => {
+        if (delayMs <= 0) {
+          begin();
+          return;
         }
+        const marker = el.animate(null, {
+          duration: Math.max(1, delayMs * getTugTiming()),
+          fill: "none",
+        });
+        beatMarkers.push(marker);
+        void marker.finished.then(
+          () => {
+            if (settleGenerationRef.current !== generation) return;
+            begin();
+          },
+          () => {
+            /* cancelled with the settle; the beat it announced never ran */
+          },
+        );
+      };
+      const runBeat = (kind: BeatKind, delayMs: number): Promise<void> => {
+        // A backwards fill is for the FIRST beat and nothing else, and the
+        // distinction is what keeps the delayed shape honest.
+        //
+        // What `backwards` buys is the play-pending window: `el.animate()`
+        // returns an animation whose start time is unresolved until the
+        // compositor has the effect, and under `none` an unresolved local time
+        // applies nothing — the frame paints at its committed destination for
+        // that window. Only a beat launched at delay 0 has such a window; a
+        // delayed beat's animation is long since started by the time its
+        // active phase begins, so its first active frame paints its own
+        // keyframe 0 with nothing pending.
+        //
+        // And `backwards` on a DELAYED beat costs something real: the effect
+        // is in effect for the whole delay, so a grow beat's `height` is
+        // animating — in WebKit's sense — through the move beat that precedes
+        // it, and the move stops being transform-only. That is the three-beat
+        // settle's central promise ([P08]: at any instant exactly one kind of
+        // thing is moving), and `at0566` read the loss of it as a 2.8px drift
+        // between a frame and the transcript inside it during the move. So a
+        // delayed beat fills `none` and its opening pose is held the way it
+        // always was, by the inline hold `applyHolds` writes at launch.
+        const beatFill: FillMode = delayMs > 0 ? "none" : settleOpts.fill;
         const launches = present(kind);
         // The outer two are not planned beats, so they are launched from what
         // the passes above collected rather than from `present`.
@@ -5149,6 +5249,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // travel, so its window is that recipe's and its easing is the
             // plain one the recipe states — there is no position to spring.
             duration: fadeCurve.durationMs,
+            delay: delayMs,
+            fill: beatFill,
             easing: "ease-out",
           } as const;
           // A RAIL returns by the edge it stands on, and that is the one
@@ -5229,7 +5331,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             }
           }
           if (fades.length === 0) return Promise.resolve();
-          el.setAttribute("data-imposer-beat", kind);
           if (kind === "depart") {
             // The fades are running, so each of these ghosts now has a landing
             // coming that is unconditional on the generation. That is what
@@ -5270,13 +5371,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               strip.style.removeProperty("transform");
             }
           };
-          settleBeatRef.current = {
-            kind,
-            launchedAt: performance.now(),
-            initialVelocity: beatLaunchVelocity(kind, launch),
-            anims: fades,
-            land,
-          };
+          whenBeatBegins(delayMs, () => {
+            el.setAttribute("data-imposer-beat", kind);
+            settleBeatRef.current = {
+              kind,
+              launchedAt: performance.now(),
+              initialVelocity: beatLaunchVelocity(kind, launch),
+              anims: fades,
+              land,
+            };
+          });
           // An arriving frame's fade is registered on its own entry so a
           // retarget cancels what is actually in flight, exactly as a planned
           // beat's tween is.
@@ -5312,7 +5416,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           );
         }
         if (launches.length === 0) return Promise.resolve();
-        el.setAttribute("data-imposer-beat", kind);
         const curve = beatCurve(kind);
         const anims: TugAnimation[] = [];
         const launchedBeats: Array<[Choreographed, SettleBeat]> = [];
@@ -5327,11 +5430,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             {
               ...settleOpts,
               duration: curve.durationMs,
+              delay: delayMs,
+              fill: beatFill,
               // A keyword easing, because the curve rides in the keyframe
               // offsets — `lib/pane-flip.ts` says why a sampled `linear()`
               // cannot be used here.
               easing: "linear",
-              key: "imposer-flip",
+              // One slot PER BEAT, and the reason is the whole of this
+              // change: a named slot cancels whatever is already in it with
+              // `snap-to-end`, so a single `imposer-flip` key meant the move
+              // beat's creation finished the shrink beat outright. Under the
+              // old chain that was invisible — the shrink was already over
+              // when the move was created — and it is exactly what made the
+              // chain load-bearing. With every beat created in one frame the
+              // shared key snapped each beat to its end as the next was made,
+              // and `at0566` read it as a shrink that travelled nothing at
+              // all. The beats of one settle are a sequence, not rivals for
+              // one slot, and a retarget still cancels them through
+              // `settleTweensRef`, which holds every one of them.
+              key: `imposer-flip-${kind}`,
             },
           );
           c.anims.push(anim);
@@ -5339,9 +5456,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
         // The hold this beat replaced comes off when the beat LANDS, not at
         // the settle's completion. TugAnimator commits an effect's value at
-        // its end, and under `fill: none` that value is the underlying inline
-        // style — the opening pose — so a frame left wearing it would snap
-        // back to its hold for the length of the next beat.
+        // its end, and under `fill: backwards` — as under `fill: none`, which
+        // is the point — that value is the underlying inline style, the
+        // opening pose, so a frame left wearing it would snap back to its hold
+        // for the length of the next beat. A backwards fill applies only
+        // BEFORE the active phase and nothing after it, so the commit reads
+        // the same underlying value either way and none of the reasoning below
+        // has to be re-derived for the fill mode.
         //
         // How it comes off differs by property, and that is the whole of the
         // care here. A TRANSFORM is the imposer's own and nothing underlies
@@ -5390,13 +5511,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // The beat the settle is on, for the arm that may interrupt it: it
         // reads the velocity off this recipe at the time since this launch,
         // and lands the beat itself if the launch is already over.
-        settleBeatRef.current = {
-          kind,
-          launchedAt: performance.now(),
-          initialVelocity: beatLaunchVelocity(kind, launch),
-          anims,
-          land,
-        };
+        whenBeatBegins(delayMs, () => {
+          el.setAttribute("data-imposer-beat", kind);
+          settleBeatRef.current = {
+            kind,
+            launchedAt: performance.now(),
+            initialVelocity: beatLaunchVelocity(kind, launch),
+            anims,
+            land,
+          };
+        });
         // `allSettled` because `finished` rejects under hold-at-current — the
         // retarget's cancel — and the generation check on the far side is
         // what tells that apart from a beat that landed. TugAnimator resolves
@@ -5409,11 +5533,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           },
         );
       };
-      void BEAT_ORDER.reduce(
-        (chain, kind) => chain.then(() => runBeat(kind)),
-        Promise.resolve(),
-      )
+      // One launch point, one generation check — the plan's move of the
+      // per-beat guard. A retarget that lands after this frame is the cancel
+      // paths' to take back: `arm` cancels every animation registered on the
+      // frames and re-plans them, which is exactly what it already did for a
+      // beat that was in flight, and now does for beats that are merely
+      // delayed.
+      let beatDelayMs = 0;
+      const beatRuns: Array<Promise<void>> = [];
+      if (settleGenerationRef.current === generation) {
+        for (const kind of BEAT_ORDER) {
+          beatRuns.push(runBeat(kind, beatDelayMs));
+          if (launched.includes(kind)) {
+            beatDelayMs += motionDurationMs(BEAT_RECIPE[kind], duration);
+          }
+        }
+      }
+      void Promise.all(beatRuns)
         .then(() => {
+          for (const marker of beatMarkers) marker.cancel();
           if (settleGenerationRef.current !== generation) return;
           // The settle's one completion, after the final beat's last tween,
           // in this order ([B04]): every frame's inline residue handed back
@@ -6520,6 +6658,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           // the DEPARTING workspace, which the teardown below takes off in the
           // same turn. The arriving workspace is opaque underneath either way,
           // so the worst a failed launch can do is a cut.
+          //
+          // **Deliberately NOT the settle's `backwards`, and this is the one
+          // place in the file where the two choices differ.** The settle holds
+          // each frame's start pose in the frame because the base style there
+          // is the DESTINATION and painting it early is the defect. Here the
+          // base style is the safe pose: keyframe 0 is `opacity: 1`, which is
+          // what the layer already computes, so a backwards fill would buy
+          // nothing — and the failure mode it would have to survive is a
+          // launch that never happens, which must leave the departing layer
+          // VISIBLE for the teardown to cut. A fill that ever applied a hide
+          // before the active phase would turn that benign cut into a frame of
+          // nothing. Do not sweep this one to match the settle.
           fill: "none",
           key: "space-dissolve",
         },

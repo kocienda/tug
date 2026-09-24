@@ -202,7 +202,16 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // narrower module it also names, `lib/settle-frame-probe.ts`, is the
     // instrument rather than the subject; naming only it would leave every
     // surface the bar is actually about covered by nothing.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 23,
+    //
+    // Re-recorded at 24, deleted and re-added rather than raised in place,
+    // for at0624: the REVEAL after an arrival — the second of the two beats a
+    // file opened outside the band owes the reader — is a commit of its own
+    // with a settle of its own, and no other app-test samples it frame by
+    // frame. The settle it runs is this file's, so the surface the pin is
+    // about has nowhere narrower to name; the two narrower modules at0624
+    // also names, `lib/open-file-in-card.ts` and `lib/settle-frame-probe.ts`,
+    // are the door and the instrument rather than the motion.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 24,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that
@@ -256,7 +265,15 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // plan is a pure function a unit test already covers; what the app-test
     // pins is the commit — four panes appended in one state change, in the
     // z-order that settles which member a stack draws — and that lives here.
-    "tugdeck/src/deck-manager.ts": 21,
+    //
+    // Re-recorded at 22, deleted and re-added rather than raised in place,
+    // for at0624 (a file opened outside the band travels on its own curve).
+    // The reveal it pins is `_revealAfterArrival` → `onceCardDidArrive` →
+    // `revealCard`, all three of which live in this manager; the second beat
+    // exists BECAUSE the manager stands it off the arrival's own end, and a
+    // test that named only the door it came through would leave that rule
+    // covered by nothing.
+    "tugdeck/src/deck-manager.ts": 22,
 
     // The Session card. Every session surface the app has — picker, transcript
     // host, composer wiring, the card's own close policy — hangs off this one

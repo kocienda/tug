@@ -722,6 +722,22 @@ export type DeckTraceEvent = {
       longestGapFrames: number;
       gapsOverOneFrame: number;
       firstPaintDelayMs: number;
+      // The pose half of the reading. A settle can arrive every frame on time
+      // and still show none of its travel, by painting a pose its own curve
+      // does not pass through — most often the destination, through the window
+      // before the effect's local time resolves. `offCurveTicks` is that
+      // failure as a number and the bar is zero; the run fields say WHERE in
+      // the settle it happened, which is what separates the pending window
+      // from a seam between beats.
+      //
+      // `fixedDescendants` is deliberately absent: reading it walks every
+      // element under every frame asking each for its computed style, and this
+      // record is paid inside the settle window on a real deck.
+      pendingTicks: number;
+      offCurveTicks: number;
+      offCurvePaneIds: readonly string[];
+      longestOffCurveRunTicks: number;
+      longestOffCurveRunOffsetMs: number;
       violations: readonly string[];
     }
   | {

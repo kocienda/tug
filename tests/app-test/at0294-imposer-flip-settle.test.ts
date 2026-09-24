@@ -176,6 +176,8 @@ function deckShape() {
 interface FrameAnimation {
   paneId: string;
   properties: string[];
+  /** WAAPI's own phase: `"before"` for an effect still inside its delay. */
+  phase: string;
 }
 
 async function frameAnimations(app: App): Promise<FrameAnimation[]> {
@@ -189,9 +191,26 @@ async function frameAnimations(app: App): Promise<FrameAnimation[]> {
         (a.effect.getKeyframes() || []).forEach(function (kf) {
           Object.keys(kf).forEach(function (k) { props[k] = true; });
         });
+        var timing = a.effect.getComputedTiming();
         return {
           paneId: target.getAttribute("data-pane-id") || "",
           properties: Object.keys(props).sort(),
+          // A settle creates every one of its beats in one frame now, each
+          // held off by the beats before it, so an effect EXISTING on a frame
+          // no longer means it is running; the phase tells the two apart.
+          // Read off localTime rather than off progress, because progress in
+          // the before phase depends on the fill and this census must not:
+          // it is `null` under `none` and 0 under `backwards`, so a reader
+          // that branched on it would answer a different question the moment
+          // a beat's fill changed. localTime is the effect's time unadjusted
+          // by its delay, so the before phase is everything below the delay.
+          phase: (function () {
+            var lt = timing.localTime;
+            if (lt === null || lt === undefined) return "idle";
+            var d = timing.delay || 0;
+            if (lt < d) return "before";
+            return lt < d + timing.activeDuration ? "active" : "after";
+          })(),
         };
       })
       .filter(function (x) { return x !== null; })`,
@@ -659,7 +678,7 @@ describe.skipIf(!SHOULD_RUN)(
               paneId: string,
             ): string[] =>
               census
-                .filter((anim) => anim.paneId === paneId)
+                .filter((anim) => anim.paneId === paneId && anim.phase === "active")
                 .map((anim) =>
                   anim.properties
                     .filter((p) => p !== "offset" && p !== "computedOffset" &&
@@ -676,6 +695,18 @@ describe.skipIf(!SHOULD_RUN)(
               const census = await frameAnimations(app);
               expect(effects(census, "p1")).toEqual([]);
               expect(effects(census, "p2")).toEqual(["transform"]);
+              // p1's grow beat EXISTS through the move and is not running:
+              // the settle creates every beat in one frame and holds each off
+              // by the beats before it, so what keeps p1's width at First
+              // through the move is still the inline hold `applyHolds` wrote
+              // at launch: a DELAYED beat fills `none`, so its effect applies
+              // nothing while it waits. What the beat no longer needs at its
+              // boundary is a compositor. The old chain created the effect
+              // there instead, and lost a frame doing it.
+              const waiting = census
+                .filter((a) => a.paneId === "p1" && a.phase === "before")
+                .map((a) => a.properties.filter((p) => p === "width").join(","));
+              expect(waiting).toEqual(["width"]);
             }
             // The transform tween carries no scale at all — the width delta
             // rides as real geometry, so nothing inside the frame is ever a
