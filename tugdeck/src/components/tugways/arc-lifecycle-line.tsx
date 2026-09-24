@@ -9,7 +9,7 @@
  *
  * **The line is one clause: what the arc is doing, then what is in its way**
  * ([B00]). Both halves are derived once and nowhere else. The first is
- * {@link arcReading} — a verb in progress (`Implementing`, `Awaiting
+ * {@link arcReading} — a verb in progress (`Executing`, `Awaiting
  * review`), or `Stopped · <why>` — with the fraction *after* the verb, where
  * it reads as the verb's object ([B02]). The second is the loudest of
  * `arcMetaFacts`' clauses, with a `·` between them, the same mark the join

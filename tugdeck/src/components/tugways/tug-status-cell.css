@@ -78,8 +78,26 @@
    label — so a budget trimmed to the content exactly would erase the
    apparatus that makes the row read as an instrument.
 
+   **A budget is a floor, and the widest face is not measured here.** The
+   word-bearing cells declare their widest reading in TypeScript, beside the
+   table that produces it — `SESSION_PHASE_WIDEST_LABEL` for STATE,
+   `ARC_CELL_WIDEST_WORD` and `ARC_CELL_WIDEST_FRACTION` for the ARC reading,
+   `WORK_CELL_WIDEST_WORD` for TASKS and JOBS — and render it as a hidden
+   sizing face under the live text (see `[data-widest]` below and the
+   indicator's `phaseLabels` ghosts), so the value is the widest reading's
+   width from the first paint whatever it currently says ([D168]). A `ch`
+   number here cannot know when a table grows, and this file has already
+   once been measured against a word that no longer existed. What the
+   budgets settle is the row's design — the wings, the pair rule, the sum
+   the `@container` rungs are asked against — and they hold as long as the
+   faces fit inside them, which the measurements below record.
+
    Widest face → measured need, at 1ch ≈ 6.8px:
-     STATE    "Disconnected"   61px  (value wins)
+     STATE    "Disconnected"   61px  (value wins; between STATE's two dots the
+                                      whole wrap needs 124.6px, which is 16.6
+                                      over 18ch's 108px — the cell has always
+                                      rendered at 136.6px while disconnected,
+                                      and now does so at every reading)
      TIME     "4h 30m 00s"     54px  (value wins)
      CONTEXT  "999.9K / 1M"    58px  (value wins; the denominator is a round
                                       ceiling, so it renders without decimals —
@@ -174,19 +192,27 @@
 
 /* The ARC reading needs STATE's box, because it wears STATE's shape.
 
-   The fourth cell reads ARC while the bound session drives one, and before
-   any step is declared its reading is a WORD — `Brief`, `Devise`, `Review`,
-   `Implement`, `Join` — flanked by the same pair of dots STATE carries, under
-   STATE's own `space-between` layout. A fraction fits 14ch; `Implement` with
-   two 12px dots pinned to the wrap's edges and a minimum channel on each side
-   needs what `Disconnected` needs, so it is given the same 18ch rather than a
-   number arrived at separately for the same shape.
+   The fourth cell reads ARC while the bound session drives one, and its
+   reading is a fraction while a step is in hand and a WORD otherwise —
+   `Briefed`, `Devising`, `Reviewing` / `Review`, `Executing`, `Auditing` /
+   `Audit`, `Finished`, `Stopped`, `Cut`, `Ready` — flanked by the same pair
+   of dots STATE carries, under STATE's own `space-between` layout. The set
+   is closed and its widest members are declared beside the tables in
+   `tug-arc-track.tsx` as `ARC_CELL_WIDEST_WORD` (`Reviewing`, the widest the
+   face RENDERS — `Executing` ties it on letters and falls 2.69px short of it
+   in pixels) and `ARC_CELL_WIDEST_FRACTION` (`00/00`);
+   the value span renders both as hidden sizing faces, so the box is the
+   same at `Reviewing` as at `Executing` as at `2/4` and no reading moves it.
 
-   17ch is what the word measures. `Implement` between two 12px dots with a
-   minimum channel on each side needs 111px in the built app, and 17ch holds
-   113. The old 18ch was STATE's number borrowed for STATE's shape rather than
-   a measurement of this cell's own widest face; the measurement is tighter and
-   is what the exchange is sized on.
+   **17ch is the floor, and the word stands over it.** `Reviewing` between
+   two 12px dots with a minimum channel on each side needs 114.4px of wrap in
+   the built app, and 17ch is 102px; the cell renders at 126.4px bound, which
+   is what the exchange below is measured against. An older note here read
+   `17ch holds 113` — that was the cell's border box, counting the 12px of
+   anchor padding that its negative margins cancel in layout, so `Implement`
+   never fit either and the cell grew whenever it read a word. The face is
+   what keeps the reading inside the box now; the budget is what keeps the
+   wings.
 
    **What ARC takes, JOBS gives as far as JOBS can go and CONTEXT gives the
    rest.** The exchange was once stated as four characters off JOBS alone, and
@@ -204,6 +230,11 @@
    wings to spend. Its widest face is a numerator like `236.2K` with `/ 1M`
    beside it, about 80px, and 14ch holds 94.
 
+   Measured at the slim preset with every sizing face in place: the unbound
+   row's five cells need 616.6px of the 617px content box, and the bound row's
+   596px. That is the slack the row has, and it is why no budget here moved
+   when the faces went in.
+
    TWO internal boundaries move when a session picks an arc up rather than
    one, and that is what the row's outer edges standing still actually costs.
    The edges are the promise — the slim preset is the width Z2 was sized to
@@ -213,8 +244,9 @@
 
    All of these widths are hand-tuned from the Z2 TUNING block on
    `.session-card-status-bar` in `session-card.css`; the numbers here are the
-   fallbacks only. No test pins them — the row is looked at all day, and a
-   regression in it is obvious. */
+   fallbacks only. `at0484-arc-z2-instrument` pins the rendered boxes: it
+   walks a bound session through the ARC cell's readings and asserts the five
+   cells are the same five numbers at each. */
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="tasks"] {
   --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks-arc, 17ch);
@@ -380,6 +412,47 @@
   font-weight: var(--tug-font-weight-bold);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* The widest reading, as a hidden sizing face under the live one.
+
+   A word-bearing value declares its widest possible reading in `data-widest`
+   (and a second shape in `data-widest-alt`, for the ARC cell that shows a
+   word or a fraction in the one box), and the span sizes to the wider of
+   the declaration and what it currently reads. The declaration comes from
+   the TypeScript table that produces the words — `SESSION_PHASE_WIDEST_LABEL`
+   beside `SESSION_PHASE_LABELS`, `ARC_CELL_WIDEST_WORD` beside the arc
+   reading tables — so the box is set from the vocabulary and never from a
+   `ch` count here that cannot know when the vocabulary grows. That is the
+   constraint [D168] states: no live value ever changes a cell's rendered box,
+   because the box was the widest reading's from the first paint.
+
+   Pseudo-elements rather than a ghost span, because the ARC value's
+   `textContent` is what every app-test reads and a ghost child would join it.
+   The span is a column flex so the two faces stack under the live text at
+   zero height and contribute width alone; the `ch` budget on the cell stays
+   as the floor the `@container` rungs are measured against, and this face
+   is what keeps the reading inside it. The work cells (TASKS, JOBS) get the
+   same guarantee from the indicator's own `phaseLabels` ghost set, fed the
+   same declaration. */
+.session-telemetry-status-value[data-widest] {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+.session-telemetry-status-value[data-widest]::before,
+.session-telemetry-status-value[data-widest-alt]::after {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.session-telemetry-status-value[data-widest]::before {
+  content: attr(data-widest);
+}
+.session-telemetry-status-value[data-widest-alt]::after {
+  content: attr(data-widest-alt);
 }
 
 /* Context value — split into colored numerator + muted denominator. The

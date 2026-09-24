@@ -550,7 +550,7 @@ describe.skipIf(!SHOULD_RUN)(
             "implement " + SID_A + " -",
           );
           await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Implementing"`,
+            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Executing"`,
             { timeoutMs: 60000 },
           );
           const seated = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
@@ -558,7 +558,7 @@ describe.skipIf(!SHOULD_RUN)(
             "at0473 Z2 as ARC, seated before step 1",
             JSON.stringify(seated),
           );
-          expect(seated.text).toBe("Implementing");
+          expect(seated.text).toBe("Executing");
           expect(seated.aria).toBe(`arc ${ARC_NAME}, in implement`);
           expect(seated.dots).toEqual(["running", "running"]);
 

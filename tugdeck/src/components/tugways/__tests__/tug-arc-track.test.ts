@@ -6,6 +6,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ARC_CELL_WIDEST_FRACTION,
+  ARC_CELL_WIDEST_WORD,
+  arcCellRestClause,
   arcCellState,
   arcCellWord,
   arcCellTip,
@@ -19,6 +22,7 @@ import {
   type ArcTrackModel,
 } from "../tug-arc-track";
 import { arcPhaseWord } from "@/components/tugways/arc-phase-mark";
+import { ARC_JOIN_READY_CELL_WORD } from "@/lib/arc-join-register";
 import { PLANNED_KIND_SENTENCE } from "@/lib/arc-meta-facts";
 
 const PLAN = { brief: "/b", plan: "/p" };
@@ -233,7 +237,7 @@ describe("arcReading", () => {
     ["brief", "Briefed", "Briefed"],
     ["devise", "Devising", "Devising"],
     ["review", "Reviewing", "Awaiting review"],
-    ["implement", "Implementing", "Implementing"],
+    ["implement", "Executing", "Executing"],
     ["audit", "Auditing", "Awaiting audit"],
     ["join", "Finished", "Finished"],
   ];
@@ -248,7 +252,7 @@ describe("arcReading", () => {
     const reading = arcReading(
       model({ phase: "implement", live: true, steps: arcTrackSteps(steps(2, 3, 6)) }),
     );
-    expect(reading.word).toBe("Implementing");
+    expect(reading.word).toBe("Executing");
     expect(reading.fraction).toBe("3/6");
   });
 
@@ -346,7 +350,7 @@ describe("the live bit", () => {
       stage: "working",
     });
     expect(resting.live).toBe(false);
-    expect(arcReading(resting)).toEqual({ word: "Implementing", fraction: "2/4" });
+    expect(arcReading(resting)).toEqual({ word: "Executing", fraction: "2/4" });
   });
 });
 
@@ -371,7 +375,7 @@ describe("arcCellTip", () => {
     ["brief", "Not yet briefed", "Briefed", "Briefed"],
     ["devise", "Not yet devised", "Devising", "Devised"],
     ["review", "Not yet reviewed", "Reviewing", "Reviewed"],
-    ["implement", "Not yet implemented", "Implementing", "Implemented"],
+    ["implement", "Not yet executed", "Executing", "Executed"],
     ["audit", "Not yet audited", "Auditing", "Audited"],
     // The join cell says what is LEFT: `Finished` alone on a cell reads as
     // though the arc were over, and the arc is over when it has joined.
@@ -396,14 +400,14 @@ describe("arcCellTip", () => {
   test("the implement cell counts, in the participle's own grammar", () => {
     const walking = model({ live: true, steps: arcTrackSteps(steps(3, 4, 6)) });
     expect(arcCellTip(walking, "implement", "active")).toBe(
-      "Implementing · 3 of 6 steps closed",
+      "Executing · 3 of 6 steps closed",
     );
-    expect(arcCellTip(walking, "implement", "done")).toBe("Implemented · 6 steps");
+    expect(arcCellTip(walking, "implement", "done")).toBe("Executed · 6 steps");
     const one = model({ steps: arcTrackSteps(steps(1, null, 1)) });
-    expect(arcCellTip(one, "implement", "done")).toBe("Implemented · 1 step");
+    expect(arcCellTip(one, "implement", "done")).toBe("Executed · 1 step");
     // A plan the entry carries no ledger for keeps the bare participles.
-    expect(arcCellTip(model({ live: true }), "implement", "active")).toBe("Implementing");
-    expect(arcCellTip(model({}), "implement", "done")).toBe("Implemented");
+    expect(arcCellTip(model({ live: true }), "implement", "active")).toBe("Executing");
+    expect(arcCellTip(model({}), "implement", "done")).toBe("Executed");
   });
 
   /**
@@ -466,15 +470,91 @@ describe("the Z2 cell's word", () => {
   });
 
   test("it is the line's own word for a phase", () => {
-    expect(arcCellWord(face({ phase: "review", live: false }))).toBe("Awaiting review");
     expect(arcCellWord(face({ phase: "review", live: true }))).toBe("Reviewing");
+    expect(arcCellWord(face({ phase: "implement", live: true }))).toBe("Executing");
+    expect(arcCellWord(face({ phase: "implement", live: false }))).toBe("Executing");
     expect(arcCellWord(face({ phase: "join" }))).toBe("Finished");
   });
 
-  // The longest word the cell can be asked to hold, against the box it holds
-  // it in. A reading that elides is a reading that is not true.
-  test("the longest reading fits the cell's 18ch", () => {
-    expect("Awaiting review".length).toBeLessThanOrEqual(18);
+  // The two resting clauses are the line's, not the cell's: the cell cannot
+  // hold `Awaiting review`, so it says `Review`, and the line beside it keeps
+  // the clause. Live, the cell reads the line's own verb.
+  test("the two resting clauses are one word on the cell", () => {
+    expect(arcCellWord(face({ phase: "review", live: false }))).toBe("Review");
+    expect(arcCellWord(face({ phase: "audit", live: false }))).toBe("Audit");
+    expect(arcReading(face({ phase: "review", live: false })).word).toBe("Awaiting review");
+    expect(arcReading(face({ phase: "audit", live: false })).word).toBe("Awaiting audit");
+    expect(arcCellWord(face({ phase: "audit", live: true }))).toBe("Auditing");
+  });
+
+  // What the cell cut is not lost: the clause it shortened is what the cell's
+  // accessible label reads back ([B04]), and every reading the cell says in
+  // the line's own words has nothing to read back.
+  test("the shortened clause is available to the face that has room for it", () => {
+    expect(arcCellRestClause(face({ phase: "review", live: false }))).toBe("Awaiting review");
+    expect(arcCellRestClause(face({ phase: "audit", live: false }))).toBe("Awaiting audit");
+    expect(arcCellRestClause(face({ phase: "review", live: true }))).toBeNull();
+    expect(arcCellRestClause(face({ phase: "implement", live: false }))).toBeNull();
+    expect(arcCellRestClause(face({ phase: "join" }))).toBeNull();
+    // A stop's reason is already a run of the label's own; a cut is the whole
+    // reading. Neither is a clause the cell shortened.
+    expect(
+      arcCellRestClause(face({ phase: "audit", live: false, stopped: "needs a decision" })),
+    ).toBeNull();
+    expect(
+      arcCellRestClause(face({ phase: "audit", live: false, direct: true, steps: null })),
+    ).toBeNull();
+  });
+
+  // The reading set is closed, and the cell's box is set from its widest
+  // member ([D168]): every word the cell can be asked to hold is enumerated
+  // here, against the declaration the cell sizes itself from. A word added to
+  // a table that outgrows the declaration fails this, which is the one edit
+  // the declaration exists to be one step away from. The other direction is
+  // pinned too: the declared widest is a word the cell really says, so the
+  // declaration cannot drift into a reservation for nothing.
+  //
+  // This is the CHEAP half of the guard, and it is cheap in a way worth
+  // naming: characters are not pixels, and two words of a length can differ
+  // by several of them in the cell's proportional face — `Reviewing` renders
+  // 2.69px wider than `Executing`, which is how a box declared from the
+  // second grew every time the first was live. The rendered box is pinned by
+  // `at0484-arc-z2-instrument`, which walks the tie. What this test catches
+  // is the other failure, and the more likely one: a word added to a table
+  // that is simply longer than anything the declaration has seen.
+  test("every reading the cell can show fits its declared widest word", () => {
+    const PHASES: readonly ArcPhase[] = ["brief", "devise", "review", "implement", "audit", "join"];
+    const readings = new Set<string>();
+    for (const phase of PHASES) {
+      readings.add(arcCellWord(face({ phase, live: true })));
+      readings.add(arcCellWord(face({ phase, live: false })));
+    }
+    readings.add(arcCellWord(face({ stopped: "needs a decision", stoppedWhy: "why" })));
+    readings.add(arcCellWord(face({ direct: true, planned: false, steps: null })));
+    readings.add(ARC_JOIN_READY_CELL_WORD);
+    expect(readings).toContain("Stopped");
+    expect(readings).toContain("Cut");
+    expect(readings).toContain("Review");
+    expect(readings).toContain("Audit");
+    expect(readings).toContain(ARC_CELL_WIDEST_WORD);
+    for (const word of readings) {
+      expect(word.length, `${word} is wider than ${ARC_CELL_WIDEST_WORD}`).toBeLessThanOrEqual(
+        ARC_CELL_WIDEST_WORD.length,
+      );
+    }
+  });
+
+  // The same closure for the numerals: every fraction shape up to `99/99` is
+  // no wider, in characters, than the declared shape, and no fraction the
+  // cell shows carries a zero numerator ([B03]) or a numerator past its total.
+  test("every fraction shape up to 99/99 fits its declared widest shape", () => {
+    for (let total = 1; total <= 99; total++) {
+      for (let current = 1; current <= total; current++) {
+        const shape = `${current}/${total}`;
+        expect(shape.length, shape).toBeLessThanOrEqual(ARC_CELL_WIDEST_FRACTION.length);
+      }
+    }
+    expect("99/99".length).toBe(ARC_CELL_WIDEST_FRACTION.length);
   });
 
   // The clause the cell cannot hold: the reason is on the placard one press
@@ -508,7 +588,7 @@ describe("the Z2 cell's word", () => {
     });
     expect(walked.direct).toBe(true);
     expect(walked.phase).toBe("audit");
-    expect(arcCellWord(walked)).toBe("Awaiting audit");
+    expect(arcCellWord(walked)).toBe("Audit");
   });
 });
 
@@ -524,7 +604,7 @@ describe("the mark's word", () => {
       steps: steps(1, 2, 4),
       stage: "implementing",
     });
-    expect(arcPhaseWord(walking)).toBe("Implementing");
+    expect(arcPhaseWord(walking)).toBe("Executing");
     expect(
       arcPhaseWord(arcTrackModel({ documents: PLAN, steps: steps(4, null, 4), stage: "working" })),
     ).toBe("Awaiting audit");
@@ -567,7 +647,7 @@ describe("a seated session's purpose", () => {
     ["brief", "Writing the brief"],
     ["devise", "Devising a plan"],
     ["review", "Reviewing the plan"],
-    ["implement", "Implementing the plan"],
+    ["implement", "Executing the plan"],
     ["audit", "Auditing the branch"],
     ["join", "Finished — the join is next"],
   ];
@@ -594,7 +674,7 @@ describe("a seated session's purpose", () => {
       "Walking the task list",
     );
     expect(arcSessionPurpose(model({ phase: "implement", planned: true }))).toBe(
-      "Implementing the plan",
+      "Executing the plan",
     );
   });
 

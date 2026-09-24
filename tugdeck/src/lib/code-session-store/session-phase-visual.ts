@@ -218,6 +218,15 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   errored: "Error",
 };
 
+/**
+ * The widest label in {@link SESSION_PHASE_LABELS}, declared beside the
+ * table so the STATE cell's box is sized from the word rather than from a
+ * `ch` count tuned in a stylesheet that cannot know when this table grows.
+ * The Z2 STATE cell renders it as a hidden sizing face under its live
+ * reading ([D168]); a label added above that outgrows it is one edit away.
+ */
+export const SESSION_PHASE_WIDEST_LABEL = "Disconnected";
+
 // ---------------------------------------------------------------------------
 // Visual mapping
 // ---------------------------------------------------------------------------

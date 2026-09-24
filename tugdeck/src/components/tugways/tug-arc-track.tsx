@@ -326,7 +326,7 @@ function arcPhase(stage: string): ArcPhase {
  * under audit reads `Auditing` rather than `Auditing 6/6`.
  */
 export interface ArcReading {
-  /** The clause: `Implementing`, `Awaiting review`, `Stopped · stalled`. */
+  /** The clause: `Executing`, `Awaiting review`, `Stopped · stalled`. */
   word: string;
   /** `3/6` while a step is in hand, `null` otherwise. */
   fraction: string | null;
@@ -344,13 +344,48 @@ const ARC_PHASE_READINGS: Record<ArcPhase, { live: string; rest: string }> = {
   brief: { live: "Briefed", rest: "Briefed" },
   devise: { live: "Devising", rest: "Devising" },
   review: { live: "Reviewing", rest: "Awaiting review" },
-  implement: { live: "Implementing", rest: "Implementing" },
+  implement: { live: "Executing", rest: "Executing" },
   audit: { live: "Auditing", rest: "Awaiting audit" },
   // The work is over and the join is what is left. The register one line
   // below says what the join is doing, and the line must not say it twice
   // ([B01]).
   join: { live: "Finished", rest: "Finished" },
 };
+
+/**
+ * The cell-only short forms of the two resting clauses. The line reads the
+ * clause; the cell, which cannot hold one, reads the word.
+ */
+const ARC_CELL_REST_WORDS = { review: "Review", audit: "Audit" } as const;
+
+/**
+ * The widest reading the Z2 ARC cell can show, declared beside the tables
+ * that produce it so the cell's box is set from the word and never from a
+ * `ch` count in a stylesheet ([D168]).
+ *
+ * **The widest word is the widest RENDERED word, not the longest one.**
+ * `Executing` and `Reviewing` share the nine-letter ceiling of {@link
+ * ARC_PHASE_READINGS} once the two resting clauses take their short forms,
+ * and in the cell's proportional face they are not the same width:
+ * `Reviewing` measures 126.41px between the cell's two dots against
+ * `Executing`'s 123.72px, so a box sized on `Executing` grew by 2.69px every
+ * time a plan went under review. It is declared here in pixels' own terms —
+ * the widest reading — and a letter count is only the cheap half of the
+ * guard. `Stopped`, `Cut` and the join register's `Ready` are shorter on both
+ * counts. A word added to the table above that outgrows this one by letters
+ * fails the unit test over every reading; one that outgrows it by pixels
+ * alone fails `at0484-arc-z2-instrument`, which walks the tie in a rendered
+ * box.
+ */
+export const ARC_CELL_WIDEST_WORD = "Reviewing";
+
+/**
+ * The widest fraction shape the same cell can show while a step is in hand.
+ * Zeros because the cell sets digits `tabular-nums`, so every digit is one
+ * width and the shape is what matters. A ledger past 99 steps would need a
+ * wider declaration, and no arc has one.
+ */
+export const ARC_CELL_WIDEST_FRACTION = "00/00";
 
 /** {@link ArcReading} for a model. Pure. */
 export function arcReading(model: ArcTrackModel): ArcReading {
@@ -372,18 +407,50 @@ export function arcReading(model: ArcTrackModel): ArcReading {
  * clause: the cell is 18ch and its reading is centred between two dots, so a
  * stop says `Stopped` and leaves its reason to the placard one press away.
  *
+ * The two resting forms that are clauses — `Awaiting review` and `Awaiting
+ * audit` — are shortened here to `Review` and `Audit`, and only here: the
+ * line keeps the clause, and the cell's accessible label reads it back
+ * through {@link arcCellRestClause}, so nothing is lost by the cut. These
+ * and the two words below are the
+ * cell's only departures from the line's table, which keeps the cell and the
+ * line beside it from ever disagreeing about what the arc is doing.
+ *
  * An arc with a branch and no ledger at all reads `Cut` — nothing else has
  * been declared, which is a past participle like every other resting word
  * here. It used to say `Working`, an -ing word for a phase the arc does not
  * have, which read as a claim somebody was at it. A hand-worked arc that
  * wrote itself a task list is not that arc: it has a ledger, so it shows a
- * fraction while it walks one and this cell's own phase word — `Awaiting
- * audit` — once it stops walking.
+ * fraction while it walks one and this cell's own phase word — `Audit` —
+ * once it stops walking.
  */
 export function arcCellWord(model: ArcTrackModel): string {
   if (model.stopped !== null) return "Stopped";
   if (model.direct && model.steps === null) return "Cut";
+  if (!model.live && model.phase in ARC_CELL_REST_WORDS) {
+    return ARC_CELL_REST_WORDS[model.phase as keyof typeof ARC_CELL_REST_WORDS];
+  }
   return arcReading(model).word;
+}
+
+/**
+ * The clause {@link arcCellWord} shortened, for a face with room for it —
+ * `Awaiting review` behind the cell's `Review`, `Awaiting audit` behind its
+ * `Audit` — and `null` for every reading the cell says in the line's own
+ * words ([B04]).
+ *
+ * The cut is a cut only on the GLYPH: the Z2 cell's accessible label reads
+ * this back, so a reader who hears the cell rather than sees it is told what
+ * the arc is waiting for and not merely which stage it is parked in. `Stopped`
+ * and `Cut` are not shortened clauses and are not here — a stop's reason is
+ * already in the label's own run, and `Cut` is the whole reading.
+ */
+export function arcCellRestClause(model: ArcTrackModel): string | null {
+  if (model.stopped !== null) return null;
+  if (model.direct && model.steps === null) return null;
+  if (!model.live && model.phase in ARC_CELL_REST_WORDS) {
+    return arcReading(model).word;
+  }
+  return null;
 }
 
 /**
@@ -412,7 +479,7 @@ const ARC_STAGE_PURPOSES: Record<ArcPhase, string> = {
   brief: "Writing the brief",
   devise: "Devising a plan",
   review: "Reviewing the plan",
-  implement: "Implementing the plan",
+  implement: "Executing the plan",
   audit: "Auditing the branch",
   join: "Finished — the join is next",
 };
@@ -485,7 +552,7 @@ const ARC_CELL_PARTICIPLES: Record<ArcPhase, { pending: string; done: string }> 
   brief: { pending: "Not yet briefed", done: "Briefed" },
   devise: { pending: "Not yet devised", done: "Devised" },
   review: { pending: "Not yet reviewed", done: "Reviewed" },
-  implement: { pending: "Not yet implemented", done: "Implemented" },
+  implement: { pending: "Not yet executed", done: "Executed" },
   audit: { pending: "Not yet audited", done: "Audited" },
   join: { pending: "Not yet joined", done: "Joined" },
 };

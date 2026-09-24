@@ -250,7 +250,7 @@ An arc wears one grammar in two registers. Where the arc is the **subject** — 
 | `brief` | Briefed | Briefed |
 | `devise` | Devising | Devising |
 | `review` | Reviewing | Awaiting review |
-| `implement` | Implementing | Implementing |
+| `implement` | Executing | Executing |
 | `audit` | Auditing | Awaiting audit |
 | `join` | Finished | Finished |
 
@@ -264,12 +264,14 @@ The two phases that read differently at rest are the two done *to* an arc rather
 
 | Cell | Reading |
 |---|---|
-| pending | `Not yet implemented` |
-| active | `Implementing · 3 of 6 steps closed` |
-| done | `Implemented · 6 steps` |
+| pending | `Not yet executed` |
+| active | `Executing · 3 of 6 steps closed` |
+| done | `Executed · 6 steps` |
 | stopped | `Reviewing — stopped: the plan does not lint` |
 
-**The other registers say the same words in the room they have.** The compact mark's one tooltip reads `<arc> · Implementing step 3 of 6`, and a stop there names the phase the glyph gave up when it became the stop's octagon: `<arc> · Stopped in review · needs a decision`. The Z2 cell has 18ch and no room for a clause, so it says the word alone — `Awaiting review`, `Briefed`, `Stopped`, or `Cut` for an arc with a branch and no ledger — and leaves the reason to the placard one press away. The arc receipt's row is the one face with an override, because a receipt is a frozen record with no live model to ask: `Finished · 3 stages`, `Picked back up`, `Stopped · <why>`.
+**The other registers say the same words in the room they have.** The compact mark's one tooltip reads `<arc> · Executing step 3 of 6`, and a stop there names the phase the glyph gave up when it became the stop's octagon: `<arc> · Stopped in review · needs a decision`. The Z2 cell has no room for a clause, so it says the word alone — `Briefed`, `Stopped`, or `Cut` for an arc with a branch and no ledger — and leaves the reason to the placard one press away. The two resting forms that are clauses take a cell-only short form there: `Review` for `Awaiting review` and `Audit` for `Awaiting audit`, with the line keeping the clause and the cell's accessible label reading it back in full. The arc receipt's row is the one face with an override, because a receipt is a frozen record with no live model to ask: `Finished · 3 stages`, `Picked back up`, `Stopped · <why>`.
+
+**The implement phase reads `Executing`, and every Z2 cell is sized to its widest reading.** `Implementing` was too long for the cell and widened it, moving the row under the reader's eye. `Executing` is nine letters — the same as `Reviewing` — carries the sense of running a plan that already exists, and inflects on every face: `Executing the plan` on the line, `Executed` and `Not yet executed` in the hovers. The phase key stays `implement`; only the words in the tables change. And the rule the cell lost is restated as one: **no live value may ever change a Z2 cell's rendered box.** Each word-bearing cell declares its widest reading beside the table that produces it — `SESSION_PHASE_WIDEST_LABEL`, `ARC_CELL_WIDEST_WORD` with its fraction shape, `WORK_CELL_WIDEST_WORD` — the widest word the face renders rather than the longest, since `Reviewing` and `Executing` tie on letters and differ by 2.69px — and renders it as a hidden sizing face under the live text, so the box is the widest reading's from the first paint and the reading swaps inside it. A unit test closes every reading against its declaration, and `at0484-arc-z2-instrument` walks a bound session through the cell's readings asserting the five rendered boxes never move. [D168] holds the rule.
 
 ## See also
 

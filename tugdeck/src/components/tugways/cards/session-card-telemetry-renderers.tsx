@@ -78,6 +78,7 @@ import {
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
   SESSION_PHASE_LABELS,
+  SESSION_PHASE_WIDEST_LABEL,
   type SessionPhaseInput,
 } from "@/lib/code-session-store/session-phase-visual";
 import { useSessionJoinReady } from "@/lib/code-session-store/use-session-phase";
@@ -116,7 +117,12 @@ import {
 } from "./session-card-telemetry-popovers";
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import { arcMarkFraction } from "@/components/tugways/arc-lifecycle-mark";
-import { arcCellWord } from "@/components/tugways/tug-arc-track";
+import {
+  ARC_CELL_WIDEST_FRACTION,
+  ARC_CELL_WIDEST_WORD,
+  arcCellRestClause,
+  arcCellWord,
+} from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
@@ -134,6 +140,7 @@ import {
   arcCellNumerals,
   arcCellPose,
   formatCellCount,
+  WORK_CELL_WIDEST_WORD,
   formatTaskFraction,
   jobsCellActiveCount,
   jobsCellDisplayPose,
@@ -1358,11 +1365,20 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // too — otherwise the one state that is asking for the user is the one state
   // the label does not name.
   const arcReadyLabel = joinReady ? ", ready to join" : "";
+  // The two rest forms the cell shortens to fit — `Review`, `Audit` — say
+  // their whole clause here ([B04]). The cut is a cut on the glyph alone: a
+  // reader who HEARS the cell would otherwise be told the arc's name and
+  // nothing about what it is waiting for, since the stage run above is empty
+  // for exactly the arc that has no stage seated on it.
+  const arcClauseLabel =
+    arcModel === null ? null : arcCellRestClause(arcModel);
+  const arcRestLabel =
+    arcClauseLabel === null ? "" : `, ${arcClauseLabel.toLowerCase()}`;
   const arcCellLabel =
     arcFact === null
       ? ""
       : arcFraction === null
-        ? `arc ${arcFact.name}${arcReadyLabel}${arcRunLabel}`
+        ? `arc ${arcFact.name}${arcRestLabel}${arcReadyLabel}${arcRunLabel}`
         : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcReadyLabel}${arcRunLabel}`;
   // The placard's one exit: this card's own Changes shade, where every decision
   // about an arc already lives ([D152]). The content scope, not the bare card
@@ -1535,7 +1551,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // first — the pair somebody asked for — and the plan's own pair when none
   // was declared, but only through `arcCellNumerals`' gate: the wheel's stage
   // is `implement` (or nothing drives the arc) and a step is in hand. A
-  // reviewed-but-unstarted plan says `Review` or `Implement` rather than
+  // reviewed-but-unstarted plan says `Review` or `Executing` rather than
   // `0/10`, and an arc under audit says `Audit` rather than `3/3` — a zero
   // numerator counts work that has not started, and a full one counts work
   // the seated stage is no longer doing ([B03]).
@@ -1837,7 +1853,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           phaseVisual={sessionSessionPhaseVisual}
           aria-hidden
         />
-        <span className="session-telemetry-status-value">{stateLabelText}</span>
+        <span className="session-telemetry-status-value" data-widest={SESSION_PHASE_WIDEST_LABEL}>
+          {stateLabelText}
+        </span>
         <TugProgressIndicator
           variant="pulsing-dot"
           size={12}
@@ -1951,6 +1969,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               className="session-telemetry-status-value"
               data-slot="session-telemetry-arc-value"
               aria-label={arcCellLabel}
+              data-widest={ARC_CELL_WIDEST_WORD}
+              data-widest-alt={ARC_CELL_WIDEST_FRACTION}
             >
               {arcReading}
             </span>
@@ -1975,7 +1995,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             // widest, so a fraction needs a fraction-shaped reservation
             // or it shifts as digits accrue.
             phaseLabels={{
-              none: "None",
+              none: WORK_CELL_WIDEST_WORD,
               max: "00/00",
             }}
             aria-label={tasksSummary}
@@ -2002,7 +2022,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             label={jobsLabelText}
             labelAlign="center"
             phaseLabels={{
-              none: "None",
+              none: WORK_CELL_WIDEST_WORD,
               max: "00",
             }}
             aria-label={jobsSummary}

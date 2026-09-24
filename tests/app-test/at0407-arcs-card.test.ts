@@ -308,7 +308,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // The clause is the phase said as a verb in progress, never the enum
         // key the field above carries — spelled out rather than derived from
         // it, which is the whole point of the two being different words.
-        expect(unbound.note).toBe("Implementing");
+        expect(unbound.note).toBe("Executing");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -382,7 +382,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // The clause is the PHASE, not the step's title: the title rode this
         // slot until it elided mid-word in every host that was not the
         // placard, and it is the fraction's hover sentence now ([D168]).
-        expect(meta.noteText).toBe("Implementing");
+        expect(meta.noteText).toBe("Executing");
         note("at0407 meta line", await app.screenshot().then((s) => s.path));
 
         // ── A withdrawn step paints its own tick, and the count agrees ────
@@ -561,8 +561,8 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // Eight ticks and eight closed, agreeing on screen — a reader is never
         // told 7 of 8 beside eight filled ticks. This is [P03]'s whole promise
         // and the one thing no pure test can see. A closed cell says its
-        // count as the participle's object — `Implemented · 8 steps` ([B09]).
-        expect(closedTip).toContain("Implemented · 8 steps");
+        // count as the participle's object — `Executed · 8 steps` ([B09]).
+        expect(closedTip).toContain("Executed · 8 steps");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

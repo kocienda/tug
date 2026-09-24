@@ -13,6 +13,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   SESSION_PHASE_LABELS,
+  SESSION_PHASE_WIDEST_LABEL,
   sessionSessionPhaseKey,
   sessionSessionPhaseVisual,
   type SessionPhaseInput,
@@ -477,5 +478,24 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["ready", "Ready"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
+  });
+});
+
+/**
+ * The Z2 STATE cell sizes its box from {@link SESSION_PHASE_WIDEST_LABEL}, so
+ * the label set is closed against it ([D168]): a label added above that is
+ * wider than the declaration would move the row, and this is where it fails
+ * first. The declaration is also pinned to be one of the labels, so it cannot
+ * drift into a reservation for a word nobody says.
+ */
+describe("the widest phase label", () => {
+  test("is one of the labels, and no label is wider", () => {
+    const labels = Object.values(SESSION_PHASE_LABELS);
+    expect(labels).toContain(SESSION_PHASE_WIDEST_LABEL);
+    for (const label of labels) {
+      expect(label.length, `${label} is wider than ${SESSION_PHASE_WIDEST_LABEL}`).toBeLessThanOrEqual(
+        SESSION_PHASE_WIDEST_LABEL.length,
+      );
+    }
   });
 });

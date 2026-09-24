@@ -17,6 +17,7 @@ import {
   cellDisplayCount,
   composeJobsCellSummary,
   formatCellCount,
+  WORK_CELL_WIDEST_WORD,
   formatTaskFraction,
   jobsCellActiveCount,
   jobsCellDisplayPose,
@@ -334,5 +335,23 @@ describe("composeJobsCellSummary", () => {
   test("an empty surface reads No jobs, and tasks never appear here", () => {
     expect(composeJobsCellSummary(countJobs([]), null)).toBe("No jobs");
     expect(composeJobsCellSummary(countJobs([]), goal("achieved"))).toBe("No jobs");
+  });
+});
+
+/**
+ * The work cells (TASKS, JOBS) reserve their box from two ghosts — the zero
+ * word and a two-digit shape — so the readings the formatter produces are
+ * closed against them ([D168]): the zero word IS the declaration, and every
+ * count up to 99 is no wider than the digit shape the cells reserve.
+ */
+describe("the work cells' widest word", () => {
+  test("the zero reading is the declared widest word", () => {
+    expect(formatCellCount(0)).toBe(WORK_CELL_WIDEST_WORD);
+  });
+
+  test("no count up to 99 outgrows the two-digit shape", () => {
+    for (let count = 1; count <= 99; count++) {
+      expect(formatCellCount(count).length).toBeLessThanOrEqual("00".length);
+    }
   });
 });

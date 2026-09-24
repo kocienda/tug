@@ -74,6 +74,8 @@ import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 
 import {
+  ARC_CELL_WIDEST_FRACTION,
+  ARC_CELL_WIDEST_WORD,
   TugArcTrack,
   arcCellWord,
   arcTrackModel,
@@ -882,6 +884,8 @@ export function GalleryArcLifecycle(): React.ReactElement {
                     className="session-telemetry-status-value"
                     data-slot="session-telemetry-arc-value"
                     aria-label={`arc ${m.entry.display_name}`}
+                    data-widest={ARC_CELL_WIDEST_WORD}
+                    data-widest-alt={ARC_CELL_WIDEST_FRACTION}
                   >
                     {reading}
                   </span>

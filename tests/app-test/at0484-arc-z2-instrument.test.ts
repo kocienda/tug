@@ -11,9 +11,9 @@
  * What it reads is a precedence, walked here in the order the code states it:
  *
  *  - **A zero numerator is a word, never `0/N`.** A reviewed plan nobody has
- *    started reads `Awaiting review` — where the arc actually is, in the
- *    line's own words — because a pair with nothing in hand counts work that
- *    has not begun ([B03]).
+ *    started reads `Review` — where the arc actually is, in the cell's short
+ *    form of the line's `Awaiting review` — because a pair with nothing in
+ *    hand counts work that has not begun ([B03]).
  *  - **The declared run wins** once a step is in hand: `1/2` on that same
  *    four-row plan ([D148]).
  *  - **The word is the lifecycle PHASE**, in the grammar the line reads in:
@@ -31,10 +31,25 @@
  * marked before the bind and neither may survive it.
  *
  * **The widths are the row's promise, and the promise is that the ROW does not
- * move.** Binding takes the ARC cell from 13ch to 17ch — what the word itself
- * measures — and the give-back comes from JOBS as far as JOBS can go and from
- * CONTEXT for the rest, so the five cells and their gaps occupy the same row
- * they did and nothing outside them moves under the reader's eye.
+ * move.** Binding takes the ARC cell from 13ch to 17ch and the give-back comes
+ * from JOBS as far as JOBS can go and from CONTEXT for the rest, so the five
+ * cells and their gaps occupy the same row they did and nothing outside them
+ * moves under the reader's eye.
+ *
+ * **And once bound, no reading moves a cell.** Every word-bearing cell is sized
+ * from a widest reading declared beside the table that produces it — a hidden
+ * face under the live text — so the box is the widest reading's from the first
+ * paint and the reading swaps inside it ([D168]). This test walks the bound
+ * session through every reading the ARC cell can show from the CLI and the
+ * arc log alone — `Review`, `Reviewing`, `Executing`, a declared `1/2`,
+ * `Auditing`, `Stopped`, `Briefed`, `Cut` — and asserts the five rendered
+ * boxes are the same five numbers at each. Both nine-letter words are walked
+ * because letters are not a width: `Reviewing` renders 2.69px wider than
+ * `Executing` and is what the box is declared from, and only a rendered box
+ * can say which of a tie is the tie-breaker. `Ready` is the one reading not
+ * walked here; it
+ * needs a joinable scratch and `at0559-ready-folded-form` owns it. This is the
+ * assertion that would have caught `Implementing` widening the cell.
  *
  * The authored `--tugx-session-status-cell-width` is read alongside, because
  * it is what `tug-status-cell.css` states and what the `@container` rungs are
@@ -73,6 +88,8 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
+  appendArcLogLine,
+  arcLogPath,
   bindArc,
   createArc,
   arcBriefPath,
@@ -293,8 +310,8 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         // No wheel drives this arc and no step is open, so the plan's own
         // pair would read `0/4` — the zero numerator Z2 never shows. The
         // track model places an unstarted plan at review, and that is the
-        // word.
-        await awaitReading(app, "Awaiting review");
+        // word — in the cell's short form of the line's `Awaiting review`.
+        await awaitReading(app, "Review");
 
         // The instrument's SHAPE, taken once — it does not change with the
         // reading, and asserting it four times would say nothing new.
@@ -367,12 +384,26 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
 
         const bound = await widths(app);
         note("at0484 bound row", JSON.stringify(bound));
-        // The cell takes what the word measures — `Implement` between two dots
-        // needs 111px in the built app, and 17ch holds 113 — and the width
-        // comes back out of JOBS and CONTEXT, the two cells with wings to
-        // spend. JOBS alone could not pay it: it is already standing on its
-        // own reading, so four characters off its budget buy 2px.
+        // The cell takes what its widest face measures — `Executing` between
+        // two dots — and the width comes back out of JOBS and CONTEXT, the two
+        // cells with wings to spend. JOBS alone could not pay it: it is already
+        // standing on its own reading, so four characters off its budget buy
+        // 2px.
         expect(bound.arc).toBe("true");
+        // Every bound reading below is held against this one: the five boxes
+        // at `Review` are the five boxes at every other word and fraction.
+        const boxesAt = (w: RowWidths): Record<string, number> =>
+          Object.fromEntries(PRIORITIES.map((p) => [p, Math.round(w.cells[p].box * 100) / 100]));
+        const boundBoxes = boxesAt(bound);
+        const holdStill = async (reading: string): Promise<void> => {
+          const now = await widths(app);
+          note(`at0484 boxes at ${reading}`, JSON.stringify(boxesAt(now)));
+          expect(now.arc, `${reading} is a bound row`).toBe("true");
+          for (const p of PRIORITIES) {
+            expect(now.cells[p].display, `${p} is drawn at ${reading}`).not.toBe("none");
+          }
+          expect(boxesAt(now), `the five boxes at ${reading}`).toEqual(boundBoxes);
+        };
 
         // ── The label rule is centred over the value it names ─────────────
         // Every cell stacks two rows — the endcap-rule legend and the value —
@@ -402,6 +433,26 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         note("at0484 stacks", JSON.stringify(stacks));
         expect(stacks.length).toBe(PRIORITIES.length);
 
+        // ── The review stage seated: the widest word the cell renders ─────
+        // `Reviewing` and `Executing` are both nine letters, and letters are
+        // not a width: in the cell's proportional face `Reviewing` is 2.69px
+        // the wider, which is why `ARC_CELL_WIDEST_WORD` is declared from it
+        // and not from its tie. The unit test's character count cannot see
+        // that difference; this box can, and it is the assertion that found
+        // it.
+        const logPath = arcLogPath(scratch!.dataRoot);
+        appendArcLogLine(logPath, PLAN_ARC, "arc-stage", `review ${SID} -`);
+        await awaitReading(app, "Reviewing");
+        await holdStill("Reviewing");
+
+        // ── The implement stage seated, no step open: the phase's word ────
+        // The stage line is the wheel's own record of seating the stage on
+        // this card's session; with no step in hand there is no fraction, so
+        // the cell says what the stage is doing, in the line's own verb.
+        appendArcLogLine(logPath, PLAN_ARC, "arc-stage", `implement ${SID} -`);
+        await awaitReading(app, "Executing");
+        await holdStill("Executing");
+
         // ── A declared run wins over the plan's own pair ──────────────────
         await shellAndSettle(
           app,
@@ -409,10 +460,22 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         );
         await awaitReading(app, "1/2");
         note("at0484 declared run", await readingText(app));
+        await holdStill("1/2");
+
+        // ── The audit stage seated: the audit's word, not the walk's count ─
+        appendArcLogLine(logPath, PLAN_ARC, "arc-stage", `audit ${SID} -`);
+        await awaitReading(app, "Auditing");
+        await holdStill("Auditing");
+
+        // ── A stop is one word on the cell ────────────────────────────────
+        appendArcLogLine(logPath, PLAN_ARC, "arc-stop", "audit the audit did not mark");
+        await awaitReading(app, "Stopped");
+        await holdStill("Stopped");
 
         // ── An arc with only a brief says the PHASE, not the git stage ────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ARC}`, 1);
         await awaitReading(app, "Briefed");
+        await holdStill("Briefed");
 
         // ── An arc with no documents at all says Cut ──────────────────────
         // The word is the last resort: a direct arc that wrote a task list
@@ -420,6 +483,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         // one, freshly created — ever reaches it.
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${LISTLESS_ARC}`, 2);
         await awaitReading(app, "Cut");
+        await holdStill("Cut");
         note("at0484 z2 at the listless reading", (await app.screenshot()).path);
 
         // ── Unbinding gives the width back ───────────────────────────────

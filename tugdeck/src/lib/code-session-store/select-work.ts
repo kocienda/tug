@@ -285,9 +285,18 @@ export function cellDisplayCount(
   return activeCount > 0 ? activeCount : recentlyDone;
 }
 
+/**
+ * The widest reading a work cell (TASKS, JOBS) can show, declared beside the
+ * formatter that produces it: at zero the cell reads this word, and any count
+ * it shows is narrower than the fraction-shaped reservation beside it. The
+ * cells render it as a hidden sizing face, so the box is set from the word
+ * rather than from a `ch` count in a stylesheet ([D168]).
+ */
+export const WORK_CELL_WIDEST_WORD = "None";
+
 /** Format a work cell's count — the number, or "None" at zero. */
 export function formatCellCount(count: number): string {
-  return count === 0 ? "None" : String(count);
+  return count === 0 ? WORK_CELL_WIDEST_WORD : String(count);
 }
 
 /**

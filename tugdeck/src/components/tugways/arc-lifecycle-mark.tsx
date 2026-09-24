@@ -84,7 +84,7 @@ export function ArcLifecycleMark({
   const fraction =
     fractionOverride !== undefined ? fractionOverride : arcMarkFraction(model);
   const word = arcPhaseWord(model);
-  // `Implementing step 3 of 6` — the fraction reads as the verb's object, the
+  // `Executing step 3 of 6` — the fraction reads as the verb's object, the
   // same order the line puts it in ([B02]). A stop's clause already ends in a
   // reason, so the number that follows it needs its own separator or the two
   // run together into one phrase.
