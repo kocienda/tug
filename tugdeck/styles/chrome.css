@@ -201,6 +201,23 @@
   transition: none;
 }
 
+/* …and it stands down for the length of a workspace switch, which is the third
+   clock on this property and the one nothing else could reach.
+
+   `[P02]`'s mark governs the IMPOSER: an `arm` under the switch epoch declines
+   and launches no tween. It says nothing about this rule, and this rule is not
+   the imposer's — a pane frame whose height changes on the shown transition
+   eases here on `--tug-motion-duration-fast`, armed by the layout write rather
+   than by any settle. The recording in `briefs/workspace-switch-quiet-recording.md`
+   measured exactly that: a frame arriving 240px taller than it settles to, the
+   last of three steps landing 116ms after the swap, inside the dissolve.
+
+   Two stand-downs were already here and neither covers it — a switch is not a
+   pointer gesture and not an imposer settle — so the epoch needs its own. */
+[data-space-switching] .tug-pane {
+  transition: none;
+}
+
 /* ---- Card focus: border-radius on focused, dim overlay on unfocused ---- */
 .tug-pane[data-focused="true"] {
   border-radius: var(--tug-radius-md);

@@ -538,6 +538,12 @@ const EVENT_FIXTURES: Record<
     totalMs: 7,
     paintMs: 41,
   },
+  "space-quiet": {
+    kind: "space-quiet",
+    toSpaceId: "space-b",
+    quietMs: 41,
+    quietReason: "quiet",
+  },
 };
 
 describe("summarizeEvent — exhaustive per-kind coverage", () => {

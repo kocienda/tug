@@ -42,7 +42,11 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { applyBagFocus, transferFocusForActivation } from "@/focus-transfer";
-import { deckTrace, type CommitLanding } from "@/deck-trace";
+import {
+  deckTrace,
+  type CommitLanding,
+  type SpaceQuietReason,
+} from "@/deck-trace";
 import {
   revealSidebarCard,
   toggleSidebarCard,
@@ -128,7 +132,14 @@ import {
   type InterruptedBeat,
   type SettleBeat,
 } from "@/lib/pane-flip";
-import { dispatchImposerSettleEnd } from "@/lib/settle-notice";
+import {
+  dispatchImposerSettleEnd,
+  IMPOSER_SETTLE_END,
+} from "@/lib/settle-notice";
+import {
+  SPACE_QUIET_BOUND_MS,
+  spaceDissolveDue,
+} from "@/lib/space-quiet";
 import {
   motionDurationMs,
   motionKeyframes,
@@ -169,6 +180,8 @@ import {
   SPACE_CROSSING_ATTRIBUTE,
   SPACE_LAYER_ATTRIBUTE,
   SPACE_LAYER_CLASS,
+  SPACE_SHOWN_ATTRIBUTE,
+  SPACE_SWITCHING_ATTRIBUTE,
   SpaceLayerShownContext,
 } from "./space-layer";
 import "./space-layer.css";
@@ -3234,6 +3247,34 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    */
   const settleEpisodesRef = useRef<Map<string, ResizeEpisodeHandle>>(new Map());
 
+  /**
+   * Whether the arm that opened the settle now in hand saw a switch epoch
+   * ([P02], Spec S02).
+   *
+   * `arm` reads {@link SPACE_SWITCHING_ATTRIBUTE} off the canvas and the Last
+   * pass has to take the same answer, because the two run at different
+   * moments: `arm` is a store subscriber, synchronous inside `notify`, and the
+   * Last pass is a layout effect after the commit. Re-reading the attribute
+   * there would work today and would depend on this component declaring its
+   * effects in an order nothing states — the crossfade effect, which sweeps
+   * the mark, is declared below the settle's. A ref says the coupling out
+   * loud, exactly as `isTugMotionEnabled()` being re-read in both places
+   * would not.
+   */
+  const settleSwitchingRef = useRef(false);
+
+  /**
+   * How many arrangement commits `arm` has seen, ever.
+   *
+   * The quiet gate's third input, and the one the recording says cannot be
+   * left out ([Q01]): a first show produced four post-swap commits over about
+   * 100ms, and a counter watching only pane rects could call quiet in a gap
+   * between two of them. A monotonic number rather than a callback because
+   * the gate is not always open — `arm` bumps it whether or not anybody is
+   * counting, and the gate reads a difference.
+   */
+  const settleCommitSeqRef = useRef(0);
+
   // Hold every session card's notifications for the length of the
   // gesture, and release them on the same edges the tweens land on.
   //
@@ -3481,6 +3522,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const arm = (landing: CommitLanding): void => {
       const el = containerRef.current;
       if (el === null) return;
+      // Before every early return below, because the gate's question is "has
+      // anything committed since the last frame" rather than "has anything
+      // moved" — a commit the imposer reads as unchanged is still a commit
+      // the arriving layer may have taken geometry from.
+      settleCommitSeqRef.current += 1;
+      // The switch epoch ([P02], Spec S02). Read off the canvas the manager
+      // wrote it on, every arm, because an arm cannot know from `landing`
+      // alone whether it is one of the several commits a switch produces:
+      // only the SWAP commit spells itself `"cut"`, and the ones after it —
+      // `activateCard`'s reveal, and every geometry the arriving layer could
+      // not take while it was hidden — arrive as ordinary `"cross"` commits.
+      const switching = el.hasAttribute(SPACE_SWITCHING_ATTRIBUTE);
+      settleSwitchingRef.current = switching;
       const state = store.getSnapshot();
       const next = arrangementSignature(state, {
         rail: store.getRailRunHeight(),
@@ -3514,6 +3568,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // The mode records still advance, for the same reason they advance under
       // reduced motion: they are the shore the NEXT flip is read against, and
       // one left behind by a cut would read that flip against the wrong one.
+      //
+      // The switch epoch is deliberately NOT here — see `motion` below. A cut
+      // means the frames are already drawn where the commit puts them, so
+      // returning before the episodes are raised costs nothing. A commit under
+      // a switch epoch is the opposite: the geometry really did move and the
+      // epoch's claim is only that it must not be ANIMATED.
+      //
+      // Two things this early return skips are owed on that path and not on a
+      // cut's. The First pass's own first act is to end and clear any episode
+      // a previous arm left open; returning here leaves one standing for the
+      // sweep to close later, against geometry the switch has since moved. And
+      // `scheduleSweep` below never runs, so the wedge guard behind the settle
+      // is not re-armed for a commit that really did change the layout.
       if (landing === "cut") {
         prevColumnModesRef.current = new Map(
           deckColumnsOf(state, null).map((column) => [column.slot, column.mode]),
@@ -3525,6 +3592,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           armed: false,
           landing,
           outcome: "declined",
+          reason: "cut",
         });
         return;
       }
@@ -3554,7 +3622,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // holding would defer session notifications against a commit-during-
       // animation cost that cannot arise without an animation — so both are
       // skipped, while cancelling any straggler tween stays unconditional.
-      const motion = isTugMotionEnabled();
+      //
+      // A switch epoch is reduced motion for the length of one switch, and
+      // that is the whole of [P02]'s enforcement. It reaches the same branch
+      // rather than the cut's because the two say different things: a cut says
+      // the frames have not moved, and this says they have moved and must not
+      // be seen to. So the episodes are still raised, the imposer's settle-end
+      // notice still goes out, and only the tweens are refused.
+      const motion = isTugMotionEnabled() && !switching;
       const firstRects = settleFirstRectsRef.current;
       firstRects.clear();
       const firstFolds = settleFirstFoldsRef.current;
@@ -3836,6 +3911,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         armed: motion && firstRects.size > 0,
         landing,
         outcome: motion && firstRects.size > 0 ? "carried" : "unarmed",
+        ...(switching ? { reason: "switching" as const } : {}),
       });
       tugDevLogStore.debug("arrival", "settle ARM", {
         panes: firstRects.size,
@@ -3974,7 +4050,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // The episodes still close here, and closing them is the whole of the
     // preservation on this path: no tween ran, so there was nothing to
     // re-anchor per frame, and the one apply at the end is exact.
-    if (!isTugMotionEnabled()) {
+    //
+    // A switch epoch takes the same branch, for the same reason and with the
+    // same effect: the arm that opened this settle saw the mark and measured
+    // no First rects, so there is nothing here to carry and every frame would
+    // otherwise read as an arrival and be faded up ([P02]).
+    if (!isTugMotionEnabled() || settleSwitchingRef.current) {
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -5840,7 +5921,23 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     anims: TugAnimation[];
     restores: Array<() => void>;
     deadline: number | null;
-  }>({ generation: 0, anims: [], restores: [], deadline: null });
+    /**
+     * The quiet gate's own teardown, while one is open ([P03]).
+     *
+     * Held on the state object rather than in the effect's closure because
+     * `teardown` is what every one of the beat's four landings runs, and a
+     * gate holding a `ResizeObserver`, a frame callback and a timer has to be
+     * closed by all four — including the ones that arrive from a LATER
+     * effect run, which has no reach into the earlier run's variables.
+     */
+    closeGate: (() => void) | null;
+  }>({
+    generation: 0,
+    anims: [],
+    restores: [],
+    deadline: null,
+    closeGate: null,
+  });
   /** The workspace the last commit was showing — the one a switch fades OUT. */
   const previousSpaceIdRef = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -5866,6 +5963,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
      */
     const teardown = (): void => {
       state.generation += 1;
+      // First, and before the timers: the gate holds an observer and a frame
+      // callback that would otherwise go on asking a question whose answer
+      // can no longer be acted on.
+      const closeGate = state.closeGate;
+      state.closeGate = null;
+      if (closeGate !== null) closeGate();
       if (state.deadline !== null) {
         window.clearTimeout(state.deadline);
         state.deadline = null;
@@ -5883,16 +5986,86 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         )) {
           layer.removeAttribute(SPACE_CROSSING_ATTRIBUTE);
         }
+        // The switch epoch closes here too, and for the same reason the
+        // crossing attribute does: the dissolve being armed IS the end of the
+        // window in which nothing may animate ([B03] — when the dissolve
+        // BEGINS, not when it ends). Inside the unconditional `teardown` so
+        // every exit the effect has pays the debt — the tween completing, the
+        // deadline firing, the next switch arriving, the effect's own cleanup
+        // — and swept off the element rather than off a remembered one, which
+        // is the only reading still right after a layer has been unmounted
+        // underneath a beat.
+        el.removeAttribute(SPACE_SWITCHING_ATTRIBUTE);
       }
     };
     teardown();
 
     const root = containerRef.current;
+    if (root === null) return;
+
+    // ---- The stale pending arrival, swept ([P05]). ------------------------
+    //
+    // `pendingArrivalsRef` holds the pane ids a settle is keeping invisible
+    // until their arrive beat comes round, and `arm`'s First pass skips every
+    // id in it — a frame still arriving has no First rect to measure. The Last
+    // pass then treats any shown frame with no First rect as an ARRIVAL: held
+    // at inline `opacity: 0`, faded up as the chain's last beat.
+    //
+    // The set is cleared in exactly one place, `releaseSettle`, and `arm`'s
+    // `"cut"` branch — the spelling a workspace switch commits under —
+    // returns before it ever reaches one. So a card caught mid-arrival when
+    // the user crosses to another workspace leaves its id in the set, and the
+    // next arm back in that workspace reads frames that were on screen the
+    // whole time as new arrivals and fades them in.
+    //
+    // **On the evidence, and what this does not claim.** at0621 stages that
+    // precondition exactly — a card opened, a switch during its arrive beat, a
+    // switch back — and the mass fade it recorded was NOT this: it was the
+    // switch's own second commit arming a `"cross"` settle whose First pass
+    // read the outgoing workspace and whose Last pass read the incoming one.
+    // `SPACE_SWITCHING_ATTRIBUTE` is what closed that one. The stale id itself
+    // is swept by the settle's window timer within about a second, so there is
+    // no gesture this alone was observed to repair.
+    //
+    // It stands because the argument below holds without an observation: an
+    // id nothing will ever collect is a hold nothing will ever hand back if
+    // the window timer is the only thing that would have, and the window timer
+    // is a wedge guard rather than a correctness path.
+    //
+    // A pending arrival for a pane that is NOT on screen is stale by
+    // construction: the Last pass only ever walks `SHOWN_PANE_FRAMES`, so no
+    // beat is ever coming for it. Dropping the id is therefore safe, and the
+    // restorers have to run with it — they are what hands back the inline
+    // `opacity: "0"` the hold wrote, and an id dropped without them leaves the
+    // frame invisible rather than merely faded.
+    //
+    // ABOVE the three early returns below, and that placement is the point: a
+    // stale pending arrival is stale whether or not a dissolve is opening, and
+    // reduced motion, a deleted outgoing workspace and an empty one are
+    // exactly the paths on which the id would otherwise be stranded.
+    if (previousSpaceId !== null && previousSpaceId !== activeSpaceId) {
+      const onScreen = new Set<string>();
+      for (const frame of root.querySelectorAll<HTMLElement>(
+        SHOWN_PANE_FRAMES,
+      )) {
+        const paneId = frame.getAttribute("data-pane-id");
+        if (paneId !== null) onScreen.add(paneId);
+      }
+      for (const paneId of [...pendingArrivalsRef.current]) {
+        if (onScreen.has(paneId)) continue;
+        pendingArrivalsRef.current.delete(paneId);
+        const entry = settleTweensRef.current.get(paneId);
+        if (entry === undefined) continue;
+        for (const restore of entry.restores) restore();
+        settleTweensRef.current.delete(paneId);
+      }
+    }
+
     // Four ways there is nothing to fade, and every one of them writes nothing
     // at all rather than opening a beat that would have to be closed. The last
     // is a workspace that was DELETED rather than switched away from: its
     // layer left with it, and there is no picture to cross from.
-    if (root === null || previousSpaceId === null) return;
+    if (previousSpaceId === null) return;
     if (previousSpaceId === activeSpaceId) return;
     if (!isTugMotionEnabled()) return;
     const layerOf = (spaceId: string): HTMLElement | null =>
@@ -5920,6 +6093,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // canvas container's box — and the whole layer takes no pointer.
     outgoing.setAttribute(SPACE_CROSSING_ATTRIBUTE, "");
 
+    // And the switch epoch is re-opened, for the length of the hold (Spec
+    // S02).
+    //
+    // `teardown()` at the top of this body is unconditional and strips the
+    // mark the swap commit just wrote — including on the run the switch
+    // itself triggers, which is this one. That is right for a switch that
+    // cuts: the mark's window ends at the canvas's own layout-effect pass and
+    // nothing more is owed. It is fatal for a switch that HOLDS: the whole
+    // point of the hold is that late geometry lands while the cover is up,
+    // and every one of those commits has to reach `arm` as part of the switch
+    // rather than as an ordinary arrangement change.
+    //
+    // So the mark is written twice by two owners, for two consecutive
+    // windows: the manager's covers the arriving layer's child-first layout
+    // effects, and this one covers the hold. No commit falls between them —
+    // there is no point between `teardown()` and here at which a subscriber
+    // can run. It comes off when the dissolve BEGINS ([B03]), which is in
+    // `fire` below and in `teardown` for every other landing.
+    //
+    // Only on this path, and that is what keeps reduced motion a cut: the
+    // `isTugMotionEnabled()` and empty-outgoing returns above are ABOVE this
+    // line, so no cover is held and no mark is re-asserted for them.
+    root.setAttribute(SPACE_SWITCHING_ATTRIBUTE, "");
+
     // The deck's one clock. `divide-join` is the recipe every fade on this
     // canvas already runs on — the settle's own depart and arrive beats — so
     // a switch dissolves over the same length and shape
@@ -5933,30 +6130,194 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       outstanding -= 1;
       if (outstanding === 0 && state.generation === generation) teardown();
     };
-    // Taken BEFORE the tween: TugAnimator commits a final value into
-    // `el.style` on completion, so the residue is owed back whichever way this
-    // beat ends.
-    state.restores.push(inlineRestorer(outgoing, "opacity"));
-    const anim = animate(
-      outgoing,
-      { opacity: [1, 0] },
-      {
-        // Raw ms: TugAnimator scales by getTugTiming() itself.
-        duration: curve.durationMs,
-        easing: "ease-out",
-        // `fill: "none"` is where [P08] lives. Nothing in this effect writes
-        // an inline hide anywhere, so an animation that never launches leaves
-        // a visible layer rather than a hidden one — and the visible one is
-        // the DEPARTING workspace, which the teardown below takes off in the
-        // same turn. The arriving workspace is opaque underneath either way,
-        // so the worst a failed launch can do is a cut.
-        fill: "none",
-        key: "space-dissolve",
-      },
+
+    /**
+     * The dissolve itself, unchanged in length, easing and shape — only the
+     * MOMENT it starts is new. The gate below decides that.
+     */
+    const startDissolve = (): void => {
+      // Taken BEFORE the tween: TugAnimator commits a final value into
+      // `el.style` on completion, so the residue is owed back whichever way
+      // this beat ends.
+      state.restores.push(inlineRestorer(outgoing, "opacity"));
+      const anim = animate(
+        outgoing,
+        { opacity: [1, 0] },
+        {
+          // Raw ms: TugAnimator scales by getTugTiming() itself.
+          duration: curve.durationMs,
+          easing: "ease-out",
+          // `fill: "none"` is where [P08] lives. Nothing in this effect writes
+          // an inline hide anywhere, so an animation that never launches leaves
+          // a visible layer rather than a hidden one — and the visible one is
+          // the DEPARTING workspace, which the teardown below takes off in the
+          // same turn. The arriving workspace is opaque underneath either way,
+          // so the worst a failed launch can do is a cut.
+          fill: "none",
+          key: "space-dissolve",
+        },
+      );
+      state.anims.push(anim);
+      outstanding += 1;
+      anim.finished.then(land, land);
+    };
+
+    // ---- The quiet gate ([P03], Spec S01). --------------------------------
+    //
+    // The cover is the departing workspace itself, opaque and pixel-identical
+    // to the frame before the switch, so holding it costs the reader nothing
+    // but the old screen standing for a few more frames. What it BUYS is that
+    // the geometry a hidden layer could not take — a composer's line box, a
+    // pane bar's controls width, a sheet's clamps — lands behind the cover
+    // instead of through a half-transparent picture of the workspace the user
+    // just left.
+    //
+    // Three sources, composed by `spaceDissolveDue` and gathered here. Two of
+    // them are watched rather than polled; the third is counted, because
+    // "silent for N consecutive frames" has no event to listen for.
+    //
+    // **This is where [L32] actually bites.** Before the hold, the beat failed
+    // toward a cut: `fill: "none"` meant an animation that never launched left
+    // the departing layer visible and the next `teardown()` took it off, so no
+    // timer was needed for the failure to be benign. Holding removes that
+    // property — between the swap commit and the gate firing NOTHING is
+    // animating, so there is no `.finished` to land, and the only things that
+    // can end the beat are the bound and the deadline. Hence the deadline is
+    // armed below at effect time over the whole beat rather than re-armed when
+    // the gate fires: re-arming would leave this window covered by the bound's
+    // own `setTimeout` alone, and one dropped timer there paints the departing
+    // workspace over the arriving one forever.
+    const quietStart = performance.now();
+    let lastCommitSeq = settleCommitSeqRef.current;
+    let silentFrames = 0;
+    let resizedSinceFrame = false;
+    let frameId: number | null = null;
+    let boundTimer: number | null = null;
+    let fired = false;
+
+    // Source one: a pane frame under the ARRIVING layer changing box. The
+    // recording says this is the only source that produced visible motion, so
+    // it is what `silentFrames` is silent about.
+    //
+    // A `WeakMap` of last-seen boxes rather than swallowing the first
+    // callback: `ResizeObserver` delivers an initial observation per target
+    // and may batch them across deliveries, so "ignore the first callback" is
+    // a guess about batching. "Ignore a box we have not seen before" is not.
+    const seenBoxes = new WeakMap<Element, string>();
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const box = `${Math.round(entry.contentRect.width)}x${Math.round(
+          entry.contentRect.height,
+        )}`;
+        const was = seenBoxes.get(entry.target);
+        seenBoxes.set(entry.target, box);
+        if (was !== undefined && was !== box) resizedSinceFrame = true;
+      }
+    });
+    const shown = root.querySelector<HTMLElement>(
+      `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
     );
-    state.anims.push(anim);
-    outstanding += 1;
-    anim.finished.then(land, land);
+    if (shown !== null) {
+      observer.observe(shown);
+      for (const frame of shown.querySelectorAll<HTMLElement>(
+        ".tug-pane[data-pane-id]",
+      )) {
+        observer.observe(frame);
+      }
+    }
+
+    const closeGate = (): void => {
+      observer.disconnect();
+      root.removeEventListener(IMPOSER_SETTLE_END, onSettleEnd);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      if (boundTimer !== null) {
+        window.clearTimeout(boundTimer);
+        boundTimer = null;
+      }
+    };
+
+    const fire = (reason: SpaceQuietReason): void => {
+      if (fired) return;
+      fired = true;
+      if (state.closeGate === closeGate) state.closeGate = null;
+      closeGate();
+      // A gate whose beat was superseded has nothing to start: `teardown` has
+      // already bumped the generation, swept the crossing attribute and taken
+      // the mark off, and the layer this would have faded may not be in the
+      // document any more.
+      if (state.generation !== generation) return;
+      deckTrace.record({
+        kind: "space-quiet",
+        toSpaceId: activeSpaceId,
+        quietMs: Math.round(performance.now() - quietStart),
+        quietReason: reason,
+      });
+      // Spec S02: the epoch closes when the dissolve BEGINS, not when it ends.
+      // From here the switch is over as far as `arm` is concerned, and a
+      // commit landing during the fade is an ordinary arrangement change.
+      root.removeAttribute(SPACE_SWITCHING_ATTRIBUTE);
+      startDissolve();
+    };
+
+    /**
+     * Re-ask the rule. Never assumes a fire means quiet — every source is a
+     * reason to ASK, and `spaceDissolveDue` is the only thing that answers.
+     */
+    const evaluate = (): void => {
+      if (fired) return;
+      if (
+        spaceDissolveDue({
+          // Source two: the canvas's own settling mark, read rather than
+          // remembered, so a settle that ended by any of its several paths is
+          // seen the same way.
+          settled: !root.hasAttribute("data-imposer-settling"),
+          silentFrames,
+          // The bound has its own timer and its own call to `fire`; asking
+          // about it here would mean a second clock disagreeing with the
+          // first.
+          boundElapsed: false,
+        })
+      ) {
+        fire("quiet");
+      }
+    };
+
+    function onSettleEnd(): void {
+      evaluate();
+    }
+    root.addEventListener(IMPOSER_SETTLE_END, onSettleEnd);
+
+    // The frame counter, and the one thing here that is a loop. It runs ONLY
+    // while the gate is open and is cancelled with it, so the canvas is not
+    // left with a rAF pump nobody reads.
+    //
+    // Source three rides it: `settleCommitSeqRef` moving means a commit landed
+    // since the last frame, which the recording says a rect watch alone would
+    // miss in the gaps of a first show's commit train.
+    const tick = (): void => {
+      frameId = null;
+      const seq = settleCommitSeqRef.current;
+      if (seq !== lastCommitSeq || resizedSinceFrame) {
+        lastCommitSeq = seq;
+        resizedSinceFrame = false;
+        silentFrames = 0;
+      } else {
+        silentFrames += 1;
+      }
+      evaluate();
+      if (!fired) frameId = window.requestAnimationFrame(tick);
+    };
+    frameId = window.requestAnimationFrame(tick);
+
+    boundTimer = window.setTimeout(() => {
+      boundTimer = null;
+      fire("bound");
+    }, SPACE_QUIET_BOUND_MS);
+
+    state.closeGate = closeGate;
 
     // The deadline [L32] clause 2 asks for. A completion handler is not on its
     // own an end state: a layer unmounted mid-beat takes its animations with
@@ -5965,7 +6326,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // looking at. Scaled by the same factor TugAnimator scales the tween by,
     // so a slowed-down deck is not cut short by its own safety net.
     const deadlineMs =
-      curve.durationMs * getTugTiming() + SPACE_CROSSFADE_DEADLINE_MARGIN_MS;
+      SPACE_QUIET_BOUND_MS +
+      curve.durationMs * getTugTiming() +
+      SPACE_CROSSFADE_DEADLINE_MARGIN_MS;
     state.deadline = window.setTimeout(() => {
       state.deadline = null;
       if (state.generation === generation) teardown();

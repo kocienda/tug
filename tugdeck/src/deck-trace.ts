@@ -164,6 +164,29 @@ export type CommitLanding = "cross" | "cut";
  */
 export type SettleArmOutcome = "carried" | "unarmed" | "declined" | "unchanged";
 
+/**
+ * Why an arm reached the outcome it did, when `landing` does not already say.
+ *
+ * `"cut"` — the commit's own word, on the branch that declines outright.
+ * `"switching"` — a workspace switch epoch was standing on the canvas ([P02]).
+ * That arm runs in full and raises its episodes; it simply measures no First
+ * rects, so it lands `armed: false, outcome: "unarmed"` and tweens nothing.
+ */
+export type SettleArmReason = "cut" | "switching";
+
+/**
+ * What lifted the cover a workspace switch holds ([P03], Spec S01).
+ *
+ * `"quiet"` — the arriving picture went still: no settle in flight and no
+ * layout-affecting write under the arriving layer for `QUIET_FRAMES`
+ * consecutive animation frames.
+ * `"bound"` — `SPACE_QUIET_BOUND_MS` expired first and the cover came off over
+ * whatever the workspace had. Not a failure: a backgrounded window suspends
+ * `requestAnimationFrame`, so an occluded deck releases on the bound every
+ * time and that is the ruled behaviour rather than a defect.
+ */
+export type SpaceQuietReason = "quiet" | "bound";
+
 /** Entry-point tag on `selection-restore` events. */
 export type SelectionRestoreVia =
   | "restoreCardDomSelection"
@@ -634,12 +657,20 @@ export type DeckTraceEvent = {
       // declined, are each the settle disagreeing with the commit that
       // provoked it. `armed` is kept beside `outcome` because the census's
       // "N arm(s) (M unarmed)" line is written over it.
+      //
+      // `reason` names WHY, when the answer is not already in `landing`. An
+      // arm that refused to animate has two causes `landing` cannot tell
+      // apart: the commit spelled itself `"cut"`, or a switch epoch was
+      // standing over the canvas and refused a `"cross"` that would otherwise
+      // have carried. `landing` keeps the commit's own word in both cases, and
+      // this says which rule answered it.
       kind: "settle-arm";
       signature: string;
       panes: number;
       armed: boolean;
       landing: CommitLanding;
       outcome: SettleArmOutcome;
+      reason?: SettleArmReason;
     }
   | {
       // Fired when an arm lands on a frame whose settle tween is still in
@@ -736,6 +767,28 @@ export type DeckTraceEvent = {
       // synchronous span cannot see.
       paintMs: number;
     }
+  | {
+      /**
+       * The cover a workspace switch holds, and what lifted it ([P06]).
+       *
+       * The gate lives in `deck-canvas.tsx` and `space-switch-timing` is
+       * written by `deck-manager.ts`, so each writer records what it measures
+       * rather than threading a number across a module boundary; the two are
+       * correlated by `toSpaceId`. Opt-in for the same reason the timing event
+       * is: a measurement under study, not evidence of a defect.
+       */
+      kind: "space-quiet";
+      toSpaceId: string;
+      /** Swap commit to the instant the dissolve was armed. */
+      quietMs: number;
+      /**
+       * Which clause of the rule released the cover. A reading that is
+       * `"bound"` every time is a finding rather than a failure — an occluded
+       * window suspends `requestAnimationFrame`, and the frame counter the
+       * quiet path rides goes with it.
+       */
+      quietReason: SpaceQuietReason;
+    }
 );
 
 /**
@@ -785,7 +838,8 @@ export type DeckTraceEventInput =
   | Omit<
       Extract<DeckTraceEvent, { kind: "space-switch-timing" }>,
       StampedFields
-    >;
+    >
+  | Omit<Extract<DeckTraceEvent, { kind: "space-quiet" }>, StampedFields>;
 
 // ---------------------------------------------------------------------------
 // Utilities

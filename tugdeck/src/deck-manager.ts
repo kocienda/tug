@@ -105,7 +105,11 @@ import { TugLogout } from "./components/tugways/tug-logout";
 import { ConfigureTugRequest } from "./components/tugways/configure-tug-request";
 import { TugVersionGate } from "./components/tugways/tug-version-gate";
 import { ErrorBoundary } from "./components/chrome/error-boundary";
-import { paneCanvasOf } from "./components/chrome/space-layer";
+import {
+  CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
+  paneCanvasOf,
+  SPACE_SWITCHING_ATTRIBUTE,
+} from "./components/chrome/space-layer";
 import { TugBannerProvider } from "./components/chrome/tug-banner-bridge";
 import { RateLimitBulletinBridge } from "./components/chrome/rate-limit-bulletin-bridge";
 import { RateLimitStore } from "./lib/rate-limit-store";
@@ -1344,6 +1348,12 @@ export class DeckManager implements IDeckManagerStore {
       null,
       () => {
         this.deckState = { ...incomingDeck, hasFocus: this.deckState.hasFocus };
+        // Solved against THIS canvas before anybody can see it ([P04]). The
+        // deck being swapped in was last solved at the switch away, and the
+        // window may have been resized since; this writes `deckState` again
+        // with no notify of its own, so the single `notify` below carries the
+        // arrangement already correct and `arm` still finds nothing to move.
+        this._resolveShownArrangement();
         this.activeSpaceId = spaceId;
         incoming.deck = null;
         // This workspace is mounted from here on ([P01]). Inside the commit
@@ -1351,6 +1361,31 @@ export class DeckManager implements IDeckManagerStore {
         // snapshot subscribers see already names the new arrangement.
         this.mountedSpaceIds.add(spaceId);
         this.invalidateSpacesSnapshot();
+        // The switch epoch opens here ([P01], Spec S02). Written before the
+        // notify below, so the very first thing any subscriber can do is read
+        // it, and written by this method rather than by a layout effect in the
+        // canvas: React runs layout effects CHILD-FIRST, so a mark set in
+        // `DeckCanvas`'s own effect would already be too late for every re-arm
+        // inside the arriving layer — the composer's line box, the pane bar's
+        // controls width, the accessory height, the sheet clamps. Every one of
+        // those effects has run by the time the canvas's does.
+        //
+        // `this.container` is the React mount root (`#deck-container`), NOT
+        // the element carrying `CANVAS_BACKGROUND_ATTRIBUTE` — that one is a
+        // descendant, rendered by `DeckCanvas` and held as its `containerRef`.
+        // `paneCanvasOf` cannot answer here because it walks UP from a frame,
+        // so the canvas is found by looking down. It is the first such element
+        // in document order; the margin caps carry the marker too and are its
+        // children. `arm` and the crossfade effect both read and sweep that
+        // same element, so the three agree by construction.
+        //
+        // The mark is a debt from this frame ([L32]) and `DeckCanvas` owes it
+        // back. A host with no canvas in the DOM yet — a boot before the first
+        // render, a harness with no deck mounted — simply gets no mark, which
+        // is the honest answer: there is nothing on screen to animate.
+        this.container
+          .querySelector<HTMLElement>(CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR)
+          ?.setAttribute(SPACE_SWITCHING_ATTRIBUTE, "");
         // `"cut"`, and that word is the whole of the fix ([P11], [B08]).
         //
         // A switch used to be spelled to the canvas as an ordinary
@@ -3555,6 +3590,43 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * The panes the space allocator would commit for this arrangement — every
+   * sidebar pane whose solved width differs from the one it is showing, with
+   * that width written in — and the same array back when nothing moves.
+   *
+   * The solve with no commit and no notify, so the one caller that cannot
+   * spend a notify can still have the answer: `activateSpace` re-solves the
+   * incoming deck inside its own swap commit ([P04]), because a parked deck
+   * carries the arrangement it was solved for at the last switch away and the
+   * canvas may have been resized while it was off screen.
+   */
+  private _railSolvedPanes(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): readonly TugPaneState[] {
+    const { panesBySide } = this._sidebarRails(panes, imposition);
+    const allocated = this._allocatedRailWidths(panes, imposition);
+    if (allocated === null) return panes;
+    const widthByPaneId = new Map<string, number>();
+    for (const [side, sidePanes] of panesBySide) {
+      const width = allocated[side];
+      if (width === undefined) continue;
+      for (const pane of sidePanes) {
+        if (Math.abs(width - pane.size.width) >= 1) {
+          widthByPaneId.set(pane.id, width);
+        }
+      }
+    }
+    if (widthByPaneId.size === 0) return panes;
+    return panes.map((pane) => {
+      const width = widthByPaneId.get(pane.id);
+      return width === undefined
+        ? pane
+        : { ...pane, size: { ...pane.size, width } };
+    });
+  }
+
+  /**
    * Commit an imposition record and the panes it derives geometry for,
    * bracketing both with the lifecycle ledger. Every slotted pane's frame moves
    * — the imposition record is what places them — and the sidebars move with
@@ -3626,27 +3698,9 @@ export class DeckManager implements IDeckManagerStore {
     // refuses it and the deck comes up on the error overlay.
     imposition = sweptColumnOrders(imposition, panes);
     const { panesBySide } = this._sidebarRails(panes, imposition);
-    const allocated = retuneRails
-      ? this._allocatedRailWidths(panes, imposition)
-      : null;
-    const widthByPaneId = new Map<string, number>();
-    if (allocated !== null) {
-      for (const [side, sidePanes] of panesBySide) {
-        const width = allocated[side];
-        if (width === undefined) continue;
-        for (const pane of sidePanes) {
-          if (Math.abs(width - pane.size.width) >= 1) {
-            widthByPaneId.set(pane.id, width);
-          }
-        }
-      }
-    }
-    const nextPanes = panes.map((pane) => {
-      const width = widthByPaneId.get(pane.id);
-      return width === undefined
-        ? pane
-        : { ...pane, size: { ...pane.size, width } };
-    });
+    const nextPanes = retuneRails
+      ? this._railSolvedPanes(panes, imposition)
+      : panes;
 
     const sidebarPaneIds = new Set(
       [...panesBySide.values()].flat().map((pane) => pane.id),
@@ -3782,6 +3836,51 @@ export class DeckManager implements IDeckManagerStore {
     // in the widths, only heights to re-allocate.
     if (!runMoved) return;
     this._commitImposition(imposition, panes, { retuneRails: false });
+  }
+
+  /**
+   * Solve the deck that is about to be shown against the canvas it is about to
+   * stand in, writing the answer straight into `deckState` and notifying
+   * NOBODY ([P04]).
+   *
+   * A parked workspace's deck is written by `parkedDeck` at the switch away
+   * and is never re-solved while it is off screen: the settled-resize re-tune
+   * reads `this.deckState`, which is the ACTIVE workspace's deck, so a window
+   * resized while a workspace was parked hands that workspace back an
+   * arrangement solved for a canvas that no longer exists. Shown as it stands,
+   * the first frame is wrong and the correction arrives a beat later — which
+   * is exactly the post-landing movement this arc is removing.
+   *
+   * So the solve rides the swap commit instead. `activateSpace` calls this
+   * between writing `deckState` and its one `notify`, so the first frame any
+   * subscriber can draw is already the resized solution and there is nothing
+   * left to arm. It is the same arithmetic {@link retuneSidebarAllocation}
+   * runs — the width allocator, then the three offset retunes — reached
+   * through the `*Terms` forms so the whole of it lands in one write.
+   *
+   * `_lastPlaceRuns` moves with it, or the next settled-resize re-tune reads a
+   * run this solve already answered and commits the work a second time.
+   *
+   * No lifecycle resize bracket is fired for a pane this widens, and that is
+   * deliberate: the bracket is how a card is told to expect motion, and the
+   * whole point of doing the solve here is that there is none to expect. The
+   * frames arrive at their solved size and a card that measures its own box
+   * sees one size, once.
+   */
+  private _resolveShownArrangement(): void {
+    const imposition = this.deckState.imposition;
+    const panes = this._railSolvedPanes(this.deckState.panes, imposition);
+    this._lastPlaceRuns = {
+      rail: this._placeRunHeight("rail"),
+      column: this._placeRunHeight("column"),
+    };
+    this.deckState = { ...this.deckState, panes };
+    this.deckState = {
+      ...this.deckState,
+      ...(this._flowRetuneTerms(panes, imposition) ?? {}),
+      ...(this._columnRetuneTerms(panes, imposition) ?? {}),
+      ...(this._railRetuneTerms(panes, imposition) ?? {}),
+    };
   }
 
   /**
@@ -4356,18 +4455,34 @@ export class DeckManager implements IDeckManagerStore {
     panes: readonly TugPaneState[],
     imposition: DeckImposition,
   ): void {
+    const terms = this._flowRetuneTerms(panes, imposition);
+    if (terms === null) return;
+    this.deckState = { ...this.deckState, ...terms };
+    this.notify("_retuneFlowOffset");
+  }
+
+  /**
+   * {@link _retuneFlowOffset}'s answer without the commit and without the
+   * notify — `null` when the standing offset is already the clamped one.
+   *
+   * Split out for the one caller that has to fold three retunes and a width
+   * solve into a single commit: {@link _resolveShownArrangement} ([P04]).
+   */
+  private _flowRetuneTerms(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): { flowOffset: number } | null {
     const state = { ...this.deckState, panes };
     const strip = deckFlowStrip(state);
-    if (strip === null) return;
+    if (strip === null) return null;
     const standing = state.flowOffset ?? 0;
     const clamped = clampFlowOffset(
       standing,
       strip.width,
       this._flowBandWidth(panes, imposition),
     );
-    if (clamped === standing) return;
-    this.deckState = { ...this.deckState, flowOffset: clamped };
-    this.notify("_retuneFlowOffset");
+    if (clamped === standing) return null;
+    return { flowOffset: clamped };
   }
 
   /**
@@ -4748,8 +4863,22 @@ export class DeckManager implements IDeckManagerStore {
     panes: readonly TugPaneState[],
     imposition: DeckImposition,
   ): void {
+    const terms = this._columnRetuneTerms(panes, imposition);
+    if (terms === null) return;
+    this.deckState = { ...this.deckState, ...terms };
+    this.notify("_retuneColumnOffsets");
+  }
+
+  /**
+   * {@link _retuneColumnOffsets}'s answer without the commit and without the
+   * notify — `null` when no stored column offset moves.
+   */
+  private _columnRetuneTerms(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): { columnOffsets: Record<number, number> | undefined } | null {
     const standing = this.deckState.columnOffsets;
-    if (standing === undefined) return;
+    if (standing === undefined) return null;
     const state = { ...this.deckState, panes, imposition };
     const run = this._placeRunHeight("column");
     const columns = deckColumnsOf(state, run);
@@ -4767,14 +4896,10 @@ export class DeckManager implements IDeckManagerStore {
       if (clamped !== offset) changed = true;
       next[slot] = clamped;
     }
-    if (!changed) return;
-    this.deckState = {
-      ...this.deckState,
-      ...(Object.keys(next).length === 0
-        ? { columnOffsets: undefined }
-        : { columnOffsets: next }),
-    };
-    this.notify("_retuneColumnOffsets");
+    if (!changed) return null;
+    return Object.keys(next).length === 0
+      ? { columnOffsets: undefined }
+      : { columnOffsets: next };
   }
 
   /**
@@ -4893,8 +5018,24 @@ export class DeckManager implements IDeckManagerStore {
     panes: readonly TugPaneState[],
     imposition: DeckImposition,
   ): void {
+    const terms = this._railRetuneTerms(panes, imposition);
+    if (terms === null) return;
+    this.deckState = { ...this.deckState, ...terms };
+    this.notify("_retuneRailOffsets");
+  }
+
+  /**
+   * {@link _retuneRailOffsets}'s answer without the commit and without the
+   * notify — `null` when no stored rail offset moves.
+   */
+  private _railRetuneTerms(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): {
+    railOffsets: Partial<Record<SidebarSide, number>> | undefined;
+  } | null {
     const standing = this.deckState.railOffsets;
-    if (standing === undefined) return;
+    if (standing === undefined) return null;
     const run = this._placeRunHeight("rail");
     const next: Partial<Record<SidebarSide, number>> = {};
     let changed = false;
@@ -4909,14 +5050,10 @@ export class DeckManager implements IDeckManagerStore {
       if (clamped !== offset) changed = true;
       next[side] = clamped;
     }
-    if (!changed) return;
-    this.deckState = {
-      ...this.deckState,
-      ...(Object.keys(next).length === 0
-        ? { railOffsets: undefined }
-        : { railOffsets: next }),
-    };
-    this.notify("_retuneRailOffsets");
+    if (!changed) return null;
+    return Object.keys(next).length === 0
+      ? { railOffsets: undefined }
+      : { railOffsets: next };
   }
 
   /**
