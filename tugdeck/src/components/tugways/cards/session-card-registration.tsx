@@ -80,8 +80,17 @@ function parkedSessionIdentity(cardId: string): CardIdentityFacts | null {
  * The height a folded Session card stands at, in pixels ([P04]).
  *
  * The two bands of the folded form add up here: the masthead tier at
- * `SESSION_MASTHEAD_HEIGHT` (88) plus its 1px bottom rule, and the 53px the
- * card body needs for the Z2 status row alone. It was 173 while the form
+ * `SESSION_MASTHEAD_HEIGHT` (88) plus its 1px bottom rule, and the Z2 status
+ * row alone under it. That row's built height is 53.8px — a fraction, because
+ * the cell stack's own boxes are — so the body's band is **54** and not the 53
+ * the arithmetic reads off the tuning block. The fraction is what the tier has
+ * to clear, and rounding it down cost a pixel the strip then overflowed by:
+ * `.tug-pane-content` is `overflow: auto`, so a 0.8px overhang raised a real
+ * scrollbar, the scrollbar took 12px of the pane's inline size, and Z2's
+ * `@container` rungs read the narrower box and dropped the TIME cell — the
+ * folded card's instruments re-laid-out against a width nothing had changed.
+ * A folded card never scrolls (`tug-pane.css` holds that structurally now);
+ * this number is what keeps it from wanting to. It was 173 while the form
  * carried a Show Transcript bar under Z2; retiring that band into a control at
  * Z2's leading edge ([B03], [B04]) is what took 29px off the tier, and a 900px
  * run now holds six folded cards where it held five.
@@ -100,7 +109,7 @@ function parkedSessionIdentity(cardId: string): CardIdentityFacts | null {
  * the pill left the description line, the tier gave the 14 back, and so did
  * this. Z2's band was untouched throughout.
  */
-export const SESSION_FOLDED_HEIGHT_PX = 144;
+export const SESSION_FOLDED_HEIGHT_PX = 145;
 
 export function registerSessionCard(): void {
   registerCard({

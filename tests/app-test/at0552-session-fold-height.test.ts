@@ -12,7 +12,7 @@
  * under them, and neither is visible in a unit test: the constant would agree
  * with itself.
  *
- * So this file measures the built app and asserts four things:
+ * So this file measures the built app and asserts five things:
  *
  *   1. **The frame stands at the constant**, within a pixel.
  *   2. **It sits at the top of its run**, not floating mid-canvas — the
@@ -24,6 +24,11 @@
  *      under 2px, so the tier is not generous either. Z2 is the form's last
  *      band now that the transcript bar has retired into it, so it is
  *      the edge the frame has to meet.
+ *   5. **Z2 is the same strip folded**: the status bar's width and the TIME
+ *      cell's display are what they were open. A fold changes no width, so it
+ *      may change nothing the row's `@container` rungs read — and 3 is not
+ *      cosmetic precisely because it did: the overhang raised a scrollbar,
+ *      which took 12px of inline size, which dropped a cell.
  *
  * And it `note()`s the measured height and how many folded cards fit a
  * 900px run, which is the number [Q02] asked for and this is the only place
@@ -38,6 +43,8 @@
  * @covers tugdeck/src/card-registry.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-registration.tsx
  * @covers tugdeck/src/lib/layout-imposer.ts
+ * @covers tugdeck/src/components/tugways/tug-pane.css
+ * @covers tugdeck/src/components/tugways/tug-status-cell.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -63,12 +70,35 @@ const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"] button`;
  * line took a LOOSE type setting, and came back with it. What this file
  * measures is unchanged either way: that Z2 neither overhangs the frame nor
  * leaves air under it.
+ *
+ * It went 144 → 145 when claim 3 caught the tier a pixel short of the strip's
+ * built 53.8px. The overhang was not cosmetic: `.tug-pane-content` is
+ * `overflow: auto`, so it raised a scrollbar, the scrollbar took 12px of the
+ * pane's INLINE size, and Z2's `@container` rungs dropped the TIME cell
+ * against a width nothing had changed — a folded card whose instruments
+ * re-laid-out on every fold.
  */
-const SESSION_FOLDED_HEIGHT_PX = 144;
+const SESSION_FOLDED_HEIGHT_PX = 145;
 
 /** The imposition's gaps (`lib/layout-imposer.ts`). */
 const GAP = 5;
 const GAP_BOTTOM = 32;
+
+/**
+ * Claim 5's reading: the box Z2's `@container` rungs are asked about, and
+ * whether the first cell they can drop is standing. Taken open and folded, and
+ * the two must agree — see the claim itself.
+ */
+const READ_STRIP = `(function () {
+  var bar = document.querySelector(${JSON.stringify(STATUS_BAR)});
+  var time = document.querySelector(
+    ${JSON.stringify(CARD)} + ' .session-telemetry-status-cell[data-priority="time"]'
+  );
+  return {
+    barWidth: bar === null ? -1 : bar.clientWidth,
+    time: time === null ? "absent" : getComputedStyle(time).display,
+  };
+})()`;
 
 /** One Session card alone in a one-up slot at the slim width. */
 function deckShape() {
@@ -108,6 +138,13 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the folded card's tier", () => {
         );
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A");
+
+        // Claim 5's first half, read while the card is still OPEN: the width
+        // Z2's container queries are about to be asked again, and whether the
+        // first of the cells they can drop is standing.
+        const openStrip = await app.evalJS<{ barWidth: number; time: string }>(
+          READ_STRIP,
+        );
 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
@@ -199,6 +236,23 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the folded card's tier", () => {
         // …and the door the tier no longer pays a band for is in the row it
         // came down to, wearing the verb the form is asking for ([B03]).
         expect(geo.controlLabel).toBe("Unfold");
+
+        // 5. Z2 IS THE SAME STRIP FOLDED. Nothing about a fold changes the
+        // card's width, so nothing about a fold may change the box Z2's
+        // `@container` rungs are asked about, or which of its cells are
+        // standing. This is the claim the tier's missing pixel broke: the
+        // 0.8px overhang raised a scrollbar on `.tug-pane-content`, the
+        // scrollbar took 12px of inline size, and the first rung dropped the
+        // TIME cell — the instruments re-laying-out on a fold, which they
+        // must never do.
+        const foldedStrip = await app.evalJS<{ barWidth: number; time: string }>(
+          READ_STRIP,
+        );
+        note("Z2 width open → folded", `${openStrip.barWidth} → ${foldedStrip.barWidth}`);
+        note("TIME cell open → folded", `${openStrip.time} → ${foldedStrip.time}`);
+        expect(foldedStrip.barWidth).toBe(openStrip.barWidth);
+        expect(foldedStrip.time).toBe(openStrip.time);
+        expect(foldedStrip.time).not.toBe("none");
       } finally {
         await app.close();
       }

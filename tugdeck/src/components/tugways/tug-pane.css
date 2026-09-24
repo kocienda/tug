@@ -1341,6 +1341,30 @@ body {
 }
 
 /*
+ * A FOLDED pane's content box is a clip too, at rest and not only during the
+ * crossing — and this one is about width, not height.
+ *
+ * A folded card is pinned to its tier and has nothing in it to scroll: it is
+ * its masthead (the pane's chrome) and its Z2 row, with the transcript and the
+ * composer out of layout. So an `auto` box here can only ever raise a scrollbar
+ * on a sub-pixel overhang — and a scrollbar is 12px of INLINE size, which the
+ * card's own instruments then re-lay-out against. That is exactly what
+ * happened: Z2's `@container` rungs saw a box 12px narrower than the one
+ * nothing had resized and dropped the TIME cell for the length of the fold, so
+ * folding and unfolding a card at the slim width shuffled its instruments.
+ *
+ * The tier has since been squared with what Z2 measures
+ * (`SESSION_FOLDED_HEIGHT_PX`), so there is no overhang to clip today. This
+ * rule is what makes that a pixel of slack rather than the only thing standing
+ * between a type-metric change and a strip that re-lays-out on every fold. Z2
+ * is `position: sticky` against this box, and `hidden` keeps it a scroll
+ * container, so the sticky stays legal ([F07]) exactly as it does above.
+ */
+.tug-pane[data-folded="true"] .tug-pane-content {
+  overflow: hidden;
+}
+
+/*
  * The picture, held by ONE declaration, for every card type and with no
  * opt-in: for the length of the crossing the card root has a definite pixel
  * height and every box inside it keeps the layout it had.
