@@ -108,6 +108,7 @@ import {
   replaceAtomsEffect,
   type PositionedAtom,
 } from "./tug-text-editor/atom-decoration";
+import { padForInsert } from "./tug-text-editor/smart-insert";
 import {
   setWaveCaretActive,
   waveCaretExtension,
@@ -1366,7 +1367,8 @@ export const TugPromptEntry = React.forwardRef<
 
   // Session ▸ Insert File… (⌘I). The host picked the path; this is the
   // insertion. It reads exactly like accepting an `@` mention — a `file`
-  // atom plus a separating space, one transaction — except the label is
+  // atom plus a separating space, one transaction, with smart insert's
+  // leading pad when the caret is welded to a word — except the label is
   // the basename while the value stays the absolute path the panel
   // returned, so the chip is legible and the submitted prompt is
   // unambiguous. The atom is additive: an in-progress draft survives it.
@@ -1382,15 +1384,25 @@ export const TugPromptEntry = React.forwardRef<
       value: path,
     };
     const { from, to } = view.state.selection.main;
+    // Smart insert's leading half ([B02]). This door hand-rolls its own
+    // dispatch, so it welded to whatever preceded the caret exactly as the
+    // drop doors did — ⌘I inside `foobar` wrote `foo<chip> bar`. The trailing
+    // half stays this door's own: accepting a path from the panel is a typing
+    // flow, and the separating space is where the next word goes, which is
+    // the explicit exception [B05] licenses a caller to make.
+    const { before } = padForInsert(view.state, from, to, TUG_ATOM_CHAR);
+    const lead = before ? " " : "";
     const hasTrailingSpace = view.state.doc.sliceString(to, to + 1) === " ";
     view.dispatch({
       changes: {
         from,
         to,
-        insert: hasTrailingSpace ? TUG_ATOM_CHAR : `${TUG_ATOM_CHAR} `,
+        insert: `${lead}${TUG_ATOM_CHAR}${hasTrailingSpace ? "" : " "}`,
       },
-      effects: addAtomsEffect.of([{ position: from, segment }]),
-      selection: { anchor: from + 2 },
+      effects: addAtomsEffect.of([
+        { position: from + lead.length, segment },
+      ]),
+      selection: { anchor: from + lead.length + 2 },
       scrollIntoView: true,
       userEvent: "input.tug-atom",
     });

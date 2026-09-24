@@ -64,7 +64,12 @@
  */
 
 import { StateEffect, StateField } from "@codemirror/state";
-import type { Extension, Transaction } from "@codemirror/state";
+import type {
+  EditorState,
+  Extension,
+  Transaction,
+  TransactionSpec,
+} from "@codemirror/state";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import type { PluginValue, ViewUpdate } from "@codemirror/view";
 import {
@@ -75,6 +80,7 @@ import {
   addAtomsEffect,
   getAtomsInState,
 } from "./atom-decoration";
+import { padInsert } from "./smart-insert";
 import { CARET_HEIGHT_FACTOR, readRowHeightFromGhost } from "./caret-layer";
 import type { DropHandler } from "@/lib/tug-text-types";
 import {
@@ -209,7 +215,7 @@ function isImageFile(file: File): boolean {
  * a `text` item inserts a literal substring (currently used for the
  * basename of non-image dropped files).
  */
-type DropMixedItem =
+export type DropMixedItem =
   | { kind: "atom"; segment: AtomSegment }
   | { kind: "text"; text: string };
 
@@ -604,7 +610,7 @@ export function insertAtomsAt(
 }
 
 /**
- * Insert a `(text, atoms)` substrate at `pos`, verbatim.
+ * Insert a `(text, atoms)` substrate at `pos`, its interior verbatim.
  *
  * The sibling {@link insertMixedAt} joins its items with a single space,
  * which is right for a multi-file drop (several chips, no text of their own)
@@ -620,14 +626,21 @@ export function insertAtomsAt(
  * placeholder past the end of `atoms` stays a bare character rather than
  * taking a chip that belongs to another spot, and an atom past the last
  * placeholder is dropped rather than hung where nothing stands.
+ *
+ * Smart insert ([B04], [B07]) pads the two OUTER edges only — the warning
+ * above is honoured rather than overridden, because nothing interior to the
+ * carried text is touched. A substrate that already begins with a newline
+ * (the jot append rule) gets no leading space, because `padForInsert` reads
+ * the run's own edges.
  */
-export function insertSubstrateAt(
-  view: EditorView,
+export function substrateInsertSpec(
+  state: EditorState,
   pos: number,
   text: string,
   atoms: ReadonlyArray<AtomSegment>,
-): void {
-  if (text.length === 0) return;
+): TransactionSpec | null {
+  if (text.length === 0) return null;
+  const padded = padInsert(state, pos, pos, text);
   const positioned: Array<{ position: number; segment: AtomSegment }> = [];
   let index = 0;
   for (let i = 0; i < text.length; i += 1) {
@@ -635,14 +648,25 @@ export function insertSubstrateAt(
     const segment = atoms[index];
     index += 1;
     if (segment === undefined) continue;
-    positioned.push({ position: pos + i, segment });
+    positioned.push({ position: padded.start + i, segment });
   }
-  view.dispatch({
-    changes: { from: pos, insert: text },
+  return {
+    changes: { from: pos, insert: padded.insert },
     effects: [addAtomsEffect.of(positioned), setTugDropCaretPos.of(null)],
-    selection: { anchor: pos + text.length },
+    selection: { anchor: padded.caret },
     userEvent: "input.tug-atom-drop",
-  });
+  };
+}
+
+/** Dispatch {@link substrateInsertSpec}'s one transaction. */
+export function insertSubstrateAt(
+  view: EditorView,
+  pos: number,
+  text: string,
+  atoms: ReadonlyArray<AtomSegment>,
+): void {
+  const spec = substrateInsertSpec(view.state, pos, text, atoms);
+  if (spec !== null) view.dispatch(spec);
 }
 
 /**
@@ -660,36 +684,56 @@ export function insertSubstrateAt(
  * the no-bytes-store default path. The atoms-only `insertAtomsAt`
  * wrapper feeds through here too, so multi-image drops also pick up
  * single-space separators between chips.
+ *
+ * The run's two outer edges are padded by smart insert ([B04]); the interior
+ * single-space join is untouched, because it is already right for a
+ * multi-file drop.
  */
-function insertMixedAt(
-  view: EditorView,
+export function mixedInsertSpec(
+  state: EditorState,
   pos: number,
   items: readonly DropMixedItem[],
-): void {
-  if (items.length === 0) return;
+): TransactionSpec | null {
+  if (items.length === 0) return null;
   let insert = "";
-  const positioned: Array<{ position: number; segment: AtomSegment }> = [];
+  const offsets: Array<{ offset: number; segment: AtomSegment }> = [];
   for (let i = 0; i < items.length; i += 1) {
     if (i > 0) insert += " ";
     const item = items[i]!;
     if (item.kind === "atom") {
-      positioned.push({ position: pos + insert.length, segment: item.segment });
+      offsets.push({ offset: insert.length, segment: item.segment });
       insert += TUG_ATOM_CHAR;
     } else {
       insert += item.text;
     }
   }
-  view.dispatch({
-    changes: { from: pos, insert },
+  const padded = padInsert(state, pos, pos, insert);
+  return {
+    changes: { from: pos, insert: padded.insert },
     effects: [
-      addAtomsEffect.of(positioned),
+      addAtomsEffect.of(
+        offsets.map(({ offset, segment }) => ({
+          position: padded.start + offset,
+          segment,
+        })),
+      ),
       // Hide the drop caret in the same transaction as the
       // insertion — atomic from the user's perspective.
       setTugDropCaretPos.of(null),
     ],
-    selection: { anchor: pos + insert.length },
+    selection: { anchor: padded.caret },
     userEvent: "input.tug-atom-drop",
-  });
+  };
+}
+
+/** Dispatch {@link mixedInsertSpec}'s one transaction. */
+function insertMixedAt(
+  view: EditorView,
+  pos: number,
+  items: readonly DropMixedItem[],
+): void {
+  const spec = mixedInsertSpec(view.state, pos, items);
+  if (spec !== null) view.dispatch(spec);
 }
 
 // ---------------------------------------------------------------------------

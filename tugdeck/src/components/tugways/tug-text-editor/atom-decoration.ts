@@ -34,7 +34,13 @@ import { invertedEffects } from "@codemirror/commands";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { DecorationSet, PluginValue, ViewUpdate } from "@codemirror/view";
 import { Facet, StateEffect, StateField } from "@codemirror/state";
-import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
+import type {
+  EditorState,
+  Extension,
+  Range,
+  Transaction,
+  TransactionSpec,
+} from "@codemirror/state";
 import {
   bakeAtomChipDataUri,
   createAtomImgElement,
@@ -53,6 +59,7 @@ import {
 } from "@/lib/session-dot-overlay";
 import { sessionCitationStore } from "@/lib/session-citation-store";
 import { sessionChipVerdict } from "@/lib/session-chip-verdict";
+import { padInsert } from "./smart-insert";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -423,38 +430,54 @@ export function getAtomsInRange(
  * The transaction inserts U+FFFC in the document and adds the matching
  * decoration in the same step, so the editor never observes a
  * partially-applied atom. Selection lands immediately after the new
- * atom.
+ * atom — after its trailing pad, when smart insert added one.
+ *
+ * Smart insert ([B04]) pads the two edges that need air, inside this one
+ * transaction, so one undo takes the atom and its spaces together.
  */
 export function insertAtomAt(
   view: EditorView,
   pos: number,
   segment: AtomSegment,
 ): void {
-  view.dispatch({
-    changes: { from: pos, insert: TUG_ATOM_CHAR },
-    effects: addAtomsEffect.of([{ position: pos, segment }]),
-    selection: { anchor: pos + 1 },
-    scrollIntoView: true,
-    userEvent: "input.tug-atom",
-  });
+  view.dispatch(atomInsertSpec(view.state, pos, pos, segment));
 }
 
 /**
  * Dispatch a transaction that inserts an atom at the current selection
  * head (replacing any selected range first).
+ *
+ * The padding is measured against the characters OUTSIDE the replaced range
+ * ([B08]) — the ones that will actually abut the chip — rather than against
+ * the text being replaced.
  */
 export function insertAtomAtSelection(
   view: EditorView,
   segment: AtomSegment,
 ): void {
   const { from, to } = view.state.selection.main;
-  view.dispatch({
-    changes: { from, to, insert: TUG_ATOM_CHAR },
-    effects: addAtomsEffect.of([{ position: from, segment }]),
-    selection: { anchor: from + 1 },
+  view.dispatch(atomInsertSpec(view.state, from, to, segment));
+}
+
+/**
+ * The one transaction an atom insertion over `[from, to)` dispatches, as a
+ * pure function of the state — which is what lets the padding decision be
+ * asserted without a view.
+ */
+export function atomInsertSpec(
+  state: EditorState,
+  from: number,
+  to: number,
+  segment: AtomSegment,
+): TransactionSpec {
+  const padded = padInsert(state, from, to, TUG_ATOM_CHAR);
+  return {
+    changes: { from, to, insert: padded.insert },
+    effects: addAtomsEffect.of([{ position: padded.start, segment }]),
+    selection: { anchor: padded.caret },
     scrollIntoView: true,
     userEvent: "input.tug-atom",
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------

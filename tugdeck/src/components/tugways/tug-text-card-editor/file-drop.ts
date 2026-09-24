@@ -60,6 +60,7 @@ import {
   paintDropCaret,
   tugDropCaretExtension,
 } from "../tug-text-editor/drop-extension";
+import { padInsert } from "../tug-text-editor/smart-insert";
 import {
   uploadDocAttachment,
   type AssetBaseDescriptor,
@@ -244,12 +245,13 @@ export function fileDropExtension(options: FileDropOptions): Extension {
           if (!view.dom.isConnected) return;
           if (links.length === 0) return;
 
-          // One transaction, so one undo removes the whole drop.
+          // One transaction, so one undo removes the whole drop — including
+          // the smart-insert padding, which rides it rather than following it.
           const pos = Math.min(dropPos, view.state.doc.length);
-          const insert = links.join(" ");
+          const padded = padInsert(view.state, pos, pos, links.join(" "));
           view.dispatch({
-            changes: { from: pos, insert },
-            selection: { anchor: pos + insert.length },
+            changes: { from: pos, insert: padded.insert },
+            selection: { anchor: padded.caret },
             userEvent: "input.tug-file-drop",
           });
           view.focus();
