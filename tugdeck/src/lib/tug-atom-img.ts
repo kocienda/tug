@@ -55,6 +55,8 @@ import {
 } from "@/lib/session-identity";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import { sessionLineStore } from "@/lib/session-line-store";
+import { applyDotWellAttrs } from "@/lib/session-dot-overlay";
+import type { DotWell } from "@/lib/session-dot-overlay";
 import { arcForSessionNow } from "@/lib/arc-session-index";
 import { withArcSigil } from "@/lib/arc-sigil-text";
 import {
@@ -129,6 +131,16 @@ export type AtomLabelMode = "filename" | "relative" | "absolute";
 export interface AtomImgOptions {
   /** Maximum label width in pixels before truncation with ellipsis. */
   maxLabelWidth?: number;
+  /**
+   * Bake this chip for the live dot overlay: leave the phase dot unpainted and
+   * record its centre on the `<img>` as the two well attributes.
+   *
+   * The editor's session chips ask for this and nothing else does. A chip that
+   * asks and has no dot — a commit pill, any glyph type — bakes exactly as it
+   * would have and carries no well, so the layer's selector never finds it and
+   * nothing has to decide afterwards whether the chip wanted a dot.
+   */
+  dotOverlay?: boolean;
   /**
    * Atom id (UUID minted at drop / paste). When present, the rendered
    * `<img>` carries a `data-atom-id` attribute the pending-sync
@@ -620,6 +632,13 @@ function sessionDotToken(value: string): string | null {
  * `tug-session-identity.css`. The dot goes to the chip's own ink too — a
  * phase colour on a reference nothing can find would be this client reporting
  * on a session it does not have.
+ *
+ * `omitDot` is the one face that paints no mark at all, and only for the dot:
+ * the session chip in the editor leaves its dot to the overlay layer, which
+ * places the real `SessionPhaseDot` over the gap so the mark breathes and
+ * follows the session instead of being a snapshot of one moment. The commit's
+ * ring is never omitted — a commit has no state to report, so there is nothing
+ * live to put there ([B01], [B04]).
  */
 function paintPillChip(
   ctx: CanvasRenderingContext2D,
@@ -628,6 +647,7 @@ function paintPillChip(
   value: string,
   variant: ChipVariant,
   missing: boolean,
+  omitDot: boolean,
 ): void {
   // Under the editor's selection the chip takes the family's selected text
   // token — the one the theme authors to stay legible over the blue wash. A
@@ -680,7 +700,7 @@ function paintPillChip(
       ctx.strokeStyle = ink;
       ctx.lineWidth = w;
       ctx.stroke();
-    } else {
+    } else if (!omitDot) {
       ctx.beginPath();
       ctx.arc(cx, cy, g.dotSize / 2, 0, Math.PI * 2);
       ctx.fillStyle = dotToken === null ? ink : getTokenValue(dotToken);
@@ -691,6 +711,26 @@ function paintPillChip(
   ctx.font = `${g.fontSize}px ${g.fontFamily}`;
   ctx.fillStyle = ink;
   ctx.fillText(g.displayLabel, g.textX, g.textY);
+}
+
+/**
+ * Where a dot-marked chip's mark sits inside its own box, or `null` for a chip
+ * whose mark is not a dot.
+ *
+ * This is the geometry the overlay layer needs and the only copy of it: the
+ * layer positions from a measured client rect plus this constant rather than
+ * re-deriving the chip's layout, so the two cannot drift ([B05]). It is the
+ * same `iconX + fontSize / 2`, `height / 2` the painter above uses, lifted out
+ * so the bake can report it whether or not it painted there.
+ *
+ * A commit pill answers `null` even though it has a mark: its ring is ink, not
+ * phase, and nothing about it changes after the commit exists. So does a chip
+ * with no mark at all, and every non-pill type, whose mark is a glyph.
+ */
+export function dotWellFor(type: string, g: AtomChipGeometry): DotWell | null {
+  if (!g.hasIcon) return null;
+  if (!isPillAtomType(type) || chipMark(type) !== "dot") return null;
+  return { x: g.iconX + g.fontSize / 2, y: g.height / 2 };
 }
 
 // ---- Public API ----
@@ -727,6 +767,14 @@ export interface AtomChipBake {
    * inferring the text from the bitmap's width.
    */
   displayLabel: string;
+  /**
+   * Where the chip's phase dot sits in its own box, for a chip that has one.
+   *
+   * Reported whether or not the dot was painted: `omitDot` decides the pixels,
+   * this reports the geometry, and the caller that asked for the overlay wants
+   * both. Absent for every chip whose mark is not a dot ({@link dotWellFor}).
+   */
+  dotWell?: DotWell;
 }
 
 /**
@@ -783,6 +831,17 @@ export function bakeAtomChipDataUri(
      */
     missing?: boolean;
     /**
+     * Leave the phase dot unpainted, for a session chip whose dot is placed
+     * live by the overlay layer.
+     *
+     * Only the dot: the pill, its hairline and its label are painted as ever,
+     * and a commit's ring is untouched. The pill's surface is already
+     * transparent, so what is left behind is an ABSENCE of paint rather than a
+     * punched hole — nothing to composite through and no halo where the baked
+     * chip meets the live mark ([B04]).
+     */
+    omitDot?: boolean;
+    /**
      * For a session atom: the session the chip names. Read for one thing
      * only — the verdict key the label's `elsewhere` fallback looks under,
      * which is the uuid whenever the atom carries one.
@@ -835,13 +894,16 @@ export function bakeAtomChipDataUri(
       value,
       variant,
       variant === "missing" || options?.missing === true,
+      options?.omitDot === true,
     );
+    const dotWell = dotWellFor(type, g);
     return {
       dataUri: canvas.toDataURL("image/png"),
       width: g.width,
       height: g.height,
       baselineOffset: g.baselineOffset,
       displayLabel: g.displayLabel,
+      ...(dotWell !== null ? { dotWell } : {}),
     };
   }
 
@@ -918,7 +980,7 @@ export function createAtomImgElement(
   // selected chip without losing the fact it was baked with — the attribute
   // is the only memory of it, because the bitmap cannot be asked.
   const variant: ChipVariant = options?.variant ?? "default";
-  const { dataUri, width, height, baselineOffset, displayLabel } =
+  const { dataUri, width, height, baselineOffset, displayLabel, dotWell } =
     bakeAtomChipDataUri(
       type,
       label,
@@ -928,6 +990,7 @@ export function createAtomImgElement(
           ? { maxLabelWidth: options.maxLabelWidth }
           : {}),
         ...(options?.session !== undefined ? { session: options.session } : {}),
+        ...(options?.dotOverlay === true ? { omitDot: true } : {}),
         variant,
       },
     );
@@ -960,6 +1023,14 @@ export function createAtomImgElement(
   // stored one — a renamed session, or one on an arc, reads here as what the
   // reader sees rather than as what the atom recorded.
   img.alt = displayLabel;
+
+  // The overlay's half of the contract. Written only where the caller asked
+  // for it AND the chip actually has a dot, so the attribute's presence is the
+  // whole test the layer applies — it never finds a chip and then has to work
+  // out whether the pixels under it are empty.
+  if (options?.dotOverlay === true && dotWell !== undefined) {
+    applyDotWellAttrs(img, dotWell);
+  }
 
   // `data-atom-id` was written above with the rest of the identity. The
   // pending-sync ViewPlugin queries `[data-atom-id]` to toggle `data-pending`

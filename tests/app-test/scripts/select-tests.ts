@@ -308,7 +308,15 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugdeck/src/components/tugways/hooks/": 11,
     "tugdeck/src/components/tugways/internal/": 36,
     "tugdeck/src/components/tugways/tug-text-card-editor/": 5,
-    "tugdeck/src/components/tugways/tug-text-editor/": 30,
+    // Re-recorded at 31 rather than raised from 30, which is what the ratchet
+    // below asks for: `session-dot-layer.tsx` joined this directory — the layer
+    // that seats a session chip's live phase dot over the well its bake leaves
+    // unpainted. The subtree is still one unit because the claims that layer
+    // answers are claims about the editing surface: the dot stays registered
+    // while typing moves the chip, and it leaves when the chip is deleted.
+    // Neither is assertable against the layer alone — the tests that make them
+    // drive the whole editor, which is what the declaration already says.
+    "tugdeck/src/components/tugways/tug-text-editor/": 31,
 
     // The annotator. This is the declaration [F06] was written about: a change to one
     // verdict key selected a slash-command test, because every sibling module here is equal

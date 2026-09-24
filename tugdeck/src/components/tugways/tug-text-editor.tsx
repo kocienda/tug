@@ -139,6 +139,10 @@ import {
   sessionVerdictRegenPlugin,
 } from "./tug-text-editor/atom-decoration";
 import {
+  SessionDotPortals,
+  sessionDotLayer,
+} from "./tug-text-editor/session-dot-layer";
+import {
   argumentHintPlugin,
   argumentHintRefreshFacet,
   argumentHintResolverFacet,
@@ -1302,6 +1306,12 @@ function buildExtensions(
     // sits. A baked bitmap can neither subscribe nor cascade, so the widget
     // rebuild is the only door the answer has.
     sessionVerdictRegenPlugin,
+    // The session chip's phase dot, live. The bake leaves it unpainted and
+    // records where it would have gone; this layer places the real
+    // `SessionPhaseDot` over the gap, so the mark breathes and follows the
+    // session while the chip stays the `<img>` WebKit treats as an atom. The
+    // layer sits outside `.cm-content` and nothing in it runs per frame.
+    sessionDotLayer,
     // Argument-hint ghost slot — reads the resolver thunk (live catalog +
     // local registry) and paints a muted placeholder after a lone accepted
     // command atom (`/devise ┆ type arguments…`). No-op when no resolver is
@@ -3030,6 +3040,10 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
             completionDirectionRef={completionDirectionRef}
           />
         )}
+        {/* The live dots for the session chips. No layout of its own — it
+            portals one `SessionPhaseDot` into each host `sessionDotLayer`
+            drew, and renders `null` while there are none. */}
+        <SessionDotPortals view={view} />
         {/* State-preservation registration. Conditional on
             `preserveState` so stand-alone harnesses (storybook,
             unit tests) can opt out. Renders `null` (no DOM); the

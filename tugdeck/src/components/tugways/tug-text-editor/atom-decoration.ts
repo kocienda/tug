@@ -46,6 +46,11 @@ import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { payloadForAtom } from "@/lib/annotator/payloads";
 import { isSessionAtomType, sessionVerdictAskKey } from "@/lib/session-atom-shape";
+import {
+  HOST_SELECTED_ATTR,
+  dotHostForChip,
+  readDotWell,
+} from "@/lib/session-dot-overlay";
 import { sessionCitationStore } from "@/lib/session-citation-store";
 import { sessionChipVerdict } from "@/lib/session-chip-verdict";
 
@@ -190,7 +195,8 @@ export class AtomWidget extends WidgetType {
     // one request; the answer arrives later and reaches this widget through
     // `sessionVerdictRegenPlugin` below, which is the only door a baked
     // bitmap has.
-    if (isSessionAtomType(this.segment.type)) {
+    const isSession = isSessionAtomType(this.segment.type);
+    if (isSession) {
       sessionCitationStore.request(sessionVerdictAskKey(this.segment));
     }
     const img = createAtomImgElement(
@@ -206,6 +212,11 @@ export class AtomWidget extends WidgetType {
         pending,
         session: this.segment.session,
         variant: sessionChipVerdict(this.segment),
+        // Only a session chip leaves its dot to the layer: it is the one mark
+        // that changes while the chip sits there. A commit's ring is ink and a
+        // file's mark is a glyph, and neither has a live reading to place over
+        // it ([B01]).
+        dotOverlay: isSession,
       },
     );
     // The chip carries the annotation contract, so one right-click path
@@ -769,6 +780,13 @@ export function syncSelectedAtoms(view: EditorView): void {
           {
             variant: "selected",
             missing: img.dataset.chipVariant === "missing",
+            // And the well rides across it too. The selected bake is a second
+            // painting of the same chip, so one that painted the dot would put
+            // a static mark back under the live one for as long as the
+            // selection covered it ([F09]). The `<img>`'s own well attribute
+            // is the memory of the resting bake's choice — the bitmap cannot
+            // be asked, and the widget is not in reach from here.
+            omitDot: readDotWell(img) !== null,
           },
         ).dataUri;
         _selectedSrc.set(img, selected);
@@ -779,6 +797,21 @@ export function syncSelectedAtoms(view: EditorView): void {
       const rest = _restSrc.get(img);
       if (rest !== undefined && img.src !== rest) img.src = rest;
       if (img.dataset.selected !== undefined) delete img.dataset.selected;
+    }
+    // And the live dot over the chip's well swaps with it. The host stands
+    // outside the chip, so it cannot take the selected ink by cascade; the
+    // attribute is how the layer's own rule reaches it. A chip whose host has
+    // not been drawn yet answers null, and the marker seeds the same flag when
+    // it draws one.
+    const host = dotHostForChip(img);
+    if (host !== null) {
+      if (img.dataset.selected === "true") {
+        if (host.getAttribute(HOST_SELECTED_ATTR) !== "true") {
+          host.setAttribute(HOST_SELECTED_ATTR, "true");
+        }
+      } else if (host.hasAttribute(HOST_SELECTED_ATTR)) {
+        host.removeAttribute(HOST_SELECTED_ATTR);
+      }
     }
   }
 }

@@ -43,7 +43,12 @@
  *   E. **And what lands wears the session face.** The pasted chip is a Canvas
  *      bake inside an `<img>` and stays one ([P14]), so its face is pinned in
  *      pixels: no ground where the shared atom family paints an opaque surface,
- *      and a filled dot where the family strokes a glyph (Spec S05).
+ *      and a dot where the family strokes a glyph (Spec S05). The dot is no
+ *      longer IN the bitmap: the bake leaves its well unpainted and the
+ *      editor's overlay layer seats the real `SessionPhaseDot` over it, so the
+ *      same claim is read off the live mark and the well it sits in. What the
+ *      claim was always about — the pill is transparent and the mark is its
+ *      only colour — is unchanged; the pixel moved.
  *
  *   F. **The chip draws the session's NAME, and a rename repaints it.** The
  *      composer's bake is the only session chip in the app — the transcript
@@ -66,8 +71,10 @@
  * @covers tugdeck/src/lib/session-atom-shape.ts
  * @covers tugdeck/src/lib/command-atom.ts
  * @covers tugdeck/src/lib/tug-atom-img.ts
+ * @covers tugdeck/src/lib/session-dot-overlay.ts
  * @covers tugdeck/src/lib/session-identity.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
+ * @covers tugdeck/src/components/tugways/tug-text-editor/session-dot-layer.tsx
  * @covers tugdeck/src/components/tugways/use-copyable-text.tsx
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/clipboard-filters.ts
@@ -414,8 +421,49 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         expect(face.type).toBe("session");
         // No ground: the pill is transparent and the dot is its only color.
         expect(face.groundAlpha).toBeLessThan(16);
-        // The dot is painted, and it is solid.
-        expect(face.markAlpha).toBeGreaterThan(200);
+        // And the well is EMPTY, which is what makes room for the live mark:
+        // the bake paints no dot for a session chip, and the pill's surface is
+        // already transparent, so the gap is an absence of paint rather than a
+        // hole punched through anything.
+        expect(face.markAlpha).toBeLessThan(16);
+
+        // The mark itself, in the layer above the text. The chip records where
+        // its dot would have gone; the layer seats a real `SessionPhaseDot`
+        // there. Centre-to-centre against the well is the whole registration
+        // claim, read once the frame has rendered.
+        const seated = await app.evalJS<{
+          hosts: number;
+          dots: number;
+          dx: number;
+          dy: number;
+        }>(
+          `(function(){
+            var img = document.querySelector(
+              ${JSON.stringify(COMPOSER)} + ' img[data-atom-well-x]');
+            if (img === null) throw new Error("the pasted chip records no well");
+            var layer = document.querySelector('.cm-tug-session-dot-layer');
+            if (layer === null) throw new Error("no session dot layer");
+            var host = layer.querySelector('.cm-tug-session-dot-host');
+            if (host === null) throw new Error("no host over the chip's well");
+            var ir = img.getBoundingClientRect();
+            var hr = host.getBoundingClientRect();
+            return {
+              hosts: layer.children.length,
+              dots: host.childElementCount,
+              dx: hr.left + hr.width / 2
+                - (ir.left + parseFloat(img.getAttribute('data-atom-well-x'))),
+              dy: hr.top + hr.height / 2
+                - (ir.top + parseFloat(img.getAttribute('data-atom-well-y'))),
+            };
+          })()`,
+        );
+        note("at0376 seated dot", JSON.stringify(seated));
+        // One chip, one host, one dot in it.
+        expect(seated.hosts).toBe(1);
+        expect(seated.dots).toBe(1);
+        // Seated on the well, not near it.
+        expect(Math.abs(seated.dx)).toBeLessThan(0.5);
+        expect(Math.abs(seated.dy)).toBeLessThan(0.5);
 
         // ---- F. The chip DRAWS the name, and a rename repaints it. --------
         //
