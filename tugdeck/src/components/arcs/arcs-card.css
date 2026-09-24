@@ -111,6 +111,41 @@
   padding-block: var(--tug-space-md);
 }
 
+/* ── The eyebrow's two names: the arc has priority over the worker ──────────
+   The arc is the row's subject; the worker is who holds it. When the eyebrow
+   cannot hold both, the worker gives way first, down to a floor that keeps
+   its dot and a few characters, and only then does the arc name lose
+   anything. Scoped to this card's block: the Changes shade's lane has room
+   and keeps the block's own packing.
+
+   The clamp idiom, not a shrink ratio: flex splits a deficit in proportion to
+   shrink × basis, so any ratio would still take a sliver off the arc — and a
+   sliver is enough to paint an ellipsis on a name that fits. Instead the arc
+   atom does not shrink at all and is CAPPED at the width that leaves the
+   worker its floor, the hairline its minimum and the gaps their own; every
+   pixel of a deficit lands on the worker until it reaches the floor, and the
+   cap is what elides the arc after that. On a row with no worker the cap
+   leaves room for the hairline alone. */
+.arcs-block {
+  --tugx-arcs-worker-floor: 56px;
+}
+
+.arcs-block .tug-arc-lifecycle-eyebrow > .tug-arc-atom {
+  flex: 0 0 auto;
+  max-inline-size: calc(100% - var(--tugx-arc-lifecycle-rule-min) - var(--tug-space-sm));
+}
+
+.arcs-block .tug-arc-lifecycle-eyebrow:has(> [data-slot="tug-arc-lifecycle-worker"]) > .tug-arc-atom {
+  max-inline-size: calc(
+    100% - var(--tugx-arcs-worker-floor) - var(--tugx-arc-lifecycle-rule-min) - 2 * var(--tug-space-sm)
+  );
+}
+
+.arcs-block .tug-arc-lifecycle-eyebrow > [data-slot="tug-arc-lifecycle-worker"] {
+  flex: 0 1 auto;
+  min-inline-size: var(--tugx-arcs-worker-floor);
+}
+
 /* What the arc's JOIN is doing, on the metadata line's margin: line 1 is
    who, line 2 is what the arc is doing, line 3 is what its join is doing.
    Empty until there is a join — the register returns null before then, so

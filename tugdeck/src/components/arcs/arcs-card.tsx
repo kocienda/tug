@@ -15,15 +15,20 @@
  *     track · glyph · fraction · note · divergence
  *
  * Every row is one `ArcLifecycleBlock`, the grammar every arc surface wears.
- * Its EYEBROW holds the identities and, at its end, the row's one control: the
- * arc atom at the left, the hairline, the "who" at the right — each bound
- * worker as a mini atom (no callsign, no arc run: the row already names both)
- * — and then the fold cue. The arc pill wears no review tint here: that yellow
- * is the WAITING color, and an arc is not waiting for anyone. Beneath it, the
- * lifecycle line carries everything the arc is DOING, phase glyph included.
+ * Its EYEBROW holds the identities and nothing else: the arc atom at the
+ * left, the hairline, the "who" at the right — each bound worker as a mini
+ * atom (no callsign, no arc run: the row already names both). The arc pill
+ * wears no review tint here: that yellow is the WAITING color, and an arc is
+ * not waiting for anyone. Beneath it, the lifecycle line carries everything
+ * the arc is DOING, phase glyph included, and at ITS trailing edge stand the
+ * row's controls — the transport, then the fold cue — in the block's
+ * `lineTrailing` slot. They rode the eyebrow's end for a while, and at the
+ * sidebar's width the two names paid for them in characters: every row
+ * elided both pills. The eyebrow is the names' now, and the arc pill has
+ * priority over the worker's when the two still cannot fit ([D200]).
  *
  * **And the row FOLDS to the arc's ledger.** An arc whose entry carries steps
- * wears the tool-call header's own `BlockFoldCue` at the eyebrow's end, and
+ * wears the tool-call header's own `BlockFoldCue` at the line's end, and
  * opens over the plan's step rows — `ArcStepItems`, the very component the
  * `ARC` placard mounts, so the row and the placard cannot disagree about one
  * arc's steps ([D176]). The bit is held HERE, in `ArcsBody`, keyed by the arc's
@@ -809,7 +814,12 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
                 ),
               }
             : {})}
-          trailing={
+          // The controls ride the LINE's trailing slot rather than the
+          // eyebrow's: at the sidebar's width the eyebrow could not hold two
+          // names and two controls, and the names were what elided. The
+          // eyebrow's right end is the worker's atom and nothing else again,
+          // and the transport and cue stand in one column on line two.
+          lineTrailing={
             <>
               {/* The transport, before the cue: the act on the arc leads the
                   view of it. It draws nothing at all on an arc there is no
@@ -997,7 +1007,11 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           // No mark here: a plan row has no fold and nothing below it, so the
           // sentence stays on the line rather than being demoted to a hover
           // with nowhere to land ([B06]).
-          trailing={
+          // The transport and the delete ride the line's trailing slot here
+          // too, so every row's transport stands in one column whether the
+          // row is a branch or its paperwork, and a waiting brief's name has
+          // the same eyebrow to itself that a live arc's does.
+          lineTrailing={
             <>
               <ArcTransportControl
                 arc={entry.display_name}

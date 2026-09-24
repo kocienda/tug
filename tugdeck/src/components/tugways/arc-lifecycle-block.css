@@ -11,6 +11,9 @@
   max-width: 100%;
   overflow: hidden;
   flex: 1 1 auto;
+  /* The hairline's floor, published so a host that caps a name against it
+     reads the one number rather than authoring a second. */
+  --tugx-arc-lifecycle-rule-min: 12px;
 }
 
 /* The header shape: the two runs side by side rather than stacked. The
@@ -37,7 +40,11 @@
 
 .tug-arc-lifecycle-rule {
   flex: 1 1 auto;
-  min-width: 24px;
+  /* A separator's minimum, not a name's. At 24px the rule was charging the
+     two names for its floor on the Arcs card's narrow eyebrow; it may still
+     stretch when there is room, and may no longer cost a name a character
+     when there is not. */
+  min-width: var(--tugx-arc-lifecycle-rule-min);
   height: 1px;
   background: var(--tug7-element-global-border-normal-default-rest);
 }
@@ -49,3 +56,31 @@
    edge. It does not any more: the track and the reading are one centred run,
    so the two lines are related by their CENTRE instead — an indent would only
    push that run off the centre it is aligned to. */
+
+/* The line's own trailing slot, for a host whose eyebrow has no room for its
+   controls. The wrapper exists only when a host passes `lineTrailing`; a
+   block without one keeps the line as its direct child. The line takes the
+   width the slot leaves and goes on centring its run inside it, so the
+   reading keeps its relation to the eyebrow's centre; the slot is fixed at
+   the trailing edge. The gaps are the eyebrow's, so a cue seated here stands
+   in the same column as one seated in the eyebrow's trailing slot. */
+.tug-arc-lifecycle-line-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+}
+
+.tug-arc-lifecycle-line-row > .tug-arc-lifecycle-line {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tug-arc-lifecycle-line-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  flex: 0 0 auto;
+}

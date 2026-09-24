@@ -28,11 +28,24 @@
  * The trailing slot is the surface's own — a transport control, a fold cue —
  * and rides the eyebrow's end.
  *
- * The Arcs card is the first surface to fill it, and it puts two things there
- * in one order: the `ArcTransportControl` — Start, Resume or Stop, whichever
- * the arc's own state names ([D178]) — and then, on a live arc's row, the
- * tool-call header's fold cue, which folds open to the plan's own steps
- * ([D176]). The act on the arc leads the view of it.
+ * The Changes shade's arc lane fills it with the row's verbs menu and its
+ * pop-out; the receipt headers fill it too. A host that puts two things there
+ * puts them in one order: the act on the arc leads the view of it.
+ *
+ * **The line has a trailing slot of its own, `lineTrailing`, and it is the
+ * surface's own in the same way.** A host whose eyebrow is too narrow for
+ * both its identities and its controls — the Arcs card at the sidebar's
+ * width, where every name was eliding — passes its controls here instead,
+ * and line two becomes a row: the lifecycle line, then the slot at the
+ * trailing edge. The line keeps centring its reading inside the width the
+ * slot leaves, so the reading holds its relation to line one's centre, and
+ * the slot stands in the column the eyebrow's trailing slot occupies, so a
+ * cue in either slot lands on one x-position. The Arcs card is the surface
+ * that fills it, with the `ArcTransportControl` — Start, Resume or Stop,
+ * whichever the arc's own state names ([D178]) — and then, on a live arc's
+ * row, the tool-call header's fold cue, which folds open to the plan's own
+ * steps ([D176]). A host that passes nothing gets the DOM it always had: the
+ * row wrapper exists only when there is something to seat in it ([D200]).
  *
  * **Two layouts, one block.** `stack` is the default and the shape everything
  * above describes: two lines, for a surface whose subject IS the arc. `row`
@@ -63,7 +76,16 @@ import { useSessionIdentity } from "@/lib/session-identity";
 export interface ArcLifecycleBlockProps extends ArcLifecycleLineProps {
   name: string;
   worker?: string | null;
+  /** The eyebrow's trailing slot: what rides the end of line one. */
   trailing?: React.ReactNode;
+  /**
+   * The line's trailing slot: what rides the end of line two. When it is
+   * passed, line two is a flex row of the lifecycle line and this slot, the
+   * slot at the trailing edge; when it is absent the line is the block's
+   * direct child, as it always was.
+   * @selector [data-slot="tug-arc-lifecycle-line-row"] > [data-slot="tug-arc-lifecycle-line-trailing"]
+   */
+  lineTrailing?: React.ReactNode;
   /**
    * `stack` — two lines, for a surface whose subject is the arc (default).
    * `row` — one line, for a header that captions something else.
@@ -99,6 +121,7 @@ export function ArcLifecycleBlock({
   name,
   worker = null,
   trailing,
+  lineTrailing,
   model,
   note,
   stepTitle,
@@ -107,6 +130,16 @@ export function ArcLifecycleBlock({
   troublePlacement,
   layout = "stack",
 }: ArcLifecycleBlockProps): React.ReactElement {
+  const line = (
+    <ArcLifecycleLine
+      model={model}
+      {...(note !== undefined ? { note } : {})}
+      {...(stepTitle !== undefined ? { stepTitle } : {})}
+      {...(mark !== undefined ? { mark } : {})}
+      {...(facts !== undefined ? { facts } : {})}
+      {...(troublePlacement !== undefined ? { troublePlacement } : {})}
+    />
+  );
   return (
     <span
       className="tug-arc-lifecycle-block"
@@ -122,14 +155,19 @@ export function ArcLifecycleBlock({
         {worker ? <ArcWorkerAtom sessionId={worker} /> : null}
         {trailing}
       </span>
-      <ArcLifecycleLine
-        model={model}
-        {...(note !== undefined ? { note } : {})}
-        {...(stepTitle !== undefined ? { stepTitle } : {})}
-        {...(mark !== undefined ? { mark } : {})}
-        {...(facts !== undefined ? { facts } : {})}
-        {...(troublePlacement !== undefined ? { troublePlacement } : {})}
-      />
+      {lineTrailing !== undefined && lineTrailing !== null ? (
+        <span className="tug-arc-lifecycle-line-row" data-slot="tug-arc-lifecycle-line-row">
+          {line}
+          <span
+            className="tug-arc-lifecycle-line-trailing"
+            data-slot="tug-arc-lifecycle-line-trailing"
+          >
+            {lineTrailing}
+          </span>
+        </span>
+      ) : (
+        line
+      )}
     </span>
   );
 }

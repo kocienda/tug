@@ -3,11 +3,14 @@
  * arcs.
  *
  * The card holds EVERY arc in every state ([D141]), and every row is one
- * `ArcLifecycleBlock`. Its eyebrow carries the arc atom, the hairline, one
- * worker atom per bound session, and the row's menu opener — an unbound arc
- * shows no worker atom and no phase dot anywhere on the row, because an arc
- * with a phase to report has a session bound to it and that session's atom is
- * what would carry the dot.
+ * `ArcLifecycleBlock`. Its eyebrow carries the arc atom, the hairline, and one
+ * worker atom per bound session, and nothing else — an unbound arc shows no
+ * worker atom and no phase dot anywhere on the row, because an arc with a
+ * phase to report has a session bound to it and that session's atom is what
+ * would carry the dot. The row's controls — the transport and the fold cue —
+ * stand at the trailing edge of the LINE beneath it, in the block's
+ * `lineTrailing` slot: they rode the eyebrow's end for a while, and at the
+ * sidebar's width the two names paid for them in characters.
  *
  * Beneath the eyebrow, the lifecycle line says what the arc is DOING: the
  * track, the phase glyph, the fraction while a step is open, the phase in a
@@ -24,7 +27,7 @@
  * The stage ordering rides along, because it needs two arcs at different
  * stages and this is the file that has them.
  *
- * And the row FOLDS: the cue at the eyebrow's end opens the block over the
+ * And the row FOLDS: the cue at the line's end opens the block over the
  * plan's own ledger, rendered by the very component the `ARC` placard mounts,
  * so the row and the placard cannot disagree about one arc's steps. A row with
  * no steps draws the cue disabled — present, never absent — and a press on it
@@ -424,6 +427,14 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // which was the right rule while it packed everything against its
         // leading edge.
         //
+        // The line shares its row with the controls now — the transport and
+        // the fold cue stand at the row's trailing edge, in the block's
+        // `lineTrailing` slot — so the box this measures is the line's own,
+        // which is the width left of the controls, and the claim is that the
+        // run is centred INSIDE it. That is the seat's rule: the reading
+        // keeps its relation to the eyebrow's centre, and the controls stand
+        // in a fixed column beside it.
+        //
         // Measured as the air on either side of the run rather than against a
         // constant, so retuning the row's density or the atom's padding moves
         // the expectation with it, and so the claim is the UNIT's centring
@@ -675,7 +686,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         );
 
         // ── The cue is on the arc with a ledger, and on no other ──────────
-        // Every row draws the cue, at the same edge — a row with nothing to
+        // Every row draws the cue, at the same edge of its line — a row with nothing to
         // fold draws it disabled rather than dropping it, so the column of
         // chevrons never goes ragged. `at0407-arc` was created and never
         // planned, so it is that row.

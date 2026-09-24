@@ -56,6 +56,7 @@ import React from "react";
 
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
+import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import {
   ArcLifecycleLine,
 } from "@/components/tugways/arc-lifecycle-line";
@@ -654,6 +655,41 @@ function Worker({ sessionId }: { sessionId: string }): React.ReactElement {
 const AT_WORK = MOMENTS[3]!;
 
 /**
+ * The block with its line's trailing slot filled — the Arcs card's seat for
+ * its controls, where the eyebrow at the sidebar's width has no room for
+ * them beside the two names. The cue is the real one; its fold is local
+ * state because the frame has nothing to open. The card seats the transport
+ * control before the cue, in the same slot.
+ */
+function LineTrailingFrame(): React.ReactElement {
+  const [collapsed, setCollapsed] = React.useState(true);
+  const m = AT_WORK;
+  return (
+    <ArcLifecycleBlock
+      name={m.entry.display_name}
+      worker={m.worker}
+      model={arcTrackModelFromEntry(m.entry)}
+      stepTitle={m.entry.step_title ?? null}
+      facts={arcMetaFacts(m.entry)}
+      lineTrailing={
+        <BlockFoldCue
+          collapsed={collapsed}
+          onToggle={setCollapsed}
+          collapsedLabel="Expand"
+          expandedLabel="Collapse"
+          ariaLabelExpand="Expand steps"
+          ariaLabelCollapse="Collapse steps"
+          size="xs"
+          subtype="icon"
+          stabilizeScroll={false}
+          data-slot="cg-arc-line-trailing-cue"
+        />
+      }
+    />
+  );
+}
+
+/**
  * A plan of `total` steps, `current` in progress — the fixture for the one
  * claim a single moment cannot make: that the strip is the same width at three
  * steps and at twenty-four.
@@ -912,6 +948,16 @@ export function GalleryArcLifecycle(): React.ReactElement {
             </Stage>
           );
         })}
+        <Stage caption="THE LINE'S OWN TRAILING SLOT. A host whose eyebrow cannot hold both its identities and its controls passes the controls to `lineTrailing`, and line two becomes a row: the lifecycle line, then the slot at the trailing edge. The line goes on centring its reading in the width the slot leaves, so it keeps its relation to the eyebrow's centre, and the slot stands in the column the eyebrow's own trailing slot occupies. This is the Arcs card's seat for its transport and fold cue; the shade and the receipts keep the eyebrow's slot, and a block passed nothing here has the DOM it always had">
+          <div className="cg-arc-surfaces">
+            <div className="cg-arc-surface">
+              <span className="cg-arc-surface-name">
+                Arcs card · ArcLifecycleBlock, lineTrailing filled
+              </span>
+              <LineTrailingFrame />
+            </div>
+          </div>
+        </Stage>
       </section>
 
       <section className="cg-section">
