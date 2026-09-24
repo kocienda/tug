@@ -86,9 +86,17 @@ const LIVE_STAGES: ReadonlySet<UpdateStage> = new Set<UpdateStage>([
   "installing",
 ]);
 
-/** The one sentence. The version says *which* update, never what it is doing. */
+/**
+ * The one sentence. The version says *which* update, never what it is doing.
+ *
+ * Spelled `v0.9.0`, the same as the wizard's Check row — the pill is the door
+ * to that panel, and one version wearing two spellings two lines apart reads
+ * as two different facts.
+ */
 function pillLabel(version: string): string {
-  return version === "" ? "A Tug update is available" : `Tug ${version} is available`;
+  return version === ""
+    ? "A Tug update is available"
+    : `Tug v${version} is available`;
 }
 
 export function UpdatePill(): ReactElement | null {

@@ -97,6 +97,13 @@ export interface UpdateSnapshot {
   /** The update's build, or `""` when there is none. */
   build: string;
   /**
+   * The *running* app's marketing version, or `""` outside Tug.app. Constant
+   * for the process, and the one field that survives `idle` alongside
+   * `revealCount` — the wizard's first row says which version you have before
+   * any check has happened.
+   */
+  currentVersion: string;
+  /**
    * Release notes as HTML or Markdown, or `null` when the appcast carried
    * none, they have not arrived yet, or they failed to download. **An absent
    * notes file never blocks an update** — the popover shows the version and
@@ -145,6 +152,7 @@ export const IDLE_UPDATE: UpdateSnapshot = {
   stage: "idle",
   version: "",
   build: "",
+  currentVersion: "",
   releaseNotes: null,
   releaseNotesFailed: false,
   userInitiated: false,
@@ -171,6 +179,7 @@ function snapshotsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
     a.stage === b.stage &&
     a.version === b.version &&
     a.build === b.build &&
+    a.currentVersion === b.currentVersion &&
     a.releaseNotes === b.releaseNotes &&
     a.releaseNotesFailed === b.releaseNotesFailed &&
     a.userInitiated === b.userInitiated &&
@@ -194,6 +203,7 @@ function renderFieldsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
     a.stage === b.stage &&
     a.version === b.version &&
     a.build === b.build &&
+    a.currentVersion === b.currentVersion &&
     a.releaseNotes === b.releaseNotes &&
     a.releaseNotesFailed === b.releaseNotesFailed &&
     a.userInitiated === b.userInitiated &&
@@ -280,8 +290,10 @@ export function useUpdateState(): UpdateRenderSnapshot {
  * The Tug-menu item is enabled in every stage and does exactly one thing —
  * bump the count — so an `idle` snapshot that dropped the bump would make the
  * menu item dead precisely in the state a user reaches for it from: no flow
- * yet, and a wizard that should open on its Check row. Everything else about
- * `idle` is still flattened, because there is nothing to draw.
+ * yet, and a wizard that should open on its Check row. `currentVersion`
+ * crosses at `idle` for the same kind of reason: which version you are running
+ * is true before any check, and the wizard's Check row says so. Everything
+ * else about `idle` is still flattened, because there is nothing to draw.
  */
 export function updateFromPayload(
   payload: Record<string, unknown>,
@@ -296,13 +308,16 @@ export function updateFromPayload(
     Number.isFinite(payload.revealCount)
       ? payload.revealCount
       : 0;
+  const currentVersion =
+    typeof payload.currentVersion === "string" ? payload.currentVersion : "";
 
-  if (stage === "idle") return { ...IDLE_UPDATE, revealCount };
+  if (stage === "idle") return { ...IDLE_UPDATE, currentVersion, revealCount };
 
   return {
     stage,
     version: typeof payload.version === "string" ? payload.version : "",
     build: typeof payload.build === "string" ? payload.build : "",
+    currentVersion,
     releaseNotes:
       typeof payload.releaseNotes === "string" ? payload.releaseNotes : null,
     releaseNotesFailed: payload.releaseNotesFailed === true,

@@ -124,6 +124,22 @@ export function ProgressDetail(): ReactElement {
 }
 
 /**
+ * The check row's detail line, prefixed with the version the user is running.
+ *
+ * One sentence pattern across every stage the row has something to say in:
+ * *what you have*, then *what that means for you*. The version is the fact the
+ * panel could not otherwise give them — the title says which flow they are in,
+ * never which Tug is on disk.
+ *
+ * Outside Tug.app there is no running version to name, so the second half
+ * stands alone rather than being introduced by a blank.
+ */
+function youHave(state: UpdateRenderSnapshot, rest: string): string {
+  if (state.currentVersion === "") return rest;
+  return `You have Tug v${state.currentVersion}. ${rest}`;
+}
+
+/**
  * The four rows for the moment in hand.
  *
  * Unpacking is the download row's detail phase rather than a row ([B02]): the
@@ -164,7 +180,7 @@ export function deriveUpdateRows(
   switch (stage) {
     case "idle":
       check.status = "active";
-      check.detail = "Look for a newer version of Tug.";
+      check.detail = youHave(state, "Look for a newer version.");
       check.cta = { label: "Check Now", action: "check" };
       break;
     case "checking":
@@ -174,7 +190,10 @@ export function deriveUpdateRows(
       break;
     case "available":
       check.status = "done";
-      check.detail = state.version === "" ? "An update is available." : `Tug ${state.version} is available.`;
+      check.detail =
+        state.version === ""
+          ? youHave(state, "An update is available.")
+          : youHave(state, `Tug v${state.version} is available.`);
       download.status = "active";
       // Said here because it is the one thing the user cannot tell by looking:
       // downloading costs nothing, and stopping work is its own step ([B03]).
@@ -208,8 +227,11 @@ export function deriveUpdateRows(
       check.status = "done";
       // Not "Tug is up to date": that is the title, one line above, and a panel
       // that says its one sentence twice reads as a stutter rather than as an
-      // answer.
-      check.detail = "No newer version has been released.";
+      // answer. The version is the thing this line adds that the title cannot.
+      check.detail =
+        state.currentVersion === ""
+          ? "No newer version has been released."
+          : `You have the latest version, Tug v${state.currentVersion}.`;
       break;
     case "error":
       break;

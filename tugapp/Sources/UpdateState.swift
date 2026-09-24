@@ -85,6 +85,15 @@ struct UpdateSnapshot: Equatable {
     var version: String = ""
     /// The update's build (`versionString`), empty when there is none.
     var build: String = ""
+    /// The *running* app's marketing version (`CFBundleShortVersionString`),
+    /// empty when nobody told the state machine what it is.
+    ///
+    /// Constant for the process, and carried on the snapshot rather than read
+    /// off the presentation's own store because the deck has no other reading
+    /// of it: the About payload arrives only when About is opened, and the
+    /// wizard's first row says which version you have before anything has been
+    /// checked.
+    var currentVersion: String = ""
     /// Release notes, as HTML or Markdown, once they are known. `nil` while
     /// they are still coming, when the appcast carried none, or when the
     /// download failed — none of which blocks the update [B11].
@@ -164,6 +173,7 @@ struct UpdateSnapshot: Equatable {
             "stage": stage.rawValue,
             "version": version,
             "build": build,
+            "currentVersion": currentVersion,
             "releaseNotes": releaseNotes ?? NSNull(),
             "releaseNotesFailed": releaseNotesFailed,
             "userInitiated": userInitiated,
@@ -232,7 +242,15 @@ struct UpdateStateMachine {
     /// every one of them.
     private var revealCount: Int = 0
 
-    init() {}
+    /// The running app's marketing version. Held here for the same reason as
+    /// `revealCount` — most transitions assign a whole new snapshot, and this
+    /// is true of every one of them.
+    private let currentVersion: String
+
+    init(currentVersion: String = "") {
+        self.currentVersion = currentVersion
+        snapshot.currentVersion = currentVersion
+    }
 
     /// Fold one event in. Returns the new snapshot when it differs from the
     /// previous one, `nil` when the event changed nothing worth publishing.
@@ -243,6 +261,7 @@ struct UpdateStateMachine {
         // Stamped after the reduction, so the transitions that assign a whole
         // new `UpdateSnapshot` cannot take the count back to zero.
         snapshot.revealCount = revealCount
+        snapshot.currentVersion = currentVersion
         return snapshot == before ? nil : snapshot
     }
 

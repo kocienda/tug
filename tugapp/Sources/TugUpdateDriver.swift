@@ -38,7 +38,10 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     /// to "nothing in the update flow takes focus" [B06].
     var onFocusRequested: (() -> Void)?
 
-    private var machine = UpdateStateMachine()
+    private var machine = UpdateStateMachine(
+        currentVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+            as? String ?? ""
+    )
 
     /// The current state. Read by the menu-title rule and by the bridge's
     /// replay on frontend-ready.

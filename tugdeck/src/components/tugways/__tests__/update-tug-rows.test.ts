@@ -50,6 +50,7 @@ function snapshot(
     stage,
     version: "0.9.0",
     build: "900",
+    currentVersion: "0.8.10",
     releaseNotes: null,
     releaseNotesFailed: false,
     userInitiated: false,
@@ -300,5 +301,45 @@ describe("update-tug-rows: the host's rows are unmoved", () => {
     expect(row.status).toBe("active");
     expect(row.detail).toBe("Downloading won't interrupt your work.");
     expect(row.cta).toEqual({ label: "Download", action: "install" });
+  });
+});
+
+describe("update-tug-rows: the check row names the version you are running", () => {
+  it("says what you have before a check has happened", () => {
+    expect(rowsBy("idle").check.detail).toBe(
+      "You have Tug v0.8.10. Look for a newer version.",
+    );
+  });
+
+  it("says what you have alongside the version that is available", () => {
+    expect(rowsBy("available").check.detail).toBe(
+      "You have Tug v0.8.10. Tug v0.9.0 is available.",
+    );
+  });
+
+  it("names the version when the check found nothing newer", () => {
+    expect(rowsBy("upToDate").check.detail).toBe(
+      "You have the latest version, Tug v0.8.10.",
+    );
+  });
+
+  it("drops the clause outside Tug.app, where there is no running version", () => {
+    const over = { snapshot: { currentVersion: "" } };
+    expect(rowsBy("idle", NO_LIVE_TURNS, over).check.detail).toBe(
+      "Look for a newer version.",
+    );
+    expect(rowsBy("available", NO_LIVE_TURNS, over).check.detail).toBe(
+      "Tug v0.9.0 is available.",
+    );
+    expect(rowsBy("upToDate", NO_LIVE_TURNS, over).check.detail).toBe(
+      "No newer version has been released.",
+    );
+  });
+
+  it("falls back when the host named no available version either", () => {
+    const over = { snapshot: { version: "" } };
+    expect(rowsBy("available", NO_LIVE_TURNS, over).check.detail).toBe(
+      "You have Tug v0.8.10. An update is available.",
+    );
   });
 });

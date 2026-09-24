@@ -396,6 +396,45 @@ do {
           payload(failed.snapshot)["message"] as? String == "could not reach the feed")
 }
 
+// ── The running version rides every snapshot ─────────────────────────────
+//
+// The deck's wizard says which Tug you have before any check has happened,
+// and it has no other reading of that: the About payload only arrives when
+// About is opened. So the running version is stamped after every reduction,
+// the same way `revealCount` is, and survives the transitions that assign a
+// whole new snapshot.
+do {
+    print("the running version")
+
+    var machine = UpdateStateMachine(currentVersion: "0.8.10")
+    check("idle already carries it", machine.snapshot.currentVersion == "0.8.10")
+
+    var seen: [String] = []
+    machine.apply(.checkStarted(userInitiated: true))
+    seen.append(machine.snapshot.currentVersion)
+    machine.apply(.updateFound(version: "0.9.0", build: "412", notes: nil, userInitiated: true))
+    seen.append(machine.snapshot.currentVersion)
+    machine.apply(.downloadStarted)
+    seen.append(machine.snapshot.currentVersion)
+    machine.apply(.readyToInstall)
+    seen.append(machine.snapshot.currentVersion)
+    machine.apply(.failed("nope"))
+    seen.append(machine.snapshot.currentVersion)
+    machine.apply(.dismissed)
+    seen.append(machine.snapshot.currentVersion)
+    check("every transition keeps it", seen.allSatisfy { $0 == "0.8.10" }, "got \(seen)")
+
+    var notFound = UpdateStateMachine(currentVersion: "0.8.10")
+    notFound.apply(.updateNotFound)
+    check("up-to-date keeps it", notFound.snapshot.currentVersion == "0.8.10")
+    check("it crosses the wire",
+          notFound.snapshot.jsonObject["currentVersion"] as? String == "0.8.10")
+
+    let unknown = UpdateStateMachine()
+    check("a machine nobody told is empty rather than wrong",
+          unknown.snapshot.currentVersion == "")
+}
+
 if failures == 0 {
     print("PASS — UpdateStateMachine")
     exit(0)

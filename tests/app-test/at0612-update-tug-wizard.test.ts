@@ -26,7 +26,7 @@
  * 1. **A scheduled find opens nothing.** An update that arrives without anybody
  *    asking lights the pill and stops there. Nothing takes the app modal, and
  *    nothing takes focus [B03].
- * 2. **The pill says one thing.** *Tug 0.9.0 is available*, in every live stage —
+ * 2. **The pill says one thing.** *Tug v0.9.0 is available*, in every live stage —
  *    it never narrates the flow it is standing next to [B02] [F08]. It shows for
  *    `available` through `installing` and for nothing else: not for a check in
  *    flight, not for a check that found nothing, not for a failure.
@@ -112,6 +112,7 @@ interface Payload {
   stage: string;
   version?: string;
   build?: string;
+  currentVersion?: string;
   releaseNotes?: string | null;
   releaseNotesFailed?: boolean;
   userInitiated?: boolean;
@@ -126,6 +127,7 @@ function snapshot(stage: string, over: Partial<Payload> = {}): Payload {
     stage,
     version: "0.9.0",
     build: "900",
+    currentVersion: "0.8.10",
     releaseNotes: null,
     releaseNotesFailed: false,
     userInitiated: false,
@@ -321,6 +323,19 @@ async function stepKeys(app: App): Promise<string[]> {
   );
 }
 
+/** The check row's detail line — the one that names the versions. */
+async function checkDetail(app: App): Promise<string> {
+  return app.evalJS<string>(
+    `(function () {
+       var row = document.querySelector(
+         ${JSON.stringify(STEP_ROWS)} + '[data-step="check"]'
+       );
+       var el = row && row.querySelector(".tug-step-row-detail");
+       return el ? (el.textContent || "").trim() : "";
+     })()`,
+  );
+}
+
 /** The rows' labels, which are the same four in every stage. */
 async function stepLabels(app: App): Promise<string[]> {
   return app.evalJS<string[]>(
@@ -471,7 +486,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
             // One sentence, and it is the same sentence in every live stage:
             // which update exists, never what is happening to it [F08].
             expect(await app.getElementText(PILL)).toContain(
-              "Tug 0.9.0 is available",
+              "Tug v0.9.0 is available",
             );
           } else {
             await letTimePass(app, 400);
@@ -664,6 +679,26 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         expect(
           await elementCount(app, `${WIZARD} [data-variant="pulsing-dot"]`),
         ).toBe(4);
+
+        // ---- The check row says which Tug you are running ---------------
+        //
+        // The one fact the panel could not otherwise give them: the title says
+        // which flow they are in, never which version is on disk. Same sentence
+        // shape at every stage that has something to say — what you have, then
+        // what that means for you.
+        const detailCases: Array<[string, string]> = [
+          ["idle", "You have Tug v0.8.10. Look for a newer version."],
+          ["available", "You have Tug v0.8.10. Tug v0.9.0 is available."],
+          ["upToDate", "You have the latest version, Tug v0.8.10."],
+        ];
+        for (const [stage, detail] of detailCases) {
+          await goIdle(app);
+          await push(app, snapshot(stage, { revealCount: nextReveal() }));
+          await waitForWizard(app, stage);
+          const read = await checkDetail(app);
+          note(`at0612 check detail ${stage}`, read);
+          expect(read).toBe(detail);
+        }
 
         // ---- Close then reopen lands on the same step [B04] --------------
         //

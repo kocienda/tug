@@ -33,6 +33,7 @@ function available(overrides: Record<string, unknown> = {}) {
     stage: "available",
     version: "0.9.0",
     build: "412",
+    currentVersion: "0.8.10",
     releaseNotes: "# 0.9.0",
     releaseNotesFailed: false,
     userInitiated: true,
@@ -51,6 +52,7 @@ describe("update-store: a host snapshot lands whole", () => {
       stage: "available",
       version: "0.9.0",
       build: "412",
+      currentVersion: "0.8.10",
       releaseNotes: "# 0.9.0",
       releaseNotesFailed: false,
       userInitiated: true,
@@ -137,9 +139,13 @@ describe("update-store: the idle case", () => {
   it("reads an unrecognized stage as nothing to show", () => {
     // A host build ahead of this deck. "I cannot draw that" is the same
     // answer as "there is nothing to draw" — never a pill in a stage this
-    // build has no controls for.
+    // build has no controls for. The running version still crosses: which Tug
+    // is on disk is true whatever stage the host thinks it is in.
     updateStore.apply(updateFromPayload(available({ stage: "sideways" })));
-    expect(updateStore.getSnapshot()).toEqual(IDLE_UPDATE);
+    expect(updateStore.getSnapshot()).toEqual({
+      ...IDLE_UPDATE,
+      currentVersion: "0.8.10",
+    });
   });
 
   it("reads an empty payload as idle", () => {
