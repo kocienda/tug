@@ -524,16 +524,20 @@ export function withRailShares(
 }
 
 /**
- * How much of the run a member is worth: its stored share, 1 for a member the
- * record does not name, and `undefined` when there is no record at all.
+ * How much of the run a member is worth: its stored share, and `undefined` for
+ * a member nobody has weighed — one the record does not name, or a member of no
+ * record at all.
  *
- * The absent record is a fact the allocator reads — a place nobody has divided
- * yet stands at equal shares — so it is answered as
- * `undefined` rather than folded into 1. Inside a present record a weight that
- * is not a finite non-negative number reads as 1 rather than as an error: these
- * arrive from a JSON blob and from gesture arithmetic, and a rail that refuses
- * to lay itself out because one number is `NaN` is worse than a rail that
- * divides evenly.
+ * The unweighed member is a fact the allocator reads — nobody has divided this
+ * one, so it stands at an equal share — so it is answered as `undefined` rather
+ * than folded into 1. It is read one MEMBER at a time rather than one record at
+ * a time because that is the distinction an arrival turns on: a sitter the hand
+ * named claims what it stands at, and a sitter nobody named claims nothing and
+ * divides with the newcomer ([B01], [B05], `arrival-even-division`). A member
+ * NAMED by the record whose weight is not a finite non-negative number reads as
+ * 1 rather than as an error: these arrive from a JSON blob and from gesture
+ * arithmetic, and a rail that refuses to lay itself out because one number is
+ * `NaN` is worse than a rail that divides evenly.
  *
  * Zero is a weight, not an absence: a member a drag pushed down to its floor
  * stands at the floor and says so with a zero. {@link sharedHeightsOf} divides
@@ -545,7 +549,8 @@ export function railWeightOf(
   componentId: string,
 ): number | undefined {
   if (shares === undefined) return undefined;
-  const weight = shares?.[componentId];
+  const weight = shares[componentId];
+  if (weight === undefined) return undefined;
   return typeof weight === "number" && Number.isFinite(weight) && weight >= 0
     ? weight
     : 1;
@@ -3422,7 +3427,8 @@ export interface PlaceMember {
   /** Hard floor, px: `getStackSizePolicy(componentIds).min.height`. */
   floor: number;
   /** The stored share, {@link railWeightOf}: finite, ≥ 0; `undefined` when the
-   *  place has no record, which reads as an equal division ([B03]). */
+   *  member is one nobody has weighed — the place has no record, or the record
+   *  does not name it — which reads as an equal division ([B03]). */
   weight?: number;
   /**
    * Hard ceiling, px — the most run this member will take, however much the
@@ -3847,26 +3853,35 @@ export function placeSharesFromHeights(
 
 /**
  * The shares a place should STORE when `arrivingId` arrives among `members` —
- * the newcomer taking the surplus first, and only then sharing ([B05]).
+ * the newcomer taking what nobody claimed, shared with every sitter that
+ * claimed nothing ([B01], [B02], `arrival-even-division`).
  *
  * A newcomer nobody has weighted weighs 1, which against a sitter the hand has
  * sashed to some other number is an accidental fraction of the run rather than
  * a division anybody chose. So the arrival writes a weight, and this is the
- * arithmetic behind it: the room the sitters do not already claim goes to the
- * newcomer, and only a newcomer whose own floor exceeds that room makes them
- * yield — by the allocator's own floor pass, which hands back exactly the
- * difference and no more.
+ * arithmetic behind it: the room the sitters do not already claim is divided
+ * equally among the newcomer and the sitters that brought no claim, and only a
+ * newcomer whose own floor exceeds its share makes a claiming sitter yield —
+ * by the allocator's own floor pass, which hands back exactly the difference
+ * and no more.
  *
- * What a sitter CLAIMS is what it already stands at, and never more than its
- * own ceiling. Those are the same number for every ordinary member, and they
- * differ for exactly the member the surplus exists because of: a folded card
- * alone in a column draws at its tier however tall the column is, so what it
- * claims is the tier rather than the run the undivided allocation hands it.
- * That is what makes the screenshot's case come out right — a folded card
- * above a fresh one on a tall column claims 144px and the newcomer takes the
- * rest, instead of standing at its declared height with a dead band beneath
- * it — while an ordinary sitter keeps what it is standing at and yields only
- * the difference a newcomer's floor cannot find in the surplus.
+ * Only a sitter the record NAMES brings a claim, and what it claims is what it
+ * already stands at, never more than its own ceiling. A sitter nobody has
+ * weighed claims nothing: it stands where it does because nobody divided this
+ * place, not because anybody chose that height, and an arrival is exactly the
+ * moment that stops being true. So a lone unweighed sitter taking a newcomer
+ * comes out 50/50 and three of them taking a fourth come out in quarters,
+ * which is the same sentence read at a larger count — while a place the hand
+ * sashed keeps its division untouched, sitters holding their ratio to each
+ * other and yielding only what a newcomer's floor cannot find in what is left.
+ *
+ * The FOLDED sitter reaches its tier through its ceiling rather than through a
+ * claim, and so needs no special case: floor and ceiling are both its tier, so
+ * the allocator's ceiling pass pins it there however it was weighted and hands
+ * the surplus to the members that can use it. That is what makes [D195]'s own
+ * screenshot come out right — a folded card above a fresh one on a tall column
+ * stands at 144px and the newcomer takes the rest — on arithmetic that was
+ * already there.
  *
  * The answer comes back through the allocator and then through the INVERSE
  * ({@link placeSharesFromHeights}) rather than as weights of its own, so the
@@ -3895,15 +3910,27 @@ export function arrivalSharesOf(
   const claims = allocatePlaceHeights(sitters, run, gap).heights.map(
     (height, i) => Math.min(height, sitters[i].ceiling ?? height),
   );
-  const claimed = claims.reduce((sum, height) => sum + height, 0);
-  const surplus = run - (sane.length - 1) * gap - claimed;
-  // The weights are the claims and the surplus, stated as the quantities they
+  // An UNWEIGHED sitter's claim is dropped on the floor here: the record does
+  // not name it, so nobody divided this place and the height it happens to be
+  // drawing at is a default rather than a decision ([B01]).
+  const unweighed = (i: number) => sitters[i].weight === undefined;
+  const claimed = claims.reduce(
+    (sum, height, i) => (unweighed(i) ? sum : sum + height),
+    0,
+  );
+  // What nobody claimed is divided equally among the newcomer and every sitter
+  // that claimed nothing ([B02]) — one share each, which is the reading an
+  // undivided place has always had and the one the mode flip already takes.
+  const dividers = sitters.filter((_, i) => unweighed(i)).length + 1;
+  const share = Math.max(0, run - (sane.length - 1) * gap - claimed) / dividers;
+  // The weights are the claims and the shares, stated as the quantities they
   // are: `sharedHeightsOf` reads only their ratios, so there is nothing to
   // normalize here and nothing that would disagree with the division below.
-  const provisional = sane.map((member, i) => ({
-    ...member,
-    weight: i === index ? Math.max(0, surplus) : claims[i < index ? i : i - 1],
-  }));
+  const provisional = sane.map((member, i) => {
+    if (i === index) return { ...member, weight: share };
+    const sitter = i < index ? i : i - 1;
+    return { ...member, weight: unweighed(sitter) ? share : claims[sitter] };
+  });
   return placeSharesFromHeights(
     sane,
     allocatePlaceHeights(provisional, run, gap).heights,

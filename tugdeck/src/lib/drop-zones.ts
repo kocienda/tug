@@ -174,9 +174,9 @@ export interface DropZoneRail {
   members: readonly string[];
   /** The members' division weights, keyed by pane id — the rail's stored
    *  shares re-keyed from componentId at the measurement boundary, since a
-   *  pure module cannot see the registry that maps one to the other. Absent
-   *  members weigh 1 and an absent RECORD is the seed, which is
-   *  `railWeightOf`'s rule. */
+   *  pure module cannot see the registry that maps one to the other. A member
+   *  the record does not name is unweighed, as is every member of an absent
+   *  record, which is `railWeightOf`'s rule. */
   shares?: Readonly<Record<string, number>>;
 }
 
@@ -620,11 +620,12 @@ function seatedPlace(
  *
  * The weight is re-read here rather than taken from the map because a card's
  * share is a fact about the place it stands in, and the map is keyed by pane
- * across every place at once. Weights travel with cards — a member absent from
- * `shares` weighs 1 and an absent record reads as the equal division, which is
- * `railWeightOf`'s rule — so a member reordering its own place previews its
- * share standing wherever it lands, and a foreign arrival previews the equal
- * division its join forces ({@link placeTiles} says why).
+ * across every place at once. Weights travel with cards — a member the record
+ * does not name is unweighed, as is every member of an absent record, and the
+ * allocator reads either as an equal share, which is `railWeightOf`'s rule — so
+ * a member reordering its own place previews its share standing wherever it
+ * lands, and a foreign arrival previews the equal division its join forces
+ * ({@link placeTiles} says why).
  *
  * A member the host never named contributes no floor: zero, which the
  * allocator reads as a member with nothing to fall back to rather than

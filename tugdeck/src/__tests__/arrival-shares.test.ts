@@ -1,5 +1,6 @@
 /**
- * arrival-shares.test.ts — what a newcomer to a split column is worth ([B05]).
+ * arrival-shares.test.ts — what a newcomer to a split column is worth, and
+ * what the sitters it lands among keep ([B01]–[B04], `arrival-even-division`).
  *
  * `arrivalSharesOf` is the weight the arrival writes, and it is tested here
  * over member specs rather than through a deck for the reason
@@ -53,7 +54,7 @@ function folded(id: string, tier: number): PlaceMember {
   return { id, floor: tier, ceiling: tier, weight: 0 };
 }
 
-describe("arrivalSharesOf: the newcomer takes the surplus first", () => {
+describe("arrivalSharesOf: the newcomer divides what nobody claimed", () => {
   test("a folded sitter claims its TIER and the newcomer takes the rest", () => {
     // The screenshot: a folded Session card above a fresh one on a tall
     // column. The sitter's ceiling claims 144px of 1041 and every pixel it
@@ -80,11 +81,42 @@ describe("arrivalSharesOf: the newcomer takes the surplus first", () => {
     expect(heights[2]).toBeCloseTo(RUN - 2 * SEAM - 2 * TIER, 6);
   });
 
-  test("an ordinary sitter keeps what it STANDS at and yields only the difference", () => {
-    // The at0571 geometry: a sitter standing at the whole column claims the
-    // whole column, so there is no surplus to take and the newcomer's own
-    // floor is what it gets — 618 of 1041, with the sitter down to 418 and
-    // not one pixel further. "Make space when we need it", as arithmetic.
+  test("an UNWEIGHED sitter claims nothing and divides the run with the newcomer", () => {
+    // Re-pointed deliberately ([B01], [B07]), which is the only way a pinned
+    // decision moves. This case used to assert that a sitter standing at the
+    // whole column claims the whole column, leaving the newcomer its own floor
+    // and nothing more — and that read a DEFAULT as though it were a decision.
+    // A card alone in a column draws at the whole run because there was nobody
+    // to divide with, not because anybody chose it the whole run, and an
+    // arrival is exactly the moment that stops being true. Nobody has weighed
+    // either member here, so the run divides in two.
+    const members = [open("pane-a", 150), open("pane-b", 618)];
+    const heights = heightsAfterArrival(members, "pane-b", 2000);
+    expect(heights[0]).toBeCloseTo((2000 - SEAM) / 2, 6);
+    expect(heights[1]).toBeCloseTo((2000 - SEAM) / 2, 6);
+  });
+
+  test("three unweighed sitters taking a fourth come out in QUARTERS", () => {
+    // [B02] read at a larger count: the sentence that divides a column of one
+    // sitter in two divides a column of three in four. Nobody has divided this
+    // place, so an arrival divides it, and the count is not a case.
+    const members = [
+      open("pane-a", 100),
+      open("pane-b", 100),
+      open("pane-c", 100),
+      open("pane-d", 100),
+    ];
+    const heights = heightsAfterArrival(members, "pane-d", 2000);
+    const quarter = (2000 - 3 * SEAM) / 4;
+    for (const height of heights) expect(height).toBeCloseTo(quarter, 6);
+  });
+
+  test("a column too short for an even division falls back to the floors", () => {
+    // The boundary on the case above, and the at0571 geometry it used to pin:
+    // the newcomer's 618px floor is more than half of the 1041 run less its
+    // seam, so the even division is not representable and the allocator's
+    // floor pass answers instead — the newcomer at its floor and the sitter
+    // with the rest, which is what this run has always answered.
     const members = [open("pane-a", 150), open("pane-b", 618)];
     const heights = heightsAfterArrival(members, "pane-b");
     expect(heights[1]).toBeCloseTo(618, 6);
