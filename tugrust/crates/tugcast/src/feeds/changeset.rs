@@ -1613,8 +1613,25 @@ pub(crate) async fn live_base_dirt_for(
 /// could still be running, and an arc whose card was closed must stay
 /// joinable. That is why this takes the bound holder rather than the arc's own
 /// facts; absence is the answer, not a missing input.
-fn holders_busy(busy: &std::collections::HashSet<String>, bound: Option<&String>) -> bool {
-    bound.is_some_and(|session| busy.contains(session))
+///
+/// **The holder is a line, not a segment ([B06]).** `busy` is keyed by the id
+/// each card's bridge was spawned under, while the binding rides whichever
+/// segment the wheel last rotated onto — so comparing one against the other
+/// is false by construction for a rotated arc, which is how the incident's
+/// arc was refused a join it was owed and offered one it was not. The caller
+/// hands the holder's whole line, and any segment of it working is the arc
+/// working. An empty set is an unbound arc, and never busy.
+fn holders_busy(busy: &std::collections::HashSet<String>, holder_line: &[String]) -> bool {
+    holder_line.iter().any(|session| busy.contains(session))
+}
+
+/// The holder line of one arc, or the empty slice for an arc nobody holds —
+/// the shape [`holders_busy`] reads absence from.
+fn holder_line_of<'a>(
+    lines: &'a std::collections::HashMap<String, Vec<String>>,
+    owner_key: &str,
+) -> &'a [String] {
+    lines.get(owner_key).map_or(&[], Vec::as_slice)
 }
 
 async fn arc_entries(
@@ -1628,6 +1645,19 @@ async fn arc_entries(
     let bound_by_arc = ledger
         .and_then(|l| l.bound_session_by_arc().ok())
         .unwrap_or_default();
+    // Each bound holder expanded to its line ([B06]). Read once for the whole
+    // recompute, beside the map it expands, so the two cannot disagree about
+    // who is holding what — and so the holder gate never pays a query per arc
+    // per frame.
+    let holder_lines: std::collections::HashMap<String, Vec<String>> = bound_by_arc
+        .iter()
+        .map(|(arc_id, session)| {
+            let line = ledger
+                .map(|l| l.line_segments_of(session))
+                .unwrap_or_else(|| vec![session.clone()]);
+            (arc_id.clone(), line)
+        })
+        .collect();
     // Who is still working. Read once for the whole recompute, from the
     // supervisor's in-memory ledger — the only place a session's turn and its
     // open background jobs are known ([P08]).
@@ -1702,7 +1732,7 @@ async fn arc_entries(
         // session's own backgrounded tests are running in that worktree is the
         // hazard `base_motion` already refuses mid-turn; two engines moving the
         // same branch must obey the same gate.
-        if holders_busy(&busy_sessions, bound_by_arc.get(&detail.owner_key)) {
+        if holders_busy(&busy_sessions, holder_line_of(&holder_lines, &detail.owner_key)) {
             continue;
         }
         if let Some(action) = crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
@@ -1717,7 +1747,10 @@ async fn arc_entries(
             |(detail, review, steps, task_list, join)| ChangesetEntry::Arc {
                 join: Some(join),
                 task_list,
-                holders_busy: holders_busy(&busy_sessions, bound_by_arc.get(&detail.owner_key)),
+                holders_busy: holders_busy(
+                    &busy_sessions,
+                    holder_line_of(&holder_lines, &detail.owner_key),
+                ),
                 bound_session: bound_by_arc.get(&detail.owner_key).cloned(),
                 // Whether an *attempt* to replay conflicted is knowledge only the
                 // engine that attempted it has; the library composes everything
@@ -4180,6 +4213,54 @@ Some context.
             "tugarc/old",
             "compose stayed read-only on git config"
         );
+    }
+
+    /// **[B06], at the comparison the incident turned on.** The busy set is
+    /// keyed by the id each card's bridge was spawned under; the arc binding
+    /// rides whichever segment the wheel last rotated onto. Comparing one
+    /// against the other is false by construction while a rotated stage is
+    /// genuinely working, and true only by the accident of a reload giving
+    /// that segment a bridge of its own — the two directions the incident
+    /// showed, in that order. Asking the *line* is right in both.
+    #[test]
+    fn the_holder_gate_answers_for_the_line_and_not_for_a_segment() {
+        let busy: std::collections::HashSet<String> =
+            ["card-seat".to_owned()].into_iter().collect();
+
+        // The rotated stage is working under the card's original id, and the
+        // binding has moved onto the audit segment. The segment alone reads
+        // free; its line does not.
+        let holder_line = vec!["card-seat".to_owned(), "audit-segment".to_owned()];
+        assert!(
+            !busy.contains("audit-segment"),
+            "the bound segment is not what the busy set is keyed by",
+        );
+        assert!(
+            holders_busy(&busy, &holder_line),
+            "a line with a working segment is a holder still working",
+        );
+
+        // Nobody working anywhere on the line: the arc is joinable, which is
+        // the state the incident's arc was in for seven hours.
+        assert!(!holders_busy(&std::collections::HashSet::new(), &holder_line));
+
+        // An arc nobody holds is never busy — absence is the answer, and the
+        // caller spells it as the empty line.
+        assert!(!holders_busy(&busy, &[]));
+    }
+
+    /// `holder_line_of` is the lookup that turns a missing arc into that
+    /// empty line rather than into a panic or a false positive.
+    #[test]
+    fn a_held_arc_resolves_to_its_line_and_an_unheld_one_to_nothing() {
+        let lines: std::collections::HashMap<String, Vec<String>> = [(
+            "tugarc/a".to_owned(),
+            vec!["seat".to_owned(), "tip".to_owned()],
+        )]
+        .into_iter()
+        .collect();
+        assert_eq!(holder_line_of(&lines, "tugarc/a").len(), 2);
+        assert!(holder_line_of(&lines, "tugarc/unheld").is_empty());
     }
 
     /// Arc entries sort by `owner_id`, and `#` (0x23) sorts below every

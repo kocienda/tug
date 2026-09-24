@@ -1080,6 +1080,11 @@ async fn authorize_and_claim_input(
 async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
     let client_id = router.next_client_id();
     info!(client_id, "Client connected");
+    // Every open card re-announces its session from here; a bridge still in
+    // nobody's set once that has settled is an orphan ([B07]).
+    if let Some(sup) = router.supervisor.as_ref() {
+        sup.on_client_connect(client_id);
+    }
 
     // --- Protocol handshake (v1) ---
     if !perform_handshake(&mut socket).await {

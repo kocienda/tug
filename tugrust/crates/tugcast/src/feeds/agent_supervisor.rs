@@ -438,6 +438,18 @@ pub struct LedgerEntry {
     /// work only while this is set: The beat measures the session *working*,
     /// not the idle claude process's event-loop heartbeat.
     pub turn_active: bool,
+    /// When the turn now in flight last showed it was alive — stamped at the
+    /// open, and again at every edge the merger already holds this entry for
+    /// (a turn end, a job opening or closing, a `task_progress` heartbeat).
+    /// Read only by [`LedgerEntry::reap_stuck_turn`], and `None` between
+    /// turns.
+    ///
+    /// Not stamped on every frame, and it does not need to be: a genuinely
+    /// long turn is protected by having a live claude child under its bridge,
+    /// which is the discriminator that reaper actually turns on. This is the
+    /// clock for a turn that has nothing under it and is therefore not
+    /// speaking to anybody.
+    pub turn_last_frame_at: Option<std::time::Instant>,
     /// How many turns the claude session named by `claude_session_id` has
     /// ended — counted at the same edge that clears `turn_active`, reset
     /// when a `session_init` names a different claude session, and seeded
@@ -676,6 +688,7 @@ impl LedgerEntry {
             child_gone_at: None,
             child_start_time: None,
             turn_active: false,
+            turn_last_frame_at: None,
             turns_ended: 0,
             turn_opener: None,
             prompt_turns_ended: 0,
@@ -743,6 +756,120 @@ impl LedgerEntry {
             !stale
         });
     }
+
+    /// Drop a turn flag that has outlived the turn it was set for — the
+    /// [`Self::reap_stuck_jobs`] doctrine extended to `turn_active` verbatim
+    /// ([B02]): the latch may fail toward *offered late*, never toward
+    /// *wedged forever*.
+    ///
+    /// Two conditions, and the second is what makes this safe. A turn is
+    /// reaped only when it has shown no sign of life for
+    /// [`JOB_REAP_HORIZON`] **and** its bridge has no live claude child —
+    /// the `(child_pid, child_start_time)` pair
+    /// [`AgentSupervisor::live_session_processes`] reports a session by. A
+    /// genuinely long turn has a child under its bridge and is never touched,
+    /// however quiet the wire goes; a turn with no child is one nothing can
+    /// end, because the process whose `turn_complete` would end it is gone.
+    ///
+    /// `now` is the caller's clock, injected so tests need no real one.
+    pub fn reap_stuck_turn(&mut self, now: std::time::Instant) {
+        if !self.turn_active {
+            return;
+        }
+        if self.child_pid.is_some() && self.child_start_time.is_some() {
+            return;
+        }
+        // No stamp at all is a turn this process inherited across a restart,
+        // or one a path nobody foresaw opened. Either way there is nothing to
+        // age it against, so it is stamped now and reaped a horizon later —
+        // late, never forever.
+        let Some(since) = self.turn_last_frame_at else {
+            self.turn_last_frame_at = Some(now);
+            return;
+        };
+        if now.saturating_duration_since(since) <= JOB_REAP_HORIZON {
+            return;
+        }
+        warn!(
+            target: "dev::ledger",
+            event = "turn_reaped",
+            session_id = %self.tug_session_id,
+            opener = match self.turn_opener {
+                Some(TurnOpener::Wake) => "wake",
+                Some(TurnOpener::Prompt) => "prompt",
+                None => "unknown",
+            },
+            "a turn went silent past the reap horizon with no claude child \
+             under its bridge — the latch is dropped so the session cannot \
+             read busy forever",
+        );
+        self.turn_active = false;
+        self.turn_opener = None;
+        self.turn_last_frame_at = None;
+        self.quiesced.notify_waiters();
+    }
+
+    /// Stamp the turn in flight as alive. A no-op between turns, so a caller
+    /// on a hot path need not ask first.
+    pub fn touch_turn(&mut self) {
+        if self.turn_active {
+            self.turn_last_frame_at = Some(std::time::Instant::now());
+        }
+    }
+
+    /// Force the entry **quiet** at the close of the outermost replay bracket,
+    /// and answer whether anything had to be cleared.
+    ///
+    /// Replay describes turns and jobs that ended with the session that ran
+    /// them, so the entry a bracket closes on must read exactly as it read
+    /// before the bracket opened. Every fold that could latch it is guarded on
+    /// `replay_brackets_open == 0` — but a guard list is only complete until
+    /// the next wire shape is added, and the incident was one missing entry in
+    /// it. So the bracket's own close asserts the invariant rather than
+    /// trusting the guards: whatever is still set is cleared here with a
+    /// `warn!` naming the frame kind that set it ([B01]).
+    ///
+    /// This fails in the same direction [`Self::reap_stuck_jobs`] does, at a
+    /// much shorter horizon: an unforeseen replayed shape costs a session that
+    /// reads quiet a moment early, never one wedged busy forever.
+    pub fn clear_replay_residue(&mut self) -> bool {
+        let mut cleared = false;
+        if self.turn_active {
+            warn!(
+                target: "dev::ledger",
+                event = "replay_residue_cleared",
+                session_id = %self.tug_session_id,
+                field = "turn_active",
+                kind = match self.turn_opener {
+                    Some(TurnOpener::Wake) => "wake_started",
+                    Some(TurnOpener::Prompt) => "user_message",
+                    None => "unknown",
+                },
+                "a replayed frame opened a turn whose own replayed end was \
+                 discarded — latch cleared at the bracket's close so the \
+                 session cannot read busy with no turn left to end it",
+            );
+            self.turn_active = false;
+            self.turn_opener = None;
+            cleared = true;
+        }
+        if !self.open_jobs.is_empty() {
+            let jobs: Vec<&str> = self.open_jobs.keys().map(String::as_str).collect();
+            warn!(
+                target: "dev::ledger",
+                event = "replay_residue_cleared",
+                session_id = %self.tug_session_id,
+                field = "open_jobs",
+                kind = "tool_use",
+                jobs = ?jobs,
+                "replayed frames left jobs open whose work died with the \
+                 session that ran them — dropped at the bracket's close",
+            );
+            self.open_jobs.clear();
+            cleared = true;
+        }
+        cleared
+    }
 }
 
 /// How long an open job may sit silent — no edge, no `task_progress` — after
@@ -751,6 +878,21 @@ impl LedgerEntry {
 /// would reap real work and offer its join early (Risk R01's residual is a
 /// silent job longer than this, accepted as the cost of never wedging).
 const JOB_REAP_HORIZON: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// How long after a client connects the orphan sweep waits before it judges
+/// ([B07]).
+///
+/// Longer than a reconnect and shorter than a user noticing, which is the
+/// whole of what the window has to be. A deck's re-announcement is a burst of
+/// `spawn_session` frames landing within a second or two of the socket coming
+/// up, so a minute is two orders of magnitude of headroom on the fast side;
+/// and an orphan bridge is invisible until somebody goes looking for why a
+/// session still reads live, which the incident shows takes hours. The one
+/// session that may legitimately be held by nobody for longer — a headless
+/// one, per `briefs/background-session-card-adoption-brief.md` — is excluded
+/// by its card id rather than by waiting for it, so the window does not have
+/// to cover that case at all.
+const BRIDGE_ORPHAN_SETTLE: std::time::Duration = std::time::Duration::from_secs(60);
 
 // ---------------------------------------------------------------------------
 // Ledger alias
@@ -797,6 +939,9 @@ pub async fn busy_session_ids() -> HashSet<String> {
         // The read point is the reap point: no timer task, just the recompute
         // that consults busyness pruning what has gone stale on its way past.
         entry.reap_stuck_jobs(std::time::Instant::now());
+        // And the turn flag, under the same doctrine ([B02]). Ordered after
+        // the jobs so one pass can take a session all the way to quiet.
+        entry.reap_stuck_turn(std::time::Instant::now());
         if !entry.is_quiet() {
             busy.insert(id);
         }
@@ -4344,7 +4489,7 @@ impl AgentSupervisor {
                         return ControlOutcome::Error(e);
                     }
                 };
-                self.do_close_session(&parsed.card_id, &parsed.tug_session_id)
+                self.close_card_session(&parsed.card_id, &parsed.tug_session_id)
                     .await;
                 Ok(())
             }
@@ -4928,6 +5073,81 @@ impl AgentSupervisor {
         crate::external_sessions::stat_size_mtime(&jsonl).is_none()
     }
 
+    /// The bridge a spawn should attach to when the id the card asked for is
+    /// not the one the supervisor keyed that bridge by ([B03]).
+    ///
+    /// A card is a **line**; a bridge is keyed by whichever segment id the
+    /// card first spawned under, and that key never moves while the process
+    /// lives. A reload, though, seats the card on the line's tip — a segment
+    /// a rotation minted inside the bridge — and asks to resume *that* id.
+    /// The lookup used to be the requested id alone, so the ask missed, a
+    /// second `tugcode` spawned for a session the first one was already
+    /// hosting, and closing the card killed whichever of the two it named.
+    ///
+    /// Three ways in, and only an all-three miss spawns:
+    ///
+    /// 1. the requested id keys an entry — the ordinary path, and `None`
+    ///    here because there is nothing to re-point;
+    /// 2. an entry whose `claude_session_id` is the requested id — the card
+    ///    asked under the name claude knows the conversation by;
+    /// 3. an entry on the requested id's **line** held by the requesting
+    ///    card — the reload above.
+    ///
+    /// Only a resume can attach. A `mode=new` spawn is a line being born
+    /// ([P03]) and has nothing to re-enter, so it is left to insert.
+    async fn attachable_bridge_for(
+        &self,
+        requested: &TugSessionId,
+        card_id: &str,
+        line_id: Option<&str>,
+    ) -> Option<TugSessionId> {
+        // A snapshot, so no entry is locked under the ledger lock. The window
+        // it opens is the one every spawn already runs in: phase 1's
+        // `entry().or_insert_with` is still the atomic decision, and this only
+        // ever tells it a different key to ask about.
+        let entries: Vec<(TugSessionId, Arc<Mutex<LedgerEntry>>)> = {
+            let ledger = self.ledger.lock().await;
+            if ledger.contains_key(requested) {
+                return None;
+            }
+            ledger
+                .iter()
+                .map(|(id, entry)| (id.clone(), entry.clone()))
+                .collect()
+        };
+        // The line the requested id belongs to: the one the payload named,
+        // else the one the sessions ledger files that segment under. A reload
+        // carries the line it is seating on, so the ledger read is the
+        // fallback rather than the path.
+        let line = line_id
+            .map(str::to_owned)
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                self.session_ledger
+                    .as_ref()
+                    .and_then(|l| l.get(&requested.0).ok().flatten())
+                    .map(|row| row.line_id)
+                    .filter(|id| !id.is_empty())
+            });
+        let mut by_line: Option<TugSessionId> = None;
+        for (key, entry_arc) in entries {
+            let entry = entry_arc.lock().await;
+            if entry.claude_session_id.as_deref() == Some(requested.as_str()) {
+                // The strongest match there is — the same conversation, named
+                // the way claude names it. Taken at once.
+                return Some(key);
+            }
+            if by_line.is_none()
+                && entry.card_id.as_deref() == Some(card_id)
+                && line.is_some()
+                && entry.line_id == line
+            {
+                by_line = Some(key);
+            }
+        }
+        by_line
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn do_spawn_session(
         &self,
@@ -4952,6 +5172,33 @@ impl AgentSupervisor {
             );
             return Err(ControlError::MissingLineId);
         }
+        // **One card, one bridge ([B03]).** Before anything is acquired or
+        // inserted, ask whether this card is already hosting the session it
+        // is asking for under another of its line's ids. A hit re-points the
+        // whole of the rest of this function at the bridge that exists; the
+        // miss is the ordinary spawn, unchanged.
+        let tug_session_id = match session_mode {
+            SessionMode::Resume => {
+                match self
+                    .attachable_bridge_for(&tug_session_id, card_id, line_id.as_deref())
+                    .await
+                {
+                    Some(held) => {
+                        tracing::info!(
+                            target: "dev::session-lifecycle",
+                            event = "spawn.attached_to_held_bridge",
+                            card_id = card_id,
+                            requested = %tug_session_id,
+                            attached = %held,
+                            "the card already hosts this session; re-holding its bridge",
+                        );
+                        held
+                    }
+                    None => tug_session_id,
+                }
+            }
+            SessionMode::New => tug_session_id,
+        };
         tracing::info!(
             target: "dev::session-lifecycle",
             event = "spawn.supervisor_recv",
@@ -5769,6 +6016,122 @@ impl AgentSupervisor {
             return;
         }
         self.do_close_session(&card_id, tug_session_id).await;
+    }
+
+    /// Close a **card** ([B04]): every bridge the card holds, and every live
+    /// row on its line.
+    ///
+    /// A card is a line, so closing one by a single segment id is how a
+    /// bridge outlives the card that asked for it — the incident's second
+    /// `tugcode` died with the close that named it and the first went on
+    /// running, with the card gone from the layout and the ledger still
+    /// reporting it live. With [B03] there should be exactly one bridge per
+    /// card, and this sweep is what makes that true rather than hoped for: a
+    /// bridge cannot survive its card because there is no bridge that is not
+    /// the card's.
+    ///
+    /// **The holder is resolved before the sweep**, from a snapshot taken
+    /// before anything is torn down, so the `headless_close_refused` rule
+    /// survives it: an entry on the line whose `card_id` is some *other*
+    /// card is one a deck card took over, and closing it would tear down a
+    /// conversation somebody is sitting inside. Those are left alone; an
+    /// entry holding no card yet is the card's own, pre-binding.
+    async fn close_card_session(&self, card_id: &str, tug_session_id: &TugSessionId) {
+        // The snapshot. Every decision below reads it rather than the live
+        // map, so a close landing halfway through cannot change who is swept.
+        let entries: Vec<(TugSessionId, Option<String>, Option<String>)> = {
+            let ledger = self.ledger.lock().await;
+            let handles: Vec<(TugSessionId, Arc<Mutex<LedgerEntry>>)> = ledger
+                .iter()
+                .map(|(id, entry)| (id.clone(), entry.clone()))
+                .collect();
+            drop(ledger);
+            let mut out = Vec::with_capacity(handles.len());
+            for (id, entry_arc) in handles {
+                let entry = entry_arc.lock().await;
+                out.push((id, entry.card_id.clone(), entry.line_id.clone()));
+            }
+            out
+        };
+        // The card's line: the named entry's, else the one the sessions
+        // ledger files that segment under — the close may name a segment no
+        // bridge was ever keyed by.
+        let line = entries
+            .iter()
+            .find(|(id, _, _)| id == tug_session_id)
+            .and_then(|(_, _, line)| line.clone())
+            .or_else(|| {
+                self.session_ledger
+                    .as_ref()
+                    .and_then(|l| l.get(&tug_session_id.0).ok().flatten())
+                    .map(|row| row.line_id)
+            })
+            .filter(|id| !id.is_empty());
+
+        // The named id always goes, and then every entry the card holds, and
+        // then every entry on the line no other card has taken over.
+        let mut targets: Vec<TugSessionId> = vec![tug_session_id.clone()];
+        for (id, held_by, entry_line) in &entries {
+            if id == tug_session_id || targets.contains(id) {
+                continue;
+            }
+            let held_by_this_card = held_by.as_deref() == Some(card_id);
+            let on_this_line = line.is_some() && entry_line == &line;
+            let taken_over = held_by.as_deref().is_some_and(|held| held != card_id);
+            if held_by_this_card || (on_this_line && !taken_over) {
+                targets.push(id.clone());
+            } else if on_this_line && taken_over {
+                tracing::info!(
+                    target: "dev::session-lifecycle",
+                    event = "supervisor.line_close_refused",
+                    tug_session_id = %id,
+                    card_id = %card_id,
+                    held_by = %held_by.as_deref().unwrap_or(""),
+                    "a card took this segment over; leaving it to its new holder",
+                );
+            }
+        }
+        if targets.len() > 1 {
+            tracing::info!(
+                target: "dev::session-lifecycle",
+                event = "supervisor.card_close_sweep",
+                card_id = %card_id,
+                named = %tug_session_id,
+                count = targets.len(),
+                "closing every bridge this card holds",
+            );
+        }
+        for target in &targets {
+            self.do_close_session(card_id, target).await;
+        }
+
+        // And the rows. A bridge that was torn down closed the one row its
+        // own `claude_session_id` named; a segment the line wore under a
+        // bridge that is already gone has nobody left to close it. Each goes
+        // through the ordinary close, so each still takes the arc off its
+        // card before the binding is cleared.
+        let (Some(line), Some(ledger)) = (line, self.session_ledger.as_ref()) else {
+            return;
+        };
+        for segment in ledger.live_segments_of_line(&line) {
+            crate::arc_api::stop_an_on_arc_cards_arc_as_closed(ledger, &segment);
+            match ledger.mark_closed(&segment) {
+                Ok(true) => tracing::info!(
+                    target: "dev::session-lifecycle",
+                    event = "supervisor.line_segment_closed",
+                    line_id = %line,
+                    tug_session_id = %segment,
+                    "a live row the card's line left behind",
+                ),
+                Ok(false) => {}
+                Err(e) => warn!(
+                    line_id = %line,
+                    session = %segment,
+                    error = %e,
+                    "close_session: line segment close failed, continuing"
+                ),
+            }
+        }
     }
 
     async fn do_close_session(&self, card_id: &str, tug_session_id: &TugSessionId) {
@@ -11380,6 +11743,8 @@ impl AgentSupervisor {
                         let mut entry = entry_arc.lock().await;
                         entry.turn_active = true;
                         entry.turn_opener = Some(TurnOpener::Prompt);
+                        // The turn's liveness clock starts here ([B02]).
+                        entry.touch_turn();
                     }
                     // A door prompt binds with the keystroke, so the card
                     // reads `ARC` before the door's first tool call rather
@@ -11551,6 +11916,7 @@ impl AgentSupervisor {
         entry
             .open_jobs
             .insert(launch_key(&tool_use_id), std::time::Instant::now());
+        entry.touch_turn();
         tracing::debug!(
             target: "dev::ledger",
             event = "job_launched",
@@ -11636,6 +12002,8 @@ impl AgentSupervisor {
         if let Some(stamp) = entry.open_jobs.get_mut(&task_id) {
             *stamp = std::time::Instant::now();
         }
+        // A job reporting in is the turn behind it reporting in too ([B02]).
+        entry.touch_turn();
     }
 
     /// Fold one `task_started` / `task_updated` / `wake_started` frame into the
@@ -12044,10 +12412,20 @@ impl AgentSupervisor {
                         if let Some(entry_arc) = entry_arc {
                             let mut entry = entry_arc.lock().await;
                             if is_wake_started(&frame.payload) {
-                                entry.turn_active = true;
-                                // The harness opened this one, not the stage's
-                                // asker ([P02]).
-                                entry.turn_opener = Some(TurnOpener::Wake);
+                                // Symmetric with the turn-end branch below
+                                // ([B01]). A replayed `wake_started` describes
+                                // a turn that ended with the session that ran
+                                // it, and its own replayed end is discarded by
+                                // that branch's guard — so latching here would
+                                // leave the entry busy with no turn left to end
+                                // it, which is the wedge the incident saw.
+                                if entry.replay_brackets_open == 0 {
+                                    entry.turn_active = true;
+                                    // The harness opened this one, not the
+                                    // stage's asker ([P02]).
+                                    entry.turn_opener = Some(TurnOpener::Wake);
+                                    entry.touch_turn();
+                                }
                             } else if entry.replay_brackets_open == 0 {
                                 entry.turn_active = false;
                                 entry.turns_ended += 1;
@@ -12064,6 +12442,8 @@ impl AgentSupervisor {
                                 entry.turn_opener = None;
                                 entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
                                 entry.turn_cancelled = turn_ended_in_user_cancel(&frame.payload);
+                                // No turn, no clock ([B02]).
+                                entry.turn_last_frame_at = None;
                                 // The turn boundary the arc demands has
                                 // been reached: whatever this turn closed is
                                 // no longer *this* turn's business, and the
@@ -12294,6 +12674,15 @@ impl AgentSupervisor {
                     session_id = %session_id,
                     depth = entry.replay_brackets_open,
                 );
+                // The outermost bracket has closed: everything replay
+                // described is history, so the entry owes the invariant it
+                // held before the bracket opened — quiet ([B01]).
+                if entry.replay_brackets_open == 0 && entry.clear_replay_residue() {
+                    // One of the two facts `is_quiet` reads has just moved, so
+                    // a stop waiting on the quiet edge is woken from inside
+                    // the same guard that moved it ([P05]).
+                    entry.quiesced.notify_waiters();
+                }
             }
             Some("turn_complete") | Some("turn_cancelled") => {
                 let in_replay = {
@@ -12550,6 +12939,87 @@ impl AgentSupervisor {
                 .await;
             }
         });
+    }
+
+    /// A client has connected. Arm the orphan sweep ([B07]).
+    ///
+    /// Every open card re-announces its session on connect, so once a deck
+    /// has had its say, an entry in no client's `client_sessions` set is a
+    /// bridge no card is behind. Before this, the only reaper for one was a
+    /// tugcast restart — which is what the incident left the user with: a
+    /// `tugcode` and its `claude` still running for a card that was gone from
+    /// the layout.
+    ///
+    /// Armed by the connect rather than run on a timer. The thing being
+    /// waited for is the deck's re-announcement, so a sweep that fires once
+    /// per connect watches exactly that, and a cancelled supervisor drops it.
+    pub fn on_client_connect(self: &Arc<Self>, client_id: ClientId) {
+        let sup = Arc::clone(self);
+        let cancel = self.cancel.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                () = cancel.cancelled() => {}
+                () = tokio::time::sleep(BRIDGE_ORPHAN_SETTLE) => {
+                    sup.reap_orphan_bridges(client_id).await;
+                }
+            }
+        });
+    }
+
+    /// Close every bridge no client holds and no card names ([B07]).
+    ///
+    /// Three exclusions, and each is a session that is *meant* to be held by
+    /// nobody:
+    ///
+    /// - a **headless** session, whose whole point is running with no card in
+    ///   front of it until somebody adopts it;
+    /// - an entry that has not spawned — `Idle` is what `rebind_from_ledger`
+    ///   leaves at startup, waiting for the card that will claim it, and
+    ///   `Errored` / `Closed` have no subprocess left to reap;
+    /// - anything a client is holding, which is the ordinary case.
+    ///
+    /// A sweep whose own client is gone by the time the window passes does
+    /// nothing. There is then no deck that re-announced, so "no client holds
+    /// it" carries no information, and a tugcast running with no deck at all
+    /// would otherwise reap its own work.
+    async fn reap_orphan_bridges(&self, client_id: ClientId) {
+        let held: HashSet<TugSessionId> = {
+            let cs = self.client_sessions.lock().await;
+            if !cs.contains_key(&client_id) {
+                return;
+            }
+            cs.values().flatten().cloned().collect()
+        };
+        let entries: Vec<(TugSessionId, Arc<Mutex<LedgerEntry>>)> = {
+            let ledger = self.ledger.lock().await;
+            ledger
+                .iter()
+                .filter(|(id, _)| !held.contains(*id))
+                .map(|(id, entry)| (id.clone(), entry.clone()))
+                .collect()
+        };
+        for (id, entry_arc) in entries {
+            let (card_id, spawn_state) = {
+                let entry = entry_arc.lock().await;
+                (entry.card_id.clone(), entry.spawn_state)
+            };
+            if crate::background_session::is_background_card_id(card_id.as_deref()) {
+                continue;
+            }
+            if !matches!(spawn_state, SpawnState::Spawning | SpawnState::Live) {
+                continue;
+            }
+            warn!(
+                target: "dev::session-lifecycle",
+                event = "bridge_orphan_reaped",
+                tug_session_id = %id,
+                card_id = %card_id.as_deref().unwrap_or(""),
+                "no client holds this bridge and no card named it after the \
+                 settle window — closed rather than left to a restart",
+            );
+            self.do_close_session(card_id.as_deref().unwrap_or(""), &id)
+                .await;
+        }
     }
 
     /// Drop per-client affinity state on WebSocket teardown. Does NOT touch
@@ -13292,6 +13762,34 @@ mod tests {
         assert!(entry.is_quiet());
     }
 
+    /// The bracket's close is an assertion, not a hope ([B01]). Whatever a
+    /// replayed frame latched — a turn flag, an open job — is cleared when the
+    /// outermost bracket closes, so a guard list that is not complete costs a
+    /// session that reads quiet early rather than one wedged busy forever.
+    #[test]
+    fn a_bracket_close_clears_whatever_replay_latched() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        // An entry replay left alone owes nothing, and says so.
+        assert!(!entry.clear_replay_residue(), "a quiet entry is untouched");
+
+        // Some unguarded fold latched both facts `is_quiet` reads.
+        entry.turn_active = true;
+        entry.turn_opener = Some(TurnOpener::Wake);
+        entry
+            .open_jobs
+            .insert("t1".to_owned(), std::time::Instant::now());
+
+        assert!(entry.clear_replay_residue(), "residue is reported cleared");
+        assert!(entry.is_quiet(), "the bracket closes on a quiet entry");
+        assert_eq!(entry.turn_opener, None, "the opener goes with the turn");
+    }
+
     /// The guarantee layer: whatever wire shape the fixtures have not
     /// captured, a job that goes silent past the horizon with its turn ended
     /// is dropped, so `holders_busy` degrades to *late*, never *forever*.
@@ -13316,6 +13814,101 @@ mod tests {
         entry.reap_stuck_jobs(now + JOB_REAP_HORIZON + Duration::from_secs(1));
         assert!(entry.open_jobs.is_empty());
         assert!(entry.is_quiet(), "late, never forever");
+    }
+
+    /// **[B02].** The turn flag ages out the way a job does, and on the same
+    /// terms: silent past the horizon with no claude child under its bridge.
+    #[test]
+    fn a_turn_with_no_child_is_reaped_past_the_horizon() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        let now = std::time::Instant::now();
+        entry.turn_active = true;
+        entry.turn_opener = Some(TurnOpener::Wake);
+        entry.turn_last_frame_at = Some(now);
+
+        // Inside the horizon the turn stands. A turn is a turn until it is
+        // demonstrably not one.
+        entry.reap_stuck_turn(now + Duration::from_secs(60));
+        assert!(entry.turn_active, "a fresh turn is work, not a wedge");
+
+        entry.reap_stuck_turn(now + JOB_REAP_HORIZON + Duration::from_secs(1));
+        assert!(!entry.turn_active, "late, never forever");
+        assert_eq!(entry.turn_opener, None, "the opener goes with the turn");
+        assert!(entry.is_quiet());
+    }
+
+    /// And the condition that makes it safe: a turn whose bridge still has a
+    /// claude child is a turn somebody is running, however quiet the wire.
+    /// The incident's own audit turn ran for hours with a live child.
+    #[test]
+    fn a_long_turn_with_a_live_child_is_never_reaped() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        let now = std::time::Instant::now();
+        entry.turn_active = true;
+        entry.turn_last_frame_at = Some(now);
+        entry.child_pid = Some(63836);
+        entry.child_start_time = Some(1_700_000_000);
+
+        entry.reap_stuck_turn(now + JOB_REAP_HORIZON * 20);
+        assert!(
+            entry.turn_active,
+            "a turn with a claude child under its bridge is never reaped",
+        );
+    }
+
+    /// A turn with no stamp — one inherited across a restart, or opened by a
+    /// path nobody foresaw — is clocked from the first sweep that sees it
+    /// rather than reaped on sight or left forever.
+    #[test]
+    fn an_unstamped_turn_is_clocked_before_it_is_reaped() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        let now = std::time::Instant::now();
+        entry.turn_active = true;
+        assert_eq!(entry.turn_last_frame_at, None);
+
+        entry.reap_stuck_turn(now);
+        assert!(entry.turn_active, "the first sweep clocks it, never reaps it");
+        assert_eq!(entry.turn_last_frame_at, Some(now));
+
+        entry.reap_stuck_turn(now + JOB_REAP_HORIZON + Duration::from_secs(1));
+        assert!(!entry.turn_active);
+    }
+
+    /// `touch_turn` is the clock's one writer on the hot path, and it asks
+    /// nothing of its caller: between turns it does nothing at all.
+    #[test]
+    fn touching_a_turn_that_is_not_running_stamps_nothing() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        entry.touch_turn();
+        assert_eq!(entry.turn_last_frame_at, None, "no turn, no clock");
+
+        entry.turn_active = true;
+        entry.touch_turn();
+        assert!(entry.turn_last_frame_at.is_some());
     }
 
     /// A live turn keeps the reaper off entirely — a long turn's own silence
@@ -14521,6 +15114,19 @@ mod tests {
             // A `mode=new` spawn births a line and the deck mints its id from
             // the drop ([P03]); one that names none is refused.
             "line_id": format!("line-{tug_session_id}"),
+        }))
+        .unwrap()
+    }
+
+    /// A `mode=new` spawn on a line the caller names — the shape a test
+    /// needs when a later resume has to land on the same line.
+    fn spawn_payload_on_line(card_id: &str, tug_session_id: &str, line_id: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "action": "spawn_session",
+            "card_id": card_id,
+            "tug_session_id": tug_session_id,
+            "project_dir": test_project_dir(),
+            "line_id": line_id,
         }))
         .unwrap()
     }
@@ -19626,6 +20232,94 @@ mod tests {
         let _ = merger_handle.await;
     }
 
+    /// **The wedge the incident actually saw ([B01]).** A resumed transcript
+    /// that carries a wheel wake replays a `wake_started` whose own replayed
+    /// `turn_complete` the turn-end branch discards — so the latch used to go
+    /// up during replay with no turn left to bring it down, and the session
+    /// read busy for the rest of tugcast's life. The guard makes the two
+    /// branches symmetric; the bracket's close asserts the result.
+    #[tokio::test]
+    async fn a_replayed_wake_turn_leaves_the_entry_quiet_at_the_bracket_close() {
+        let ((sup, _state_rx, _meta_rx, _control_rx), register_rx) =
+            make_supervisor_with_spawner(stall_spawner_factory());
+        let sup = Arc::new(sup);
+        let cancel = CancellationToken::new();
+        let merger_handle = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+
+        let id = TugSessionId::new("sess-replay-wake");
+        insert_ledger_entry(&sup, &id).await;
+        let entry_arc = sup.ledger.lock().await.get(&id).cloned().unwrap();
+        assert!(entry_arc.lock().await.is_quiet(), "a seated session is quiet");
+
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
+
+        let send = |bytes: &'static [u8]| {
+            let tx = tx.clone();
+            async move {
+                tx.send(Frame::new(FeedId::CODE_OUTPUT, bytes.to_vec()))
+                    .await
+                    .unwrap();
+            }
+        };
+
+        // The transcript opens. Everything between here and the close
+        // describes turns that ended with the session that ran them.
+        send(br#"{"tug_session_id":"sess-replay-wake","type":"replay_started","ipc_version":2}"#)
+            .await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.replay_brackets_open == 1 }
+        })
+        .await;
+
+        // The wake the wheel sent months ago, and the turn end that answered
+        // it. The end is discarded as replayed; so must the opener be.
+        send(br#"{"tug_session_id":"sess-replay-wake","type":"wake_started","session_id":"x"}"#)
+            .await;
+        send(
+            br#"{"tug_session_id":"sess-replay-wake","type":"turn_complete","msg_id":"old","seq":0}"#,
+        )
+        .await;
+
+        // The close. Counting it back to zero is what proves both frames above
+        // have been folded, since the merger takes them in order.
+        send(br#"{"tug_session_id":"sess-replay-wake","type":"replay_complete","count":2,"ipc_version":2}"#)
+            .await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.replay_brackets_open == 0 }
+        })
+        .await;
+
+        let entry = entry_arc.lock().await;
+        assert!(
+            entry.is_quiet(),
+            "a replayed wake turn must leave the entry exactly as quiet as it \
+             was before the bracket opened",
+        );
+        assert_eq!(entry.turn_opener, None, "no turn, no opener");
+        drop(entry);
+
+        // And the session is not latched for the live turn that follows: a
+        // real `wake_started` outside any bracket still opens one.
+        send(br#"{"tug_session_id":"sess-replay-wake","type":"wake_started","session_id":"x"}"#)
+            .await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.turn_active }
+        })
+        .await;
+        assert_eq!(
+            entry_arc.lock().await.turn_opener,
+            Some(TurnOpener::Wake),
+            "a live wake still opens a wake turn",
+        );
+
+        cancel.cancel();
+        let _ = merger_handle.await;
+    }
+
     /// **[P02]'s rule, at the two edges that write it.** A turn the dispatcher
     /// opened from a `user_message` is an *asked* turn; a turn the merger
     /// opened from a `wake_started` is one the harness opened. Both end turns,
@@ -21253,6 +21947,286 @@ mod tests {
         let row = ledger.get("claude-abc").unwrap().expect("row");
         assert_eq!(row.turn_count, 0);
         assert_eq!(row.state, LedgerState::Closed);
+    }
+
+    // ── one card, one bridge; close is by card ([B03], [B04]) ────────────────
+
+    /// **The reload that spawned a rival ([B03]).** The card's bridge is keyed
+    /// by the id it first spawned under; a rotation mints fresh segments
+    /// *inside* that bridge, and a reload seats the card on the line's tip and
+    /// asks to resume it. The lookup used to be the requested id alone, so the
+    /// ask missed and a second `tugcode` spawned for a conversation the first
+    /// was already hosting. The line answers it.
+    #[tokio::test]
+    async fn a_reload_naming_a_rotated_segment_re_holds_the_cards_bridge() {
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        // The card, spawned once. `spawn_payload` names `line-seat`.
+        sup.handle_control("spawn_session", &spawn_payload_on_line("card-1", "seat", "line-1"), 10)
+            .await
+            .expect_handled();
+        assert_eq!(sup.ledger.lock().await.len(), 1);
+
+        // The rotation: a fresh segment on the same line, recorded by the
+        // bridge. Nothing in the supervisor's own ledger moves — that is the
+        // whole shape, and it is what the reload then asks about.
+        ledger
+            .record_spawn("tip", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .expect("record the rotation's segment");
+
+        sup.handle_control("spawn_session", &resume_payload("card-1", "tip"), 10)
+            .await
+            .expect_handled();
+
+        let held = sup.ledger.lock().await;
+        assert_eq!(
+            held.len(),
+            1,
+            "the reload re-held the card's bridge rather than spawning a rival",
+        );
+        assert!(
+            held.contains_key(&TugSessionId::new("seat")),
+            "and the entry is still keyed by the id the bridge was spawned under",
+        );
+    }
+
+    /// The second way in: the card asks under the name *claude* knows the
+    /// conversation by, which a bridge records on its entry at `session_init`.
+    #[tokio::test]
+    async fn a_resume_naming_the_claude_id_re_holds_the_same_bridge() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-1", "seat"), 10)
+            .await
+            .expect_handled();
+        {
+            let entry_arc = sup
+                .ledger
+                .lock()
+                .await
+                .get(&TugSessionId::new("seat"))
+                .cloned()
+                .expect("entry");
+            entry_arc.lock().await.claude_session_id = Some("claude-xyz".to_owned());
+        }
+
+        sup.handle_control("spawn_session", &resume_payload("card-1", "claude-xyz"), 10)
+            .await
+            .expect_handled();
+
+        assert_eq!(sup.ledger.lock().await.len(), 1, "one card, one bridge");
+    }
+
+    /// And the miss still spawns. Another card's line is not this card's
+    /// bridge, whatever ids it wears.
+    #[tokio::test]
+    async fn a_spawn_for_another_card_still_gets_its_own_bridge() {
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        sup.handle_control("spawn_session", &spawn_payload_on_line("card-1", "seat", "line-1"), 10)
+            .await
+            .expect_handled();
+        ledger
+            .record_spawn("tip", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .expect("segment");
+
+        // Card 2 asks for a segment of card 1's line. It is not card 2's
+        // bridge, so card 2 gets one of its own.
+        sup.handle_control("spawn_session", &resume_payload("card-2", "tip"), 10)
+            .await
+            .expect_handled();
+
+        assert_eq!(sup.ledger.lock().await.len(), 2, "two cards, two bridges");
+    }
+
+    /// **A bridge cannot survive its card ([B04]).** The close names one
+    /// segment; the card is a line, and every bridge on it — and every live
+    /// row it left behind — goes with it.
+    #[tokio::test]
+    async fn a_close_sweeps_every_bridge_and_row_on_the_cards_line() {
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        // Two bridges on one card's line — the state [B03] now prevents and
+        // this sweep must still be able to clear, because a tugcast that was
+        // running before the fix can come up holding it.
+        for id in ["seat", "rival"] {
+            let entry = insert_ledger_entry(&sup, &TugSessionId::new(id)).await;
+            let mut guard = entry.lock().await;
+            guard.card_id = Some("card-1".to_owned());
+            guard.line_id = Some("line-1".to_owned());
+        }
+        // A segment the line wore under a bridge that is already gone: no
+        // entry names it, so nothing but the line sweep can close its row.
+        for (id, at) in [("seat", 1_000), ("rival", 2_000), ("orphan", 3_000)] {
+            ledger
+                .record_spawn(id, "ws", "/proj", "card-1", at, "line-1", None)
+                .expect("row");
+        }
+        // Step 2's enforcement leaves one live row; revive the others so this
+        // test exercises the sweep rather than that invariant.
+        for id in ["seat", "rival"] {
+            ledger.revive_on_activity(id, 4_000).ok();
+        }
+
+        sup.handle_control("close_session", &close_payload("card-1", "seat"), 10)
+            .await
+            .expect_handled();
+
+        assert!(
+            sup.ledger.lock().await.is_empty(),
+            "no bridge of this card survived its close",
+        );
+        for id in ["seat", "rival", "orphan"] {
+            assert_eq!(
+                ledger.get(id).unwrap().expect("row").state,
+                crate::session_ledger::SessionState::Closed,
+                "{id} still reads live after its card closed",
+            );
+        }
+    }
+
+    /// The `headless_close_refused` rule, kept through the sweep: a segment
+    /// on the line that another card has taken over belongs to whoever is
+    /// sitting in it, and a close of this card must not tear it down.
+    #[tokio::test]
+    async fn the_sweep_leaves_a_segment_another_card_took_over() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        for (id, card) in [("seat", "card-1"), ("adopted", "card-2")] {
+            let entry = insert_ledger_entry(&sup, &TugSessionId::new(id)).await;
+            let mut guard = entry.lock().await;
+            guard.card_id = Some(card.to_owned());
+            guard.line_id = Some("line-1".to_owned());
+        }
+
+        sup.handle_control("close_session", &close_payload("card-1", "seat"), 10)
+            .await
+            .expect_handled();
+
+        let held = sup.ledger.lock().await;
+        assert!(!held.contains_key(&TugSessionId::new("seat")));
+        assert!(
+            held.contains_key(&TugSessionId::new("adopted")),
+            "the segment card-2 took over is left to its new holder",
+        );
+    }
+
+    // ── the orphan-bridge sweep ([B07]) ──────────────────────────────────────
+
+    /// **The bridge a restart used to be the only reaper for.** After a deck
+    /// reconnects, every open card re-announces its session; an entry still
+    /// in no client's set once the settle window has passed is a bridge no
+    /// card is behind, and it is closed rather than left running.
+    #[tokio::test]
+    async fn an_orphan_bridge_is_closed_once_the_settle_window_passes() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+
+        // The card that came back: it announced itself, so a client holds it.
+        sup.handle_control("spawn_session", &spawn_payload("card-1", "held"), 10)
+            .await
+            .expect_handled();
+        // And one that did not — a bridge the deck no longer has a card for.
+        let orphan = insert_ledger_entry(&sup, &TugSessionId::new("orphan")).await;
+        {
+            let mut entry = orphan.lock().await;
+            entry.card_id = Some("card-gone".to_owned());
+            entry.spawn_state = SpawnState::Live;
+        }
+
+        sup.reap_orphan_bridges(10).await;
+
+        let held = sup.ledger.lock().await;
+        assert!(
+            held.contains_key(&TugSessionId::new("held")),
+            "a session a client announced is not an orphan",
+        );
+        assert!(
+            !held.contains_key(&TugSessionId::new("orphan")),
+            "a bridge no client holds and no card named is closed",
+        );
+    }
+
+    /// A headless session is held by no client **by design** — that is what
+    /// background means — so the sweep may not read its absence as an orphan.
+    #[tokio::test]
+    async fn the_sweep_leaves_a_headless_session_alone() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-1", "held"), 10)
+            .await
+            .expect_handled();
+
+        let background = insert_ledger_entry(&sup, &TugSessionId::new("headless")).await;
+        {
+            let mut entry = background.lock().await;
+            entry.card_id = Some(crate::background_session::background_card_id("w"));
+            entry.spawn_state = SpawnState::Live;
+        }
+
+        sup.reap_orphan_bridges(10).await;
+
+        assert!(
+            sup.ledger
+                .lock()
+                .await
+                .contains_key(&TugSessionId::new("headless")),
+            "a background session is meant to be held by nobody",
+        );
+    }
+
+    /// An entry that never spawned is what `rebind_from_ledger` leaves at
+    /// startup, waiting for the card that will claim it. There is no bridge
+    /// behind it to reap, and reaping it would throw away the restore.
+    #[tokio::test]
+    async fn the_sweep_leaves_an_unspawned_rebind_entry_alone() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-1", "held"), 10)
+            .await
+            .expect_handled();
+
+        let rebound = insert_ledger_entry(&sup, &TugSessionId::new("rebound")).await;
+        {
+            let mut entry = rebound.lock().await;
+            entry.card_id = Some("card-2".to_owned());
+            entry.spawn_state = SpawnState::Idle;
+        }
+
+        sup.reap_orphan_bridges(10).await;
+
+        assert!(
+            sup.ledger
+                .lock()
+                .await
+                .contains_key(&TugSessionId::new("rebound")),
+            "an entry with no subprocess behind it is not an orphan bridge",
+        );
+    }
+
+    /// And the sweep says nothing at all when its own client is gone: with no
+    /// deck that re-announced, "no client holds it" is not evidence of
+    /// anything, and a tugcast running headless would reap its own work.
+    #[tokio::test]
+    async fn a_sweep_whose_client_never_announced_reaps_nothing() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let orphan = insert_ledger_entry(&sup, &TugSessionId::new("orphan")).await;
+        {
+            let mut entry = orphan.lock().await;
+            entry.card_id = Some("card-gone".to_owned());
+            entry.spawn_state = SpawnState::Live;
+        }
+
+        sup.reap_orphan_bridges(10).await;
+
+        assert!(
+            sup.ledger
+                .lock()
+                .await
+                .contains_key(&TugSessionId::new("orphan")),
+            "with no client to have re-announced, the sweep judges nothing",
+        );
     }
 
     // ── do_close_session ↔ ledger integration ────────────────────────────────

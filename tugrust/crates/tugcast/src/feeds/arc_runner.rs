@@ -659,6 +659,27 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         return;
     }
 
+    // **A finished arc leaves the wheel** ([B08]). `finish` evicts the arc's
+    // runner state on the tick that completes it, and without this guard the
+    // very next sweep put it straight back: `bound_arcs` reads the arc
+    // binding, which a finished arc keeps until the user joins it, so a done
+    // arc was swept once a minute for as long as tugcast ran — an `arc.tick`
+    // line each time, the state entry re-seeded each time, and a
+    // `last_motion_at` ageing over a stage nobody is asking for turns. Four
+    // hundred and fifty of those lines are what made the incident's log hard
+    // to read.
+    //
+    // The unseated path has returned on `record.done` all along; this is its
+    // seated twin, and it is placed below the stopped block rather than above
+    // it so that a stopped record keeps reaching the one arm that may act on
+    // it. The removal beside the return is what makes the guard total: an
+    // entry seeded by the ticks before the arc finished would otherwise
+    // outlive the arc in the map, which is the memory `finish` exists to drop.
+    if reading.record.done {
+        state.lock().await.remove(&key);
+        return;
+    }
+
     let quiet_turns;
     let stalled;
     {
@@ -3847,6 +3868,46 @@ Some context.
 
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 0);
+    }
+
+    /// A finished arc is swept no more ([B08]).
+    ///
+    /// `finish` drops the arc's runner state on the tick that completes it,
+    /// but the binding the sweep reads outlives the arc by design — it is what
+    /// holds the card for the join — so before the seated guard the next
+    /// minute put the entry straight back and went on doing so until tugcast
+    /// exited. The state map is the observable: an entry after the sweep is a
+    /// tick that read a finished arc's documents and clocked a stage nobody is
+    /// asking for turns.
+    #[tokio::test]
+    async fn no_tick_follows_arc_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_done(root, "demo").unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        // The memory the ticks before the arc finished left behind, so the
+        // sweep is asked to drop one rather than merely to seed none.
+        state
+            .lock()
+            .await
+            .insert(arc_key_for(root, "demo"), ArcState::default());
+
+        sweep(&ctx, &state).await;
+
+        assert!(
+            state.lock().await.is_empty(),
+            "a done arc keeps no runner state: the sweep must drop the entry \
+             rather than re-seed it"
+        );
+        assert_eq!(
+            entry.lock().await.queue.len(),
+            0,
+            "and it sends the card nothing"
+        );
     }
 
     /// The dispatch reads the arc's five records before it hands a stage its

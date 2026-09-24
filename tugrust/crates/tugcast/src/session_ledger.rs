@@ -4292,6 +4292,48 @@ impl SessionLedger {
         }))
     }
 
+    /// Every segment id of the line `session_id` is a segment of, itself
+    /// always included ([P01], [B06]).
+    ///
+    /// The supervisor's ledger is keyed by the id the card spawned under, and
+    /// a rotation moves the arc binding onto a segment that key has never
+    /// worn — so "is the session holding this arc still working?" asked of
+    /// one segment is answerable only by asking it of the line. This is the
+    /// same expansion `tugchanges-core::ledger::line_segments` gave
+    /// `tugtool changes`, at the one caller left that keyed on a raw segment.
+    ///
+    /// A session wearing no line, or no row at all, answers with itself
+    /// alone, which degrades the question back to the one it used to ask.
+    pub fn line_segments_of(&self, session_id: &str) -> Vec<String> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let line_id: Option<String> = conn
+            .query_row(
+                "SELECT line_id FROM sessions WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .flatten()
+            .filter(|id| !id.is_empty());
+        let Some(line_id) = line_id else {
+            return vec![session_id.to_owned()];
+        };
+        let Ok(mut stmt) = conn.prepare("SELECT session_id FROM sessions WHERE line_id = ?1")
+        else {
+            return vec![session_id.to_owned()];
+        };
+        let mut segments: Vec<String> = stmt
+            .query_map(params![line_id], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(Result::ok).collect())
+            .unwrap_or_default();
+        if !segments.iter().any(|id| id == session_id) {
+            segments.push(session_id.to_owned());
+        }
+        segments
+    }
+
     /// The turns the whole line has taken, summed across its segments.
     pub fn line_turn_count(&self, line_id: &str) -> Result<i64, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
@@ -4400,6 +4442,29 @@ impl SessionLedger {
                 |row| row.get::<_, String>(0),
             )
             .optional()?)
+    }
+
+    /// Every segment of `line_id` that is still `live` ([B04]).
+    ///
+    /// A card's close is a close of its line: the bridge tears down, and
+    /// every row the line has worn that still reads live is a row claiming a
+    /// subprocess that no longer exists. The caller closes them one at a
+    /// time through the ordinary [`Self::mark_closed`], so each still takes
+    /// the arc off its card before the binding is cleared.
+    ///
+    /// Newest first, so a caller that must pick one picks the seat.
+    pub fn live_segments_of_line(&self, line_id: &str) -> Vec<String> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT session_id FROM sessions
+             WHERE line_id = ?1 AND state = 'live'
+             ORDER BY created_at DESC, last_used_at DESC, rowid DESC",
+        ) else {
+            return Vec::new();
+        };
+        stmt.query_map(params![line_id], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(Result::ok).collect())
+            .unwrap_or_default()
     }
 
     /// Birth a line ([P03]) — the one place a line of work comes into
@@ -4710,6 +4775,74 @@ impl SessionLedger {
                 line.line_id,
             ],
         )?;
+        // **At most one live segment per line ([B05]).** A rotation records
+        // the fresh segment here while the parent row is still `live`, so
+        // this is the one place a second live row on a line can appear — and
+        // therefore the one place to close the older one, in the transaction
+        // that made it. Doing it anywhere later is the model the incident
+        // ran on: four live rows on one line, `any_live` reading true for
+        // the rest of the process, and nothing but a tugcast restart to
+        // demote them.
+        //
+        // `demoted = 0`: the *session* ended, the process under it did not,
+        // so this is not the administrative close `revive_on_activity` is
+        // allowed to correct — a rotated-away segment must stay closed.
+        //
+        // One rival is the ordinary rotation and is logged at debug; more
+        // than one is a state this enforcement is supposed to make
+        // unreachable, so it earns the `warn!`. Either way the close writes
+        // its own `session_end` fact, which is the durable record.
+        let rivals: Vec<(String, Option<String>)> = {
+            let mut stmt = tx.prepare(
+                "SELECT s.session_id, l.tag FROM sessions s
+                 LEFT JOIN lines l ON l.line_id = s.line_id
+                 WHERE s.line_id = ?1 AND s.session_id != ?2 AND s.state = 'live'",
+            )?;
+            stmt.query_map(params![line.line_id, session_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        if !rivals.is_empty() {
+            tx.execute(
+                "UPDATE sessions SET state = 'closed', demoted = 0
+                 WHERE line_id = ?1 AND session_id != ?2 AND state = 'live'",
+                params![line.line_id, session_id],
+            )?;
+            if rivals.len() > 1 {
+                tracing::warn!(
+                    event = "line_live_segments_closed",
+                    line_id = %line.line_id,
+                    seat = %session_id,
+                    count = rivals.len(),
+                    "a line carried several live segments — all but the new one are closed",
+                );
+            }
+            for (rival, tag) in &rivals {
+                tracing::debug!(
+                    event = "line_live_segment_closed",
+                    line_id = %line.line_id,
+                    closed = %rival,
+                    seat = %session_id,
+                    "the segment this one rotated away from is closed with it",
+                );
+                let handle = tag.clone().unwrap_or_else(|| rival.clone());
+                let fact = crate::feeds::facts_library::session_end_fact(
+                    now,
+                    rival,
+                    false,
+                    &handle,
+                    Some("line-rotation"),
+                );
+                if let Err(e) = Self::record_fact_tx(&tx, &fact) {
+                    tracing::warn!(
+                        session = %rival,
+                        error = %e,
+                        "line-rotation fact write failed; the session row is unaffected"
+                    );
+                }
+            }
+        }
         // Keep the scan cache pointing at the line the row settled on. Where
         // the two disagree the cache is holding a line the scanner birthed
         // from a file it saw before the caller named the conversation, and a
@@ -12883,6 +13016,134 @@ mod tests {
         assert_eq!(r.state, SessionState::Closed);
     }
 
+    /// **[B05] at the one place it can be broken.** A rotation records the
+    /// fresh segment against the line the card is already on, and the parent
+    /// used to stay `live` — so the line read live for every segment it had
+    /// ever worn, for the whole of tugcast's life. Recording the new segment
+    /// is now what closes the old one.
+    #[test]
+    fn recording_a_segment_closes_the_one_it_rotated_away_from() {
+        let l = fresh();
+        let t0 = millis(0);
+        l.record_spawn("door", WS_A, "/proj", "card-1", t0, "line-1", None)
+            .expect("seat the card");
+        l.record_spawn("audit", WS_A, "/proj", "card-1", t0 + 1_000, "line-1", None)
+            .expect("rotate the stage");
+
+        assert_eq!(
+            l.get("door").unwrap().unwrap().state,
+            SessionState::Closed,
+            "the segment rotated away from is closed",
+        );
+        assert_eq!(l.get("audit").unwrap().unwrap().state, SessionState::Live);
+
+        // And closed for good: the rotation is not the administrative close
+        // that `revive_on_activity` corrects, so a late write on the old
+        // segment cannot bring it back live beside the new one.
+        assert!(
+            !l.revive_on_activity("door", t0 + 2_000).unwrap(),
+            "a rotated-away segment is not revivable",
+        );
+
+        let ownership = l.line_ownership("line-1").unwrap().expect("the line");
+        assert_eq!(ownership.seat_id, "audit");
+        assert_eq!(ownership.segment_ids.len(), 2, "both segments are the line's");
+        assert!(ownership.any_live, "the line is live through its seat");
+    }
+
+    /// A respawn of the segment the card is already on is not a rotation and
+    /// closes nothing — the conflict arm re-lives the same row.
+    #[test]
+    fn respawning_the_same_segment_closes_nothing() {
+        let l = fresh();
+        let t0 = millis(0);
+        l.record_spawn("one", WS_A, "/proj", "card-1", t0, "line-1", None)
+            .expect("seat");
+        l.record_spawn("one", WS_A, "/proj", "card-1", t0 + 500, "line-1", None)
+            .expect("respawn");
+        assert_eq!(l.get("one").unwrap().unwrap().state, SessionState::Live);
+    }
+
+    /// Segments of other lines are nobody's rivals — the enforcement is
+    /// per-line, which is the whole of [P01].
+    #[test]
+    fn a_segment_on_another_line_is_left_live() {
+        let l = fresh();
+        let t0 = millis(0);
+        l.record_spawn("a1", WS_A, "/proj", "card-1", t0, "line-a", None)
+            .expect("seat a");
+        l.record_spawn("b1", WS_A, "/proj", "card-2", t0 + 1, "line-b", None)
+            .expect("seat b");
+        l.record_spawn("a2", WS_A, "/proj", "card-1", t0 + 2, "line-a", None)
+            .expect("rotate a");
+
+        assert_eq!(l.get("a1").unwrap().unwrap().state, SessionState::Closed);
+        assert_eq!(l.get("a2").unwrap().unwrap().state, SessionState::Live);
+        assert_eq!(
+            l.get("b1").unwrap().unwrap().state,
+            SessionState::Live,
+            "another card's line is untouched",
+        );
+    }
+
+    /// **[B06]'s input.** The holder gate asks the line, so the ledger has to
+    /// answer with it: every segment the line has worn, the asked-about one
+    /// always among them.
+    #[test]
+    fn line_segments_of_answers_with_the_whole_line() {
+        let l = fresh();
+        let t0 = millis(0);
+        l.record_spawn("door", WS_A, "/proj", "card-1", t0, "line-1", None)
+            .expect("seat");
+        l.record_spawn("audit", WS_A, "/proj", "card-1", t0 + 1, "line-1", None)
+            .expect("rotate");
+
+        for asked in ["door", "audit"] {
+            let mut segments = l.line_segments_of(asked);
+            segments.sort();
+            assert_eq!(
+                segments,
+                vec!["audit".to_owned(), "door".to_owned()],
+                "asked about {asked}, the answer is the line",
+            );
+        }
+
+        // A session the ledger has never seen answers with itself, which
+        // degrades the holder gate back to the question it used to ask.
+        assert_eq!(l.line_segments_of("stranger"), vec!["stranger".to_owned()]);
+    }
+
+    /// **The warn that became a test ([B06]).** `bound_session_by_arc` used to
+    /// carry a "two live sessions carry one arc binding" `warn!` for a state
+    /// the ledger could not prevent. With one live segment per line it is one
+    /// entry, naming the segment the binding rode onto — and the gate
+    /// expands that to the line.
+    #[test]
+    fn one_arc_binding_survives_a_rotation_as_one_entry() {
+        let l = fresh();
+        let t0 = millis(0);
+        l.record_spawn("door", WS_A, "/proj", "card-1", t0, "line-1", None)
+            .expect("seat");
+        assert!(l
+            .set_arc_binding("door", Some(("tugarc/a", "a")))
+            .expect("bind the door"));
+
+        l.record_spawn("audit", WS_A, "/proj", "card-1", t0 + 1, "line-1", None)
+            .expect("rotate");
+        assert!(l
+            .set_arc_binding("audit", Some(("tugarc/a", "a")))
+            .expect("bind the seat"));
+
+        let by_arc = l.bound_session_by_arc().unwrap();
+        assert_eq!(by_arc.len(), 1, "one arc, one holder");
+        assert_eq!(
+            by_arc.get("tugarc/a").map(String::as_str),
+            Some("audit"),
+            "the holder is the line's live segment",
+        );
+        assert!(l.line_segments_of("audit").contains(&"door".to_owned()));
+    }
+
     #[test]
     fn revive_on_activity_flips_a_demoted_row_back_to_live() {
         let l = fresh();
@@ -13624,18 +13885,20 @@ mod tests {
         assert_eq!(l.live_segment_of("solo").unwrap(), None);
     }
 
-    /// **The rotation-overlap window.** A rotation records the fresh segment
-    /// and demotes the old one as two steps; between them both are live, and
-    /// that is the window every `tugtool arc` verb issued from inside the
-    /// retiring stage lands in.
-    ///
-    /// The caller-first tiebreak resolved to the *retiring* segment here — a
-    /// bind that passes the live-guard, writes onto a row about to close, and
-    /// strands: the seat has already run for the fresh segment and will not
-    /// run again until a relaunch. The answer is the newest live segment,
+    /// **A verb posted from the retiring stage lands where the work went.**
+    /// The caller-first tiebreak used to resolve to the *retiring* segment —
+    /// a bind that passes the live-guard, writes onto a row about to close,
+    /// and strands: the seat has already run for the fresh segment and will
+    /// not run again until a relaunch. The answer is the line's live segment,
     /// which is where the work now is.
+    ///
+    /// The overlap this test was written around is gone: recording the fresh
+    /// segment closes the retiring one in the same transaction ([B05]), so
+    /// the two are never live together and the tiebreak has one candidate.
+    /// The answer it gives is the same one, which is why the decision this
+    /// pins survives the window closing.
     #[test]
-    fn live_segment_of_prefers_the_fresh_segment_during_a_rotation_overlap() {
+    fn live_segment_of_answers_with_the_segment_the_work_moved_to() {
         let l = fresh();
         l.record_spawn(
             "retiring",
@@ -13647,13 +13910,15 @@ mod tests {
             None,
         )
         .unwrap();
-        // The overlap: recorded, not yet demoted.
+        // The rotation. `fresh` is recorded with the *older* stamp on
+        // purpose: the answer below is the line's live segment, never the
+        // most recently stamped one.
         l.record_spawn("fresh", WS_A, "/proj", "card-1", millis(1), "line-1", None)
             .unwrap();
         assert_eq!(
             l.get("retiring").unwrap().unwrap().state,
-            SessionState::Live,
-            "the window is real: the old segment is still live",
+            SessionState::Closed,
+            "recording the fresh segment closed the one it rotated away from",
         );
 
         assert_eq!(
@@ -13663,13 +13928,6 @@ mod tests {
         );
         assert_eq!(
             l.live_segment_of("fresh").unwrap().as_deref(),
-            Some("fresh"),
-        );
-
-        // And once the demote lands, the answer has not changed.
-        l.mark_closed("retiring").unwrap();
-        assert_eq!(
-            l.live_segment_of("retiring").unwrap().as_deref(),
             Some("fresh"),
         );
     }
