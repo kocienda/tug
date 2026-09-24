@@ -46,7 +46,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { CornerDownLeft, CornerUpRight, SquareArrowOutUpRight } from "lucide-react";
+import { CornerDownLeft, CornerUpRight, Pencil, SquareArrowOutUpRight } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -838,6 +838,7 @@ export function ChangesFileRow({
   claimPending = false,
   onDisclaim,
   disclaimPending = false,
+  editor,
   highlightQuery,
 }: {
   file: FileBlockData;
@@ -882,6 +883,18 @@ export function ChangesFileRow({
   onDisclaim?: () => void;
   /** A disclaim round trip is in flight — the affordance disables. */
   disclaimPending?: boolean;
+  /**
+   * When set, the row offers an *editor mode*: a pencil toggle in the trailing
+   * cluster, and — while `active` — an expanded body the host supplies in
+   * place of the diff ([P08]). The host decides which rows get one; this only
+   * renders the toggle and stamps the state.
+   */
+  editor?: {
+    active: boolean;
+    onToggle: (active: boolean) => void;
+    /** The toggle's accessible name, which says what pressing it does next. */
+    label: string;
+  };
 }): React.ReactElement {
   // The whole row folds on a click — but a drag across it is a selection, and
   // the reader who just swept a path out of the row shouldn't have the row
@@ -893,6 +906,7 @@ export function ChangesFileRow({
       data-testid="tug-changes-list-file-block"
       data-path={file.path}
       data-expanded={expanded ? "true" : undefined}
+      data-editing={editor?.active === true ? "true" : undefined}
       data-partial={election?.kind === "partial" ? "true" : undefined}
       data-stale-election={election?.kind === "stale" ? "true" : undefined}
     >
@@ -931,6 +945,25 @@ export function ChangesFileRow({
                   descriptor={popOut}
                   label={`Open diff for ${file.path} in a card`}
                 />
+              ) : null}
+              {editor !== undefined ? (
+                <TugTooltip content={editor.label}>
+                  <TugPushButton
+                    className="tug-changes-list-edit"
+                    subtype="icon"
+                    icon={<Pencil size={12} />}
+                    size="2xs"
+                    emphasis={editor.active ? "filled" : "outlined"}
+                    role="action"
+                    aria-pressed={editor.active}
+                    aria-label={editor.label}
+                    data-testid="tug-changes-list-edit"
+                    onClick={(event) => {
+                      event?.stopPropagation();
+                      editor.onToggle(!editor.active);
+                    }}
+                  />
+                </TugTooltip>
               ) : null}
               <BlockFoldCue
                 collapsed={!expanded}
@@ -1055,6 +1088,7 @@ function EntryFiles({
   disclaimPending,
   hunkElection,
   onElectHunks,
+  fileEditor,
 }: {
   entry: TugChangesListEntry;
   expandedKeys: ReadonlySet<string>;
@@ -1077,6 +1111,18 @@ function EntryFiles({
   hunkElection?: Readonly<Record<string, readonly string[]>>;
   /** Persist a path's election; `null` restores whole-file landing. */
   onElectHunks?: (path: string, ids: readonly string[] | null) => void;
+  /**
+   * Per-path editor mode, wired only for the session entry ([P08]). Returning
+   * `null` means this path offers none — which is every path but the ones the
+   * host scopes the mode to. An active editor forces the row expanded and
+   * takes the body in the diff's place.
+   */
+  fileEditor?: (path: string) => {
+    active: boolean;
+    onToggle: (active: boolean) => void;
+    body: React.ReactNode;
+    label: string;
+  } | null;
 }) {
   const projectRoot = entry.project.project_dir;
   const descriptor = useMemo(() => entryDiffDescriptor(entry), [entry]);
@@ -1107,7 +1153,12 @@ function EntryFiles({
           diffFile !== undefined && !diffFile.binary
             ? { added: diffFile.added, removed: diffFile.removed }
             : null;
-        const expanded = expandedKeys.has(fileExpandKey(entry.id, file.path));
+        const edit = fileEditor?.(file.path) ?? null;
+        // An active editor IS the row's expansion — the fold key is the
+        // reader's own state and the mode's is the host's, and a mode that
+        // needed both set would be a row whose pencil silently did nothing.
+        const expanded =
+          expandedKeys.has(fileExpandKey(entry.id, file.path)) || edit?.active === true;
         const election: HunkElection | undefined =
           onElectHunks !== undefined
             ? {
@@ -1143,9 +1194,27 @@ function EntryFiles({
             counts={counts}
             election={badge}
             expanded={expanded}
-            onToggle={(next) => onToggleFile(entry.id, file.path, !next)}
+            onToggle={(next) => {
+              // Folding an editing row leaves the mode too. The fold is the
+              // reader's gesture for "I'm done with this row", and a fold that
+              // left the editor active would be a control with nothing to do —
+              // the row would stay open on the editor with no visible reason.
+              if (!next && edit?.active === true) edit.onToggle(false);
+              onToggleFile(entry.id, file.path, !next);
+            }}
             popOut={filePopOutDescriptor(entry.project, file.path)}
-            body={expanded ? fileBlockBody(diffSnapshot, file.path, election) : null}
+            body={
+              expanded
+                ? edit?.active === true
+                  ? edit.body
+                  : fileBlockBody(diffSnapshot, file.path, election)
+                : null
+            }
+            editor={
+              edit !== null
+                ? { active: edit.active, onToggle: edit.onToggle, label: edit.label }
+                : undefined
+            }
             onClaim={
               onClaim !== undefined
                 ? () => onClaim(file.path)
@@ -1217,6 +1286,18 @@ export interface TugChangesListProps {
   /** When set, session-entry files with more than one hunk show a per-hunk
    *  election checkbox; `null` ids restore whole-file landing. */
   onElectHunks?: (path: string, ids: readonly string[] | null) => void;
+  /**
+   * When set, session-entry rows consult it for an editor mode ([P08]): the
+   * host answers `null` for a path that offers none, and an `{active, onToggle,
+   * body, label}` for one that does. The predicate and the body are wholly the
+   * host's — this layer knows only that some rows can be edited in place.
+   */
+  fileEditor?: (path: string) => {
+    active: boolean;
+    onToggle: (active: boolean) => void;
+    body: React.ReactNode;
+    label: string;
+  } | null;
   className?: string;
 }
 
@@ -1239,6 +1320,7 @@ export function TugChangesList({
   disclaimPending,
   hunkElection,
   onElectHunks,
+  fileEditor,
   className,
 }: TugChangesListProps): React.ReactElement {
   // The shades are the surface a changes row's file reference is hosted by:
@@ -1382,6 +1464,7 @@ export function TugChangesList({
               disclaimPending={disclaimPending}
               hunkElection={entry.kind === "session" ? hunkElection : undefined}
               onElectHunks={entry.kind === "session" ? onElectHunks : undefined}
+              fileEditor={entry.kind === "session" ? fileEditor : undefined}
             />
             {claimAllButton !== null || disclaimAllButton !== null ? (
               <div

@@ -26,6 +26,10 @@ import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { useChangesetAll } from "@/lib/changeset-all-store";
 import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { requestCommitCard } from "@/lib/open-commit-in-card";
@@ -169,6 +173,17 @@ function CommitReceipt({
 }): React.ReactElement {
   // The card this receipt stands in, which a commit's card opens beside.
   const hostCardId = useCardId();
+  // The push a landed commit now invites. The offer stands only while there is
+  // something to push — `ahead > 0` on this receipt's own project — so a commit
+  // already sent carries no button, and neither does one on a branch with no
+  // upstream, where `ahead` is 0 and `/push` stays reachable by typing.
+  //
+  // The press takes the same path the shade's button does: the card's `/push`
+  // surface, through the key card, so all three doors share one set of guards.
+  const aggregate = useChangesetAll();
+  const responderChain = useResponderChain();
+  const ahead =
+    aggregate.projects.find((p) => p.workspace_key === cwd)?.ahead ?? 0;
   const { sha, message, fileCount, added, removed, files } = parsed;
   // The header carries the subject — the message's first line — so it reads
   // like the Bash header's command line; the body (when there is one) follows
@@ -248,6 +263,26 @@ function CommitReceipt({
         status="ready"
         copyText={`${sha} ${message}`.trim()}
       >
+        {/* The push this landing invites, where the landing is — so the next
+            act is under the receipt for it rather than behind a shade. */}
+        {ahead > 0 ? (
+          <TugPushButton
+            size="xs"
+            emphasis="outlined"
+            role="action"
+            data-testid="commit-receipt-push"
+            onClick={(event) => {
+              event?.stopPropagation();
+              responderChain?.sendToKeyCard({
+                action: TUG_ACTIONS.RUN_SLASH_COMMAND,
+                value: { name: "push", args: "" },
+                phase: "discrete",
+              });
+            }}
+          >
+            Push
+          </TugPushButton>
+        ) : null}
         {/* The message body reads exactly as it does in an expanded History
             row — same `.tugx-commit-message` scale — and sits ABOVE the file
             list, which can run arbitrarily long. Both fold together under the

@@ -38,7 +38,9 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use tugcast_core::types::{ChangesetSnapshot, ProjectChangeset, WorkspacesChangesetSnapshot};
+use tugcast_core::types::{
+    ChangesetSnapshot, ProjectChangeset, ReleaseSurface, WorkspacesChangesetSnapshot,
+};
 use tugcast_core::{FeedId, Frame, SnapshotFeed};
 
 use super::changeset::{apply_session_rows, compose_snapshot};
@@ -310,6 +312,24 @@ pub(crate) async fn compose_aggregate(
             "changeset compose"
         );
 
+        // What a release is in this project, read from its own
+        // `[tugtool.release]` at compose time rather than cached: the table is a
+        // file the user edits, and a cached answer would go on offering a
+        // release after the declaration was removed. A config that will not load
+        // composes `None` — a refusal is the loader's to report where somebody
+        // asked it to load, not the aggregate's to report on every cycle.
+        let release = {
+            let dir = project_dir.clone();
+            tokio::task::spawn_blocking(move || {
+                tugtool_core::config::Config::load_from_project(&dir)
+                    .ok()
+                    .and_then(|c| c.tugtool.release)
+                    .map(|r| ReleaseSurface { workflow: r.workflow })
+            })
+            .await
+            .unwrap_or(None)
+        };
+
         compose_facts.push((project_dir, no_repo, composed));
         projects.push(ProjectChangeset {
             project_dir: dir_str,
@@ -318,6 +338,7 @@ pub(crate) async fn compose_aggregate(
             snapshot,
             unattributed_draft,
             document_arcs: Vec::new(),
+            release,
         });
     }
 
@@ -516,6 +537,7 @@ mod tests {
             snapshot: empty_snapshot("wk".to_owned()),
             unattributed_draft: None,
             document_arcs: Vec::new(),
+            release: None,
         }
     }
 
@@ -586,6 +608,54 @@ mod tests {
             arc_count(&snapshot.projects[0]),
             1,
             "with no base open, the worktree is the owner"
+        );
+    }
+
+    /// A project's declared release reaches the aggregate; one that declares
+    /// none composes `None`.
+    ///
+    /// Both halves in one test on purpose: the field is an `Option` and a bug
+    /// that composed `Some` unconditionally would pass a presence-only test, so
+    /// the two repos are read side by side in one compose.
+    #[tokio::test]
+    async fn a_declared_release_reaches_the_aggregate_and_absence_composes_none() {
+        let declared_dir = tempfile::tempdir().unwrap();
+        let declared = declared_dir.path().canonicalize().unwrap();
+        init_repo(&declared);
+        std::fs::create_dir_all(declared.join(".tugtool")).unwrap();
+        std::fs::write(
+            declared.join(".tugtool/config.toml"),
+            "[tugtool.release]\ncheck = \"just bless\"\ndispatch = \"gh workflow run release.yml --ref main\"\nworkflow = \"release.yml\"\n",
+        )
+        .unwrap();
+
+        let bare_dir = tempfile::tempdir().unwrap();
+        let bare = bare_dir.path().canonicalize().unwrap();
+        init_repo(&bare);
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let _declared_entry = registry.get_or_create(&declared, cancel.clone()).unwrap();
+        let _bare_entry = registry.get_or_create(&bare, cancel.clone()).unwrap();
+
+        let snapshot = compose_aggregate(&registry, None).await;
+        let find = |dir: &Path| {
+            snapshot
+                .projects
+                .iter()
+                .find(|p| Path::new(&p.project_dir) == dir)
+                .unwrap_or_else(|| panic!("{} must be in the aggregate", dir.display()))
+        };
+        assert_eq!(
+            find(&declared).release,
+            Some(tugcast_core::types::ReleaseSurface {
+                workflow: "release.yml".to_owned()
+            }),
+            "the declared workflow is what a watch is addressed by"
+        );
+        assert_eq!(
+            find(&bare).release, None,
+            "no table is no release, not an empty one"
         );
     }
 

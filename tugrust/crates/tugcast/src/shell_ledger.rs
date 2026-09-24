@@ -32,8 +32,8 @@ use tracing::warn;
 /// evicted by it — see [`LANDING_RECEIPT_COMMANDS`].
 pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 
-/// The `command` values a landing writes: a `/commit`, `/arc-join`, or
-/// `/arc-discard` receipt.
+/// The `command` values a landing writes: a `/commit`, `/push`, `/arc-join`,
+/// or `/arc-discard` receipt.
 ///
 /// A receipt is the user's act rather than session chatter ([D111]), and it is
 /// the only record of that act the transcript will ever hold — Claude's JSONL
@@ -54,8 +54,9 @@ pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 /// its exemption is a receipt the next `$` command can evict. A spelling that
 /// ever reached a durable ledger stays a read spelling for life; see
 /// `tuglaws/work-grammar.md`'s "Retired names".
-pub const LANDING_RECEIPT_COMMANDS: [&str; 6] = [
+pub const LANDING_RECEIPT_COMMANDS: [&str; 7] = [
     "/commit",
+    "/push",
     "/arc-join",
     "/arc-discard",
     "/dash-discard",

@@ -1,0 +1,46 @@
+/* SessionChangesNotesEditor — the notes editor mode's host box. Appearance
+   only ([L06]).
+
+   The host is a column with a floor and a ceiling: a file of two paragraphs
+   should not present a one-line editor, and a long one should not push the
+   rest of the shade's rows off the pane. `TugTextCardEditor`'s own root is
+   `height: 100%`, so the editor child takes the remaining space explicitly and
+   declares `min-height: 0` — without it a flex child with a scrolling
+   descendant refuses to shrink below its content. */
+.session-changes-notes-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 10rem;
+  max-height: 40vh;
+}
+
+.session-changes-notes-editor-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The conflict notice leads the box, above the buffer it is about. */
+.session-changes-notes-editor-conflict {
+  flex: 0 0 auto;
+  margin-bottom: var(--tugx-space-2, 0.5rem);
+}
+
+/* Loading and read-error stand-ins occupy the editor's place rather than
+   collapsing the box, so the row does not resize twice on the way to ready. */
+.session-changes-notes-editor-message {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--tugx-space-2, 0.5rem);
+  color: var(--tugx-text-secondary, inherit);
+  font-size: var(--tugx-font-size-sm, 0.8125rem);
+}
+
+/* One line saying whether what is on screen is what is on disk. Quiet by
+   design: it is a reassurance the reader glances at, not a control. */
+.session-changes-notes-editor-status {
+  flex: 0 0 auto;
+  padding: var(--tugx-space-1, 0.25rem) var(--tugx-space-2, 0.5rem) 0;
+  color: var(--tug7-element-global-text-normal-muted-rest, inherit);
+  font-size: var(--tugx-font-size-xs, 0.75rem);
+  font-variant-numeric: tabular-nums;
+}

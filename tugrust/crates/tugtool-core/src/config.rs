@@ -21,12 +21,44 @@ pub struct TugConfig {
     #[serde(default)]
     pub arc: ArcConfig,
 
+    /// Release settings — the three strings that teach the product what a
+    /// release *is* in this project. Absent means this project has no release
+    /// the window can drive, which is the state every project is in until it
+    /// declares one.
+    #[serde(default)]
+    pub release: Option<ReleaseConfig>,
+
     /// The retired `[tugtool.dash]` table, bound only so the loader can see it
     /// and refuse. Nothing reads its value: a project whose declarations are
     /// still under the old key would look configured while declaring nothing
     /// this build reads, so it is a refusal rather than a silent default.
     #[serde(default, rename = "dash")]
     pub retired_dash: Option<toml::Value>,
+}
+
+/// Release configuration — what to check, what to dispatch, and which workflow
+/// the dispatch queues a run of.
+///
+/// All three are required when the table is present, because none of them has a
+/// defensible default: a release whose check is unknown cannot be blessed, one
+/// whose dispatch is unknown cannot be sent, and one whose workflow is unknown
+/// cannot be watched. Declaring two of three is a project that thinks it has a
+/// release and does not, so it is a refusal rather than a partial capability.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ReleaseConfig {
+    /// The command whose printed rows become the Release sheet's checklist and
+    /// whose exit 0 means blessed.
+    #[serde(default)]
+    pub check: String,
+
+    /// The command that queues exactly one run of `workflow`. Run once, after a
+    /// passing check or a confirmed override.
+    #[serde(default)]
+    pub dispatch: String,
+
+    /// The workflow whose newest run after `dispatch` is the one watched.
+    #[serde(default)]
+    pub workflow: String,
 }
 
 /// Arc configuration.
@@ -307,6 +339,18 @@ post_create = []
 # genuinely quiet — before the press is answered with the rung it stalled on.
 # Declare none and it is 30.
 # arc_stop_ceiling_secs = 30
+
+# What a release IS in this project — three strings, all required when the table
+# is present. Declare none and the window offers no release.
+#
+# `check` prints the rows that become the Release sheet's checklist; its exit 0
+# means blessed. `dispatch` runs once afterwards and must queue exactly one run
+# of `workflow`, whose newest run after the dispatch is the one watched.
+#
+# [tugtool.release]
+# check    = "make release-check"
+# dispatch = "gh workflow run release.yml --ref main"
+# workflow = "release.yml"
 "#;
 
 /// Why a config file was refused. Every variant carries the offending value,
@@ -342,6 +386,9 @@ pub enum ConfigRefusal {
     LenderBorrows { surface: String, lender: String },
     /// A `checked_by` naming its own surface.
     SelfBorrow(String),
+    /// A `[tugtool.release]` table declaring some of its three strings and not
+    /// the rest. Carries the name of the field that is missing.
+    ReleaseIncomplete(&'static str),
 }
 
 impl std::fmt::Display for ConfigRefusal {
@@ -390,6 +437,11 @@ impl std::fmt::Display for ConfigRefusal {
             Self::SelfBorrow(name) => {
                 write!(f, "surface {name:?} declares itself in its own checked_by")
             }
+            Self::ReleaseIncomplete(field) => write!(
+                f,
+                "[tugtool.release].{field} is missing — declare check, dispatch and workflow, \
+                 or remove the table"
+            ),
         }
     }
 }
@@ -402,7 +454,32 @@ impl TugConfig {
         if self.retired_dash.is_some() {
             return Err(ConfigRefusal::RetiredDashTable);
         }
-        self.arc.validate()
+        self.arc.validate()?;
+        // Only a table that is *there* is checked: absence is the state a
+        // project with no release is in, and validating it would refuse every
+        // project but this one.
+        if let Some(release) = &self.release {
+            release.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl ReleaseConfig {
+    /// Refuse a table that declares a release without saying what it is. The
+    /// first missing field is the one named, because a reader fixes them one at
+    /// a time and the second refusal is the same sentence about the next one.
+    pub fn validate(&self) -> Result<(), ConfigRefusal> {
+        for (field, value) in [
+            ("check", &self.check),
+            ("dispatch", &self.dispatch),
+            ("workflow", &self.workflow),
+        ] {
+            if value.trim().is_empty() {
+                return Err(ConfigRefusal::ReleaseIncomplete(field));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -794,6 +871,92 @@ mod tests {
         assert!(config.tugtool.arc.post_create.is_empty());
         assert!(config.tugtool.arc.surfaces.is_empty());
         assert!(config.tugtool.arc.build.is_none());
+    }
+
+    /// A whole `[tugtool.release]` table parses and validates, and its three
+    /// strings arrive verbatim. Spelled out rather than round-tripped from a
+    /// serialized `ReleaseConfig`, because what this pins is the TOML a person
+    /// writes by hand.
+    #[test]
+    fn a_complete_release_table_parses_and_validates() {
+        let toml_text = "[tugtool.release]\ncheck    = \"just bless\"\ndispatch = \"gh workflow run release.yml --ref main\"\nworkflow = \"release.yml\"\n";
+        let config: Config = toml::from_str(toml_text).expect("the table must parse");
+        config
+            .tugtool
+            .validate()
+            .expect("a complete table must validate");
+        let release = config
+            .tugtool
+            .release
+            .expect("a declared table is not absence");
+        assert_eq!(release.check, "just bless");
+        assert_eq!(release.dispatch, "gh workflow run release.yml --ref main");
+        assert_eq!(release.workflow, "release.yml");
+    }
+
+    /// A table declaring some of its three strings is refused, naming the first
+    /// one missing.
+    ///
+    /// Declaring two of three is the worst state to accept silently: the
+    /// product would offer a release it cannot finish, and the absence only
+    /// shows at the step that needed the field.
+    #[test]
+    fn a_partial_release_table_is_refused_naming_the_missing_field() {
+        let toml_text = "[tugtool.release]\ncheck = \"just bless\"\n";
+        let config: Config = toml::from_str(toml_text).expect("the partial table parses");
+        let refusal = config
+            .tugtool
+            .validate()
+            .expect_err("a partial table must be refused");
+        assert_eq!(refusal, ConfigRefusal::ReleaseIncomplete("dispatch"));
+        // The sentence tells the reader both ways out.
+        let said = refusal.to_string();
+        assert!(said.contains("[tugtool.release].dispatch"), "{said}");
+        assert!(said.contains("or remove the table"), "{said}");
+
+        // Whitespace is not a declaration either — a `workflow = "  "` reads as
+        // configured to every consumer that only checks for emptiness.
+        let blank = "[tugtool.release]\ncheck = \"a\"\ndispatch = \"b\"\nworkflow = \"   \"\n";
+        let config: Config = toml::from_str(blank).unwrap();
+        assert_eq!(
+            config.tugtool.validate().expect_err("blank is not declared"),
+            ConfigRefusal::ReleaseIncomplete("workflow")
+        );
+    }
+
+    /// No table at all is the state every project is in until it declares one,
+    /// and it validates.
+    #[test]
+    fn a_config_without_a_release_table_has_none_and_validates() {
+        let config: Config =
+            toml::from_str("[tugtool.arc]\npost_create = []\n").expect("must parse");
+        assert!(config.tugtool.release.is_none());
+        config
+            .tugtool
+            .validate()
+            .expect("absence is a state, not a refusal");
+    }
+
+    /// The commented example in the template is the one a reader uncomments, so
+    /// it has to be a table this build accepts.
+    #[test]
+    fn the_templates_release_example_parses_when_uncommented() {
+        let uncommented = DEFAULT_CONFIG
+            .lines()
+            .skip_while(|line| !line.starts_with("# [tugtool.release]"))
+            .map(|line| line.trim_start_matches("# ").trim_start_matches('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            uncommented.starts_with("[tugtool.release]"),
+            "the template must document the table: {uncommented}"
+        );
+        let config: Config = toml::from_str(&uncommented)
+            .unwrap_or_else(|err| panic!("the example must parse: {err}\n{uncommented}"));
+        config
+            .tugtool
+            .validate()
+            .expect("the example must be a complete table");
     }
 
     /// The refusal reaches the real loader, which is where `run_post_create`

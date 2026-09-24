@@ -918,6 +918,16 @@ export interface ProjectChangeset extends ChangesetSnapshot {
    * branch yet — sorted by name. Absent when there are none.
    */
   document_arcs?: DocumentArcEntry[];
+  /**
+   * What a release is in this project, when it declares one — read from
+   * `[tugtool.release]` server-side. Absent means this project has no release
+   * the window can drive.
+   *
+   * Only the workflow crosses the wire: `check` and `dispatch` stay on the
+   * server, so what the product offers is the project's own declared release
+   * rather than any command a client could compose.
+   */
+  release?: { workflow: string };
 }
 
 /**
@@ -1042,6 +1052,8 @@ export function isProjectChangeset(value: unknown): value is ProjectChangeset {
     (value.document_arcs === undefined ||
       (Array.isArray(value.document_arcs) &&
         value.document_arcs.every(isDocumentArcEntry))) &&
+    (value.release === undefined ||
+      (isRecord(value.release) && typeof value.release.workflow === "string")) &&
     isChangesetSnapshot(value)
   );
 }

@@ -209,6 +209,7 @@ import {
 // the same registration its renderer does, so the header and the block cannot
 // disagree about what a command is.
 import "./session-commit-receipt-block";
+import "./session-push-receipt-block";
 import "./session-join-receipt-block";
 import "./session-arc-receipt-block";
 import { ArcNoteLine } from "./session-arc-note-block";

@@ -940,6 +940,7 @@ mod tests {
                 },
                 unattributed_draft: None,
                 document_arcs: vec![],
+                release: None,
             }],
         }
     }
@@ -972,6 +973,7 @@ mod tests {
                 },
                 unattributed_draft: None,
                 document_arcs: vec![],
+                release: None,
             }],
         }
     }

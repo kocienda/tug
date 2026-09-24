@@ -75,6 +75,7 @@ import {
 } from "./session-changes/session-changes-view";
 import type { ArcJoinActions } from "./session-changes/session-changes-arc-join";
 import { SessionHistoryView } from "./session-history/session-history-view";
+import { SessionReleaseView } from "./session-release/session-release-view";
 import { SessionTelemetryStatusRow } from "./session-card-telemetry-renderers";
 import { COMPACTION_CANCEL_FOCUS_KEY } from "./session-card-telemetry-renderers";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
@@ -1956,7 +1957,7 @@ export function SessionCardBody({
     joinModeController.subscribe,
     () => joinModeController.getSnapshot().draftPhase === "drafting",
   );
-  const activeView: "transcript" | "changes" | "history" =
+  const activeView: "transcript" | "changes" | "history" | "release" =
     shadeView === "none" ? "transcript" : shadeView;
   // The Changes and History shades are TugSheet `shade` presentations ([P17]);
   // the controller's view choice drives their imperative handles. A
@@ -1966,6 +1967,7 @@ export function SessionCardBody({
   // clobbers the incoming choice.
   const changesSheetRef = useRef<TugSheetHandle | null>(null);
   const historySheetRef = useRef<TugSheetHandle | null>(null);
+  const releaseSheetRef = useRef<TugSheetHandle | null>(null);
   useEffect(() => {
     if (shadeView === "changes") {
       changesSheetRef.current?.open();
@@ -1976,6 +1978,8 @@ export function SessionCardBody({
     } else changesSheetRef.current?.close();
     if (shadeView === "history") historySheetRef.current?.open();
     else historySheetRef.current?.close();
+    if (shadeView === "release") releaseSheetRef.current?.open();
+    else releaseSheetRef.current?.close();
   }, [shadeView, changesController]);
   // Mode ↔ sheet coupling ([P03]): entering commit mode ensures the changes
   // sheet is up; exiting it (composer Escape / Cancel / the Z4A commit chip /
@@ -2057,6 +2061,14 @@ export function SessionCardBody({
   const handleHistorySheetOpenChange = useCallback(
     (open: boolean) => {
       if (!open && shadeViewController.getSnapshot() === "history") {
+        shadeViewController.hide();
+      }
+    },
+    [shadeViewController],
+  );
+  const handleReleaseSheetOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && shadeViewController.getSnapshot() === "release") {
         shadeViewController.hide();
       }
     },
@@ -3442,6 +3454,67 @@ export function SessionCardBody({
           break;
       }
     },
+    // `/push` sends this project's branch to its upstream and leaves a receipt
+    // in the transcript. The binding guard is `/diff`'s precedent: a card with
+    // no session bound has no project to push, and returning silently is what
+    // every other project-scoped surface here does.
+    //
+    // The refusals the user can read before the network — a detached HEAD, a
+    // branch already level with its upstream — belong to the server, which is
+    // the only side that can see them; they arrive as the error phase below.
+    // What this side guards is the one thing it knows and the server cannot:
+    // that this card already has a push in flight.
+    push: () => {
+      const binding = cardSessionBindingStore.getBinding(cardId);
+      if (binding === undefined) return;
+      const notify = paneBulletinRef.current;
+      const verbs = getChangesetVerbStore();
+      if (verbs === null) {
+        notify?.danger("Not connected");
+        return;
+      }
+      const entryKey = changesController.entryKey;
+      if (verbs.pushState(entryKey).phase === "pending") {
+        notify?.caution("A push is in flight");
+        return;
+      }
+      verbs.push(entryKey, changesController.workspaceKey, changesController.tugSessionId);
+      // One subscription for the length of the round trip, on `performCommit`'s
+      // shape: read the phase, ignore `pending`, unsubscribe on either terminal
+      // state. The receipt row is `use-landing-receipts`' to append, so all this
+      // has to do is surface a refusal where the user typed the command.
+      const unsubscribe = verbs.subscribe(() => {
+        const state = verbs.pushState(entryKey);
+        if (state.phase === "pending") return;
+        unsubscribe();
+        if (state.phase === "error") {
+          notify?.danger(state.error ?? "git push failed");
+        }
+      });
+    },
+    // `/release` is the fourth act ([P12]), and the only one that is a room
+    // rather than a gesture: the check runs in it, the dispatch is gated on
+    // the check, and the queued run is watched there until it ends.
+    //
+    // The binding guard is `/push`'s, for the same reason. The one refusal this
+    // side owns is a project that declares no `[tugtool.release]` table: the
+    // slash registry is static, so the verb cannot be hidden per project, and
+    // answering it with nothing at all is the outcome nobody can diagnose
+    // ([L31]). Any landing mode exits first — the composer is the message
+    // editor while one is up, and the Release shade wants a composer back.
+    release: () => {
+      const binding = cardSessionBindingStore.getBinding(cardId);
+      if (binding === undefined) return;
+      if (changesController.getSnapshot().project.release === undefined) {
+        paneBulletinRef.current?.caution(
+          "This project declares no [tugtool.release] table",
+        );
+        return;
+      }
+      commitModeController.exit();
+      joinModeController.exit();
+      shadeViewController.show("release");
+    },
     // `/diff` opens the Project Diff card — the repo-wide `git diff HEAD`
     // for this card's project, descriptor-keyed so a re-run reuses (and
     // refreshes) the already-open card ([P20]). Session-scoped review lives
@@ -4734,6 +4807,32 @@ export function SessionCardBody({
                       <SessionHistoryView
                         projectDir={projectDir}
                         active={activeView === "history"}
+                        onClose={() => shadeViewController.hide()}
+                      />
+                    </TugSheetContent>
+                  </TugSheet>
+                </div>
+                {/* The fourth pane ([P12]). It covers the same box History
+                  does — the view slot, not the top column — so it rises from
+                  Z2 and leaves the find bar showing, and it is content-sized
+                  for the same reason: the three bands are short when the check
+                  passes on the first line and tall when a run is under way. */}
+                <div className="session-view-pane" data-view="release">
+                  <TugSheet
+                    ref={releaseSheetRef}
+                    onOpenChange={handleReleaseSheetOpenChange}
+                  >
+                    <TugSheetContent
+                      title="Release"
+                      presentation="shade"
+                      shadeAnchor="bottom"
+                      persistKey="session-card"
+                      shadeAutoSize
+                      modalScopeSelector='.session-view-pane[data-view="transcript"]'
+                    >
+                      <SessionReleaseView
+                        workspaceKey={changesController.workspaceKey}
+                        release={changesVersion.project.release}
                         onClose={() => shadeViewController.hide()}
                       />
                     </TugSheetContent>

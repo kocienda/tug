@@ -37,6 +37,7 @@ import { useEffect } from "react";
 import {
   getChangesetVerbStore,
   type CommitPhase,
+  type PushPhase,
   type JoinPhase,
   type DiscardPhase,
 } from "@/lib/changeset-verb-store";
@@ -78,6 +79,7 @@ export function useLandingReceipts(
     // subscription of its own ([L02] governs what React *renders* from).
     const tugSessionId = codeSessionStore.getSnapshot().tugSessionId;
     let prevCommit: CommitPhase = verbStore.commitState(commitKey).phase;
+    let prevPush: PushPhase = verbStore.pushState(commitKey).phase;
     let prevJoin: JoinPhase = verbStore.joinState(commitKey).phase;
     let prevDiscard: DiscardPhase = verbStore.discardState(commitKey).phase;
     // The arc receipt has no phase to watch — it either exists for this
@@ -121,6 +123,14 @@ export function useLandingReceipts(
         append("/commit", commit.summary, commit.receiptId);
       }
       prevCommit = commit.phase;
+
+      // Push: the same edge on the other half of landing. The commits it moved
+      // were already facts, so the receipt is the only record that they left.
+      const pushed = verbStore.pushState(commitKey);
+      if (pushed.phase === "done" && prevPush !== "done" && pushed.summary !== null) {
+        append("/push", pushed.summary, pushed.receiptId);
+      }
+      prevPush = pushed.phase;
 
       // Join: the same edge, on the arc lane's landing. A preview settles in
       // `preview` and never here, so only a real land leaves ink.

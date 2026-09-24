@@ -1,0 +1,49 @@
+/* SessionPushReceiptBlock — the `/push` receipt header. The route the push took
+   leads, then the sha the upstream now points at; the commit count rides the
+   header's standard trailing summary. Appearance only ([L06]). */
+
+/* The identity is PLAIN INLINE TEXT in the detail column, for the reason the
+   commit receipt's header spells out at length: a flex container establishes
+   its own vertical alignment, which floats the parts off the header's shared
+   line box and drops them below the lifecycle dot. */
+.push-receipt-header {
+  display: block;
+  min-width: 0;
+  /* A receipt is prose, so the identity line takes the proportional family the
+     block root's scope class publishes, with the header's mono command face as
+     the fallback for a header standing outside that scope — the same two-step
+     the commit receipt's header takes. */
+  font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
+}
+
+/* The route — `pushed <branch> → <upstream>`. A `<code>` inside
+   `.tool-call-header-detail`, so it inherits the header's own command layout
+   wholesale: the shared line box, the wrap behaviour, and the optical seat that
+   lands the line on the header baseline. */
+.push-receipt-route {
+  min-width: 0;
+}
+
+/* The sha pill sits inline after the route, on its own terms — `CommitShaText`
+   owns every pointer gesture on it. */
+.push-receipt-sha {
+  white-space: nowrap;
+}
+
+/* The pushed commits' subjects. A plain list at the body's own scale: these are
+   subjects of commits that already exist, so they are a reference rather than
+   the receipt's own prose, and the list is deliberately quieter than the commit
+   receipt's message body. */
+.push-receipt-subjects {
+  margin: 0;
+  padding-left: var(--tugx-space-4, 1rem);
+  list-style: disc;
+  color: var(--tugx-text-secondary, inherit);
+  font-size: var(--tugx-font-size-sm, 0.8125rem);
+  line-height: var(--tugx-line-height-snug, 1.4);
+}
+
+.push-receipt-subjects > li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

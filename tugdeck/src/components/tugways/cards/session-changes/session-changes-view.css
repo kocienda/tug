@@ -70,3 +70,12 @@
     transform: rotate(360deg);
   }
 }
+
+/* How far the branch is ahead of its upstream, beside the Push that spends it.
+   A muted meta count in the shade banner's trailing actions — it reads as a
+   fact about the project, not as a state of the shade. Appearance only ([L06]). */
+.session-changes-ahead {
+  font-size: 0.8125rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+}

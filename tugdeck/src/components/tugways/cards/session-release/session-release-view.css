@@ -1,0 +1,132 @@
+/* SessionReleaseView — the Release shade's body ([P12]).
+
+   The host mirrors `.session-changes-view` (a scrolling column under the
+   pinned header strip); the sections are three stacked bands with a hairline
+   between them, so the check, the dispatch and the run read as the three acts
+   they are rather than as one list. */
+
+.session-release-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-release-empty {
+  margin: auto;
+  padding: var(--tug-space-4, 16px);
+  color: var(--tug-text-muted, #888);
+  font-size: 13px;
+  text-align: center;
+}
+
+.session-release-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-1, 4px);
+  padding: var(--tug-space-2, 8px) var(--tug-space-3, 12px);
+  border-bottom: 1px solid var(--tug-border-subtle, rgba(128, 128, 128, 0.2));
+}
+.session-release-section:last-child {
+  border-bottom: none;
+}
+
+/* The dispatch band is a row: the button, its override, and whatever the
+   server said about the last attempt. */
+.session-release-section[data-section="dispatch"] {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tug-space-2, 8px);
+}
+
+/* The workflow file name in the header's detail column — the one fact about
+   the release that is the project's rather than Tug's. */
+.session-release-workflow {
+  font-family: var(--tug-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--tug-text-muted, #888);
+}
+
+/* One glyph column, fixed-width, so the check rows' and the step rows' text
+   lines up whatever mark each carries. */
+.session-release-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  flex: none;
+  color: var(--tug-text-muted, #888);
+}
+[data-mark="ok"] .session-release-mark,
+.session-release-step[data-status="completed"] .session-release-mark {
+  color: var(--tug-text-success, #4caf50);
+}
+[data-mark="fail"] .session-release-mark {
+  color: var(--tug-text-danger, #e05252);
+}
+
+.session-release-note,
+.session-release-verdict {
+  font-size: 12px;
+  color: var(--tug-text-muted, #888);
+}
+.session-release-error {
+  font-size: 12px;
+  color: var(--tug-text-danger, #e05252);
+  white-space: pre-wrap;
+}
+
+.session-release-step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.session-release-step-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tug-space-1, 4px);
+  font-size: 12px;
+}
+.session-release-step-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-release-step-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--tug-text-muted, #888);
+}
+/* The note sits under its step, indented to the glyph column's width so it
+   reads as belonging to the step rather than as a row of its own. */
+.session-release-step-note {
+  padding-left: calc(1.25em + var(--tug-space-1, 4px));
+  font-size: 11px;
+  color: var(--tug-text-muted, #888);
+}
+
+.session-release-raw {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-1, 4px);
+}
+/* The transcript folds open to a capped, scrolling block: a `just bless` run
+   is a few dozen lines and a failed job's log is forty, so an uncapped `pre`
+   would push every band above it off the shade. */
+.session-release-pre {
+  margin: 0;
+  max-height: 14rem;
+  width: 100%;
+  overflow: auto;
+  font-family: var(--tug-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  color: var(--tug-text-muted, #888);
+}

@@ -2480,6 +2480,78 @@ fn parse_changeset_commit_payload(payload: &[u8]) -> Result<ChangesetCommitPaylo
     })
 }
 
+/// Parsed `changeset_push` request: the project to push and, optionally, the
+/// session whose transcript the receipt row belongs to (Spec S03).
+///
+/// There is nothing to elect — a push sends the branch, and the branch is
+/// whatever the checkout is on — so unlike the commit payload there is no file
+/// list and no message.
+struct ChangesetPushPayload {
+    project_dir: String,
+    session_id: Option<String>,
+}
+
+fn parse_changeset_push_payload(payload: &[u8]) -> Result<ChangesetPushPayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    let session_id = value
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    Ok(ChangesetPushPayload {
+        project_dir,
+        session_id,
+    })
+}
+
+/// Parsed release request: the project, plus `force` on a dispatch and `run_id`
+/// on a watch (Spec S03). One struct for all three arms — `release_check` reads
+/// only `project_dir`, and a payload carrying more than its verb needs is not a
+/// malformed one.
+struct ReleasePayload {
+    project_dir: String,
+    force: bool,
+    run_id: String,
+}
+
+fn parse_release_payload(payload: &[u8]) -> Result<ReleasePayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    // Absent `force` is false: an override is something the user did, so it is
+    // never the default a missing field lands on.
+    let force = value
+        .get("force")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let run_id = value
+        .get("run_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok(ReleasePayload {
+        project_dir,
+        force,
+        run_id,
+    })
+}
+
 /// Read the optional `hunks` map (Spec S03) off a `changeset_commit` payload.
 ///
 /// Every key must also appear in `files` — an election naming a path the
@@ -4363,6 +4435,34 @@ impl AgentSupervisor {
             "changeset_commit" => match parse_changeset_commit_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_commit(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            "changeset_push" => match parse_changeset_push_payload(payload) {
+                Ok(parsed) => {
+                    self.do_changeset_push(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            "release_check" => match parse_release_payload(payload) {
+                Ok(parsed) => {
+                    self.do_release_check(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            "release_dispatch" => match parse_release_payload(payload) {
+                Ok(parsed) => {
+                    self.do_release_dispatch(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            "release_watch" => match parse_release_payload(payload) {
+                Ok(parsed) => {
+                    self.do_release_watch(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -7373,6 +7473,268 @@ impl AgentSupervisor {
         let _ = control_tx.send(Frame::new(
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_commit_err serializes"),
+        ));
+    }
+
+    /// Handle a `changeset_push` CONTROL request (Spec S03): push the open
+    /// project's current branch to `origin` and leave a durable receipt.
+    ///
+    /// The same two guards as the commit path, in the same order and for the
+    /// same reason — never run git against an arbitrary path off the wire, and
+    /// never against something that is not a working tree. The git work, and
+    /// every refusal that can be read before the network is touched, lives in
+    /// `run_changeset_push`. On success the aggregate bump fires so the next
+    /// recompute reads `ahead: 0`, the receipt is persisted to the shell
+    /// ledger so the transcript row survives a reload, and
+    /// `changeset_push_ok` goes out; failures broadcast `changeset_push_err`.
+    ///
+    /// No fact is recorded. A commit is a fact because it is a thing that now
+    /// exists and can be cited; a push moved commits that were already facts,
+    /// and the receipt is the whole of what it has to say.
+    async fn do_changeset_push(&self, request: &ChangesetPushPayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        if self.registry.find_entry_by_path(dir).is_none() {
+            Self::send_changeset_push_err(&self.control_tx, project_dir, "not an open project");
+            return;
+        }
+        if !crate::feeds::git::is_within_git_worktree(dir).await {
+            Self::send_changeset_push_err(&self.control_tx, project_dir, "not a git repository");
+            return;
+        }
+
+        match crate::feeds::changeset::run_changeset_push(dir).await {
+            Ok(receipt) => {
+                // The push moved the upstream, so `ahead` is now 0 and every
+                // consumer of it — the shade's badge, the commit receipt's
+                // offer — should stop showing a push to make.
+                self.registry.changeset_all_bump().notify_one();
+                let summary = crate::feeds::changeset::format_push_summary(&receipt);
+                let receipt_id = Self::record_landing_receipt(
+                    self.shell_ledger.as_ref(),
+                    self.session_ledger.as_ref(),
+                    request.session_id.as_deref(),
+                    "/push",
+                    &summary,
+                    project_dir,
+                );
+                let body = serde_json::json!({
+                    "action": "changeset_push_ok",
+                    "project_dir": project_dir,
+                    "summary": summary,
+                    "receipt_id": receipt_id,
+                    "branch": receipt.branch,
+                    "upstream": receipt.upstream,
+                    "commits": receipt.commits,
+                });
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("changeset_push_ok serializes"),
+                ));
+            }
+            Err(detail) => {
+                Self::send_changeset_push_err(&self.control_tx, project_dir, &detail);
+            }
+        }
+    }
+
+    fn send_changeset_push_err(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        detail: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "changeset_push_err",
+            "project_dir": project_dir,
+            "detail": detail,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_push_err serializes"),
+        ));
+    }
+
+    /// Resolve the project's declared release, or say which guard refused.
+    ///
+    /// The open-project guard every project-addressed verb takes — never run a
+    /// project's own configured command against an arbitrary path off the wire —
+    /// plus the one this family adds: a project that declares no
+    /// `[tugtool.release]` table has no release to run, and that is a named
+    /// refusal rather than a default. There is no worktree guard here, unlike
+    /// the changeset verbs: a release is a shell command the project declared,
+    /// and nothing about it requires git. The config load is blocking, so it
+    /// goes to a blocking thread.
+    async fn resolve_release_config(
+        &self,
+        project_dir: &str,
+    ) -> Result<tugtool_core::config::ReleaseConfig, String> {
+        let dir = std::path::Path::new(project_dir);
+        if self.registry.find_entry_by_path(dir).is_none() {
+            return Err("not an open project".to_string());
+        }
+        let owned = dir.to_path_buf();
+        let loaded = tokio::task::spawn_blocking(move || {
+            tugtool_core::config::Config::load_from_project(&owned).map(|c| c.tugtool.release)
+        })
+        .await;
+        match loaded {
+            Ok(Ok(Some(release))) => Ok(release),
+            Ok(Ok(None)) => Err("this project declares no [tugtool.release] table".to_string()),
+            // A config that will not load is reported here, unlike in the
+            // aggregate: somebody asked for this project's release by name, so
+            // the refusal that answers them is the loader's own sentence.
+            Ok(Err(err)) => Err(format!("{err}")),
+            Err(err) => Err(format!("could not read this project's config: {err}")),
+        }
+    }
+
+    /// Handle a `release_check` CONTROL request (Spec S03): run the project's
+    /// declared check and reply with its rows, its verdict and its raw output.
+    async fn do_release_check(&self, request: &ReleasePayload) {
+        let project_dir = request.project_dir.as_str();
+        let config = match self.resolve_release_config(project_dir).await {
+            Ok(config) => config,
+            Err(detail) => {
+                Self::send_release_err(&self.control_tx, "release_check_err", project_dir, &detail);
+                return;
+            }
+        };
+        match crate::feeds::release::do_release_check(std::path::Path::new(project_dir), &config)
+            .await
+        {
+            Ok(outcome) => {
+                let body = serde_json::json!({
+                    "action": "release_check_ok",
+                    "project_dir": project_dir,
+                    "rows": crate::feeds::release::rows_to_json(&outcome.rows),
+                    "passed": outcome.passed,
+                    "exit_code": outcome.exit_code,
+                    "raw": outcome.raw,
+                });
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("release_check_ok serializes"),
+                ));
+            }
+            Err(detail) => {
+                Self::send_release_err(&self.control_tx, "release_check_err", project_dir, &detail);
+            }
+        }
+    }
+
+    /// Handle a `release_dispatch` CONTROL request (Spec S03): re-check unless
+    /// the caller sent `force`, queue the run, find its id, and start watching
+    /// it.
+    ///
+    /// The watch starts here rather than waiting for the deck to ask, because
+    /// the run exists whether or not anybody is looking at it — and a deck that
+    /// reloads mid-run asks for the same watch by id, which is idempotent.
+    async fn do_release_dispatch(&self, request: &ReleasePayload) {
+        let project_dir = request.project_dir.as_str();
+        let config = match self.resolve_release_config(project_dir).await {
+            Ok(config) => config,
+            Err(detail) => {
+                Self::send_release_err(
+                    &self.control_tx,
+                    "release_dispatch_err",
+                    project_dir,
+                    &detail,
+                );
+                return;
+            }
+        };
+        match crate::feeds::release::do_release_dispatch(
+            std::path::Path::new(project_dir),
+            &config,
+            request.force,
+        )
+        .await
+        {
+            Ok(dispatched) => {
+                crate::feeds::release::spawn_watch(
+                    self.control_tx.clone(),
+                    project_dir,
+                    &dispatched.run_id,
+                );
+                let body = serde_json::json!({
+                    "action": "release_dispatch_ok",
+                    "project_dir": project_dir,
+                    "run_id": dispatched.run_id,
+                    "url": dispatched.url,
+                });
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("release_dispatch_ok serializes"),
+                ));
+            }
+            Err(refusal) => {
+                let mut body = serde_json::json!({
+                    "action": "release_dispatch_err",
+                    "project_dir": project_dir,
+                    "detail": refusal.detail,
+                });
+                // The rows ride along only when the re-check is what refused —
+                // their presence is how the sheet knows to show a checklist
+                // rather than a sentence.
+                if let Some(rows) = refusal.rows {
+                    body["rows"] = crate::feeds::release::rows_to_json(&rows);
+                }
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("release_dispatch_err serializes"),
+                ));
+            }
+        }
+    }
+
+    /// Handle a `release_watch` CONTROL request (Spec S03): (re)start the watch
+    /// for a run id the caller already has — a reloaded deck rejoining a run
+    /// that is still going.
+    async fn do_release_watch(&self, request: &ReleasePayload) {
+        let project_dir = request.project_dir.as_str();
+        if request.run_id.is_empty() {
+            Self::send_release_err(
+                &self.control_tx,
+                "release_dispatch_err",
+                project_dir,
+                "a watch needs a run id",
+            );
+            return;
+        }
+        // Resolved for the guard alone: a project that declares no release has
+        // no run of its own to be watching, and the refusal belongs here rather
+        // than in a watch that would poll for it anyway.
+        if let Err(detail) = self.resolve_release_config(project_dir).await {
+            Self::send_release_err(
+                &self.control_tx,
+                "release_dispatch_err",
+                project_dir,
+                &detail,
+            );
+            return;
+        }
+        crate::feeds::release::spawn_watch(
+            self.control_tx.clone(),
+            project_dir,
+            &request.run_id,
+        );
+    }
+
+    fn send_release_err(
+        control_tx: &broadcast::Sender<Frame>,
+        action: &str,
+        project_dir: &str,
+        detail: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": action,
+            "project_dir": project_dir,
+            "detail": detail,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("a release error serializes"),
         ));
     }
 
@@ -16014,6 +16376,7 @@ mod tests {
                 },
                 unattributed_draft: None,
                 document_arcs: vec![],
+                release: None,
             }],
         }
     }

@@ -1,10 +1,10 @@
 /**
  * shade-view-controller — per-card visibility of the transcript-slot Shades.
  *
- * The Session card's view slot holds three mutually-exclusive panes:
- * the transcript, the Changes Shade, and the History Shade. Which one is
- * showing is card chrome state — a deliberate view choice — not session
- * data and not a submission target. `ShadeViewController` holds that
+ * The Session card's view slot holds four mutually-exclusive panes: the
+ * transcript, the Changes Shade, the History Shade, and the Release Shade.
+ * Which one is showing is card chrome state — a deliberate view choice — not
+ * session data and not a submission target. `ShadeViewController` holds that
  * choice as a subscribable store.
  *
  * One instance per Session card body, owned via a lazy `useRef` (never in
@@ -16,16 +16,19 @@
  *   - the toggle action handlers, which call `toggle`;
  *   - the Shade close affordances, which call `hide`.
  *
- * `"none"` is the resting state (both Shades closed). `show` is
- * mutually-exclusive: showing one Shade while the other is up swaps them,
- * exactly like the old view-route flip — all three panes stay mounted and
+ * `"none"` is the resting state (every Shade closed). `show` is
+ * mutually-exclusive: showing one Shade while another is up swaps them,
+ * exactly like the old view-route flip — all four panes stay mounted and
  * only CSS visibility changes ([L26]/[L06]).
  *
  * @module lib/shade-view-controller
  */
 
 /** Which Shade the view slot is showing; `"none"` is the transcript. */
-export type ShadeView = "none" | "changes" | "history";
+export type ShadeView = "none" | "changes" | "history" | "release";
+
+/** The Shades a caller can ask for by name — every `ShadeView` but `"none"`. */
+export type NamedShadeView = Exclude<ShadeView, "none">;
 
 /**
  * Per-card Shade visibility store (Spec S01). `subscribe` and
@@ -56,17 +59,17 @@ export class ShadeViewController {
    * Show a Shade. Idempotent; showing one while the other is up swaps to
    * it. A no-op (no listener fire) when that Shade is already showing.
    */
-  show(view: "changes" | "history"): void {
+  show(view: NamedShadeView): void {
     this.commit(view);
   }
 
-  /** Hide both Shades — the view slot returns to the transcript. */
+  /** Hide every Shade — the view slot returns to the transcript. */
   hide(): void {
     this.commit("none");
   }
 
   /** `getSnapshot() === view ? hide() : show(view)`. */
-  toggle(view: "changes" | "history"): void {
+  toggle(view: NamedShadeView): void {
     this.commit(this.view === view ? "none" : view);
   }
 

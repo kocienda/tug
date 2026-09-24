@@ -2059,6 +2059,198 @@ pub(crate) fn format_delete_documents_summary(arc: &str, files: &[String]) -> St
     format!("{header}\n{}", lines.join("\n"))
 }
 
+/// What a `/push` landed: the branch, where it went, and the commits that
+/// moved with it.
+///
+/// `before` is the upstream's sha as it stood before the push, or the literal
+/// `(new)` when the branch had no upstream and this push set one — there is
+/// no "before" in that case, and a zero sha would read as one. `subjects` is
+/// newest-first and empty for a `(new)` push, where every commit on the
+/// branch is arriving and listing them all would say nothing about the push.
+#[derive(Debug, Clone)]
+pub(crate) struct PushReceipt {
+    pub(crate) branch: String,
+    pub(crate) upstream: String,
+    pub(crate) before: String,
+    pub(crate) after: String,
+    pub(crate) commits: u32,
+    pub(crate) subjects: Vec<String>,
+}
+
+/// The literal `before` for a branch whose upstream this push is creating.
+pub(crate) const PUSH_BEFORE_NEW: &str = "(new)";
+
+/// How long a push may take before it is killed. A push that has not finished
+/// in two minutes is waiting on something no card can show — a credential
+/// prompt git was told not to raise, a stalled TLS handshake — and the honest
+/// answer is to say the wait ended rather than to leave the verb pending for
+/// as long as the network cares to take.
+const PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Push the checkout's current branch to `origin`, and report what moved.
+///
+/// Refusals before any network work, because each is a thing the user should
+/// read rather than a push that fails slowly: a detached HEAD has no branch
+/// to push, and a branch already level with its upstream has nothing to send.
+/// A branch with no upstream is not a refusal — it is a `--set-upstream`
+/// push, which is what the first push of a branch means.
+///
+/// `GIT_TERMINAL_PROMPT=0` is the load-bearing env: the card's shell has no
+/// TTY ([D111]), so a git that decided to ask for a credential would block
+/// until the timeout with nothing on screen. With the prompt refused it fails
+/// immediately and its stderr is the error the card shows. `PATH` is the login
+/// PATH for the opposite reason — a credential helper git needs is on the
+/// user's PATH and not on a GUI-launched process's ([Q01]).
+pub(crate) async fn run_changeset_push(dir: &Path) -> Result<PushReceipt, String> {
+    let branch = git_stdout(dir, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .await
+        .ok_or_else(|| "cannot read the current branch".to_string())?;
+    if branch == "HEAD" || branch.is_empty() {
+        return Err("HEAD is detached — there is no branch to push".to_string());
+    }
+
+    let upstream = git_stdout(
+        dir,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    )
+    .await
+    .filter(|s| !s.is_empty());
+    let set_upstream = upstream.is_none();
+
+    // With an upstream, ask how far ahead the branch is and refuse a push
+    // that would send nothing. `--left-right --count` prints "<ahead>\t<behind>".
+    let before = if let Some(upstream) = upstream.as_deref() {
+        let counts = git_stdout(dir, &["rev-list", "--left-right", "--count", "HEAD...@{u}"])
+            .await
+            .unwrap_or_default();
+        let ahead: u32 = counts
+            .split_whitespace()
+            .next()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        if ahead == 0 {
+            return Err(format!("Nothing to push — {branch} is at {upstream}"));
+        }
+        git_stdout(dir, &["rev-parse", "@{u}"])
+            .await
+            .unwrap_or_else(|| PUSH_BEFORE_NEW.to_string())
+    } else {
+        PUSH_BEFORE_NEW.to_string()
+    };
+
+    let mut command = tokio::process::Command::from(tugcore::git_command());
+    command
+        .env("PATH", tuggram::probe_login_path())
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(dir)
+        // The timeout below abandons the future, and abandoning it has to kill
+        // the process rather than orphan a git that is still talking to a
+        // remote nobody is listening to any more.
+        .kill_on_drop(true)
+        .arg("push")
+        .arg("--porcelain");
+    if set_upstream {
+        command.arg("--set-upstream");
+    }
+    command.arg("origin").arg(&branch);
+
+    let child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run git push: {e}"))?;
+    let output = match tokio::time::timeout(PUSH_TIMEOUT, child.wait_with_output()).await {
+        Ok(result) => result.map_err(|e| format!("git push failed: {e}"))?,
+        Err(_) => {
+            return Err("push timed out after 120 s".to_string());
+        }
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr
+            .lines()
+            .rfind(|l| !l.trim().is_empty())
+            .unwrap_or("git push failed")
+            .trim()
+            .to_string();
+        return Err(detail);
+    }
+
+    // The upstream's name is read again after the push, because a
+    // `--set-upstream` push is what created it.
+    let upstream = match upstream {
+        Some(upstream) => upstream,
+        None => git_stdout(
+            dir,
+            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        )
+        .await
+        .unwrap_or_else(|| format!("origin/{branch}")),
+    };
+    let after = git_stdout(dir, &["rev-parse", "HEAD"])
+        .await
+        .ok_or_else(|| "cannot read HEAD after the push".to_string())?;
+    let subjects = if before == PUSH_BEFORE_NEW {
+        Vec::new()
+    } else {
+        git_stdout(dir, &["log", "--format=%s", &format!("{before}..{after}")])
+            .await
+            .map(|s| s.lines().map(str::to_string).collect())
+            .unwrap_or_default()
+    };
+    let commits = if before == PUSH_BEFORE_NEW {
+        git_stdout(dir, &["rev-list", "--count", "HEAD"])
+            .await
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    } else {
+        subjects.len() as u32
+    };
+
+    Ok(PushReceipt {
+        branch,
+        upstream,
+        before,
+        after,
+        commits,
+        subjects,
+    })
+}
+
+/// The `/push` receipt's durable summary (Spec S01).
+///
+/// Built like [`format_commit_summary`] and for the same reason: the header is
+/// fixed so the deck's parser can claim it, `·` is U+00B7, `→` is U+2192, and
+/// the live row and the row restored from the shell ledger are byte-identical.
+///
+/// ```text
+/// pushed <branch> → <upstream> · <N> commit(s) · <before[0..10]>..<after[0..10]>
+/// <subject of each pushed commit, newest first, one per line>
+/// ```
+///
+/// A `(new)` push carries no subjects, so the summary is the header alone.
+pub(crate) fn format_push_summary(receipt: &PushReceipt) -> String {
+    let short = |sha: &str| -> String {
+        if sha == PUSH_BEFORE_NEW {
+            sha.to_string()
+        } else {
+            sha[..sha.len().min(10)].to_string()
+        }
+    };
+    let header = format!(
+        "pushed {} → {} · {} commit(s) · {}..{}",
+        receipt.branch,
+        receipt.upstream,
+        receipt.commits,
+        short(&receipt.before),
+        short(&receipt.after),
+    );
+    if receipt.subjects.is_empty() {
+        return header;
+    }
+    format!("{header}\n{}", receipt.subjects.join("\n"))
+}
+
 /// Run a git command at `dir`, returning trimmed stdout on success, `None`
 /// on any failure.
 pub(crate) async fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
@@ -4613,6 +4805,154 @@ Some context.
         assert!(
             err.contains("no-such-file.txt"),
             "stderr detail names the bad path: {err}"
+        );
+    }
+
+    /// A bare repo beside `repo`, wired up as its `origin`. A file-path remote
+    /// is a real remote to git — it negotiates, updates refs and reports
+    /// through the same porcelain — so the push path under test is the push
+    /// path that ships, with nothing about the network mocked.
+    fn add_bare_origin(temp: &tempfile::TempDir, repo: &Path) -> PathBuf {
+        let origin = temp.path().join("origin.git");
+        std::fs::create_dir_all(&origin).unwrap();
+        let out = tugcore::git_command()
+            .arg("init")
+            .arg("-q")
+            .arg("--bare")
+            .arg("-b")
+            .arg("main")
+            .arg(&origin)
+            .output()
+            .expect("run git init --bare");
+        assert!(out.status.success(), "bare init: {:?}", out);
+        git(repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        origin
+    }
+
+    #[tokio::test]
+    async fn run_changeset_push_moves_a_file_remote() {
+        let (temp, repo) = init_repo();
+        let origin = add_bare_origin(&temp, &repo);
+        git(&repo, &["push", "-q", "-u", "origin", "main"]);
+
+        std::fs::write(repo.join("ahead.txt"), "ahead\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "one ahead"]);
+
+        let receipt = run_changeset_push(&repo).await.expect("push succeeds");
+
+        assert_eq!(receipt.branch, "main");
+        assert_eq!(receipt.upstream, "origin/main");
+        assert_eq!(receipt.commits, 1, "exactly the one commit that was ahead");
+        assert_eq!(receipt.subjects, ["one ahead"]);
+        assert_eq!(receipt.after.len(), 40, "full HEAD sha");
+
+        let head = git_stdout(&repo, &["rev-parse", "HEAD"]).await.expect("head");
+        let remote = git_stdout(&origin, &["rev-parse", "main"])
+            .await
+            .expect("remote head");
+        assert_eq!(remote, head, "the remote really moved to HEAD");
+    }
+
+    #[tokio::test]
+    async fn run_changeset_push_refuses_nothing_to_push() {
+        let (temp, repo) = init_repo();
+        add_bare_origin(&temp, &repo);
+        git(&repo, &["push", "-q", "-u", "origin", "main"]);
+
+        let err = run_changeset_push(&repo)
+            .await
+            .expect_err("a branch level with its upstream refuses");
+        assert_eq!(err, "Nothing to push — main is at origin/main");
+    }
+
+    #[tokio::test]
+    async fn run_changeset_push_sets_upstream_when_none() {
+        let (temp, repo) = init_repo();
+        let origin = add_bare_origin(&temp, &repo);
+        // No `-u` push has ever run here, so `@{u}` does not resolve.
+        assert!(
+            git_stdout(&repo, &["rev-parse", "--abbrev-ref", "@{u}"])
+                .await
+                .is_none(),
+            "fixture starts with no upstream"
+        );
+
+        let receipt = run_changeset_push(&repo).await.expect("push succeeds");
+
+        assert_eq!(
+            receipt.before, PUSH_BEFORE_NEW,
+            "a branch with no upstream has no before"
+        );
+        assert_eq!(receipt.upstream, "origin/main", "the push set the upstream");
+        assert!(
+            receipt.subjects.is_empty(),
+            "a (new) push lists no subjects: {:?}",
+            receipt.subjects
+        );
+        assert_eq!(receipt.commits, 1, "every commit on the branch arrived");
+
+        let head = git_stdout(&repo, &["rev-parse", "HEAD"]).await.expect("head");
+        assert_eq!(
+            git_stdout(&origin, &["rev-parse", "main"]).await.as_deref(),
+            Some(head.as_str()),
+        );
+    }
+
+    #[tokio::test]
+    async fn run_changeset_push_refuses_a_detached_head() {
+        let (temp, repo) = init_repo();
+        add_bare_origin(&temp, &repo);
+        let head = git_stdout(&repo, &["rev-parse", "HEAD"]).await.expect("head");
+        git(&repo, &["checkout", "-q", &head]);
+
+        let err = run_changeset_push(&repo)
+            .await
+            .expect_err("a detached HEAD refuses");
+        assert!(err.contains("detached"), "names the reason: {err}");
+    }
+
+    /// The header the deck's regex claims, byte for byte — `·` is U+00B7 and
+    /// `→` is U+2192, and a parser written against either's lookalike would
+    /// pass a test that built the string from the same constant.
+    #[test]
+    fn format_push_summary_shape() {
+        let receipt = PushReceipt {
+            branch: "main".to_string(),
+            upstream: "origin/main".to_string(),
+            before: "1111111111aaaaaaaaaa".to_string(),
+            after: "2222222222bbbbbbbbbb".to_string(),
+            commits: 2,
+            subjects: vec!["newest".to_string(), "older".to_string()],
+        };
+        let summary = format_push_summary(&receipt);
+        let mut lines = summary.lines();
+        assert_eq!(
+            lines.next(),
+            Some(
+                "pushed main \u{2192} origin/main \u{b7} 2 commit(s) \u{b7} 1111111111..2222222222"
+            )
+        );
+        assert_eq!(lines.next(), Some("newest"));
+        assert_eq!(lines.next(), Some("older"));
+        assert_eq!(lines.next(), None);
+    }
+
+    /// A `(new)` push's summary is the header alone, and its `before` stays the
+    /// literal rather than being truncated to ten characters of it.
+    #[test]
+    fn format_push_summary_keeps_the_new_literal() {
+        let receipt = PushReceipt {
+            branch: "feature".to_string(),
+            upstream: "origin/feature".to_string(),
+            before: PUSH_BEFORE_NEW.to_string(),
+            after: "3333333333cccccccccc".to_string(),
+            commits: 4,
+            subjects: Vec::new(),
+        };
+        assert_eq!(
+            format_push_summary(&receipt),
+            "pushed feature \u{2192} origin/feature \u{b7} 4 commit(s) \u{b7} (new)..3333333333"
         );
     }
 

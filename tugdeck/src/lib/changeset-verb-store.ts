@@ -101,6 +101,35 @@ const COMMIT_IDLE: CommitState = Object.freeze({
   receiptId: null,
 });
 
+export type PushPhase = "idle" | "pending" | "done" | "error";
+
+/**
+ * One push round trip's state, keyed by the initiating card entry.
+ *
+ * A push elects nothing and produces no sha of its own — the commits it moved
+ * already existed — so unlike {@link CommitState} there is no `sha` and no
+ * `receipt` numstat. What it has to say is the server-formatted summary (Spec
+ * S01) and how many commits went.
+ */
+export interface PushState {
+  phase: PushPhase;
+  error: string | null;
+  /** Server-formatted push summary (Spec S01) when `phase === "done"`. */
+  summary: string | null;
+  /** The persisted receipt's ledger row id — see {@link CommitState.receiptId}. */
+  receiptId: number | null;
+  /** How many commits the push moved, when `phase === "done"`. */
+  commits: number | null;
+}
+
+const PUSH_IDLE: PushState = Object.freeze({
+  phase: "idle",
+  error: null,
+  summary: null,
+  receiptId: null,
+  commits: null,
+});
+
 /**
  * One arc-landing round trip's state, keyed by the initiating card entry.
  *
@@ -382,6 +411,10 @@ export class ChangesetVerbStore {
   private _commits = new Map<string, CommitState>();
   /** project_dir → the entry key whose commit is in flight. */
   private _commitInflight = new Map<string, string>();
+  /** entry key → push round-trip state. Absent ⇒ idle. */
+  private _pushes = new Map<string, PushState>();
+  /** project_dir → the entry key whose push is in flight. */
+  private _pushInflight = new Map<string, string>();
   /** entry key → join round-trip state. Absent ⇒ idle. */
   private _joins = new Map<string, JoinState>();
   /** `verbKey(project_dir, arc)` → the entry key whose join is in flight. */
@@ -472,6 +505,29 @@ export class ChangesetVerbStore {
         receipt: null,
         summary: null,
         receiptId: null,
+      });
+    } else if (body.action === "changeset_push_ok") {
+      const entryKey = this._pushInflight.get(sentDir);
+      if (entryKey === undefined) return;
+      this._pushInflight.delete(sentDir);
+      this._setPush(entryKey, {
+        phase: "done",
+        error: null,
+        summary: typeof body.summary === "string" ? body.summary : null,
+        receiptId: receiptIdOf(body),
+        commits: typeof body.commits === "number" ? body.commits : null,
+      });
+    } else if (body.action === "changeset_push_err") {
+      const entryKey = this._pushInflight.get(sentDir);
+      if (entryKey === undefined) return;
+      this._pushInflight.delete(sentDir);
+      const detail = typeof body.detail === "string" ? body.detail : "git push failed";
+      this._setPush(entryKey, {
+        phase: "error",
+        error: detail,
+        summary: null,
+        receiptId: null,
+        commits: null,
       });
     } else if (body.action === "changeset_claim_ok") {
       const entryKey = this._claimInflight.get(sentDir);
@@ -902,6 +958,46 @@ export class ChangesetVerbStore {
     this._setCommit(entryKey, COMMIT_IDLE);
   }
 
+  private _setPush(entryKey: string, state: PushState): void {
+    if (state.phase === "idle") {
+      this._pushes.delete(entryKey);
+    } else {
+      this._pushes.set(entryKey, state);
+    }
+    for (const listener of [...this._listeners]) listener();
+  }
+
+  /**
+   * Send `changeset_push` and mark `entryKey` in-flight, on the same
+   * project→entry correlation the commit path uses and for the same reason:
+   * the reply carries only `project_dir`. One push per project at a time,
+   * which is git's own reality.
+   */
+  push(entryKey: string, workspaceKey: string, sessionId?: string): void {
+    this._pushInflight.set(workspaceKey, entryKey);
+    this._setPush(entryKey, {
+      phase: "pending",
+      error: null,
+      summary: null,
+      receiptId: null,
+      commits: null,
+    });
+    const frame: Record<string, unknown> = { project_dir: workspaceKey };
+    if (sessionId !== undefined && sessionId.length > 0) {
+      frame.session_id = sessionId;
+    }
+    this._connection.sendControlFrame("changeset_push", frame);
+  }
+
+  pushState(entryKey: string): PushState {
+    return this._pushes.get(entryKey) ?? PUSH_IDLE;
+  }
+
+  /** Clear a terminal (done/error) push state back to idle. */
+  clearPush(entryKey: string): void {
+    this._setPush(entryKey, PUSH_IDLE);
+  }
+
   private _setJoin(entryKey: string, state: JoinState): void {
     if (state.phase === "idle") {
       this._joins.delete(entryKey);
@@ -1160,6 +1256,32 @@ export function useChangesetCommit(entryKey: string): CommitState & {
     _activeStore?.clearCommit(entryKey);
   };
   return { ...state, commit, clear };
+}
+
+/**
+ * React hook: the push round-trip state for one card entry plus its trigger.
+ * Returns idle and no-ops when no store is attached, like its neighbours.
+ */
+export function useChangesetPush(entryKey: string): PushState & {
+  push: (workspaceKey: string, sessionId?: string) => void;
+  clear: () => void;
+} {
+  const state = useSyncExternalStore(
+    (listener) => {
+      const store = _activeStore;
+      if (store === null) return () => {};
+      return store.subscribe(listener);
+    },
+    () => _activeStore?.pushState(entryKey) ?? PUSH_IDLE,
+    () => PUSH_IDLE,
+  );
+  const push = (workspaceKey: string, sessionId?: string): void => {
+    _activeStore?.push(entryKey, workspaceKey, sessionId);
+  };
+  const clear = (): void => {
+    _activeStore?.clearPush(entryKey);
+  };
+  return { ...state, push, clear };
 }
 
 /**

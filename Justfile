@@ -778,7 +778,9 @@ release-notes:
 # forced, which teaches the habit this recipe exists to build against.
 #
 # Read-only by construction: it writes no file and moves no ref — the remote
-# is asked with ls-remote rather than fetched from.
+# is asked with `gh api`, which is a GET: it writes nothing under .git/ and
+# moves no ref, where a fetch would write FETCH_HEAD and move
+# refs/remotes/origin/main.
 #
 # Check a release before cutting it — version, notes, tree, remote (read-only).
 bless:
@@ -844,27 +846,44 @@ bless:
         ok "HEAD is on main"
     fi
     HEAD_SHA="$(git rev-parse HEAD)"
-    # `ls-remote`, not `fetch`: asking is enough, and it is the only spelling
-    # that keeps this recipe's read-only claim true. `git fetch origin main`
-    # writes FETCH_HEAD and, under origin's wildcard refspec, moves
-    # refs/remotes/origin/main — a gate that reports on the tree should not
-    # be editing it. It is also the idiom the tag check below already uses.
-    REMOTE_SHA="$(git ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}')"
-    if [ -z "$REMOTE_SHA" ]; then
-        fail "cannot reach origin to compare HEAD against origin/main"
-    elif [ "$HEAD_SHA" != "$REMOTE_SHA" ]; then
-        fail "HEAD ${HEAD_SHA:0:9} is not origin/main ${REMOTE_SHA:0:9} — push before releasing"
+    # `gh api`, not `fetch`: asking is enough, and a GET keeps this recipe's
+    # read-only claim true. `git fetch origin main` writes FETCH_HEAD and,
+    # under origin's wildcard refspec, moves refs/remotes/origin/main — a gate
+    # that reports on the tree should not be editing it. `gh api` is also the
+    # spelling that needs no SSH, and the idiom the tag check below now uses.
+    if ! command -v gh >/dev/null 2>&1; then
+        fail "gh not found — cannot compare HEAD against origin/main"
     else
-        ok "HEAD is pushed and equals origin/main"
+        REMOTE_SHA="$(gh api 'repos/{owner}/{repo}/branches/main' --jq '.commit.sha' 2>/dev/null)"
+        if [ -z "$REMOTE_SHA" ]; then
+            fail "cannot reach origin to compare HEAD against origin/main"
+        elif [ "$HEAD_SHA" != "$REMOTE_SHA" ]; then
+            fail "HEAD ${HEAD_SHA:0:9} is not origin/main ${REMOTE_SHA:0:9} — push before releasing"
+        else
+            ok "HEAD is pushed and equals origin/main"
+        fi
     fi
     #
     # 4. This version is not already published. release.yml checks the second
     #    of these itself, but only after a run has been queued and the
     #    keychain built; asking here costs a second.
-    if [ -n "$(git ls-remote --tags origin "refs/tags/v$VERSION" 2>/dev/null)" ]; then
-        fail "tag v$VERSION already exists on origin — bump the version first"
+    #
+    #    Three outcomes, never two: `git ls-remote --tags` returned empty both
+    #    when the tag was absent and when origin was unreachable, so the row
+    #    read `ok` on a dead network. The `gh api` ref read distinguishes them
+    #    — exit 0 is present, an HTTP 404 in the error is absent, and anything
+    #    else is unknown and says so.
+    if ! command -v gh >/dev/null 2>&1; then
+        fail "gh not found — cannot check for tag v$VERSION on origin"
     else
-        ok "no v$VERSION tag on origin"
+        TAG_ERR="$(gh api "repos/{owner}/{repo}/git/ref/tags/v$VERSION" 2>&1 >/dev/null)"; TAG_RC=$?
+        if [ "$TAG_RC" -eq 0 ]; then
+            fail "tag v$VERSION already exists on origin — bump the version first"
+        elif printf '%s' "$TAG_ERR" | grep -q "HTTP 404"; then
+            ok "no v$VERSION tag on origin"
+        else
+            fail "cannot reach origin to check for tag v$VERSION"
+        fi
     fi
     if command -v gh >/dev/null 2>&1; then
         ASSETS="$(gh release view updates --json assets --jq '.assets[].name' 2>/dev/null || true)"
@@ -919,15 +938,23 @@ bless:
 # delete the gate. The escape lives on this composed gesture only; `just
 # bless` on its own stays a pure query with no flags at all.
 #
+# `--yes` skips the confirmation prompt, and nothing else. It exists for a
+# shell with no TTY: the Session card's block shell runs every command with
+# stdin at /dev/null ([D111]), so the prompt reads EOF and the recipe exits
+# saying "Not dispatched." The watcher already reprints off a TTY, so the
+# prompt is the only thing in the recipe that needs one.
+#
 # Bless, confirm, then dispatch the Stable Release workflow and watch it.
 release *FLAGS:
     #!/usr/bin/env bash
     set -euo pipefail
     FORCE=0
+    YES=0
     for FLAG in {{FLAGS}}; do
         case "$FLAG" in
             --force) FORCE=1 ;;
-            *) echo "usage: just release [--force]" >&2; exit 1 ;;
+            --yes) YES=1 ;;
+            *) echo "usage: just release [--force] [--yes]" >&2; exit 1 ;;
         esac
     done
     if ! command -v gh >/dev/null 2>&1; then
@@ -949,12 +976,14 @@ release *FLAGS:
     fi
     VERSION="$(tugrust/scripts/version.sh show)"
     echo
-    printf 'Dispatch Stable Release for %s on main? [y/N] ' "$VERSION"
-    read -r REPLY || REPLY=""
-    case "$REPLY" in
-        y|Y|yes|Yes) ;;
-        *) echo "Not dispatched."; exit 1 ;;
-    esac
+    if [ "$YES" -eq 0 ]; then
+        printf 'Dispatch Stable Release for %s on main? [y/N] ' "$VERSION"
+        read -r REPLY || REPLY=""
+        case "$REPLY" in
+            y|Y|yes|Yes) ;;
+            *) echo "Not dispatched."; exit 1 ;;
+        esac
+    fi
     # The newest run before the dispatch, so the one that appears after it can
     # be told apart. `gh workflow run` returns before its run is listed, and
     # watching whatever happens to be newest would follow the previous

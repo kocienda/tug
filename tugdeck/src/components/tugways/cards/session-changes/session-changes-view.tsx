@@ -66,11 +66,14 @@ import {
   type ArcLaneDiscard,
   type ArcLaneReplay,
 } from "./session-changes-arc-lane";
+import { SessionChangesNotesEditor } from "./session-changes-notes-editor";
 import type { ArcJoinActions } from "./session-changes-arc-join";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
 import { useChangesetLandingArcs } from "@/lib/changeset-join-store";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { getConnection } from "@/lib/connection-singleton";
 import {
   useChangesetClaim,
@@ -78,9 +81,18 @@ import {
   useChangesetJoin,
   useChangesetDiscard,
   useChangesetReplay,
+  useChangesetPush,
 } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
+
+/**
+ * Which session-entry rows offer the notes editor mode ([P08]). One directory,
+ * one extension, no nesting — this predicate is the whole of what the Changes
+ * shade knows about releases, and a broader one would quietly turn the shade
+ * into a general file editor, which [B08] declines.
+ */
+const NOTES_PATH = /^release-notes\/[^/]+\.md$/;
 
 // ---------------------------------------------------------------------------
 // The view
@@ -234,6 +246,11 @@ export function SessionChangesView({
   // `${entryId}|${path}`, so the Expand All / Collapse All / Diff controls
   // live once in the shade banner and act across every head entry.
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(new Set());
+  // Which notes row is in editor mode — one at a time, view scope like
+  // `expandedKeys` ([L24], Table T01). Committing the file takes the row away,
+  // and a path no longer in `sessionFiles` simply reads as no row editing, so
+  // there is no cleanup to remember.
+  const [editingPath, setEditingPath] = useState<string | null>(null);
   const onToggleFile = useCallback(
     (entryId: string, path: string, collapsed: boolean) => {
       setExpandedKeys((prev) => {
@@ -245,6 +262,63 @@ export function SessionChangesView({
       });
     },
     [],
+  );
+
+  // EVERY HOOK IN THIS COMPONENT RUNS ABOVE THE EARLY RETURNS BELOW, and that
+  // is not a stylistic preference. `shouldShowNoGitNotice` and `no_repo` both
+  // return before the list is composed, so a hook placed after them runs on
+  // some renders and not others — React throws "rendered fewer hooks than
+  // expected" and the shade paints nothing at all. at0443 caught exactly that:
+  // the no-git notice never appeared, because the render that was supposed to
+  // show it was the render with fewer hooks.
+  //
+  // How far this project's branch is ahead of its upstream, and the push that
+  // spends it. `ahead` has been on the changeset feed all along with nothing
+  // reading it; this is the first consumer, and it is where the number means
+  // something — beside the changes the commits were made from.
+  //
+  // The press goes through the card's own `/push` surface rather than calling
+  // the verb store here, so the button and the typed command are one path with
+  // one set of guards. The shade stands in the key card, which is where
+  // `sendToKeyCard` lands.
+  const responderChain = useResponderChain();
+  // The phase enters React through the store's own hook ([L02]) — a bare
+  // `getChangesetVerbStore()` read at render would paint a stale button.
+  const pushState = useChangesetPush(changesController.entryKey);
+  const runPush = useCallback((): void => {
+    responderChain?.sendToKeyCard({
+      action: TUG_ACTIONS.RUN_SLASH_COMMAND,
+      value: { name: "push", args: "" },
+      phase: "discrete",
+    });
+  }, [responderChain]);
+
+  // Which rows offer the editor mode, and the whole of what this layer knows
+  // about releases ([P08]): a release's notes are the one file in a release
+  // round whose content is the user's to write, so they are edited where they
+  // are listed. An `editingPath` whose row has gone (committed, disclaimed)
+  // reads as nothing editing.
+  const editing =
+    editingPath !== null && sessionFiles.some((file) => file.path === editingPath)
+      ? editingPath
+      : null;
+  const fileEditor = useCallback(
+    (path: string) =>
+      NOTES_PATH.test(path)
+        ? {
+            active: editing === path,
+            onToggle: (active: boolean) => setEditingPath(active ? path : null),
+            label:
+              editing === path ? "Show the diff" : "Edit these release notes",
+            body: (
+              <SessionChangesNotesEditor
+                key={path}
+                path={`${project.project_dir}/${path}`}
+              />
+            ),
+          }
+        : null,
+    [editing, project.project_dir],
   );
 
   // The shade header is the section band chrome ([P02]) — a `BlockStrip` at
@@ -409,8 +483,31 @@ export function SessionChangesView({
   const allExpanded =
     combinedKeys.length > 0 && combinedKeys.every((k) => expandedKeys.has(k));
   const headerActions =
-    combinedKeys.length > 1 || combinedDescriptor !== null ? (
+    combinedKeys.length > 1 || combinedDescriptor !== null || project.ahead > 0 ? (
       <>
+        {project.ahead > 0 ? (
+          <>
+            <span
+              className="session-changes-ahead"
+              data-testid="session-changes-ahead"
+            >
+              {project.ahead} ahead
+            </span>
+            <TugPushButton
+              size="xs"
+              emphasis="outlined"
+              role="action"
+              disabled={pushState.phase === "pending"}
+              data-testid="session-changes-push"
+              onClick={(event) => {
+                event?.stopPropagation();
+                runPush();
+              }}
+            >
+              Push
+            </TugPushButton>
+          </>
+        ) : null}
         {combinedKeys.length > 1 ? (
           <BlockFoldCue
             collapsed={!allExpanded}
@@ -576,6 +673,7 @@ export function SessionChangesView({
           disclaimPending={disclaimPending}
           hunkElection={changesController.hunkElection()}
           onElectHunks={(path, ids) => changesController.electHunks(path, ids)}
+          fileEditor={fileEditor}
         />
       ) : null}
       <SessionChangesArcLane

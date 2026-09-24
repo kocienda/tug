@@ -127,13 +127,16 @@
    shade's slide-in, and is empty while its sheet is closed — the sheet
    mounts and unmounts its own content.
 
-   The two wrappers differ only in the box they cover, which is the box their
+   The three wrappers differ only in the box they cover, which is the box their
    shade's bottom edge rests on. History fills the view slot (rising from Z2).
-   Changes is a child of `.session-card-top-column` and fills the WHOLE column
-   — view slot, find bar, Z2, and the beat — so it rises from the top of the
-   prompt-entry region, the first thing below the column. */
+   Release covers the same box as History — it too is mounted in the view slot
+   rather than in `.session-card-top-column`, so it rises from Z2 and does not
+   cover the find bar. Changes is a child of `.session-card-top-column` and
+   fills the WHOLE column — view slot, find bar, Z2, and the beat — so it rises
+   from the top of the prompt-entry region, the first thing below the column. */
 .session-view-pane[data-view="changes"],
-.session-view-pane[data-view="history"] {
+.session-view-pane[data-view="history"],
+.session-view-pane[data-view="release"] {
   flex: none;
   position: absolute;
   inset: 0;
@@ -144,7 +147,9 @@
 
 /* Changes / History slot views. Each fills its pane and scrolls its own
    body; the placeholder empty-state is centered and muted until the real
-   file rows / commit blocks land. */
+   file rows / commit blocks land. (Release's equivalent lives in
+   `session-release-view.css` — a newer component keeps its own layout in its
+   own file rather than joining a selector list here.) */
 .session-changes-view,
 .session-history-view {
   flex: 1 1 auto;

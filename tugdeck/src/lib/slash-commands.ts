@@ -215,6 +215,26 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Open the commit dialog to author a message and land this session's changes",
     takesArgs: true,
   },
+  // The other half of landing: `/commit` writes the commit, `/push` sends it.
+  // No arguments — a push sends the branch the checkout is on, and there is
+  // nothing for the user to elect.
+  {
+    name: "push",
+    description: "Push this project's branch to its upstream and leave a receipt",
+  },
+  // The fourth act, and the last: `/release` opens the Release shade, where the
+  // project's own check runs, the dispatch is gated on it, and the queued run
+  // is watched to an end. No arguments — what a release *is* here is the
+  // `[tugtool.release]` table's to say, not a typed line's.
+  //
+  // The registry is static, so a project that declares no table cannot have the
+  // verb hidden from its completion popup; the surface answers it with a
+  // bulletin instead, because silence is the one outcome nobody can diagnose
+  // ([L31]).
+  {
+    name: "release",
+    description: "Open the Release sheet — check, dispatch and watch this project's release",
+  },
   // An operation is spelled the same on every surface a user can see it, and
   // that spelling is its `tugtool` verb path ([P08]): `tugtool arc bind` ⇒
   // `/arc-bind`, `tugtool arc join` ⇒ `/arc-join`. `/commit` above keeps its

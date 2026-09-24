@@ -56,6 +56,7 @@ import React, {
 } from "react";
 
 import { TextCardStore, type FilePositions } from "@/lib/text-card-store";
+import { describeFileReadError } from "@/lib/file-read-error-copy";
 import { saveText } from "@/lib/text-card-save-text";
 import { cardTitleStore } from "@/lib/card-title-store";
 import {
@@ -254,31 +255,6 @@ function coerceRevealOnOpen(
  * italic where a real path is not.
  */
 const UNNAMED_PLACE = "No file";
-
-// ---------------------------------------------------------------------------
-// Human-readable error copy
-// ---------------------------------------------------------------------------
-
-function describeReadError(kind: string, size?: number): string {
-  switch (kind) {
-    case "not_found":
-      return "The file does not exist.";
-    case "denied":
-      return "Tug can't open this file (permission refused or a protected file type).";
-    case "binary":
-      return "This file isn't text — binary content can't be edited here.";
-    case "too_large":
-      return `This file is too large to edit here${
-        size !== undefined ? ` (${Math.round(size / (1024 * 1024))} MB)` : ""
-      }.`;
-    case "bad_path":
-      return "That path isn't a file Tug can open.";
-    case "network":
-      return "Tug couldn't reach its file service.";
-    default:
-      return "The file couldn't be opened.";
-  }
-}
 
 // ---------------------------------------------------------------------------
 // TextCardContent
@@ -1238,7 +1214,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       <div className="text-card text-card--error" data-slot="text-card">
         <div className="text-card-error-surface">
           <TugLabel className="text-card-error-message">
-            {describeReadError(
+            {describeFileReadError(
               snapshot.error?.kind ?? "internal",
               snapshot.error?.size,
             )}

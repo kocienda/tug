@@ -270,6 +270,24 @@ describe("aggregate changeset wire contract", () => {
     expect(isDocumentArcEntry({ ...first, bound_session: 7 })).toBe(false);
   });
 
+  test("a project's declared release rides the aggregate, and absence is absent", () => {
+    const snapshot = aggregateGolden as WorkspacesChangesetSnapshot;
+    const project = snapshot.projects[0]!;
+    // The golden fixture predates the field, which is the point: an older
+    // sender omits it entirely and still satisfies the guard.
+    expect(project.release).toBeUndefined();
+    expect(isProjectChangeset(project)).toBe(true);
+    expect(
+      isProjectChangeset({ ...project, release: { workflow: "release.yml" } }),
+    ).toBe(true);
+    // Shape drift on the one field that crosses: a table that lost its workflow
+    // would offer a watch with nothing to watch.
+    expect(isProjectChangeset({ ...project, release: {} })).toBe(false);
+    expect(isProjectChangeset({ ...project, release: { workflow: 7 } })).toBe(false);
+    expect(isProjectChangeset({ ...project, release: "release.yml" })).toBe(false);
+    expect(isProjectChangeset({ ...project, release: null })).toBe(false);
+  });
+
   test("aggregate guards reject shape drift", () => {
     expect(isWorkspacesChangesetSnapshot({})).toBe(false);
     expect(isWorkspacesChangesetSnapshot(null)).toBe(false);

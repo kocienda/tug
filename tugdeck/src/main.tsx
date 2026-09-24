@@ -41,6 +41,7 @@ import {
   getChangesetAllStore,
 } from "./lib/changeset-all-store";
 import { attachChangesetVerbStore } from "./lib/changeset-verb-store";
+import { attachReleaseStore } from "./lib/release-store";
 import { attachChangesetDraftStore } from "./lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "./lib/changeset-join-store";
 import { cardSessionBindingStore } from "./lib/card-session-binding-store";
@@ -701,6 +702,9 @@ async function withBootHorizon<T>(
   // for the non-repo "Initialize git" affordance). The card reads it via
   // `useChangesetGitInit`.
   attachChangesetVerbStore(connection);
+  // Wire the Release shade's CONTROL-verb store ([P12]): check, dispatch, and
+  // the run-watch frames the server broadcasts, read via `useReleaseState`.
+  attachReleaseStore(connection);
   // Wire the maintained-draft overlay store ([P24]): live streaming text +
   // freshness for the changeset card's draft panel, read via `useChangesetDraft`.
   attachChangesetDraftStore(connection);
