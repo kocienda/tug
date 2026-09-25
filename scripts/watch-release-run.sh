@@ -35,12 +35,17 @@
 set -euo pipefail
 
 RUN_ID="${1:?usage: watch-release-run.sh <run-id>}"
-# How often to ask GitHub. This is now only what decides how soon a step's name
-# appears after it starts, since the counter ticks locally, so it is set for
-# that: two seconds reads as immediate. A release run is eight minutes, which
-# makes this a few hundred requests against an hourly budget of five thousand —
-# `gh run watch` polls every three seconds for the same reason.
+# How often to ask GitHub. This decides only how soon a step's name appears
+# after it starts, since the counter is on its own clock, so it is set for that:
+# two seconds reads as immediate. A release run is eight minutes, which makes
+# this a few hundred requests against an hourly budget of five thousand — `gh
+# run watch` polls every three seconds for the same reason.
 INTERVAL="${TUG_RELEASE_WATCH_INTERVAL:-2}"
+# How often the counter is redrawn. A quarter second rather than a whole one so
+# that no displayed second is ever skipped: the loop's own overhead drifts, and
+# a loop that redrew once a second would land on the wrong side of a tick often
+# enough to read as a stopwatch that stutters.
+TICK=0.25
 
 if [ -t 1 ]; then TTY=1; else TTY=0; fi
 
@@ -107,17 +112,68 @@ SNAPSHOT=""
 LAST_POLL=0
 POLL_FAILING=0
 
+# Where a poll leaves its answer. The poll runs in a child and the loop never
+# waits on it, because a `gh` call costs most of a second and a loop that
+# blocked on one could not keep a one-second stopwatch: the seconds it spent
+# waiting were the seconds the counter skipped. The child writes its output and
+# its status, then renames the output into place, so the parent consuming
+# `$POLL_DIR/new` is consuming a whole answer and never half of one.
+POLL_DIR="$(mktemp -d -t tugwatch)"
+POLL_BUSY=0
+trap 'rm -rf "$POLL_DIR"' EXIT
+
+start_poll() {
+    # `secs` is why this is a function and not an inline conversion. A step
+    # that has not finished does not report its missing timestamps as null --
+    # GitHub sends the zero date, "0001-01-01T00:00:00Z", which
+    # `fromdateiso8601` does not merely dislike but *throws* on. jq abandons the
+    # whole expression at the first one, and since the steps come in order the
+    # first one is the in-flight step's own completedAt. So the in-flight row
+    # was never emitted, every row after it was lost with it, and the snapshot
+    # stopped dead at the last finished step for the rest of the run. That is
+    # what left a release with no live counter for the whole life of this
+    # script.
+    #
+    # And the truncation was silent, because the error went to /dev/null while
+    # jq's partial output was kept. So the status is recorded and checked now: a
+    # snapshot is taken whole or not at all, and a jq that starts throwing again
+    # reads as GitHub not answering rather than as a run that stopped having
+    # steps.
+    (
+        gh run view "$RUN_ID" --json status,conclusion,jobs --jq '
+            def secs: if . == null then 0 else (try fromdateiso8601 catch 0) end;
+            def nz: if . == null or . == "" then "-" else . end;
+            (["RUN", .status, (.conclusion | nz)] | @tsv),
+            (.jobs[].steps[] | ["STEP", .status, (.conclusion | nz),
+               (.startedAt | secs), (.completedAt | secs),
+               .name] | @tsv)' > "$POLL_DIR/part" 2>/dev/null
+        echo "$?" > "$POLL_DIR/rc"
+        mv -f "$POLL_DIR/part" "$POLL_DIR/new"
+    ) &
+    POLL_BUSY=1
+}
+
 while :; do
     NOW="$(date +%s)"
 
-    if [ $((NOW - LAST_POLL)) -ge "$INTERVAL" ]; then
-        FRESH="$(gh run view "$RUN_ID" --json status,conclusion,jobs --jq '
-            (["RUN", .status, (.conclusion // "")] | @tsv),
-            (.jobs[].steps[] | ["STEP", .status, (.conclusion // "-"),
-               (if .startedAt == null then 0 else (.startedAt | fromdateiso8601) end),
-               (if .completedAt == null then 0 else (.completedAt | fromdateiso8601) end),
-               .name] | @tsv)' 2>/dev/null || true)"
-        LAST_POLL="$(date +%s)"
+    if [ "$POLL_BUSY" -eq 0 ] && [ $((NOW - LAST_POLL)) -ge "$INTERVAL" ]; then
+        start_poll
+    fi
+
+    # Collect a finished poll without waiting for one. The rename is the signal,
+    # so there is nothing to reap and nothing that can block the tick.
+    if [ "$POLL_BUSY" -eq 1 ] && [ -f "$POLL_DIR/new" ]; then
+        POLL_BUSY=0
+        # The rename is the child's last act but one, so this reaps a process
+        # that has already finished rather than waiting on one that has not.
+        # Without it a run leaves a few hundred zombies behind it.
+        wait 2>/dev/null || true
+        LAST_POLL="$NOW"
+        FRESH=""
+        if [ "$(cat "$POLL_DIR/rc" 2>/dev/null || echo 1)" = "0" ]; then
+            FRESH="$(cat "$POLL_DIR/new")"
+        fi
+        rm -f "$POLL_DIR/new" "$POLL_DIR/rc"
         if [ -n "$FRESH" ]; then
             SNAPSHOT="$FRESH"
             POLL_FAILING=0
@@ -132,7 +188,7 @@ while :; do
     fi
 
     if [ -z "$SNAPSHOT" ]; then
-        sleep 1
+        sleep "$TICK"
         continue
     fi
 
@@ -141,13 +197,14 @@ while :; do
     RUNNING_NAME=""
     RUNNING_SINCE=0
 
-    # Tab is IFS *whitespace*, so `read` collapses a run of tabs into one
+    # `nz` above is why no field here can be empty, and it is not optional. Tab
+    # is IFS *whitespace*, so `read` collapses a run of tabs into one
     # delimiter and drops empty fields on the floor. A step that has not
-    # finished has no conclusion, so that field is the one that goes empty, and
-    # every field after it shifts left by one: the name lands in D and NAME
-    # comes out blank. That is why the in-flight line below never drew for the
-    # whole life of this script. The `// "-"` above is the fix -- no field is
-    # ever empty -- and it has to stay that way for any field added here.
+    # finished reports its conclusion as the empty *string*, so that field is
+    # the one that goes empty, and every field after it shifts left by one: the
+    # name lands in D and NAME comes out blank. `//` is no use against it,
+    # since jq's alternative operator answers null and false and not "".
+    # Any field added here needs the same treatment.
     while IFS=$'\t' read -r KIND A B C D NAME; do
         case "$KIND" in
             RUN)
@@ -226,5 +283,5 @@ while :; do
         fi
     fi
 
-    sleep 1
+    sleep "$TICK"
 done
