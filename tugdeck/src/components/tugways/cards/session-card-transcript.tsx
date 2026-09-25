@@ -678,11 +678,10 @@ const GhostRowCell = React.memo(function GhostRowCell({
   // The adapter only emits a `ghost` kind alongside a `queued`
   // payload; this guard is defensive against an out-of-range read.
   if (queued === undefined) return null;
-  // Two reasons a row sits here, and they are not the same thing to a person
-  // looking at it: waiting for the turn ahead of it, or waiting for a network
-  // that is not carrying anything. A held row says which ([P10]) — without it
-  // the row reads as "queued behind a turn" on a card with no turn running,
-  // which is the confusing version of the truth.
+  // Two reasons a row sits here: waiting for the turn ahead of it, or waiting
+  // for a network that is not carrying anything. The row marks which in its
+  // DOM and says nothing about it in ink — the state strip is where a stall
+  // is announced, once for the card, rather than under each queued prompt.
   const held = queued.held;
   return (
     <div
@@ -706,15 +705,6 @@ const GhostRowCell = React.memo(function GhostRowCell({
               atoms={imageAtoms}
               bytesStore={bytesStore}
             />
-            {held ? (
-              <div
-                className="session-card-transcript-ghost-held"
-                data-slot="session-transcript-ghost-held"
-              >
-                Waiting for the network — this sends itself when the
-                connection comes back.
-              </div>
-            ) : null}
           </>
         }
         controls={

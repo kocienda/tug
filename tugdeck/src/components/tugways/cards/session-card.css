@@ -779,15 +779,6 @@
   opacity: 0.5;
 }
 
-/* A ghost row held for the network says so, under the prompt it belongs to.
-   Quiet ink and a small size: it is a caption on the row, not a banner —
-   the state strip is where the stall itself is announced. */
-.session-card-transcript-ghost-held {
-  margin-top: var(--tug-space-xs);
-  font-size: 0.85em;
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
 /* The compaction point is a [SessionBoundary] and carries its own seat, rule
    and tone — see `session-boundary.css`. The wrapper, the bar's re-tone and
    the adjacency pins that used to live here moved there with it, so that all
