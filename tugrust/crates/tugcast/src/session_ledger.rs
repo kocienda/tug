@@ -13047,7 +13047,11 @@ mod tests {
 
         let ownership = l.line_ownership("line-1").unwrap().expect("the line");
         assert_eq!(ownership.seat_id, "audit");
-        assert_eq!(ownership.segment_ids.len(), 2, "both segments are the line's");
+        assert_eq!(
+            ownership.segment_ids.len(),
+            2,
+            "both segments are the line's"
+        );
         assert!(ownership.any_live, "the line is live through its seat");
     }
 
@@ -13124,15 +13128,17 @@ mod tests {
         let t0 = millis(0);
         l.record_spawn("door", WS_A, "/proj", "card-1", t0, "line-1", None)
             .expect("seat");
-        assert!(l
-            .set_arc_binding("door", Some(("tugarc/a", "a")))
-            .expect("bind the door"));
+        assert!(
+            l.set_arc_binding("door", Some(("tugarc/a", "a")))
+                .expect("bind the door")
+        );
 
         l.record_spawn("audit", WS_A, "/proj", "card-1", t0 + 1, "line-1", None)
             .expect("rotate");
-        assert!(l
-            .set_arc_binding("audit", Some(("tugarc/a", "a")))
-            .expect("bind the seat"));
+        assert!(
+            l.set_arc_binding("audit", Some(("tugarc/a", "a")))
+                .expect("bind the seat")
+        );
 
         let by_arc = l.bound_session_by_arc().unwrap();
         assert_eq!(by_arc.len(), 1, "one arc, one holder");

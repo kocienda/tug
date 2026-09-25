@@ -18,9 +18,16 @@
 # returns. Naming that is most of the feedback anybody needs: the wait is
 # expected, it is outside this repository, and it is not a hang.
 #
-# Output is append-only — a completed step prints one line with its duration
-# and scrolls away. The in-flight step is redrawn in place on a terminal and
-# reprinted periodically when piped, so a log of this is still readable.
+# A step is announced the moment it starts rather than when it ends. The
+# running step holds the last line of the terminal with a counter that ticks
+# every second, and settles in place into the same line carrying its final
+# duration when it finishes — so the log is append-only and one line per step,
+# and the line you are watching is the line that stays.
+#
+# The tick is local: it is the step's start time against this machine's clock,
+# so the counter moves every second rather than once per poll, and keeps moving
+# through a poll GitHub did not answer. Piped, the same information is
+# reprinted periodically instead of redrawn, so a log of this is readable.
 #
 # Usage: watch-release-run.sh <run-id>
 # Exits non-zero when the run does, replacing `gh run watch --exit-status`.
@@ -28,10 +35,12 @@
 set -euo pipefail
 
 RUN_ID="${1:?usage: watch-release-run.sh <run-id>}"
-# How often to ask GitHub. Five seconds is well inside the API's budget for a
-# run that lasts minutes, and it keeps the elapsed counter from reading as
-# stalled.
-INTERVAL="${TUG_RELEASE_WATCH_INTERVAL:-5}"
+# How often to ask GitHub. This is now only what decides how soon a step's name
+# appears after it starts, since the counter ticks locally, so it is set for
+# that: two seconds reads as immediate. A release run is eight minutes, which
+# makes this a few hundred requests against an hourly budget of five thousand —
+# `gh run watch` polls every three seconds for the same reason.
+INTERVAL="${TUG_RELEASE_WATCH_INTERVAL:-2}"
 
 if [ -t 1 ]; then TTY=1; else TTY=0; fi
 
@@ -84,21 +93,46 @@ WATCH_STARTED="$(date +%s)"
 # one. Newline-delimited because a bash 3.2 associative array is not available
 # on a stock macOS shell.
 REPORTED=$'\n'
-LAST_LIVE=""
-LAST_LIVE_PRINTED=0
+# The step the live line is about, and when it was last reprinted for a pipe.
+# A step's note is printed once, permanently, *before* the counter's first
+# draw: the counter has to own the last line for a redraw to land on itself, so
+# anything printed after it pushes it down and orphans the draw above.
+LIVE_NAME=""
+LIVE_PRINTED=0
+# The last snapshot that arrived, kept so a poll GitHub did not answer costs
+# freshness rather than the counter. Everything rendered from it is either
+# already known — a step's name, the second it started — or computed from this
+# machine's clock, so a stale snapshot still ticks correctly.
+SNAPSHOT=""
+LAST_POLL=0
+POLL_FAILING=0
 
 while :; do
-    SNAPSHOT="$(gh run view "$RUN_ID" --json status,conclusion,jobs --jq '
-        (["RUN", .status, (.conclusion // "")] | @tsv),
-        (.jobs[].steps[] | ["STEP", .status, (.conclusion // ""),
-           (if .startedAt == null then 0 else (.startedAt | fromdateiso8601) end),
-           (if .completedAt == null then 0 else (.completedAt | fromdateiso8601) end),
-           .name] | @tsv)' 2>/dev/null || true)"
+    NOW="$(date +%s)"
+
+    if [ $((NOW - LAST_POLL)) -ge "$INTERVAL" ]; then
+        FRESH="$(gh run view "$RUN_ID" --json status,conclusion,jobs --jq '
+            (["RUN", .status, (.conclusion // "")] | @tsv),
+            (.jobs[].steps[] | ["STEP", .status, (.conclusion // "-"),
+               (if .startedAt == null then 0 else (.startedAt | fromdateiso8601) end),
+               (if .completedAt == null then 0 else (.completedAt | fromdateiso8601) end),
+               .name] | @tsv)' 2>/dev/null || true)"
+        LAST_POLL="$(date +%s)"
+        if [ -n "$FRESH" ]; then
+            SNAPSHOT="$FRESH"
+            POLL_FAILING=0
+        elif [ "$POLL_FAILING" -eq 0 ]; then
+            # Once per outage, not once per poll. The counter keeps ticking
+            # through it, so this says the step list is stale, not that
+            # anything is stuck.
+            POLL_FAILING=1
+            clear_line
+            echo "    (no answer from GitHub — still counting, retrying)"
+        fi
+    fi
 
     if [ -z "$SNAPSHOT" ]; then
-        clear_line
-        echo "    (no answer from GitHub — retrying)"
-        sleep "$INTERVAL"
+        sleep 1
         continue
     fi
 
@@ -106,8 +140,14 @@ while :; do
     RUN_CONCLUSION=""
     RUNNING_NAME=""
     RUNNING_SINCE=0
-    NOW="$(date +%s)"
 
+    # Tab is IFS *whitespace*, so `read` collapses a run of tabs into one
+    # delimiter and drops empty fields on the floor. A step that has not
+    # finished has no conclusion, so that field is the one that goes empty, and
+    # every field after it shifts left by one: the name lands in D and NAME
+    # comes out blank. That is why the in-flight line below never drew for the
+    # whole life of this script. The `// "-"` above is the fix -- no field is
+    # ever empty -- and it has to stay that way for any field added here.
     while IFS=$'\t' read -r KIND A B C D NAME; do
         case "$KIND" in
             RUN)
@@ -157,33 +197,34 @@ while :; do
         exit 1
     fi
 
-    # The in-flight step, with the elapsed counter that is the point of all
-    # this. Redrawn in place on a terminal; reprinted at a slower cadence when
-    # piped, so a captured log shows progress without being mostly progress.
+    # The in-flight step: announced on the first poll that sees it, then ticked
+    # once a second in the column the settled line will use, so the counter
+    # turns into the duration in place. This is the point of the whole script —
+    # a release that is working and a release that is wedged differ only in
+    # whether this number is moving.
     if [ -n "$RUNNING_NAME" ] && [ "$RUNNING_SINCE" -gt 0 ]; then
         ELAPSED=$((NOW - RUNNING_SINCE))
-        NOTE="$(step_note "$RUNNING_NAME")"
-        LINE="  … $RUNNING_NAME — $(fmt_duration "$ELAPSED") elapsed"
         if [ "$TTY" -eq 1 ]; then
-            printf '\033[2K\r%s' "$LINE"
-            # The note explains the wait, and is worth exactly one printing per
-            # step: repeated under a redrawing counter it would be noise.
-            if [ -n "$NOTE" ] && [ "$LAST_LIVE" != "$RUNNING_NAME" ]; then
-                printf '\n    (%s)\n' "$NOTE"
+            if [ "$LIVE_NAME" != "$RUNNING_NAME" ]; then
+                NOTE="$(step_note "$RUNNING_NAME")"
+                [ -n "$NOTE" ] && printf '    (%s: %s)\n' "$RUNNING_NAME" "$NOTE"
+                LIVE_NAME="$RUNNING_NAME"
             fi
-            LAST_LIVE="$RUNNING_NAME"
+            printf '\033[2K\r  … %-48s %8s' \
+                "$RUNNING_NAME" "$(fmt_duration "$ELAPSED")"
         else
-            if [ "$LAST_LIVE" != "$RUNNING_NAME" ]; then
-                echo "$LINE"
+            if [ "$LIVE_NAME" != "$RUNNING_NAME" ]; then
+                NOTE="$(step_note "$RUNNING_NAME")"
+                printf '  … %-48s %8s\n' "$RUNNING_NAME" "$(fmt_duration "$ELAPSED")"
                 [ -n "$NOTE" ] && echo "    ($NOTE)"
-                LAST_LIVE="$RUNNING_NAME"
-                LAST_LIVE_PRINTED="$NOW"
-            elif [ $((NOW - LAST_LIVE_PRINTED)) -ge 30 ]; then
-                echo "$LINE"
-                LAST_LIVE_PRINTED="$NOW"
+                LIVE_NAME="$RUNNING_NAME"
+                LIVE_PRINTED="$NOW"
+            elif [ $((NOW - LIVE_PRINTED)) -ge 30 ]; then
+                printf '  … %-48s %8s\n' "$RUNNING_NAME" "$(fmt_duration "$ELAPSED")"
+                LIVE_PRINTED="$NOW"
             fi
         fi
     fi
 
-    sleep "$INTERVAL"
+    sleep 1
 done

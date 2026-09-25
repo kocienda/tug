@@ -13642,7 +13642,10 @@ mod tests {
         assert_eq!(entry.turn_last_frame_at, None);
 
         entry.reap_stuck_turn(now);
-        assert!(entry.turn_active, "the first sweep clocks it, never reaps it");
+        assert!(
+            entry.turn_active,
+            "the first sweep clocks it, never reaps it"
+        );
         assert_eq!(entry.turn_last_frame_at, Some(now));
 
         entry.reap_stuck_turn(now + JOB_REAP_HORIZON + Duration::from_secs(1));
@@ -20005,7 +20008,10 @@ mod tests {
         let id = TugSessionId::new("sess-replay-wake");
         insert_ledger_entry(&sup, &id).await;
         let entry_arc = sup.ledger.lock().await.get(&id).cloned().unwrap();
-        assert!(entry_arc.lock().await.is_quiet(), "a seated session is quiet");
+        assert!(
+            entry_arc.lock().await.is_quiet(),
+            "a seated session is quiet"
+        );
 
         let (tx, rx) = mpsc::channel::<Frame>(8);
         sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
@@ -21720,9 +21726,13 @@ mod tests {
         sup.session_ledger = Some(Arc::clone(&ledger));
 
         // The card, spawned once. `spawn_payload` names `line-seat`.
-        sup.handle_control("spawn_session", &spawn_payload_on_line("card-1", "seat", "line-1"), 10)
-            .await
-            .expect_handled();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload_on_line("card-1", "seat", "line-1"),
+            10,
+        )
+        .await
+        .expect_handled();
         assert_eq!(sup.ledger.lock().await.len(), 1);
 
         // The rotation: a fresh segment on the same line, recorded by the
@@ -21782,9 +21792,13 @@ mod tests {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
         sup.session_ledger = Some(Arc::clone(&ledger));
 
-        sup.handle_control("spawn_session", &spawn_payload_on_line("card-1", "seat", "line-1"), 10)
-            .await
-            .expect_handled();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload_on_line("card-1", "seat", "line-1"),
+            10,
+        )
+        .await
+        .expect_handled();
         ledger
             .record_spawn("tip", "ws", "/proj", "card-1", 2_000, "line-1", None)
             .expect("segment");

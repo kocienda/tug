@@ -3,11 +3,12 @@
 
 The release used to be a chain of seven commands typed in an order one person
 remembered. This is that chain, with the order written down: the script probes
-where the release already stands, works out which step is next, and then walks
-bump -> draft the notes -> show them -> commit -> push -> bless -> dispatch ->
-watch. Before every command that changes state it prints the exact command and
-asks y/N, defaulting to N. Read-only probes run without asking, because asking
-about a read teaches the habit of answering y without reading.
+where the release already stands, runs the checks CI would run, works out which
+step is next, and then walks bump -> draft the notes -> show them -> commit ->
+push -> bless -> dispatch -> watch. Before every command that changes state it
+prints the exact command and asks y/N, defaulting to N. Read-only probes and
+gates run without asking, because asking about a read teaches the habit of
+answering y without reading.
 
 Nothing here is new machinery. `just version-bump`, `just bless` and
 `scripts/watch-release-run.sh` already exist and already know their jobs; this
@@ -618,6 +619,39 @@ def step_push(st):
     )
 
 
+def step_checks(force):
+    """Run the project's lint gate before anything changes, and let it refuse.
+
+    This is preflight's slow half, and it is deliberately outside the walk: a
+    tree that lints is a precondition rather than a step that can be done once,
+    so it is checked on every invocation including a resume. `just lint` is what
+    CI's format and clippy jobs run, plus the deck's own tripwires, so a tree
+    that fails it is a tree whose release is already doomed -- and learning that
+    here costs a minute, where learning it from a red CI run costs a published
+    version and a second commit on main to fix the first one.
+
+    Unasked, because it is read-only. --force is the only way past it, the same
+    as the blessing, and says so out loud.
+    """
+    argv = ["just", "lint"]
+    say()
+    say("Checking formatting, clippy and the deck's tripwires. Read-only, so this")
+    say("one is not asked:")
+    say(f"    {quote(argv)}")
+    if DRY_RUN:
+        say("  [dry run] not run")
+        return
+    say()
+    if subprocess.run(argv, cwd=REPO_ROOT, check=False).returncode == 0:
+        return
+    if not force:
+        stop("The checks above failed, and they are the ones CI runs — the release\n"
+             "build would fail the same way. Fix them (`just fmt` handles the\n"
+             "formatting ones) or run again with --force.")
+    say()
+    say("==> --force: going on over failed checks.")
+
+
 def step_bless(force):
     """Run bless unasked, and let its exit code gate the dispatch.
 
@@ -751,6 +785,7 @@ def main(argv):
         say()
 
     preflight()
+    step_checks(force)
     st = probe()
     report(st)
 

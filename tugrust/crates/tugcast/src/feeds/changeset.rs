@@ -1732,7 +1732,10 @@ async fn arc_entries(
         // session's own backgrounded tests are running in that worktree is the
         // hazard `base_motion` already refuses mid-turn; two engines moving the
         // same branch must obey the same gate.
-        if holders_busy(&busy_sessions, holder_line_of(&holder_lines, &detail.owner_key)) {
+        if holders_busy(
+            &busy_sessions,
+            holder_line_of(&holder_lines, &detail.owner_key),
+        ) {
             continue;
         }
         if let Some(action) = crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
@@ -4242,7 +4245,10 @@ Some context.
 
         // Nobody working anywhere on the line: the arc is joinable, which is
         // the state the incident's arc was in for seven hours.
-        assert!(!holders_busy(&std::collections::HashSet::new(), &holder_line));
+        assert!(!holders_busy(
+            &std::collections::HashSet::new(),
+            &holder_line
+        ));
 
         // An arc nobody holds is never busy — absence is the answer, and the
         // caller spells it as the empty line.
@@ -4928,7 +4934,9 @@ Some context.
         assert_eq!(receipt.subjects, ["one ahead"]);
         assert_eq!(receipt.after.len(), 40, "full HEAD sha");
 
-        let head = git_stdout(&repo, &["rev-parse", "HEAD"]).await.expect("head");
+        let head = git_stdout(&repo, &["rev-parse", "HEAD"])
+            .await
+            .expect("head");
         let remote = git_stdout(&origin, &["rev-parse", "main"])
             .await
             .expect("remote head");
@@ -4973,7 +4981,9 @@ Some context.
         );
         assert_eq!(receipt.commits, 1, "every commit on the branch arrived");
 
-        let head = git_stdout(&repo, &["rev-parse", "HEAD"]).await.expect("head");
+        let head = git_stdout(&repo, &["rev-parse", "HEAD"])
+            .await
+            .expect("head");
         assert_eq!(
             git_stdout(&origin, &["rev-parse", "main"]).await.as_deref(),
             Some(head.as_str()),
@@ -4984,7 +4994,9 @@ Some context.
     async fn run_changeset_push_refuses_a_detached_head() {
         let (temp, repo) = init_repo();
         add_bare_origin(&temp, &repo);
-        let head = git_stdout(&repo, &["rev-parse", "HEAD"]).await.expect("head");
+        let head = git_stdout(&repo, &["rev-parse", "HEAD"])
+            .await
+            .expect("head");
         git(&repo, &["checkout", "-q", &head]);
 
         let err = run_changeset_push(&repo)

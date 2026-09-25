@@ -951,11 +951,20 @@ bless:
 
 # Cut a release. One command that knows the order the other release recipes
 # go in — scripts/release.py — and asks before every command that changes
-# state. The script probes where the release already stands, works out which
-# step is next, and walks bump → draft the notes → show them → commit → push
-# → bless → dispatch → watch, printing the exact command and asking y/N
-# (default N) each time. Read-only probes run without asking, because asking
-# about a read teaches the habit of answering y without reading.
+# state. The script probes where the release already stands, runs `just lint`
+# as a gate, works out which step is next, and walks bump → draft the notes →
+# show them → commit → push → bless → dispatch → watch, printing the exact
+# command and asking y/N (default N) each time. Read-only probes and gates run
+# without asking, because asking about a read teaches the habit of answering y
+# without reading.
+#
+# The lint gate comes before anything changes, and before the bump rather than
+# beside the blessing, because `just lint` is what CI's format and clippy jobs
+# run: a tree that fails it is a tree whose release build is already doomed,
+# and catching that here costs a minute where catching it from a red CI run
+# costs a published version and a second commit on main to repair the first.
+# It is a precondition rather than a step, so it runs on every invocation
+# including a resume.
 #
 # It composes the recipes beside it rather than replacing them: version-bump,
 # release-notes and bless are untouched and are what it calls, and the watch
