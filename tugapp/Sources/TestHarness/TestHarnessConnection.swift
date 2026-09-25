@@ -888,12 +888,14 @@ final class TestHarnessConnection {
             let button = try Self.parseButton(verbObj["button"])
             let downDelay = (verbObj["mouseDownDelayMs"] as? Int) ?? 20
             let upDelay = (verbObj["mouseUpDelayMs"] as? Int) ?? 20
+            let steps = (verbObj["interpolationSteps"] as? Int) ?? 8
             try handlers.nativeDrag(
                 from: from,
                 to: to,
                 button: button,
                 mouseDownDelayMs: downDelay,
                 mouseUpDelayMs: upDelay,
+                interpolationSteps: steps,
             )
 
         case "nativeDragWithoutRelease":
@@ -904,12 +906,14 @@ final class TestHarnessConnection {
             let button = try Self.parseButton(verbObj["button"])
             let downDelay = (verbObj["mouseDownDelayMs"] as? Int) ?? 20
             let upDelay = (verbObj["mouseUpDelayMs"] as? Int) ?? 20
+            let steps = (verbObj["interpolationSteps"] as? Int) ?? 8
             try handlers.nativeDragWithoutRelease(
                 from: from,
                 to: to,
                 button: button,
                 mouseDownDelayMs: downDelay,
                 mouseUpDelayMs: upDelay,
+                interpolationSteps: steps,
             )
 
         case "nativeMouseDown":

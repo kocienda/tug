@@ -1267,15 +1267,84 @@ function PlaceSeam({
       // handed out mid-gesture would arrive after the settle that needed it.
       // A member that never moves is carried zero distance, which costs
       // nothing.
+      //
+      // Index-aligned with the allocation, because the hold below gives each
+      // frame its OWN largest height rather than one number for the place.
       const divided = [...memberPaneIdsRef.current]
-        .filter((id): id is string => id !== undefined)
-        .map((id) =>
-          document.querySelector<HTMLElement>(
-            `.tug-pane[data-pane-id="${id}"]`,
-          ),
-        )
-        .filter((el): el is HTMLElement => el !== null);
-      for (const el of divided) el.setAttribute("data-pointer-owned", "true");
+        .map((id, member) => {
+          const el =
+            id === undefined
+              ? null
+              : document.querySelector<HTMLElement>(
+                  `.tug-pane[data-pane-id="${id}"]`,
+                );
+          return el === null ? null : { member, el };
+        })
+        .filter((m): m is { member: number; el: HTMLElement } => m !== null);
+      for (const { el } of divided) el.setAttribute("data-pointer-owned", "true");
+
+      // And the drag is a STILL CROSSING whose clock is the hand ([B01]). The
+      // divided members' interiors are laid out once, at the largest height
+      // this drag can reach, and held there for its length: the frame's edge
+      // then clips or reveals a picture that is already drawn, instead of
+      // dirtying the whole subtree sixty times a second. It is the settle's
+      // own hold, reused rather than a second mechanism written — the same
+      // mark, the same held-height property, the same pane-level rule — so a
+      // card declaring `data-still-anchor="bottom"` keeps its bottom-hung
+      // picture here for free.
+      //
+      // The largest height a member can reach is read off the two ENDS of the
+      // drag's range, through the same cascade `publish` writes: the ask is
+      // monotonic in the pointer, so a member's extreme over the gesture is at
+      // one end or the other. Under `overflow` the bounds collapse and every
+      // member's largest height is the one it already stands at, which is the
+      // honest answer — an overflowing place's seam cannot move.
+      //
+      // The hold is stated as a CONTENT-box height because that is what the
+      // pane's rule resolves against, and the chrome around a content box is
+      // fixed for the gesture, so the delta carries across unchanged. One rect
+      // per frame at pointer-down, none per animation frame.
+      const atLower = cascadedHeights(start, membersRef.current, index, lower);
+      const atUpper = cascadedHeights(start, membersRef.current, index, upper);
+      const heldContentHeightOf = (member: number, el: HTMLElement): number => {
+        const standing = start.heights[member] ?? 0;
+        const largest = Math.max(
+          atLower[member] ?? standing,
+          atUpper[member] ?? standing,
+          standing,
+        );
+        return (contentBoxHeight(el) ?? 0) + (largest - standing);
+      };
+      // The crossing this gesture opened on each member, by its own id. Kept
+      // because the release below must close THIS hold and no other: a
+      // crossing the imposer opened — a card arriving in the rail, a fold, the
+      // seam's own double-click equalize — is live on these very panes for the
+      // length of its tween, and a press on the seam inside that window would
+      // otherwise take an unguarded `endStillCrossing` straight through it.
+      // The interior would go back to `height: 100%` of a box still travelling
+      // and re-flow for the rest of the sweep, which is the cost [B01] exists
+      // to remove, on the panes it exists to remove it from. The imposer's own
+      // completion already closes by id for this reason; only its end-of-window
+      // sweeps release unguarded, and they are sweeps.
+      const heldIds = new Map<HTMLElement, number>();
+      const beginHold = (): void => {
+        for (const { member, el } of divided) {
+          const held = heldContentHeightOf(member, el);
+          if (held > 0) heldIds.set(el, markStillCrossing(el, held));
+        }
+      };
+      // Idempotent, and run on every exit the mark has ([B03], [L27]): a hold
+      // that outlives its gesture is a card propped open for the rest of the
+      // session ([L23]). Idempotent by the map rather than by the attribute —
+      // a press that never latched has nothing in it and releases nothing.
+      const releaseHold = (): void => {
+        for (const { el } of divided) {
+          const id = heldIds.get(el);
+          if (id === undefined) continue;
+          heldIds.delete(el);
+          endStillCrossing(el, id);
+        }
+      };
 
       let latestY = startClientY;
       let rafId: number | null = null;
@@ -1332,7 +1401,12 @@ function PlaceSeam({
 
       const apply = (): void => {
         rafId = null;
+        const wasMoved = moved;
         if (!latch(latestY)) return;
+        // At the latch, before the first publish: the one layout the interior
+        // takes is the one at the held height, and every frame after it moves
+        // only the frame's edge.
+        if (!wasMoved) beginHold();
         publish(computeHeight());
       };
 
@@ -1380,7 +1454,11 @@ function PlaceSeam({
           // the frames a First rect equal to their Last, which is the honest
           // description of what the release did: nothing moved, because the
           // hand had already moved it.
-          for (const el of divided) el.removeAttribute("data-pointer-owned");
+          for (const { el } of divided) el.removeAttribute("data-pointer-owned");
+          // The hold comes off with the mark, and for the same reason: the
+          // interior takes its one layout at the final height here, before the
+          // commit re-renders at it.
+          releaseHold();
           onCommit(place, index, valueOf(height));
         } finally {
           // And on EVERY path out, which is what the `finally` is for. A press
@@ -1390,7 +1468,8 @@ function PlaceSeam({
           // two such presses — so the leak would land first on the gesture that
           // most needs its members carried. Idempotent against the release
           // above, which is the path that matters.
-          for (const el of divided) el.removeAttribute("data-pointer-owned");
+          for (const { el } of divided) el.removeAttribute("data-pointer-owned");
+          releaseHold();
         }
       };
 
@@ -1408,7 +1487,8 @@ function PlaceSeam({
         seam.removeEventListener("pointerup", onPointerUp);
         seam.removeEventListener("pointercancel", onPointerCancel);
         seam.removeAttribute("data-gesture");
-        for (const el of divided) el.removeAttribute("data-pointer-owned");
+        for (const { el } of divided) el.removeAttribute("data-pointer-owned");
+        releaseHold();
       };
 
       seam.addEventListener("pointermove", onPointerMove);

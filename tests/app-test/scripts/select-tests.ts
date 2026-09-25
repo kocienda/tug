@@ -211,7 +211,18 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // about has nowhere narrower to name; the two narrower modules at0624
     // also names, `lib/open-file-in-card.ts` and `lib/settle-frame-probe.ts`,
     // are the door and the instrument rather than the motion.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 24,
+    //
+    // Re-recorded at 25, deleted and re-added rather than raised in place, for
+    // at0626: a rail sash drag is `PlaceSeam`'s, and `PlaceSeam` is this file's
+    // — the pointer capture, the move latch, the per-frame publish and the
+    // three exits the hold has to ride are all in one closure here, and no
+    // other app-test samples that gesture frame by frame. The narrower modules
+    // at0626 also names are the parts rather than the whole:
+    // `lib/layout-imposer.ts` computes the bounds the drag clamps into,
+    // `lib/fold-crossing.ts` is the hold's mechanism and `tug-pane.css` the
+    // rule that enforces it, but the gesture that has to acquire and release
+    // it lives nowhere but here.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 25,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that

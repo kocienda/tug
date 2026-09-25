@@ -1119,6 +1119,16 @@ export interface NativeDragOptions {
   button?: NativeMouseButton;
   mouseDownDelayMs?: number;
   mouseUpDelayMs?: number;
+  /**
+   * How many interpolated `mouseDragged` events the trail posts between
+   * `from` and `to`. The Swift side fixes the inter-step gap at 20ms — lower
+   * and windowserver coalesces the trail into one move — so this is also how
+   * long the drag takes: `interpolationSteps * 20ms`. Default 8.
+   *
+   * A sampler that reads a drag per animation frame needs a trail with frames
+   * in it; 8 steps is 160ms, which is about ten of them.
+   */
+  interpolationSteps?: number;
 }
 
 export function nativeClick(
@@ -1207,6 +1217,8 @@ export function nativeDrag(
     params.mouseDownDelayMs = opts.mouseDownDelayMs;
   if (opts?.mouseUpDelayMs !== undefined)
     params.mouseUpDelayMs = opts.mouseUpDelayMs;
+  if (opts?.interpolationSteps !== undefined)
+    params.interpolationSteps = opts.interpolationSteps;
   return caller.rpcCall<void>("nativeDrag", params);
 }
 
@@ -1262,6 +1274,8 @@ export function nativeDragWithoutRelease(
     params.mouseDownDelayMs = opts.mouseDownDelayMs;
   if (opts?.mouseUpDelayMs !== undefined)
     params.mouseUpDelayMs = opts.mouseUpDelayMs;
+  if (opts?.interpolationSteps !== undefined)
+    params.interpolationSteps = opts.interpolationSteps;
   return caller.rpcCall<void>("nativeDragWithoutRelease", params);
 }
 
