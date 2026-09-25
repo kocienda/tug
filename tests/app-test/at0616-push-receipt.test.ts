@@ -16,7 +16,7 @@
  * Three things are pinned, and each one is a separate seam:
  *
  * - **The shade counts the push before it happens.** `ahead` has ridden the
- *   changeset feed all along with nothing reading it; the banner's `N ahead` is
+ *   changeset feed all along with nothing reading it; the banner's `N commits ahead` is
  *   its first consumer, and the number has to be the real one.
  * - **The receipt is a receipt, not fenced output.** `/push` lands as a shell
  *   exchange whose `output` is the server-formatted summary (Spec S01), and the
@@ -209,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
             `(document.querySelector(${JSON.stringify(AHEAD)})?.textContent ?? "").trim()`,
           );
           note(`shade ahead badge: ${aheadText}`);
-          expect(aheadText).toBe("1 ahead");
+          expect(aheadText).toBe("1 commit ahead");
           // The badge and its Push travel together — a count with no act beside
           // it is a number the reader can do nothing about.
           expect(

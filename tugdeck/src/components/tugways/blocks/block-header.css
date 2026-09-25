@@ -300,6 +300,14 @@ body {
   gap: var(--tugx-toolheader-actions-gap);
 }
 
+/* A LABELLED button in the cluster (a receipt's Push) stands off the icon
+ * pair after it by a step more than the icons keep between themselves: the
+ * cluster's gap is sized for two square glyphs, and a word in a box at that
+ * distance reads as touching. Icon buttons are untouched. */
+.tool-call-header-actions > .tug-button:not([class*="tug-button-icon-"]) {
+  margin-inline-end: var(--tug-space-xs);
+}
+
 /* Drop the divider when the cluster has nothing to divide off — no Copy, no
  * chevron, and an empty (or absent) portal slot. The comment above assumes
  * "the cluster always carries Copy + chevron in the app," but the permission

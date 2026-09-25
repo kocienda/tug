@@ -48,7 +48,9 @@ import {
 } from "./changes-section-labels";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
+import { TugBadge } from "@/components/tugways/tug-badge";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
+import { formatCount } from "@/components/tugways/blocks/tool-result-summary";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import {
   TugChangesList,
@@ -345,7 +347,10 @@ export function SessionChangesView({
         />
       </TugTooltip>
     ) : null;
-  const buildHeader = (actions?: React.ReactNode): React.ReactElement => (
+  const buildHeader = (
+    actions?: React.ReactNode,
+    trailing?: React.ReactNode,
+  ): React.ReactElement => (
     <BlockStrip
       altitude="section"
       className="tool-call-header"
@@ -356,6 +361,7 @@ export function SessionChangesView({
         </span>
       }
       name="Changes"
+      trailing={trailing}
       // The X rides every case of the shade — empty, non-repo, scanning — so
       // it is composed here rather than in the per-case `actions`.
       actions={
@@ -377,9 +383,10 @@ export function SessionChangesView({
   const shell = (
     children: React.ReactNode,
     actions?: React.ReactNode,
+    trailing?: React.ReactNode,
   ): React.ReactElement => (
     <>
-      <div className="tug-sheet-shade-header">{buildHeader(actions)}</div>
+      <div className="tug-sheet-shade-header">{buildHeader(actions, trailing)}</div>
       <div
         className="session-changes-view"
         data-slot="session-changes-view"
@@ -482,31 +489,39 @@ export function SessionChangesView({
   // chevron direction; the toggle sets the whole key set at once.
   const allExpanded =
     combinedKeys.length > 0 && combinedKeys.every((k) => expandedKeys.has(k));
+  // How far the branch is ahead of its upstream: a header result summary in
+  // the strip's trailing pipe-section — the same ghost badge and rule every
+  // tool block reports `N files` with — so it reads as a fact about the
+  // project and stands off the Push that spends it by the header's own gap.
+  const headerTrailing =
+    project.ahead > 0 ? (
+      <span
+        className="tool-call-header-summary tug-line-box"
+        data-slot="tool-call-header-summary"
+        data-testid="session-changes-ahead"
+      >
+        <TugBadge emphasis="ghost" role="inherit" size="sm">
+          {`${formatCount(project.ahead, "commit")} ahead`}
+        </TugBadge>
+      </span>
+    ) : undefined;
   const headerActions =
     combinedKeys.length > 1 || combinedDescriptor !== null || project.ahead > 0 ? (
       <>
         {project.ahead > 0 ? (
-          <>
-            <span
-              className="session-changes-ahead"
-              data-testid="session-changes-ahead"
-            >
-              {project.ahead} ahead
-            </span>
-            <TugPushButton
-              size="xs"
-              emphasis="outlined"
-              role="action"
-              disabled={pushState.phase === "pending"}
-              data-testid="session-changes-push"
-              onClick={(event) => {
-                event?.stopPropagation();
-                runPush();
-              }}
-            >
-              Push
-            </TugPushButton>
-          </>
+          <TugPushButton
+            size="xs"
+            emphasis="outlined"
+            role="action"
+            disabled={pushState.phase === "pending"}
+            data-testid="session-changes-push"
+            onClick={(event) => {
+              event?.stopPropagation();
+              runPush();
+            }}
+          >
+            Push
+          </TugPushButton>
         ) : null}
         {combinedKeys.length > 1 ? (
           <BlockFoldCue
@@ -691,5 +706,6 @@ export function SessionChangesView({
       />
     </div>,
     headerActions,
+    headerTrailing,
   );
 }

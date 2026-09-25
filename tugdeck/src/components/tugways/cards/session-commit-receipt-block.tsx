@@ -239,6 +239,30 @@ function CommitReceipt({
       </code>
     </span>
   );
+  // The push this landing invites, in the header's actions slot beside Copy —
+  // where a block's own gesture belongs — rather than loose in the message
+  // body. Expanded-state only, like every wrapper action there: a folded
+  // receipt is the reader saying they are done with it, and the shade's button
+  // and the typed `/push` both remain.
+  const pushButton =
+    ahead > 0 ? (
+      <TugPushButton
+        size="xs"
+        emphasis="outlined"
+        role="action"
+        data-testid="commit-receipt-push"
+        onClick={(event) => {
+          event?.stopPropagation();
+          responderChain?.sendToKeyCard({
+            action: TUG_ACTIONS.RUN_SLASH_COMMAND,
+            value: { name: "push", args: "" },
+            phase: "discrete",
+          });
+        }}
+      >
+        Push
+      </TugPushButton>
+    ) : null;
   return (
     <ToolBlockHistoryCollapse toolUseId={exchangeId} defaultCollapsed={false}>
       <BlockChrome
@@ -262,27 +286,8 @@ function CommitReceipt({
         phase="success"
         status="ready"
         copyText={`${sha} ${message}`.trim()}
+        headerActions={pushButton}
       >
-        {/* The push this landing invites, where the landing is — so the next
-            act is under the receipt for it rather than behind a shade. */}
-        {ahead > 0 ? (
-          <TugPushButton
-            size="xs"
-            emphasis="outlined"
-            role="action"
-            data-testid="commit-receipt-push"
-            onClick={(event) => {
-              event?.stopPropagation();
-              responderChain?.sendToKeyCard({
-                action: TUG_ACTIONS.RUN_SLASH_COMMAND,
-                value: { name: "push", args: "" },
-                phase: "discrete",
-              });
-            }}
-          >
-            Push
-          </TugPushButton>
-        ) : null}
         {/* The message body reads exactly as it does in an expanded History
             row — same `.tugx-commit-message` scale — and sits ABOVE the file
             list, which can run arbitrarily long. Both fold together under the
