@@ -1,6 +1,6 @@
 {
   "name": "tugdeck",
-  "version": "0.8.12",
+  "version": "0.8.13",
   "private": true,
   "license": "MIT",
   "description": "Browser frontend for Tug — renders feeds from tugcast as interactive UI",
