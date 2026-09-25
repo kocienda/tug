@@ -64,6 +64,13 @@
  *      menu opened over a word the user could see selected and offered
  *      nothing that acts on it.
  *
+ *      **The referent.** The same step names what the menu is *about* and
+ *      hands it to `TugEditorContextMenu` as its `referent`: the entity the
+ *      settle landed on, else a clone of the selection's range, else nothing.
+ *      The menu closes when that thing scrolls out of its scroller's visible
+ *      area, so a menu is never left armed with verbs about something the
+ *      user can no longer see. See `referentFor` below.
+ *
  *   3. `hasSelection` drives `buildTextEditingMenuItems({ hasSelection, canEdit
  *      })` so Cut / Copy / Paste / Select All enablement is consistent across
  *      every surface. The same step samples what Look Up in Dictionary would
@@ -117,6 +124,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   TugEditorContextMenu,
   type TugEditorContextMenuEntry,
+  type TugEditorContextMenuReferent,
 } from "./tug-editor-context-menu";
 import {
   buildTextEditingMenuItems,
@@ -245,6 +253,15 @@ interface MenuState {
    * before the handler runs.
    */
   lookup: DictionaryLookupRequest | null;
+  /**
+   * What the menu is about, for the scroll-out dismissal: the whole-entity
+   * element the press settled on, or the range the selection covers, or
+   * `null` when the menu is about the surface alone. Sampled here for the
+   * same reason `lookup` is — the menu's own dismissal can retire the
+   * selection — and because only the event that opened the menu knows which
+   * entity it landed on.
+   */
+  referent: TugEditorContextMenuReferent | null;
 }
 
 /** The element the surface attached its handler to, for scoping a DOM read. */
@@ -279,6 +296,32 @@ function domSelectionWithin(surface: Element | null): Selection | null {
     (anchorNode !== null && surface.contains(anchorNode)) ||
     (focusNode !== null && surface.contains(focusNode));
   return inside ? sel : null;
+}
+
+/**
+ * What the menu is about, as the thing whose visibility keeps it open.
+ *
+ * The entity first: a whole-entity press names an element, the settle painted
+ * it, and an element is the referent that survives the menu's own lifetime
+ * without depending on a selection the surface may fold in or retire. The
+ * selection's range second, cloned so a later `selectionchange` cannot move it
+ * out from under the menu — that is the referent for a click over a selection
+ * the user made, and for the word WebKit smart-selects under a bare secondary
+ * click.
+ *
+ * `null` is the third and honest answer, and the one the markdown view's
+ * virtualized select-all lands on: it paints a CSS class rather than holding a
+ * DOM range, so there is no rect to watch. A menu with no referent keeps every
+ * dismiss path it had and survives any scroll, which is the right behavior for
+ * a menu whose items act on the surface.
+ */
+function referentFor(
+  entity: HTMLElement | null,
+  domSelection: Selection | null,
+): TugEditorContextMenuReferent | null {
+  if (entity !== null) return entity;
+  if (domSelection === null || domSelection.rangeCount === 0) return null;
+  return domSelection.getRangeAt(0).cloneRange();
 }
 
 /**
@@ -391,7 +434,7 @@ export function useTextSurfaceContextMenu(
       // what ends up highlighted — the browser's word-select inside it is
       // overwritten, and a selection of the user's own that reaches past it
       // is still theirs.
-      press.settle(event);
+      const entity = press.settle(event);
       const adapter = adapterRef?.current ?? null;
       // Read the DOM AFTER the settle above, so what this sees is the
       // selection the menu is actually about to act on.
@@ -414,6 +457,7 @@ export function useTextSurfaceContextMenu(
         extra: extraEntries?.(event) ?? [],
         hideStandard: hideStandardItems?.(event) ?? false,
         lookup: sampleDictionaryLookup(adapter, domSelection, event),
+        referent: referentFor(entity, domSelection),
       });
     },
     [
@@ -467,6 +511,7 @@ export function useTextSurfaceContextMenu(
         y={menuState.y}
         items={items}
         onClose={closeMenu}
+        referent={menuState.referent}
       />
     ) : null;
 

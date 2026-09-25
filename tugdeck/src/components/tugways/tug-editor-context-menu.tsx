@@ -57,6 +57,25 @@
  *   self-triggered dispatches during activation. This generalizes
  *   "close on external shortcut" through a single signal.
  *
+ * - Referent dismissal: a menu opened over something — a whole entity,
+ *   a ranged selection — is handed that thing as its `referent`, and it
+ *   closes when the referent leaves the visible area of its scroller.
+ *   The menu is never chased: it stays exactly where it opened, and a
+ *   scroll that keeps the referent on screen does nothing to it, so the
+ *   user can always see what the menu will act on. A menu with only a
+ *   surface referent (a bare right-click with no selection, and every
+ *   consumer that passes no referent) has nothing to lose and gains no
+ *   scroll-driven dismissal. This is `TugPopover`'s stranded-dismissal
+ *   rule with scroll as the mover; a per-frame reposition loop would be
+ *   the wrong tool ([L05] / [L13]).
+ *
+ * - The wheel over the menu is inert: a wheel event on the menu element
+ *   scrolls nothing and reaches nobody. The menu is portaled and fixed,
+ *   so the scroller the pointer looks to be over is not its ancestor —
+ *   without this a wheel over a short menu scrolled the document, and a
+ *   horizontal one slid the deck behind it. A menu long enough to scroll
+ *   still scrolls itself; only the leftover at its ends is swallowed.
+ *
  * - Keyboard contract while the menu is open (handled at window
  *   capture before the responder chain sees the keydown):
  *     • Escape or ⌘. → close the menu.
@@ -172,6 +191,115 @@ export type TugEditorContextMenuEntry =
   | TugEditorContextMenuSeparator
   | TugEditorContextMenuLabel;
 
+/**
+ * What a menu is about, for the scroll-out dismissal above: the element
+ * the press settled on, or the range the selection covers. Both move with
+ * the content, so both answer "is the thing this menu acts on still
+ * visible?" from one `getBoundingClientRect`.
+ */
+export type TugEditorContextMenuReferent = HTMLElement | Range;
+
+/** The element a referent hangs from — what its scroller is found from. */
+function referentHost(referent: TugEditorContextMenuReferent): Element | null {
+  if (referent instanceof Range) {
+    const node = referent.startContainer;
+    return node instanceof Element ? node : node.parentElement;
+  }
+  return referent;
+}
+
+/**
+ * Nearest ancestor that can scroll its overflow — the referent's
+ * visible-area owner. `null` when nothing above it scrolls, in which case
+ * the viewport is the only port that matters.
+ */
+function nearestScroller(el: Element | null): HTMLElement | null {
+  for (
+    let node = el?.parentElement ?? null;
+    node !== null;
+    node = node.parentElement
+  ) {
+    const style = window.getComputedStyle(node);
+    const scrollsY =
+      (style.overflowY === "auto" || style.overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight;
+    const scrollsX =
+      (style.overflowX === "auto" || style.overflowX === "scroll") &&
+      node.scrollWidth > node.clientWidth;
+    if (scrollsY || scrollsX) return node;
+  }
+  return null;
+}
+
+/** A viewport-coordinate rectangle, as the ports below are compared. */
+interface Port {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
+/**
+ * The scroller's scrollport in viewport coordinates. `clientTop` /
+ * `clientLeft` are the border widths, and `clientHeight` / `clientWidth`
+ * already exclude both the borders and any classic scrollbar gutter — so
+ * this is the content box the user actually sees through.
+ */
+function scrollportOf(scroller: HTMLElement): Port {
+  const box = scroller.getBoundingClientRect();
+  const top = box.top + scroller.clientTop;
+  const left = box.left + scroller.clientLeft;
+  return {
+    top,
+    left,
+    bottom: top + scroller.clientHeight,
+    right: left + scroller.clientWidth,
+  };
+}
+
+/** Whether any part of `rect` is drawn inside `port`. */
+function intersects(rect: DOMRect, port: Port): boolean {
+  return (
+    rect.bottom > port.top &&
+    rect.top < port.bottom &&
+    rect.right > port.left &&
+    rect.left < port.right
+  );
+}
+
+/**
+ * Whether the referent is still drawn somewhere the user can see it.
+ *
+ * Any overlap counts: a referent half out of the scrollport is still a
+ * referent the user can point at, and closing early would cost the peek
+ * that makes staying-put the right behavior in the first place. Two ports
+ * are checked — the referent's own scroller, and the viewport, which
+ * catches a whole card moved off screen by something other than the
+ * scroll that fired the event.
+ *
+ * A referent that has gone unanswerable — its host disconnected by
+ * virtualization, or its box collapsed to nothing — is not visible. That
+ * is the honest reading: a row recycled out of the DOM scrolled away.
+ */
+function referentIsVisible(
+  referent: TugEditorContextMenuReferent,
+  scroller: HTMLElement | null,
+): boolean {
+  const host = referentHost(referent);
+  if (host === null || !host.isConnected) return false;
+  const rect = referent.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return false;
+  if (scroller !== null && !intersects(rect, scrollportOf(scroller))) {
+    return false;
+  }
+  return intersects(rect, {
+    top: 0,
+    left: 0,
+    bottom: window.innerHeight,
+    right: window.innerWidth,
+  });
+}
+
 export interface TugEditorContextMenuProps {
   /** Whether the menu is open. */
   open: boolean;
@@ -191,6 +319,15 @@ export interface TugEditorContextMenuProps {
   items: TugEditorContextMenuEntry[];
   /** Called when the menu should close (Escape, outside click, or after a selection). */
   onClose: () => void;
+  /**
+   * What this menu is about, when it is about something the user can see:
+   * the element a whole-entity press settled on, or the range a selection
+   * covers. Supplied, the menu closes as soon as that thing leaves the
+   * visible area of its scroller. Omitted — which is every menu whose
+   * items act on the surface rather than on a point in it — the menu
+   * keeps its other dismiss paths and survives any scroll.
+   */
+  referent?: TugEditorContextMenuReferent | null;
 }
 
 /** Gap in px between the menu and the viewport edge when flipping. */
@@ -222,6 +359,7 @@ export function TugEditorContextMenu({
   y,
   items,
   onClose,
+  referent = null,
 }: TugEditorContextMenuProps) {
   const manager = useRequiredResponderChain();
   // Targeted dispatch to the parent responder — the consumer that
@@ -459,6 +597,74 @@ export function TugEditorContextMenu({
     return unsubscribe;
   }, [open, manager]);
 
+  // Referent dismissal: close as soon as the thing this menu is about
+  // leaves the visible area of its scroller [B02]. Registered in a layout
+  // effect per [L03], on `window` in the capture phase because `scroll`
+  // does not bubble — capture is the only way one listener hears every
+  // scroller, and the menu does not know which of them moves its
+  // referent. The check is event-driven and one-shot [B04]: two rect
+  // reads per scroll event, no per-frame loop, and no repositioning —
+  // the menu stays exactly where it opened [B01].
+  //
+  // A menu with no referent registers nothing, which is the whole of
+  // [B03]: Paste and Select All act on a surface that is still there
+  // after any scroll, so there is nothing for a scroll to strand.
+  useLayoutEffect(() => {
+    if (!open) return;
+    if (referent === null) return;
+    // Resolved once at open time, like the popover's observed ancestors:
+    // the scroller a referent hangs from does not change while a menu
+    // stands over it.
+    const scroller = nearestScroller(referentHost(referent));
+    const onScroll = (): void => {
+      if (referentIsVisible(referent, scroller)) return;
+      // Hide before the close commits, so no frame paints a menu armed
+      // against something already gone.
+      requestClose();
+    };
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, referent, requestClose]);
+
+  // A wheel over the menu itself is inert [B05]. The menu is portaled and
+  // `position: fixed`, so the scroller the pointer appears to be over is not
+  // its DOM ancestor: a wheel over a menu with nothing to scroll reached the
+  // document, and a horizontal one reached DeckCanvas's own bubble-phase
+  // wheel listener and slid the deck sideways behind the open menu. Resting
+  // the pointer on a menu and scrolling now does nothing, which is what a
+  // native menu does and what a reader expects of a surface they are reading.
+  //
+  // Native and `{ passive: false }` because React attaches `wheel` at its
+  // root as a passive listener, where `preventDefault` is a no-op — the same
+  // reason `deck-canvas` and `use-outer-scroll-on-modifier-wheel` register
+  // their own. `stopPropagation` is the other half: `preventDefault` stops
+  // the browser's scroll but not an ancestor's listener.
+  //
+  // A menu long enough to scroll keeps its own wheel. Only the leftover at
+  // either end is swallowed, so nothing here can make a long menu's last
+  // items unreachable.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const menu = menuRef.current;
+    if (menu === null) return;
+    const onWheel = (event: WheelEvent): void => {
+      const room = menu.scrollHeight - menu.clientHeight;
+      if (room > 0 && event.deltaY !== 0) {
+        const atEnd =
+          event.deltaY > 0 ? menu.scrollTop >= room - 1 : menu.scrollTop <= 0;
+        if (!atEnd) return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    menu.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      menu.removeEventListener("wheel", onWheel);
+    };
+  }, [open]);
+
   // Window-level event registration, capture phase, via useLayoutEffect
   // per L03. Two critical reasons to register on window rather than
   // document:
@@ -688,6 +894,10 @@ export function TugEditorContextMenu({
       onClick={stopReactPropagation}
       onDoubleClick={stopReactPropagation}
       onAuxClick={stopReactPropagation}
+      // The wheel is swallowed by the native listener above, which is where
+      // `preventDefault` still works; this keeps the React tree's own
+      // handlers out of it for the same reason the presses above do.
+      onWheel={stopReactPropagation}
       // Initial style: off-screen and hidden. A useLayoutEffect
       // measures the menu size and writes left/top/visibility directly
       // to the DOM (L06) — no React state, no extra render cycle.
