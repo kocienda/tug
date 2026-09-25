@@ -21,12 +21,21 @@ sentences or a short list about what changed, not a commit log.
 
 `tugrust/scripts/version.sh set` and `version.sh bump` seed an empty file here
 for the version they set, so the reminder arrives with the bump. Seeding never
-overwrites a file that already exists. `scripts/release.py` — the release
-script, reached as `just release` — drafts the notes from the commits since
-the last release, for the reader who does not read this repository rather than
-as a commit log, and `just release-notes` opens them. Editing and confirming
-that draft is a person's job, and `just bless` refuses to release while the
-seed is still in the file.
+overwrites a file that already exists.
+
+`scripts/release.py` — the release script, reached as `just release` — is what
+fills the seed in. It hands one tool-less `claude -p` call the commits since
+the last release together with `scripts/release-notes-prompt.md`, which carries
+the doctrine above, and writes the reply under the `# Tug <version>` heading.
+The model is never given a tool and never touches the tree, and the draft step
+runs **only while the file is still the seed**, so notes a person has written
+are never drafted over.
+
+The draft is a draft. The script prints it and offers to open it in
+`$EDIT_OPENER` before going on, rereading the file at the commit row so a tune
+made there is the one that ships; `just release-notes` opens it in `$VISUAL`
+or `$EDITOR` at any other time. Editing and confirming is a person's job, and
+`just bless` refuses to release while the seed is still in the file.
 
 ## When it is missing
 

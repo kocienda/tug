@@ -949,82 +949,46 @@ bless:
     echo "bless is read-only: nothing was built, signed or dispatched."
     exit 0
 
-# Cut a release: bless, confirm, dispatch, watch. The release itself is CI's
-# — this runs `gh workflow run` on .github/workflows/release.yml and follows
-# with scripts/watch-release-run.sh. That script replaced `gh run watch`,
-# which prints a checklist and no durations, so a run that is working and a
-# run that is wedged look the same for the six minutes the DMG step takes.
-# There is deliberately no local release path: CI is the
-# reproducible one and the one whose credential handling has been thought
-# about, and a second implementation of signing, notarizing, appcast
-# generation and asset upload would be a second thing to keep correct.
+# Cut a release. One command that knows the order the other release recipes
+# go in — scripts/release.py — and asks before every command that changes
+# state. The script probes where the release already stands, works out which
+# step is next, and walks bump → draft the notes → show them → commit → push
+# → bless → dispatch → watch, printing the exact command and asking y/N
+# (default N) each time. Read-only probes run without asking, because asking
+# about a read teaches the habit of answering y without reading.
 #
-# The blessing blocks here rather than warning, because a gate that warns is
-# a gate that is read past. `--force` dispatches over a failed blessing, and
-# it exists because a checklist this young will be wrong about something —
-# the right answer to a wrong check is to ship and then fix the check, not to
+# It composes the recipes beside it rather than replacing them: version-bump,
+# release-notes and bless are untouched and are what it calls, and the watch
+# is scripts/watch-release-run.sh. The one thing it adds is a single
+# tool-less `claude -p` call that drafts release-notes/<version>.md from the
+# commits since the last release; the model never touches the tree, and
+# written notes are never drafted over.
+#
+# Every step is idempotent and the run is resumable. Declining a row ends the
+# run, and running the same command again picks up from the probe — so N is
+# never a dead end, and an abandoned bump or a release already in flight is
+# continued rather than started over.
+#
+# There is deliberately no local release path: CI is the reproducible one and
+# the one whose credential handling has been thought about, and a second
+# implementation of signing, notarizing, appcast generation and asset upload
+# would be a second thing to keep correct.
+#
+# The blessing blocks rather than warning, because a gate that warns is a
+# gate that is read past. `--force` dispatches over a failed blessing, and it
+# exists because a checklist this young will be wrong about something — the
+# right answer to a wrong check is to ship and then fix the check, not to
 # delete the gate. The escape lives on this composed gesture only; `just
 # bless` on its own stays a pure query with no flags at all.
 #
-# Bless, confirm, then dispatch the Stable Release workflow and watch it.
-release *FLAGS:
+# `--dry-run` prints every row and runs none. Anything else on the line is
+# emphasis for the notes draft: `just release patch emphasise the update pill`.
+#
+# Walk a release: bump, notes, commit, push, bless, dispatch, watch (y/N each).
+release *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    FORCE=0
-    for FLAG in {{FLAGS}}; do
-        case "$FLAG" in
-            --force) FORCE=1 ;;
-            *) echo "usage: just release [--force]" >&2; exit 1 ;;
-        esac
-    done
-    if ! command -v gh >/dev/null 2>&1; then
-        echo "error: gh not found — the release is dispatched through GitHub Actions" >&2
-        exit 1
-    fi
-    if just bless; then
-        BLESSED=1
-    else
-        BLESSED=0
-    fi
-    if [ "$BLESSED" -eq 0 ]; then
-        if [ "$FORCE" -eq 0 ]; then
-            echo "Refusing to dispatch. Fix what bless named above — or, if the check"
-            echo "itself is wrong, 'just release --force' and then fix the check."
-            exit 1
-        fi
-        echo "==> --force: dispatching over a failed blessing."
-    fi
-    VERSION="$(tugrust/scripts/version.sh show)"
-    echo
-    printf 'Dispatch Stable Release for %s on main? [y/N] ' "$VERSION"
-    read -r REPLY || REPLY=""
-    case "$REPLY" in
-        y|Y|yes|Yes) ;;
-        *) echo "Not dispatched."; exit 1 ;;
-    esac
-    # The newest run before the dispatch, so the one that appears after it can
-    # be told apart. `gh workflow run` returns before its run is listed, and
-    # watching whatever happens to be newest would follow the previous
-    # release.
-    PRIOR="$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[].databaseId' 2>/dev/null || true)"
-    echo "==> Dispatching Stable Release on main"
-    gh workflow run release.yml --ref main
-    echo "==> Waiting for the run to appear"
-    RUN_ID=""
-    for _ in $(seq 1 30); do
-        sleep 2
-        CANDIDATE="$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[].databaseId' 2>/dev/null || true)"
-        if [ -n "$CANDIDATE" ] && [ "$CANDIDATE" != "$PRIOR" ]; then
-            RUN_ID="$CANDIDATE"
-            break
-        fi
-    done
-    if [ -z "$RUN_ID" ]; then
-        echo "Dispatched, but no new run appeared within a minute."
-        echo "Follow it with: gh run list --workflow release.yml"
-        exit 0
-    fi
-    bash scripts/watch-release-run.sh "$RUN_ID"
+    exec python3 scripts/release.py {{ARGS}}
 
 # Watch the update pill without publishing anything. Resolves the Release
 # bundle out of DerivedData (building one if there is none), stands up the
