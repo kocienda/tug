@@ -47,12 +47,15 @@
  * file and a written one visibly disagreed about whether they were
  * clickable. */
 
-/* Leading glyph — sized to the surrounding text (1em) and nudged so its
- * optical center sits on the lowercase text rather than the baseline. */
+/* Leading glyph — sized to the surrounding text (1em), riding the one
+ * declared glyph offset so its optical centre sits on the lowercase text
+ * rather than the baseline. The number is `--tug-glyph-cap-offset` and
+ * lives in `styles/tug.css`; `tuglaws/type-alignment.md` rule (iv) is why
+ * it is a token and not a length written here. */
 .tug-atom-ref-icon {
   display: inline-flex;
   margin-inline-end: var(--tug-space-2xs);
-  vertical-align: -0.15em;
+  vertical-align: var(--tug-glyph-cap-offset);
   color: inherit;
 }
 

@@ -79,7 +79,7 @@ export const BlockNoticeBand: React.FC<
       data-tone={tone}
       className={cn("tool-block-notice", className)}
     >
-      <span className="tool-block-notice-icon" aria-hidden="true">
+      <span className="tool-block-notice-icon tug-line-box" aria-hidden="true">
         {icon ?? DEFAULT_ICON[tone]}
       </span>
       <span

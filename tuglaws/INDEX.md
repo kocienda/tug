@@ -45,6 +45,7 @@
 - [token-naming.md](token-naming.md) — The seven-slot prefix scheme for CSS custom properties. Every design-system token declares its kind in its name.
 - [color-palette.md](color-palette.md) — The TugColor OKLCH palette. Components consume semantic tokens; the palette provides the colors those tokens resolve to.
 - [theme-engine.md](theme-engine.md) — The CSS-first, file-based theme runtime. How themes load, switch, and override tokens at runtime.
+- [type-alignment.md](type-alignment.md) — The vertical type rhythm: one size and one line box per row, the `.tug-line-box` primitive, the ban on hand-tuned optical nudges and the `@tug-optical-nudge:` escape, and the two instruments that prove it. Read before adding any `top` / `translateY` / length `vertical-align` to a rule that carries text.
 
 ## Testing & build infrastructure
 

@@ -71,8 +71,15 @@ test-rust:
 # The app-test line names two directories on purpose. `scripts/` and `_harness/`
 # hold pure-logic tests that spawn no `Tug.app`; the corpus itself lives at the
 # tests/app-test root and under harness-smoke/, and is not reached from here.
+#
+# The tugdeck line runs twice for one reason: `tugdeck/bunfig.toml` pins
+# `[test] root = "src"`, so a test outside `src/` — the audit scripts' own
+# self-checks under `scripts/__tests__/` — is never discovered by a bare
+# `bun test`. Naming the path explicitly is what runs it, and a self-check
+# nobody runs is no check at all.
 test-ts:
     cd tugdeck && bun test
+    cd tugdeck && bun test ./scripts/__tests__
     cd tugcode && bun test
     cd tests/app-test && bun test scripts/ _harness/
 
@@ -274,9 +281,20 @@ fmt:
 # `opacity` unless it stands itself down under `[data-imposer-settling]`.
 # [D9]'s runtime half is the settle's own `settle-frames` trace row — which
 # catches the effects no stylesheet scan can see.
+# audit:type-alignment is the vertical type rhythm's, and it is the static
+# half of `tuglaws/type-alignment.md`. Text sharing a row shares a baseline by
+# a mechanism and never by a hand-tuned offset: rule 1 refuses a micro `top` /
+# `translateY` / length `vertical-align` on a rule that also carries text,
+# rule 2 refuses a re-derived `.tug-line-box` stanza, and rule 3 refuses a
+# heavily tracked uppercase legend that does not hand its trailing track back.
+# A genuine optical correction is not banned — it carries an
+# `@tug-optical-nudge:` comment saying what it corrects, which is what makes
+# the remaining ones countable. The runtime half is `at0625-type-baseline`,
+# because no stylesheet scan can see a rendered baseline.
 lint: tugplug-lint
     cd tugdeck && bun run audit:visibility
     cd tugdeck && bun run audit:settle-motion
+    cd tugdeck && bun run audit:type-alignment
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
 

@@ -59,18 +59,14 @@ body {
 }
 
 /* The icon rides the one-line box and centers in it; `min-height` (not
-   `height`) keeps a single-line row centered without clipping. The 1px
-   optical drop matches the tool-call header's dot + name nudge, and the
-   head takes the same drop so the two stay level. */
+   `height`) keeps a single-line row centered without clipping. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .tug-quiet-line-icon {
   flex: 0 0 auto;
-  min-height: var(--tugx-quiet-line-box);
-  display: inline-flex;
-  align-items: center;
+  /* The line box is `.tug-line-box`, worn in `tug-quiet-line.tsx`; this
+     rule declares only the number. `tuglaws/type-alignment.md` rule (ii). */
+  --tugx-line-box: var(--tugx-quiet-line-box);
   justify-content: center;
-  position: relative;
-  top: 1px;
   color: var(--tugx-quiet-line-icon-color);
 }
 
@@ -89,10 +85,7 @@ body {
      runs in the same block, so a subject that wraps returns to the head's
      own left edge instead of hanging under the column the label opened.
      The line box is the tool-call header's, set once here rather than on
-     each run — and it carries the 1px optical drop the icon beside it
-     takes, which the runs used to carry one at a time. */
-  position: relative;
-  top: 1px;
+     each run. */
   line-height: var(--tugx-quiet-line-box);
 }
 

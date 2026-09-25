@@ -4,6 +4,10 @@
  * (so component rules can consume them). */
 @import "../styles/tugx-block.css";
 @import "../styles/tugx-header.css";
+/* The one-line-box mechanism ([tuglaws/type-alignment.md] rule (ii)). A
+ * consumer wears `.tug-line-box` and sets `--tugx-line-box` to its row
+ * height; the class owns the stanza. */
+@import "../styles/tug-line-box.css";
 /* The single app-owned focus-ring primitive. Loaded after the theme tokens it
  * reads (via tug.css) and before component CSS, so a component can still
  * suppress it with a higher-specificity `outline: none` where it is its own

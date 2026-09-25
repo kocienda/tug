@@ -460,15 +460,15 @@ html[data-kbf] .tug-option-group-item + .tug-option-group-item[data-key-cursor]:
  * line box, its items stretch to fill it, and the labels drop to the same `xs`
  * type the band's filter field wears — one step from the band title, which
  * lands on the same device row (the half-ascent argument in
- * tug-filter-field.css).
- *
- * `top: 1px` is the same optical nudge the header name and the filter field
- * carry; without it the group centres on the row while its neighbours centre
- * 1px lower, which is exactly the 1px of float the eye reads as "these labels
- * are not on the line". */
+ * tug-filter-field.css). */
 .tool-call-header .tug-option-group {
-  position: relative;
-  top: 1px;
+  /* The line box is `.tug-line-box`'s (`tugdeck/styles/tug-line-box.css`),
+     taken in its second sanctioned form: this is a descendant selector
+     against `TugOptionGroup`'s own class and the header cannot reach inside
+     a foreign component to add one ([L20]), so the rule SETS the token and
+     re-declares the box against it. The number still has one source.
+     `tuglaws/type-alignment.md` rule (ii). */
+  --tugx-line-box: var(--tugx-toolheader-line);
   /* The line box is the group's OUTER box — border-box, because the group
      carries a 1px border and 2px of padding around its items. On the default
      content-box those 6px would land OUTSIDE the line box, standing the group
@@ -477,7 +477,9 @@ html[data-kbf] .tug-option-group-item + .tug-option-group-item[data-key-cursor]:
      band title. The items then stretch to what is left, which is the pill
      height this size wants anyway. */
   box-sizing: border-box;
-  block-size: var(--tugx-toolheader-line);
+  /* Expressed as `block-size`, not `min-height` — the group is a fixed-height
+     control, and guard rule 2's matcher accepts either. */
+  block-size: var(--tugx-line-box);
 }
 
 .tool-call-header .tug-option-group .tug-option-group-item {

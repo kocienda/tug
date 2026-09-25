@@ -838,15 +838,6 @@
   --tugx-md-block-padding-x: 0;
   width: 100%;
 }
-/* The subject switches to `display:block` (above), so its markdown text
-   flows on its baseline and rides high in the line box, while the quiet
-   line's icon still geometrically centers in the `sm * 1.6` box — a
-   centered glyph against baseline text reads low. Raise the icon so it
-   optically centers on the first text line. */
-.session-card-transcript-wake-trigger .tug-quiet-line-icon {
-  top: -1px;
-}
-
 /* Tug-notice row — the head of a turn Tug started itself (the base-motion
    engine's, when an arc's base moved under it). Same quiet-line substrate as
    the wake chip, with the accent rule marking it as spoken by the system
@@ -885,10 +876,6 @@
   --tugx-md-block-padding-x: 0;
   width: 100%;
 }
-.session-card-transcript-notice .tug-quiet-line-icon {
-  top: -1px;
-}
-
 
 /* The stage divider — an arc rotated the card onto a fresh claude session — is
    a [SessionBoundary] too, and wears the one anatomy in `session-boundary.css`

@@ -567,18 +567,34 @@
 /* The letterspaced uppercase label. Keeps its own monospaced face —
    declared explicitly here — while the rest of the row reads in the sans
    chrome font, so the endcap apparatus stays an instrument legend
-   distinct from the values it captions. Slight downward translate
-   (~0.5px) nudges the label's optical center onto the rule line. */
+   distinct from the values it captions.
+
+   The track is declared once and given back once. CSS puts a
+   `letter-spacing` track after EVERY glyph including the last, with
+   nothing after it to absorb one, so this label's box is a track wider
+   than the glyphs in it — and the flex row centres that box, seating the
+   glyphs half a track to its left. Measured: a 1.62px track at 9px, so
+   0.81px of displacement. `margin-inline-end` hands the track back, and
+   both declarations read one custom property so the number cannot drift
+   into two. `tuglaws/type-alignment.md` rule (v).
+
+   There was a `transform: translateY(0.5px)` here, whose comment said it
+   "nudges the label's optical center onto the rule line". It did the
+   opposite, and the probe is what says so: with it in place the cap
+   band's centre sat 0.73px BELOW the rule, and without it 0.23px — the
+   residue of a cap band that is not quite centred in an IBM Plex line
+   box, which half a pixel of translate could only ever make worse. */
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
 .session-telemetry-endcap-label {
+  --tugx-endcap-label-track: 0.18em;
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-family: var(--tug-font-family-mono);
   font-size: 0.5625rem;
   font-weight: var(--tug-font-weight-medium);
-  letter-spacing: 0.18em;
+  letter-spacing: var(--tugx-endcap-label-track);
   text-transform: uppercase;
   padding: 0 4px;
-  transform: translateY(0.5px);
+  margin-inline-end: calc(-1 * var(--tugx-endcap-label-track));
   white-space: nowrap;
 }
 

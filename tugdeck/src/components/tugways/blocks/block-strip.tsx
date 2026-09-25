@@ -193,7 +193,7 @@ export const BlockStrip = React.forwardRef<HTMLDivElement, BlockStripProps>(
         {/* The bold identity — omitted for a verb-less row. */}
         {name !== undefined ? (
           <span
-            className="tool-call-header-name"
+            className="tool-call-header-name tug-line-box"
             data-tugx-findable={nameFindable ? "" : undefined}
           >
             {name}
@@ -203,13 +203,13 @@ export const BlockStrip = React.forwardRef<HTMLDivElement, BlockStripProps>(
         {/* In flow mode the cluster is the detail's FIRST child, because a
             float only shortens the lines that come after it in the flow. */}
         <span
-          className="tool-call-header-detail"
+          className="tool-call-header-detail tug-line-box"
           data-flow={flowTrailing ? "" : undefined}
         >
           {flowTrailing ? (
             <span className="tool-call-header-trailing">
               {trailing}
-              <span className="tool-call-header-actions">{actions}</span>
+              <span className="tool-call-header-actions tug-line-box">{actions}</span>
             </span>
           ) : null}
           {detail}
@@ -221,7 +221,7 @@ export const BlockStrip = React.forwardRef<HTMLDivElement, BlockStripProps>(
             {trailing}
             {/* Trailing actions cluster — the strip owns the span so the pipe
                 rule + gap discipline is shared at every altitude. */}
-            <span className="tool-call-header-actions">{actions}</span>
+            <span className="tool-call-header-actions tug-line-box">{actions}</span>
           </>
         )}
       </div>

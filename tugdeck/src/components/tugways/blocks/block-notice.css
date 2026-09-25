@@ -75,12 +75,12 @@ body {
 
 .tool-block-notice-icon {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
   /* Center the glyph in the first text line's box so it shares the line's
      baseline and stays clear of the header→notice hairline above it — no
      upward nudge, which crowded the divider and read as a clipped top. */
-  min-height: var(--tugx-toolnotice-line);
+  /* The stanza is `.tug-line-box`, worn in `block-notice.tsx`; this rule
+     declares only the number. `tuglaws/type-alignment.md` rule (ii). */
+  --tugx-line-box: var(--tugx-toolnotice-line);
   color: var(--tugx-toolnotice-icon-color);
 }
 

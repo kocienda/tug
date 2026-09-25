@@ -60,11 +60,4 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--tugx-agent-meta-color);
-  /* Same optical nudge the detail column applies to its `<code>` (the
-   * agent-type label): mono detail text centers a hair high against the
-   * bold sans name, so drop it 0.5px to share the baseline. Without this
-   * the description — a plain `<span>`, not a `<code>` — floats above the
-   * agent type and name. */
-  position: relative;
-  top: 0.5px;
 }

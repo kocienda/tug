@@ -105,9 +105,9 @@
    for, on the trailing edge beside the controls. The author is sans (quiet
    provenance); the stamp inside is mono + tabular so dates and times stack. */
 .tugx-commit-meta {
-  min-height: var(--tugx-commit-line);
-  display: inline-flex;
-  align-items: center;
+  /* The line box is `.tug-line-box`, worn in `commit-presentation.tsx`;
+     this rule declares only the number. `tuglaws/type-alignment.md` rule (ii). */
+  --tugx-line-box: var(--tugx-commit-line);
   gap: var(--tug-space-xs);
   font-family: var(--tug-font-family-sans);
   font-size: var(--tugx-commit-stamp-size);
@@ -117,9 +117,8 @@
 
 /* The timestamp cell — right-aligned, tabular, never wrapping. */
 .tugx-commit-stamp {
-  min-height: var(--tugx-commit-line);
-  display: inline-flex;
-  align-items: center;
+  /* As above: the stanza is the primitive's, the number is this rule's. */
+  --tugx-line-box: var(--tugx-commit-line);
   justify-content: flex-end;
   font-family: var(--tugx-commit-stamp-font);
   font-size: var(--tugx-commit-stamp-size);

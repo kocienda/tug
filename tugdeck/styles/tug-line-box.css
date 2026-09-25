@@ -1,0 +1,83 @@
+/**
+ * tug-line-box.css — the one-line-box mechanism, as a layout utility.
+ *
+ * ## What it is
+ *
+ * A row that mixes faces — a bold sans tool name beside a mono command, an
+ * icon gutter beside a label — aligns when every item in it rides **one
+ * declared line box** rather than when each item centres in a box of its
+ * own height. `.tug-line-box` is that box: `inline-flex` + `align-items:
+ * center` over a `min-height` the consumer declares. At one font size,
+ * "centred in the same line box" is also "same baseline", which is the
+ * whole alignment trick.
+ *
+ * It exists because the stanza was hand-rolled three times — in
+ * `block-header.css`, in `tug-quiet-line.css`, and re-derived a third way
+ * in `tug-option-group.css` — and each re-derivation is a chance to drift a
+ * pixel. A drifted pixel is what an optical nudge then gets invented to
+ * correct. See `tuglaws/type-alignment.md` rule (ii).
+ *
+ * ## What a consumer does
+ *
+ * Wear the class and declare the number:
+ *
+ *   .tool-call-header-detail { --tugx-line-box: var(--tugx-toolheader-line); }
+ *
+ * The primitive owns the mechanism; the consumer owns the row height. One
+ * number per row, in one place.
+ *
+ * `--tugx-line-box: var(--tugx-toolheader-line)` is alias-to-alias, which is
+ * the shape [L17] bans — and it is fine here for reasons of **scope, not
+ * sanction**. [L17] governs theme alias tokens resolving to a `--tug7-*` /
+ * `--tugc-*` / scale target, and its enforcer (`checkAliasChainDepth` in
+ * `tugdeck/scripts/audit-tokens.ts`) reads only `body {}` blocks in
+ * `COMPONENT_CSS_FILES`. A component-scoped geometry input is outside both
+ * the law's subject and the guard's reach. Stated here so the next reader
+ * does not have to rediscover it.
+ *
+ * ## What a consumer may NOT add
+ *
+ * Per `tuglaws/type-alignment.md` rule (iii), a consumer of this class does
+ * not then correct it:
+ *
+ *  - no `position: relative` with `top` / `bottom`,
+ *  - no `transform: translateY(…)`,
+ *  - no length `vertical-align` (keyword `vertical-align` is untouched).
+ *
+ * If a row wearing this class still reads wrong, the row's numbers disagree
+ * — two font sizes, or two `--tugx-line-box` values — and that is what to
+ * fix. A nudge on top of the mechanism is how the mechanism stops meaning
+ * anything. The genuine exception is an ornamental glyph whose ink sits low
+ * in its own em box, and it carries an `@tug-optical-nudge:` comment naming
+ * what it corrects.
+ *
+ * ## The one thing a bordered consumer must add
+ *
+ * `box-sizing: border-box`, when the consumer carries a border or padding.
+ * On the default content box those pixels land *outside* the line box:
+ * `.tool-call-header .tug-option-group` has a 1px border and 2px of padding,
+ * which stood the group 3px taller than its row and dropped its text below
+ * the band title until the border box was declared. The line box is the
+ * consumer's OUTER box.
+ *
+ * ## The second sanctioned form
+ *
+ * Where this project does not own the markup, the class cannot be applied —
+ * `.tool-call-header .tug-option-group` is a descendant selector against
+ * `TugOptionGroup`'s own class, and a header may not reach inside a foreign
+ * component's slot to add one ([L20]). Such a site instead **sets
+ * `--tugx-line-box`** and re-declares the stanza against it, so the number
+ * still has one source. That is the whole of the exemption, and
+ * `audit:type-alignment` rule 2 knows both forms.
+ *
+ * Laws:
+ *  - [L19] shared-utility CSS file; a pure layout utility with no
+ *    appearance of its own.
+ *  - [L20] declares no `--tugx-*` slot — it *reads* one the consumer sets.
+ */
+
+.tug-line-box {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tugx-line-box);
+}

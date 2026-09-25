@@ -67,7 +67,7 @@ export const TugQuietLine = React.forwardRef<HTMLDivElement, TugQuietLineProps>(
         className={cn("tug-quiet-line", className)}
         {...rest}
       >
-        <span className="tug-quiet-line-icon" aria-hidden="true">
+        <span className="tug-quiet-line-icon tug-line-box" aria-hidden="true">
           {icon}
         </span>
         <div className="tug-quiet-line-main">

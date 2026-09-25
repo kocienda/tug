@@ -127,9 +127,9 @@ body {
 .tool-call-header-timing,
 .tool-call-header-actions {
   flex: 0 0 auto;
-  min-height: var(--tugx-toolheader-line);
-  display: inline-flex;
-  align-items: center;
+  /* The line box is `.tug-line-box`, worn in the markup; this rule declares
+     only the number. `tuglaws/type-alignment.md` rule (ii). */
+  --tugx-line-box: var(--tugx-toolheader-line);
 }
 
 .tool-call-header-dot {
@@ -144,16 +144,6 @@ body {
 .tool-call-header-leading {
   justify-content: center;
   min-width: 14px;
-}
-
-/* Optical nudge: the lifecycle dot and the bold sans name center a hair high
- * against the mono detail / file ref and the summary badge (which carry the
- * same 1px nudge). Drop them 1px so the whole row reads on one line. `top`
- * (relative) leaves the layout boxes untouched. */
-.tool-call-header-dot,
-.tool-call-header-name {
-  position: relative;
-  top: 1px;
 }
 
 /* Name — the bold tool identity. Single font size (`sm`) shared with the
@@ -187,14 +177,10 @@ body {
 .tool-call-header-detail {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: var(--tugx-toolheader-line);
-  display: inline-flex;
-  align-items: center;
-  /* Optical nudge: the mono detail / file ref centers a hair high against
-   * the bold sans name; drop it 1px so the two read on one line. `top`
-   * (relative) doesn't disturb layout — the wrap geometry is unchanged. */
-  position: relative;
-  top: 1px;
+  /* The one-line-box mechanism is `.tug-line-box`, worn in the markup
+     (`block-strip.tsx`); this rule declares only the number it rides.
+     See `tuglaws/type-alignment.md` rule (ii). */
+  --tugx-line-box: var(--tugx-toolheader-line);
   font-family: var(--tugx-block-code-font);
   font-size: var(--tugx-toolheader-detail-size);
   line-height: var(--tugx-toolheader-line);
@@ -262,13 +248,6 @@ body {
   white-space: inherit;
   overflow-wrap: inherit;
   word-break: inherit;
-  /* Optical nudge: a bare command (`<code>`, e.g. Bash / grep) centers a hair
-   * high — the file ref already reads correctly because its icon makes the
-   * line box taller and seats the text a touch lower. Drop the command 1px so
-   * it lands on the same line as the name. (File refs are a `.tug-atom-ref`
-   * span, never `<code>`, so they're untouched.) */
-  position: relative;
-  top: 1px;
 }
 
 /* Trailing pipe-sections — the result summary, the timing, and the
@@ -302,10 +281,6 @@ body {
   /* inline-flex with a tight gap so a two-badge diff summary (`+N` / `−M`)
    * stays a clean pair; single-badge summaries are unaffected. */
   gap: var(--tug-space-2xs);
-  /* Same 1px optical nudge as the detail so the badge sits on the line
-   * with the name. `top` (relative) leaves the layout box untouched. */
-  position: relative;
-  top: 1px;
 }
 
 /* The timing badge — the live elapsed clock or the frozen wall time.

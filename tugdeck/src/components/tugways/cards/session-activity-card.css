@@ -24,7 +24,12 @@
 
 /* The title wears the Z2 instrument-legend style (the STATE / TIME / TOKENS
  * endcap labels — `.session-telemetry-endcap-label`), so the popover reads as
- * part of the same apparatus it expands. */
+ * part of the same apparatus it expands.
+ *
+ * @tug-track-uncompensated: left-aligned in a column, so the track the last
+ * glyph carries falls at the end of the line with nothing beyond it to
+ * displace. Only the centred copy of this legend needs its track handed
+ * back — `tuglaws/type-alignment.md` rule (v). */
 /* @tug-renders-on var(--tugx-popover-bg) */
 .session-activity-card-title {
   font-family: var(--tug-font-family-mono);
@@ -88,7 +93,11 @@
 }
 
 /* Row labels wear the Z2 instrument-legend style verbatim
- * (`.session-telemetry-endcap-label`): mono face, letterspaced small caps. */
+ * (`.session-telemetry-endcap-label`): mono face, letterspaced small caps.
+ *
+ * @tug-track-uncompensated: the head band is `justify-content: space-between`,
+ * so the trailing track lands inside the free space between this label and
+ * its value and moves neither of them. Rule (v) governs the centred case. */
 /* @tug-renders-on var(--tugx-popover-bg) */
 .session-activity-card-label {
   font-family: var(--tug-font-family-mono);

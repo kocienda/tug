@@ -139,13 +139,8 @@
  * one box differ only by half the ascent delta between two sizes one step
  * apart: under half a pixel, and measured to land on the same device row. It
  * also stops a filterable band from standing taller than a plain one.
- *
- * `top: 1px` is the same optical nudge the header name carries — without it the
- * field centres on the row while the title centres 1px lower.
  */
 .tool-call-header .tug-filter-field {
-  position: relative;
-  top: 1px;
   /* The band's ghost icon buttons are a 24px hit target around a 12px glyph, so
      each carries 6px of invisible inset. Two of them side by side put 6 + gap +
      6 between what the eye actually sees; the field's hard edge gets only

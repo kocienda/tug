@@ -120,8 +120,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Nudge up to compensate for glyph descender space —
-     Unicode ornamental characters sit visually low in their bounding box */
+  /* @tug-optical-nudge: the ornament's glyph sits low in its own em box; this
+     centres the mark on the rule, not the text on a baseline */
   transform: translateY(-0.05em);
 }
 

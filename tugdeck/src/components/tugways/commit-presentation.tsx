@@ -121,7 +121,11 @@ export function CommitStamp({
   const text = formatCommitStamp(iso, grain);
   return (
     <span
-      className={className !== undefined ? `tugx-commit-stamp ${className}` : "tugx-commit-stamp"}
+      className={
+        className !== undefined
+          ? `tugx-commit-stamp tug-line-box ${className}`
+          : "tugx-commit-stamp tug-line-box"
+      }
       data-slot="commit-stamp"
       title={formatCommitStamp(iso, "full")}
     >
@@ -156,7 +160,7 @@ export function CommitMetaCell({
   const grain: CommitStampGrain | null =
     wantsDate && wantsTime ? "datetime" : wantsDate ? "date" : wantsTime ? "time" : null;
   return (
-    <span className="tugx-commit-meta" data-slot="commit-meta">
+    <span className="tugx-commit-meta tug-line-box" data-slot="commit-meta">
       {fields.includes("author") ? (
         <span>{renderFilterHighlight(author, highlightQuery)}</span>
       ) : null}

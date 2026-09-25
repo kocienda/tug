@@ -51,6 +51,18 @@
   --tug-font-weight-medium:     500;
   --tug-font-weight-semibold:   600;
   --tug-font-weight-bold:       700;
+
+  /* The one optical offset an inline SVG glyph in text may take
+   * (`tuglaws/type-alignment.md` rule (iv)). An ornamental or leading glyph
+   * seats its ink low in its own em box, so it needs a lift that a baseline
+   * mechanism cannot supply — but it needs exactly ONE, declared here, never
+   * a length hand-tuned at the use site. The value is ADOPTED from the
+   * calibration `tug-atom-ref.css` already carried, not re-derived by eye;
+   * what would change it is a measurement of ink against cap height, and the
+   * probe that would make one is `tests/app-test/baseline-probes.ts`. This is
+   * NOT `atomBaselineOffsetPx()` — that is the baked atom renderers'
+   * per-instance box offset, and the two answer different questions. */
+  --tug-glyph-cap-offset: -0.15em;
 }
 
 /* Motion-off rule: JS sets data-tug-motion="off" on body when --tug-motion is 0.

@@ -124,7 +124,7 @@ function HeaderTiming({
   if (phase === "in_flight") {
     return (
       <span
-        className="tool-call-header-timing"
+        className="tool-call-header-timing tug-line-box"
         data-slot="tool-call-header-elapsed"
       >
         <TugBadge
@@ -141,7 +141,7 @@ function HeaderTiming({
   if (meta.toolWallMs === null) return null;
   return (
     <span
-      className="tool-call-header-timing"
+      className="tool-call-header-timing tug-line-box"
       data-slot="tool-call-header-duration"
     >
       <TugBadge
@@ -347,7 +347,7 @@ export const BlockHeader = React.forwardRef<
   const leadingNode =
     leading !== undefined ? (
       <span
-        className="tool-call-header-leading"
+        className="tool-call-header-leading tug-line-box"
         data-slot="tool-call-header-leading"
       >
         {leading}
@@ -359,7 +359,7 @@ export const BlockHeader = React.forwardRef<
         phase={phase}
         phaseVisual={toolCallPhaseVisual}
         aria-label={TOOL_CALL_PHASE_LABELS[phase]}
-        className="tool-call-header-dot"
+        className="tool-call-header-dot tug-line-box"
       />
     );
 
@@ -378,7 +378,7 @@ export const BlockHeader = React.forwardRef<
           // Summaries are a fixed, order-stable list per block kind (never
           // reordered or filtered), so the index is a sound key.
           key={i}
-          className="tool-call-header-summary"
+          className="tool-call-header-summary tug-line-box"
           data-slot="tool-call-header-summary"
         >
           {entry.kind === "diff" ? (

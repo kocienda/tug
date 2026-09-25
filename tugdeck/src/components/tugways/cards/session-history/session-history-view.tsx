@@ -366,7 +366,7 @@ export function SessionHistoryView({
           className="tool-call-header"
           dataTestid="session-history-header"
           leading={
-            <span className="tool-call-header-leading" aria-hidden="true">
+            <span className="tool-call-header-leading tug-line-box" aria-hidden="true">
               <HistoryIcon size={14} />
             </span>
           }

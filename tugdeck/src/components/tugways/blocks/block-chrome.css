@@ -49,18 +49,11 @@
 body {
   /* Header text size — larger (sm) than the shared strip-size (2xs)
    * because the chrome header carries the tool name + args, not just
-   * a tagline. The tool name rides this size; the mono args row drops
-   * one step (see `--tugx-block-args-size`). */
+   * a tagline. The tool name rides this size, and so does the mono args
+   * row — one size across a row is what makes one line box also one
+   * baseline (`tuglaws/type-alignment.md` rule (i)). */
   --tugx-block-header-size:  var(--tug-font-size-sm);
   --tugx-block-name-weight:  var(--tug-font-weight-semibold);
-
-  /* Args text size — one step below the header (xs vs sm). The args
-   * are monospace, and a mono glyph reads optically larger than the
-   * sans tool name at the same px; dropping a step puts the two on
-   * even visual footing so the command/path doesn't loom over the
-   * name beside it. The trailing badges set their own size and are
-   * unaffected. */
-  --tugx-block-args-size:    var(--tug-font-size-xs);
 
   /* Header args row — the gap between a wrapper's pattern / path
    * `<code>` and its trailing inline badges (count, line-range,

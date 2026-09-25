@@ -12,6 +12,7 @@
     "audit:tokens": "bun run scripts/audit-tokens.ts",
     "audit:visibility": "bun run scripts/audit-visibility.ts",
     "audit:settle-motion": "bun run scripts/audit-settle-motion.ts",
+    "audit:type-alignment": "bun run scripts/audit-type-alignment.ts",
     "audit:theme-contrast": "bun run scripts/audit-theme-contrast.ts",
     "audit:gamut": "bun run scripts/audit-gamut.ts",
     "generate:rename-maps": "bun run scripts/generate-rename-maps.ts",

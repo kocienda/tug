@@ -200,7 +200,7 @@ export function SessionReleaseView({
       className="tool-call-header"
       dataTestid="session-release-header"
       leading={
-        <span className="tool-call-header-leading" aria-hidden="true">
+        <span className="tool-call-header-leading tug-line-box" aria-hidden="true">
           <Rocket size={14} />
         </span>
       }
