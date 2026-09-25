@@ -44,7 +44,6 @@ pub mod overview_agent;
 pub mod overview_replay;
 pub mod payload_inspector;
 pub mod refs;
-pub mod release;
 pub mod repo_files;
 pub mod secret_filter;
 pub mod session_digest;

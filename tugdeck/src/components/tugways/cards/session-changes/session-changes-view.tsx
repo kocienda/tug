@@ -68,7 +68,6 @@ import {
   type ArcLaneDiscard,
   type ArcLaneReplay,
 } from "./session-changes-arc-lane";
-import { SessionChangesNotesEditor } from "./session-changes-notes-editor";
 import type { ArcJoinActions } from "./session-changes-arc-join";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
 import { useChangesetLandingArcs } from "@/lib/changeset-join-store";
@@ -87,14 +86,6 @@ import {
 } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
-
-/**
- * Which session-entry rows offer the notes editor mode ([P08]). One directory,
- * one extension, no nesting — this predicate is the whole of what the Changes
- * shade knows about releases, and a broader one would quietly turn the shade
- * into a general file editor, which [B08] declines.
- */
-const NOTES_PATH = /^release-notes\/[^/]+\.md$/;
 
 // ---------------------------------------------------------------------------
 // The view
@@ -248,11 +239,6 @@ export function SessionChangesView({
   // `${entryId}|${path}`, so the Expand All / Collapse All / Diff controls
   // live once in the shade banner and act across every head entry.
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(new Set());
-  // Which notes row is in editor mode — one at a time, view scope like
-  // `expandedKeys` ([L24], Table T01). Committing the file takes the row away,
-  // and a path no longer in `sessionFiles` simply reads as no row editing, so
-  // there is no cleanup to remember.
-  const [editingPath, setEditingPath] = useState<string | null>(null);
   const onToggleFile = useCallback(
     (entryId: string, path: string, collapsed: boolean) => {
       setExpandedKeys((prev) => {
@@ -294,34 +280,6 @@ export function SessionChangesView({
       phase: "discrete",
     });
   }, [responderChain]);
-
-  // Which rows offer the editor mode, and the whole of what this layer knows
-  // about releases ([P08]): a release's notes are the one file in a release
-  // round whose content is the user's to write, so they are edited where they
-  // are listed. An `editingPath` whose row has gone (committed, disclaimed)
-  // reads as nothing editing.
-  const editing =
-    editingPath !== null && sessionFiles.some((file) => file.path === editingPath)
-      ? editingPath
-      : null;
-  const fileEditor = useCallback(
-    (path: string) =>
-      NOTES_PATH.test(path)
-        ? {
-            active: editing === path,
-            onToggle: (active: boolean) => setEditingPath(active ? path : null),
-            label:
-              editing === path ? "Show the diff" : "Edit these release notes",
-            body: (
-              <SessionChangesNotesEditor
-                key={path}
-                path={`${project.project_dir}/${path}`}
-              />
-            ),
-          }
-        : null,
-    [editing, project.project_dir],
-  );
 
   // The shade header is the section band chrome ([P02]) — a `BlockStrip` at
   // `altitude="section"`, grip-less: the Changes glyph + title on the left,
@@ -688,7 +646,6 @@ export function SessionChangesView({
           disclaimPending={disclaimPending}
           hunkElection={changesController.hunkElection()}
           onElectHunks={(path, ids) => changesController.electHunks(path, ids)}
-          fileEditor={fileEditor}
         />
       ) : null}
       <SessionChangesArcLane

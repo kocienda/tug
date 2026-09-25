@@ -2,6 +2,8 @@
 
 # Release Tug: one typed command, then the window
 
+**Postscript, 2026-09-24:** what this brief describes was built and then removed — the user judged the in-app release flow the wrong call, and everything named below except `/push` is gone from the app, the server and the skills. See `briefs/remove-in-app-release-brief.md` for the excision and `briefs/release-script-brief.md` for the command-line script that replaces it.
+
 **Purpose:** Cutting a release is seven manual steps chained across the terminal, the editor and the Session card, and they are the same seven every time. Fold the mechanical ones into a single project skill, `/release-tug`, and give the acts that are the user's — land, push, edit the notes, ship — surfaces inside the window, so the terminal is never compulsory.
 
 ---

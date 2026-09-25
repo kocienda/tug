@@ -966,23 +966,15 @@ bless:
 # delete the gate. The escape lives on this composed gesture only; `just
 # bless` on its own stays a pure query with no flags at all.
 #
-# `--yes` skips the confirmation prompt, and nothing else. It exists for a
-# shell with no TTY: the Session card's block shell runs every command with
-# stdin at /dev/null ([D111]), so the prompt reads EOF and the recipe exits
-# saying "Not dispatched." The watcher already reprints off a TTY, so the
-# prompt is the only thing in the recipe that needs one.
-#
 # Bless, confirm, then dispatch the Stable Release workflow and watch it.
 release *FLAGS:
     #!/usr/bin/env bash
     set -euo pipefail
     FORCE=0
-    YES=0
     for FLAG in {{FLAGS}}; do
         case "$FLAG" in
             --force) FORCE=1 ;;
-            --yes) YES=1 ;;
-            *) echo "usage: just release [--force] [--yes]" >&2; exit 1 ;;
+            *) echo "usage: just release [--force]" >&2; exit 1 ;;
         esac
     done
     if ! command -v gh >/dev/null 2>&1; then
@@ -1004,14 +996,12 @@ release *FLAGS:
     fi
     VERSION="$(tugrust/scripts/version.sh show)"
     echo
-    if [ "$YES" -eq 0 ]; then
-        printf 'Dispatch Stable Release for %s on main? [y/N] ' "$VERSION"
-        read -r REPLY || REPLY=""
-        case "$REPLY" in
-            y|Y|yes|Yes) ;;
-            *) echo "Not dispatched."; exit 1 ;;
-        esac
-    fi
+    printf 'Dispatch Stable Release for %s on main? [y/N] ' "$VERSION"
+    read -r REPLY || REPLY=""
+    case "$REPLY" in
+        y|Y|yes|Yes) ;;
+        *) echo "Not dispatched."; exit 1 ;;
+    esac
     # The newest run before the dispatch, so the one that appears after it can
     # be told apart. `gh workflow run` returns before its run is listed, and
     # watching whatever happens to be newest would follow the previous

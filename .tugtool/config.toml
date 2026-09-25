@@ -29,22 +29,6 @@ audit_model = "opus"
 # it is 300000.
 # implement_compact_tokens = 300000
 
-# What a release IS in this project — the three strings the window reads so a
-# release never requires the terminal. All three are required when the table is
-# present: a release whose check is unknown cannot be blessed, one whose dispatch
-# is unknown cannot be sent, and one whose workflow is unknown cannot be watched.
-#
-# Schema: ReleaseConfig in tugtool-core/src/config.rs.
-
-[tugtool.release]
-# Printed rows become the Release sheet's checklist; exit 0 means blessed.
-check    = "just bless"
-# Runs once, after a passing check (or a confirmed override); queues exactly one
-# run of `workflow`.
-dispatch = "gh workflow run release.yml --ref main"
-# The workflow whose newest run after `dispatch` is watched.
-workflow = "release.yml"
-
 # The surfaces this project is made of. `tugtool arc verify <arc>` resolves
 # every path an arc would land to the surface declaring the longest matching
 # path, refuses — naming them — when one resolves to no surface, and runs what
@@ -123,7 +107,7 @@ check = []
 
 [[tugtool.arc.surface]]
 name  = "project"
-# `.claude/` is this project's own skills — `/release-tug`, `/write-release-notes`
-# — which are Tug's alone and never plugin material. Nothing builds them.
+# `.claude/` is this project's own skills — `/spike-card` — which are Tug's
+# alone and never plugin material. Nothing builds them.
 paths = ["Justfile", "scripts/", ".github/", ".gitattributes", ".gitignore", ".tugtool/", ".claude/", "capabilities/", "diag/", "products/", "resources/", "tests/build-info/", "tests/model-eval/"]
 check = []

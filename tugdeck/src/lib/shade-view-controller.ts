@@ -1,8 +1,8 @@
 /**
  * shade-view-controller — per-card visibility of the transcript-slot Shades.
  *
- * The Session card's view slot holds four mutually-exclusive panes: the
- * transcript, the Changes Shade, the History Shade, and the Release Shade.
+ * The Session card's view slot holds three mutually-exclusive panes: the
+ * transcript, the Changes Shade and the History Shade.
  * Which one is showing is card chrome state — a deliberate view choice — not
  * session data and not a submission target. `ShadeViewController` holds that
  * choice as a subscribable store.
@@ -18,14 +18,14 @@
  *
  * `"none"` is the resting state (every Shade closed). `show` is
  * mutually-exclusive: showing one Shade while another is up swaps them,
- * exactly like the old view-route flip — all four panes stay mounted and
+ * exactly like the old view-route flip — all three panes stay mounted and
  * only CSS visibility changes ([L26]/[L06]).
  *
  * @module lib/shade-view-controller
  */
 
 /** Which Shade the view slot is showing; `"none"` is the transcript. */
-export type ShadeView = "none" | "changes" | "history" | "release";
+export type ShadeView = "none" | "changes" | "history";
 
 /** The Shades a caller can ask for by name — every `ShadeView` but `"none"`. */
 export type NamedShadeView = Exclude<ShadeView, "none">;

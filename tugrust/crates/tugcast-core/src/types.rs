@@ -1177,23 +1177,6 @@ pub struct ProjectChangeset {
     /// Arcs that exist only as documents — no branch yet — sorted by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub document_arcs: Vec<DocumentArcEntry>,
-    /// What a release is in this project, when it declares one — read from
-    /// `[tugtool.release]` at compose time. `None` is a project with no release
-    /// the window can drive, which is what every project without the table is.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub release: Option<ReleaseSurface>,
-}
-
-/// The part of a project's release declaration the deck needs: the workflow the
-/// dispatch queues a run of, which is what a watch is addressed by.
-///
-/// The `check` and `dispatch` commands stay on the server — a client that knew
-/// them could compose one, and what the product offers is the project's own
-/// declared release rather than an arbitrary command.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ReleaseSurface {
-    /// The workflow file name, e.g. `release.yml`.
-    pub workflow: String,
 }
 
 /// The account-global aggregate changeset snapshot, delivered process-level on
@@ -2217,7 +2200,6 @@ mod tests {
             },
             unattributed_draft: None,
             document_arcs: vec![],
-            release: None,
         };
         let json = serde_json::to_string(&project).unwrap();
         assert!(json.contains(r#""project_dir":"/tmp/proj""#));
@@ -2228,9 +2210,6 @@ mod tests {
         // A project with no document-only arc carries no `document_arcs`
         // key at all, so older readers see the payload they already understand.
         assert!(!json.contains("document_arcs"));
-        // Same for a project that declares no release: the key is absent
-        // rather than null, so a reader that never heard of it is untouched.
-        assert!(!json.contains("release"));
     }
 
     #[test]

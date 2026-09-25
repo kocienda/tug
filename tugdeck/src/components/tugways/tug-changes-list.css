@@ -162,11 +162,7 @@
 /* The per-row Claim icon pins to the row's extreme right; claiming removes it
    and the ± / pop-out / fold shift right to fill. */
 .tug-changes-list-claim,
-.tug-changes-list-disclaim,
-/* The editor-mode pencil sits in the same cluster and on the same terms: it is
-   there only for the rows the host scopes the mode to, and its pressed state
-   rides the button's own `emphasis`, not a rule here ([L06], [L20]). */
-.tug-changes-list-edit {
+.tug-changes-list-disclaim {
   flex: 0 0 auto;
 }
 
