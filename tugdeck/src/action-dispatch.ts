@@ -1405,9 +1405,32 @@ export function initActionDispatch(
       typeof payload.line_id === "string" && payload.line_id.length > 0
         ? payload.line_id
         : identityKeyForSession(tugSessionId);
-    sessionLineStore.seat(tugSessionId, ackLineId);
+    // The seat rides the ack beside the address ([B01]). `tug_session_id` is
+    // the bridge's key — the id the card first spawned under — and a rotation
+    // leaves that segment behind while the binding, and every identity read,
+    // moves to a fresh one. A reconnect re-spawns under the address and no
+    // frame announces the seat again, so before this field the card came back
+    // keyed to a retired segment and read unbound.
+    //
+    // Absent means the seat *is* the address, which is every card before its
+    // first rotation and every server older than this field.
+    const ackSeat =
+      typeof payload.seated_session_id === "string" &&
+      payload.seated_session_id.length > 0
+        ? payload.seated_session_id
+        : tugSessionId;
+    // Both pairs, and only one of them seats the line: the address is a
+    // segment of this line that the line is not sitting on, so it is `bind`
+    // rather than `seat`, and the line's seat is the segment the server says
+    // is live.
+    if (ackSeat !== tugSessionId) sessionLineStore.bind(tugSessionId, ackLineId);
+    sessionLineStore.seat(ackSeat, ackLineId);
     cardSessionBindingStore.setBinding(cardId, {
       tugSessionId,
+      // Written only when it has moved, so the record of a card that never
+      // rotated is byte-for-byte what it was before this field existed and
+      // `cardSeatedSegment`'s `?? tugSessionId` keeps answering for it.
+      seatedSessionId: ackSeat !== tugSessionId ? ackSeat : undefined,
       lineId: ackLineId,
       workspaceKey,
       projectDir: projectDirResolved,

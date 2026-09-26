@@ -412,10 +412,9 @@ app-debug: build wasm
     # the user's chosen tree wins over any stale build-time value.
     tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.app source-tree-path "$(pwd)" >/dev/null
     echo "==> Launching $INSTANCE_ID ($APP_DIR)"
-    # Scrub the launching instance's identity/resource env: `open`
-    # propagates the caller's environment, so a launch from inside a Dev
-    # card would otherwise hand the new bundle the host's TUG_INSTANCE_ID.
-    env -u TUG_INSTANCE_ID -u TUG_BUNDLE_PATH -u TUGCAST_RESOURCE_ROOT open "$APP_DIR"
+    # Scrub the launching instance's env before `open` propagates it: one
+    # shared list, in launch-scrubbed.sh, so the launches cannot drift.
+    bash tugrust/scripts/launch-scrubbed.sh open "$APP_DIR"
 
 # Build a Release bundle and (re)launch the cwd-derived release
 # instance. Quit-prior runs first for the same reason as app-debug.
@@ -450,10 +449,9 @@ app-release: build wasm
     # developer checkout.
     tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.app source-tree-path "$(pwd)" >/dev/null
     echo "==> Launching $INSTANCE_ID ($APP_DIR)"
-    # Scrub the launching instance's identity/resource env: `open`
-    # propagates the caller's environment, so a launch from inside a Dev
-    # card would otherwise hand the new bundle the host's TUG_INSTANCE_ID.
-    env -u TUG_INSTANCE_ID -u TUG_BUNDLE_PATH -u TUGCAST_RESOURCE_ROOT open "$APP_DIR"
+    # Scrub the launching instance's env before `open` propagates it: one
+    # shared list, in launch-scrubbed.sh, so the launches cannot drift.
+    bash tugrust/scripts/launch-scrubbed.sh open "$APP_DIR"
 
 # Relaunch the cwd-derived debug instance without rebuilding.
 launch-debug:
@@ -472,10 +470,9 @@ launch-debug:
     INSTANCE_ID="$(bash tugrust/scripts/instance-id-from-cwd.sh debug)"
     BUNDLE_ID="$(bash tugrust/scripts/bundle-id-from-cwd.sh debug)"
     bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$INSTANCE_ID"
-    # Scrub the launching instance's identity/resource env: `open`
-    # propagates the caller's environment, so a launch from inside a Dev
-    # card would otherwise hand the new bundle the host's TUG_INSTANCE_ID.
-    env -u TUG_INSTANCE_ID -u TUG_BUNDLE_PATH -u TUGCAST_RESOURCE_ROOT open "$APP_DIR"
+    # Scrub the launching instance's env before `open` propagates it: one
+    # shared list, in launch-scrubbed.sh, so the launches cannot drift.
+    bash tugrust/scripts/launch-scrubbed.sh open "$APP_DIR"
 
 # Relaunch the cwd-derived release instance without rebuilding.
 launch-release:
@@ -494,10 +491,9 @@ launch-release:
     INSTANCE_ID="$(bash tugrust/scripts/instance-id-from-cwd.sh release)"
     BUNDLE_ID="$(bash tugrust/scripts/bundle-id-from-cwd.sh release)"
     bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$INSTANCE_ID"
-    # Scrub the launching instance's identity/resource env: `open`
-    # propagates the caller's environment, so a launch from inside a Dev
-    # card would otherwise hand the new bundle the host's TUG_INSTANCE_ID.
-    env -u TUG_INSTANCE_ID -u TUG_BUNDLE_PATH -u TUGCAST_RESOURCE_ROOT open "$APP_DIR"
+    # Scrub the launching instance's env before `open` propagates it: one
+    # shared list, in launch-scrubbed.sh, so the launches cannot drift.
+    bash tugrust/scripts/launch-scrubbed.sh open "$APP_DIR"
 
 # Stop the cwd-derived debug instance (idempotent). Quits the GUI app
 # AND the tugcast registry entry — `just app-debug` then re-launches
@@ -1073,10 +1069,11 @@ update-rehearse PORT="8765" RATE="0":
     echo "    Drive it from the app: check for updates, then watch the pill and"
     echo "    its popover. Every transition logs as 'UpdateController: <stage>'."
     echo "==> ^C ends the rehearsal — feed, scratch directory and app together."
-    # Scrub the launching instance's identity/resource env, the same three
-    # variables every other launch in this file scrubs.
+    # Scrub the launching instance's env, through the same shared list every
+    # other launch in this file goes through. TUG_SPARKLE_FEED is set for
+    # this launch and is not on it.
     TUG_SPARKLE_FEED="$FEED_URL" \
-        env -u TUG_INSTANCE_ID -u TUG_BUNDLE_PATH -u TUGCAST_RESOURCE_ROOT \
+        bash tugrust/scripts/launch-scrubbed.sh \
         "$APP_DIR/Contents/MacOS/$PRODUCT_NAME" &
     wait "$FEED_PID" || true
 

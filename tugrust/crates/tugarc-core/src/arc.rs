@@ -219,6 +219,17 @@ pub enum ArcStopReason {
     /// `create_in`'s own error. Resumable: fix what the note names and
     /// `tugtool arc run` dispatches the same stage again.
     SeatUnavailable,
+    /// The arc was in one sweep and gone from the next, with nothing in its
+    /// log to say why.
+    ///
+    /// Bound-ness has one definition, `bound_session_by_arc`, and it reads
+    /// live rows — so anything that closes the seat's row takes the arc out
+    /// of the sweep, and before this the arc simply stopped being ticked. No
+    /// record, no receipt, nothing on any surface: the run had ended and
+    /// every face still said it was running. This is that departure spoken
+    /// out loud. Resumable, because whatever took the seat away is usually
+    /// repairable and the work is untouched.
+    SeatLost,
 }
 
 impl ArcStopReason {
@@ -252,6 +263,7 @@ impl ArcStopReason {
         ArcStopReason::NeedsDecision,
         ArcStopReason::RecordsDisagree,
         ArcStopReason::SeatUnavailable,
+        ArcStopReason::SeatLost,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -283,6 +295,7 @@ impl ArcStopReason {
             ArcStopReason::NeedsDecision => "needs a decision",
             ArcStopReason::RecordsDisagree => "records disagree",
             ArcStopReason::SeatUnavailable => "seat unavailable",
+            ArcStopReason::SeatLost => "seat lost",
         }
     }
 
@@ -364,6 +377,7 @@ impl ArcStopReason {
                 "its records disagree about where it is, so it stopped rather than seating a stage over them"
             }
             ArcStopReason::SeatUnavailable => "its worktree could not be made",
+            ArcStopReason::SeatLost => "its seat left the sweep with nothing in the log to say why",
         }
     }
 

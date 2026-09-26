@@ -66,10 +66,14 @@ export interface CardSessionBinding {
    * a live card is on is recorded against whichever segment holds the binding
    * now, which a rotation moves.
    *
-   * Written only by `session_line_seated`, which the bridge sends when the
-   * card's claude id changes on a line it already had. Never derived: a
-   * rotation leaves the retired segment's row `live` as well, so "the newest
-   * live row on this line" is a race rather than an answer ([P01]).
+   * Written by two frames, and never derived: a rotation leaves the retired
+   * segment's row `live` as well, so "the newest live row on this line" is a
+   * race rather than an answer ([P01]). `session_line_seated` is the move —
+   * the bridge sends it when the card's claude id changes on a line it
+   * already had. `spawn_session_ok` is the restore: the reconnect that
+   * re-spawns a rotated card announces no move, because the claude id did not
+   * change, so the ack carries the seat the supervisor resolved and the
+   * handler writes it back ([B01]).
    */
   readonly seatedSessionId?: string;
   readonly projectDir: string;

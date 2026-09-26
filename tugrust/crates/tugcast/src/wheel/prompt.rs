@@ -201,6 +201,16 @@ pub fn still_open_ask(arc: &str, step: usize, through: usize) -> String {
 ///
 /// The step coordinates are the implement stage's alone; every other stage
 /// walks no ledger, so the clause ends at the stage word.
+///
+/// **`session` is the seat, not the card's address.** The seat is the live
+/// segment the binding sits on, which is the same string `$TUG_SESSION_ID`
+/// holds in the stage's shell and the same string `arc status` reports as
+/// `bound_session`; the address is the bridge key, which is transport and
+/// which the stage never sees. Before a rotation they are one string, so the
+/// distinction only shows up on the arcs it matters for — a stage handed the
+/// address after a rotation compares it against its own shell, finds two ids,
+/// and reports that the wheel and the binder disagree about which session is
+/// seated.
 pub fn where_clause(
     worktree: &Path,
     session: &str,

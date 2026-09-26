@@ -168,6 +168,7 @@ import {
 } from "./select-goal";
 import { TUG_ATOM_CHAR } from "../tug-atom-img";
 import { mintLeadingCommandAtom } from "../command-atom";
+import { writtenPaths } from "../annotator/written-paths";
 import { decodePermissionDenials, mergeDenials } from "./denials";
 import { tugDevLogStore } from "../tug-dev-log-store/tug-dev-log-store";
 import {
@@ -2829,6 +2830,37 @@ function handleToolResult(
       msg: { type: "user_message", content: head.content },
     });
   }
+
+  // The path resolver's third door ([B12]). A live `Write` / `Edit`, or a
+  // shell result carrying a `TUG-FILE-RECEIPT`, is this session's own word
+  // that a file is now on disk — and the annotator has very likely already
+  // probed that path, earlier in this same turn, before the write, and is
+  // holding a `missing` it will trust for a minute. Live only: a replayed
+  // result is a claim about a moment that has passed, and confirming a
+  // since-deleted path from one would manufacture a link.
+  //
+  // **Replay is the whole of the exclusion, so the test is `isReplaying`
+  // rather than `isLive`.** A wake turn is a present turn — a backgrounded
+  // command finished and the model is working again — so a `Write` inside one
+  // is as live a write as any, and gating it out left the case this door was
+  // built for uncovered wherever a turn began that way. Which is often: an
+  // arc stage that backgrounds a build and writes a document when it returns
+  // is exactly the shape, and `isLive` is `!isReplaying && !isWaking` because
+  // the queued-send pickup above must not fire on a wake. That is the pickup's
+  // reason and not this one's.
+  const confirmEffects: Effect[] = [];
+  if (!isReplaying) {
+    const written = writtenPaths(
+      mutated.toolName,
+      mutated.input,
+      mutated.result,
+      mutated.status === "error",
+    );
+    if (written.length > 0) {
+      confirmEffects.push({ kind: "confirm-written-paths", paths: written });
+    }
+  }
+
   const nextEntry: ScratchEntry = { ...entry, messages: nextMessages };
 
   let toolUseStartedAt = state.toolUseStartedAt;
@@ -2987,8 +3019,8 @@ function handleToolResult(
     },
     // Beside the fold, as at the other three call sites.
     effects: isReplaying
-      ? pickupEffects
-      : [...pickupEffects, streamStallEffect(nextPhase)],
+      ? [...pickupEffects, ...confirmEffects]
+      : [...pickupEffects, ...confirmEffects, streamStallEffect(nextPhase)],
   };
 }
 

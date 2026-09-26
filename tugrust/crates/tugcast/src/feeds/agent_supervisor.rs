@@ -5117,6 +5117,11 @@ impl AgentSupervisor {
         // is asking for under another of its line's ids. A hit re-points the
         // whole of the rest of this function at the bridge that exists; the
         // miss is the ordinary spawn, unchanged.
+        //
+        // The id as asked for is kept: the attach re-keys the spawn at the
+        // bridge's own first id, which is a segment a rotation may have left
+        // behind, and the ack still owes the deck the seat ([B01]).
+        let requested_session_id = tug_session_id.clone();
         let tug_session_id = match session_mode {
             SessionMode::Resume => {
                 match self
@@ -5733,12 +5738,49 @@ impl AgentSupervisor {
                 entry.line_id.clone()
             }
         };
+        // **The seat ([B01]).** `tug_session_id` above is the bridge's key —
+        // the id the card first spawned under — and after a rotation that is
+        // a closed segment. The line's live segment is what the deck's arc
+        // index, the masthead marker and the Z2 cell are keyed by, and
+        // nothing else on a reconnect announces it ([F05]): the seat frame
+        // fires only on a fresh claude id. So the ack carries it.
+        //
+        // `live_segment_of` answers for the line, so the attached key is
+        // enough whenever the ledger has seen it; the requested id is the
+        // fall-through for an attach whose key the ledger does not know.
+        // `None` on a fresh spawn — the row is written at `session_init` —
+        // and the deck reads a missing seat as the address, which is what it
+        // did before this field existed.
+        let seated_session_id = self.session_ledger.as_ref().and_then(|ledger| {
+            ledger
+                .live_segment_of(tug_session_id.as_str())
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    ledger
+                        .live_segment_of(requested_session_id.as_str())
+                        .ok()
+                        .flatten()
+                })
+        });
         // The arc binding rides the ack the same way `workspace_key` does —
         // it is what a card wears the moment it opens — and reads as unbound
         // when the arc's record is gone ([P05]). The ack is no longer the
         // binding store's only writer: `bind_arc_ok` moves it too, which is
         // what carries a rotation's seated binding onto the fresh segment.
-        let (row_arc_id, row_arc_name) = match row.filter(|r| r.arc_id.is_some()) {
+        //
+        // And the pair is read off the *seat's* row, not the address's: a
+        // rotation moves the binding onto the fresh segment and takes it off
+        // the one it retired, so the address's row says unbound for a card
+        // that is working an arc ([F04]).
+        let arc_row = match seated_session_id.as_deref() {
+            Some(seat) if seat != tug_session_id.as_str() => self
+                .session_ledger
+                .as_ref()
+                .and_then(|ledger| ledger.get(seat).ok().flatten()),
+            _ => row.clone(),
+        };
+        let (row_arc_id, row_arc_name) = match arc_row.filter(|r| r.arc_id.is_some()) {
             Some(row) => {
                 let project = row.project_dir.clone();
                 // A panicked blocking task is not evidence the arc is gone
@@ -5755,6 +5797,10 @@ impl AgentSupervisor {
             "action": "spawn_session_ok",
             "card_id": card_id,
             "tug_session_id": tug_session_id.as_str(),
+            // The seat ([B01]): the live segment of this card's line, when it
+            // differs from the address the bridge is keyed by. Absent means
+            // the seat *is* the address.
+            "seated_session_id": seated_session_id,
             "workspace_key": workspace_key.as_ref(),
             // Echo the pre-canonical path the client sent so tugdeck's
             // binding store carries the form the user actually chose.
@@ -10799,6 +10845,68 @@ impl AgentSupervisor {
     /// Called once in `main.rs` before the supervisor is shared.
     pub fn set_refs_ledger(&mut self, ledger: Arc<crate::refs_ledger::RefsLedger>) {
         self.refs_ledger = Some(ledger);
+    }
+
+    /// Re-live any seat a demote closed while its bridge went on running.
+    ///
+    /// A ledger row is a record of a subprocess, and the supervisor is the one
+    /// thing that knows whether that subprocess is running: its entry is
+    /// `Live`. So a `Live` entry whose `claude_session_id` names a segment
+    /// reading `closed, demoted = 1` is a row disagreeing with the process it
+    /// describes, and the disagreement belongs to the demote rather than to
+    /// the session.
+    ///
+    /// This is the revive that does not need a turn to happen. The
+    /// turn-boundary revive in `record_turn` and `record_user_prompt` stays
+    /// exactly as it is, but a stage sitting between turns has no turn to
+    /// wait for, and everything that reads bound-ness reads it off live rows
+    /// — `bound_session_by_arc` filters to them, so a demoted seat silently
+    /// drops its arc out of the sweep and nothing prompts anybody again.
+    ///
+    /// Returns how many seats it re-lived. Best-effort throughout: a failed
+    /// revive warns, and the next tick asks again.
+    pub async fn relive_demoted_seats(&self) -> usize {
+        let Some(ledger) = self.session_ledger.as_ref() else {
+            return 0;
+        };
+        // Snapshot the seats before reviving any of them: the revive takes the
+        // ledger's own mutex and notifies its watchers, and holding the entries
+        // map across that is a lock order this file does not keep.
+        let seats: Vec<String> = {
+            let map = self.ledger.lock().await;
+            map.values()
+                .filter_map(|entry| {
+                    // `try_lock` for the reason `card_session_for_segment`
+                    // gives: an entry another task is mid-write on is skipped
+                    // this tick and found on the next.
+                    let entry = entry.try_lock().ok()?;
+                    if entry.spawn_state != SpawnState::Live {
+                        return None;
+                    }
+                    entry.claude_session_id.clone()
+                })
+                .collect()
+        };
+        let now = crate::session_ledger::now_millis();
+        let mut relived = 0usize;
+        for seat in seats {
+            match ledger.revive_on_activity(&seat, now) {
+                Ok(true) => {
+                    relived += 1;
+                    tracing::info!(
+                        target: "dev::session-lifecycle",
+                        event = "ledger.revive_on_activity",
+                        session_id = %seat,
+                        reason = "liveness-reconcile",
+                    );
+                }
+                Ok(false) => {}
+                Err(err) => {
+                    warn!(error = %err, session_id = %seat, "liveness reconcile revive failed");
+                }
+            }
+        }
+        relived
     }
 
     /// Attach the shared digester (the read side of the `list_digest_lines`
@@ -16410,7 +16518,7 @@ mod tests {
             .expect("spawn the door");
         transcript("door", "msg_01DOOR");
         sessions
-            .demote_live_to_closed()
+            .demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
             .expect("the door rotates away");
         sessions
             .record_spawn("audit", "ws", "/proj", "card-1", 2_000, "line-1", None)
@@ -21758,6 +21866,120 @@ mod tests {
         );
     }
 
+    /// **And the ack tells the deck where it is sitting ([B01], [B03]).** The
+    /// re-hold above is correct and was the whole of the fix; what it left
+    /// behind is an ack naming the bridge's key. A rotation moved the arc
+    /// binding onto the line's fresh segment and took it off the one it
+    /// retired, so reading the pair off the address's row answers "unbound"
+    /// for a card that is working an arc — which is what blanked the masthead
+    /// marker and the Z2 cell on all four of the reconnects in [F03]. The ack
+    /// now carries the seat beside the address and reads the pair off the
+    /// seat's row.
+    #[tokio::test]
+    async fn the_ack_of_a_re_held_bridge_names_the_seat_and_its_arc() {
+        let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload_on_line("card-1", "seat", "line-1"),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        // The line as a rotation leaves it: the segment the bridge is keyed
+        // by, closed; a fresher one, live, carrying the arc. `/proj` is not a
+        // repo, so `live_arc_records` reads `Unreadable` and the reported
+        // pair is the ledger's own — the arc-gone nulling is not what is
+        // under test here.
+        ledger
+            .record_spawn("seat", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("the retired segment");
+        ledger.mark_closed("seat").expect("retire it");
+        ledger
+            .record_spawn("tip", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .expect("the rotation's segment");
+        ledger
+            .set_arc_binding("tip", Some(("arc-1", "wizard-downloads")))
+            .expect("the seat is the segment the binding sits on");
+
+        // Everything the spawn above put on CONTROL is another test's
+        // business; the reconnect's ack is the last frame.
+        while control_rx.try_recv().is_ok() {}
+
+        sup.handle_control("spawn_session", &resume_payload("card-1", "tip"), 10)
+            .await
+            .expect_handled();
+
+        let mut ack = None;
+        while let Ok(frame) = control_rx.try_recv() {
+            let v: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if v["action"] == "spawn_session_ok" {
+                ack = Some(v);
+            }
+        }
+        let ack = ack.expect("spawn_session_ok ack");
+
+        assert_eq!(
+            ack["tug_session_id"], "seat",
+            "the address stays the bridge's key — every frame is stamped with it \
+             and `CardServicesStore` keys on it ([B04])",
+        );
+        assert_eq!(
+            ack["seated_session_id"], "tip",
+            "and the seat rides beside it, so the deck holds both vocabularies",
+        );
+        assert_eq!(
+            ack["arc_id"], "arc-1",
+            "the pair is read off the seat's row, not the retired address's",
+        );
+        assert_eq!(ack["arc_name"], "wizard-downloads");
+    }
+
+    /// The ordinary resume, where no rotation happened: the seat is the
+    /// address, and the field says so rather than going missing.
+    #[tokio::test]
+    async fn an_unrotated_resume_seats_the_ack_on_its_own_address() {
+        let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload_on_line("card-1", "seat", "line-1"),
+            10,
+        )
+        .await
+        .expect_handled();
+        ledger
+            .record_spawn("seat", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("the one segment this line has");
+        ledger
+            .set_arc_binding("seat", Some(("arc-1", "wizard-downloads")))
+            .expect("bound where it sits");
+
+        while control_rx.try_recv().is_ok() {}
+
+        sup.handle_control("spawn_session", &resume_payload("card-1", "seat"), 10)
+            .await
+            .expect_handled();
+
+        let mut ack = None;
+        while let Ok(frame) = control_rx.try_recv() {
+            let v: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if v["action"] == "spawn_session_ok" {
+                ack = Some(v);
+            }
+        }
+        let ack = ack.expect("spawn_session_ok ack");
+
+        assert_eq!(ack["tug_session_id"], "seat");
+        assert_eq!(ack["seated_session_id"], "seat");
+        assert_eq!(ack["arc_id"], "arc-1");
+    }
+
     /// The second way in: the card asks under the name *claude* knows the
     /// conversation by, which a bridge records on its entry at `session_init`.
     #[tokio::test]
@@ -21858,6 +22080,94 @@ mod tests {
                 "{id} still reads live after its card closed",
             );
         }
+    }
+
+    /// Seat a card on a rotated segment with an arc bound to it, and hand
+    /// back the ledger both the supervisor and the test read.
+    async fn a_card_rotated_onto_a_bound_seat(
+        sup: &mut AgentSupervisor,
+    ) -> Arc<crate::session_ledger::SessionLedger> {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        let entry = insert_ledger_entry(sup, &TugSessionId::new("address")).await;
+        {
+            let mut guard = entry.lock().await;
+            guard.card_id = Some("card-1".to_owned());
+            guard.line_id = Some("line-1".to_owned());
+            guard.spawn_state = SpawnState::Live;
+            // The bridge's own record of which segment it is running now.
+            guard.claude_session_id = Some("seat".to_owned());
+        }
+        for (id, at) in [("address", 1_000), ("seat", 2_000)] {
+            ledger
+                .record_spawn(id, "ws", "/proj", "card-1", at, "line-1", None)
+                .expect("row");
+        }
+        ledger
+            .set_arc_binding("seat", Some(("tugarc/demo#1", "demo")))
+            .expect("bind");
+        ledger
+    }
+
+    /// The two arcs stranded at 11:38:43: a demote closed the seat under a
+    /// bridge that never stopped running, `bound_session_by_arc` reads live
+    /// rows, and the arc left the sweep with nobody to prompt it back. The
+    /// supervisor's own liveness is what re-lives it — with no turn recorded
+    /// in between, because a stage sitting at a step boundary has no turn to
+    /// offer.
+    #[tokio::test]
+    async fn the_liveness_reconcile_re_lives_a_demoted_seat() {
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let ledger = a_card_rotated_onto_a_bound_seat(&mut sup).await;
+
+        ledger
+            .demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
+            .expect("something outside closes the row");
+        assert!(
+            ledger.bound_session_by_arc().unwrap().is_empty(),
+            "a demoted seat is unbound, which is how the arc left the sweep",
+        );
+
+        assert_eq!(sup.relive_demoted_seats().await, 1);
+
+        assert_eq!(
+            ledger.get("seat").unwrap().expect("row").state,
+            crate::session_ledger::SessionState::Live,
+        );
+        assert_eq!(
+            ledger
+                .bound_session_by_arc()
+                .unwrap()
+                .get("tugarc/demo#1")
+                .map(String::as_str),
+            Some("seat"),
+            "the arc is back in the sweep, named by its seat",
+        );
+    }
+
+    /// And it revives on the bridge's liveness alone. An entry that is not
+    /// `Live` is not evidence of a running subprocess, so its row stays
+    /// exactly as the demote left it.
+    #[tokio::test]
+    async fn the_liveness_reconcile_leaves_a_seat_with_no_live_bridge_closed() {
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let ledger = a_card_rotated_onto_a_bound_seat(&mut sup).await;
+        {
+            let map = sup.ledger.lock().await;
+            let entry = map.get(&TugSessionId::new("address")).expect("entry");
+            entry.lock().await.spawn_state = SpawnState::Errored;
+        }
+
+        ledger
+            .demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
+            .expect("demote");
+
+        assert_eq!(sup.relive_demoted_seats().await, 0);
+        assert_eq!(
+            ledger.get("seat").unwrap().expect("row").state,
+            crate::session_ledger::SessionState::Closed,
+        );
     }
 
     /// The `headless_close_refused` rule, kept through the sweep: a segment

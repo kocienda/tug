@@ -845,7 +845,9 @@ mod tests {
     /// on the same line, seated with the binding, and the old id closed and
     /// demoted. `claude-1` is what `$TUG_SESSION_ID` still says inside it.
     fn rotate_the_card(ledger: &SessionLedger, root: &std::path::Path) {
-        ledger.demote_live_to_closed().unwrap();
+        ledger
+            .demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
+            .unwrap();
         ledger
             .record_spawn(
                 "claude-2",
@@ -905,7 +907,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path();
         let ledger = on_arc_card(root);
-        ledger.demote_live_to_closed().unwrap();
+        ledger
+            .demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
+            .unwrap();
 
         match bind(&ledger, root, "claude-1", "alpha") {
             ArcApiOutcome::Error(message) => {

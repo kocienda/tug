@@ -2064,6 +2064,34 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
   const idPrefix = validatedIdPrefix(process.env.TUG_APPTEST_ID_PREFIX);
   const ephemeralInstanceId = opts.instanceId == null;
   const instanceId = opts.instanceId ?? `${idPrefix}-${randomUUID()}`;
+  // Everything the launch's environment says before the ledger paths are
+  // derived from it. The four restatements below have to be built under the
+  // data dir this launch will actually resolve, and only the merged object
+  // knows what that is: a test may hand its own `TUG_DATA_DIR` in through
+  // `opts.env`, and `forwardableEnv` may have carried one in from the shell.
+  const baseEnv: Record<string, string> = {
+    ...forwardableEnv(),
+    TUGAPP_NATIVE_EVENT_MODE: opts.foreground ? "session" : "pid",
+    ...(opts.persistInTestMode ? { TUGAPP_PERSIST_IN_TEST_MODE: "1" } : {}),
+    ...(opts.restoreInTestMode ? { TUGAPP_RESTORE_IN_TEST_MODE: "1" } : {}),
+    ...(opts.keepSetup ? { TUGAPP_TEST_KEEP_SETUP: "1" } : {}),
+    ...(opts.env ?? {}),
+    TUGAPP_TEST_SOCKET: socketPath,
+    TUG_INSTANCE_ID: instanceId,
+  };
+  // `tugcore::instance::base_data_dir`, mirrored: a non-empty `TUG_DATA_DIR`
+  // moves the whole root to `<it>/Tug`, and an empty one is not set at all.
+  // Mirroring it is not tidiness — tugcast REFUSES a `TUG_SESSIONS_DB` naming
+  // a file outside the data dir it resolves, and exits. So a hard-coded
+  // `homedir()` path under a launch that moved its data dir does not merely
+  // put one ledger in the wrong place; it stops the process at the door and
+  // the app never comes up, which is every `TUG_DATA_DIR`-setting test in the
+  // corpus — the whole arc lane — timing out on `window.__tug`.
+  const dataDirOverride = baseEnv.TUG_DATA_DIR;
+  const instanceDataDir =
+    dataDirOverride !== undefined && dataDirOverride.length > 0
+      ? `${dataDirOverride}/Tug/instances/${instanceId}`
+      : `${homedir()}/Library/Application Support/Tug/instances/${instanceId}`;
   return {
     appPath,
     socketPath,
@@ -2073,23 +2101,16 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
     connectTimeoutMs: opts.connectTimeoutMs ?? 10000 * launchTimeoutScale(),
     connectPollMs: opts.connectPollMs ?? 100,
     env: {
-      ...forwardableEnv(),
-      TUGAPP_NATIVE_EVENT_MODE: opts.foreground ? "session" : "pid",
-      ...(opts.persistInTestMode ? { TUGAPP_PERSIST_IN_TEST_MODE: "1" } : {}),
-      ...(opts.restoreInTestMode ? { TUGAPP_RESTORE_IN_TEST_MODE: "1" } : {}),
-      ...(opts.keepSetup ? { TUGAPP_TEST_KEEP_SETUP: "1" } : {}),
-      ...(opts.env ?? {}),
-      TUGAPP_TEST_SOCKET: socketPath,
-      TUG_INSTANCE_ID: instanceId,
+      ...baseEnv,
       // Point the machine-global changes ledger into this launch's
       // per-instance data dir: harness runs must never write attribution
       // rows into the developer's real ~/Library/Application Support/Tug/
       // changes.db (the same dir the teardown below reclaims).
-      TUG_CHANGES_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/changes.db`,
+      TUG_CHANGES_DB: `${instanceDataDir}/changes.db`,
       // Same isolation for the machine-global prompt ledger: a test that
       // submits prompts must not append them to the developer's real corpus,
       // and — since nothing ever trims that file — must not be able to.
-      TUG_PROMPT_HISTORY_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/prompt_history.db`,
+      TUG_PROMPT_HISTORY_DB: `${instanceDataDir}/prompt_history.db`,
       // And the per-instance session ledger, which needs saying out loud for
       // a different reason than the three above: this launch would resolve it
       // correctly on its own, but `forwardableEnv` hands the app every `TUG*`
@@ -2097,14 +2118,14 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
       // card inherits that card's `TUG_SESSIONS_DB` — an absolute path to the
       // developer's live ledger, which resolves ahead of the data dir. Restating
       // it as this instance's own file is what closes that door.
-      TUG_SESSIONS_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/sessions.db`,
+      TUG_SESSIONS_DB: `${instanceDataDir}/sessions.db`,
       // And the machine-WIDE session index — the ledger that lets one
       // instance find a session another instance recorded. Machine-wide is
       // exactly why it needs redirecting: left alone it is one file every
       // run on this machine would write into, so a harness launch would
       // publish its throwaway sessions to the developer's real index and
       // read the developer's real sessions back as findable.
-      TUG_SESSION_INDEX_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/session_index.db`,
+      TUG_SESSION_INDEX_DB: `${instanceDataDir}/session_index.db`,
     },
     logPath,
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,

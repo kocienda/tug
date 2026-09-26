@@ -16,7 +16,7 @@
 //! [D12] of the multi-instance design record names this variable.
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 /// Environment variable name carrying the runtime instance ID.
 pub const ENV_INSTANCE_ID: &str = "TUG_INSTANCE_ID";
@@ -216,6 +216,70 @@ pub fn resolve_sessions_db_path() -> Option<PathBuf> {
         return Some(p);
     }
     Some(guard_isolated(legacy_data_dir().join("sessions.db")))
+}
+
+/// Whether `resolved` is the session ledger of the instance this process
+/// *is*, measured against that process's data directory.
+///
+/// True only when the file sits **directly in** `data_dir`, which is where
+/// both shapes put it: `<base>/instances/<id>/sessions.db` with
+/// [`ENV_INSTANCE_ID`] set, and the legacy `<base>/sessions.db` without. The
+/// parent-equality test is what makes the instance-less case answer right —
+/// a foreign instance's ledger lives one directory *below* the legacy path,
+/// so a `starts_with` test would read `<base>/instances/other/sessions.db`
+/// as this process's own.
+///
+/// Both sides are normalized lexically rather than canonicalized: an
+/// override is whatever string a parent handed down, and neither file need
+/// exist yet for the question to have an answer.
+pub fn sessions_db_is_own_at(resolved: &Path, data_dir: &Path) -> bool {
+    let resolved = lexically_normalized(resolved);
+    let dir = lexically_normalized(data_dir);
+    resolved.parent() == Some(dir.as_path())
+}
+
+/// The refusal a starting tugcast owes its user: `Some((override, own dir))`
+/// when [`ENV_SESSIONS_DB`] names a ledger outside this process's own data
+/// directory, and `None` on every launch that is allowed to proceed.
+///
+/// The override exists so a *child* reads the ledger its parent opened; it
+/// was never meant to let a new tugcast adopt a parent's. Inherited by a
+/// fresh launch it makes the process open another instance's file, where its
+/// startup demote lands on rows a live foreign process owns. Refusing at the
+/// door is what turns that silent write into a sentence.
+///
+/// [`ENV_TEST_ISOLATION`] waives the check: a harness that has asserted
+/// isolation built its environment on purpose, and `guard_isolated` already
+/// holds it to a scratch data root.
+pub fn foreign_sessions_db_override() -> Option<(PathBuf, PathBuf)> {
+    if env::var_os(ENV_TEST_ISOLATION).is_some_and(|v| !v.is_empty()) {
+        return None;
+    }
+    let raw = env::var_os(ENV_SESSIONS_DB).filter(|v| !v.is_empty())?;
+    let overridden = PathBuf::from(raw);
+    let own = data_dir();
+    if sessions_db_is_own_at(&overridden, &own) {
+        None
+    } else {
+        Some((overridden, own))
+    }
+}
+
+/// Drop `.` components and pop `..` ones without touching the filesystem.
+fn lexically_normalized(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// The pre-instances data directory. macOS has always used `Tug`; other
@@ -1029,5 +1093,103 @@ mod tests {
             std::fs::read_to_string(&marker).unwrap(),
             "/Users/x/build/Tug.app"
         );
+    }
+
+    #[test]
+    fn own_sessions_db_is_the_file_directly_in_the_data_dir() {
+        let dir = PathBuf::from("/data/Tug/instances/release-main");
+        assert!(sessions_db_is_own_at(&dir.join("sessions.db"), &dir));
+    }
+
+    #[test]
+    fn a_foreign_instances_sessions_db_is_not_own() {
+        let mine = PathBuf::from("/data/Tug/instances/release-main");
+        let theirs = PathBuf::from("/data/Tug/instances/debug-wizard/sessions.db");
+        assert!(!sessions_db_is_own_at(&theirs, &mine));
+    }
+
+    /// The instance-less process is the case parent-equality exists for: its
+    /// data dir is the base, and a `starts_with` test would read every
+    /// instance's ledger under it as its own.
+    #[test]
+    fn a_foreign_instances_sessions_db_is_not_own_to_an_instance_less_process() {
+        let base = PathBuf::from("/data/Tug");
+        assert!(sessions_db_is_own_at(&base.join("sessions.db"), &base));
+        assert!(!sessions_db_is_own_at(
+            &PathBuf::from("/data/Tug/instances/debug-wizard/sessions.db"),
+            &base
+        ));
+    }
+
+    #[test]
+    fn own_sessions_db_normalizes_dot_segments() {
+        let dir = PathBuf::from("/data/Tug/instances/release-main");
+        assert!(sessions_db_is_own_at(
+            &PathBuf::from("/data/Tug/instances/debug-other/../release-main/./sessions.db"),
+            &dir
+        ));
+    }
+
+    #[test]
+    #[serial]
+    fn override_naming_another_instance_is_refused() {
+        let _e = EnvGuard::snapshot();
+        let tmp = tempfile::tempdir().unwrap();
+        let _h = VarGuard::set(ENV_DATA_DIR, Some(tmp.path()));
+        let _i = VarGuard::set(ENV_TEST_ISOLATION, None);
+        set_instance(Some("release-main"));
+        let theirs = tmp
+            .path()
+            .join("Tug/instances/debug-wizard-downloads/sessions.db");
+        let _s = VarGuard::set(ENV_SESSIONS_DB, Some(&theirs));
+
+        let (foreign, own) = foreign_sessions_db_override().expect("refusal");
+        assert_eq!(foreign, theirs);
+        assert_eq!(own, tmp.path().join("Tug/instances/release-main"));
+    }
+
+    #[test]
+    #[serial]
+    fn override_naming_this_instance_is_honoured() {
+        let _e = EnvGuard::snapshot();
+        let tmp = tempfile::tempdir().unwrap();
+        let _h = VarGuard::set(ENV_DATA_DIR, Some(tmp.path()));
+        let _i = VarGuard::set(ENV_TEST_ISOLATION, None);
+        set_instance(Some("release-main"));
+        let mine = tmp.path().join("Tug/instances/release-main/sessions.db");
+        let _s = VarGuard::set(ENV_SESSIONS_DB, Some(&mine));
+
+        assert_eq!(foreign_sessions_db_override(), None);
+        assert_eq!(resolve_sessions_db_path(), Some(mine));
+    }
+
+    /// A harness that asserted isolation built its environment on purpose,
+    /// so the override it set is the one the process must use.
+    #[test]
+    #[serial]
+    fn the_isolation_variable_waives_the_refusal() {
+        let _e = EnvGuard::snapshot();
+        let tmp = tempfile::tempdir().unwrap();
+        let _h = VarGuard::set(ENV_DATA_DIR, Some(tmp.path()));
+        let _i = VarGuard::set(ENV_TEST_ISOLATION, Some(std::path::Path::new("1")));
+        set_instance(Some("release-main"));
+        let elsewhere = tmp.path().join("scratch/sessions.db");
+        let _s = VarGuard::set(ENV_SESSIONS_DB, Some(&elsewhere));
+
+        assert_eq!(foreign_sessions_db_override(), None);
+        assert_eq!(resolve_sessions_db_path(), Some(elsewhere));
+    }
+
+    #[test]
+    #[serial]
+    fn no_override_is_nothing_to_refuse() {
+        let _e = EnvGuard::snapshot();
+        let tmp = tempfile::tempdir().unwrap();
+        let _h = VarGuard::set(ENV_DATA_DIR, Some(tmp.path()));
+        let _i = VarGuard::set(ENV_TEST_ISOLATION, None);
+        let _s = VarGuard::set(ENV_SESSIONS_DB, None);
+        set_instance(Some("release-main"));
+
+        assert_eq!(foreign_sessions_db_override(), None);
     }
 }

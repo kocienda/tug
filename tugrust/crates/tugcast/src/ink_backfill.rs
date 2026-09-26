@@ -400,7 +400,9 @@ mod tests {
             assistant("msg_DOOR", "1970-01-01T00:00:01.500Z"),
         )
         .expect("door jsonl");
-        sessions.demote_live_to_closed().expect("rotate");
+        sessions
+            .demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
+            .expect("rotate");
         sessions
             .record_spawn("head", "ws", "/proj", "card-1", 5_000, "line-1", None)
             .expect("spawn the head");

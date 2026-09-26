@@ -7,7 +7,7 @@
 //! |---|---|---|
 //! | the plan's **Step Status Ledger** | `arc step …`, and a person's editor | the arc's resume pointer, the changeset feed's closed count |
 //! | the **arc log**'s declarations | `arc step …`, `arc mark` | `arc status`, `run_fraction`, `derive_stage`, `join_ready` |
-//! | the **sqlite binding** | tugcast, at bind and at the rotation seat | which card an arc is showing in |
+//! | the **sqlite binding** | tugcast, at bind and at the rotation seat | which card an arc is showing in, and whether that seat is still alive |
 //! | the **arc record** (also the log) | the arc runner | which stage the Wheel rotates next |
 //! | the **seat** — branch and worktree | `ops::create_in`, from the dispatch | the stage's `where` line, every round |
 //!
@@ -201,11 +201,20 @@ pub fn diagnose(repo_root: &Path, name: &str) -> ArcDiagnosis {
 
     let ledger = table.as_ref().map(|(path, _)| path.clone());
     let rows: &[Row] = table.as_ref().map(|(_, rows)| &rows[..]).unwrap_or(&[]);
+    let seat = ops::seat_row_for(&ops::arc_owner_key(repo_root, name));
 
     check_table_against_log(&mut findings, rows, &decls, ledger.is_some(), name);
     check_run_arming(&mut findings, rows, &decls);
     check_commit_cells(&mut findings, rows);
-    check_arc(&mut findings, rows, arc.as_ref(), repo_root, name);
+    check_arc(
+        &mut findings,
+        rows,
+        arc.as_ref(),
+        seat.as_ref(),
+        repo_root,
+        name,
+    );
+    check_seat_alive(&mut findings, arc.as_ref(), seat.as_ref());
     check_seat(&mut findings, arc.as_ref(), repo_root, name);
     check_base_checkout(&mut findings, repo_root, name);
 
@@ -394,6 +403,7 @@ fn check_arc(
     findings: &mut Vec<ArcFinding>,
     rows: &[Row],
     arc: Option<&crate::arc::ArcRecord>,
+    seat: Option<&ops::SeatRow>,
     repo_root: &Path,
     name: &str,
 ) {
@@ -444,8 +454,14 @@ fn check_arc(
     // runner will rotate a stage onto a card that no session is bound to.
     // Only asked of an arc that is neither done nor stopped — a stopped arc
     // is *supposed* to be sitting there with nothing running.
+    //
+    // A seat row the arc still names says *why* nobody is seated, and
+    // `seat-dead` below is the sentence for it — so this one keeps quiet
+    // where that one speaks, and an arc whose seat was demoted is named once
+    // rather than twice.
     if arc.stopped.is_none()
         && arc.current_stage().is_some()
+        && seat.is_none()
         && ops::bound_session_for(&ops::arc_owner_key(repo_root, name)).is_none()
     {
         findings.push(ArcFinding {
@@ -461,6 +477,103 @@ fn check_arc(
         });
     }
 }
+
+/// The binding read for liveness: the segment the arc is bound to is live,
+/// and it is seated in a card.
+///
+/// The binding is already one of the five, and until now it was asked one
+/// question — *is anybody seated?* — over live rows alone, so a seat that
+/// died answered the same as a seat nobody ever took. Every other record is
+/// something this repository writes, and all four can agree while the arc is
+/// dead, because the thing that died is the *session*. A card that lost its
+/// WebSocket and had its row demoted by the next tugcast's startup close
+/// leaves a binding pointing at a corpse: the ledger table, the arc log, the
+/// arc record and the seat's own branch and worktree all read exactly as they
+/// did an hour before, and the stage the Wheel rotates next lands on nothing.
+/// "The records agree" is the wrong answer over that, and this is the reading
+/// that makes it the right one.
+///
+/// Two shapes, one code. A row that is not `live` is a seat that ended, and
+/// `demoted` is named when it is why, because that is the one close the
+/// supervisor's own liveness may take back. A row that is `live` and holds no
+/// card is the other half: the segment exists and nothing is showing it, so a
+/// stage seated there would write into a card nobody can see.
+///
+/// Silent on an arc with no seat row at all — that is `arc-unbound`'s
+/// sentence, and a demote keeps `arc_id` while a deliberate close clears it,
+/// so "no row" really does mean nobody ever sat here.
+fn check_seat_alive(
+    findings: &mut Vec<ArcFinding>,
+    arc: Option<&crate::arc::ArcRecord>,
+    seat: Option<&ops::SeatRow>,
+) {
+    let Some(arc) = arc else {
+        return;
+    };
+    if arc.done || arc.stopped.is_some() || arc.current_stage().is_none() {
+        return;
+    }
+    let Some(seat) = seat else {
+        return;
+    };
+    let stage = arc
+        .current_stage()
+        .map(|s| s.as_str().to_owned())
+        .unwrap_or_default();
+
+    if seat.state != "live" {
+        let why = if seat.demoted {
+            " because it was demoted — the startup close a tugcast takes over every row it \
+             finds live, which the supervisor's own liveness re-lives when the card is still there"
+        } else {
+            ""
+        };
+        findings.push(ArcFinding {
+            code: SEAT_LIVENESS_CODE.into(),
+            sentence: format!(
+                "the arc is in its {stage} stage and the segment it is bound to, `{}`, reads \
+                 '{}' in the session ledger{why} — the other records all agree while the seat \
+                 itself is gone, so the next rotation would be sent to a session that ended.",
+                seat.session_id, seat.state
+            ),
+            repair: None,
+        });
+        return;
+    }
+
+    if seat.card_id.is_none() {
+        findings.push(ArcFinding {
+            code: SEAT_LIVENESS_CODE.into(),
+            sentence: format!(
+                "the arc is in its {stage} stage and the segment it is bound to, `{}`, reads \
+                 'live' in the session ledger while sitting in no card — a stage seated there \
+                 would write its turns where nobody can see them.",
+                seat.session_id
+            ),
+            repair: None,
+        });
+    }
+}
+
+/// The seat-liveness finding, which is named so the runner can exclude it.
+///
+/// It belongs with `arc-unbound` rather than with the record disagreements,
+/// and for the same reason: both read the *binding* out of the machine's
+/// session ledger, which is the one premise the arc runner already holds a
+/// better answer for. The runner reaches a dispatch by way of
+/// `bound_session_by_arc` — a live row, on a card, resolved moments earlier,
+/// with the supervisor's liveness reconcile run ahead of it — so a stage
+/// stopped on this code would be stopped by a second reading of the thing
+/// that got it here. Worse, the one state that can make the two disagree is a
+/// concurrent demote, and the whole point of the reconcile is that a demote
+/// is undone on the next tick rather than ending the arc.
+///
+/// Excluding it costs the runner nothing it does not already have. A seat that
+/// really has gone between the sweep and the prompt is `seat_or_stop`'s to
+/// refuse, under a reason that names the session rather than the records.
+/// What the code is *for* is the person who typed `tugtool arc doctor` over an
+/// arc whose every other record agrees, and that reading is untouched.
+pub const SEAT_LIVENESS_CODE: &str = "seat-dead";
 
 /// The seat against the record: an arc past devise has a branch and a
 /// worktree, and the worktree is checked out on the branch.
@@ -886,5 +999,120 @@ mod tests {
         check_table_against_log(&mut findings, &[], &decls(Some((2, 5)), true), false, "d");
         assert_eq!(codes(&findings), ["ledger-missing"]);
         assert!(findings[0].repair.is_none());
+    }
+
+    /// An arc mid-implement, with nothing wrong but its seat.
+    fn implementing() -> crate::arc::ArcRecord {
+        use crate::arc::{ArcRecord, ArcStage, ArcStageLine};
+        ArcRecord {
+            arc: "d".to_owned(),
+            document: None,
+            kind: None,
+            plan: None,
+            stages: vec![ArcStageLine {
+                stage: ArcStage::Implement,
+                session_id: "claude-1".to_owned(),
+                model: None,
+                at: "2026-09-26T00:00:00Z".to_owned(),
+            }],
+            notes: Vec::new(),
+            stopped: None,
+            last_stop: None,
+            stopping: None,
+            resume: None,
+            dispatched: None,
+            owner: None,
+            done: false,
+            last_activity: None,
+        }
+    }
+
+    fn seat(state: &str, demoted: bool, card: Option<&str>) -> ops::SeatRow {
+        ops::SeatRow {
+            session_id: "segment-2".to_owned(),
+            state: state.to_owned(),
+            demoted,
+            card_id: card.map(str::to_owned),
+        }
+    }
+
+    /// The arc this whole reading exists for: a card lost its socket, the
+    /// next tugcast's startup close demoted its row, and every record this
+    /// repository writes still reads exactly as it did.
+    #[test]
+    fn a_demoted_seat_is_named_and_says_why() {
+        let mut findings = Vec::new();
+        check_seat_alive(
+            &mut findings,
+            Some(&implementing()),
+            Some(&seat("closed", true, Some("card-7"))),
+        );
+
+        assert_eq!(codes(&findings), ["seat-dead"]);
+        let sentence = &findings[0].sentence;
+        assert!(
+            sentence.contains("segment-2") && sentence.contains("'closed'"),
+            "the sentence names the segment and its state: {sentence}"
+        );
+        assert!(
+            sentence.contains("demoted"),
+            "and the word for why, when that is why: {sentence}"
+        );
+        assert!(
+            findings[0].repair.is_none(),
+            "reviving a seat is the supervisor's act on live evidence, never the doctor's"
+        );
+    }
+
+    /// The other half: the segment is live and nothing is showing it, so a
+    /// stage seated there writes where nobody can read.
+    #[test]
+    fn a_live_seat_in_no_card_is_named() {
+        let mut findings = Vec::new();
+        check_seat_alive(
+            &mut findings,
+            Some(&implementing()),
+            Some(&seat("live", false, None)),
+        );
+
+        assert_eq!(codes(&findings), ["seat-dead"]);
+        let sentence = &findings[0].sentence;
+        assert!(
+            sentence.contains("segment-2") && sentence.contains("no card"),
+            "{sentence}"
+        );
+        assert!(
+            !sentence.contains("demoted"),
+            "the word is for the close that earned it: {sentence}"
+        );
+    }
+
+    /// A seated live segment is the ordinary arc, and a stopped one is
+    /// *supposed* to be sitting there with nothing running.
+    #[test]
+    fn a_live_seated_segment_and_a_stopped_arc_are_both_quiet() {
+        use crate::arc::ArcStage;
+
+        let mut findings = Vec::new();
+        check_seat_alive(
+            &mut findings,
+            Some(&implementing()),
+            Some(&seat("live", false, Some("card-7"))),
+        );
+        assert!(findings.is_empty(), "{findings:#?}");
+
+        let mut stopped = implementing();
+        stopped.stopped = Some((ArcStage::Implement, "stopped by user".to_owned()));
+        check_seat_alive(
+            &mut findings,
+            Some(&stopped),
+            Some(&seat("closed", true, None)),
+        );
+        assert!(findings.is_empty(), "{findings:#?}");
+
+        // And an arc with no seat row at all: `arc-unbound` says that, and
+        // saying it twice in two vocabularies is worse than saying it once.
+        check_seat_alive(&mut findings, Some(&implementing()), None);
+        assert!(findings.is_empty(), "{findings:#?}");
     }
 }

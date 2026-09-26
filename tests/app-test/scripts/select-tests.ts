@@ -363,7 +363,19 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // verdict key selected a slash-command test, because every sibling module here is equal
     // to every other. It is the first entry to pay down if per-symbol `@covers` is ever
     // built, and this number is what will say whether it still needs to be.
-    "tugdeck/src/lib/annotator/": 20,
+    //
+    // Re-added at 21 rather than raised from 20, which is what the ratchet
+    // asks for. The module that joined is `written-paths.ts`, the reading
+    // that turns a `Write` result or a `TUG-FILE-RECEIPT` into the paths a
+    // tool call put on disk, which the resolver then holds as confirmed. It
+    // is one unit with the rest of this directory for the reason the whole
+    // entry exists: what it answers for is only observable through an
+    // annotation — whether the link over a path the same turn wrote is live,
+    // and whether the Run rows over a hand-off line naming it are dimmed.
+    // Both of the tests declaring this subtree, `at0225` over the
+    // slash-command menu and `at0307` over transcript path links, assert
+    // exactly that, so the declaration already names its true subject.
+    "tugdeck/src/lib/annotator/": 21,
 
     "tugdeck/src/lib/code-session-store/": 30,
     "tugdeck/src/lib/markdown/": 19,

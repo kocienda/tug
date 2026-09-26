@@ -18,6 +18,10 @@
  * arc before its branch exists — the brief/devise/review half of an arc's
  * life — and a session whose binding only appeared once a worktree did would
  * have no arc to show for the half it spent planning.
+ *
+ * And each fact is filed under two keys, the bound segment and that segment's
+ * line, because the caller's id is a segment of a conversation rather than the
+ * conversation — see {@link buildArcSessionIndex} and {@link arcForSession}.
  */
 
 import { useMemo, useSyncExternalStore } from "react";
@@ -36,6 +40,7 @@ import type {
 } from "./changeset-types";
 import { documentArcTrackModel } from "./document-arc-entry";
 import { type ArcMetaFact, arcMetaFacts } from "./arc-meta-facts";
+import { sessionLineStore } from "./session-line-store";
 import {
   type ArcTrackModel,
   arcTrackModelFromEntry,
@@ -115,11 +120,32 @@ export interface ArcSessionFact {
  * wins. "First" is snapshot order — projects in the order the aggregate lists
  * them, entries in the order the project lists them — which makes the tie
  * deterministic rather than merely arbitrary.
+ *
+ * **Each fact is filed twice: under its bound segment, and under that
+ * segment's line** ([B02]). The segment key is the exact answer and stays the
+ * first one tried; the line key is what answers for a *sibling* segment of the
+ * same conversation — the address a rotation left behind, which is exactly the
+ * id a reconnected card carries. The aggregate names only the segment, so the
+ * line comes from `lineOf`, which the deck durably holds from the row push and
+ * the spawn ack rather than from a memory-only seat.
+ *
+ * Still pure: the lookup is a parameter, defaulted to the store every caller
+ * but a test passes.
  */
 export function buildArcSessionIndex(
   snapshot: WorkspacesChangesetSnapshot,
+  lineOf: (sessionId: string) => string | null = sessionLineStore.lineOf,
 ): ReadonlyMap<string, ArcSessionFact> {
   const index = new Map<string, ArcSessionFact>();
+  // First claim wins on both keys, so a second arc naming the same session —
+  // or a second session of the same line — never displaces the first.
+  const claim = (boundSession: string, fact: ArcSessionFact): void => {
+    if (!index.has(boundSession)) index.set(boundSession, fact);
+    const line = lineOf(boundSession);
+    if (line !== null && line !== boundSession && !index.has(line)) {
+      index.set(line, fact);
+    }
+  };
   for (const project of snapshot.projects) {
     for (const entry of project.changesets) {
       if (entry.kind !== "arc") continue;
@@ -144,7 +170,7 @@ export function buildArcSessionIndex(
         boundSession,
         steps: entry.steps ?? [],
       };
-      if (!index.has(boundSession)) index.set(boundSession, fact);
+      claim(boundSession, fact);
     }
     // The documents-only arcs of the same project, after its live entries so
     // the first-claim rule keeps the live reading for a session that somehow
@@ -181,7 +207,7 @@ export function buildArcSessionIndex(
         boundSession,
         steps: [],
       };
-      if (!index.has(boundSession)) index.set(boundSession, fact);
+      claim(boundSession, fact);
     }
   }
   return index;
@@ -191,19 +217,26 @@ export function buildArcSessionIndex(
  * The memoized map for a snapshot. Snapshot identity is the cache key, so the
  * projection runs once per aggregate beat no matter how many atoms read it,
  * and the returned map is reference-stable for the snapshot's whole life.
+ *
+ * The line store's version rides beside it, because the line keys are built
+ * from that store and it moves on its own beat: a segment-to-line pair
+ * arriving after the projection ran would otherwise leave the line key missing
+ * from a map nothing ever rebuilds. The version is monotonic and bumps only on
+ * a real write, so a quiet store costs the same one build it always did.
  */
 const _cache = new WeakMap<
   WorkspacesChangesetSnapshot,
-  ReadonlyMap<string, ArcSessionFact>
+  { readonly version: number; readonly map: ReadonlyMap<string, ArcSessionFact> }
 >();
 
 export function arcSessionIndex(
   snapshot: WorkspacesChangesetSnapshot,
 ): ReadonlyMap<string, ArcSessionFact> {
+  const version = sessionLineStore.getVersion();
   const hit = _cache.get(snapshot);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined && hit.version === version) return hit.map;
   const built = buildArcSessionIndex(snapshot);
-  _cache.set(snapshot, built);
+  _cache.set(snapshot, { version, map: built });
   return built;
 }
 
@@ -223,6 +256,14 @@ export function arcSessionIndex(
  * That the incident blanked the masthead sigil and the Z2 ARC cell together
  * is this one lookup failing twice: both are `useArcForSession` over an id the
  * rotation had left behind ([D167]).
+ *
+ * **Three doors, and the third is the line** ([B02]). Address, then the card's
+ * announced seat, then the caller's own line — which the index is keyed by as
+ * well as by the segment. With the seat restored on every spawn ack the third
+ * door should never be reached; it is there for the failure this arc is about,
+ * a seat frame that was lost and a card left keyed to a retired segment. The
+ * seat walk is not replaced by it: a seat is what the server *said*, and a
+ * line is what the deck can *derive*, so the said answer stays first.
  */
 export function arcForSession(
   snapshot: WorkspacesChangesetSnapshot,
@@ -233,8 +274,13 @@ export function arcForSession(
   const direct = index.get(sessionId);
   if (direct !== undefined) return direct;
   const seated = seatedSegmentForSession(sessionId);
-  if (seated === sessionId) return null;
-  return index.get(seated) ?? null;
+  if (seated !== sessionId) {
+    const bySeat = index.get(seated);
+    if (bySeat !== undefined) return bySeat;
+  }
+  const line = sessionLineStore.lineOf(sessionId);
+  if (line !== null && line !== sessionId) return index.get(line) ?? null;
+  return null;
 }
 
 /**
@@ -276,11 +322,20 @@ export function useArcForSession(
     cardSessionBindingStore.subscribe,
     cardSessionBindingStore.getSnapshot,
   );
+  // And the line store, for the same reason and by the same shape: the index's
+  // line keys are built from it, and a pair landing after an aggregate beat
+  // moves the answer with nothing else to notice.
+  const lines = useSyncExternalStore(
+    sessionLineStore.subscribe,
+    sessionLineStore.getVersion,
+  );
   return useMemo(
     () => arcForSession(data, sessionId),
-    // `seats` is a change token, not a value this derivation reads — it is in
-    // the dependency list precisely so a seat move re-runs the walk. The store
-    // hands back a fresh Map on every write, so identity is the signal.
-    [data, sessionId, seats],
+    // `seats` and `lines` are change tokens, not values this derivation reads
+    // — they are in the dependency list precisely so a seat move or a new
+    // segment-to-line pair re-runs the walk. The binding store hands back a
+    // fresh Map on every write and the line store a bumped counter, so
+    // identity is the signal in both.
+    [data, sessionId, seats, lines],
   );
 }

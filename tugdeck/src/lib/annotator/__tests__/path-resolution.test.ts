@@ -764,3 +764,106 @@ describe("a FILESYSTEM event re-asks the verdicts it contradicts", () => {
     h.store.dispose();
   });
 });
+
+describe("the third door: a write the session itself watched happen", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const PATH = "/repo/briefs/grab-dots-brief.md";
+
+  function harness() {
+    let clock = 1_000_000;
+    const asked: string[][] = [];
+    const heard: VerdictKey[][] = [];
+    let answer: ProbeResult | null = null;
+    const store = new PathResolutionStore(
+      () => clock,
+      async (paths) => {
+        asked.push([...paths]);
+        return answer;
+      },
+    );
+    store.subscribe((keys) => heard.push([...keys]));
+    return {
+      store,
+      asked,
+      heard,
+      answerWith: (next: ProbeResult | null) => {
+        answer = next;
+      },
+      tick: async (ms: number) => {
+        clock += ms;
+        jest.advanceTimersByTime(ms);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      },
+    };
+  }
+
+  /**
+   * The shape [F23] found in the wild: the turn names the path in its `Write`
+   * block, the annotator probes it before the file is on disk and records
+   * `missing`, and the hand-off line printed at the end of the same turn is
+   * read against that answer. The write's own result is what settles it, and
+   * it settles it now rather than a minute from now.
+   */
+  test("a written path replaces a missing verdict at once, with no probe and no timer", async () => {
+    const h = harness();
+    h.answerWith({ exists: { [PATH]: false }, canonical: {}, isDir: {} });
+    h.store.lookup(PATH, null);
+    await h.tick(20);
+    expect(h.store.lookup(PATH, null)).toEqual({ state: "missing" });
+    const askedBefore = h.asked.length;
+    const heardBefore = h.heard.length;
+
+    h.store.confirmWritten([PATH]);
+
+    expect(h.store.lookup(PATH, null)).toEqual({
+      state: "confirmed",
+      canonical: PATH,
+      isDir: false,
+    });
+    expect(h.heard.length).toBe(heardBefore + 1);
+    expect(h.heard[h.heard.length - 1]).toEqual([pathVerdictKey(PATH)]);
+
+    // Nothing was asked, and nothing is waiting to ask: the answer arrived
+    // with the question — and the re-ask the `missing` had armed finds a
+    // verdict that no longer expires, so it asks nothing either.
+    await h.tick(RETRY_AFTER_MS + 50);
+    expect(h.asked.length).toBe(askedBefore);
+    h.store.dispose();
+  });
+
+  test("a path already confirmed the same way says nothing twice", () => {
+    const h = harness();
+    h.store.confirmWritten([PATH]);
+    const heardOnce = h.heard.length;
+    h.store.confirmWritten([PATH]);
+    expect(h.heard.length).toBe(heardOnce);
+    h.store.dispose();
+  });
+
+  test("a relative path is dropped rather than guessed at", () => {
+    const h = harness();
+    h.store.confirmWritten(["briefs/grab-dots-brief.md"]);
+    expect(h.heard).toEqual([]);
+    expect(h.store.lookup("briefs/grab-dots-brief.md", "/repo")).toEqual({
+      state: "pending",
+    });
+    h.store.dispose();
+  });
+
+  test("two spellings of one path share the entry the resolver keys on", () => {
+    const h = harness();
+    h.store.confirmWritten(["/repo/./briefs/../briefs/grab-dots-brief.md"]);
+    expect(h.store.lookup(PATH, null)).toEqual({
+      state: "confirmed",
+      canonical: PATH,
+      isDir: false,
+    });
+    h.store.dispose();
+  });
+});

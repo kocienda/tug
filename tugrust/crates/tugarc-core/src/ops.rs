@@ -2441,6 +2441,62 @@ pub fn derive_stage(
     }
 }
 
+/// One `sessions` row read by arc, in whatever state it is in.
+///
+/// [`bound_session_for`] answers "is anybody seated" and is defined over live
+/// rows alone; this answers the question that begins where that one ends —
+/// *the arc has a seat and it is not live, so what became of it?* A demote
+/// keeps `arc_id` (it closes the process, not the session) while a deliberate
+/// close clears it, so a row still naming the arc while reading `closed` is
+/// the startup-demote corpse and nothing else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeatRow {
+    /// The segment the binding sits on.
+    pub session_id: String,
+    /// The ledger's own word: `live`, `closed`, …
+    pub state: String,
+    /// `closed` by the startup demote rather than by a person.
+    pub demoted: bool,
+    /// The card the segment is seated in, when it is seated in one.
+    pub card_id: Option<String>,
+}
+
+/// The seat `owner_key`'s arc is bound to, live or not.
+///
+/// A live row wins over a dead one — a card that rotated leaves the old
+/// segment behind, and the arc's seat is whichever segment is live now — so a
+/// reading here is quiet on every healthy arc and answers only where there is
+/// no live row to prefer. Best-effort on the same terms as
+/// [`bound_session_for`]: no db, no table, no `demoted` column all read as
+/// absent.
+pub(crate) fn seat_row_for(owner_key: &str) -> Option<SeatRow> {
+    let db = sessions_db_file()?;
+    let Ok(conn) =
+        rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return None;
+    };
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT session_id, state, demoted, card_id FROM sessions \
+         WHERE arc_id = ?1 \
+         ORDER BY (state = 'live') DESC, last_used_at DESC LIMIT 1",
+    ) else {
+        return None;
+    };
+    stmt.query_map(rusqlite::params![owner_key], |row| {
+        Ok(SeatRow {
+            session_id: row.get(0)?,
+            state: row.get(1)?,
+            demoted: row.get::<_, i64>(2)? != 0,
+            card_id: row
+                .get::<_, Option<String>>(3)?
+                .filter(|card| !card.is_empty()),
+        })
+    })
+    .ok()
+    .and_then(|mut rows| rows.next().and_then(Result::ok))
+}
+
 /// The live session bound to `owner_key`, read read-only from the per-instance
 /// `sessions.db` ([P08], [Q02] — this instance's view only).
 ///

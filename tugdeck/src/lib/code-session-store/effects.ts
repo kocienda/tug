@@ -279,6 +279,31 @@ export interface WriteLiveUsageEffect {
   usage: LiveMessageUsage;
 }
 
+/**
+ * Tell the path resolver that this turn's own tool call put these files on
+ * disk.
+ *
+ * The resolver learns about the world from a probe it asked for and from the
+ * filesystem feed, and both are reports about somebody else's write. This is
+ * the one write the deck watched happen, and it matters because of the order:
+ * a turn that writes a file names its path in the tool block before the file
+ * exists, the annotator probes it then and records `missing`, and the hand-off
+ * line printed at the end of the same turn reads as pointing at nothing until
+ * the resolver's minute is up.
+ *
+ * **Emitted for every result that is not a replay.** A replayed `Write` is a
+ * claim about a moment that has passed, and confirming a since-deleted path
+ * from one would manufacture a link — which is the whole of the exclusion. A
+ * wake turn's write is a present write and comes through. The reducer knows
+ * which it is holding; the store does not, which is why the test lives at the
+ * emission rather than in `confirmWritten`.
+ */
+export interface ConfirmWrittenPathsEffect {
+  kind: "confirm-written-paths";
+  /** Absolute paths the tool result said landed. Never empty. */
+  paths: string[];
+}
+
 export type Effect =
   | WriteLiveUsageEffect
   | WriteInflightEffect
@@ -294,7 +319,8 @@ export type Effect =
   | RecordContextBreakdownEffect
   | TruncateTranscriptEffect
   | AppendCompactNoteEffect
-  | AppendStageNoteEffect;
+  | AppendStageNoteEffect
+  | ConfirmWrittenPathsEffect;
 
 export function isWriteInflight(e: Effect): e is WriteInflightEffect {
   return e.kind === "write-inflight";

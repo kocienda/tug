@@ -97,6 +97,15 @@ pub struct ArcContext {
 /// Per-arc memory the documents cannot hold.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct ArcState {
+    /// What the last sweep that saw this arc knew about it — the card it ran
+    /// on and where its log lives.
+    ///
+    /// The sweep's memory of its own membership, which is the only place the
+    /// departure can be noticed from: an arc that leaves `bound_arcs` is, by
+    /// construction, no longer anything the sweep reads. `None` on an arc no
+    /// sweep has ticked, and cleared by `evict_for_stop`, so an arc that
+    /// stopped for a reason of its own never also departs.
+    seen: Option<BoundArc>,
     /// How many `arc-stage` lines the record held when a rotation was
     /// dispatched, while that rotation's own line has not landed yet.
     ///
@@ -265,10 +274,27 @@ struct PendingPrompt {
 }
 
 /// One arc the sweep found: a bound arc, and the card it runs on.
+#[derive(Debug, Clone)]
 struct BoundArc {
     project: PathBuf,
     name: String,
+    /// The card's address — the tug session id every frame is stamped with
+    /// and the supervisor's map is keyed by. This is the id the runner
+    /// *addresses* the bridge by, and it is transport: it is how a prompt
+    /// reaches the card, and it is not a name the stage inside ever sees.
     session: TugSessionId,
+    /// The segment the binding sits on — the live row `bound_session_by_arc`
+    /// answered with, which is the same string `$TUG_SESSION_ID` holds in the
+    /// stage's shell and the same string `arc status` reports as
+    /// `bound_session`.
+    ///
+    /// Before a rotation the two are one string. After one they are not, and
+    /// the `where` line must carry *this* one: a stage handed the address
+    /// compares it against its own shell, finds two ids, and concludes the
+    /// wheel and the binder disagree about which session is seated. They do
+    /// not; they were speaking two vocabularies, and the stage was handed
+    /// both with no key.
+    seat: String,
 }
 
 /// Run the engine until `cancel` fires.
@@ -333,8 +359,87 @@ pub async fn run_arc_engine(
 
 /// Evaluate every arc a live session is bound to.
 async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) {
-    for arc in bound_arcs(ctx).await {
-        evaluate(ctx, state, &arc).await;
+    // Before bound-ness is read, not after: `bound_session_by_arc` filters to
+    // live rows, so a seat some demote closed under a running bridge takes its
+    // arc out of the sweep entirely — and an arc the sweep cannot see is one
+    // nothing prompts again. The supervisor's own liveness is what corrects it.
+    ctx.supervisor.relive_demoted_seats().await;
+    let arcs = bound_arcs(ctx).await;
+    let present: Vec<(String, BoundArc)> = arcs
+        .into_iter()
+        .map(|arc| (arc_key(&arc), arc))
+        .collect::<Vec<_>>();
+    // An arc that was here last sweep and is not here now, before the ones
+    // that *are* here are evaluated: the departure is about this membership
+    // reading, and an evaluation that stops an arc would otherwise rewrite the
+    // memory the comparison is against.
+    depart(ctx, state, &present).await;
+    {
+        let mut map = state.lock().await;
+        for (key, arc) in &present {
+            map.entry(key.clone()).or_default().seen = Some(arc.clone());
+        }
+    }
+    for (_, arc) in &present {
+        evaluate(ctx, state, arc).await;
+    }
+}
+
+/// Stop, with a receipt, every arc a previous sweep ticked that this one
+/// cannot see — unless its own log already says why it left.
+///
+/// Bound-ness keeps its one definition: this asks nothing new about whether
+/// an arc is bound, it only notices that the answer changed with nothing
+/// written down. A stop, a join and a discard all leave a line, so an arc
+/// that left for one of those is forgotten in silence; what is left over is
+/// the seat going away under a run nobody ended, which used to be the whole
+/// of what any surface could tell you about it.
+async fn depart(ctx: &ArcContext, state: &ArcMemory, present: &[(String, BoundArc)]) {
+    let gone: Vec<(String, BoundArc)> = {
+        let map = state.lock().await;
+        map.iter()
+            .filter(|(key, _)| !present.iter().any(|(here, _)| here == *key))
+            .filter_map(|(key, entry)| Some((key.clone(), entry.seen.clone()?)))
+            .collect()
+    };
+    for (key, arc) in gone {
+        // The log is the only record that can say why an arc left, so an arc
+        // with none — discarded out from under the sweep — has nothing to
+        // write to and nothing to be told about.
+        let departure = read_arc(&arc.project, &arc.name).filter(|record| {
+            !record.done
+                && record.stopped.is_none()
+                && record.stopping.is_none()
+                && !record.stages.is_empty()
+        });
+        let Some(record) = departure else {
+            forget_seen(state, &key).await;
+            continue;
+        };
+        let stage = record.stages[record.stages.len() - 1].stage;
+        stop_arc_for_session(
+            &ctx.supervisor,
+            &ctx.wheel,
+            &arc.session,
+            &arc.project,
+            &arc.name,
+            stage,
+            ArcStopReason::SeatLost,
+            StopDelivery {
+                hand_back: HandBack::Send,
+                record: true,
+            },
+        )
+        .await;
+        evict_for_stop(state, &key, None).await;
+    }
+}
+
+/// Drop the sweep's memory of an arc without disturbing the rest of its
+/// state: it left for a reason its own log already carries.
+async fn forget_seen(state: &ArcMemory, key: &str) {
+    if let Some(entry) = state.lock().await.get_mut(key) {
+        entry.seen = None;
     }
 }
 
@@ -370,6 +475,7 @@ async fn bound_arcs(ctx: &ArcContext) -> Vec<BoundArc> {
         out.push(BoundArc {
             project: PathBuf::from(&row.project_dir),
             name,
+            seat: session.clone(),
             session: card_session_for_segment(ctx, session).await,
         });
     }
@@ -1732,7 +1838,7 @@ fn opening_prompt(
     });
     let place = wheel::prompt::where_clause(
         seat,
-        arc.session.as_str(),
+        arc.seat.as_str(),
         rotation.stage.as_str(),
         steps_in_hand,
     );
@@ -1880,7 +1986,16 @@ struct RecordsVerdict {
 /// live session is bound to this arc and answers out of the machine's sessions
 /// ledger — a question the caller already answered better, from the binding
 /// that produced the seat it is holding. A runner that stopped on it would be
-/// taking a second, worse reading of its own premise. `seat-missing` is *not*
+/// taking a second, worse reading of its own premise. `seat-dead` is excluded
+/// for exactly that reason too: it reads the same binding out of the same
+/// ledger and asks whether the segment is live and carded, which is what
+/// `bound_session_by_arc` and `card_session_for_segment` answered to get this
+/// dispatch here — with the liveness reconcile run ahead of them. The one
+/// state that can make the two disagree is a demote landing in between, and a
+/// demote is the thing the reconcile undoes on the next tick; stopping the arc
+/// over it would spend the repair to report the damage. A seat that genuinely
+/// went away between the sweep and the prompt is `seat_or_stop`'s refusal,
+/// under a reason that names the session. `seat-missing` is *not*
 /// excluded, which is what makes a worktree deleted by hand and a `create_in`
 /// that failed read the same way.
 async fn records_agree_or_stop(
@@ -1904,6 +2019,10 @@ async fn records_agree_or_stop(
     let mut disagreements = Vec::new();
     for finding in &outcome.diagnosis.findings {
         if finding.code == "arc-unbound" {
+            continue;
+        }
+        // The binding's liveness, read a second time — see the docblock.
+        if finding.code == tugarc_core::doctor::SEAT_LIVENESS_CODE {
             continue;
         }
         // The base holding the arc's own bytes is a state the join drops by
@@ -2014,7 +2133,7 @@ async fn deliver_prompt(
             };
             let place = wheel::prompt::where_clause(
                 &seat,
-                arc.session.as_str(),
+                arc.seat.as_str(),
                 ArcStage::Implement.as_str(),
                 Some(*steps),
             );
@@ -2030,7 +2149,7 @@ async fn deliver_prompt(
             };
             let place = wheel::prompt::where_clause(
                 &seat,
-                arc.session.as_str(),
+                arc.seat.as_str(),
                 ArcStage::Implement.as_str(),
                 Some(*steps),
             );
@@ -2618,7 +2737,7 @@ async fn continue_stage(
         );
     }
 
-    let place = wheel::prompt::where_clause(&seat, arc.session.as_str(), stage.as_str(), steps);
+    let place = wheel::prompt::where_clause(&seat, arc.seat.as_str(), stage.as_str(), steps);
     let resume = reading
         .record
         .last_stop
@@ -3674,7 +3793,100 @@ Some context.
             project: root.to_path_buf(),
             name: name.to_string(),
             session: TugSessionId::new("claude-1".to_string()),
+            seat: "claude-1".to_string(),
         }
+    }
+
+    /// **The `where` line names the seat, not the card's address** ([B10]).
+    /// After a rotation the two are different strings, and the stage compares
+    /// the one it is handed against its own `$TUG_SESSION_ID` — so handing it
+    /// the address is handing it two ids and no key, which is exactly what
+    /// one stage read as the wheel and the binder disagreeing.
+    #[tokio::test]
+    async fn the_where_line_names_the_segment_the_shell_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/plan.md");
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
+        // A rotated card: the bridge is still addressed by the id it first
+        // spawned under, and the binding has moved to the fresh segment.
+        let rotated = BoundArc {
+            seat: "segment-2".to_string(),
+            ..bound(root, "demo")
+        };
+        let prompt = opening_prompt(
+            &reading,
+            &Rotation {
+                stage: ArcStage::Review,
+                steps: None,
+                note: None,
+            },
+            &rotated,
+            &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
+        )
+        .expect("a prompt");
+
+        let place = prompt
+            .lines()
+            .find(|line| line.starts_with("where:"))
+            .expect("a where line");
+        assert!(place.contains("session segment-2 bound"), "{place}");
+        assert!(
+            !place.contains("claude-1"),
+            "the bridge key is transport and the stage never sees it: {place}",
+        );
+    }
+
+    /// And the seat the sweep hands on is the ledger's bound segment, while
+    /// the session stays the card's address — the two vocabularies, each
+    /// carried on the field that means it.
+    #[tokio::test]
+    async fn the_sweep_carries_both_the_seat_and_the_address() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        let (ctx, entry, _register_rx) = harness(root).await;
+
+        // The rotation: a fresh segment on the card's line, with the binding
+        // moved onto it, exactly as `seat_line_binding` leaves things. The
+        // bridge keeps its key and updates its own record of which segment it
+        // is running.
+        entry.lock().await.claude_session_id = Some("segment-2".to_string());
+        ctx.session_ledger
+            .record_spawn(
+                "segment-2",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-1",
+                2_000,
+                "claude-1",
+                None,
+            )
+            .unwrap();
+        ctx.session_ledger
+            .set_arc_binding("claude-1", None)
+            .unwrap();
+        ctx.session_ledger
+            .set_arc_binding("segment-2", Some(("tugarc/demo#1", "demo")))
+            .unwrap();
+
+        let arcs = bound_arcs(&ctx).await;
+        assert_eq!(arcs.len(), 1);
+        assert_eq!(arcs[0].seat, "segment-2", "the segment the shell holds");
+        assert_eq!(
+            arcs[0].session.as_str(),
+            "claude-1",
+            "and the address the bridge is still keyed by",
+        );
     }
 
     /// [`LINTING_PLAN`] with its two ledger rows driven to `first` / `second`.
@@ -4220,6 +4432,87 @@ Some context.
             record.stopping,
             Some(ArcStage::Devise),
             "and the mark stands"
+        );
+    }
+
+    /// **An arc that leaves the sweep leaves a receipt** ([B09]). Bound-ness
+    /// reads live rows, so anything that closes the seat takes the arc out of
+    /// `bound_arcs` — and before this the run simply stopped being ticked,
+    /// with every surface still saying it was running.
+    #[tokio::test]
+    async fn an_arc_that_leaves_the_sweep_is_stopped_with_a_receipt() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+            .unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        // One sweep that sees the arc, then the seat goes away under it with
+        // nothing written to say so.
+        sweep(&ctx, &state).await;
+        let stops_before = arc_stop_lines(root);
+        ctx.session_ledger.mark_closed("claude-1").unwrap();
+        assert!(
+            ctx.session_ledger
+                .bound_session_by_arc()
+                .unwrap()
+                .is_empty(),
+            "the arc is out of the sweep",
+        );
+
+        sweep(&ctx, &state).await;
+
+        assert_eq!(arc_stop_lines(root), stops_before + 1);
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Implement, "seat lost".to_string())),
+        );
+        let said = receipts(&mut control_rx);
+        assert!(
+            said.iter()
+                .any(|line| line.contains("its seat left the sweep")),
+            "the card it last knew is told: {said:?}",
+        );
+    }
+
+    /// And an arc whose log already says why it left is forgotten in silence.
+    /// A stop, a join and a discard each leave a line; a second `arc-stop`
+    /// over one of them would be the machine talking about a run that ended.
+    #[tokio::test]
+    async fn an_arc_that_left_for_a_recorded_reason_gets_no_second_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+            .unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        let stops_before = arc_stop_lines(root);
+        ctx.session_ledger.mark_closed("claude-1").unwrap();
+
+        sweep(&ctx, &state).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(arc_stop_lines(root), stops_before, "no second `arc-stop`");
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Implement, "stopped by user".to_string())),
         );
     }
 

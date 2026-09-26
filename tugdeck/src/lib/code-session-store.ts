@@ -86,6 +86,7 @@ import {
   invalidateCachedParsesByPrefix,
 } from "./markdown/parse-cache";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
+import { pathResolutionStore } from "./annotator/path-resolution";
 import type {
   CodeSessionEvent,
   RefsResultActionEvent,
@@ -2955,6 +2956,16 @@ export class CodeSessionStore {
           this.conn.send(frame.feedId, frame.payload);
           break;
         }
+        case "confirm-written-paths":
+          // The one write the deck watched happen. The resolver's other two
+          // doors — a probe it asked for, a filesystem frame — are reports
+          // about somebody else's write and both cost a round trip; this
+          // one is already the answer, so it is handed over rather than
+          // asked about. The reducer has already ruled out a replayed
+          // result, which is the only case where a past write would be a
+          // lie about the present.
+          pathResolutionStore.confirmWritten(effect.paths);
+          break;
         case "record-context-breakdown": {
           // Fire-and-forget CONTROL frame to the supervisor. Persists
           // the `/context`-style breakdown blob in the sqlite

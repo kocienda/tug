@@ -891,6 +891,80 @@ describe("initActionDispatch: spawn_session_ok", () => {
     cardSessionBindingStore.clearBinding("card-ack-fresh");
   });
 
+  // The reconnect that this arc is about: a card was rotated onto a fresh
+  // segment, the wire dropped, and the restore re-spawned it under the address
+  // the bridge is keyed by. No frame announces the seat again — the claude id
+  // did not change, so `session_line_seated` never fires — so the ack is the
+  // only thing that can say where the card is sitting.
+  it("writes the seat from a rotated card's ack, beside the address", async () => {
+    const { cardSessionBindingStore, cardSeatedSegment } = await import(
+      "../lib/card-session-binding-store"
+    );
+    const { sessionLineStore } = await import("../lib/session-line-store");
+    cardSessionBindingStore.clearBinding("card-ack-rotated");
+
+    const conn = createMockConnection();
+    const deck = createMockDeckManager();
+    initActionDispatch(conn as any, deck as any);
+
+    dispatchAction({
+      action: "spawn_session_ok",
+      card_id: "card-ack-rotated",
+      tug_session_id: "sess-ack-address",
+      seated_session_id: "sess-ack-seat",
+      line_id: "line-ack-rotated",
+      workspace_key: "/work/canonical",
+      arc_id: "arc-1",
+      arc_name: "wizard-downloads",
+    });
+
+    const binding = cardSessionBindingStore.getBinding("card-ack-rotated");
+    expect(binding?.tugSessionId).toBe("sess-ack-address");
+    expect(binding?.seatedSessionId).toBe("sess-ack-seat");
+    expect(binding?.arc).toEqual({ id: "arc-1", name: "wizard-downloads" });
+    // What every identity read resolves through.
+    expect(cardSeatedSegment("card-ack-rotated")).toBe("sess-ack-seat");
+    // Both pairs are on the line store, and the line sits on the seat rather
+    // than on the segment the rotation retired.
+    expect(sessionLineStore.lineOf("sess-ack-address")).toBe("line-ack-rotated");
+    expect(sessionLineStore.lineOf("sess-ack-seat")).toBe("line-ack-rotated");
+    expect(sessionLineStore.seatOf("line-ack-rotated")).toBe("sess-ack-seat");
+
+    cardSessionBindingStore.clearBinding("card-ack-rotated");
+  });
+
+  // And the ordinary card, which is every card before its first rotation and
+  // every card acked by a server older than the field: an absent
+  // `seated_session_id` reads as "the seat is the address", which is what the
+  // handler did before this field existed.
+  it("leaves the seat unwritten when the ack omits seated_session_id", async () => {
+    const { cardSessionBindingStore, cardSeatedSegment } = await import(
+      "../lib/card-session-binding-store"
+    );
+    const { sessionLineStore } = await import("../lib/session-line-store");
+    cardSessionBindingStore.clearBinding("card-ack-unrotated");
+
+    const conn = createMockConnection();
+    const deck = createMockDeckManager();
+    initActionDispatch(conn as any, deck as any);
+
+    dispatchAction({
+      action: "spawn_session_ok",
+      card_id: "card-ack-unrotated",
+      tug_session_id: "sess-ack-only",
+      line_id: "line-ack-unrotated",
+      workspace_key: "/work/canonical",
+    });
+
+    const binding = cardSessionBindingStore.getBinding("card-ack-unrotated");
+    expect(binding?.tugSessionId).toBe("sess-ack-only");
+    expect(binding?.seatedSessionId).toBeUndefined();
+    expect(cardSeatedSegment("card-ack-unrotated")).toBe("sess-ack-only");
+    expect(sessionLineStore.seatOf("line-ack-unrotated")).toBe("sess-ack-only");
+
+    cardSessionBindingStore.clearBinding("card-ack-unrotated");
+  });
+
   it("ignores malformed ack payloads (missing workspace_key) without setting a binding", async () => {
     const { cardSessionBindingStore } =
       await import("../lib/card-session-binding-store");

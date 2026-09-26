@@ -391,6 +391,48 @@ pub enum LedgerError {
     ForwardRejected(String),
 }
 
+/// Which of a ledger's `live` rows a startup demote may close.
+///
+/// The demote exists for crash recovery: a tugcast that died without closing
+/// its sessions leaves `state = 'live'` rows pointing at subprocesses that
+/// are gone. The unscoped form of that write — `UPDATE … WHERE state =
+/// 'live'` — reads every live row as the dead process's, which is true of a
+/// ledger nothing else is using and false of one a second process opened.
+/// It has been false in practice: five live rows belonging to a running
+/// instance were closed by another instance's startup, and the sessions
+/// under them went unreachable until somebody noticed.
+#[derive(Debug, Clone, Copy)]
+pub enum DemoteScope<'a> {
+    /// Close every live row. Correct for a ledger this process is the only
+    /// user of — a fixture, an in-memory ledger, a test.
+    EveryLiveRow,
+    /// Close only rows this instance could have owned. A row the session
+    /// index at `index_path` files under a *different* `TUG_INSTANCE_ID` is
+    /// another process's live work and is left alone; a row the index does
+    /// not know, or knows with no instance recorded, falls through to the
+    /// demote, which is what crash recovery needs.
+    ThisInstance {
+        instance: &'a str,
+        index_path: &'a Path,
+    },
+}
+
+/// Whether the scoped demote may close `session_id`: true unless the session
+/// index files it under an instance other than `instance`.
+///
+/// A missing index file, a missing row, and a row with no instance recorded
+/// all answer true. The index is the only record of which instance recorded
+/// a session — `sessions.db` holds no instance column, because it is itself
+/// per-instance — so an unrecorded row carries no evidence of a foreign
+/// owner, and refusing to demote it would leave real crash debris behind.
+fn scoped_demote_allows(index_path: &Path, session_id: &str, instance: &str) -> bool {
+    tugcore::session_index::lookup_uuid(index_path, session_id)
+        .into_iter()
+        .find(|entry| !entry.instance.is_empty())
+        .map(|entry| entry.instance == instance)
+        .unwrap_or(true)
+}
+
 /// Lifecycle state of a row in the ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -6001,7 +6043,15 @@ impl SessionLedger {
     /// process that crashed without cleanly closing its sessions will have
     /// left `state="live"` rows behind that no longer reflect any running
     /// subprocess. Returns the number of rows demoted.
-    pub fn demote_live_to_closed(&self) -> Result<usize, LedgerError> {
+    ///
+    /// `scope` says which live rows this process is entitled to demote. A
+    /// startup demote is a write that assumes every live row belongs to the
+    /// process that died, and that assumption is only safe on a ledger
+    /// nothing else is using — which is why the scoped form exists: a row the
+    /// session index files under another instance is another process's live
+    /// work, and closing it strands whatever is running under it. See
+    /// [`DemoteScope`].
+    pub fn demote_live_to_closed(&self, scope: DemoteScope<'_>) -> Result<usize, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         // Read the doomed rows before the UPDATE erases which ones they were,
         // so each demotion records its own fact. `startup-demote` is the
@@ -6013,19 +6063,36 @@ impl SessionLedger {
              LEFT JOIN lines l ON l.line_id = s.line_id
              WHERE s.state = 'live'",
         )?;
-        let demoted: Vec<(String, Option<String>)> = stmt
+        let live: Vec<(String, Option<String>)> = stmt
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
-        let count = conn.execute(
-            // `demoted = 1` marks this as the administrative close — the
-            // process ended, not the session — which is the one closed
-            // state `revive_on_activity` may correct.
-            "UPDATE sessions
-             SET state = 'closed', demoted = 1
-             WHERE state = 'live'",
-            [],
-        )?;
+        let demoted: Vec<(String, Option<String>)> = match scope {
+            DemoteScope::EveryLiveRow => live,
+            DemoteScope::ThisInstance {
+                instance,
+                index_path,
+            } => live
+                .into_iter()
+                .filter(|(session_id, _)| scoped_demote_allows(index_path, session_id, instance))
+                .collect(),
+        };
+        // One statement per row rather than `WHERE state = 'live'`: the
+        // filter above is the whole point, and a blanket UPDATE would undo it.
+        // `demoted = 1` marks this as the administrative close — the process
+        // ended, not the session — which is the one closed state
+        // `revive_on_activity` may correct.
+        let mut count = 0usize;
+        {
+            let mut update = conn.prepare(
+                "UPDATE sessions
+                 SET state = 'closed', demoted = 1
+                 WHERE session_id = ?1 AND state = 'live'",
+            )?;
+            for (session_id, _) in &demoted {
+                count += update.execute([session_id])?;
+            }
+        }
         let now = now_millis();
         for (session_id, tag) in &demoted {
             let handle = tag.clone().unwrap_or_else(|| session_id.clone());
@@ -13156,7 +13223,10 @@ mod tests {
         let t0 = millis(0);
         seed_live(&l, "s1", WS_A, "card-1", t0);
         // The startup demote — the administrative close revival corrects.
-        assert_eq!(l.demote_live_to_closed().unwrap(), 1);
+        assert_eq!(
+            l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap(),
+            1
+        );
 
         // Live-borne evidence corrects the demoted state, and the
         // previously live-gated activity writes bite again.
@@ -13182,7 +13252,7 @@ mod tests {
         // demote beat the user's close to `closed`, but the close is the
         // later intent and outranks it.
         seed_live(&l, "s2", WS_A, "card-2", t0);
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         l.mark_closed("s2").unwrap();
         assert!(!l.revive_on_activity("s2", t0 + 1_000).unwrap());
         assert_eq!(l.get("s2").unwrap().unwrap().state, SessionState::Closed);
@@ -13763,7 +13833,7 @@ mod tests {
         l.record_spawn("stage", WS_A, "/proj", "card-1", millis(1), line, None)
             .unwrap();
         l.set_fork_provenance("stage", "root", None).unwrap();
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         assert_eq!(
             l.resume_segment_for_line(line).unwrap().unwrap().session_id,
             "stage",
@@ -13799,7 +13869,7 @@ mod tests {
         l.record_spawn("b", WS_A, "/proj", "card-2", millis(1), "line-2", None)
             .unwrap();
         l.set_fork_provenance("b", "a", None).unwrap();
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
 
         assert_eq!(l.seat_line_bindings().unwrap(), 0);
         assert_eq!(
@@ -13825,7 +13895,7 @@ mod tests {
             None,
         )
         .unwrap();
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         l.record_spawn(
             "seg-mid",
             WS_A,
@@ -13836,7 +13906,7 @@ mod tests {
             None,
         )
         .unwrap();
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         l.record_spawn(
             "seg-new",
             WS_A,
@@ -13874,7 +13944,7 @@ mod tests {
     fn a_line_whose_every_segment_closed_has_no_live_segment() {
         let l = fresh();
         rotated_line(&l);
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         assert_eq!(
             l.live_segment_of("seg-old").unwrap(),
             None,
@@ -13961,7 +14031,7 @@ mod tests {
         );
 
         // The Wheel seats the next stage: a fresh segment on the same line.
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         l.record_spawn(
             "stage-2",
             WS_A,
@@ -14124,7 +14194,7 @@ mod tests {
         seed_live(&l, "solo", WS_A, "c1", millis(1));
         l.set_arc_binding("solo", Some(("tugarc/demo#1", "demo")))
             .unwrap();
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         assert!(
             l.set_arc_binding("solo", None).unwrap(),
             "housekeeping is not the hazard the guard is for",
@@ -14235,7 +14305,7 @@ mod tests {
         seed_live(&l, "failed1", WS_A, "c4", millis(2));
         l.mark_failed("failed1").unwrap();
 
-        let demoted = l.demote_live_to_closed().unwrap();
+        let demoted = l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         assert_eq!(demoted, 2);
 
         let r = l.get("live1").unwrap().unwrap();
@@ -14264,7 +14334,104 @@ mod tests {
         let l = fresh();
         seed_live(&l, "s1", WS_A, "c", millis(0));
         l.mark_closed("s1").unwrap();
-        assert_eq!(l.demote_live_to_closed().unwrap(), 0);
+        assert_eq!(
+            l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap(),
+            0
+        );
+    }
+
+    /// Write one session index holding rows for two instances, and return
+    /// the path a scoped demote reads it from.
+    fn index_of_two_instances(dir: &std::path::Path) -> PathBuf {
+        use tugcore::session_index::{IndexEntry, SessionIndex};
+        let path = dir.join("session_index.db");
+        let index = SessionIndex::open(&path).expect("index");
+        let row = |session_id: &str, instance: &str| {
+            index
+                .upsert(&IndexEntry {
+                    session_id: session_id.into(),
+                    line_id: format!("line-{session_id}"),
+                    callsign: Some(session_id.into()),
+                    project_dir: "/proj".into(),
+                    project_leaf: String::new(),
+                    instance: instance.into(),
+                    title: None,
+                    created_at_ms: 1_000,
+                    updated_at_ms: 1_000,
+                })
+                .expect("upsert");
+        };
+        row("mine", "release-main");
+        row("theirs", "debug-wizard-downloads");
+        path
+    }
+
+    /// The write that stranded five live sessions: one instance's startup
+    /// closing another instance's rows because they were live in a file both
+    /// processes had open.
+    #[test]
+    fn a_scoped_demote_leaves_another_instances_live_rows_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let index_path = index_of_two_instances(dir.path());
+        let l = fresh();
+        seed_live(&l, "mine", WS_A, "c1", millis(0));
+        seed_live(&l, "theirs", WS_A, "c2", millis(0));
+
+        let demoted = l
+            .demote_live_to_closed(DemoteScope::ThisInstance {
+                instance: "release-main",
+                index_path: &index_path,
+            })
+            .unwrap();
+
+        assert_eq!(demoted, 1, "only this instance's row");
+        assert_eq!(l.get("mine").unwrap().unwrap().state, SessionState::Closed);
+        assert_eq!(
+            l.get("theirs").unwrap().unwrap().state,
+            SessionState::Live,
+            "the other instance is still running under this row"
+        );
+    }
+
+    /// The crash-recovery case the demote exists for: a row nothing recorded
+    /// carries no evidence of a foreign owner, so it is debris and is closed.
+    #[test]
+    fn a_scoped_demote_closes_rows_the_index_does_not_know() {
+        let dir = tempfile::tempdir().unwrap();
+        let index_path = index_of_two_instances(dir.path());
+        let l = fresh();
+        seed_live(&l, "unrecorded", WS_A, "c1", millis(0));
+
+        let demoted = l
+            .demote_live_to_closed(DemoteScope::ThisInstance {
+                instance: "release-main",
+                index_path: &index_path,
+            })
+            .unwrap();
+
+        assert_eq!(demoted, 1);
+        assert_eq!(
+            l.get("unrecorded").unwrap().unwrap().state,
+            SessionState::Closed
+        );
+    }
+
+    /// And a missing index is not a reason to leave crash debris behind.
+    #[test]
+    fn a_scoped_demote_with_no_index_file_closes_every_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let l = fresh();
+        seed_live(&l, "s1", WS_A, "c1", millis(0));
+        seed_live(&l, "s2", WS_A, "c2", millis(0));
+
+        let demoted = l
+            .demote_live_to_closed(DemoteScope::ThisInstance {
+                instance: "release-main",
+                index_path: &dir.path().join("absent.db"),
+            })
+            .unwrap();
+
+        assert_eq!(demoted, 2);
     }
 
     // ── idempotent open ──────────────────────────────────────────────────────
@@ -16353,7 +16520,7 @@ mod tests {
         assert_eq!(read[0].event.tug_session_id, "s1");
 
         // A closed session's events read back owner_live = false.
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
         let read = l.file_events_for_project("/proj").unwrap();
         assert!(!read[0].owner_live);
     }
@@ -17705,7 +17872,9 @@ mod tests {
             .record_spawn("door", "ws", "/proj", "card-1", 1_000, "line-1", None)
             .expect("spawn the door");
         std::fs::write(dir.join("door.jsonl"), assistant_line("msg_01DOOR")).expect("door jsonl");
-        fx.sessions.demote_live_to_closed().expect("rotate");
+        fx.sessions
+            .demote_live_to_closed(DemoteScope::EveryLiveRow)
+            .expect("rotate");
         fx.sessions
             .record_spawn("head", "ws", "/proj", "card-1", 2_000, "line-1", None)
             .expect("spawn the head");
@@ -17728,7 +17897,9 @@ mod tests {
 
         // A line whose every segment has closed has no live head to prefer;
         // the id asked about is still a file, and it is the one read.
-        fx.sessions.demote_live_to_closed().expect("close the line");
+        fx.sessions
+            .demote_live_to_closed(DemoteScope::EveryLiveRow)
+            .expect("close the line");
         assert_eq!(
             fx.sessions
                 .latest_assistant_msg_id("door", Some("/proj"))

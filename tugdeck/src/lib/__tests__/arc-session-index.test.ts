@@ -429,3 +429,83 @@ describe("arcForSession – over a rotation", () => {
     sessionLineStore.forgetSession("dsi-other");
   });
 });
+
+/**
+ * The line key ([B02]). The seat walk above needs a card binding to walk
+ * through, and the failure this arc is about is precisely a lost seat: a
+ * reconnect wipes the binding store, re-spawns under the address the bridge is
+ * keyed by, and — before the ack carried the seat — nothing put the seat back.
+ * The line is the answer the deck can still derive, because both segments'
+ * pairs are on the line store from the row push and the ack.
+ */
+describe("arcForSession – the line key, when no seat is there to walk", () => {
+  const ROOT = "line-key-root";
+  const STAGE = "line-key-stage";
+  const LINE = "line-key-line";
+
+  function snapshotBinding(bound: string): WorkspacesChangesetSnapshot {
+    return {
+      projects: [
+        projectWith([
+          { ...GOLDEN_ARC, display_name: "line-keyed", bound_session: bound },
+        ]),
+      ],
+    };
+  }
+
+  test("an address a rotation left behind still finds the arc", () => {
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+    // Both segments of the line are known, the line sits on the fresh one, and
+    // no card holds a binding at all — the state a reconnect's `clearAll`
+    // leaves behind.
+    sessionLineStore.bind(ROOT, LINE);
+    sessionLineStore.seat(STAGE, LINE);
+
+    const snapshot = snapshotBinding(STAGE);
+    expect(arcForSession(snapshot, ROOT)!.name).toBe("line-keyed");
+    expect(arcForSession(snapshot, ROOT)).toBe(arcForSession(snapshot, STAGE)!);
+
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+  });
+
+  test("a segment of another line is not answered for", () => {
+    sessionLineStore.forgetSession(STAGE);
+    sessionLineStore.seat(STAGE, LINE);
+    sessionLineStore.seat("line-key-elsewhere", "line-key-other-line");
+
+    expect(
+      arcForSession(snapshotBinding(STAGE), "line-key-elsewhere"),
+    ).toBeNull();
+
+    sessionLineStore.forgetSession(STAGE);
+    sessionLineStore.forgetSession("line-key-elsewhere");
+  });
+
+  test("the index files the fact under the line as well as the segment", () => {
+    const index = buildArcSessionIndex(snapshotBinding(STAGE), (id) =>
+      id === STAGE ? LINE : null,
+    );
+    expect(index.get(STAGE)!.name).toBe("line-keyed");
+    expect(index.get(LINE)).toBe(index.get(STAGE)!);
+  });
+
+  test("a line whose segment the store has never heard of adds no key", () => {
+    const index = buildArcSessionIndex(snapshotBinding(STAGE), () => null);
+    expect(index.size).toBe(1);
+    expect(index.get(STAGE)!.name).toBe("line-keyed");
+  });
+
+  test("the memo rebuilds when a line pair lands after the projection", () => {
+    sessionLineStore.forgetSession(STAGE);
+    const snapshot = snapshotBinding(STAGE);
+    // Built before the deck learns the pair: the line key cannot be there.
+    expect(arcSessionIndex(snapshot).has(LINE)).toBe(false);
+    sessionLineStore.seat(STAGE, LINE);
+    // The store's version moved, so the next read rebuilds rather than
+    // handing back a map that is missing the key.
+    expect(arcSessionIndex(snapshot).get(LINE)!.name).toBe("line-keyed");
+    sessionLineStore.forgetSession(STAGE);
+  });
+});

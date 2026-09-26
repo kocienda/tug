@@ -70,6 +70,14 @@
  * every watched workspace hears nothing and falls to the timer, which is
  * what the timer is for.
  *
+ * **And the one writer the deck watched.** A `Write` or `Edit` result, and a
+ * `TUG-FILE-RECEIPT` on a shell result, are the session's own word that a
+ * file is now there — earlier than any frame can say so, and about the one
+ * case the timer is worst at: a path this very turn probed before the write
+ * and recorded `missing`. {@link PathResolutionStore.confirmWritten} is that
+ * third door. It takes no probe and arms no timer, because there is nothing
+ * to ask: the answer arrived with the question.
+ *
  * The endpoint rejects relative paths outright, so a relative candidate is
  * joined against the session cwd first. Until the cwd arrives — it is null
  * until the session handshake lands — a relative candidate is parked
@@ -352,6 +360,49 @@ export class PathResolutionStore {
       if (this.verdicts.get(path)?.state !== "confirmed") {
         this.noteRetryDue(path);
       }
+    }
+    if (changed.length > 0) this.notify(changed);
+  }
+
+  /**
+   * Record that the session itself just wrote these paths, so every verdict
+   * held against them is `confirmed` from now on.
+   *
+   * The third door, beside the probe and the filesystem frame, and the only
+   * one where the deck watched the write rather than hearing about it. A
+   * `Write` or `Edit` result, or a `TUG-FILE-RECEIPT` on a shell result, is
+   * the tool's own word that the file is there; asking the filesystem to
+   * confirm what we just did would only add a round trip to an answer we
+   * hold — and, for the path a hand-off line names in the turn that wrote it,
+   * a minute of reading as though it pointed at nothing.
+   *
+   * **A replayed result may not come through here.** A replayed transcript's
+   * `Write` is a claim about a moment that has passed, and a file deleted
+   * since would be re-lit by it — a manufactured link, which this module
+   * never makes. A wake turn's write is not that: it is happening now, and it
+   * comes through like any other. The caller is what knows the difference;
+   * see the `confirm-written-paths` effect, which the reducer emits for every
+   * result a replay did not carry.
+   *
+   * A relative path is dropped rather than guessed at: the resolver's keys
+   * are absolute and there is no cwd in a tool result to join against.
+   * `isDir` is false because a written file is a file. Nothing is asked and
+   * no timer is armed, which is the point; a listener is notified only where
+   * the verdict actually moved.
+   */
+  confirmWritten(paths: readonly string[]): void {
+    const changed: VerdictKey[] = [];
+    for (const raw of paths) {
+      if (!raw.startsWith("/")) continue;
+      const resolved = joinPath("/", raw);
+      const prev = this.verdicts.get(resolved);
+      if (prev?.state === "confirmed" && prev.canonical === resolved) continue;
+      this.verdicts.set(resolved, {
+        state: "confirmed",
+        canonical: resolved,
+        isDir: false,
+      });
+      changed.push(pathVerdictKey(resolved));
     }
     if (changed.length > 0) this.notify(changed);
   }

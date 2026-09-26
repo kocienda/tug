@@ -497,6 +497,21 @@ async fn main() {
     // orphaned-prompt-history prune below run before the feed builds its
     // initial frame — keeping that frame clean and avoiding a frame rebuild
     // per deleted key.
+    // A tugcast opens only the ledger of the instance it *is*. `TUG_SESSIONS_DB`
+    // is how a child reads the ledger its parent opened; inherited by a fresh
+    // launch it makes this process adopt another instance's file, and the
+    // startup demote below then lands on rows a live foreign process owns.
+    // Refuse at the door, naming both paths, rather than opening it.
+    if let Some((foreign, own)) = tug_instance::foreign_sessions_db_override() {
+        eprintln!(
+            "tugcast: error: {} names {}, which is not in this instance's data dir {}; \
+             refusing to open another instance's session ledger",
+            tug_instance::ENV_SESSIONS_DB,
+            foreign.display(),
+            own.display(),
+        );
+        std::process::exit(1);
+    }
     let ledger_path = SessionLedger::default_path().unwrap_or_else(|| {
         eprintln!("tugcast: error: cannot resolve user data dir for session ledger");
         std::process::exit(1);
@@ -616,7 +631,25 @@ async fn main() {
     // Demote any rows still marked `live` from a previous run that didn't
     // shut down cleanly. The subprocesses they pointed at are gone; their
     // ledger state is stale.
-    match ledger.demote_live_to_closed() {
+    //
+    // Scoped to rows this instance could have owned: "every live row belongs
+    // to the process that died" is true of a ledger nothing else is using and
+    // false of one a second process opened, and the unscoped write has
+    // already closed a running instance's live rows once. A row the session
+    // index files under another instance is left alone; an unrecorded row is
+    // demoted, which is the crash debris this exists for.
+    let session_index_path = tug_instance::session_index_db_path();
+    let this_instance = tug_instance::instance_id();
+    let demote_scope = match this_instance.as_deref() {
+        Some(id) => session_ledger::DemoteScope::ThisInstance {
+            instance: id,
+            index_path: &session_index_path,
+        },
+        // No instance id: nothing recorded this process's rows under a name,
+        // so there is no foreign owner to distinguish from.
+        None => session_ledger::DemoteScope::EveryLiveRow,
+    };
+    match ledger.demote_live_to_closed(demote_scope) {
         Ok(0) => {}
         Ok(n) => info!(count = n, "demoted stale live ledger rows on startup"),
         Err(e) => warn!(error = %e, "failed to demote stale live ledger rows"),

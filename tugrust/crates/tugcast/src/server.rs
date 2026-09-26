@@ -1952,7 +1952,8 @@ mod tests {
         let l = crate::session_ledger::SessionLedger::open_in_memory().expect("ledger");
         l.record_spawn("seg-old", "ws", "/proj", "card-1", 1_000, "line-1", None)
             .unwrap();
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
+            .unwrap();
         l.record_spawn("seg-new", "ws", "/proj", "card-1", 2_000, "line-1", None)
             .unwrap();
         l
@@ -1989,7 +1990,8 @@ mod tests {
             resolve_session_identity(&l, "never-seen"),
             Err(IdentityRefusal::Unknown)
         ));
-        l.demote_live_to_closed().unwrap();
+        l.demote_live_to_closed(crate::session_ledger::DemoteScope::EveryLiveRow)
+            .unwrap();
         match resolve_session_identity(&l, "seg-old") {
             Err(IdentityRefusal::LineClosed(message)) => {
                 assert!(message.contains("seg-old"), "names the id it was handed");
