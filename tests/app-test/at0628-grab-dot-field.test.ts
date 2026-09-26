@@ -5,7 +5,8 @@
  * A content card is dragged by its chrome along the bar's whole run, and until
  * this mark nothing said so: you found the handle by trying it. The mark is a
  * field of 1px dots, three rows deep on a 4px pitch, filling the run between
- * the title and the control cluster and fading up on card hover.
+ * the title and the control cluster and fading up when the pointer is on that
+ * bar.
  *
  * ── Why this is a test and not a comment ──
  * Three of the claims the field rests on are claims about RASTERIZATION and

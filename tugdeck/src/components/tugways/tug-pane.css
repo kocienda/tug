@@ -700,7 +700,7 @@ body {
  * A content card's title bar is the drag surface along its whole run, and
  * nothing said so at rest: you found the handle by trying it. The mark that
  * says it is a field of 1px dots, three rows deep on a 4px pitch, filling the
- * run between the title and the control cluster, faded up on card hover.
+ * run between the title and the control cluster, faded up on title-bar hover.
  *
  * It sits beside the rail's racing stripes on purpose. The two are the same
  * kind of thing — livery on a title bar — and they are the reason each other
@@ -745,7 +745,7 @@ body {
  * `--tugx-pane-dot-ink`, on the box underneath.
  */
 
-/* ── The constant, and the three knobs ─────────────────────────────────────
+/* ── The constant, and the two knobs ──────────────────────────────────────
    `--tugx-pane-dot-size` is a CONSTANT. It has no override anywhere, and it is
    declared here, first, beside the things that do vary, so that the one piece
    of geometry which must never move is visible rather than merely absent.
@@ -758,7 +758,6 @@ body {
   --tugx-pane-dot-size: 1px;
 
   --tugx-pane-dot-pitch: 4px;
-  --tugx-pane-dot-lift: 0.5px;
   --tugx-pane-dot-rows: 3;
 }
 
@@ -821,18 +820,22 @@ body {
    painted ONCE across the box. A repeated mask would reintroduce exactly the
    per-tile rounding this technique exists to remove.
 
-   The lift is a `translate`, never a margin or an inset. The field is a flex
-   item holding the run open; anything that moved it through layout would move
-   what it is holding. 0.5px is one device pixel at 2× — the smallest honest
-   correction, and it lands the stencil back on the pixel grid rather than off
-   it. (A line of text centers on its LINE BOX, whose lower half is descender
-   space the name mostly leaves empty, so an honestly centered field reads low
-   against the word it is aligned to.)
+   NO LIFT. The field sits where `align-self: center` puts it. A 0.5px upward
+   nudge shipped first, for a real reason — a line of text centers on its LINE
+   BOX, whose lower half is descender space the name mostly leaves empty, so an
+   honestly centered field reads a touch low against the word it is aligned to
+   — but a sub-pixel correction that is one device pixel at 2× and half of one
+   at 1× bought less than the resolution question it opened, and it took that
+   question with it when it went. Should anyone revisit it, the constraint
+   stands: the lift would be a `translate` and never a margin or an inset,
+   because the field is a flex item holding the run open and anything that
+   moved it through layout would move what it is holding.
 
    `pointer-events: none` because the band under the field IS the drag surface.
    Livery that swallowed the gesture it advertises would be the one unambiguous
-   failure, and with the card-hover trigger it would not even break the hover —
-   which makes it the kind of bug that only shows up under the pointer.
+   failure — and because the field is a child of the very bar it advertises, it
+   would not even break the hover that reveals it, which makes it the kind of
+   bug that only shows up under the pointer.
 
    FADED, never removed: the field holds its space in the flex line at all
    times and only `opacity` changes, so the title's measure and elision point
@@ -872,7 +875,6 @@ body {
     (var(--tugx-pane-dot-rows) - 1) * var(--tugx-pane-dot-pitch) +
       var(--tugx-pane-dot-size)
   );
-  translate: 0 calc(-1 * var(--tugx-pane-dot-lift));
   background-color: var(--tugx-pane-dot-ink);
   -webkit-mask-image: var(--tugx-pane-dot-mask-x), var(--tugx-pane-dot-mask-y);
   mask-image: var(--tugx-pane-dot-mask-x), var(--tugx-pane-dot-mask-y);
@@ -888,22 +890,33 @@ body {
 }
 
 /* ── The trigger ──────────────────────────────────────────────────────────
-   The CARD, not the bar. A mark nobody sees at rest cannot teach anyone the
-   card is draggable, and card hover buys most of that back: you cross a card
-   long before you reach its chrome, where bar hover only tells you what you
-   had already found. If card hover proves noisy on a dense deck the bar is the
-   fallback and this is a one-line change. */
-.tug-pane:hover .tug-pane-title-bar:not([data-role="sidebar"])::after,
-.tug-pane:hover
-  .tug-pane-title-bar:not([data-role="sidebar"])
+   The BAR, not the card. The mark appears exactly where `cursor: grab` already
+   is, so the thing that lights up is the surface that will take the press:
+   affordance and gesture share one boundary.
+
+   Card hover shipped first, on the argument that a mark nobody sees at rest
+   cannot teach anyone the card is draggable and that you cross a card long
+   before you reach its chrome. It is reversed here. A mark firing from anywhere
+   inside a card claims the whole card is the handle, which is the wrong claim,
+   and on a dense deck every pointer move lit one. Learnability is what this
+   gives up, and the trade is deliberate: the bar is already where the cursor
+   changes, so the two signals now arrive together rather than from different
+   places.
+
+   One thing this leaves open, and the pointer is the only thing that can settle
+   it: a drag begins from a press inside the bar, so the field is up at the
+   moment of grab, but the gesture then carries the pointer off the bar and this
+   rule drops the mark mid-drag — the card is being dragged and its handle has
+   gone dark. Either that is fine, or the pane's `data-gesture` pins the field
+   for the duration. */
+.tug-pane-title-bar:not([data-role="sidebar"]):hover::after,
+.tug-pane-title-bar:not([data-role="sidebar"]):hover
   .session-masthead-row
   .tug-session-row-name-line::after,
-.tug-pane:hover
-  .tug-pane-title-bar:not([data-role="sidebar"])
+.tug-pane-title-bar:not([data-role="sidebar"]):hover
   .card-masthead-row
   .tug-session-row-name-line::after,
-.tug-pane:hover
-  .tug-pane-title-bar:not([data-role="sidebar"])
+.tug-pane-title-bar:not([data-role="sidebar"]):hover
   .commit-masthead-row
   .tug-session-row-name-line::after {
   opacity: 1;

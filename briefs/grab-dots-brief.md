@@ -38,7 +38,7 @@ The problem is not decorative. Every content card on the deck is dragged by its 
 
 ## Decisions {#decisions}
 
-**[B01] The mark is a field of 1px dots, three rows deep, on a 4px grid, lifted 0.5px, filling the run between the title and the control cluster.** Settled by review across three rounds on the `grab-dots` spike. The dot is a constant, not a knob: the row count and the pitch may be retuned, the dot may not. Three rows over two because the field's whole claim against the `…` is that it is a **block** of dots where the button is a **line** of them, and the third row buys that distinction at a cost the review accepted.
+**[B01] The mark is a field of 1px dots, three rows deep, on a 4px grid, filling the run between the title and the control cluster.** Settled by review across three rounds on the `grab-dots` spike. The dot is a constant, not a knob: the row count and the pitch may be retuned, the dot may not. Three rows over two because the field's whole claim against the `…` is that it is a **block** of dots where the button is a **line** of them, and the third row buys that distinction at a cost the review accepted.
 
 **[B02] The block-size is derived as `(rows − 1) × pitch + dot`, never stated.** 5px at two rows, 9px at three, on a 4px pitch. Stating a height independently of the pitch would sooner or later cut a partial row and hand the `…` its argument back; deriving it makes the block/line distinction structural rather than remembered.
 
@@ -46,11 +46,11 @@ The problem is not decorative. Every content card on the deck is dragged by its 
 
 **[B04] The mark appears on content cards only, and never on a rail.** Implemented as `:not([data-role="sidebar"])` on the title bar per [F04] — not an allow-list. The reason is not visual differentiation: a rail is pinned to a deck edge and is not dragged by its bar, so a drag affordance on one would advertise a gesture that does not exist. This supersedes the original framing of the ask, which was to differentiate two liveries; the answer is that only one surface gets a livery at all.
 
-**[B05] The trigger is hovering the card, not the title bar.** A mark nobody sees at rest cannot teach anyone the card is draggable. Card hover buys most of that back — you cross a card long before you reach its chrome — where bar hover only tells you what you had already found. Revisit if card hover proves noisy on a dense deck, in which case the bar is the fallback and the rule is a one-line change.
+**[B05] The trigger is hovering the title bar or masthead, not the card.** The mark appears exactly where `cursor: grab` already is, so the thing that lights up is the surface that will take the press — affordance and gesture share one boundary. Card hover was settled first, on the argument that crossing a card teaches you more than reaching its chrome does; it is reversed here. A mark firing from anywhere inside a card claims the whole card is the handle, which is the wrong claim, and on a dense deck every pointer move would light one. Learnability is what this gives up, and the trade is accepted: the bar is already where the cursor changes, so the two signals now arrive together instead of from different places.
 
 **[B06] The field holds its flex space at all times; only `opacity` changes.** A title that reflowed under the pointer would be a worse problem than the one the mark solves. The consequence is accepted rather than unnoticed: a long title elides earlier than it does today **even at rest**, because the space is held whether or not anything is drawn in it. See the open question below.
 
-**[B07] The lift is a `translate`, never a margin or an inset.** The field is a flex item holding the run open; anything that moved it through layout would move what it is holding. The 0.5px value is deliberate — on a 2× display it is exactly one device pixel, the smallest honest correction, and it lands the stencil back on the pixel grid rather than off it.
+**[B07] The field is not lifted at all.** The 0.5px optical nudge the spike carried is removed; the field sits where the flex line's `align-self: center` puts it. The nudge existed for a real reason — a line of text centers on its line box, whose lower half is descender space the name mostly leaves empty, so the word's optical center sits above the geometric one — but a sub-pixel correction that is one device pixel at 2× and half of one at 1× buys less than the resolution question it opens, and it retires that question with it. Should anyone revisit it, the constraint stands: a lift would be a `translate` and never a margin or an inset, because the field is a flex item holding the run open and anything that moved it through layout would move what it is holding.
 
 **[B08] The ink comes from the card-titlebar family, mixed toward transparent.** `--tugx-pane-title-bar-icon-active` / `-inactive` at roughly 50% / 45%. A content card keeps its tinted title band, so the ink must be authored against that tint; the rail's stripes use the global family for the opposite reason, having given the tint up. Carrying one family onto the other's ground is the near-white-on-near-white failure the rail's first pass shipped, and it is the specific error this decision exists to prevent.
 
@@ -62,9 +62,7 @@ The problem is not decorative. Every content card on the deck is dragged by its 
 
 - **Does the permanent measure cost to long titles stand?** [B06] holds the field's space at rest, so every content card's title elides earlier than today by the field's floor plus its leading margin — roughly 40px — with nothing visible in that space most of the time. The alternative is absolutely positioning the field so it costs no layout, but an absolute field cannot know where the title's slack ends and would paint over a long name on hover. Settling this needs a look at real cards with real titles, not a rule.
 
-- **What happens on a 1× display?** [B07]'s 0.5px is one device pixel at 2× and half a device pixel at 1×, where the rows soften. The deck does not currently ask what it is running on. Either the value is accepted as-is, or the lift becomes resolution-aware — which would be the first place in the deck that asks.
-
-- **Should the field stay up while a drag is in flight?** The affordance appears on hover and the drag begins from a press inside that hover, so the field is up at the moment of grab; nothing has decided what it does for the rest of the gesture. Leaving it to the hover rule may be right, or the pane's existing `data-gesture` may want to pin it.
+- **Should the field stay up while a drag is in flight?** Sharper under [B05] than it was under card hover: the drag begins from a press inside the bar, so the field is up at the moment of grab, but the gesture then carries the pointer off the bar and a plain `:hover` rule would drop the mark mid-drag — the card is being dragged and its handle has gone dark. Either that is fine, or the pane's existing `data-gesture` pins the field for the duration. Settling it needs the pointer.
 
 - **Does the commit masthead read right with it?** [B04] makes a commit card content, so it gets the mark. Its tier also carries a `CommitMetaCell` whose ink was re-pointed for the chrome band, and nobody has looked at the two together.
 
@@ -82,7 +80,9 @@ The problem is not decorative. Every content card on the deck is dragged by its 
 
 - **Varying the dot size.** Ruled out explicitly and twice by the user. Density is the only axis; the dot is a constant.
 
-- **A rest-state mark.** [B05] takes hover. A mark visible at rest was considered and is what the first two spike rounds showed; the band being completely clean until you reach for it was preferred.
+- **A rest-state mark.** [B05] takes bar hover. A mark visible at rest was considered and is what the first two spike rounds showed; the band being completely clean until you reach for it was preferred.
+
+- **A card-hover trigger, and the 0.5px lift.** Both were settled on the spike and both are reversed here — see [B05] and [B07]. Recorded so they are not re-proposed: the field fires from the chrome alone, and it is not nudged.
 
 - **Retuning the rail's stripes.** Out of scope. This work reads `tug-pane.css:655` and changes nothing in it.
 
