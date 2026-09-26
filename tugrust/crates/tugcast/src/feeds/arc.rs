@@ -189,6 +189,24 @@ pub struct ArcFacts {
     /// hold it, exactly as with [`StepLedgerFacts::step_just_done`]. It is
     /// what makes a rotation the *second* answer to an oversized context.
     pub compacted_since_below: bool,
+    /// The step boundary this reading sits on has stood past
+    /// `[tugtool.arc].boundary_horizon_secs` — the step closed, the turn
+    /// ended, and a background job is still open, for longer than the horizon
+    /// allows. Runner memory, like [`ArcFacts::compacted_since_below`]: the
+    /// documents cannot hold when the shape began.
+    ///
+    /// It is the one fact that lets an arm above the idle gate prompt. A
+    /// boundary is a place the wheel may prompt; mid-turn it may only wait or
+    /// stop, and a mid-turn reading never sets this because the shape requires
+    /// the turn to have ended.
+    pub boundary_held: bool,
+    /// The keys of the background jobs the stage's session still holds open.
+    /// Empty on every idle reading, by definition of the busy latch.
+    ///
+    /// Carried so the boundary prompt's note can name what it walked past
+    /// rather than counting it — a count cannot be checked against the
+    /// supervisor's own log a minute later.
+    pub open_jobs: Vec<String>,
     /// The turn that just ended was the `/compact` the arc sent. A compaction
     /// closes no step, so `step_just_done` is false at its end; this fact is
     /// what lets the predicate continue the stage anyway — and what tells an
@@ -301,6 +319,10 @@ pub enum PromptWhy {
     Compact { tokens: u64, compact_tokens: u64 },
     Continue,
     StillOpen,
+    /// The boundary the prompt walked past, and the jobs that were holding it
+    /// open when it did. The runner names them in the arc's notes, because a
+    /// prompt nobody asked for should say what it decided over.
+    PastOpenJobs { jobs: Vec<String> },
 }
 
 /// What the arc should do next.
@@ -473,6 +495,31 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
             stage: stage.unwrap_or(ArcStage::Devise),
             reason: ArcStopReason::Stalled,
         });
+    }
+
+    // A boundary the wheel cannot read idle, held past its horizon ([B03]):
+    // step closed, turn ended, jobs still open. Prompt past it.
+    //
+    // `stage_turn_ended` and `!stage_api_error` are here because this arm sits
+    // above the two arms that own those readings, and both are unreachable for
+    // a not-idle reading — so without them this arm would silently re-decide
+    // them. A stage whose turn ended in a 529 with a job still open keeps the
+    // stop's own sentence; a stage that has ended no asked turn has nothing to
+    // be prompted on.
+    if facts.boundary_held
+        && facts.stage_continues
+        && facts.stage_turn_ended
+        && !facts.stage_api_error
+        && stage == Some(ArcStage::Implement)
+    {
+        if let Some(ArcAction::Prompt { kind, .. }) = continue_prompt(facts) {
+            return Some(ArcAction::Prompt {
+                kind,
+                why: PromptWhy::PastOpenJobs {
+                    jobs: facts.open_jobs.clone(),
+                },
+            });
+        }
     }
 
     // Nothing rotates mid-turn.
@@ -879,6 +926,8 @@ mod tests {
             context_tokens: None,
             compact_tokens: 300_000,
             stage_continues: false,
+            boundary_held: false,
+            open_jobs: Vec::new(),
             compacted_since_below: false,
             compact_turn_just_ended: false,
             audit_declared: false,
@@ -1533,6 +1582,99 @@ mod tests {
         facts.context_tokens = tokens;
         facts.stage_continues = true;
         facts
+    }
+
+    /// A boundary the busy latch will not let anything read idle: the step
+    /// closed, the turn ended, a job is still open, and the horizon has run.
+    fn held_boundary() -> ArcFacts {
+        let mut facts = implementing(Some(120_000), true);
+        facts.session_idle = false;
+        facts.boundary_held = true;
+        facts.open_jobs = vec!["t1".to_string()];
+        facts
+    }
+
+    /// **A boundary is a place the wheel may prompt** ([B03]), and this is the
+    /// one shape where a boundary exists and no idle reading of it is possible.
+    /// The step close ends the session's jobs, so the arm is the backstop for
+    /// the residue that edge cannot reach — never the remedy.
+    #[test]
+    fn a_held_boundary_prompts_the_next_step() {
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &held_boundary()),
+            Some(ArcAction::Prompt {
+                kind: PromptKind::Continue { steps: (4, 9) },
+                why: PromptWhy::PastOpenJobs {
+                    jobs: vec!["t1".to_string()]
+                },
+            }),
+            "the jobs ride the why so the note can name what the prompt walked past"
+        );
+    }
+
+    /// Before the horizon runs the reading is the one the machine already had:
+    /// not idle, so nothing is decided and the card's `Waiting:` sentence is
+    /// the whole of what anyone is told.
+    #[test]
+    fn a_boundary_not_yet_held_decides_nothing() {
+        let mut facts = held_boundary();
+        facts.boundary_held = false;
+        assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
+    }
+
+    /// Mid-turn the wheel may only wait or stop, and the arm is kept off that
+    /// reading two ways: the runner never sets `boundary_held` while the turn
+    /// is open (the shape requires it to have ended — see
+    /// `a_wake_inside_the_boundary_starts_it_over` in the runner's harness),
+    /// and `stage_continues` keeps the arm off a run with nothing left to ask
+    /// for even when the fact is somehow true.
+    #[test]
+    fn a_held_boundary_mid_turn_is_never_reached() {
+        let mut facts = held_boundary();
+        facts.stage_continues = false;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            None,
+            "a run that continues nowhere is not prompted past anything"
+        );
+    }
+
+    /// Devise and review end by rotating rather than by closing steps, so
+    /// neither has a boundary to be prompted past. `stage_continues` is the
+    /// fact that says so, and the stage equality on the arm says it again.
+    #[test]
+    fn the_horizon_does_not_reach_devise_or_review() {
+        for stage in [ArcStage::Devise, ArcStage::Review] {
+            // Held with `stage_continues` left true, which is the reading
+            // neither stage can actually present — the point being that the
+            // arm's stage equality carries this on its own, so the two facts
+            // are not one guard wearing two names.
+            assert_eq!(
+                arc_action(&record(&[stage]), &held_boundary()),
+                None,
+                "{} has no step boundary to prompt past",
+                stage.as_str()
+            );
+        }
+    }
+
+    /// The arm sits above the `ApiError` stop, so without `!stage_api_error` it
+    /// would silently re-decide it. A turn that ended in a 529 with a job still
+    /// open keeps the stop's own sentence whichever reading reaches it.
+    #[test]
+    fn a_held_boundary_on_an_api_error_is_not_prompted_past() {
+        let mut facts = held_boundary();
+        facts.stage_api_error = true;
+        assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
+    }
+
+    /// And above the never-run guard, for the same reason: a stage that has
+    /// ended no asked turn has nothing to be prompted on.
+    #[test]
+    fn a_held_boundary_on_a_stage_that_ended_no_turn_decides_nothing() {
+        let mut facts = held_boundary();
+        facts.stage_turn_ended = false;
+        assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
     }
 
     /// **The horizon is two asks** ([P06]). An implement turn that ends

@@ -543,7 +543,18 @@ pub struct LedgerEntry {
     /// the open, refreshed by `task_progress` heartbeats, and read by
     /// [`LedgerEntry::reap_stuck_jobs`] so a wire shape nothing here foresaw
     /// degrades `holders_busy` to *late*, never *forever*.
-    pub open_jobs: std::collections::BTreeMap<String, std::time::Instant>,
+    ///
+    /// **The read point is the reap point, and there are two of them**: the
+    /// recompute's read of busyness ([`busy_session_ids`]) and the arc
+    /// runner's read of one entry (`session_snapshot`). Both reap on their way
+    /// past, so no timer task is needed and the bound holds on an arc nobody
+    /// happens to be recomputing ([B04]).
+    ///
+    /// **A confirmed job leaves this set three ways**, not two: by its own
+    /// terminal edge, by the reaper, and by the close of the step it was
+    /// launched inside — [`AgentSupervisor::end_step_jobs`], because a job
+    /// whose step is over has nothing left to report to (brief [B01]).
+    pub open_jobs: std::collections::BTreeMap<String, OpenJob>,
     /// Notified at exactly the edges where [`LedgerEntry::is_quiet`] can
     /// become true, so a waiter watches the session rather than polling it
     /// ([P05]).
@@ -741,8 +752,8 @@ impl LedgerEntry {
         if self.turn_active {
             return;
         }
-        self.open_jobs.retain(|task, stamp| {
-            let stale = now.saturating_duration_since(*stamp) > JOB_REAP_HORIZON;
+        self.open_jobs.retain(|task, job| {
+            let stale = now.saturating_duration_since(job.since) > JOB_REAP_HORIZON;
             if stale {
                 warn!(
                     target: "dev::ledger",
@@ -877,7 +888,12 @@ impl LedgerEntry {
 /// backgrounded bash job emits no progress frames at all, so a tight horizon
 /// would reap real work and offer its join early (Risk R01's residual is a
 /// silent job longer than this, accepted as the cost of never wedging).
-const JOB_REAP_HORIZON: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+///
+/// Read at both reap points — [`busy_session_ids`], the recompute's read of
+/// busyness, and the arc runner's `session_snapshot`, its read of one entry —
+/// which is why it is visible past this module.
+pub(crate) const JOB_REAP_HORIZON: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
 
 /// How long after a client connects the orphan sweep waits before it judges
 /// ([B07]).
@@ -936,8 +952,10 @@ pub async fn busy_session_ids() -> HashSet<String> {
     let mut busy = HashSet::new();
     for (id, entry) in entries {
         let mut entry = entry.lock().await;
-        // The read point is the reap point: no timer task, just the recompute
-        // that consults busyness pruning what has gone stale on its way past.
+        // The read point is the reap point: no timer task, just a reader that
+        // consults busyness pruning what has gone stale on its way past. This
+        // is one of the two — the arc runner's `session_snapshot` takes the
+        // same two calls in the same order for the one entry it reads ([B04]).
         entry.reap_stuck_jobs(std::time::Instant::now());
         // And the turn flag, under the same doctrine ([B02]). Ordered after
         // the jobs so one pass can take a session all the way to quiet.
@@ -3466,6 +3484,64 @@ pub(crate) fn turn_ended_in_user_cancel(payload: &[u8]) -> bool {
         && value.get("is_recovery").and_then(|v| v.as_bool()) != Some(true)
 }
 
+/// One entry in [`LedgerEntry::open_jobs`]: when the job began, and what kind
+/// of thing it is.
+///
+/// The kind is recorded at the **launch** and never re-derived ([P03]). It has
+/// to be: the `task_started` that confirms a job names a `task_type`, but the
+/// launch that opened the provisional entry is the only frame that names the
+/// *tool*, and the wait sentence the user reads — `1 background job open
+/// (bash, 23 min)` — is about the tool they typed rather than about claude's
+/// internal classification. A provisional entry that had no kind until its
+/// confirmation would read as unnamed for exactly the window the latch exists
+/// to cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenJob {
+    /// The liveness stamp: set at the open, carried across the `task_started`
+    /// re-key, refreshed by `task_progress`, and read by
+    /// [`LedgerEntry::reap_stuck_jobs`].
+    pub since: std::time::Instant,
+    pub kind: JobKind,
+}
+
+/// What kind of background work an open job is, as its launching `tool_use`
+/// named it.
+///
+/// `Other` carries the tool's own name rather than collapsing to "unknown": a
+/// wait sentence naming a tool nothing here anticipated is still a sentence the
+/// user can act on, and a new backgroundable tool must not need a change here
+/// to be legible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobKind {
+    Bash,
+    Agent,
+    Monitor,
+    Other(String),
+}
+
+impl JobKind {
+    /// The tool name as the launch spelled it, lowercased for the sentence.
+    pub fn as_str(&self) -> &str {
+        match self {
+            JobKind::Bash => "bash",
+            JobKind::Agent => "agent",
+            JobKind::Monitor => "monitor",
+            JobKind::Other(name) => name,
+        }
+    }
+}
+
+impl From<&str> for JobKind {
+    fn from(tool_name: &str) -> Self {
+        match tool_name {
+            "Bash" => JobKind::Bash,
+            "Agent" => JobKind::Agent,
+            "Monitor" => JobKind::Monitor,
+            other => JobKind::Other(other.to_ascii_lowercase()),
+        }
+    }
+}
+
 /// The prefix that marks a provisional [`LedgerEntry::open_jobs`] key — one
 /// opened at a launching `tool_use` and not yet confirmed by a `task_started`.
 ///
@@ -3557,14 +3633,17 @@ fn nonempty_task_id(value: &serde_json::Value) -> Option<String> {
     (!task_id.is_empty()).then(|| task_id.to_owned())
 }
 
-/// The `tool_use_id` of a `tool_use` frame whose call launches background
-/// work — `run_in_background: true` in the input, or the `Monitor` tool,
-/// which is background activity by nature. This is the deck's `isJobLaunch`
-/// gate (`select-jobs.ts`), applied at tugcast's fold so the two readers of
-/// one wire count the same jobs. Everything else — including a foreground
-/// `Agent` call, whose later `task_started` must open nothing — answers
-/// `None`.
-fn parse_background_launch(payload: &[u8]) -> Option<String> {
+/// The `tool_use_id` and tool name of a `tool_use` frame whose call launches
+/// background work — `run_in_background: true` in the input, or the `Monitor`
+/// tool, which is background activity by nature. This is the deck's
+/// `isJobLaunch` gate (`select-jobs.ts`), applied at tugcast's fold so the two
+/// readers of one wire count the same jobs. Everything else — including a
+/// foreground `Agent` call, whose later `task_started` must open nothing —
+/// answers `None`.
+///
+/// The name rides along because the launch is the only frame that carries it,
+/// and the job's kind is recorded from it at the open ([P03]).
+fn parse_background_launch(payload: &[u8]) -> Option<(String, JobKind)> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
     if value.get("type")?.as_str()? != "tool_use" {
         return None;
@@ -3578,8 +3657,10 @@ fn parse_background_launch(payload: &[u8]) -> Option<String> {
         .and_then(|i| i.get("run_in_background"))
         .and_then(|b| b.as_bool())
         == Some(true);
-    let monitor = value.get("tool_name").and_then(|n| n.as_str()) == Some("Monitor");
-    (backgrounded || monitor).then(|| tool_use_id.to_owned())
+    let tool_name = value.get("tool_name").and_then(|n| n.as_str());
+    let monitor = tool_name == Some("Monitor");
+    (backgrounded || monitor)
+        .then(|| (tool_use_id.to_owned(), JobKind::from(tool_name.unwrap_or(""))))
 }
 
 /// The `tool_use_id` of an errored `tool_result` — the answer a launch that
@@ -7124,6 +7205,13 @@ impl AgentSupervisor {
             }),
         )
         .await;
+        // And the wait board beside it. `evict_for_stop` is keyed by the arc
+        // key and clears nothing there — the board is keyed by the seat ([P02])
+        // — so this is its own line rather than something that verb could do.
+        // Without it a stop taken through this path leaves the card and
+        // `arc status` both saying the wheel is still waiting on a run that has
+        // ended.
+        super::arc_runner::clear_wait(session);
 
         super::arc_runner::stop_arc_for_session(
             self,
@@ -8715,6 +8803,87 @@ impl AgentSupervisor {
         };
         entry.lock().await.step_closed_this_turn = Some(step);
         true
+    }
+
+    /// End every background job `segment`'s card holds open, because the step
+    /// they belonged to has just closed ([B01]). Answers the keys that were
+    /// open, so the verb that closed the step can name them in its receipt.
+    ///
+    /// **The step boundary is a work boundary.** A job launched inside a step
+    /// belongs to that step, and a step that has closed has nothing left for
+    /// it to report to: the next step is a different turn, the wheel is what
+    /// opens it, and until the job reports the session reads busy and the
+    /// wheel waits. Before this the wait ran to the reaper's thirty-minute
+    /// horizon, and the arc read as stalled long before it read as moving.
+    ///
+    /// The set is dropped wholesale rather than stopped-and-awaited, and the
+    /// asymmetry is deliberate: a `stop_task` is best-effort, and a job whose
+    /// step is over must not be able to hold the arc open by declining to
+    /// answer. So the ledger stops believing the job first and asks tugcode to
+    /// end it second — the order
+    /// [`AgentSupervisor::apply_stop_all_work_done`] settles the stop path in,
+    /// for the same reason.
+    ///
+    /// A `launch:` key is provisional and carries no `task_id`, so there is
+    /// nothing to stop; it is dropped and named by its key in the log line.
+    pub async fn end_step_jobs(&self, segment: &str) -> Vec<String> {
+        let Some((card, entry)) = self.card_entry_for_segment(segment).await else {
+            return Vec::new();
+        };
+        // The guard is dropped before anything is awaited (Risk R01): the
+        // frames dispatched below travel the same routing a release edge does,
+        // and holding an entry lock across that await is what wedges it.
+        let (keys, quiet) = {
+            let mut guard = entry.lock().await;
+            let keys: Vec<String> = std::mem::take(&mut guard.open_jobs).into_keys().collect();
+            // The transition into quiet, notified from inside the guard that
+            // wrote it so a waiter cannot observe a half-applied edge ([P05]).
+            let quiet = guard.is_quiet();
+            if quiet {
+                guard.quiesced.notify_waiters();
+            }
+            (keys, quiet)
+        };
+        let confirmed: Vec<&String> = keys
+            .iter()
+            .filter(|key| !key.starts_with(LAUNCH_KEY_PREFIX))
+            .collect();
+        // Logged even when nothing was open, because the line says the edge
+        // was reached — which is the question asked of it when an arc hangs.
+        tracing::info!(
+            target: "dev::ledger",
+            event = "job_ended_at_step_close",
+            session_id = %segment,
+            jobs = ?keys,
+            stopped = confirmed.len(),
+            "a closed step ends its jobs",
+        );
+        for key in &confirmed {
+            self.dispatch_one(code_input_frame(&serde_json::json!({
+                "type": "stop_task",
+                "tug_session_id": card.as_str(),
+                "task_id": key,
+            })))
+            .await;
+        }
+        // The last job leaving with the turn already ended is the moment the
+        // session goes quiet, and nothing else will speak for it — so the work
+        // parked behind it is released on the same channels the job edge uses.
+        //
+        // **Named by the card, as every other release site names it.** A
+        // `segment` is a rotation's row; the wheel's parked-rotation map and
+        // the supervisor's own entries are keyed by the card's address, so a
+        // segment sent here would be a wake nothing could match.
+        if quiet {
+            if let Some(tx) = self.turn_complete_tx.get() {
+                let _ = tx.try_send(card.as_str().to_string());
+            }
+            if let Some(tx) = self.arc_tick_tx.get() {
+                let _ = tx.try_send(card.as_str().to_string());
+            }
+            self.registry.changeset_all_bump().notify_one();
+        }
+        keys
     }
 
     /// The step this turn has already closed on `segment`'s card, if any — the
@@ -11764,7 +11933,7 @@ impl AgentSupervisor {
     /// Replay-guarded like the fold itself: a `replay_batch`'s historical
     /// launches describe calls whose jobs died with the session that ran them.
     pub(super) async fn record_job_launch(&self, session_id: &TugSessionId, payload: &[u8]) {
-        let Some(tool_use_id) = parse_background_launch(payload) else {
+        let Some((tool_use_id, kind)) = parse_background_launch(payload) else {
             return;
         };
         let entry_arc = {
@@ -11778,15 +11947,20 @@ impl AgentSupervisor {
         if entry.replay_brackets_open != 0 {
             return;
         }
-        entry
-            .open_jobs
-            .insert(launch_key(&tool_use_id), std::time::Instant::now());
+        entry.open_jobs.insert(
+            launch_key(&tool_use_id),
+            OpenJob {
+                since: std::time::Instant::now(),
+                kind: kind.clone(),
+            },
+        );
         entry.touch_turn();
         tracing::debug!(
             target: "dev::ledger",
             event = "job_launched",
             session_id = %session_id,
             tool_use_id = %tool_use_id,
+            kind = kind.as_str(),
             open_jobs = entry.open_jobs.len(),
         );
     }
@@ -11864,8 +12038,8 @@ impl AgentSupervisor {
             return;
         };
         let mut entry = entry_arc.lock().await;
-        if let Some(stamp) = entry.open_jobs.get_mut(&task_id) {
-            *stamp = std::time::Instant::now();
+        if let Some(job) = entry.open_jobs.get_mut(&task_id) {
+            job.since = std::time::Instant::now();
         }
         // A job reporting in is the turn behind it reporting in too ([B02]).
         entry.touch_turn();
@@ -11924,7 +12098,7 @@ impl AgentSupervisor {
                 // than from its confirmation.
                 let launched = parse_task_started_launch_id(payload)
                     .and_then(|id| entry.open_jobs.remove(&launch_key(&id)));
-                let Some(stamp) = launched else {
+                let Some(job) = launched else {
                     tracing::debug!(
                         target: "dev::ledger",
                         event = "job_open_rejected",
@@ -11935,7 +12109,7 @@ impl AgentSupervisor {
                     );
                     return false;
                 };
-                entry.open_jobs.insert(task.clone(), stamp);
+                entry.open_jobs.insert(task.clone(), job);
                 tracing::debug!(
                     target: "dev::ledger",
                     event = "job_opened",
@@ -13413,6 +13587,17 @@ mod tests {
     use std::future::pending;
     use tokio::sync::Notify;
 
+    /// An open job stamped `since`, of the kind most of these tests are about:
+    /// a backgrounded `Bash` command. The kind is recorded at the launch
+    /// ([P03]), and a test that reaches into `open_jobs` directly is standing in
+    /// for that launch.
+    fn bash_job(since: std::time::Instant) -> OpenJob {
+        OpenJob {
+            since,
+            kind: JobKind::Bash,
+        }
+    }
+
     use super::super::agent_bridge::{RelayOutcome, SessionChild, SpawnFuture, relay_session_io};
 
     /// The shared `changeset_join_resolve_base_ok` wire fixture, also read by
@@ -13619,7 +13804,7 @@ mod tests {
         // The model stops speaking, but it backgrounded a test sweep first.
         entry
             .open_jobs
-            .insert("t1".to_owned(), std::time::Instant::now());
+            .insert("t1".to_owned(), bash_job(std::time::Instant::now()));
         entry.turn_active = false;
         assert!(!entry.is_quiet(), "the turn ended; the work did not");
 
@@ -13648,7 +13833,7 @@ mod tests {
         entry.turn_opener = Some(TurnOpener::Wake);
         entry
             .open_jobs
-            .insert("t1".to_owned(), std::time::Instant::now());
+            .insert("t1".to_owned(), bash_job(std::time::Instant::now()));
 
         assert!(entry.clear_replay_residue(), "residue is reported cleared");
         assert!(entry.is_quiet(), "the bracket closes on a quiet entry");
@@ -13668,7 +13853,7 @@ mod tests {
             CrashBudget::new(3, Duration::from_secs(60)),
         );
         let now = std::time::Instant::now();
-        entry.open_jobs.insert("t1".to_owned(), now);
+        entry.open_jobs.insert("t1".to_owned(), bash_job(now));
         entry.turn_active = false;
 
         // Within the horizon the job still holds the session busy.
@@ -13791,7 +13976,7 @@ mod tests {
             CrashBudget::new(3, Duration::from_secs(60)),
         );
         let now = std::time::Instant::now();
-        entry.open_jobs.insert("t1".to_owned(), now);
+        entry.open_jobs.insert("t1".to_owned(), bash_job(now));
         entry.turn_active = true;
         entry.reap_stuck_jobs(now + JOB_REAP_HORIZON + Duration::from_secs(1));
         assert_eq!(entry.open_jobs.len(), 1, "mid-turn, nothing is reaped");
@@ -19437,6 +19622,238 @@ mod tests {
         assert_eq!(sup.step_closed_this_turn("sess-bound").await, None);
     }
 
+    /// The step boundary is a work boundary: the jobs the closing step
+    /// launched are ended by the close, named back to the verb that made it,
+    /// and each confirmed one gets a `stop_task` on the wire.
+    #[tokio::test]
+    async fn a_step_close_ends_the_sessions_open_jobs_and_names_them() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-esj", "sess-esj"), 10)
+            .await
+            .expect_handled();
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("sess-esj"))
+                .unwrap()
+                .clone()
+        };
+        {
+            let now = std::time::Instant::now();
+            let mut guard = entry.lock().await;
+            guard.open_jobs.insert("task-a".to_string(), bash_job(now));
+            guard.open_jobs.insert("task-b".to_string(), bash_job(now));
+            guard.open_jobs.insert(launch_key("toolu_pending"), bash_job(now));
+        }
+
+        let ended = sup.end_step_jobs("sess-esj").await;
+        assert_eq!(
+            ended,
+            vec![
+                launch_key("toolu_pending"),
+                "task-a".to_string(),
+                "task-b".to_string(),
+            ],
+            "every key that was open is named, provisional ones included",
+        );
+        assert!(
+            entry.lock().await.open_jobs.is_empty(),
+            "the ledger stops believing the jobs first — a job that declines \
+             to answer must not be able to hold the arc open",
+        );
+
+        // One `stop_task` per confirmed key, and none for the provisional
+        // one, which has no task id to name.
+        let mut guard = entry.lock().await;
+        let mut stopped: Vec<String> = Vec::new();
+        while let Some(frame) = guard.queue.pop() {
+            let payload: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            assert_eq!(payload["type"], "stop_task");
+            assert_eq!(payload["tug_session_id"], "sess-esj");
+            stopped.push(payload["task_id"].as_str().unwrap().to_string());
+        }
+        stopped.sort();
+        assert_eq!(stopped, vec!["task-a".to_string(), "task-b".to_string()]);
+    }
+
+    /// The edge is reached on every close, and a close over a card with
+    /// nothing open is a no-op that still answers — an empty vec rather than a
+    /// silence the verb would have to guess at.
+    #[tokio::test]
+    async fn a_step_close_on_a_card_with_no_jobs_is_a_no_op_that_still_says_so() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-esj-0", "sess-esj-0"),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        assert!(sup.end_step_jobs("sess-esj-0").await.is_empty());
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("sess-esj-0"))
+                .unwrap()
+                .clone()
+        };
+        assert!(
+            entry.lock().await.queue.is_empty(),
+            "nothing was open, so nothing is stopped",
+        );
+        // And a card this supervisor holds no entry for is simply not found —
+        // the same degrade-open direction `mark_step_closed_this_turn` takes.
+        assert!(sup.end_step_jobs("nobody").await.is_empty());
+    }
+
+    /// The hang this exists to end: the turn is over and one job is still
+    /// open, so the session reads busy and the wheel waits on it. The close
+    /// makes the session quiet and releases the work parked behind it on the
+    /// same channels a job's own terminal edge would have.
+    #[tokio::test]
+    async fn a_step_close_with_the_turn_ended_releases_the_quiet_edge() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let (arc_tick_tx, mut arc_tick_rx) = mpsc::channel(4);
+        let (turn_complete_tx, mut turn_complete_rx) = mpsc::channel(4);
+        sup.arc_tick_tx.set(arc_tick_tx).unwrap();
+        sup.turn_complete_tx.set(turn_complete_tx).unwrap();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-esj-q", "sess-esj-q"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("sess-esj-q"))
+                .unwrap()
+                .clone()
+        };
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("task-slow".to_string(), bash_job(std::time::Instant::now()));
+            assert!(
+                !guard.is_quiet(),
+                "the turn ended and the job did not — this is the wait",
+            );
+        }
+
+        assert_eq!(sup.end_step_jobs("sess-esj-q").await, vec!["task-slow"]);
+        assert!(entry.lock().await.is_quiet());
+        assert_eq!(arc_tick_rx.try_recv(), Ok("sess-esj-q".to_string()));
+        assert_eq!(turn_complete_rx.try_recv(), Ok("sess-esj-q".to_string()));
+    }
+
+    /// The job's kind is recorded at the **launch**, which is the only frame
+    /// that names the tool, and the `task_started` re-key carries it across —
+    /// so the wait sentence names the tool the user typed for the whole life of
+    /// the job, including the provisional window before its confirmation
+    /// ([P03]).
+    #[tokio::test]
+    async fn a_launch_records_the_jobs_kind_and_the_re_key_carries_it() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-kind", "sess-kind"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-kind");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.turn_active = true;
+
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+        assert_eq!(
+            entry.lock().await.open_jobs[&launch_key("toolu_1")].kind,
+            JobKind::Bash,
+            "the provisional entry is named from the launch, not from a \
+             confirmation that has not arrived",
+        );
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"just app-test","task_type":"local_bash","ipc_version":2}"#;
+        sup.apply_job_edge(&id, started).await;
+        assert_eq!(entry.lock().await.open_jobs["t1"].kind, JobKind::Bash);
+    }
+
+    /// A `Monitor` call is background work by nature and carries no
+    /// `run_in_background`; a tool nothing here anticipated keeps its own name
+    /// rather than collapsing to "unknown", so a wait sentence about it is
+    /// still one the user can act on.
+    #[test]
+    fn a_launch_names_its_tool_and_an_unknown_one_keeps_its_name() {
+        let monitor = br#"{"type":"tool_use","tool_name":"Monitor","tool_use_id":"toolu_m","input":{},"ipc_version":2}"#;
+        assert_eq!(
+            parse_background_launch(monitor),
+            Some(("toolu_m".to_string(), JobKind::Monitor)),
+        );
+        let agent = br#"{"type":"tool_use","tool_name":"Agent","tool_use_id":"toolu_a","input":{"run_in_background":true},"ipc_version":2}"#;
+        assert_eq!(
+            parse_background_launch(agent),
+            Some(("toolu_a".to_string(), JobKind::Agent)),
+        );
+        let novel = br#"{"type":"tool_use","tool_name":"Telescope","tool_use_id":"toolu_t","input":{"run_in_background":true},"ipc_version":2}"#;
+        assert_eq!(
+            parse_background_launch(novel),
+            Some((
+                "toolu_t".to_string(),
+                JobKind::Other("telescope".to_string())
+            )),
+        );
+        assert_eq!(JobKind::Other("telescope".to_string()).as_str(), "telescope");
+        // A foreground call is still no launch at all.
+        let foreground = br#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"toolu_f","input":{"command":"ls"},"ipc_version":2}"#;
+        assert_eq!(parse_background_launch(foreground), None);
+    }
+
+    /// A `task_started` whose launch the close already ended opens nothing.
+    /// The gate in `apply_job_edge` is keyed to the provisional entry, so
+    /// draining the set is what makes a late confirmation harmless rather than
+    /// a job reopened past its own step.
+    #[tokio::test]
+    async fn a_task_started_after_its_launch_was_ended_opens_nothing() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-esj-l", "sess-esj-l"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-esj-l");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+        assert_eq!(entry.lock().await.open_jobs.len(), 1);
+
+        assert_eq!(
+            sup.end_step_jobs("sess-esj-l").await,
+            vec![launch_key("toolu_1")],
+        );
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"a sweep","task_type":"local_agent","ipc_version":2}"#;
+        assert!(!sup.apply_job_edge(&id, started).await);
+        assert!(
+            entry.lock().await.open_jobs.is_empty(),
+            "the launch is gone, so its confirmation is the unmatched shape \
+             the gate refuses — not a job reopened past its own step",
+        );
+    }
+
     /// A rotation mints a segment; the card's address does not move. So a
     /// close reported under the fresh segment has to reach the card's entry —
     /// the walk Part XI item 1 found `bound_arcs` missing, one layer over.
@@ -19573,12 +19990,16 @@ mod tests {
 
         // A job whose last sign of life was a second ago.
         let old = std::time::Instant::now() - Duration::from_secs(1);
-        entry.lock().await.open_jobs.insert("t1".to_owned(), old);
+        entry
+            .lock()
+            .await
+            .open_jobs
+            .insert("t1".to_owned(), bash_job(old));
 
         let tick = br#"{"type":"task_progress","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"working","ipc_version":2}"#;
         sup.refresh_job_stamp(&id, tick).await;
         assert!(
-            *entry.lock().await.open_jobs.get("t1").unwrap() > old,
+            entry.lock().await.open_jobs.get("t1").unwrap().since > old,
             "the heartbeat moved the stamp"
         );
 
@@ -19716,7 +20137,7 @@ mod tests {
 
         let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
         sup.record_job_launch(&id, launch).await;
-        let launched_stamp = entry.lock().await.open_jobs[&launch_key("toolu_1")];
+        let launched = entry.lock().await.open_jobs[&launch_key("toolu_1")].clone();
 
         let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"just app-test","task_type":"local_bash","ipc_version":2}"#;
         assert!(!sup.apply_job_edge(&id, started).await);
@@ -19728,8 +20149,9 @@ mod tests {
                 "one job, under its task id and no longer under the launch",
             );
             assert_eq!(
-                entry.open_jobs["t1"], launched_stamp,
-                "the launch's stamp carried across, so the reap clock did not restart",
+                entry.open_jobs["t1"], launched,
+                "the launch's stamp and its kind carried across, so the reap \
+                 clock did not restart and the wait sentence still names the tool",
             );
         }
 
@@ -27018,7 +27440,7 @@ mod tests {
         {
             let mut guard = entry.lock().await;
             guard.turn_active = false;
-            guard.open_jobs.insert("t1".to_owned(), Instant::now());
+            guard.open_jobs.insert("t1".to_owned(), bash_job(Instant::now()));
         }
 
         let stopping = spawn_stop(&sup, root, "claude-1", true);
@@ -27062,8 +27484,8 @@ mod tests {
         {
             let mut guard = entry.lock().await;
             guard.turn_active = false;
-            guard.open_jobs.insert("t1".to_owned(), Instant::now());
-            guard.open_jobs.insert("t2".to_owned(), Instant::now());
+            guard.open_jobs.insert("t1".to_owned(), bash_job(Instant::now()));
+            guard.open_jobs.insert("t2".to_owned(), bash_job(Instant::now()));
         }
 
         let stopping = spawn_stop(&sup, root, "claude-1", true);
@@ -27098,7 +27520,7 @@ mod tests {
             let mut guard = entry.lock().await;
             guard.turn_active = true;
             for task in ["t1", "t2", "t3"] {
-                guard.open_jobs.insert(task.to_owned(), Instant::now());
+                guard.open_jobs.insert(task.to_owned(), bash_job(Instant::now()));
             }
         }
 

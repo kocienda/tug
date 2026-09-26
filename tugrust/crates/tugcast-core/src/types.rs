@@ -718,6 +718,17 @@ pub struct ArcRunState {
     /// only the wire lacked them, so the placard had nothing to show.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// **What the wheel is waiting for, whenever it waits** — one composed
+    /// sentence, or absent when the wheel is not waiting.
+    ///
+    /// The wheel judges an arc only at a settled idle edge, so an arc whose
+    /// session is busy is one it is deliberately not judging. That is correct
+    /// and it is also indistinguishable, from any face, from a wheel that has
+    /// stopped working — which is what every report of a hung arc has actually
+    /// been. The sentence is composed server-side, in one place, so the card
+    /// and `tugtool arc status` cannot word the same fact two ways.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
 }
 
 /// What the last green verify said about the tree a join would land.

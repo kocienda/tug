@@ -226,6 +226,7 @@ describe("arcReading", () => {
     phase: "implement",
     stopped: null,
     stoppedWhy: null,
+    waiting: null,
     live: false,
     steps: null,
     ...over,
@@ -308,6 +309,46 @@ describe("arcReading", () => {
 });
 
 /**
+ * The wait rides the model the same way the stop's sentence does: composed
+ * server-side, read here, and never derived from any other field.
+ */
+describe("the wait the wheel published", () => {
+  const WAIT =
+    "1 background job open (bash, 23 min) since a step closed — the wheel prompts past it at 2 min";
+
+  test("an arc the wheel is waiting on carries the sentence", () => {
+    const model = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "implement", waiting: WAIT },
+      steps: steps(3, 4, 10),
+      stage: "working",
+    });
+    expect(model.waiting).toBe(WAIT);
+  });
+
+  test("an arc nobody is waiting on carries null, and so does a card with no arc", () => {
+    expect(
+      arcTrackModel({ documents: PLAN, arc: { stage: "implement" }, stage: "working" }).waiting,
+    ).toBeNull();
+    expect(arcTrackModel({ documents: PLAN, stage: "working" }).waiting).toBeNull();
+  });
+
+  test("the active cell's hover carries it on its own line, and no other cell does", () => {
+    const model = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "implement", waiting: WAIT },
+      steps: steps(3, 4, 10),
+      stage: "working",
+    });
+    expect(arcCellTip(model, "implement", "active")).toBe(
+      `Executing · 3 of 10 steps closed\n${WAIT}`,
+    );
+    expect(arcCellTip(model, "review", "done")).toBe("Reviewed");
+    expect(arcCellTip(model, "join", "pending")).toBe("Not yet joined");
+  });
+});
+
+/**
  * `live` is the bit the two done-*to*-an-arc phases read, and it is derived
  * from the same two facts `arrived` is: a run in flight, or a holder mid-turn.
  */
@@ -366,6 +407,7 @@ describe("arcCellTip", () => {
     phase: "implement",
     stopped: null,
     stoppedWhy: null,
+    waiting: null,
     live: false,
     steps: null,
     ...over,
@@ -464,6 +506,7 @@ describe("the Z2 cell's word", () => {
     phase: "implement",
     stopped: null,
     stoppedWhy: null,
+    waiting: null,
     live: false,
     steps: null,
     ...over,
@@ -636,6 +679,7 @@ describe("a seated session's purpose", () => {
     phase: "implement",
     stopped: null,
     stoppedWhy: null,
+    waiting: null,
     live: false,
     steps: null,
     ...over,

@@ -205,6 +205,18 @@ pub(crate) struct ArcState {
     /// have not moved — a wake, a turn, or a job opening inside the window is
     /// a different session, and the window starts again over it.
     quiet_marks: Option<QuietMarks>,
+    /// When the step boundary this arc is sitting on was first read — the step
+    /// closed, the turn ended, and a background job still open. `None` on any
+    /// tick that reads a different shape.
+    ///
+    /// The boundary the close's own job-ending edge could not reach: a job the
+    /// turn opened *after* it reported the close, or a close whose edge reached
+    /// no supervisor at all. Both leave the wheel unable to read the boundary
+    /// idle with nobody having declared anything wrong, and both used to sit
+    /// until a person typed. Held here rather than derived because the
+    /// documents cannot say when a shape *began*, and the horizon is measured
+    /// against exactly that.
+    boundary_since: Option<Instant>,
 }
 
 /// The facts an idle reading is made of, compared against themselves one
@@ -295,6 +307,222 @@ struct BoundArc {
     /// not; they were speaking two vocabularies, and the stage was handed
     /// both with no key.
     seat: String,
+}
+
+// ---------------------------------------------------------------------------
+// The wait board
+// ---------------------------------------------------------------------------
+
+/// One open background job, as the runner read it off the ledger entry.
+///
+/// A sibling of the supervisor's own `OpenJob` rather than that type itself:
+/// this one crosses the blocking read and is what the wait fact is composed
+/// from, so it carries the kind already rendered as a string and owes nothing
+/// to the entry's lifetime.
+#[derive(Debug, Clone)]
+pub(crate) struct OpenJobFact {
+    pub key: String,
+    pub kind: String,
+    pub since: Instant,
+}
+
+/// One job named in a published [`WaitFact`] — the wire form, with the age
+/// already computed so a reader needs no clock of its own.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct WaitJob {
+    pub key: String,
+    pub kind: String,
+    pub open_for_secs: u64,
+}
+
+/// **What the wheel is waiting for, whenever it waits.**
+///
+/// The wheel judges an arc only at a settled idle edge, which is right: a
+/// rotation performed over work still running advances the arc past it. But a
+/// wait that says nothing is indistinguishable from a wheel that has stopped
+/// working, and that is what every report of a hung arc has actually been. So
+/// every tick that reads a busy session and decides nothing publishes *why*,
+/// and both surfaces that could answer the question — the card, and
+/// `tugtool arc status` — read the one fact rather than each deriving its own.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct WaitFact {
+    /// When the runner first read this wait, ISO-8601 UTC for the wire.
+    pub since: String,
+    pub turn_active: bool,
+    pub step_just_done: bool,
+    pub jobs: Vec<WaitJob>,
+    /// The boundary horizon in seconds, or `None` when it is off — which the
+    /// sentence says, because a wait with no horizon is a wait with no end and
+    /// the user is entitled to know which kind they are looking at.
+    pub boundary_horizon_secs: Option<u64>,
+}
+
+impl WaitFact {
+    /// The one sentence every surface shows. Composed here so the card and the
+    /// status verb cannot word the same fact two ways.
+    pub(crate) fn sentence(&self) -> String {
+        let kinds = self
+            .jobs
+            .iter()
+            .map(|job| job.kind.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        // A turn in flight is the stall clock's business rather than the
+        // boundary horizon's, so the sentence says what is open and stops —
+        // naming a horizon that does not apply here would be worse than
+        // naming none.
+        if self.turn_active {
+            let age = self
+                .jobs
+                .iter()
+                .map(|job| job.open_for_secs)
+                .max()
+                .unwrap_or(0);
+            if self.jobs.is_empty() {
+                return format!("a turn has been open for {}", render_age(age));
+            }
+            let count = self.jobs.len();
+            let plural = if count == 1 { "job" } else { "jobs" };
+            return format!(
+                "a turn has been open for {} with {count} background {plural} ({kinds})",
+                render_age(age),
+            );
+        }
+        let count = self.jobs.len();
+        let noun = if count == 1 {
+            "1 background job open".to_string()
+        } else {
+            format!("{count} background jobs open")
+        };
+        let age = self
+            .jobs
+            .iter()
+            .map(|job| job.open_for_secs)
+            .max()
+            .unwrap_or(0);
+        let mut sentence = if self.jobs.is_empty() {
+            noun
+        } else {
+            format!("{noun} ({kinds}, {})", render_age(age))
+        };
+        if self.step_just_done {
+            sentence.push_str(" since a step closed");
+        }
+        match self.boundary_horizon_secs {
+            Some(secs) => {
+                sentence.push_str(&format!(
+                    " — the wheel prompts past it at {}",
+                    render_age(secs)
+                ));
+            }
+            None => sentence.push_str(" — the boundary horizon is off"),
+        }
+        sentence
+    }
+}
+
+/// A duration for a person: seconds under a minute, whole minutes above it.
+fn render_age(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs}s")
+    } else {
+        format!("{} min", secs / 60)
+    }
+}
+
+/// The board, keyed by the arc's **bound session** ([P02]).
+///
+/// Not by the arc key: a project path spelled one way by the runner, another by
+/// the changeset, and a third by a verb run from inside the arc's own worktree
+/// is three keys for one arc, and a board nobody can read is worse than no
+/// board. The seat is one string from one map — `BoundArc.seat` on the writing
+/// side, `bound_session` on both reading sides.
+///
+/// A `std::sync::Mutex` rather than tokio's: every access is a map insert or
+/// read with no await inside it, and the blocking half of the arc API reads it
+/// directly.
+#[allow(clippy::type_complexity)]
+static WAIT_BOARD: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (Instant, WaitFact)>>> =
+    std::sync::OnceLock::new();
+
+fn wait_board() -> &'static std::sync::Mutex<HashMap<String, (Instant, WaitFact)>> {
+    WAIT_BOARD.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Publish, or retract, what the wheel is waiting for on `seat`.
+///
+/// **The `since` of an existing entry is kept.** A wait is one wait however
+/// many ticks read it, and re-stamping it every minute would make a
+/// three-hour hang read as a fresh one — which is the fact the user most wants.
+pub(crate) fn publish_wait(seat: &str, fact: Option<WaitFact>) {
+    let Ok(mut board) = wait_board().lock() else {
+        return;
+    };
+    match fact {
+        Some(mut fact) => match board.get(seat) {
+            Some((since, held)) => {
+                let since = *since;
+                fact.since = held.since.clone();
+                board.insert(seat.to_string(), (since, fact));
+            }
+            None => {
+                board.insert(seat.to_string(), (Instant::now(), fact));
+            }
+        },
+        None => {
+            board.remove(seat);
+        }
+    }
+}
+
+/// What the wheel is waiting for on `seat`, if anything.
+pub(crate) fn waiting_for(seat: &str) -> Option<WaitFact> {
+    let board = wait_board().lock().ok()?;
+    board.get(seat).map(|(_, fact)| fact.clone())
+}
+
+/// Retract the wait on `seat`. Idempotent: a seat with no entry is fine.
+pub(crate) fn clear_wait(seat: &str) {
+    publish_wait(seat, None);
+}
+
+/// Compose the wait fact for one tick's reading — `None` when the wheel is not
+/// waiting on anything.
+///
+/// The wheel is waiting exactly when it read a session that is **not idle** and
+/// decided **nothing**. Both halves are load-bearing: an idle session is one
+/// the predicate has already judged, and a tick that decided something is about
+/// to act, so a board entry written for either would say the wheel is stuck at
+/// the moment it is moving. The `action` read here is the post-gate one for
+/// that reason.
+fn compose_wait(
+    session: &SessionSnapshot,
+    step_just_done: bool,
+    boundary_horizon_secs: Option<u64>,
+    now: Instant,
+) -> WaitFact {
+    WaitFact {
+        // Overwritten by `publish_wait` when an entry already stands, so a wait
+        // keeps the instant it was first read at.
+        since: iso_now(),
+        turn_active: session.turn_active,
+        step_just_done,
+        jobs: session
+            .open_job_facts
+            .iter()
+            .map(|job| WaitJob {
+                key: job.key.clone(),
+                kind: job.kind.clone(),
+                open_for_secs: now.saturating_duration_since(job.since).as_secs(),
+            })
+            .collect(),
+        boundary_horizon_secs,
+    }
+}
+
+/// Now, as ISO-8601 UTC — the one time format the wire carries.
+fn iso_now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 /// Run the engine until `cancel` fires.
@@ -730,6 +958,12 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // computes what moved since the stop, hands it to the predicate, and acts
     // on the one answer the predicate may give here.
     if reading.record.stopped.is_some() {
+        // **Above everything else on this path** (Risk R03): the block returns,
+        // and this return is the only thing that can clear a board entry for an
+        // arc stopped by a hand other than the runner's own. `arc-stop` written
+        // by any other writer would otherwise leave the board saying the wheel
+        // is still waiting on a run that has ended.
+        clear_wait(&arc.seat);
         let stop_marks = {
             let map = state.lock().await;
             map.get(&key).and_then(|entry| entry.stop_marks)
@@ -782,12 +1016,14 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // entry seeded by the ticks before the arc finished would otherwise
     // outlive the arc in the map, which is the memory `finish` exists to drop.
     if reading.record.done {
+        clear_wait(&arc.seat);
         state.lock().await.remove(&key);
         return;
     }
 
     let quiet_turns;
     let stalled;
+    let boundary_held;
     {
         let mut map = state.lock().await;
         let entry = map.entry(key.clone()).or_default();
@@ -901,9 +1137,36 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         if came_down || compaction_never_happened {
             entry.compacted_since_below = false;
         }
+        // **The boundary the wheel cannot read idle.** The step closed, the
+        // turn ended, and a job is still open: the one shape where a boundary
+        // exists and the busy latch will not let anything read it. Stamped on
+        // the first tick that sees it and cleared by any tick that does not,
+        // so a wake inside the horizon starts the measurement over rather than
+        // carrying a stale one — which is what makes the horizon a fact about
+        // *this* boundary.
+        let boundary_shape = reading.facts.ledger.step_just_done
+            && !session.turn_active
+            && session.open_jobs > 0;
+        if boundary_shape {
+            if entry.boundary_since.is_none() {
+                entry.boundary_since = Some(Instant::now());
+            }
+        } else {
+            entry.boundary_since = None;
+        }
+        boundary_held = entry
+            .boundary_since
+            .zip(reading.config.boundary_horizon())
+            .is_some_and(|(since, horizon)| since.elapsed() >= horizon);
     }
     reading.facts.quiet_turns = quiet_turns;
     reading.facts.stalled = stalled;
+    reading.facts.boundary_held = boundary_held;
+    reading.facts.open_jobs = session
+        .open_job_facts
+        .iter()
+        .map(|job| job.key.clone())
+        .collect();
 
     let mut action = arc_action(&reading.record, &reading.facts);
 
@@ -981,6 +1244,24 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // Every tick says what it read and what it decided, including the ticks
     // that decided nothing. An arc that advances silently is an arc whose
     // divergence from the predicate can only be found by guessing.
+    //
+    // **And a tick that decided nothing over a busy session says what it is
+    // waiting for**, on the board both the card and `arc status` read. Written
+    // from the same values the line below logs, and from the **post-gate**
+    // action, so a tick about to act publishes nothing: the wheel is waiting
+    // only when it read a session that is not finished and chose to do nothing
+    // about it ([P02]).
+    publish_wait(
+        &arc.seat,
+        (!reading.facts.session_idle && action.is_none()).then(|| {
+            compose_wait(
+                &session,
+                reading.facts.ledger.step_just_done,
+                reading.config.boundary_horizon().map(|d| d.as_secs()),
+                Instant::now(),
+            )
+        }),
+    );
     info!(
         target: "dev::session-lifecycle",
         event = "arc.tick",
@@ -1011,6 +1292,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             .map(|d| d.as_millis().to_string())
             .unwrap_or_else(|| "-".to_string()),
         stalled = reading.facts.stalled,
+        boundary_held = reading.facts.boundary_held,
         compacted_since_below = reading.facts.compacted_since_below,
         compact_turn_just_ended = reading.facts.compact_turn_just_ended,
         decided = %decided,
@@ -1064,6 +1346,10 @@ async fn watch_the_clock_unseated(
     arc: &BoundArc,
     key: &str,
 ) {
+    // A seat that hands back no snapshot is a seat nobody can be waiting on:
+    // there is no session to read jobs off, and a board entry left standing
+    // from before the card went away would outlast the card itself.
+    clear_wait(&arc.seat);
     let project = arc.project.clone();
     let name = arc.name.clone();
     let Ok(Some((record, config))) = tokio::task::spawn_blocking(move || {
@@ -1404,6 +1690,11 @@ struct SessionSnapshot {
     /// `idle`, carried so a reader past the blocking read can say *why* a
     /// session was busy.
     open_jobs: usize,
+    /// Those same jobs, named: the key, the kind recorded at the launch, and
+    /// when each began. What the wait fact is composed from ([P03]) — a count
+    /// alone cannot say *what* the wheel is waiting for, and "what" is the
+    /// whole of the sentence the user reads.
+    open_job_facts: Vec<OpenJobFact>,
     /// The claude session running on the card carries a `stage_label` — a
     /// rotation seated it.
     stage_seated: bool,
@@ -1438,8 +1729,19 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         turn_cancelled,
         claude_session_id,
         context_window,
+        open_job_facts,
     ) = {
-        let entry = entry_arc.lock().await;
+        let mut entry = entry_arc.lock().await;
+        // **The read point is the reap point**, and this is the second of the
+        // two ([B04]). `busy_session_ids` reaps on its way past because it is
+        // the *recompute's* read of busyness; this is the runner's read of the
+        // same facts for one entry, and without the calls here the reaper only
+        // ever ran on the recompute's clock — so a job stale past the horizon
+        // on an arc nobody was recomputing held its session busy indefinitely.
+        // Same two calls, same order: jobs first, so one pass can take a
+        // session all the way to quiet.
+        entry.reap_stuck_jobs(Instant::now());
+        entry.reap_stuck_turn(Instant::now());
         let live = match entry.spawn_state {
             // **The two `Idle`s.** A card parked `Idle` used to be
             // indistinguishable from a card whose tugcast had just restarted,
@@ -1496,6 +1798,15 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             entry.turn_cancelled,
             entry.claude_session_id.clone(),
             entry.context_window_tokens,
+            entry
+                .open_jobs
+                .iter()
+                .map(|(key, job)| OpenJobFact {
+                    key: key.clone(),
+                    kind: job.kind.as_str().to_string(),
+                    since: job.since,
+                })
+                .collect(),
         )
     };
     // Only a rotation writes a `stage_label`, at the `session_init` that
@@ -1517,6 +1828,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         api_error,
         turn_cancelled,
         stage_seated,
+        open_job_facts,
         claude_session_id,
         context_window,
     })
@@ -1738,6 +2050,11 @@ fn read(
         // Runner memory too, and for the same reason: the clock is read
         // against a stamp only the caller holds. `evaluate` stamps it.
         stalled: false,
+        // Runner memory as well: the horizon is measured against a stamp only
+        // the state map holds, and the jobs are read from the same snapshot
+        // `evaluate` already has in hand.
+        boundary_held: false,
+        open_jobs: Vec::new(),
     };
 
     // Where devise writes: the arc's own `plan.md`, repo-relative, which is
@@ -2224,6 +2541,31 @@ async fn deliver_prompt(
             kind: kind.clone(),
             turns_ended_at: reading.turns_ended,
         });
+    }
+
+    // The boundary prompt names what it walked past, and retires the boundary
+    // it walked past by hand.
+    //
+    // Both halves are load-bearing. The note is the record — the arc log's
+    // grammar is closed, so there is no log word for this and the note is
+    // where a person reads it afterwards. And `last_done_count` has to be
+    // advanced here because `retain_done_count` only advances on an *idle*
+    // reading, and this reading is by construction not one: left alone,
+    // `step_just_done` would still be true at the next tick and the same
+    // boundary would buy a second prompt every horizon.
+    if let PromptWhy::PastOpenJobs { jobs } = why {
+        let note = format!(
+            "prompted past {} open background job(s): {}",
+            jobs.len(),
+            jobs.join(", ")
+        );
+        let (project, name) = (arc.project.clone(), arc.name.clone());
+        let _ = tokio::task::spawn_blocking(move || append_arc_note(&project, &name, &note)).await;
+
+        let mut map = state.lock().await;
+        let entry = map.entry(key.to_string()).or_default();
+        entry.last_done_count = Some(reading.done_count);
+        entry.boundary_since = None;
     }
 
     info!(
@@ -3024,6 +3366,9 @@ async fn finish(
     reading: &ArcReading,
     stopped: Option<(ArcStage, ArcStopReason)>,
 ) {
+    // The arc leaves the wheel here, either finished or stopped, and a wait is
+    // a fact about a wheel that is still waiting.
+    clear_wait(&arc.seat);
     if let Some((stage, reason)) = stopped {
         stop_arc_for_session(
             &ctx.supervisor,
@@ -3152,6 +3497,16 @@ mod tests {
     use super::*;
     use std::time::{Duration, SystemTime};
 
+    /// An open job stamped `since`, of the kind these tests are about: a
+    /// backgrounded `Bash` command. The kind is recorded at the launch ([P03]),
+    /// and a test reaching into `open_jobs` directly stands in for one.
+    fn bash_job(since: Instant) -> super::super::agent_supervisor::OpenJob {
+        super::super::agent_supervisor::OpenJob {
+            since,
+            kind: super::super::agent_supervisor::JobKind::Bash,
+        }
+    }
+
     /// A plan that parses and lints clean — the fact `lints_as_plan` reads.
     /// Local rather than a repository document: a plan under `arc/` is
     /// archived the day its arc joins, and a test pinned to one goes with it.
@@ -3223,6 +3578,7 @@ Some context.
             turn_active: false,
             turn_opener: None,
             open_jobs: 0,
+            open_job_facts: Vec::new(),
             api_error: false,
             turn_cancelled: false,
             // A seated stage is the ordinary case; the taken-card tests build
@@ -6061,6 +6417,407 @@ Some context.
         assert_eq!(map[&demo_key(root)].quiet_marks, None);
     }
 
+    // ── the wait board ─────────────────────────────────────────────────────
+
+    /// **The hang, from the wheel's side.** The turn has ended, a job is still
+    /// running, so the session is not finished and the predicate correctly
+    /// decides nothing. That is the moment every report of a hung arc has
+    /// actually been, and the board is what makes it sayable.
+    #[tokio::test]
+    async fn a_tick_that_decides_nothing_on_a_busy_session_publishes_a_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+        }
+
+        sweep(&ctx, &state).await;
+
+        let fact = waiting_for("claude-1").expect("the tick said what it is waiting for");
+        assert!(!fact.turn_active);
+        assert_eq!(fact.jobs.len(), 1);
+        assert_eq!(fact.jobs[0].kind, "bash");
+        assert!(
+            fact.step_just_done,
+            "the ledger's `done` row is ahead of the memory's count, which is \
+             exactly the shape the boundary is about",
+        );
+    }
+
+    /// The board is a statement about a wheel that is waiting, so a tick that
+    /// reads a finished session retracts it — otherwise a wait outlives the
+    /// thing it was about and every surface goes on showing it.
+    #[tokio::test]
+    async fn an_idle_tick_clears_the_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+        }
+        sweep(&ctx, &state).await;
+        assert!(waiting_for("claude-1").is_some());
+
+        entry.lock().await.open_jobs.remove("t1");
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            waiting_for("claude-1").map(|f| f.sentence()),
+            None,
+            "the job reported; there is nothing left to wait for",
+        );
+    }
+
+    // ── the reaper's second read point ─────────────────────────────────────
+
+    /// **The bound the runner used to depend on somebody else to apply.** The
+    /// reaper ran only where the *recompute* read busyness, so a job stale past
+    /// the horizon on an arc nobody happened to be recomputing held its session
+    /// busy with nothing that would ever drop it. The sweep's own read is the
+    /// second reap point, and one sweep is enough.
+    #[tokio::test]
+    async fn a_stale_job_is_reaped_by_the_sweep_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard.open_jobs.insert(
+                "t1".to_owned(),
+                bash_job(
+                    Instant::now()
+                        .checked_sub(
+                            super::super::agent_supervisor::JOB_REAP_HORIZON
+                                + Duration::from_secs(1),
+                        )
+                        .expect("the machine has been up longer than the reap horizon"),
+                ),
+            );
+        }
+
+        sweep(&ctx, &state).await;
+
+        assert!(
+            entry.lock().await.open_jobs.is_empty(),
+            "the sweep's own read of the entry is a reap point",
+        );
+    }
+
+    /// And the horizon is a horizon: work that is merely running is not stale,
+    /// so the reap cannot be the thing that ends a job.
+    #[tokio::test]
+    async fn a_fresh_job_survives_the_sweep() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+        }
+
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            entry.lock().await.open_jobs.len(),
+            1,
+            "a job that has not gone silent past the horizon is work, not residue",
+        );
+    }
+
+    /// A long turn's own silence is off the clock entirely — the reaper returns
+    /// at the open turn without looking at a stamp, so a stage running a test
+    /// sweep inside its turn is never reaped out from under itself.
+    #[tokio::test]
+    async fn a_mid_turn_job_is_not_reaped_by_the_sweep() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = true;
+            guard.open_jobs.insert(
+                "t1".to_owned(),
+                bash_job(
+                    Instant::now()
+                        .checked_sub(
+                            super::super::agent_supervisor::JOB_REAP_HORIZON
+                                + Duration::from_secs(1),
+                        )
+                        .expect("the machine has been up longer than the reap horizon"),
+                ),
+            );
+        }
+
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            entry.lock().await.open_jobs.len(),
+            1,
+            "the turn is open, so the stamp is not the reaper's to read",
+        );
+    }
+
+    // ── the boundary horizon ───────────────────────────────────────────────
+
+    /// The wait board's project, with the horizon shortened to a second so the
+    /// arm can be reached by ageing a stamp rather than by waiting two minutes.
+    fn boundary_project(root: &Path) {
+        implementing_project(root, "done", "pending");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\nboundary_horizon_secs = 1\nimplement_compact_tokens = 300000\n",
+        )
+        .unwrap();
+    }
+
+    /// **The whole arc, in one test.** A step closed, the turn ended, a job is
+    /// still open: the boundary exists and the busy latch will not let anything
+    /// read it. Inside the horizon the wheel says what it is waiting for and
+    /// does nothing; past it, the wheel prompts the next step, names in the
+    /// arc's notes what it walked past, and retires the boundary so the same
+    /// one cannot buy a second prompt.
+    #[tokio::test]
+    async fn a_held_boundary_is_prompted_past_at_the_horizon() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        boundary_project(root);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+        }
+
+        // The first tick of the shape: the stamp is taken and nothing is
+        // decided, because a boundary inside its horizon is a boundary a job
+        // may yet report on.
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted_asks(&entry).await,
+            Vec::<String>::new(),
+            "inside the horizon the wheel waits, and the board is what says so"
+        );
+        assert!(
+            state.lock().await[&demo_key(root)].boundary_since.is_some(),
+            "the shape was read and stamped"
+        );
+        assert!(waiting_for("claude-1").is_some());
+
+        // Age the stamp rather than waiting the horizon out — the same way
+        // every other clock in this harness is aged.
+        state
+            .lock()
+            .await
+            .get_mut(&demo_key(root))
+            .unwrap()
+            .boundary_since = Some(Instant::now() - Duration::from_secs(2));
+
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted_asks(&entry).await,
+            vec![
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
+                    .to_string()
+            ],
+            "past the horizon the boundary is prompted past"
+        );
+        assert_eq!(
+            read_arc(root, "demo").unwrap().notes.last().map(String::as_str),
+            Some("prompted past 1 open background job(s): t1"),
+            "the note names what the prompt walked past, because a count cannot be checked later"
+        );
+        let memory = state.lock().await[&demo_key(root)].clone();
+        assert_eq!(
+            memory.boundary_since, None,
+            "the boundary it walked past is retired"
+        );
+        assert_eq!(
+            memory.last_done_count,
+            Some(1),
+            "and the count is advanced by hand, because `retain_done_count` only moves on an idle reading"
+        );
+
+        // The prompt is spent once. Without the count advancing above, this
+        // reading — still not idle, still a closed step — would buy another
+        // every horizon.
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted_asks(&entry).await.len(),
+            1,
+            "one boundary, one prompt"
+        );
+    }
+
+    /// A job that reports inside the horizon opens a wake turn, and the shape
+    /// is gone. The measurement starts over rather than carrying on from a
+    /// boundary the session has since moved off — which is what makes the
+    /// horizon a fact about *this* boundary.
+    #[tokio::test]
+    async fn a_wake_inside_the_boundary_starts_it_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        boundary_project(root);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+        }
+        sweep(&ctx, &state).await;
+        assert!(state.lock().await[&demo_key(root)].boundary_since.is_some());
+
+        entry.lock().await.turn_active = true;
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            state.lock().await[&demo_key(root)].boundary_since, None,
+            "a turn is open, so there is no boundary to be holding"
+        );
+    }
+
+    /// **Risk R03's own test.** An `arc-stop` written by a hand other than the
+    /// runner's own — the verb, another instance, a person — reaches the runner
+    /// as a record that is already stopped, and the sweep returns at that block
+    /// without ever reaching the publish. So the clear has to be *in* that
+    /// block, and this is what proves it is.
+    #[tokio::test]
+    async fn a_record_stopped_under_the_runner_clears_the_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+        }
+        sweep(&ctx, &state).await;
+        assert!(waiting_for("claude-1").is_some());
+
+        // Stopped behind the runner's back, with the job still open: nothing
+        // about the session changed, only the record.
+        append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        sweep(&ctx, &state).await;
+        assert!(
+            waiting_for("claude-1").is_none(),
+            "the stopped block returns, so the clear has to happen inside it",
+        );
+    }
+
+    /// The sentence, over the shapes it has to carry. One place composes it, so
+    /// this is the one place its wording is pinned.
+    #[test]
+    fn the_wait_sentence_names_count_kind_and_age() {
+        let job = |kind: &str, secs: u64| WaitJob {
+            key: format!("t-{kind}"),
+            kind: kind.to_string(),
+            open_for_secs: secs,
+        };
+        let fact = |jobs: Vec<WaitJob>, turn_active, step_just_done, horizon| WaitFact {
+            since: "2026-09-26T00:00:00Z".to_string(),
+            turn_active,
+            step_just_done,
+            jobs,
+            boundary_horizon_secs: horizon,
+        };
+
+        assert_eq!(
+            fact(vec![job("bash", 1_380)], false, true, Some(120)).sentence(),
+            "1 background job open (bash, 23 min) since a step closed — the \
+             wheel prompts past it at 2 min",
+        );
+        assert_eq!(
+            fact(vec![job("bash", 30), job("agent", 5)], false, false, Some(120)).sentence(),
+            "2 background jobs open (bash, agent, 30s) — the wheel prompts past it at 2 min",
+        );
+        // The horizon off is said rather than left out: a wait with no end is a
+        // different thing from one with a bounded one.
+        assert_eq!(
+            fact(vec![job("monitor", 90)], false, true, None).sentence(),
+            "1 background job open (monitor, 1 min) since a step closed — the \
+             boundary horizon is off",
+        );
+        // Mid-turn is the stall clock's business, so no horizon is named.
+        assert_eq!(
+            fact(
+                vec![job("bash", 600), job("agent", 60)],
+                true,
+                true,
+                Some(120)
+            )
+            .sentence(),
+            "a turn has been open for 10 min with 2 background jobs (bash, agent)",
+        );
+    }
+
+    /// A wait is one wait however many ticks read it, so the second publish
+    /// keeps the first's stamp. Re-stamping would make a three-hour hang read
+    /// as a fresh one — the fact the user most wants.
+    #[test]
+    fn a_second_publish_keeps_the_waits_first_stamp() {
+        let fact = |since: &str| WaitFact {
+            since: since.to_string(),
+            turn_active: false,
+            step_just_done: true,
+            jobs: Vec::new(),
+            boundary_horizon_secs: None,
+        };
+        publish_wait("seat-stamp", Some(fact("2026-09-26T00:00:00Z")));
+        publish_wait("seat-stamp", Some(fact("2026-09-26T03:00:00Z")));
+        assert_eq!(
+            waiting_for("seat-stamp").unwrap().since,
+            "2026-09-26T00:00:00Z",
+        );
+        clear_wait("seat-stamp");
+        assert!(waiting_for("seat-stamp").is_none());
+        // And clearing a seat nobody published is fine.
+        clear_wait("seat-nobody");
+    }
+
     /// The same, for the other half of `is_quiet`: a job opening inside the
     /// window is work starting, and the reading it interrupts is stale.
     #[tokio::test]
@@ -6084,7 +6841,7 @@ Some context.
             .lock()
             .await
             .open_jobs
-            .insert("t1".to_owned(), Instant::now());
+            .insert("t1".to_owned(), bash_job(Instant::now()));
         sweep(&ctx, &state).await;
         {
             let map = state.lock().await;

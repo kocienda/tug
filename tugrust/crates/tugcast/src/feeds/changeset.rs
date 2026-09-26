@@ -1510,6 +1510,14 @@ fn document_arc_entries_in(
             // composition takes them. The kind is what the branchless row was
             // missing, and it is the row every plain arc starts on.
             let record = tugarc_core::read_arc(root, &name);
+            // Read before the literal moves `bound_session` into its own
+            // field. The board's key is that seat ([P02]) — nothing is threaded
+            // in — and an unbound arc composes `None`, which is right: nobody
+            // can be waiting on a seat that does not exist.
+            let waiting = bound_session
+                .as_deref()
+                .and_then(crate::feeds::arc_runner::waiting_for)
+                .map(|fact| fact.sentence());
             Some(DocumentArcEntry {
                 bound_session,
                 owner_id,
@@ -1540,6 +1548,7 @@ fn document_arc_entries_in(
                     }),
                     done: record.done,
                     note: record.notes.last().cloned(),
+                    waiting,
                 }),
                 documents: arc_documents(documents),
                 display_name: name,
@@ -1747,7 +1756,16 @@ async fn arc_entries(
     details
         .into_iter()
         .map(
-            |(detail, review, steps, task_list, join)| ChangesetEntry::Arc {
+            |(detail, review, steps, task_list, join)| {
+            // Read before the literal, because the literal moves
+            // `detail.owner_key` into `owner_id` above the `arc` field. Same
+            // `bound_by_arc` lookup the `bound_session` field makes ([P02]).
+            let waiting = bound_by_arc
+                .get(&detail.owner_key)
+                .map(String::as_str)
+                .and_then(crate::feeds::arc_runner::waiting_for)
+                .map(|fact| fact.sentence());
+            ChangesetEntry::Arc {
                 join: Some(join),
                 task_list,
                 holders_busy: holders_busy(
@@ -1781,6 +1799,7 @@ async fn arc_entries(
                     stopped_why: arc.stopped_why,
                     done: arc.done,
                     note: arc.note,
+                    waiting,
                 }),
                 documents: arc_documents(detail.documents),
                 review,
@@ -1802,6 +1821,7 @@ async fn arc_entries(
                     base: f.base,
                     current: f.current,
                 }),
+            }
             },
         )
         .collect()

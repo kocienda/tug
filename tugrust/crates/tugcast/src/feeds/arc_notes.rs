@@ -293,6 +293,20 @@ async fn announce_line(ctx: &ArcNotesContext, root: &Path, line: &str) {
             ctx.supervisor
                 .mark_step_closed_this_turn(&session, step)
                 .await;
+            // And the boundary ends the step's jobs, on the same backstop
+            // footing: the timely path is the close's own `step_closed` post,
+            // and this is the one that cannot be skipped.
+            //
+            // **Under the same gate the server arm applies**, and not under
+            // this loop's membership. Membership here is *bound*, which is
+            // wider than *running*: a card bound to an arc whose record is
+            // stopped or done would otherwise have its background work killed
+            // by a hand-run `arc step done` — and silently, because the
+            // receipt that names what was ended comes from the server's
+            // answer, which declined on that reading ([P01]).
+            if crate::wheel::arc_is_running(&ctx.sessions, &session) {
+                ctx.supervisor.end_step_jobs(&session).await;
+            }
         }
     }
 }

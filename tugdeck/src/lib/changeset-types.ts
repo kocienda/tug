@@ -187,6 +187,15 @@ export interface ArcRunState {
   /** The arc's most recent note — what it last did, in its own words
    *  (`compacted at 0.73 > 0.60`). */
   note?: string;
+  /** **What the wheel is waiting for, whenever it waits** — one composed
+   *  sentence, absent when it is not waiting.
+   *
+   *  The wheel judges an arc only at a settled idle edge, so an arc whose
+   *  session is busy is one it is deliberately not judging — which is correct
+   *  and also indistinguishable, from any face, from a wheel that has stopped
+   *  working. Composed server-side, in one place, so no face words the same
+   *  fact a second way. */
+  waiting?: string;
 }
 
 /** An arc worktree branch and its accumulated base..branch changes. */
@@ -642,6 +651,8 @@ function isOptionalArcRunState(
   if (value.stopped_why !== undefined && typeof value.stopped_why !== "string")
     return false;
   if (value.done !== undefined && typeof value.done !== "boolean") return false;
+  if (value.waiting !== undefined && typeof value.waiting !== "string")
+    return false;
   return true;
 }
 

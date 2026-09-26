@@ -160,6 +160,17 @@
   display: none;
 }
 
+/* What the wheel is waiting for, beneath the row's register line and at the
+   same inset: a sentence the server composed, in the row's secondary voice
+   because it is a reading of the line above rather than a second line of
+   identity. Renders only when there is a wait, so an arc nobody is waiting on
+   costs no row height. */
+.arcs-waiting {
+  padding-inline-start: var(--tugx-session-atom-text-inset);
+  font-size: 12px;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
 /* The row's ledger, folded open. It sits at the same inset the register does,
    so the step ordinals stand under the block's text rather than under its atom
    and the whole expansion reads as the block's third line rather than as a

@@ -170,6 +170,7 @@ import {
 } from "@/components/tugways/cards/session-changes/arc-row-menu";
 import type {
   ArcChangesetEntry,
+  ArcRunState,
   DocumentArcEntry,
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
@@ -413,6 +414,24 @@ class CockpitRowsDataSource implements TugListViewDataSource {
     // exactly the version the list needs.
     return this;
   }
+}
+
+/**
+ * What the wheel is waiting for on this arc, or `null`.
+ *
+ * Pure, and shared by both row kinds on purpose: a branch row and a
+ * paperwork row read the same field off the same record, and a helper that
+ * served one of them would be the second face this line exists to avoid. A
+ * planned arc has no branch for the whole of devise and review, which is
+ * where a seated tick most often decides nothing — so the paperwork row is
+ * the one that shows this most.
+ *
+ * An empty sentence reads as no wait: the server sends the field only when it
+ * has something to say, and a blank line of row height says nothing.
+ */
+export function arcRowWaiting(arc: ArcRunState | null | undefined): string | null {
+  const waiting = arc?.waiting;
+  return waiting !== undefined && waiting.trim() !== "" ? waiting : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -760,6 +779,8 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // reading, which is why the override is scoped to `ready` and every other
   // reading keeps its band untouched ([Q01]).
   const ready = register?.word === "ready";
+  // What the wheel is waiting for on this arc's seat, if anything.
+  const waiting = arcRowWaiting(entry.arc);
   return (
     <TugListRow
       className="arcs-row"
@@ -878,6 +899,15 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             <ArcJoinRegisterView register={register} altitude="section" />
           </span>
         )}
+        {/* And what the wheel is waiting for, beneath the register: the one
+            sentence the runner composed, which no face can derive — the line
+            above says `implementing (i/N)` whether the boundary is moving or
+            held on a job launched two steps ago. */}
+        {waiting !== null ? (
+          <span className="arcs-waiting" data-slot="arcs-row-waiting">
+            {waiting}
+          </span>
+        ) : null}
         {/* And, folded open, the plan's own ledger — the same component the
             `ARC` placard mounts, so the row and the placard cannot disagree
             about one arc's steps. Structure rather than appearance: the rows
@@ -983,6 +1013,9 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // the adapted entry would find no `steps` at all and read `review` for a
   // plan already half walked.
   const model = documentArcTrackModel(entry);
+  // The same wait, on the row a planned arc wears for the whole of devise and
+  // review — the stages where a seated tick most often decides nothing.
+  const waiting = arcRowWaiting(entry.arc);
   return (
     <TugListRow
       className="arcs-row"
@@ -1028,6 +1061,11 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             </>
           }
         />
+        {waiting !== null ? (
+          <span className="arcs-waiting" data-slot="arcs-row-waiting">
+            {waiting}
+          </span>
+        ) : null}
       </span>
     </TugListRow>
   );

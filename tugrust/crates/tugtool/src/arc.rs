@@ -207,6 +207,73 @@ fn merge_claim<T: serde::Serialize>(data: &T, claim: &Claim) -> Result<serde_jso
     Ok(value)
 }
 
+/// Fold the background jobs a step close ended into the step outcome the verb
+/// prints (Spec S03).
+///
+/// Added here rather than on `StepOutcome`, which is `tugarc-core`'s: the jobs
+/// are not a fact about the ledger row, they are a fact about the running
+/// session the close reported to — the same reason `claim` is merged in rather
+/// than carried on the outcome.
+///
+/// `None` — no instance, an instance older than the field, a card that is not
+/// an arc stage — adds nothing, so a script reading the key learns from its
+/// absence that nobody answered. An empty list is a real answer and is printed.
+fn merge_jobs_ended(value: &mut serde_json::Value, jobs: Option<&[String]>) {
+    let (Some(object), Some(jobs)) = (value.as_object_mut(), jobs) else {
+        return;
+    };
+    object.insert("jobs_ended".to_string(), serde_json::json!(jobs));
+}
+
+/// The text receipt for one `arc step` move, as lines.
+///
+/// Factored out of `run_step` so what a stage actually reads is testable: the
+/// directive is the enforcement of the turn boundary in words, and the jobs
+/// line is the one sentence saying the close ended work that was running. A
+/// printer that can only be exercised by running the verb is a printer whose
+/// wording drifts.
+///
+/// **The directive comes last.** Tool output is the freshest instruction a
+/// model reads before choosing its next act, so the sentence telling it to end
+/// the turn is the sentence nearest that choice; the jobs line is a fact about
+/// what just happened and sits above it. Off an arc there is no directive at
+/// all — a person at a terminal needs no marching orders — and the jobs line
+/// cannot arise there either, because the server omits the field.
+fn step_receipt_lines(
+    data: &ops::StepOutcome,
+    mv: StepMove,
+    under_arc: bool,
+    jobs_ended: Option<&[String]>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let through = match data.through {
+        Some(through) => format!(" (run through {through})"),
+        None => String::new(),
+    };
+    lines.push(format!(
+        "Step {}/{} of {} is {}{through}",
+        data.step, data.total, data.plan, data.status
+    ));
+    if let Some(commit) = &data.commit {
+        lines.push(format!("Commit: {commit}"));
+    }
+    if let Some(jobs) = jobs_ended.filter(|jobs| !jobs.is_empty()) {
+        let (count, were) = if jobs.len() == 1 {
+            ("1 background job".to_string(), "was")
+        } else {
+            (format!("{} background jobs", jobs.len()), "were")
+        };
+        lines.push(format!(
+            "Ended {count} that {were} still running: {}",
+            jobs.join(", ")
+        ));
+    }
+    if under_arc {
+        lines.push(arc_turn::step_directive(data.step, mv, data.through));
+    }
+    lines
+}
+
 /// What create leaves behind on the base checkout ([P05]). Reported, never
 /// acted on: taking the work is the explicit `--carry` gesture, and the default
 /// is to take nothing.
@@ -517,65 +584,116 @@ fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), Strin
 
 fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let data = ops::status(name)?;
+    // **What the wheel is waiting for**, asked only when the answer will be
+    // printed and there is a seat to ask about. `--quiet` must not pay an HTTP
+    // walk over every live instance for a line it will not print, and an
+    // unbound arc has no wait by construction — nobody can be waiting on a
+    // seat that does not exist.
+    //
+    // No `project_dir` and no repo-root lookup: the board's key is the seat,
+    // which is what keeps status answerable from inside the arc's own worktree
+    // as well as from the base checkout ([P02]).
+    //
+    // Every failure prints nothing. An instance older than this op answers
+    // `unknown op 'arc_waiting'`, and a status verb that refused over that
+    // would break on a mixed install for the sake of one advisory line.
+    let waiting = match data.bound_session.as_deref() {
+        Some(session) if json || !quiet => post_instance_api(
+            "/api/arc",
+            "reading what the wheel is waiting for",
+            serde_json::json!({"op": "arc_waiting", "tug_session_id": session}),
+        )
+        .ok()
+        .and_then(|value| value.get("waiting").cloned())
+        .filter(|waiting| !waiting.is_null()),
+        _ => None,
+    };
     if json {
-        print_ok("arc status", &data);
+        let mut value = serde_json::to_value(&data).map_err(|e| format!("cannot serialize: {e}"))?;
+        if let (Some(object), Some(waiting)) = (value.as_object_mut(), waiting) {
+            object.insert("waiting".to_string(), waiting);
+        }
+        print_ok("arc status", value)
     } else if !quiet {
-        println!("Arc: {}", data.name);
-        println!("Id: {}", data.id);
-        println!("Stage: {}", data.stage);
-        if let (Some(current), Some(total)) = (data.step_current, data.step_total) {
-            match &data.step_title {
-                Some(title) => println!("Step: {}/{} — {}", current, total, title),
-                None => println!("Step: {}/{}", current, total),
-            }
-        }
-        if let Some(last) = &data.last_activity {
-            println!("Last activity: {}", last);
-        }
-        println!("Branch: {}", data.branch);
-        println!("Base: {}", data.base_branch);
-        println!("Rounds: {}", data.rounds);
-        println!(
-            "Worktree: {}{}",
-            data.worktree,
-            if data.worktree_dirty {
-                " (uncommitted changes)"
-            } else {
-                ""
-            }
-        );
-        if let Some(fit) = &data.fit {
-            let head: String = fit.head.chars().take(9).collect();
-            if fit.current {
-                println!("Fit: verified at {}", head);
-            } else {
-                println!("Fit: not verified since {}", head);
-            }
-        }
-        println!("Draft: {}", if data.draft { "yes" } else { "no" });
-        if let Some(phase) = &data.join_journal_phase {
-            println!("Landing interrupted at: {}", phase);
-        }
-        if let Some(session) = &data.bound_session {
-            println!("Session: {}", session);
-        } else {
-            println!("Session: none (unbound)");
-        }
-        // Last, and unmissable. A status that answered from one side of a
-        // disagreement is how a desync goes unnoticed for a whole run.
-        if !data.disagreements.is_empty() {
-            println!();
-            println!(
-                "Records disagree ({}) — run `tugtool arc doctor {}`:",
-                data.disagreements.len(),
-                data.name
-            );
-            for sentence in &data.disagreements {
-                println!("  - {sentence}");
-            }
+        for line in status_lines(&data, waiting.as_ref()) {
+            println!("{line}");
         }
     }
     Ok(())
+}
+
+/// The text `arc status` prints, as lines.
+///
+/// Factored out so the one line that depends on a live instance answering —
+/// `Waiting:` — is testable without one. `waiting` is the `WaitFact` the server
+/// published, and `None` covers every way there is nothing to say: nobody is
+/// waiting, no instance answered, or the instance is older than the op.
+fn status_lines(data: &ops::ArcStatus, waiting: Option<&serde_json::Value>) -> Vec<String> {
+    let mut lines = vec![
+        format!("Arc: {}", data.name),
+        format!("Id: {}", data.id),
+        format!("Stage: {}", data.stage),
+    ];
+    if let (Some(current), Some(total)) = (data.step_current, data.step_total) {
+        lines.push(match &data.step_title {
+            Some(title) => format!("Step: {current}/{total} — {title}"),
+            None => format!("Step: {current}/{total}"),
+        });
+    }
+    if let Some(last) = &data.last_activity {
+        lines.push(format!("Last activity: {last}"));
+    }
+    // Immediately after `Last activity:`, because the two answer one question
+    // between them: the activity line says when the arc last moved, and this
+    // says why it has not moved since.
+    if let Some(sentence) = waiting
+        .and_then(|fact| fact.get("sentence"))
+        .and_then(|s| s.as_str())
+    {
+        lines.push(format!("Waiting: {sentence}"));
+    }
+    lines.push(format!("Branch: {}", data.branch));
+    lines.push(format!("Base: {}", data.base_branch));
+    lines.push(format!("Rounds: {}", data.rounds));
+    lines.push(format!(
+        "Worktree: {}{}",
+        data.worktree,
+        if data.worktree_dirty {
+            " (uncommitted changes)"
+        } else {
+            ""
+        }
+    ));
+    if let Some(fit) = &data.fit {
+        let head: String = fit.head.chars().take(9).collect();
+        lines.push(if fit.current {
+            format!("Fit: verified at {head}")
+        } else {
+            format!("Fit: not verified since {head}")
+        });
+    }
+    lines.push(format!("Draft: {}", if data.draft { "yes" } else { "no" }));
+    if let Some(phase) = &data.join_journal_phase {
+        lines.push(format!("Landing interrupted at: {phase}"));
+    }
+    lines.push(match &data.bound_session {
+        Some(session) => format!("Session: {session}"),
+        None => "Session: none (unbound)".to_string(),
+    });
+    // Last, and unmissable. A status that answered from one side of a
+    // disagreement is how a desync goes unnoticed for a whole run.
+    if !data.disagreements.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "Records disagree ({}) — run `tugtool arc doctor {}`:",
+            data.disagreements.len(),
+            data.name
+        ));
+        for sentence in &data.disagreements {
+            lines.push(format!("  - {sentence}"));
+        }
+    }
+    lines
 }
 
 /// Compare an arc's five records and say where they disagree ([P04]).
@@ -642,6 +760,7 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
 /// the row named, and leaves the plan file untouched.
 fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), String> {
     let mut claim = None;
+    let mut jobs_ended = None;
     let mv = match &action {
         StepAction::Start { .. } => StepMove::Opened,
         StepAction::Done { .. } => StepMove::Done,
@@ -689,32 +808,24 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
     // land leaves the gate where it was, and the arc log observer marks the
     // same fact from the record itself, one watch event later.
     if mv.closed_a_step() {
-        arc_turn::report_step_closed(data.step);
+        jobs_ended = arc_turn::report_step_closed(data.step);
     }
 
     if json {
-        match &claim {
-            Some(claim) => print_ok("arc step", merge_claim(&data, claim)?),
-            None => print_ok("arc step", &data),
-        }
-    } else if !quiet {
-        let through = match data.through {
-            Some(through) => format!(" (run through {through})"),
-            None => String::new(),
+        let mut value = match &claim {
+            Some(claim) => merge_claim(&data, claim)?,
+            None => serde_json::to_value(&data).map_err(|e| format!("cannot serialize: {e}"))?,
         };
-        println!(
-            "Step {}/{} of {} is {}{through}",
-            data.step, data.total, data.plan, data.status
-        );
-        if let Some(commit) = &data.commit {
-            println!("Commit: {}", commit);
-        }
-        // **The directive.** Tool output is the freshest instruction a model
-        // reads before choosing its next act, and under an arc this slot is
-        // where the turn boundary is enforced in words. Off an arc the lines
-        // stay plain: a person at a terminal needs no marching orders.
-        if arc_turn::under_an_arc(name) {
-            println!("{}", arc_turn::step_directive(data.step, mv, data.through));
+        merge_jobs_ended(&mut value, jobs_ended.as_deref());
+        print_ok("arc step", value)
+    } else if !quiet {
+        for line in step_receipt_lines(
+            &data,
+            mv,
+            arc_turn::under_an_arc(name),
+            jobs_ended.as_deref(),
+        ) {
+            println!("{line}");
         }
     }
     // The row moved either way; what may not have happened is the claim.
@@ -2344,6 +2455,162 @@ fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── the step receipt (Spec S03) ────────────────────────────────────────
+
+    fn done_outcome() -> ops::StepOutcome {
+        ops::StepOutcome {
+            arc: "demo".to_string(),
+            plan: "/proj/.tug/arcs/demo/plan.md".to_string(),
+            step: 3,
+            total: 8,
+            status: "done".to_string(),
+            commit: Some("ccf2c2a6e".to_string()),
+            through: Some(8),
+        }
+    }
+
+    /// A close that ended work says so, in a sentence a stage can read, and
+    /// **above** the directive — the instruction to end the turn stays the last
+    /// thing in the output.
+    #[test]
+    fn a_close_with_ended_jobs_prints_them_above_the_directive() {
+        let jobs = ["bbul6rv6k".to_string(), "kq2m9x1az".to_string()];
+        let lines = step_receipt_lines(&done_outcome(), StepMove::Done, true, Some(&jobs));
+        assert_eq!(
+            lines,
+            vec![
+                "Step 3/8 of /proj/.tug/arcs/demo/plan.md is done (run through 8)".to_string(),
+                "Commit: ccf2c2a6e".to_string(),
+                "Ended 2 background jobs that were still running: bbul6rv6k, kq2m9x1az"
+                    .to_string(),
+                "Step 3 closed. End your turn now — the arc prompts Steps 4–8.".to_string(),
+            ],
+        );
+
+        // One job is named singly: "1 background jobs" is a machine's sentence.
+        let one = ["bbul6rv6k".to_string()];
+        let lines = step_receipt_lines(&done_outcome(), StepMove::Done, true, Some(&one));
+        assert_eq!(
+            lines[2],
+            "Ended 1 background job that was still running: bbul6rv6k",
+        );
+    }
+
+    /// Nothing open, and nobody who answered, read the same in the receipt:
+    /// no line. An empty list is a real answer that there was nothing to say.
+    #[test]
+    fn a_close_with_no_ended_jobs_prints_no_extra_line() {
+        let bare = step_receipt_lines(&done_outcome(), StepMove::Done, true, None);
+        let empty = step_receipt_lines(&done_outcome(), StepMove::Done, true, Some(&[]));
+        assert_eq!(bare, empty);
+        assert!(
+            !bare.iter().any(|line| line.starts_with("Ended ")),
+            "no jobs, no sentence: {bare:?}",
+        );
+        assert_eq!(bare.len(), 3, "status, commit, directive: {bare:?}");
+    }
+
+    /// Off an arc the receipt stays plain — no directive, and the field the
+    /// jobs line would come from is one the server never sends there.
+    #[test]
+    fn a_close_off_an_arc_gets_no_directive() {
+        let lines = step_receipt_lines(&done_outcome(), StepMove::Done, false, None);
+        assert_eq!(lines.len(), 2, "status and commit only: {lines:?}");
+    }
+
+    /// The JSON branch carries the same fact, and an unanswered close omits
+    /// the key rather than printing a `null` a script would have to read
+    /// around.
+    #[test]
+    fn the_json_step_outcome_carries_the_jobs_it_ended() {
+        let mut value = serde_json::json!({"step": 3});
+        merge_jobs_ended(&mut value, Some(&["bbul6rv6k".to_string()]));
+        assert_eq!(value["jobs_ended"], serde_json::json!(["bbul6rv6k"]));
+
+        let mut unanswered = serde_json::json!({"step": 3});
+        merge_jobs_ended(&mut unanswered, None);
+        assert!(unanswered.get("jobs_ended").is_none());
+
+        let mut quiet = serde_json::json!({"step": 3});
+        merge_jobs_ended(&mut quiet, Some(&[]));
+        assert_eq!(quiet["jobs_ended"], serde_json::json!([]));
+    }
+
+    // ── `arc status` and the wait line ─────────────────────────────────────
+
+    fn bound_status() -> ops::ArcStatus {
+        ops::ArcStatus {
+            name: "demo".to_string(),
+            id: "tugarc/demo#1".to_string(),
+            branch: "tugarc/demo".to_string(),
+            base_branch: "main".to_string(),
+            stage: "implementing".to_string(),
+            rounds: 3,
+            worktree: "/proj/.tug/worktrees/demo".to_string(),
+            worktree_dirty: false,
+            draft: false,
+            join_journal_phase: None,
+            bound_session: Some("seg-1".to_string()),
+            step_current: Some(3),
+            step_total: Some(8),
+            run_position: Some(3),
+            run_length: Some(8),
+            step_title: Some("A step".to_string()),
+            documents: ops::ArcDocuments::default(),
+            last_activity: Some("2026-09-26T00:00:00Z".to_string()),
+            fit: None,
+            conflict: None,
+            disagreements: Vec::new(),
+        }
+    }
+
+    /// The wait line sits immediately after `Last activity:`, because the two
+    /// answer one question between them: when the arc last moved, and why it
+    /// has not moved since.
+    #[test]
+    fn a_status_prints_waiting_only_when_an_instance_answers_one() {
+        let fact = serde_json::json!({
+            "sentence": "1 background job open (bash, 23 min) since a step closed",
+            "jobs": [{"key": "t1", "kind": "bash", "open_for_secs": 1380}],
+        });
+        let lines = status_lines(&bound_status(), Some(&fact));
+        let at = lines
+            .iter()
+            .position(|line| line.starts_with("Waiting: "))
+            .expect("the wait line is printed");
+        assert_eq!(
+            lines[at],
+            "Waiting: 1 background job open (bash, 23 min) since a step closed",
+        );
+        assert!(lines[at - 1].starts_with("Last activity: "));
+
+        // Nobody answered — no instance, or one older than the op. The status
+        // is otherwise unchanged, which is what degrading means here.
+        let bare = status_lines(&bound_status(), None);
+        assert!(!bare.iter().any(|line| line.starts_with("Waiting: ")));
+        assert_eq!(bare.len(), lines.len() - 1);
+    }
+
+    /// A fact with no sentence on it — a shape only a newer server could send —
+    /// prints no line rather than an empty one.
+    #[test]
+    fn a_wait_fact_with_no_sentence_prints_nothing() {
+        let fact = serde_json::json!({"jobs": []});
+        let lines = status_lines(&bound_status(), Some(&fact));
+        assert!(!lines.iter().any(|line| line.starts_with("Waiting")));
+    }
+
+    /// An unbound arc has no wait by construction: nobody can be waiting on a
+    /// seat that does not exist, so the verb asks no instance at all.
+    #[test]
+    fn an_unbound_arc_asks_no_instance() {
+        let mut data = bound_status();
+        data.bound_session = None;
+        let lines = status_lines(&data, None);
+        assert!(lines.contains(&"Session: none (unbound)".to_string()));
+        assert!(!lines.iter().any(|line| line.starts_with("Waiting")));
+    }
 
     /// All five outcomes, so the one that means "work is required" cannot be
     /// widened by accident: a deferral that exited 1 was the command

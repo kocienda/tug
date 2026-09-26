@@ -122,6 +122,23 @@ pub struct ArcConfig {
     #[serde(default)]
     pub idle_settle_secs: Option<u64>,
 
+    /// How long a step boundary the wheel cannot read idle may stand before
+    /// the wheel prompts past it, in seconds. Absent means
+    /// [`BOUNDARY_HORIZON_SECS_DEFAULT`], which
+    /// [`ArcConfig::boundary_horizon`] applies; `0` turns the horizon off.
+    ///
+    /// A boundary is the one place the wheel may prompt, and a step that
+    /// closed with a background job still running leaves one the busy latch
+    /// cannot read idle: the turn has ended, the step is closed, and a job
+    /// nobody is reading holds the reading busy. The close ends the session's
+    /// jobs, so this is the residue that edge cannot reach — a job the turn
+    /// opened after it reported the close, and a close whose edge reached no
+    /// supervisor at all. Both used to sit until a person typed.
+    ///
+    /// Mid-turn is untouched: there the wheel may only wait or stop.
+    #[serde(default)]
+    pub boundary_horizon_secs: Option<u64>,
+
     /// How long a stop's quiesce may take before it gives up and reports the
     /// rung it stalled on, in seconds. Absent means
     /// [`ARC_STOP_CEILING_SECS_DEFAULT`], which [`ArcConfig::stop_ceiling`]
@@ -210,6 +227,15 @@ pub const IDLE_SETTLE_SECS_DEFAULT: u64 = 5;
 /// recovery and not to this path.
 pub const ARC_STOP_CEILING_SECS_DEFAULT: u64 = 30;
 
+/// How long a step boundary the wheel cannot read idle may stand before the
+/// wheel prompts past it, when a project declares nothing.
+///
+/// Two minutes, which is twenty-four settles and two sweeps: long enough that
+/// a job genuinely about to report gets its wake and the ordinary idle path
+/// answers the boundary, short enough that a held one costs minutes rather
+/// than the half hour the job reaper takes to reach it.
+pub const BOUNDARY_HORIZON_SECS_DEFAULT: u64 = 120;
+
 impl ArcConfig {
     /// The compaction threshold to actually use: the declaration, or the
     /// default. The default lives at the consumer rather than in the parse so
@@ -232,6 +258,17 @@ impl ArcConfig {
     /// behaviour of acting on the instant a reading was taken.
     pub fn idle_settle(&self) -> Option<std::time::Duration> {
         let secs = self.idle_settle_secs.unwrap_or(IDLE_SETTLE_SECS_DEFAULT);
+        (secs > 0).then(|| std::time::Duration::from_secs(secs))
+    }
+
+    /// The boundary horizon to actually use: the declaration, or the default.
+    /// `None` is the horizon turned off — a declared `0`, which asks for the
+    /// old behaviour of a held boundary standing until the job reaper or a
+    /// person reaches it.
+    pub fn boundary_horizon(&self) -> Option<std::time::Duration> {
+        let secs = self
+            .boundary_horizon_secs
+            .unwrap_or(BOUNDARY_HORIZON_SECS_DEFAULT);
         (secs > 0).then(|| std::time::Duration::from_secs(secs))
     }
 
@@ -301,6 +338,13 @@ post_create = []
 # a fraction of a second apart, and in that gap a session reads idle while it
 # is still working. Declare none and it is 5; declare 0 to act on the instant.
 # idle_settle_secs = 5
+
+# How long a step boundary the wheel cannot read idle may stand before the
+# wheel prompts past it. A step that closed with a background job still
+# running leaves the turn ended, the step closed, and a job nobody is reading
+# holding the reading busy. Declare none and it is 120; declare 0 to let a
+# held boundary stand.
+# boundary_horizon_secs = 120
 
 # How long a stop's quiesce may take — the interrupt, the teardown of the
 # session's background work and process group, and the wait for it to go
@@ -926,6 +970,39 @@ mod tests {
         );
     }
 
+    /// The horizon takes the settle's two-state shape for the same reason: a
+    /// project that wants a held boundary to stand — until the job reaper or a
+    /// person reaches it, which is where this arc found the machine — has to
+    /// say so.
+    #[test]
+    fn boundary_horizon_zero_turns_it_off() {
+        assert_eq!(
+            ArcConfig::default().boundary_horizon(),
+            Some(std::time::Duration::from_secs(
+                BOUNDARY_HORIZON_SECS_DEFAULT
+            )),
+            "declaring nothing is the default horizon, not none",
+        );
+        assert_eq!(
+            ArcConfig {
+                boundary_horizon_secs: Some(0),
+                ..ArcConfig::default()
+            }
+            .boundary_horizon(),
+            None,
+            "a declared zero is the horizon turned off",
+        );
+        assert_eq!(
+            ArcConfig {
+                boundary_horizon_secs: Some(1),
+                ..ArcConfig::default()
+            }
+            .boundary_horizon(),
+            Some(std::time::Duration::from_secs(1)),
+            "and anything else is taken at its word",
+        );
+    }
+
     #[test]
     fn the_default_config_template_documents_every_stage_key() {
         let config: Config =
@@ -939,6 +1016,7 @@ mod tests {
             "implement_model",
             "implement_compact_tokens",
             "idle_settle_secs",
+            "boundary_horizon_secs",
         ] {
             assert!(
                 DEFAULT_CONFIG.contains(key),

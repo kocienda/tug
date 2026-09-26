@@ -17,6 +17,7 @@ import type {
 } from "@/lib/changeset-types";
 import {
   ARC_STAGE_RANK,
+  arcRowWaiting,
   compareArcRows,
   arcRowsFromSnapshot,
   compareDocumentArcRows,
@@ -478,5 +479,36 @@ describe("compareDocumentArcRows — nearest to starting work first", () => {
       "never-reviewed",
       "who-knows",
     ]);
+  });
+});
+
+/**
+ * One helper for both rows, which is the whole point of it: the branch row and
+ * the paperwork row read the same field off the same record, and a planned arc
+ * spends devise and review on the paperwork row alone.
+ */
+describe("arcRowWaiting", () => {
+  const WAIT = "2 background jobs open (bash, agent, 30s) — the boundary horizon is off";
+
+  test("it reads the sentence the server composed", () => {
+    expect(arcRowWaiting({ stage: "implement", waiting: WAIT })).toBe(WAIT);
+  });
+
+  test("no wait, no arc, and a blank sentence all read as nothing", () => {
+    expect(arcRowWaiting({ stage: "implement" })).toBeNull();
+    expect(arcRowWaiting(null)).toBeNull();
+    expect(arcRowWaiting(undefined)).toBeNull();
+    expect(arcRowWaiting({ stage: "implement", waiting: "   " })).toBeNull();
+  });
+
+  test("a real entry answers off its own record, whichever row renders it", () => {
+    const held: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
+      arc: { ...(GOLDEN_ARC.arc ?? { stage: "implement" }), waiting: WAIT },
+    };
+    expect(arcRowWaiting(held.arc)).toBe(WAIT);
+    // And the golden arc as it actually stands: nobody is waiting on it, so
+    // neither row draws the line.
+    expect(arcRowWaiting(GOLDEN_ARC.arc)).toBeNull();
   });
 });

@@ -54,7 +54,19 @@ pub(crate) enum ArcApiOutcome {
     },
     /// This instance's ledger has no such session — the CLI should try the
     /// next live instance rather than report a failure.
+    ///
+    /// **`arc_waiting` answers this for a seat this instance's ledger does not
+    /// hold**, and it has to: the CLI returns on the first instance that
+    /// answers `status: "ok"`, so an instance that shrugged with an empty board
+    /// would end the walk before the instance whose wheel is actually waiting
+    /// was ever asked — and on any machine with two live instances that is a
+    /// coin flip. An empty board on a seat this instance *does* hold is the
+    /// settled answer, and only that one answers `Waiting { None }`.
     UnknownSession,
+    /// What the wheel is waiting for on the posted seat, or `None`.
+    Waiting {
+        waiting: Option<serde_json::Value>,
+    },
     Error(String),
 }
 

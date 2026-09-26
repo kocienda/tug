@@ -134,17 +134,71 @@ fn arc_prompts(step: u32, through: Option<u32>) -> String {
 /// close, the server holds it until the turn ends, and the gate asks. Advisory
 /// on exactly the terms [`announce`] is: a report that does not land leaves the
 /// gate where it was before W8, which is open.
-pub(crate) fn report_step_closed(step: u32) {
-    let _ = crate::session_identity::ask_about_calling_session(
+///
+/// **And the close is a work boundary**, so the answer carries something the
+/// caller wants: the background jobs the server ended because the step they
+/// belonged to is over. `None` for every shape that does not say — no
+/// instance, a refusal, an instance older than the field, or a card that is
+/// not an arc stage — because the receipt has one absence to degrade on.
+pub(crate) fn report_step_closed(step: u32) -> Option<Vec<String>> {
+    let answer = crate::session_identity::ask_about_calling_session(
         "step_closed",
         "recording a step close against this turn",
         serde_json::json!({ "step": step }),
-    );
+    )?;
+    jobs_ended_of(&answer.ok()?)
+}
+
+/// The `jobs_ended` field of a `step_closed` answer, if it says.
+///
+/// Absent, `null`, or anything that is not an array of strings all read as
+/// `None`: an instance older than the op omits the key, and a card that is
+/// not an arc stage omits it too, so there is nothing for the receipt to tell
+/// apart. An **empty** array is a real answer — the close reached the edge and
+/// nothing was open — and reads as `Some(vec![])`, which prints nothing.
+fn jobs_ended_of(answer: &serde_json::Value) -> Option<Vec<String>> {
+    let jobs = answer.get("jobs_ended")?.as_array()?;
+    jobs.iter()
+        .map(|job| job.as_str().map(str::to_string))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── the close's answer about background jobs ───────────────────────────
+
+    /// The shapes that do not say. An instance older than the op omits the
+    /// key, and a card that is not an arc stage omits it too — so the receipt
+    /// has one absence to degrade on rather than three it must tell apart.
+    #[test]
+    fn an_answer_without_jobs_ended_reads_as_none() {
+        for answer in [
+            serde_json::json!({"status": "ok", "session_id": "seg-1", "recorded": true}),
+            serde_json::json!({"status": "ok", "jobs_ended": null}),
+            serde_json::json!({"status": "ok", "jobs_ended": "bbul6rv6k"}),
+            // A malformed element makes the whole answer unreadable rather
+            // than half-read: naming some of the jobs is worse than naming
+            // none, because the receipt would read as the complete list.
+            serde_json::json!({"status": "ok", "jobs_ended": ["ok", 7]}),
+        ] {
+            assert_eq!(jobs_ended_of(&answer), None, "{answer}");
+        }
+    }
+
+    /// The shapes that do. An empty array is a real answer — the close reached
+    /// the edge and nothing was open — and is not the same as silence.
+    #[test]
+    fn an_answer_with_jobs_ended_reads_the_ids() {
+        let answer = serde_json::json!({"status": "ok", "jobs_ended": ["bbul6rv6k", "kq2m9x1az"]});
+        assert_eq!(
+            jobs_ended_of(&answer),
+            Some(vec!["bbul6rv6k".to_string(), "kq2m9x1az".to_string()]),
+        );
+        let quiet = serde_json::json!({"status": "ok", "jobs_ended": []});
+        assert_eq!(jobs_ended_of(&quiet), Some(Vec::new()));
+    }
 
     #[test]
     fn an_opened_step_owns_the_whole_turn() {

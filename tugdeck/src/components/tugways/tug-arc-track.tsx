@@ -169,6 +169,18 @@ export interface ArcTrackModel {
    */
   stoppedWhy: string | null;
   /**
+   * What the wheel is waiting for on this arc's seat, composed server-side
+   * into one sentence, or `null` when it is waiting on nothing.
+   *
+   * The runner publishes it on every tick that decides nothing on a session
+   * that is not idle, which is exactly the reading a face cannot derive: the
+   * strip can see `implementing` and the step count, and neither of them says
+   * that a background job launched two steps ago is what the boundary is
+   * held on. There is one author for the sentence ([P02]) and this is one of
+   * its two readers.
+   */
+  waiting: string | null;
+  /**
    * Whether anybody is working this arc right now — a run in flight, or a
    * holder mid-turn.
    *
@@ -239,6 +251,7 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   const stage = input.stage ?? null;
   const stopped = arc?.stopped ?? null;
   const stoppedWhy = arc?.stopped_why ?? null;
+  const waiting = arc?.waiting ?? null;
   const begun = steps !== null && (steps.done > 0 || steps.current !== null);
   const walked = steps !== null && steps.done === steps.total;
 
@@ -282,7 +295,7 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   } else {
     phase = "brief";
   }
-  return { direct, planned, phase, stopped, stoppedWhy, live, steps };
+  return { direct, planned, phase, stopped, stoppedWhy, waiting, live, steps };
 }
 
 /**
@@ -600,6 +613,10 @@ export function arcCellTip(model: ArcTrackModel, phase: ArcPhase, state: ArcCell
     reading = `${arcCellActive(model, phase, true)} — stopped: ${why}`;
   } else if (state === "active") {
     reading = arcCellActive(model, phase, model.live);
+    // The wait is content on the one cell that is currently being worked:
+    // the cells behind and ahead of it are not what is held. Its own line,
+    // the way the planned-kind sentence takes one.
+    if (model.waiting !== null) reading = `${reading}\n${model.waiting}`;
   } else if (state === "pending") {
     reading = participles.pending;
   } else if (phase === "implement" && steps !== null) {

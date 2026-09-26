@@ -584,6 +584,11 @@ async fn arc_handler(
         }
     };
     match outcome {
+        crate::arc_api::ArcApiOutcome::Waiting { waiting } => (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({ "status": "ok", "waiting": waiting })),
+        )
+            .into_response(),
         crate::arc_api::ArcApiOutcome::Bound {
             session_id,
             arc_id,
@@ -767,6 +772,51 @@ fn apply_arc_request(
             .map(|dir| crate::path_resolver::resolve_to_claude_form(std::path::Path::new(dir)))
     };
     match req.op.as_str() {
+        // **What the wheel is waiting for on this seat, if anything.** It needs
+        // no wheel, no project and no ledger read: the board is a
+        // `std::sync::Mutex` static keyed by the seat exactly as the binding
+        // spells it, which is why this reads it here in the blocking half
+        // rather than resolving anything first ([P02]).
+        //
+        // **Not on `/api/session`:** that handler 400s a body with no
+        // `tug_session_id` and otherwise re-resolves the posted id through
+        // `live_segment_of`, and a re-resolution is precisely not the key. This
+        // op sits beside `arc_gone` instead, on the route that already carries
+        // the field and already has a session-less op.
+        //
+        // **An empty board is only an answer on a seat this instance holds.**
+        // `post_instance_api` returns on the first instance that answers
+        // `status: "ok"`, so a bystander instance shrugging with `waiting:
+        // null` would end the walk before the instance whose wheel is waiting
+        // was ever asked — silently, and on any machine running two instances.
+        // A seat this ledger does not know answers `unknown_session`, which is
+        // the CLI's own "not mine, keep walking".
+        "arc_waiting" => {
+            let Some(session) = req.tug_session_id.as_deref() else {
+                return ArcApiOutcome::Error("arc_waiting needs tug_session_id".to_string());
+            };
+            // The **composed sentence** rides the fact, because the sentence
+            // has one author (`WaitFact::sentence`) and the verb must not
+            // become a second one. The fields ride beside it for a caller that
+            // wants to compute rather than print.
+            let waiting = crate::feeds::arc_runner::waiting_for(session).and_then(|fact| {
+                let sentence = fact.sentence();
+                let mut value = serde_json::to_value(&fact).ok()?;
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("sentence".to_string(), serde_json::json!(sentence));
+                }
+                Some(value)
+            });
+            match waiting {
+                Some(waiting) => ArcApiOutcome::Waiting {
+                    waiting: Some(waiting),
+                },
+                None if ledger.get(session).ok().flatten().is_none() => {
+                    ArcApiOutcome::UnknownSession
+                }
+                None => ArcApiOutcome::Waiting { waiting: None },
+            }
+        }
         "bind" => {
             let (Some(session), Some(project), Some(arc)) = (
                 req.tug_session_id.as_deref(),
@@ -984,6 +1034,34 @@ fn resolve_session_identity(
     }))
 }
 
+/// The `step_closed` op's answer (Spec S02).
+///
+/// `recorded` is `false` for a card this tugcast holds no entry for — rebound
+/// from tugbank, or already closed. The verb does nothing with it; it is here
+/// so a test can tell "recorded" from "there was nobody to record against".
+///
+/// **`jobs_ended` is absent off an arc rather than `null`, and that is the
+/// whole of this function.** A caller reading `null` cannot tell *no jobs were
+/// open* from *this card is not an arc stage*, and an instance older than this
+/// op omits the key too — so one absence carries one meaning, and the verb has
+/// exactly one shape to degrade on. `serde_json::json!` would emit the key for
+/// a `None`, which is why the object is built rather than written whole.
+fn step_closed_answer(
+    session_id: &str,
+    recorded: bool,
+    jobs_ended: Option<Vec<String>>,
+) -> serde_json::Value {
+    let mut answer = serde_json::json!({
+        "status": "ok",
+        "session_id": session_id,
+        "recorded": recorded,
+    });
+    if let Some(jobs) = jobs_ended {
+        answer["jobs_ended"] = serde_json::json!(jobs);
+    }
+    answer
+}
+
 /// Handle POST /api/session. Loopback only, like every tugcast API.
 ///
 /// The request is **parked**, never performed: the caller is a model running
@@ -1099,17 +1177,21 @@ async fn session_handler(
                     );
                 };
                 let recorded = supervisor.mark_step_closed_this_turn(&live, step).await;
+                // **The close is a work boundary, and only on an arc.** The
+                // jobs the closing step launched are ended here rather than
+                // left to report to a step that is over — the wheel would
+                // otherwise wait on them to the reaper's horizon. A card that
+                // is not an arc stage has no step boundary to enforce, so its
+                // answer carries no `jobs_ended` at all and the verb prints
+                // nothing for it (Spec S02).
+                let jobs_ended = if on_arc {
+                    Some(supervisor.end_step_jobs(&live).await)
+                } else {
+                    None
+                };
                 (
                     StatusCode::OK,
-                    axum::Json(serde_json::json!({
-                        "status": "ok",
-                        "session_id": live,
-                        // `false` is a card this tugcast holds no entry for —
-                        // rebound from tugbank, or already closed. The verb
-                        // does nothing with it; it is here so a test can tell
-                        // "recorded" from "there was nobody to record against".
-                        "recorded": recorded,
-                    })),
+                    axum::Json(step_closed_answer(&live, recorded, jobs_ended)),
                 )
                     .into_response()
             }
@@ -2006,6 +2088,132 @@ mod tests {
         let json = r#"{"action":"test-ping"}"#;
         let req: TellRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.action, "test-ping");
+    }
+
+    // ── /api/session `step_closed` — the answer's one shape ───────────────
+
+    /// On an arc the close names what it ended, and an arc-seated card with
+    /// nothing open says so with an empty list rather than with a silence.
+    #[test]
+    fn step_closed_names_the_jobs_it_ended_on_an_arc() {
+        let answer = step_closed_answer("seg-1", true, Some(vec!["bbul6rv6k".to_string()]));
+        assert_eq!(answer["status"], "ok");
+        assert_eq!(answer["session_id"], "seg-1");
+        assert_eq!(answer["recorded"], true);
+        assert_eq!(answer["jobs_ended"], serde_json::json!(["bbul6rv6k"]));
+
+        let quiet = step_closed_answer("seg-1", true, Some(Vec::new()));
+        assert_eq!(quiet["jobs_ended"], serde_json::json!([]));
+    }
+
+    /// Off an arc the key is **absent**, not `null`. A caller reading `null`
+    /// could not tell "no jobs were open" from "not an arc stage", and an
+    /// instance older than this op omits the key too — so the verb has one
+    /// absence to degrade on rather than two shapes to tell apart.
+    #[test]
+    fn step_closed_omits_the_jobs_key_off_an_arc_rather_than_nulling_it() {
+        let answer = step_closed_answer("seg-1", true, None);
+        assert!(
+            answer.get("jobs_ended").is_none(),
+            "a null here is the shape the verb cannot read: {answer}",
+        );
+        assert_eq!(answer["recorded"], true);
+    }
+
+    // ── /api/arc `arc_waiting` — reading the wait board ────────────────────
+
+    fn waiting_request(session: Option<&str>) -> ArcApiRequest {
+        let mut body = serde_json::json!({"op": "arc_waiting"});
+        if let Some(session) = session {
+            body["tug_session_id"] = serde_json::json!(session);
+        }
+        serde_json::from_value(body).unwrap()
+    }
+
+    /// A ledger with a live row for the seat and an empty board is the one
+    /// shape that answers `null`: this instance holds the seat and knows
+    /// nobody is waiting on it, so the walk is over.
+    #[test]
+    fn arc_waiting_answers_null_for_a_session_nobody_is_waiting_on() {
+        let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "seg-quiet",
+                "ws-test",
+                "/proj",
+                "card-quiet",
+                1_000,
+                "seg-quiet",
+                None,
+            )
+            .unwrap();
+        let outcome = apply_arc_request(&ledger, &waiting_request(Some("seg-quiet")));
+        match outcome {
+            crate::arc_api::ArcApiOutcome::Waiting { waiting } => assert!(waiting.is_none()),
+            _ => panic!("expected a Waiting outcome"),
+        }
+    }
+
+    /// **And a seat this instance does not hold keeps the walk going.** The
+    /// CLI returns on the first instance that answers `status: "ok"`, so an
+    /// instance shrugging `waiting: null` over a seat it has never heard of
+    /// would end the walk before the instance whose wheel is actually waiting
+    /// was asked — silently, on any machine running two instances.
+    #[test]
+    fn arc_waiting_walks_on_from_an_instance_that_does_not_hold_the_seat() {
+        let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
+        match apply_arc_request(&ledger, &waiting_request(Some("seg-elsewhere"))) {
+            crate::arc_api::ArcApiOutcome::UnknownSession => {}
+            _ => panic!("a seat this instance does not hold must keep the walk going"),
+        }
+    }
+
+    /// And the fact the runner published, with the **composed sentence** on it:
+    /// the sentence has one author, and the status verb must not become a
+    /// second one.
+    #[test]
+    fn arc_waiting_answers_the_fact_the_runner_published() {
+        let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
+        crate::feeds::arc_runner::publish_wait(
+            "seg-busy",
+            Some(crate::feeds::arc_runner::WaitFact {
+                since: "2026-09-26T00:00:00Z".to_string(),
+                turn_active: false,
+                step_just_done: true,
+                jobs: vec![crate::feeds::arc_runner::WaitJob {
+                    key: "t1".to_string(),
+                    kind: "bash".to_string(),
+                    open_for_secs: 1_380,
+                }],
+                boundary_horizon_secs: Some(120),
+            }),
+        );
+        let outcome = apply_arc_request(&ledger, &waiting_request(Some("seg-busy")));
+        let waiting = match outcome {
+            crate::arc_api::ArcApiOutcome::Waiting { waiting } => waiting.expect("a fact"),
+            _ => panic!("expected a Waiting outcome"),
+        };
+        assert_eq!(
+            waiting["sentence"],
+            "1 background job open (bash, 23 min) since a step closed — the \
+             wheel prompts past it at 2 min",
+        );
+        assert_eq!(waiting["jobs"][0]["kind"], "bash");
+        assert_eq!(waiting["since"], "2026-09-26T00:00:00Z");
+        crate::feeds::arc_runner::clear_wait("seg-busy");
+    }
+
+    /// The board is keyed by a seat, so a body naming none is a refusal rather
+    /// than a lookup of nothing.
+    #[test]
+    fn arc_waiting_refuses_a_body_with_no_seat() {
+        let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
+        match apply_arc_request(&ledger, &waiting_request(None)) {
+            crate::arc_api::ArcApiOutcome::Error(message) => {
+                assert!(message.contains("tug_session_id"), "{message}");
+            }
+            _ => panic!("expected a refusal"),
+        }
     }
 
     #[test]

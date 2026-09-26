@@ -237,6 +237,34 @@ const MOMENTS: readonly Moment[] = [
     }),
   },
   {
+    key: "waiting",
+    caption:
+      "The same step, with the boundary held on a job it launched — the wheel says what it is waiting for",
+    worker: WORKER,
+    prompt: "/tugplug:arc-implement tugedit-bringup",
+    branched: true,
+    entry: entry(ARC, {
+      branch: `tugarc/${ARC}`,
+      bound_session: WORKER,
+      stage: "implementing",
+      arc: {
+        stage: "implement",
+        waiting:
+          "1 background job open (bash, 23 min) since a step closed — the wheel prompts past it at 2 min",
+      },
+      step_current: 4,
+      step_total: 10,
+      run_position: 4,
+      run_length: 10,
+      step_title: IMPLEMENT_TITLE,
+      steps: steps(4, null, 10),
+      documents: { brief: BRIEF, plan: PLAN },
+      review: "reviewed",
+      rounds: 4,
+      files: BRANCH_FILES,
+    }),
+  },
+  {
     key: "stopped",
     caption: "The arc stopped in implement — the stop outranks the track",
     worker: null,
