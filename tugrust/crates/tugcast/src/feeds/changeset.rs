@@ -1755,8 +1755,7 @@ async fn arc_entries(
 
     details
         .into_iter()
-        .map(
-            |(detail, review, steps, task_list, join)| {
+        .map(|(detail, review, steps, task_list, join)| {
             // Read before the literal, because the literal moves
             // `detail.owner_key` into `owner_id` above the `arc` field. Same
             // `bound_by_arc` lookup the `bound_session` field makes ([P02]).
@@ -1822,8 +1821,7 @@ async fn arc_entries(
                     current: f.current,
                 }),
             }
-            },
-        )
+        })
         .collect()
 }
 

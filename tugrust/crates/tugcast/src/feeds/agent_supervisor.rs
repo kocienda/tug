@@ -892,8 +892,7 @@ impl LedgerEntry {
 /// Read at both reap points — [`busy_session_ids`], the recompute's read of
 /// busyness, and the arc runner's `session_snapshot`, its read of one entry —
 /// which is why it is visible past this module.
-pub(crate) const JOB_REAP_HORIZON: std::time::Duration =
-    std::time::Duration::from_secs(30 * 60);
+pub(crate) const JOB_REAP_HORIZON: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 /// How long after a client connects the orphan sweep waits before it judges
 /// ([B07]).
@@ -3659,8 +3658,12 @@ fn parse_background_launch(payload: &[u8]) -> Option<(String, JobKind)> {
         == Some(true);
     let tool_name = value.get("tool_name").and_then(|n| n.as_str());
     let monitor = tool_name == Some("Monitor");
-    (backgrounded || monitor)
-        .then(|| (tool_use_id.to_owned(), JobKind::from(tool_name.unwrap_or(""))))
+    (backgrounded || monitor).then(|| {
+        (
+            tool_use_id.to_owned(),
+            JobKind::from(tool_name.unwrap_or("")),
+        )
+    })
 }
 
 /// The `tool_use_id` of an errored `tool_result` — the answer a launch that
@@ -19633,17 +19636,16 @@ mod tests {
             .expect_handled();
         let entry = {
             let ledger = sup.ledger.lock().await;
-            ledger
-                .get(&TugSessionId::new("sess-esj"))
-                .unwrap()
-                .clone()
+            ledger.get(&TugSessionId::new("sess-esj")).unwrap().clone()
         };
         {
             let now = std::time::Instant::now();
             let mut guard = entry.lock().await;
             guard.open_jobs.insert("task-a".to_string(), bash_job(now));
             guard.open_jobs.insert("task-b".to_string(), bash_job(now));
-            guard.open_jobs.insert(launch_key("toolu_pending"), bash_job(now));
+            guard
+                .open_jobs
+                .insert(launch_key("toolu_pending"), bash_job(now));
         }
 
         let ended = sup.end_step_jobs("sess-esj").await;
@@ -19810,7 +19812,10 @@ mod tests {
                 JobKind::Other("telescope".to_string())
             )),
         );
-        assert_eq!(JobKind::Other("telescope".to_string()).as_str(), "telescope");
+        assert_eq!(
+            JobKind::Other("telescope".to_string()).as_str(),
+            "telescope"
+        );
         // A foreground call is still no launch at all.
         let foreground = br#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"toolu_f","input":{"command":"ls"},"ipc_version":2}"#;
         assert_eq!(parse_background_launch(foreground), None);
@@ -27440,7 +27445,9 @@ mod tests {
         {
             let mut guard = entry.lock().await;
             guard.turn_active = false;
-            guard.open_jobs.insert("t1".to_owned(), bash_job(Instant::now()));
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
         }
 
         let stopping = spawn_stop(&sup, root, "claude-1", true);
@@ -27484,8 +27491,12 @@ mod tests {
         {
             let mut guard = entry.lock().await;
             guard.turn_active = false;
-            guard.open_jobs.insert("t1".to_owned(), bash_job(Instant::now()));
-            guard.open_jobs.insert("t2".to_owned(), bash_job(Instant::now()));
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+            guard
+                .open_jobs
+                .insert("t2".to_owned(), bash_job(Instant::now()));
         }
 
         let stopping = spawn_stop(&sup, root, "claude-1", true);
@@ -27520,7 +27531,9 @@ mod tests {
             let mut guard = entry.lock().await;
             guard.turn_active = true;
             for task in ["t1", "t2", "t3"] {
-                guard.open_jobs.insert(task.to_owned(), bash_job(Instant::now()));
+                guard
+                    .open_jobs
+                    .insert(task.to_owned(), bash_job(Instant::now()));
             }
         }
 

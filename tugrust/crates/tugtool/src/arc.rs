@@ -609,7 +609,8 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         _ => None,
     };
     if json {
-        let mut value = serde_json::to_value(&data).map_err(|e| format!("cannot serialize: {e}"))?;
+        let mut value =
+            serde_json::to_value(&data).map_err(|e| format!("cannot serialize: {e}"))?;
         if let (Some(object), Some(waiting)) = (value.as_object_mut(), waiting) {
             object.insert("waiting".to_string(), waiting);
         }
@@ -2482,8 +2483,7 @@ mod tests {
             vec![
                 "Step 3/8 of /proj/.tug/arcs/demo/plan.md is done (run through 8)".to_string(),
                 "Commit: ccf2c2a6e".to_string(),
-                "Ended 2 background jobs that were still running: bbul6rv6k, kq2m9x1az"
-                    .to_string(),
+                "Ended 2 background jobs that were still running: bbul6rv6k, kq2m9x1az".to_string(),
                 "Step 3 closed. End your turn now — the arc prompts Steps 4–8.".to_string(),
             ],
         );

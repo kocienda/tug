@@ -1144,9 +1144,8 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         // so a wake inside the horizon starts the measurement over rather than
         // carrying a stale one — which is what makes the horizon a fact about
         // *this* boundary.
-        let boundary_shape = reading.facts.ledger.step_just_done
-            && !session.turn_active
-            && session.open_jobs > 0;
+        let boundary_shape =
+            reading.facts.ledger.step_just_done && !session.turn_active && session.open_jobs > 0;
         if boundary_shape {
             if entry.boundary_since.is_none() {
                 entry.boundary_since = Some(Instant::now());
@@ -6653,7 +6652,11 @@ Some context.
             "past the horizon the boundary is prompted past"
         );
         assert_eq!(
-            read_arc(root, "demo").unwrap().notes.last().map(String::as_str),
+            read_arc(root, "demo")
+                .unwrap()
+                .notes
+                .last()
+                .map(String::as_str),
             Some("prompted past 1 open background job(s): t1"),
             "the note names what the prompt walked past, because a count cannot be checked later"
         );
@@ -6704,7 +6707,8 @@ Some context.
         entry.lock().await.turn_active = true;
         sweep(&ctx, &state).await;
         assert_eq!(
-            state.lock().await[&demo_key(root)].boundary_since, None,
+            state.lock().await[&demo_key(root)].boundary_since,
+            None,
             "a turn is open, so there is no boundary to be holding"
         );
     }
@@ -6771,7 +6775,13 @@ Some context.
              wheel prompts past it at 2 min",
         );
         assert_eq!(
-            fact(vec![job("bash", 30), job("agent", 5)], false, false, Some(120)).sentence(),
+            fact(
+                vec![job("bash", 30), job("agent", 5)],
+                false,
+                false,
+                Some(120)
+            )
+            .sentence(),
             "2 background jobs open (bash, agent, 30s) — the wheel prompts past it at 2 min",
         );
         // The horizon off is said rather than left out: a wait with no end is a

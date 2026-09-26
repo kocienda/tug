@@ -316,13 +316,18 @@ pub enum PromptKind {
 /// what decided rather than re-reading it a hop later.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PromptWhy {
-    Compact { tokens: u64, compact_tokens: u64 },
+    Compact {
+        tokens: u64,
+        compact_tokens: u64,
+    },
     Continue,
     StillOpen,
     /// The boundary the prompt walked past, and the jobs that were holding it
     /// open when it did. The runner names them in the arc's notes, because a
     /// prompt nobody asked for should say what it decided over.
-    PastOpenJobs { jobs: Vec<String> },
+    PastOpenJobs {
+        jobs: Vec<String>,
+    },
 }
 
 /// What the arc should do next.
