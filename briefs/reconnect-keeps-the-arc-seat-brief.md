@@ -2,7 +2,7 @@
 
 # A reconnect keeps the arc seat
 
-**Purpose:** After a stopped arc was resumed, the Arcs card showed it executing on `tug/argent-reef` while that session's own card wore no arc: no `^wizard-downloads` in the masthead, a `TASKS · None` cell where `ARC` and the step list belong. The two surfaces read one ledger and must not disagree. This brief settles why they did, and how the deck comes to hold the seat through every restore path rather than only through the one that minted it.
+**Purpose:** After a stopped arc was resumed, the Arcs card showed it executing on `tug/argent-reef` while that session's own card wore no arc: no `^wizard-downloads` in the masthead, a `TASKS · None` cell where `ARC` and the step list belong. A second card, `tug/tangy-phone`, was mid-arc from a `/arc` door prompt and read unbound on every surface at once. The two surfaces read one ledger and must not disagree, and a running arc must not read unbound. This brief settles both: a reconnect that loses the deck's seat, and a second tugcast that closed the live ledger's rows from outside.
 
 ---
 
@@ -14,11 +14,17 @@ The user's report, 2026-09-26:
 
 The resume was when the user looked, not when the card broke. The card lost its arc at the first WebSocket reconnect after its stage rotation, the previous afternoon, and every later reconnect reproduced the loss. The Arcs card never noticed because it never asks the question the session card asks.
 
+The second report, the same morning:
+
+> Something deeper is broken here though. This session `@session:tug/tangy-phone` is running an arc (its most recently-submitted prompt from me is an /arc slash command), but it also is not bound to its arc. WHY?
+
+That card had never reconnected mid-arc. Its seat was moved correctly through three rotations. What it lost was the ledger row itself: every segment on its line reads `closed`, and the one carrying the binding reads `closed` with `demoted = 1`, the mark of a tugcast startup demote. No tugcast restarted. A second one started.
+
 ---
 
 ## Evidence {#evidence}
 
-**[F01] The ledger is right and has been right throughout.** In the live `release-main` instance, line `4becaf06…` (callsign `argent-reef`) holds two segments: `afed4f75…`, spawned 2026-09-25 14:06:56 UTC under card `e842a0ee…`, now `closed` and bound to nothing; and `04b41ea1…`, minted at 14:08:04 by the wheel's rotation into implement, `live`, `stage_label = implement`, bound to `tugarc/wizard-downloads#1790345241432-75389a`. `bound_session_by_arc` therefore answers `04b41ea1…`, and every `tugtool arc` verb resolving at the door lands on it. Read from a copy via `just db-inspect`. **(verified)**
+**[F01] The ledger is right and has been right throughout.** In the live `release-main` instance, line `4becaf06…` (callsign `argent-reef`) holds two segments: `afed4f75…`, spawned 2026-09-25 14:06:56 UTC under card `e842a0ee…`, now `closed` and bound to nothing; and `04b41ea1…`, minted at 14:08:04 by the wheel's rotation into implement, `live`, `stage_label = implement`, bound to `tugarc/wizard-downloads#1790345241432-75389a`. `bound_session_by_arc` therefore answered `04b41ea1…`, and every `tugtool arc` verb resolving at the door landed on it. Read from a copy via `just db-inspect` at about 11:25 UTC; a second copy at 11:40 shows the same row `closed, demoted = 1`, which is [F12]'s doing and not this finding's. **(verified)**
 
 **[F02] The rotation seated the deck correctly.** `tugcast.log.2026-09-25` at 14:08:04 carries `ledger.seat_line_binding` for `04b41ea1…` on card `e842a0ee…`, which is the path in `agent_supervisor.rs` (`record_spawn`, ~line 1296) that moves the binding and broadcasts `bind_arc_ok` with the card and line, followed by the bridge's `session_line_seated`. At that moment the masthead, the Z2 cell, and the Arcs card agreed. **(verified)**
 
@@ -38,6 +44,20 @@ The resume was when the user looked, not when the card broke. The card lost its 
 
 **[F10] No app-test covers a rotate-then-reconnect.** `TugConnection._forceCloseForTest` exists precisely to drive the reconnect restore from a test, and `at0503` pins the rotation seat, but no test rotates a card, drops the wire, and reads the masthead afterwards. **(verified by search; the absence is inference from a grep, not a proof)**
 
+**[F11] The `tangy-phone` line's seat is closed and demoted while its stage runs.** Line of `c7ac9d8e…` (card `b59b2122…`): the door segment `c7ac9d8e…` and the devise and review segments `851138ff…` and `3b7d18d5…` read `closed, demoted = 0`, which is what a rotation leaves. The implement segment `4f0a70da…`, minted 11:26:42 UTC and bound to `tugarc/changes-shade-refusals#…`, reads `closed, demoted = 1` with `last_used_at` equal to its `created_at`. The stage was running turns under it at 11:28 and 11:34. **(verified from a ledger copy)**
+
+**[F12] A startup demote ran against the live ledger at 11:28:35 UTC, and three more followed.** The `facts` table carries `session.closed (startup-demote)` for `4f0a70da…` and for `04b41ea1…`, the wizard-downloads seat, both at `at_ms = 1790422115634`. `demote_live_to_closed` has one production caller, `tugcast/src/main.rs` at startup, and its `UPDATE` is unscoped: every `live` row in the file. The release-main tugcast (pid 64458, up since 2026-09-25 03:26) never restarted. Its own log shows nothing at that second. **(verified)**
+
+**[F13] The demoting process was a per-arc release app launched from the wizard-downloads worktree.** `instances/release-tugarc-wizard-downloads/Logs/tugcast.log.2026-09-26` opens at 11:28:35.084 with `source_tree = .tug/worktrees/wizard-downloads`, bundle `Tug-release-tugarc-wizard-downloads.app`, and reads at 11:28:35.635 `demoted stale live ledger rows on startup count=5`, then at 11:28:36.309 `ledger snapshot backup written dest=…/instances/release-main/backups/sessions-1790422115634-000000.db`. The backup lands beside the database it opened, so that process opened release-main's `sessions.db`. Its later launches at 11:30:46, 11:32:22 and 11:35:16 each demoted again against the same file (counts 1, 1, 3), while the 11:28:48 launch wrote its backup under its own instance directory. **(verified)**
+
+**[F14] The override reached it through the environment.** `agent_bridge.rs` (~line 424) exports `TUG_SESSIONS_DB` into every tugcode child so the child opens the ledger its tugcast opened. The live tugcode processes for both arcs carry `TUG_SESSIONS_DB=…/instances/release-main/sessions.db`. Claude Code, its Bash tool, and every `just` recipe a stage runs inherit it. `resolve_sessions_db_path` in `tugcore/src/instance.rs` honours that override before the instance-derived path, so a tugcast whose own identity is `release-tugarc-wizard-downloads` opened another instance's ledger. The `app-release`, `app-debug`, `launch-release` and `launch-debug` recipes scrub the launch environment with `env -u TUG_INSTANCE_ID -u TUG_BUNDLE_PATH -u TUGCAST_RESOURCE_ROOT open …`, and that list does not include `TUG_SESSIONS_DB`; `open` propagates the rest, as the recipe's own comment says. Which of those recipes the stage ran is not visible in the session summaries; the product name and the source tree are the evidence. **(verified for the mechanism; the recipe is inference)**
+
+**[F15] `guard_isolated` does not catch this.** The guard in `instance.rs` only fires when the test-isolation variable is set, and only refuses a path inside the live data root. A developer launch sets no isolation variable, and the path *is* the live root by design. There is no check that the ledger a process opens belongs to the instance it identifies as. **(verified)**
+
+**[F16] A demoted seat never revives, because activity is recorded under the address.** `revive_on_activity` lifts a `closed, demoted = 1` row back to `live` when a turn lands on it. The supervisor records turns and jobs under the bridge key (`ledger.insert_pending_turn session_id=c7ac9d8e…` at 11:26:41, `job_launched session_id=c7ac9d8e…` at 11:28:36), which is the rotation-closed door row with `demoted = 0`, so revive matches nothing. The seat row `4f0a70da…` gets no activity under its own id. The same holds for `04b41ea1…` under `afed4f75…`. **(verified from the log and `session_ledger.rs` ~line 5498)**
+
+**[F17] Every server verb now refuses both arcs.** `bound_session_by_arc` is live-only, so both arcs report no bound session and the Arcs card and the session cards agree on "unbound". `calling_segment` resolves a posted id to a live segment of its line and errors when there is none, so `tugtool arc step`, `arc commit`, `arc stop` and `arc run` from inside either stage now answer "names a closed segment and no segment of its line is live". **(inference from the code; not run against a live card, because running it would spend the refusal on a real arc)**
+
 ---
 
 ## Decisions {#decisions}
@@ -50,6 +70,14 @@ The resume was when the user looked, not when the card broke. The card lost its 
 
 **[B04] Every finding here stays server-consistent; nothing moves the ledger.** The binding stays on the live segment, `calling_segment` stays newest-first, and the bridge stays keyed by its first id. The defect is in what the deck was told, not in what the server knows, and a fix that moved a ledger column to make the ack easier would reintroduce the corpse-binding the seat move exists to prevent.
 
+**[B05] A tugcast opens only the ledger of the instance it is.** `resolve_sessions_db_path` keeps the `TUG_SESSIONS_DB` override for harnesses, but tugcast's own startup refuses an override that names a path outside its instance directory unless the test-isolation variable is set: it logs the two paths and exits non-zero rather than opening another instance's file. The override exists so a child reads the ledger its parent opened; it was never meant to let a *new* tugcast adopt a parent's. A refusal at the door is what turns a silent five-row demote into a sentence, and it holds for any launch shape, not only the recipes we know about.
+
+**[B06] The launch recipes scrub every Tug ledger variable.** `app-release`, `app-debug`, `launch-release` and `launch-debug` extend the `env -u` list to `TUG_SESSIONS_DB`, `TUG_CHANGES_DB`, `TUG_PROMPT_HISTORY_DB`, `TUG_SESSION_INDEX_DB`, `TUG_DATA_DIR` and `TUG_SESSION_ID`, in one shared script so the four lists cannot drift. This is belt to [B05]'s braces: the guard is the contract, the scrub is what keeps a developer launch from meeting it.
+
+**[B07] The startup demote is scoped to rows this process could have owned.** `demote_live_to_closed` gains an instance argument and demotes only rows whose `card_id` the ledger's `lines` table files under this instance's cards, or, failing a recorded instance, only rows the process finds no live subprocess for. With [B05] in place a foreign process never reaches this, but the unscoped `UPDATE … WHERE state = 'live'` is a write that has now proven it can land on another process's live work, and a scoped one costs nothing on the ordinary crash-recovery path it exists for.
+
+**[B08] Activity revives the seat, not the address.** `revive_on_activity` is called with the line's resume segment, resolved through `live_segment_of` or, when no segment is live, `resume_segment_for_line`, rather than with the bridge key. The row that should read `live` is the one the arc binding sits on; reviving the door row leaves the binding on a corpse. This is what would have let both arcs recover the moment their next turn landed, and it is the repair path for any ledger left demoted by whatever means.
+
 ---
 
 ## Non-goals {#non-goals}
@@ -59,6 +87,8 @@ The resume was when the user looked, not when the card broke. The card lost its 
 - **Making the Arcs card read through the session index.** The Arcs card is right; the session card is wrong. Aligning surfaces by making the correct one depend on the broken lookup is the wrong direction.
 - **The arc stop and resume verbs.** Neither is implicated ([F09]). The stop receipt, the resume button, and `tugtool arc run` are unchanged.
 - **The one-card-one-bridge attach.** It is correct and stays. It is what made the ack's row the wrong row, but the repair is in the ack, not in the attach.
+- **Removing the `TUG_SESSIONS_DB` override.** The tugtool CLI suite and the app-test harness seed isolated ledgers through it, and tugcode reads its parent's ledger through it. The override stays; what changes is that a tugcast startup will not adopt one that names a foreign instance ([B05]).
+- **Repairing the two arcs by hand.** The rows can be revived with a ledger write, but a hand edit is the shape this project refuses. [B08] is the repair, and it runs on the next turn.
 
 ---
 
@@ -70,3 +100,6 @@ The resume was when the user looked, not when the card broke. The card lost its 
 2. The deck's `spawn_session_ok` handler writes the seat into the binding when it differs from the address ([B01]).
 3. `arc-session-index.ts` gains the line key and the line fall-through ([B02]), with a unit case for an address a rotation left behind.
 4. The rotate-then-reconnect app-test ([B03]), run against the built bundle after steps 1–3, and once more with step 2 reverted under `file probe` to show it catches the original loss.
+5. Tugcast refuses a `TUG_SESSIONS_DB` naming a foreign instance at startup ([B05]), with a unit test that sets the override to another instance's path and asserts the refusal, and one that sets the isolation variable and asserts the override is honoured.
+6. The four launch recipes share one scrub script covering every ledger variable ([B06]).
+7. `demote_live_to_closed` takes the instance and scopes its rows ([B07]); `revive_on_activity` is called with the line's seat ([B08]). A ledger test seeds a rotated line, demotes it, records a turn under the door id, and asserts the seat row is the one that revives and that `bound_session_by_arc` names it again.
