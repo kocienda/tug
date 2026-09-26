@@ -10,9 +10,10 @@
  *
  * So the failure is parked here, keyed by session, and the card's
  * {@link ArcBindErrorNoticeController} turns it into a pane bulletin — the
- * same shape `ChangesetVerbStore` + `ClaimErrorNoticeController` use, for the
+ * same shape `ChangesetVerbStore` + `TransientNoticeController` use, for the
  * same reason ([L22]: a bulletin is a direct DOM update and must not
- * round-trip through render).
+ * round-trip through render). `/arc <name>` is typed into the composer rather
+ * than pressed in the Changes shade, so this one keeps the corner lane.
  *
  * @module lib/arc-bind-error-store
  */

@@ -3,8 +3,9 @@
  *
  * The face is what a landing surface renders: two independent notices, each
  * carrying a cause in the user's frame, the remedy, and git's own words to
- * fold. The strip that renders it is `session-landing-notice-strip.tsx`; this
- * module decides the words and the identity, and nothing about visibility.
+ * fold. The surface that renders it is the Changes shade's own notice band,
+ * `session-changes-notice.tsx`; this module decides the words and the identity,
+ * and nothing about visibility.
  *
  * The words are separated from the surface that renders them because the
  * surface is a React component with no substrate to test against, while the
@@ -138,7 +139,7 @@ export function describeLandingFailure(
 /**
  * The two notices a landing mode is publishing right now.
  *
- * `active` is not read here — the strip gates on it. That keeps this function
+ * `active` is not read here — the band gates on it. That keeps this function
  * about words and identity, and leaves the visibility rule in one place.
  *
  * Refusals are keyed on `seq`, never on the sentence: pressing a refusing

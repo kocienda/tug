@@ -215,7 +215,7 @@ export interface LandingMode {
    */
   land: (message: string) => LandOutcome;
   /**
-   * Land the composer's live message again — the strip's Retry and Z5 are one
+   * Land the composer's live message again — the band's Retry and Z5 are one
    * act ([P04]). The message survived the failure in the draft store and is
    * still in the editor, so a retry is a press of the same button over the
    * same text; taking it through the same gate is what keeps the two from

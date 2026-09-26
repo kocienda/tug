@@ -57,7 +57,7 @@ So the anchor is the match, resolved once, and nothing here knows what a fold is
 
 Each is a decision with a reason, recorded so it does not have to be re-argued. A surface not on this list takes the line.
 
-**The Changes shade** rests on the top of the prompt-entry region instead — it covers Z2 — because it *is* the commit surface. The message editor below it is part of the same gesture, so its bottom edge belongs on the entry region rather than on Z2. Nothing else has that tie-in, so nothing else pays for it. A refusal of that gesture speaks on it — `SessionLandingNoticeStrip`, in the entry region under the shade's bottom edge, outside the scrim by geometry rather than by z-index — so a landing failure never goes to a lane the scrim covers. [D117], [P17]
+**The Changes shade** rests on the top of the prompt-entry region instead — it covers Z2 — because it *is* the commit surface. The message editor below it is part of the same gesture, so its bottom edge belongs on the entry region rather than on Z2. Nothing else has that tie-in, so nothing else pays for it. A refusal of a gesture made on the shade speaks **in the shade** — the fixed notice band under its header, above the file scroller — so the refusal stands at the distance the press was made at. The seam under the shade's bottom edge was the earlier answer and was a half-measure at a second distance: the lane the corner toast host lives in is the region the shade's own scrim dims, so distance and dimming were the same defect, and moving the notice one step closer answered the dimming while leaving the distance. [D117], [P17]
 
 **Choose Session** keeps the top anchor. It stands where there is no transcript behind it — the cold-start picker, before a session exists — so a rise from Z2 would be a motion with nothing to reveal.
 
@@ -75,7 +75,7 @@ One coupling is easy to miss and is why this section exists. The canvas-clamp ef
 
 ## What is not on the card, and does not move
 
-`TugModalInputDialog` (Open Quickly) is canvas-level rather than card-level. `TugPaneBanner` pins under the title bar deliberately — it is a persistent error strip, not a presentation. Popovers, confirm popovers, context menus and popup lists are trigger-anchored and already flip by available space. The top-right transient-notice host is a corner toast lane, and it carries nothing landing-shaped: a commit or join refusal belongs to a gesture with a grain, and speaks on it. None of these has a card's grain to obey.
+`TugModalInputDialog` (Open Quickly) is canvas-level rather than card-level. `TugPaneBanner` pins under the title bar deliberately — it is a persistent error strip, not a presentation. Popovers, confirm popovers, context menus and popup lists are trigger-anchored and already flip by available space. The top-right transient-notice host is a corner toast lane, and it carries nothing a presented shade's gestures produce: such a refusal belongs to a gesture with a grain and speaks on it, in the shade's own band, which `at0628` pins. What the lane does still carry is what no shade gesture produced — transient interruptions, attachment errors, the privacy refusal, and arc transport and bind refusals, each of them pressed somewhere the scrim never covers. None of these has a card's grain to obey.
 
 ## A note on the shared shade `persistKey`
 

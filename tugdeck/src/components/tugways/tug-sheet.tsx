@@ -1895,12 +1895,22 @@ export function TugSheetContent({
   // Effect 1: state mutation. When `open` flips true, promote
   // `mounted` so the portal is in the DOM for the enter animation.
   // No event emission here — that responsibility lives in effect 2.
+  //
+  // Reconciled rather than edge-triggered, because `open` implies `mounted` is
+  // an invariant and not merely a transition. An exit animation ends by
+  // asserting `setMounted(false)`, and a close the consumer re-opens while that
+  // exit is still running lands `open === true` with `mounted === false` — a
+  // state an edge-triggered effect never leaves, since `open`'s identity has not
+  // changed and `setOpen(true)` on a `true` is a no-op. The sheet is then
+  // permanently invisible with every door reporting success: the shade
+  // controller says it is presented, the imperative `open()` returns, and
+  // nothing renders. Reading `mounted` here is what heals it.
   useLayoutEffect(() => {
-    if (open) {
+    if (open && !mounted) {
       setMounted(true);
     }
     // When open goes false, mounted stays true — exit animation will set it false.
-  }, [open]);
+  }, [open, mounted]);
 
   // Effect 2: emit will-show / will-hide on `open` transitions
   // (including the first-render `open=true` case, where prevOpen

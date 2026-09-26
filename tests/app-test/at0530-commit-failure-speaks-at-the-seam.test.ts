@@ -1,6 +1,17 @@
 /**
  * at0530-commit-failure-speaks-at-the-seam.test.ts — **a commit git actually
- * refuses, reported where the commit happened.**
+ * refuses, reported inside the gesture that made it.**
+ *
+ * ## The filename says "at the seam" and the seat is no longer there
+ *
+ * The refusal used to speak in the seam between the Changes shade's bottom edge
+ * and the composer's top edge. It now speaks in a fixed notice band *inside*
+ * the shade, under its header and above its scroller, because the seam was a
+ * half-measure at a second distance: outside the scrim by geometry, but still
+ * not inside the gesture the user made. The file keeps its name anyway —
+ * `apptest_results.db` is keyed by test file, so a rename throws away this
+ * file's whole recorded history of greens and reds, which is what tells a
+ * defect from contention the next time it goes red.
  *
  * ## What this is
  *
@@ -24,12 +35,15 @@
  *   1. **The failure is named, not quoted.** The notice's title is the cause in
  *      the user's frame — "Another git process is holding the repository lock"
  *      — and git's own words are kept, one disclosure away, inside the fold.
- *   2. **It is at the seam.** The strip's box sits below the shade's and above
- *      the editor's, which is what "inside the gesture" means geometrically.
- *      Nothing landing-shaped reaches the corner lane.
+ *   2. **It is inside the shade.** The notice's box is contained by the shade's
+ *      — top at or below the shade's top, bottom at or above the shade's bottom
+ *      — which is what "inside the gesture" means geometrically. This failure's
+ *      own words do not reach the corner lane either; the general pin over every
+ *      shade gesture is `at0628`, and the check kept here is the local one, so a
+ *      regression confined to the commit path still turns this file red.
  *   3. **Z5 wears the word.** While the refusal stands, the land button reads
- *      "Retry commit" — the strip's Retry and the button are one act.
- *   4. **Retry lands.** With the lock gone, the strip's Retry button produces
+ *      "Retry commit" — the band's Retry and the button are one act.
+ *   4. **Retry lands.** With the lock gone, the band's Retry button produces
  *      the commit the first press asked for, and the notice goes with it.
  *
  * ## Why the lock is held for as short a window as possible
@@ -40,7 +54,7 @@
  * refusal — still red, but for a reason no failure message here would name. So
  * the lock goes down after the file row is on screen and the message is typed,
  * and comes up the moment the notice is asserted. The tell that it reached the
- * feed anyway would be a strip with `data-channel="refusal"`; the assertions
+ * feed anyway would be a band with `data-channel="refusal"`; the assertions
  * below are written on `data-channel="error"` so that case cannot pass quietly.
  *
  * ## What this file deliberately does not declare
@@ -48,12 +62,12 @@
  * `tug-prompt-entry.tsx` and `session-card.tsx` are both at the selection
  * budget's ceiling, and naming them here would push each past it — a one-line
  * edit to either would then turn `app-test-changed` into a sweep. The Z5
- * relabel and the strip's mount site are corroborating details of a file whose
- * subject is the strip; at0435 already declares the prompt entry and at0436
- * declares the card, and both now declare the strip, so an edit to either hub
+ * relabel and the band's mount site are corroborating details of a file whose
+ * subject is the band; at0435 already declares the prompt entry and at0436
+ * declares the card, and both now declare the band, so an edit to either hub
  * still selects a test that drives this surface.
  *
- * @covers tugdeck/src/components/tugways/cards/session-landing-notice-strip.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-notice.tsx
  * @covers tugdeck/src/lib/landing-notice.ts
  * @covers tugdeck/src/lib/commit-mode-controller.ts
  * @covers tugrust/crates/tugchanges-core/src/commit.rs
@@ -91,8 +105,11 @@ const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const COMMIT_BUTTON = `${CARD} [data-testid="tug-prompt-entry-commit-button"]`;
 const COMMIT_SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 const FILE_ROW = `${CARD} [data-slot="tug-changes-list-file-ref"]`;
-const STRIP = `${CARD} [data-slot="session-landing-notice-strip"]`;
-const ERROR_STRIP = `${STRIP}[data-channel="error"]`;
+// The band inside the shade, not the seam strip that used to stand below it.
+// The band keeps the `session-landing-notice-*` testids verbatim, so the
+// selector churn here is one attribute rather than three.
+const NOTICE = `${CARD} [data-slot="session-changes-notice"]`;
+const ERROR_NOTICE = `${NOTICE}[data-channel="error"]`;
 const RETRY = `${CARD} [data-testid="session-landing-notice-retry"]`;
 const CLAIM_ALL = `${CARD} [data-testid="tug-changes-list-claim-all-unattributed"]`;
 const BULLETIN_TEXTS = `Array.from(document.querySelectorAll('[data-sonner-toast]')).map(function(e){ return e.textContent || ""; })`;
@@ -146,6 +163,38 @@ function deckShape() {
 
 const settle = (ms = 400): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * The scratch repo's uncommitted dirt, waited for rather than slept past.
+ *
+ * The dirt is written by a shell command run *inside the app*, so the write
+ * lands on the harness's clock rather than this file's, and a fixed settle is a
+ * bet on how loaded the machine is. It is a bet this file lost three times in a
+ * row: red in every batch of two or more, green every time it ran alone, always
+ * with `dirt: ""` in the diagnostics and a timeout eighty seconds later on a
+ * Claim-all row that cannot exist because there is nothing to claim. The
+ * failure named the symptom and buried the cause, which is the worst shape a
+ * pin can fail in — the geometry this file guards was never reached at all.
+ *
+ * So the condition is observed. It throws with its own sentence rather than
+ * letting the absence become somebody else's timeout.
+ */
+async function waitForScratchDirt(timeoutMs = 60_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const dirt = execFileSync("git", ["status", "--porcelain"], {
+      cwd: projectDir(),
+      encoding: "utf8",
+    }).trim();
+    if (dirt !== "") return dirt;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `at0530: the scratch repo never went dirty — the in-app 'file run' that appends to ${DIRTY_FILE} did not land within ${timeoutMs}ms`,
+      );
+    }
+    await settle(500);
+  }
+}
+
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
   await app.nativeClickAtElement(PROMPT_INPUT);
@@ -177,9 +226,9 @@ function gitSubject(repo: string): string {
   }).trim();
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () => {
+describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade", () => {
   test(
-    "a held index.lock refuses the commit in the seam, and Retry lands it",
+    "a held index.lock refuses the commit inside the shade, and Retry lands it",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -208,15 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () =
         // the shade's own Claim all is the gesture that puts it there, which is
         // also the gesture a user makes for exactly this reason.
         await shell(app, `${cli} file run -- sh -c 'echo at0530 >> ${DIRTY_FILE}'`);
-        await settle(4_000);
-        note(
-          `at0530 the scratch repo's dirt: ${JSON.stringify(
-            execFileSync("git", ["status", "--porcelain"], {
-              cwd: projectDir(),
-              encoding: "utf8",
-            }).trim(),
-          )}`,
-        );
+        note(`at0530 the scratch repo's dirt: ${JSON.stringify(await waitForScratchDirt())}`);
 
         await openCommitShade(app);
         await app.waitForCondition<boolean>(
@@ -257,16 +298,16 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () =
         await app.nativeClickAtElement(COMMIT_BUTTON);
 
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ERROR_STRIP)}) !== null`,
+          `document.querySelector(${JSON.stringify(ERROR_NOTICE)}) !== null`,
           { timeoutMs: 30_000 },
         );
         rmSync(lockPath(), { force: true });
 
         const notice = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(ERROR_STRIP)})?.textContent ?? "")`,
+          `(document.querySelector(${JSON.stringify(ERROR_NOTICE)})?.textContent ?? "")`,
         );
-        note(`at0530 the notice at the seam: ${JSON.stringify(notice)}`);
-        note("at0530 the refusal is at the seam", (await app.screenshot()).path);
+        note(`at0530 the notice in the shade: ${JSON.stringify(notice)}`);
+        note("at0530 the refusal speaks in the shade", (await app.screenshot()).path);
 
         // 1. The failure is named, not quoted.
         expect(notice, "the title names the cause in the user's frame").toContain(
@@ -277,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () =
         // rather than paraphrased away.
         const evidence = await app.evalJS<string>(
           `(function(){
-             const d = document.querySelector(${JSON.stringify(ERROR_STRIP)} + ' details');
+             const d = document.querySelector(${JSON.stringify(ERROR_NOTICE)} + ' details');
              if (d === null) return "(no fold)";
              d.open = true;
              return d.textContent || "";
@@ -288,40 +329,39 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () =
           "index.lock",
         );
 
-        // 2. It is at the seam — below the shade, above the editor — and the
-        //    corner lane carries nothing landing-shaped.
+        // 2. It is inside the shade — the notice's box is contained by the
+        //    shade's — and the corner lane carries nothing landing-shaped.
         //
         // Measured at rest. The failure re-enters the mode, so the shade slides
         // back in under the notice; a rect read on the way there is the
         // animation's, not the layout's.
         await settle(1_500);
         const boxes = await app.evalJS<{
+          shadeTop: number;
           shadeBottom: number;
-          stripTop: number;
-          stripBottom: number;
-          editorTop: number;
+          noticeTop: number;
+          noticeBottom: number;
         }>(
           `(function(){
              const r = function(sel){ const e = document.querySelector(sel); return e === null ? null : e.getBoundingClientRect(); };
              const shade = r(${JSON.stringify(COMMIT_SHEET)});
-             const strip = r(${JSON.stringify(ERROR_STRIP)});
-             const editor = r(${JSON.stringify(PROMPT_INPUT)});
+             const notice = r(${JSON.stringify(ERROR_NOTICE)});
              return {
+               shadeTop: shade === null ? -1 : shade.top,
                shadeBottom: shade === null ? -1 : shade.bottom,
-               stripTop: strip === null ? -1 : strip.top,
-               stripBottom: strip === null ? -1 : strip.bottom,
-               editorTop: editor === null ? -1 : editor.top,
+               noticeTop: notice === null ? -1 : notice.top,
+               noticeBottom: notice === null ? -1 : notice.bottom,
              };
            })()`,
         );
-        note(`at0530 the seam's geometry: ${JSON.stringify(boxes)}`);
+        note(`at0530 the notice's geometry inside the shade: ${JSON.stringify(boxes)}`);
         expect(
-          boxes.stripTop >= boxes.shadeBottom,
-          "the notice sits below the shade's bottom edge",
+          boxes.noticeTop >= boxes.shadeTop,
+          "the notice's top is at or below the shade's top edge",
         ).toBe(true);
         expect(
-          boxes.stripBottom <= boxes.editorTop,
-          "the notice sits above the composer's editor",
+          boxes.noticeBottom <= boxes.shadeBottom,
+          "the notice's bottom is at or above the shade's bottom edge",
         ).toBe(true);
         expect(
           await app.evalJS<boolean>(
@@ -329,11 +369,17 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () =
           ),
           "the mode re-entered — the shade is back with the failure",
         ).toBe(true);
+        // One local check, not a sweep. `at0628` is the general pin — it fails
+        // each of the shade's own gestures with the shade presented and asserts
+        // the lane empty of what each produced — so duplicating that argument
+        // here would mean two files failing for one regression and neither
+        // saying which. This file keeps its own, because a regression that
+        // reached only the commit path should still turn *this* file red.
         const corner = await app.evalJS<string[]>(BULLETIN_TEXTS);
         note(`at0530 corner bulletins after the failure: ${JSON.stringify(corner)}`);
         expect(
-          corner.every((t) => !t.includes("Commit failed") && !t.includes("index.lock")),
-          "the corner lane carries nothing landing-shaped",
+          corner.every((t) => !t.includes("index.lock")),
+          "this failure's own words never reach the corner lane (at0628 pins the rest)",
         ).toBe(true);
 
         // 3. Z5 wears the word while the refusal stands.
@@ -341,7 +387,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () =
           `document.querySelector(${JSON.stringify(COMMIT_BUTTON)})?.getAttribute("aria-label") ?? "(no button)"`,
         );
         note(`at0530 the land button's label with a failure standing: ${JSON.stringify(label)}`);
-        expect(label, "the land button and the strip's Retry are one act").toBe(
+        expect(label, "the land button and the band's Retry are one act").toBe(
           "Retry commit",
         );
 
@@ -353,7 +399,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks at the seam", () =
         ).not.toBe(SUBJECT);
         await app.nativeClickAtElement(RETRY);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(STRIP)}) === null`,
+          `document.querySelector(${JSON.stringify(NOTICE)}) === null`,
           { timeoutMs: 30_000 },
         );
         await settle(4_000);

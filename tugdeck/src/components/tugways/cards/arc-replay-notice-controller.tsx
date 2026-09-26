@@ -18,37 +18,52 @@
  *
  * The subscription registers in `useLayoutEffect` ([L03]); no notice state
  * enters React state ([L02]); appearance is the bulletin's own CSS/DOM ([L06]).
+ *
+ * ## It is the Arcs card's reader, not the store's only one
+ *
+ * A replay pressed *in the Changes shade* is answered inside the shade, by its
+ * own notice band ([B01]) — this lane sits in the transcript region the shade's
+ * scrim dims, so a bulletin posted there would be the dimmed corner notice the
+ * whole arc removed. One store holds one outcome per session and both surfaces
+ * read that slot, so `shadeEntryKey` is how they divide it: an outcome carrying
+ * it belongs to the shade, and this controller ignores it and dismisses whatever
+ * it had posted. The division is on the stamp rather than on presented state,
+ * because a shade that happens to be up when an Arcs-card press answers is a
+ * coincidence of timing, not an origin ([P01]).
+ *
+ * The two readers are not mounted alike, and that asymmetry is the reason the
+ * stamp has to exist rather than being belt-and-braces. `session-card.tsx`
+ * mounts this controller only when `boundSessionId !== null`, while the band
+ * reads `changesController.tugSessionId`, which a card has whether or not it is
+ * bound. So on an unbound card the band is the slot's **only** reader, and
+ * without the stamp it would claim an Arcs-card press as its own. When the card
+ * *is* bound the two ids are the same session — verified: `boundSessionId` is
+ * the card's bound tug session id and `ChangesRouteController.tugSessionId` is
+ * the id that same card registered its workspace under.
  */
 
 import { useLayoutEffect, useRef } from "react";
 
 import {
   arcReplayOutcomeStore,
-  type ArcReplayOutcome,
+  conflictDescription,
 } from "@/lib/arc-replay-outcome-store";
 
 import { useTugPaneBulletin } from "../tug-pane-bulletin";
 
 const NOTICE_ID = "arc-replay-outcome";
 
-/** The conflicting paths, as a sentence rather than a list nobody can read. */
-function conflictDescription(outcome: ArcReplayOutcome): string {
-  const round =
-    outcome.roundSubject !== null && outcome.roundSubject.length > 0
-      ? `Round “${outcome.roundSubject}” conflicts with the moved base`
-      : "A round conflicts with the moved base";
-  if (outcome.paths.length === 0) return `${round}. Nothing was touched.`;
-  const shown = outcome.paths.slice(0, 3).join(", ");
-  const rest = outcome.paths.length - 3;
-  const paths = rest > 0 ? `${shown}, and ${rest} more` : shown;
-  return `${round}: ${paths}. Nothing was touched.`;
-}
-
 export function ArcReplayNoticeController({
   tugSessionId,
+  shadeEntryKey,
 }: {
   /** The session whose replay outcomes this notice reports on. */
   tugSessionId: string;
+  /**
+   * The Changes shade's own changeset entry key. An outcome stamped with it was
+   * pressed in the shade and is the band's to say, never this lane's.
+   */
+  shadeEntryKey: string;
 }): null {
   const api = useTugPaneBulletin();
   // The last outcome posted, by sequence. Local data ([L24]) — never React
@@ -67,6 +82,14 @@ export function ArcReplayNoticeController({
         return;
       }
       if (outcome.seq === postedSeqRef.current) return;
+      // A shade press is not this lane's. The skipped seq is still recorded:
+      // without it every store notification re-enters this arm and the dismiss
+      // fires again forever.
+      if (outcome.entryKey === shadeEntryKey) {
+        postedSeqRef.current = outcome.seq;
+        api.dismiss(NOTICE_ID);
+        return;
+      }
       postedSeqRef.current = outcome.seq;
       switch (outcome.outcome) {
         case "current":
@@ -104,7 +127,7 @@ export function ArcReplayNoticeController({
     };
     apply();
     return arcReplayOutcomeStore.subscribe(apply);
-  }, [api, tugSessionId]);
+  }, [api, tugSessionId, shadeEntryKey]);
 
   return null;
 }

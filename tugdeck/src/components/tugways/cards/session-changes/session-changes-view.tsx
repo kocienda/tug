@@ -86,6 +86,8 @@ import {
 } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
+import type { LandingMode } from "@/lib/landing-mode";
+import { SessionChangesNotice } from "./session-changes-notice";
 
 // ---------------------------------------------------------------------------
 // The view
@@ -118,6 +120,13 @@ export interface SessionChangesViewProps {
    * close the shade renders.
    */
   dismiss?: SessionChangesDismiss;
+  /**
+   * The landing half of the shade's notice band. Absent leaves the band to the
+   * shade's own verbs — a host that carries no landing still gets a seat for a
+   * refused claim. There is no such host today; the prop's shape should not
+   * require one.
+   */
+  notice?: SessionChangesNoticeSource;
 }
 
 /** The header X — what it does, and what it is called while it does it. */
@@ -130,6 +139,22 @@ export interface SessionChangesDismiss {
   label: string;
   /** Abort the draft, leave the landing, or close a bare glance. */
   onDismiss: () => void;
+}
+
+/**
+ * What the card hands the view for the shade's notice band.
+ *
+ * The band speaks for the landing modes, and the view has no other way to reach
+ * them: they live in the card, and so does the after-a-landing beat a Retry
+ * shares with Z5.
+ */
+export interface SessionChangesNoticeSource {
+  /** The commit landing mode — the band speaks for it while its snapshot is active. */
+  commitMode: LandingMode;
+  /** The join landing mode, on the same terms. */
+  joinMode: LandingMode;
+  /** The composer's after-a-landing beat: Retry and Z5 are one act. */
+  onAfterRetry: () => void;
 }
 
 /** What the card hands the view for the fronted arc row's join face. */
@@ -148,6 +173,7 @@ export function SessionChangesView({
   codeSessionStore,
   arcJoin,
   dismiss,
+  notice,
 }: SessionChangesViewProps): React.ReactElement {
   const snap = useSyncExternalStore(
     changesController.subscribe,
@@ -172,9 +198,10 @@ export function SessionChangesView({
     () => codeSessionStore.getSnapshot().canInterrupt === true,
   );
 
-  // The claim round trip's state ([L02]). The failure detail is surfaced by
-  // the card's `ClaimErrorNoticeController` (a bulletin, not view chrome); the
-  // view reads it only to hold the Claim affordances while one is in flight.
+  // The claim round trip's state ([L02]). The failure detail is surfaced by the
+  // shade's own notice band, `SessionChangesNotice`, which reads this same slot
+  // ([B01]); the view reads it only to hold the Claim affordances while one is
+  // in flight.
   const claim = useChangesetClaim(changesController.entryKey);
   const claimPending = claim.phase === "pending";
   // Claim's inverse, read the same way and for the same reason.
@@ -186,7 +213,8 @@ export function SessionChangesView({
   const join = useChangesetJoin(changesController.entryKey);
   // The card's one discard round trip ([L02]), keyed by the card's entry like
   // the join above. That is why every row's Discard is held while one is in
-  // flight: two rows sharing this slot would render each other's phase.
+  // flight: two rows sharing this slot would render each other's phase. A
+  // refusal is the band's, like the claim's above.
   const discardVerb = useChangesetDiscard(changesController.entryKey);
   const replayVerb = useChangesetReplay(changesController.entryKey);
   // The resolution ladder's overlay, keyed by arc rather than by card. The
@@ -345,6 +373,13 @@ export function SessionChangesView({
   ): React.ReactElement => (
     <>
       <div className="tug-sheet-shade-header">{buildHeader(actions, trailing)}</div>
+      {/* Every refusal of a gesture that starts in this shade speaks in this
+          shade ([B01]): a fixed band under the header and above the scroller,
+          so it neither scrolls away from the rows it is about nor sits behind
+          the scrim the shade raises over the transcript ([P03]). It rides every
+          case of the shell — a no-git machine and a non-repo project can still
+          refuse a gesture. Self-hiding when there is nothing to say. */}
+      <SessionChangesNotice changesController={changesController} notice={notice} />
       <div
         className="session-changes-view"
         data-slot="session-changes-view"

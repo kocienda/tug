@@ -186,6 +186,41 @@ describe("the outcome notice store", () => {
     expect(second?.outcome).toBe("current");
     expect(first?.outcome).toBe("current");
     expect((second?.seq ?? 0) > (first?.seq ?? 0)).toBe(true);
+    // And both carry the entry the press went out under, which is what lets the
+    // shade's band and the corner lane divide this one slot by origin.
+    expect(first?.entryKey).toBe(ENTRY);
+    expect(second?.entryKey).toBe(ENTRY);
+  });
+
+  test("an outcome is stamped with the entry the press went out under", () => {
+    // The stamp is not decoration: one store slot has two readers, and without
+    // it neither can tell an Arcs-card press from a Changes-shade one. The value
+    // is the `entryKey` the round trip was keyed by, so it is the press's own
+    // origin rather than anything the answer frame carries.
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
+    h.reply({
+      action: "changeset_replay_ok",
+      project_dir: PROJECT,
+      arc: ARC,
+      session_id: SESSION,
+      outcome: "replayed",
+    });
+    expect(arcReplayOutcomeStore.outcomeFor(SESSION)?.entryKey).toBe(ENTRY);
+  });
+
+  test("a refusal carries the stamp too", () => {
+    // The `_err` path reports separately, so it is a second place the stamp can
+    // be forgotten — and a forgotten stamp on a refusal is the worst case: the
+    // corner lane would claim a shade's refusal and dim it behind the scrim.
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
+    h.reply({
+      action: "changeset_replay_err",
+      project_dir: PROJECT,
+      arc: ARC,
+      session_id: SESSION,
+      detail: "not a git repository",
+    });
+    expect(arcReplayOutcomeStore.outcomeFor(SESSION)?.entryKey).toBe(ENTRY);
   });
 
   test("a replay with no session id says nothing", () => {

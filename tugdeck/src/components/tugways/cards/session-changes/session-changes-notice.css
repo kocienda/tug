@@ -1,0 +1,58 @@
+/**
+ * session-changes-notice.css — the notice band's seat in the Changes shade
+ * ([L06] appearance via CSS/DOM).
+ *
+ * Layout only. What sits inside is a `TugInlineDialog` wearing its own padding,
+ * radius and type, and nothing here reaches into `--tugx-idialog-*` — the whole
+ * point of the primitive is that a refusal looks the same wherever the deck
+ * puts one ([L20], [P08]). The precedent is one fold below: the blocked join's
+ * `BlockerDialog` is dressed by plain flex and margin rules in
+ * `session-changes-arc-fold.css` and reaches into none of the primitive's
+ * tokens either.
+ *
+ * The band draws its own separator rather than inheriting one. The shade's
+ * rules (`border-top` / `border-bottom`) belong to
+ * `.tug-sheet-shade[data-shade-anchor="bottom"]`, and `.tug-sheet-shade-header`
+ * declares only `flex: 0 0 auto` — the header's visible rule comes from the
+ * `BlockStrip` inside it. So a band between the two would sit in undrawn space
+ * with the rows below running straight into it.
+ *
+ * @tug-pairings
+ * | Element                                        | Surface                                           | Role    | Context                            |
+ * |------------------------------------------------|---------------------------------------------------|---------|------------------------------------|
+ * | --tug7-element-global-text-normal-accent-rest  | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-notice-evidence summary |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-notice-evidence pre |
+ */
+
+/* Fixed under the shade's header and above its scroller ([P03]). A sibling of
+   `.session-changes-view` in the shade body's flex column, so it neither
+   scrolls nor needs a z-index — and the shade's auto-size grows upward to
+   absorb it, with no measurement anywhere. */
+.session-changes-notice {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
+
+/* Git's own words, one disclosure away. The element owns open/closed. */
+.session-changes-notice-evidence {
+  margin-top: var(--tug-space-xs);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-notice-evidence summary {
+  color: var(--tug7-element-global-text-normal-accent-rest);
+  cursor: pointer;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-notice-evidence pre {
+  margin: var(--tug-space-xs) 0 0;
+  /* Wrapped, not scrolled: stderr is prose with newlines in it, and a reader
+     who has to scroll sideways to finish a sentence is reading a log. */
+  white-space: pre-wrap;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

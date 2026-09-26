@@ -738,7 +738,10 @@ export class ChangesetVerbStore {
       const outcome = typeof body.outcome === "string" ? body.outcome : null;
       const detail = typeof body.detail === "string" ? body.detail : null;
       this._setReplay(entryKey, { phase: "done", outcome, detail, error: null });
-      // The outcomes that move nothing have no other voice ([P06]).
+      // The outcomes that move nothing have no other voice ([P06]). Stamped
+      // with the entry the press went out under, so the Changes shade's band
+      // and the card's corner lane can divide one slot by origin rather than
+      // by whichever surface happens to be up when the answer lands.
       const sessionId = typeof body.session_id === "string" ? body.session_id : null;
       if (sessionId !== null && outcome !== null) {
         arcReplayOutcomeStore.report(sessionId, {
@@ -748,6 +751,7 @@ export class ChangesetVerbStore {
           roundSubject:
             typeof body.round_subject === "string" ? body.round_subject : null,
           paths: readStringArray(body.paths),
+          entryKey,
         });
       }
     } else if (body.action === "changeset_replay_err") {
@@ -767,6 +771,7 @@ export class ChangesetVerbStore {
           detail,
           roundSubject: null,
           paths: [],
+          entryKey,
         });
       }
     }

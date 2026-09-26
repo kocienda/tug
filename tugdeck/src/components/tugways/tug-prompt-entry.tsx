@@ -3932,10 +3932,10 @@ export const TugPromptEntry = React.forwardRef<
   // flight — where the button is reporting itself and there is nothing to say.
   //
   // While a server refusal stands, the same button wears "Retry commit" /
-  // "Retry join" ([P04]). The strip at the seam has a Retry of its own and
-  // both run the mode's one land verb, so the relabel is what says they are
-  // the same act rather than two — a Z5 still reading "Commit" beside a strip
-  // offering Retry would read as a choice between them.
+  // "Retry join" ([P04]). The Changes shade's notice band has a Retry of its
+  // own and both run the mode's one land verb, so the relabel is what says they
+  // are the same act rather than two — a Z5 still reading "Commit" beside a
+  // band offering Retry would read as a choice between them.
   const landingPending = landingSnap?.landPhase === "pending";
   const commitCanLand =
     landingSnap !== null && landingSnap.canLandIgnoringMessage;

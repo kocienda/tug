@@ -22,9 +22,19 @@
  * arc here is. So Replay is offered whenever the arc is diverged — bound
  * or not, since boundness has no part in that gate. No outcome shows itself on
  * the row — the lifecycle line carries the arc's standing, not the checkout's
- * git bookkeeping — so every one of the five reports on the card's pane
- * bulletin, and both halves are asserted here: the replay that moves the
- * rounds, and the press afterwards that moves nothing.
+ * git bookkeeping — so every one of the five has to report somewhere else, and
+ * **where depends on where the press was made.** A press on the Arcs card is
+ * answered by the card's pane bulletin; a press in the Changes shade is answered
+ * inside the shade, in its own notice band, because the corner lane sits in the
+ * transcript region the shade's scrim dims and an answer that arrives greyed out
+ * above the gesture is the dead button all over again ([B01]).
+ *
+ * Both halves are asserted here, and they are now the two *seats* as well as the
+ * two outcomes: the rail press that moves the rounds speaks in the bulletin, and
+ * the shade press that moves nothing speaks in the band — with the corner lane
+ * asserted empty of it, which is what makes the split a tested fact rather than
+ * a convention. One store slot carries both, divided by the `entryKey` the press
+ * was stamped with.
  *
  * Everything is real: a scratch repository this file owns, real arcs, a real
  * base commit moving underneath one of them, and the real `changeset_replay`
@@ -34,6 +44,7 @@
  * @covers tugdeck/src/components/arcs/arcs-card.css
  * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/arc-replay-notice-controller.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-notice.tsx
  * @covers tugdeck/src/lib/arc-replay-outcome-store.ts
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugdeck/src/components/tugways/action-vocabulary.ts
@@ -91,7 +102,10 @@ const arcRow = (arc: string): string =>
 
 const BULLETIN = ".tug-pane-bulletin";
 const BULLETIN_TITLE = `${BULLETIN} [data-title]`;
-const BULLETIN_DESC = `${BULLETIN} [data-description]`;
+/** The Changes shade's own notice band — where a shade press is answered. */
+const SHADE_NOTICE = `${CARD} [data-slot="session-changes-notice"]`;
+/** Every corner bulletin on screen, as text — nothing a shade press made may be here. */
+const CORNER_TEXTS = `Array.from(document.querySelectorAll('[data-sonner-toast]')).map(function(e){ return e.textContent || ""; })`;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -368,7 +382,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
   );
 
   test(
-    "a replay that moves nothing reports on the card's bulletin",
+    "a replay that moves nothing reports in the shade it was pressed in",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -388,10 +402,11 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // the session this card holds.
         bindArc(projectDir(), CLASH, SID, scratch?.cli ?? {});
 
-        // Driven from the SHADE rather than the rail, deliberately. The shade's
-        // press carries its own card's session id with no dependence on which
-        // card the rail happens to be following, so what is under test here is
-        // the outcome's voice rather than the rail's focus bookkeeping.
+        // Driven from the SHADE rather than the rail, deliberately, and that is
+        // now two facts rather than one: the shade's press carries its own card's
+        // session id with no dependence on which card the rail is following, and
+        // it is stamped with the shade's entry key, which is what routes the
+        // answer into the shade's band instead of the corner lane.
         await app.nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
@@ -420,25 +435,40 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // which is exactly why the answer has to arrive somewhere else.
         await pressArcRowMenuItem(app, shadeRow, "request-replay-arc");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
+          `document.querySelector(${JSON.stringify(SHADE_NOTICE)}) !== null`,
           { timeoutMs: 20000 },
         );
-        const spoken = await app.evalJS<{ title: string; description: string; tone: string | null }>(
+        const spoken = await app.evalJS<{ text: string; tone: string | null; channel: string | null }>(
           `(() => {
-             const b = document.querySelector(${JSON.stringify(BULLETIN)});
+             const b = document.querySelector(${JSON.stringify(SHADE_NOTICE)});
              return {
-               title: (document.querySelector(${JSON.stringify(BULLETIN_TITLE)})?.textContent ?? ""),
-               description: (document.querySelector(${JSON.stringify(BULLETIN_DESC)})?.textContent ?? ""),
-               tone: b?.getAttribute("data-type") ?? null,
+               text: b?.textContent ?? "",
+               tone: b?.getAttribute("data-tone") ?? null,
+               channel: b?.getAttribute("data-channel") ?? null,
              };
            })()`,
         );
         note("at0469 the outcome spoke", JSON.stringify(spoken));
-        expect(spoken.title).toContain(CLASH);
+        expect(spoken.text).toContain(CLASH);
         // The description names the round it stopped at and the path it stopped
         // on — the only text that makes this refusal readable.
-        expect(spoken.description).toContain(SHARED_FILE);
-        expect(spoken.description).toContain("Nothing was touched");
+        expect(spoken.text).toContain(SHARED_FILE);
+        expect(spoken.text).toContain("Nothing was touched");
+        // A stopped replay is a caution, not a failure: it refused above every
+        // write and the branch is exactly as it was.
+        expect(spoken.tone).toBe("caution");
+
+        // And the corner lane carries none of it. This is the half that makes
+        // the split a tested fact: the same store slot feeds both readers, so a
+        // controller that forgot to check the stamp would put this sentence
+        // behind the scrim as well as in the band, and every other assertion
+        // above would still pass.
+        const corner = await app.evalJS<string[]>(CORNER_TEXTS);
+        note("at0469 corner bulletins after the shade's press", JSON.stringify(corner));
+        expect(
+          corner.every((t) => !t.includes(CLASH) && !t.includes("Nothing was touched")),
+          "a shade press leaves the corner lane empty of its answer",
+        ).toBe(true);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

@@ -9,11 +9,11 @@
  *
  * What this drives is the mechanism, not a hypothesis about which condition
  * fires: an empty message over an otherwise landable arc is the cheapest
- * deterministic refusal there is. The press produces a notice at the seam
- * between the shade and the composer carrying the gate's own sentence, the
- * mode stays up, and nothing goes on the wire. The seam is where a landing's
- * refusal speaks: inside the gesture, and outside the shade's scrim, which
- * used to dim the corner bulletin this test once read.
+ * deterministic refusal there is. The press produces a notice in the Changes
+ * shade's own notice band carrying the gate's own sentence, the mode stays up,
+ * and nothing goes on the wire. The shade is where a landing's refusal speaks:
+ * inside the gesture rather than above it, in the corner bulletin this test
+ * once read and the shade's own scrim dims.
  *
  * It is driven both ways, because only one of them was ever broken. A submit
  * CHORD reaches `land()` whatever the button looks like; a CLICK on the button
@@ -28,7 +28,8 @@
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/landing-mode.ts
  * @covers tugdeck/src/lib/landing-notice.ts
- * @covers tugdeck/src/components/tugways/cards/session-landing-notice-strip.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-notice.tsx
+ * @covers tugdeck/src/components/tugways/tug-sheet.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.css
  */
@@ -184,8 +185,15 @@ async function raiseShade(app: App): Promise<void> {
   );
 }
 
-/** Every landing notice currently at the seam, as text. */
-const STRIP_TEXTS = `Array.from(document.querySelectorAll('${CARD} [data-slot="session-landing-notice-strip"]')).map(function(e){ return e.textContent || ""; })`;
+/**
+ * Every landing notice currently in the Changes shade's band, as text.
+ *
+ * The refusal's seat is the shade's own notice band rather than the seam between
+ * the shade and the composer. The behaviours asserted below — a refusal naming
+ * what is missing, and a second press speaking again after the first faded — are
+ * unchanged; only the element carrying them moved.
+ */
+const STRIP_TEXTS = `Array.from(document.querySelectorAll('${CARD} [data-slot="session-changes-notice"]')).map(function(e){ return e.textContent || ""; })`;
 
 /** Every corner bulletin currently on screen, as text — nothing landing-shaped may be here. */
 const BULLETIN_TEXTS = `Array.from(document.querySelectorAll('[data-sonner-toast]')).map(function(e){ return e.textContent || ""; })`;
@@ -309,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           timeoutMs: 10000,
         });
         const texts = await app.evalJS<string[]>(STRIP_TEXTS);
-        note(`at0435 seam notices after the refused press: ${JSON.stringify(texts)}`);
+        note(`at0435 band notices after the refused press: ${JSON.stringify(texts)}`);
         expect(
           texts.some((t) => t.includes("Write a join message")),
           "the refusal names what is missing",
@@ -319,9 +327,9 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           "the notice names the act that was refused",
         ).toBe(true);
 
-        // And it is the seam that carries it. The corner lane is where this
-        // refusal used to land, dimmed under the shade's scrim; nothing
-        // landing-shaped reaches it any more ([P03]).
+        // And it is the band that carries it. The corner lane is where this
+        // refusal used to land, dimmed under the shade's scrim; nothing a
+        // shade gesture produces reaches it any more ([B01]).
         const corner = await app.evalJS<string[]>(BULLETIN_TEXTS);
         note(`at0435 corner bulletins after the refused press: ${JSON.stringify(corner)}`);
         expect(
@@ -346,7 +354,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // that compared wording — rather than the refusal's `seq` — would sit
         // silent on exactly the press where the user is asking louder. The
         // fade is observed rather than forced; removing the node by hand would
-        // leave the strip believing the notice was still up.
+        // leave the band believing the notice was still up.
         await app.waitForCondition<boolean>(
           `${STRIP_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
           { timeoutMs: 30000 },

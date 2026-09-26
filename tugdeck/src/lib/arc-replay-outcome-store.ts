@@ -9,9 +9,15 @@
  * a dead button.
  *
  * The outcome is parked here, keyed by the tug session id the press named, and
- * the card's {@link ArcReplayNoticeController} turns it into a pane bulletin —
- * the same shape {@link arcBindErrorStore} uses, for the same reason ([L22]: a
- * bulletin is a direct DOM update and must not round-trip through render).
+ * it has two readers dividing one slot by origin. A press made in the Changes
+ * shade is answered by the shade's own notice band, because a refusal of a
+ * shade gesture belongs inside the shade ([B01]); a press made on the Arcs card
+ * is answered by the card's {@link ArcReplayNoticeController} as a pane
+ * bulletin — the same shape {@link arcBindErrorStore} uses, for the same reason
+ * ([L22]: a bulletin is a direct DOM update and must not round-trip through
+ * render). {@link ArcReplayOutcome.entryKey} is what divides them, and
+ * {@link conflictDescription} lives here rather than beside either reader so
+ * the two say the same sentence about one conflict.
  *
  * @module lib/arc-replay-outcome-store
  */
@@ -35,8 +41,36 @@ export interface ArcReplayOutcome {
   readonly roundSubject: string | null;
   /** `conflicted`'s conflicting paths. */
   readonly paths: readonly string[];
+  /**
+   * The changeset entry key the press was made against — the shade's own key
+   * for a shade press, `"arcs-card"` for an Arcs-card one. It is what lets the
+   * shade's band and the corner lane divide this store's outcomes by origin
+   * without either guessing from presented state ([P01]): a shade that happens
+   * to be up when an Arcs-card press answers is a timing coincidence, not an
+   * origin, and a reader keyed on it would claim the other surface's press.
+   */
+  readonly entryKey: string;
   /** Bumped on every outcome so two identical answers in a row still notify. */
   readonly seq: number;
+}
+
+/**
+ * The conflicting paths, as a sentence rather than a list nobody can read.
+ *
+ * Shared by both readers on purpose. It used to be a private helper inside the
+ * bulletin controller, which meant the band seating the same outcome would have
+ * had to restate it — and two implementations of one sentence drift.
+ */
+export function conflictDescription(outcome: ArcReplayOutcome): string {
+  const round =
+    outcome.roundSubject !== null && outcome.roundSubject.length > 0
+      ? `Round “${outcome.roundSubject}” conflicts with the moved base`
+      : "A round conflicts with the moved base";
+  if (outcome.paths.length === 0) return `${round}. Nothing was touched.`;
+  const shown = outcome.paths.slice(0, 3).join(", ");
+  const rest = outcome.paths.length - 3;
+  const paths = rest > 0 ? `${shown}, and ${rest} more` : shown;
+  return `${round}: ${paths}. Nothing was touched.`;
 }
 
 class ArcReplayOutcomeStore {

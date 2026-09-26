@@ -6,7 +6,7 @@
  * fake connection: the server's `changeset_join_err` arrives as an actual
  * CONTROL frame, and the refusals come from actual refused presses. The cause
  * table is driven with the stderr git actually printed on 2026-09-05. What is
- * deliberately not here is the strip that renders the face — bun has no DOM
+ * deliberately not here is the band that renders the face — bun has no DOM
  * substrate, so its on-screen behavior is pinned in the app-test corpus.
  */
 
@@ -324,9 +324,9 @@ describe("landingNoticeFace", () => {
   });
 
   it("empties the channel between two identical failures, which is what dismiss rides on", () => {
-    // The strip clears a dismissal when its channel goes null ([P02]), so the
+    // The band clears a dismissal when its channel goes null ([P02]), so the
     // same failure twice must not read as one uninterrupted notice — otherwise
-    // a user who dismissed the first would never see the second. The strip's
+    // a user who dismissed the first would never see the second. The band's
     // own button is app-test territory; the null in the middle is the fact it
     // rides on, and it is testable here.
     const controller = buildController();

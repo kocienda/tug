@@ -207,16 +207,13 @@ import {
   humanizeErrorSummary,
 } from "./session-card-banner-spec";
 import { TransientNoticeController } from "./transient-notice-controller";
-import { ClaimErrorNoticeController } from "./claim-error-notice-controller";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 
 import { createStagedLanding, type StagedLanding } from "./staged-landing";
-import { SessionLandingNoticeStrip } from "./session-landing-notice-strip";
-import { DiscardErrorNoticeController } from "./discard-error-notice-controller";
-import { DraftErrorNoticeController } from "./draft-error-notice-controller";
 import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller";
 import { ArcReplayNoticeController } from "./arc-replay-notice-controller";
 import { ArcPressNoticeController } from "./arc-press-notice-controller";
+import { ShadeRaiseOnShadeRefusalController } from "./shade-raise-on-shade-refusal-controller";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
 import { PromptHistoryStore } from "@/lib/prompt-history-store";
@@ -2875,6 +2872,26 @@ export function SessionCardBody({
     entryDelegateRef.current?.focus();
   }, [entryDelegateRef]);
 
+  // What the Changes shade's notice band speaks for ([B01]). The two landing
+  // modes live here and nowhere the view can reach, and `handleAfterSubmit` is
+  // the same reader-return Z5 gets, because a Retry and a Z5 press are one act.
+  // Memoized so a card render does not re-render the shade on identity alone.
+  const changesNotice = useMemo(
+    () => ({
+      commitMode: commitModeController,
+      joinMode: joinModeController,
+      onAfterRetry: handleAfterSubmit,
+    }),
+    [commitModeController, joinModeController, handleAfterSubmit],
+  );
+
+  // A refused claim or disclaim has one seat and it is the band, so a band that
+  // is unmounted is a dead button ([P06], [L31]). Stable because the controller
+  // holds it across a store subscription's lifetime.
+  const raiseChangesShade = useCallback(() => {
+    shadeViewController.show("changes");
+  }, [shadeViewController]);
+
   // Z2 telemetry popovers → transcript scroll. The Time / Tokens
   // popovers render each turn's `#NNNN` entry pair as buttons;
   // clicking one lands here with that entry's transcript row index.
@@ -4632,26 +4649,25 @@ export function SessionCardBody({
               controller sees the outer (top-right), `PaneBulletinAnchor` sees
               the inner (bottom). [P02]
 
-              Nothing landing-shaped reaches either lane. A commit or join
-              refusal speaks at the seam between the shade and the composer
-              instead ([P03]) — inside the gesture, and outside the shade's
-              scrim, which is what dimmed this lane's copy of it.
+              Nothing a Changes-shade gesture produces reaches either lane.
+              Every refusal of one — a commit, a join, a claim, a disclaim, a
+              discard, an Auto-Message — speaks in the shade's own notice band
+              (`session-changes-notice.tsx`), inside the gesture rather than
+              above it behind the scrim this lane's copy was dimmed by ([B01]).
             */}
           <TugPaneBulletinProvider
             placement="top-right"
             className="session-card-notice-host"
           >
             <TransientNoticeController store={codeSessionStore} />
-            <DiscardErrorNoticeController
-              entryKey={changesController.entryKey}
-            />
-            <ClaimErrorNoticeController entryKey={changesController.entryKey} />
-            <DraftErrorNoticeController changesController={changesController} />
             {boundSessionId !== null ? (
               <ArcBindErrorNoticeController tugSessionId={boundSessionId} />
             ) : null}
             {boundSessionId !== null ? (
-              <ArcReplayNoticeController tugSessionId={boundSessionId} />
+              <ArcReplayNoticeController
+                tugSessionId={boundSessionId}
+                shadeEntryKey={changesController.entryKey}
+              />
             ) : null}
             {boundSessionId !== null ? (
               <ArcPressNoticeController tugSessionId={boundSessionId} />
@@ -4916,11 +4932,20 @@ export function SessionCardBody({
                       : undefined
                   }
                   dismiss={changesDismiss}
+                  notice={changesNotice}
                 />
               </TugSheetContent>
             </TugSheet>
           </div>
         </div>
+        {/*
+          Outside the sheet on purpose: it has to be mounted when the shade is
+          not, because raising the shade is exactly what it is for ([P06]).
+        */}
+        <ShadeRaiseOnShadeRefusalController
+          entryKey={changesController.entryKey}
+          onRaise={raiseChangesShade}
+        />
         {/*
           Prompt-entry region — content-sized and pinned to the card bottom.
           The text area grows with the editor up to `--session-entry-max-height`
@@ -4946,21 +4971,6 @@ export function SessionCardBody({
             disabled={sessionErrored}
             className="session-card-entry-pane"
           >
-            {/* A landing's refusal, in the seam between the shade's bottom
-                edge and the composer's top edge — inside the gesture it
-                belongs to, and outside the shade's scrim by geometry ([B01],
-                [P03]). One per landing mode, each self-hiding unless its own
-                mode is active, so at most one is ever up. `handleAfterSubmit`
-                is the same reader-return Z5 gets, because Retry and Z5 are one
-                act ([P04]). */}
-            <SessionLandingNoticeStrip
-              controller={commitModeController}
-              onAfterRetry={handleAfterSubmit}
-            />
-            <SessionLandingNoticeStrip
-              controller={joinModeController}
-              onAfterRetry={handleAfterSubmit}
-            />
             {/* Composer-side reminder of staged shell / `/btw` context that
                 will ride the next `❯` submission. Self-hides when empty. */}
             <SessionPendingContextStrip
