@@ -1346,8 +1346,110 @@ function PlaceSeam({
         }
       };
 
+      // WHERE the per-frame write lands is the cost ([B04] of
+      // `sash-drag-pinned`, and the reading behind it). The fractions the
+      // frames read at rest are custom properties on the deck container, and
+      // a custom property is inherited: writing one dirties the computed
+      // style of every descendant of the container, so a drag that published
+      // a fraction per frame had the engine recalculating style for the
+      // whole deck — three transcripts, a rail — sixty times a second. That
+      // reading was 31ms a frame on a working deck against 1ms at rest, and it
+      // did not move when the divided cards grew by half, which is what says
+      // it was the deck's style and not the cards' paint.
+      //
+      // So for the length of the gesture the members and the seams are
+      // pinned INLINE, in px, on the elements themselves. `top` and `height`
+      // are not inherited; a write to one dirties one element's style and
+      // lays out one frame whose interior is held at a definite height, and
+      // nothing below or beside it hears about it. The fractions are published
+      // once, at the release, in the same task the inline pins come off in,
+      // so the frames read the same geometry from the record they read from
+      // before the hand touched them and no frame paints in between.
+      //
+      // `offsetTop` / `offsetHeight` rather than a client rect: they are in
+      // the layout's own px, which is the unit the allocation is in, at every
+      // zoom. One read per element at the latch, none per frame.
+      //
+      // An overflowing place is not pinned this way: its bounds collapse
+      // ([Q01]) and the boundary cannot move, so the one strip coordinate is
+      // published as before and the drag is a clamp.
+      interface Pinned {
+        el: HTMLElement;
+        member: number;
+        top0: number;
+        height0: number;
+        savedTop: string;
+        savedHeight: string;
+      }
+      interface PinnedSeam {
+        el: HTMLElement;
+        boundary: number;
+        top0: number;
+        savedTop: string;
+      }
+      const pinned: Pinned[] = [];
+      const pinnedSeams: PinnedSeam[] = [];
+      const seamSelector =
+        place.kind === "rail"
+          ? `.tug-place-seam[data-rail-seam^="${place.side}:"]`
+          : `.tug-place-seam[data-column-seam^="${place.slot}:"]`;
+      const seamAttr = place.kind === "rail" ? "data-rail-seam" : "data-column-seam";
+      const beginPins = (): void => {
+        if (overflowing) return;
+        for (const { member, el } of divided) {
+          pinned.push({
+            el,
+            member,
+            top0: el.offsetTop,
+            height0: el.offsetHeight,
+            savedTop: el.style.top,
+            savedHeight: el.style.height,
+          });
+        }
+        for (const el of container.querySelectorAll<HTMLElement>(seamSelector)) {
+          const stamp = el.getAttribute(seamAttr) ?? "";
+          const boundary = Number(stamp.slice(stamp.lastIndexOf(":") + 1));
+          if (!Number.isInteger(boundary)) continue;
+          pinnedSeams.push({ el, boundary, top0: el.offsetTop, savedTop: el.style.top });
+        }
+      };
+      // Every pin handed back exactly as it was found — the calc() the frame
+      // reads at rest — so a React render that sees the same string writes
+      // nothing and the frame is standing on the record again. Idempotent: a
+      // press that never latched pinned nothing and restores nothing.
+      const releasePins = (): void => {
+        for (const p of pinned.splice(0)) {
+          p.el.style.top = p.savedTop;
+          p.el.style.height = p.savedHeight;
+        }
+        for (const s of pinnedSeams.splice(0)) s.el.style.top = s.savedTop;
+      };
+      // The place as the hand is holding it, written on the elements: each
+      // member's top and height, and each boundary's seam, from the same
+      // cascade the release publishes through.
+      const pin = (height: number): void => {
+        const heights = cascadedHeights(start, membersRef.current, index, height);
+        const tops: number[] = [];
+        let top = 0;
+        for (let k = 0; k < heights.length; k += 1) {
+          tops.push(top);
+          top += heights[k] + seamPx;
+        }
+        for (const p of pinned) {
+          const dTop = (tops[p.member] ?? 0) - (start.tops[p.member] ?? 0);
+          const dHeight =
+            (heights[p.member] ?? 0) - (start.heights[p.member] ?? 0);
+          p.el.style.top = `${p.top0 + dTop}px`;
+          p.el.style.height = `${p.height0 + dHeight}px`;
+        }
+        for (const s of pinnedSeams) {
+          const below = s.boundary + 1;
+          const dTop = (tops[below] ?? 0) - (start.tops[below] ?? 0);
+          s.el.style.top = `${s.top0 + dTop}px`;
+        }
+      };
+
       let latestY = startClientY;
-      let rafId: number | null = null;
       let moved = false;
 
       const latch = (clientY: number): boolean => {
@@ -1369,11 +1471,11 @@ function PlaceSeam({
         return Math.min(upper, Math.max(lower, next));
       };
 
-      // Where the division the hand is holding is published. An overflowing
-      // place writes the one boundary it moved; a shared one writes EVERY
-      // seam, because a cascade moves the boundaries below the one under the
-      // pointer too, and a frame still reading its old seam would overlap the
-      // member that had just given room up.
+      // Where the division the hand is holding is published, at the RELEASE.
+      // An overflowing place writes the one boundary it moved; a shared one
+      // writes EVERY seam, because a cascade moves the boundaries below the
+      // one under the pointer too, and a frame still reading its old seam
+      // would overlap the member that had just given room up.
       const publish = (height: number): void => {
         if (overflowing) {
           container.style.setProperty(
@@ -1399,27 +1501,27 @@ function PlaceSeam({
         }
       };
 
-      const apply = (): void => {
-        rafId = null;
-        const wasMoved = moved;
-        if (!latch(latestY)) return;
-        // At the latch, before the first publish: the one layout the interior
-        // takes is the one at the held height, and every frame after it moves
-        // only the frame's edge.
-        if (!wasMoved) beginHold();
-        publish(computeHeight());
-      };
-
+      // Straight from the pointer handler, with no animation-frame hop: a
+      // property write is cheap, style resolves once per rendering update
+      // however many writes precede it, and the hop had no case where it
+      // gained a frame and one where it could lose one ([B04]).
       const onPointerMove = (e: PointerEvent): void => {
         latestY = e.clientY;
-        if (rafId === null) rafId = requestAnimationFrame(apply);
+        const wasMoved = moved;
+        if (!latch(latestY)) return;
+        // At the latch, before the first write: the one layout the interior
+        // takes is the one at the held height, and every frame after it moves
+        // only the frame's edge.
+        if (!wasMoved) {
+          beginHold();
+          beginPins();
+        }
+        const height = computeHeight();
+        if (overflowing) publish(height);
+        else pin(height);
       };
 
       const onPointerUp = (e: PointerEvent): void => {
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
         seam.removeEventListener("pointermove", onPointerMove);
         seam.removeEventListener("pointerup", onPointerUp);
         seam.removeEventListener("pointercancel", onPointerCancel);
@@ -1429,10 +1531,13 @@ function PlaceSeam({
         try {
           if (!latch(latestY)) return;
           const height = computeHeight();
-          // The property stays as the gesture left it: the commit re-renders at
-          // this fraction and the inset effect writes the same number back, so
-          // there is no frame where a member reads the pre-gesture seam.
+          // The record and the pins change hands in one task: the fractions
+          // go on the container and the inline px come off the frames before
+          // anything paints, so the commit re-renders at this division and
+          // the inset effect writes the same number back. There is no frame
+          // where a member reads the pre-gesture seam.
           publish(height);
+          releasePins();
           // Released BEFORE the commit, the way every other gesture machine
           // releases it ([P11]).
           //
@@ -1469,6 +1574,7 @@ function PlaceSeam({
           // most needs its members carried. Idempotent against the release
           // above, which is the path that matters.
           for (const { el } of divided) el.removeAttribute("data-pointer-owned");
+          releasePins();
           releaseHold();
         }
       };
@@ -1477,17 +1583,15 @@ function PlaceSeam({
       // has no other way off. Nothing commits — a cancelled drag is not a
       // placement — but the members stop being the hand's, because a mark that
       // outlives the listener meant to clear it is a frame the settle skips
-      // for the rest of the session.
+      // for the rest of the session. The pins come off the same way, and the
+      // frames stand where the record says.
       const onPointerCancel = (): void => {
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
         seam.removeEventListener("pointermove", onPointerMove);
         seam.removeEventListener("pointerup", onPointerUp);
         seam.removeEventListener("pointercancel", onPointerCancel);
         seam.removeAttribute("data-gesture");
         for (const { el } of divided) el.removeAttribute("data-pointer-owned");
+        releasePins();
         releaseHold();
       };
 

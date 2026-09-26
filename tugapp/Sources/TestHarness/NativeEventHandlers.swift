@@ -552,6 +552,13 @@ final class NativeEventHandlers {
     /// (one `mouseDragged` at `to`) for tests that want to test
     /// exactly that.
     ///
+    /// `interpolationDelayMs` is the gap between one dragged event
+    /// and the next. Default 20 — the floor the selection tests were
+    /// written against, where WebKit's merger never sees two moves
+    /// pending at once. A sampler that wants the trail to arrive the
+    /// way a hand's does passes the display interval (8 or 17) and
+    /// observes what the merger coalesces rather than avoiding it.
+    ///
     /// Both `from` and `to` must lie inside the WKWebView's
     /// viewport; either being out-of-bounds fails fast with
     /// `coordinateOutOfBounds` before any events are posted.
@@ -562,6 +569,7 @@ final class NativeEventHandlers {
         mouseDownDelayMs: Int = 20,
         mouseUpDelayMs: Int = 20,
         interpolationSteps: Int = 8,
+        interpolationDelayMs: Int = 20,
     ) throws {
         try dispatchDragGesture(
             from: from,
@@ -570,6 +578,7 @@ final class NativeEventHandlers {
             mouseDownDelayMs: mouseDownDelayMs,
             mouseUpDelayMs: mouseUpDelayMs,
             interpolationSteps: interpolationSteps,
+            interpolationDelayMs: interpolationDelayMs,
             releaseAtEnd: true,
         )
     }
@@ -604,6 +613,7 @@ final class NativeEventHandlers {
         mouseDownDelayMs: Int = 20,
         mouseUpDelayMs: Int = 20,
         interpolationSteps: Int = 8,
+        interpolationDelayMs: Int = 20,
     ) throws {
         try dispatchDragGesture(
             from: from,
@@ -612,6 +622,7 @@ final class NativeEventHandlers {
             mouseDownDelayMs: mouseDownDelayMs,
             mouseUpDelayMs: mouseUpDelayMs,
             interpolationSteps: interpolationSteps,
+            interpolationDelayMs: interpolationDelayMs,
             releaseAtEnd: false,
         )
     }
@@ -628,6 +639,7 @@ final class NativeEventHandlers {
         mouseDownDelayMs: Int,
         mouseUpDelayMs: Int,
         interpolationSteps: Int,
+        interpolationDelayMs: Int,
         releaseAtEnd: Bool,
     ) throws {
         activateSelf()
@@ -666,13 +678,16 @@ final class NativeEventHandlers {
                 throw NativeEventError.eventCreationFailed("drag mouseDragged step \(i)")
             }
             post(dragged)
-            // 20ms/step gives WebKit enough gap between events that
-            // windowserver doesn't coalesce them in its event queue.
-            // Lower values (8ms) cause all 8 drag events to merge
-            // into a single mousemove at the destination, which
-            // defeats the interpolation and regresses to the
-            // endpoint-only behavior that fails to paint selection.
-            sleepMs(20)
+            // The default 20ms/step gives WebKit enough gap between
+            // events that its merger never coalesces them: at 8ms the
+            // whole 8-step selection trail used to merge into a single
+            // mousemove at the destination, which defeats the
+            // interpolation and regresses to the endpoint-only behavior
+            // that fails to paint selection. That is a floor for the
+            // selection tests, not for every caller — a sampler that
+            // wants to see a drag under a hand's own sample rate posts
+            // at the display interval and reads what was coalesced.
+            sleepMs(interpolationDelayMs)
         }
 
         // Final settle: give the last mouseDragged time to be

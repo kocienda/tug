@@ -1109,6 +1109,26 @@ export function captureWindow(caller: HarnessCaller): Promise<{
   return caller.rpcCall("captureWindow", {});
 }
 
+/**
+ * Size the harness window's content to `width` × `height` (either may be
+ * omitted), clamped to the screen the window is on. Resolves with the content
+ * size the window actually took, which is what to state a fixture against: a
+ * screen too small for the ask gives the largest size it can, not an error.
+ *
+ * For fixtures the default 80%-of-screen window cannot hold — two session
+ * cards standing split in one column each have a 600px floor, and until the
+ * column's run exceeds their sum the seam between them cannot move.
+ */
+export function setWindowContentSize(
+  caller: HarnessCaller,
+  size: { width?: number; height?: number },
+): Promise<{ width: number; height: number }> {
+  const params: Record<string, unknown> = {};
+  if (size.width !== undefined) params.width = size.width;
+  if (size.height !== undefined) params.height = size.height;
+  return caller.rpcCall("setWindowContentSize", params);
+}
+
 // ---- native gestures ----
 
 export interface NativeClickOptions {
@@ -1134,14 +1154,19 @@ export interface NativeDragOptions {
   mouseUpDelayMs?: number;
   /**
    * How many interpolated `mouseDragged` events the trail posts between
-   * `from` and `to`. The Swift side fixes the inter-step gap at 20ms — lower
-   * and windowserver coalesces the trail into one move — so this is also how
+   * `from` and `to`. With the inter-step gap at its default this is also how
    * long the drag takes: `interpolationSteps * 20ms`. Default 8.
-   *
-   * A sampler that reads a drag per animation frame needs a trail with frames
-   * in it; 8 steps is 160ms, which is about ten of them.
    */
   interpolationSteps?: number;
+  /**
+   * The gap between one `mouseDragged` and the next, ms. Default 20, which is
+   * the floor the selection tests were written against: below it WebKit's
+   * event merger coalesces pending moves, and an 8-step selection trail
+   * collapsed into one move at the destination. A sampler that wants the
+   * trail to arrive at a hand's rate passes the display interval and reads
+   * how many moves the merger delivered rather than assuming all of them.
+   */
+  interpolationDelayMs?: number;
 }
 
 export function nativeClick(
@@ -1232,6 +1257,8 @@ export function nativeDrag(
     params.mouseUpDelayMs = opts.mouseUpDelayMs;
   if (opts?.interpolationSteps !== undefined)
     params.interpolationSteps = opts.interpolationSteps;
+  if (opts?.interpolationDelayMs !== undefined)
+    params.interpolationDelayMs = opts.interpolationDelayMs;
   return caller.rpcCall<void>("nativeDrag", params);
 }
 
@@ -1289,6 +1316,8 @@ export function nativeDragWithoutRelease(
     params.mouseUpDelayMs = opts.mouseUpDelayMs;
   if (opts?.interpolationSteps !== undefined)
     params.interpolationSteps = opts.interpolationSteps;
+  if (opts?.interpolationDelayMs !== undefined)
+    params.interpolationDelayMs = opts.interpolationDelayMs;
   return caller.rpcCall<void>("nativeDragWithoutRelease", params);
 }
 

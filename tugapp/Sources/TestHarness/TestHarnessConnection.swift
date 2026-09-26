@@ -94,7 +94,14 @@ final class TestHarnessConnection {
     /// app, its window and the loaded page all survive it, so what a
     /// test observes across the window is the deck's own reconnect
     /// healing. Additive; major stays `1`.
-    static let surfaceVersion = "1.9.0"
+    ///
+    /// `1.10.0`: adds `setWindowContentSize` — the harness window sized
+    /// to a content size of the test's choosing, clamped to the screen
+    /// the window is on. A fixture whose members have tall floors (two
+    /// session cards standing split in one column) does not fit the
+    /// default 80%-of-screen window at all, and the drag under test
+    /// cannot move until it does. Additive; major stays `1`.
+    static let surfaceVersion = "1.10.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -229,6 +236,10 @@ final class TestHarnessConnection {
             dispatchScreenshot(id: id)
         case "captureWindow":
             dispatchCaptureWindow(id: id)
+        case "setWindowContentSize":
+            let width = (obj["width"] as? Double) ?? (obj["width"] as? Int).map(Double.init)
+            let height = (obj["height"] as? Double) ?? (obj["height"] as? Int).map(Double.init)
+            dispatchSetWindowContentSize(id: id, width: width, height: height)
         default:
             respondError(id: id, name: "NotImplemented", message: "Unknown method: \(method)")
         }
@@ -474,6 +485,44 @@ final class TestHarnessConnection {
                 "height": cg.height,
                 "contentWidth": Double(content.width),
                 "contentHeight": Double(content.height),
+            ]])
+        }
+    }
+
+    /// Size the window's CONTENT to `width` × `height` (either may be
+    /// omitted to keep the current value), clamped to the visible frame of
+    /// the screen the window is on, inset the way `MainWindow` insets its
+    /// own fit region, and moved so the whole frame stays on that screen.
+    /// Responds with the content size the window actually ended up at, so
+    /// a test can state its fixture against the real number rather than
+    /// the one it asked for.
+    private func dispatchSetWindowContentSize(id: Int, width: Double?, height: Double?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard let window = self.webView?.window else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            let current = window.contentView?.bounds.size ?? window.frame.size
+            let requested = NSSize(
+                width: CGFloat(width ?? Double(current.width)),
+                height: CGFloat(height ?? Double(current.height))
+            )
+            var frame = window.frameRect(forContentRect: NSRect(origin: window.frame.origin, size: requested))
+            if let screen = window.screen ?? NSScreen.main {
+                let fit = screen.visibleFrame.insetBy(
+                    dx: MainWindow.screenEdgeMargin, dy: MainWindow.screenEdgeMargin
+                )
+                frame.size.width = min(frame.size.width, fit.width)
+                frame.size.height = min(frame.size.height, fit.height)
+                frame.origin.x = min(max(frame.origin.x, fit.minX), fit.maxX - frame.size.width)
+                frame.origin.y = min(max(frame.origin.y, fit.minY), fit.maxY - frame.size.height)
+            }
+            window.setFrame(frame, display: true)
+            let content = window.contentView?.bounds.size ?? .zero
+            self.respond(id: id, ok: true, payload: ["value": [
+                "width": Double(content.width),
+                "height": Double(content.height),
             ]])
         }
     }
@@ -889,6 +938,7 @@ final class TestHarnessConnection {
             let downDelay = (verbObj["mouseDownDelayMs"] as? Int) ?? 20
             let upDelay = (verbObj["mouseUpDelayMs"] as? Int) ?? 20
             let steps = (verbObj["interpolationSteps"] as? Int) ?? 8
+            let stepDelay = (verbObj["interpolationDelayMs"] as? Int) ?? 20
             try handlers.nativeDrag(
                 from: from,
                 to: to,
@@ -896,6 +946,7 @@ final class TestHarnessConnection {
                 mouseDownDelayMs: downDelay,
                 mouseUpDelayMs: upDelay,
                 interpolationSteps: steps,
+                interpolationDelayMs: stepDelay,
             )
 
         case "nativeDragWithoutRelease":
@@ -907,6 +958,7 @@ final class TestHarnessConnection {
             let downDelay = (verbObj["mouseDownDelayMs"] as? Int) ?? 20
             let upDelay = (verbObj["mouseUpDelayMs"] as? Int) ?? 20
             let steps = (verbObj["interpolationSteps"] as? Int) ?? 8
+            let stepDelay = (verbObj["interpolationDelayMs"] as? Int) ?? 20
             try handlers.nativeDragWithoutRelease(
                 from: from,
                 to: to,
@@ -914,6 +966,7 @@ final class TestHarnessConnection {
                 mouseDownDelayMs: downDelay,
                 mouseUpDelayMs: upDelay,
                 interpolationSteps: steps,
+                interpolationDelayMs: stepDelay,
             )
 
         case "nativeMouseDown":

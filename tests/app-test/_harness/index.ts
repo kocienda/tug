@@ -163,8 +163,12 @@ export type {
  * outage whose window belongs to the test. The app, its window and the
  * loaded page all survive it, so what a test observes across the window is
  * the deck's own reconnect healing. Additive; major stays `1`.
+ *
+ * `1.10.0`: adds `setWindowContentSize` — the window's content sized to
+ * the test's ask, clamped to its screen, for fixtures the default
+ * 80%-of-screen window cannot hold. Additive; major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.9.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.10.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -818,6 +822,17 @@ export class App {
     const shot = await client.captureWindow(this as HarnessCaller);
     this.screenshots.push(shot.path);
     return shot;
+  }
+
+  /**
+   * Size the window's content, clamped to its screen — see
+   * `client.setWindowContentSize`. Resolves with the size it actually took.
+   */
+  setWindowContentSize(size: {
+    width?: number;
+    height?: number;
+  }): Promise<{ width: number; height: number }> {
+    return client.setWindowContentSize(this as HarnessCaller, size);
   }
 
   /** Unlink every screenshot this app handed out. Idempotent. */
