@@ -24,6 +24,25 @@
  * update, and a scheduled check that finds something raises nothing at all — it
  * lights the pill and waits ([B03]).
  *
+ * # The zoom, and why it is only the pill's door
+ *
+ * A wizard raised by the pill's click grows out of the pill: the click stashes
+ * the pill's rect, the layout effect below claims it, measures this panel as
+ * the destination, and runs a run of zoom rectangles between the two
+ * (`chrome/zoom-rects.ts`). Closing does the reverse — `close` stashes this
+ * panel's rect on the way out and whichever pill mounts claims it.
+ *
+ * The claim is what keeps [B04]: the two doors above stash nothing, so a wizard
+ * raised by the Tug menu or by Sparkle finds the slot empty and opens exactly
+ * as it always did. Nothing had to be added to the snapshot or to the request
+ * store to tell the doors apart — the departing side's rect is the signal, and
+ * a stash nobody claims is swept a tick later.
+ *
+ * Radix is untouched throughout ([B07], [L14]). The entrance gains a delay
+ * under `data-zoom` and the exit stays instant, which is what [F03] requires;
+ * the run on close reads a rect measured before the open flag clears and needs
+ * nothing from the departing layer.
+ *
  * # Closing is pause, not dismissal
  *
  * The Close button and Escape take the wizard off the screen and do nothing
@@ -108,6 +127,11 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { appModalStore, usePublishAppModalOpen } from "@/lib/app-modal-store";
 import { useDeckManager } from "@/deck-manager-context";
 import { useLiveTurns } from "@/lib/live-turns-store";
+import {
+  claimZoomRect,
+  runZoomRects,
+  stashZoomRect,
+} from "../chrome/zoom-rects";
 import {
   postUpdateAction,
   updateStore,
@@ -297,6 +321,9 @@ export function UpdateTug(): ReactElement {
   // trapped, so the fact has to cross to the host for ⌘N to go dark.
   usePublishAppModalOpen("update-tug", open);
   const [retryNonce, setRetryNonce] = useState(0);
+  // The panel, for the two measurements the zoom needs: its rect on the way
+  // out, and its rect as the destination on the way in.
+  const contentRef = useRef<HTMLDivElement | null>(null);
   // True only while a Stop Work press is still inside its bounded wait. The
   // row cannot derive this from the count: a press whose sessions have not
   // acknowledged yet leaves the count exactly where it was.
@@ -364,9 +391,65 @@ export function UpdateTug(): ReactElement {
     setUpdateTugOpen(false);
   }, [state.stage]);
 
+  // The open flag as the ref callback below can read it. Written during render,
+  // for the reason `useWaitingRow` above is: the callback fires inside the very
+  // commit this render produces, and an effect would set it one commit late.
+  const openNow = useRef(open);
+  openNow.current = open;
+
+  // The zoom in, from wherever the departing side left its rect to this panel.
+  //
+  // A **ref callback**, not a layout effect keyed on the open flag, and the
+  // difference is load-bearing: Radix's Presence does not mount the content in
+  // the commit that flips the flag, so an effect keyed on `open` runs with
+  // nothing to measure and silently does nothing. The callback fires in the
+  // commit that attaches the node, which is both the earliest moment the panel
+  // can be measured and — the reason [B06] wants it — before first paint, so
+  // `data-zoom` is on the element before its entrance has a frame to run in.
+  //
+  // The open guard is the other half of that, and it is not defensive: Radix
+  // detaches and re-attaches the content node on the CLOSING commit too, so an
+  // unguarded callback claims the rect `close` has just stashed and runs the
+  // whole zoom home from the panel to the panel — a run of rectangles the size
+  // of the wizard, standing still. The pill is the one that claims on a close.
+  //
+  // A run happens only when a stash was claimed, which is what keeps [B04]: a
+  // wizard raised by the Tug menu or by Sparkle finds the slot empty and opens
+  // exactly as it does today. And a run that declines to plant — reduced motion,
+  // or a zero timing scale — leaves `data-zoom` off, so the CSS delay keyed on
+  // it never applies and the panel is up on the first frame ([B09]).
+  const attachContent = useCallback((node: HTMLDivElement | null) => {
+    contentRef.current = node;
+    if (node === null) return;
+    if (!openNow.current) return;
+    const from = claimZoomRect();
+    if (from === null) return;
+    // Mark first, measure second, and the order is the difference between the
+    // last rectangle landing on the panel's edge and landing 4% inside it.
+    // The panel's ordinary entrance opens at `scale(0.96)`, and a box read
+    // while that keyframe is in effect is a box 4% small — which is precisely
+    // the entrance `data-zoom` replaces with a fade that has no scale term. So
+    // the attribute goes on, the read is of the panel at its real size, and the
+    // mark comes off again if the run turns out not to plant ([B09]).
+    node.dataset.zoom = "";
+    const box = node.getBoundingClientRect();
+    const planted = runZoomRects(from, {
+      top: box.top,
+      left: box.left,
+      width: box.width,
+      height: box.height,
+    });
+    if (!planted) delete node.dataset.zoom;
+  }, []);
+
   const close = useCallback(() => {
     const { action } = closeAction(updateStore.getSnapshot().stage);
     if (action !== null) postUpdateAction(action);
+    // Measure before the flag clears, because clearing it is what unmounts the
+    // panel ([B03]). Every close stashes; whether anything comes of it is the
+    // pill's to decide, since only a pill that actually mounts claims the rect
+    // and an unclaimed stash is swept a tick later ([B05]).
+    if (contentRef.current !== null) stashZoomRect(contentRef.current);
     setUpdateTugOpen(false);
   }, []);
 
@@ -414,6 +497,7 @@ export function UpdateTug(): ReactElement {
       <AlertDialog.Portal container={overlayRoot}>
         <AlertDialog.Overlay className="tug-alert-overlay" />
         <AlertDialog.Content
+          ref={attachContent}
           className="tug-alert-content update-tug"
           data-slot="update-tug"
           data-testid="update-tug"

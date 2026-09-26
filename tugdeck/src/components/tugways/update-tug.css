@@ -15,6 +15,36 @@
   max-width: 560px;
 }
 
+/* ---- The zoom entrance ([B06]) ----
+ *
+ * When the pill's click is what raised this wizard, `update-tug.tsx` puts
+ * `data-zoom` on the panel before first paint and a run of zoom rectangles
+ * grows from the pill's rect to this one. Under the attribute the entrance is
+ * a **fade with no scale term**, held off until the run lands, so the last
+ * rectangle and the panel's edge coincide and the panel does not bounce inward
+ * out of a box the rectangles just drew at full size.
+ *
+ * The keyframes name no transform at all — the base rule's
+ * `transform: translate(-50%, -50%)` is what centres the panel, and an
+ * entrance that animated it would have to re-state the centring.
+ *
+ * `backwards` is what holds the panel at `opacity: 0` through the delay. A
+ * shorthand is used rather than an `animation-delay` override because the base
+ * rule writes a shorthand, and a shorthand resets every longhand it omits.
+ *
+ * Radix's instant exit is untouched: `[data-state="closed"]` is not written
+ * here, and [F03] records what happens to a Radix layer given one. */
+@keyframes update-tug-zoom-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.tug-alert-content.update-tug[data-zoom][data-state="open"] {
+  animation:
+    update-tug-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
+    var(--tugx-zoom-run-duration, 200ms) backwards;
+}
+
 .update-tug-steps {
   list-style: none;
   margin: 0;

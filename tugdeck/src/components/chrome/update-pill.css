@@ -147,3 +147,32 @@
   outline: 2px solid var(--tug7-element-control-text-filled-accent-rest);
   outline-offset: -2px;
 }
+
+/* ---- The zoom entrance ([B06]) ----
+ *
+ * A pill that came back from a closing wizard is the destination of a run of
+ * zoom rectangles, and `update-pill.tsx` marks it with `data-zoom` before first
+ * paint when that is what happened. Under the attribute the pill holds at
+ * nothing until the run lands and then takes the `fast` fade, so the last
+ * rectangle and the pill's edge coincide rather than the pill sitting there
+ * being travelled toward.
+ *
+ * `backwards` is what holds it at `opacity: 0` through the delay. Opacity only,
+ * with no scale term: a 1px border on a scaled box thickens with it, which is
+ * the trap [B01] keeps the rectangles themselves out of and there is no reason
+ * to spring it here.
+ *
+ * A pill that lit because an update arrived carries no attribute and appears
+ * exactly as it always has — and so does every pill under reduced motion or a
+ * zero timing scale, where the run plants nothing and the mark is never set
+ * ([B09]). */
+@keyframes update-pill-zoom-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.tugx-update-pill[data-zoom] {
+  animation:
+    update-pill-zoom-in var(--tug-motion-duration-fast) ease-out
+    var(--tugx-zoom-run-duration, 200ms) backwards;
+}

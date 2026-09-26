@@ -1,0 +1,81 @@
+/*
+ * zoom-rects — the outline rectangles a zoom run plants, and the layer they
+ * live in.
+ *
+ * Geometry is written inline by `zoom-rects.ts`, one rectangle at a time, and
+ * nothing here animates: the only animated property is opacity and it is driven
+ * by TugAnimator ([B01], [L13]). What this file owns is the layer's place in
+ * the window, the stroke, and the `opacity: 0` a rectangle wears while it waits
+ * for its slot.
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                            | Role    | Context |
+ * |--------------------------------------------------|----------------------------------------------------|---------|---------|
+ * | --tug7-element-control-border-filled-accent-rest | --tug7-surface-overlay-primary-normal-dim-rest     | control | .tugx-zoom-rect stroke over the wizard's scrim |
+ */
+
+/* The run's unscaled length, published for the two arriving surfaces that
+ * delay their reveal by it so the last rectangle and their own edge coincide
+ * ([B06]). Cross-reference: must equal `ZOOM_RUN_DURATION_MS` in
+ * `zoom-rects.ts`, the same way `DURATION_TOKEN_MAP` must equal `tug.css`.
+ * Published already scaled by `--tug-timing`, the way the themes publish
+ * `--tug-motion-duration-*`, so a reader writes the variable bare and there is
+ * one place the scale is applied. */
+:root {
+  --tugx-zoom-run-duration: calc(200ms * var(--tug-timing, 1));
+}
+
+/* ---- The layer ----
+ *
+ * A child of the canvas overlay root, which is where the pill portals and where
+ * `update-tug.tsx` points its Radix portal — so this layer, the wizard's scrim
+ * and the wizard's panel are three siblings in one stacking context. 99992 is
+ * what clears the other two: the scrim's 99990 and the content's 99991, the
+ * literals `tug-alert.css` writes for the same reason.
+ *
+ * `inset: 0` on a fixed box means a child's `left`/`top` are viewport
+ * coordinates, which is exactly what `getBoundingClientRect()` reports — so the
+ * module writes measured rects through with no conversion anywhere. The overlay
+ * root is itself `position: fixed; inset: 0`, so this box lands on the window
+ * whichever of the two is read.
+ *
+ * Dead to the pointer, root and rectangle both. The run is decoration and must
+ * never be something the user can hit.
+ */
+.tugx-zoom-rects-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 99992;
+  pointer-events: none;
+}
+
+/* ---- A rectangle ----
+ *
+ * The pill's own border colour and the pill's own stroke width, so what travels
+ * reads as the pill's edge growing into the panel and the panel's edge going
+ * home ([B02]). `box-sizing: border-box` keeps the 1px inside the measured box,
+ * so the first rectangle is the source's rect rather than two pixels larger
+ * than it.
+ *
+ * **Solid**, and that closes the brief's one open question. A dashed stroke, as
+ * a nod to the original's dithered XOR line, was tried side by side: it is
+ * lighter and prettier standing still, and it is the wrong call. The run is
+ * 200ms, so the texture never registers; a 1px dash on fractional device pixels
+ * shimmers while it travels; and a dashed outline reads as a selection marquee,
+ * which is a different gesture from an object growing. Solid is what makes the
+ * run read as the pill's own edge on its way somewhere.
+ *
+ * `opacity: 0` at rest is load-bearing. Every rectangle is planted in the same
+ * frame, and each holds itself off with its own animation delay; the animation
+ * fills forwards only, so during the delay the element wears this declaration
+ * and paints nothing. The frame's arrival is then a pop rather than a fade-in,
+ * which is the discrete step the original drew.
+ */
+.tugx-zoom-rect {
+  position: absolute;
+  box-sizing: border-box;
+  /* @tug-renders-on: --tug7-surface-overlay-primary-normal-dim-rest */
+  border: 1px solid var(--tug7-element-control-border-filled-accent-rest);
+  opacity: 0;
+  pointer-events: none;
+}
