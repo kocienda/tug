@@ -1003,6 +1003,20 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
+  // The same instrument populated with the pulsing dot — the glyph whose
+  // residency the motion work is about, and the population the render-cost
+  // tripwire measures. A second id rather than a knob, so a test can seat it
+  // by name.
+  registerCard({
+    componentId: "gallery-motion-bench-dot",
+    contentFactory: (_cardId) => <GalleryMotionBench variant="pulsing-dot" />,
+    defaultMeta: { title: "Motion bench (dot)", icon: "Activity", closable: true },
+    family: "maker",
+    acceptsFamilies: ["maker"],
+    sizePolicy: GALLERY_COMPLEX_SIZE,
+    category: CATEGORIES.feedback,
+  });
+
   registerCard({
     componentId: "gallery-tool-call-header",
     contentFactory: (_cardId) => <GalleryBlockHeader />,

@@ -84,6 +84,19 @@
  *   - The static ring **fades**, and the tint **crosses**, on that same
  *     duration, so the whole arrival reads as one gesture.
  *
+ * **Every crossing is written on a WELL, never on the figure that breathes.**
+ * WebKit decides acceleration over an element's whole effect stack, so a dot
+ * whose keyframes share a box with a `transform` transition and a
+ * `background-color` transition is demoted to main-thread ticking for the
+ * length of any crossing — the disqualifying form the animation doctrine's
+ * qualifying form exists to forbid, and the glyph used to hold it
+ * structurally. Each figure now sits inside a well that owns the position,
+ * the centering translate, the crossing pose and the tint; the figure carries
+ * its keyframes and nothing else. The painted pose is the product of the two,
+ * which is what lets a crossing pin one and drop the other in a single style
+ * flush. Every inline `style.transform` / `style.transition` write below —
+ * and every inline-pose READ — is the well's.
+ *
  * State semantics, each rung also carrying its own PRESENCE — its share of the
  * reserved box ({@link SETTLED_PRESENCE}), so at the big end the glyph's SIZE
  * reads the state before its color or motion does:
@@ -144,6 +157,7 @@ import "./tug-progress-pulsing-dot.css";
 import React from "react";
 
 import { cn } from "@/lib/utils";
+import { acquireMotionHold } from "@/lib/motion-guard/registry";
 import type {
   TugProgressIndicatorShape,
   TugProgressIndicatorState,
@@ -468,7 +482,10 @@ export function breathKeyframes(turn: number, prefix: string): string {
   const BIRTH = "var(--tugx-progress-pulsing-dot-birth-resolved)";
   const REACH = "var(--tugx-progress-pulsing-dot-reach-resolved)";
   const pose = (scale: string): string =>
-    `    transform: translate(-50%, -50%) scale(${scale});`;
+    // `scale()` alone: the centering translate lives on the figure's WELL, so
+    // the keyframes carry one transform function instead of two and the
+    // compositor interpolates a scale rather than a two-function list.
+    `    transform: scale(${scale});`;
 
   const breathe: string[] = [];
   const at = (p: number): void => {
@@ -593,17 +610,25 @@ const EMIT_RELEASE_SLACK = 32;
 const PHASE_VAR = "--tugx-progress-pulsing-dot-phase";
 const EMIT_PHASE_VAR = "--tugx-progress-pulsing-dot-emit-phase";
 
-/** The dot's transform at a given breath scale. */
+/**
+ * The DOT-WELL's transform at a given crossing scale.
+ *
+ * The well owns the centering translate and the crossing pose in one list;
+ * the dot inside it owns the breath and sits at `scale(1)` whenever the
+ * breath is not running. Painted pose is the product of the two, which is why
+ * the crossing arithmetic below can pin one and drop the other in the same
+ * flush without the eye seeing anything move.
+ *
+ * Transforms interpolate componentwise only between matching lists, so the
+ * well's every pose is written in this one shape; anything else would
+ * decompose to a matrix mid-settle.
+ */
 function dotPose(scale: number): string {
-  // The same function list the keyframes write — translate, then scale.
-  // Transforms interpolate componentwise only between matching lists; a pose
-  // written in any other shape would decompose to a matrix at the handoff,
-  // which is the frame the handoff exists to hide.
   return `translate(-50%, -50%) scale(${scale})`;
 }
 
 /**
- * The scale the dot is painting at RIGHT NOW — the animated value, not the
+ * The scale an element is painting at RIGHT NOW — the animated value, not the
  * declared one.
  *
  * This is the whole mechanism behind a smooth exit. A state change arrives on
@@ -612,6 +637,11 @@ function dotPose(scale: number): string {
  * on screen. `getComputedStyle` resolves animations, so it reports that pose;
  * the caller pins it inline before dropping the loop, and the removal becomes a
  * no-op the eye cannot see.
+ *
+ * Read the DOT on the running→settled crossing — the breath's scale, with the
+ * well standing at 1 — and the WELL on the settled→running one, where the
+ * settled pose lives on the well and the dot sits at 1. One function either
+ * way, so the `none` and parse guards stay in one place.
  */
 function liveScale(el: HTMLElement): number | null {
   const value = getComputedStyle(el).transform;
@@ -828,13 +858,17 @@ function settledScaleFor(
 const DEMOTE_SETTLE_SLACK = 80;
 
 /**
- * The dot's settle duration as the engine resolved it, in ms — never the
- * authored token. Under motion-off (or any `--tug-timing` scaling) the
- * resolved value is what actually elapses, so the demotion window collapses
- * or stretches with it instead of guessing.
+ * The settle duration as the engine resolved it, in ms — never the authored
+ * token. Under motion-off (or any `--tug-timing` scaling) the resolved value
+ * is what actually elapses, so the demotion window collapses or stretches
+ * with it instead of guessing.
+ *
+ * Read off the DOT-WELL, which is where the settle transition lives. Its
+ * declared list is `transform, color` in that order, so the first
+ * comma-segment is still the transform settle the demotion is waiting on.
  */
-function resolvedSettleMs(dot: HTMLElement): number {
-  const first = getComputedStyle(dot).transitionDuration.split(",")[0].trim();
+function resolvedSettleMs(well: HTMLElement): number {
+  const first = getComputedStyle(well).transitionDuration.split(",")[0].trim();
   const value = Number.parseFloat(first);
   if (!Number.isFinite(value)) return 0;
   return first.endsWith("ms") ? value : value * 1000;
@@ -918,6 +952,11 @@ export const TugProgressPulsingDot = React.forwardRef<
   const rootRef = React.useRef<HTMLSpanElement | null>(null);
   const dotRef = React.useRef<HTMLSpanElement | null>(null);
   const ringRef = React.useRef<HTMLSpanElement | null>(null);
+  // The wells. Every inline pose write and every inline pose READ below is
+  // the well's, not the figure's — see the CSS's well comment for why the
+  // figure may carry no transition at all.
+  const dotWellRef = React.useRef<HTMLSpanElement | null>(null);
+  const ringWellRef = React.useRef<HTMLSpanElement | null>(null);
   // The state currently ON SCREEN, which lags the prop for as long as the
   // crossing takes. Held in a ref, not state: it is read to decide what the
   // crossing IS, and it must never provoke a render [L06].
@@ -930,6 +969,15 @@ export const TugProgressPulsingDot = React.forwardRef<
   // demotion, or a breath waiting to start welded to a free emitter. The
   // emitter release invokes it (see releaseEmitter's onReleased).
   const emitReleasedRef = React.useRef<(() => void) | null>(null);
+  // The motion hold ([D7], [P02]). It spans LIVE MODE, not `data-breathing`:
+  // the emitter outlives the breath by design — `releaseEmitter` lets a lit
+  // pulse finish its travel after the attribute is deleted — so a hold tied
+  // to the attribute would disarm the render-cost probe with the ring still
+  // animating. Live mode is the predicate this component already tracks, and
+  // it is the one the registry wants. The release closure is idempotent, which
+  // is what lets the two paths that must carry it — the static-mode demotion
+  // and the unmount cleanup — each call it without knowing about the other.
+  const motionHoldRef = React.useRef<(() => void) | null>(null);
 
   const setRootRef = React.useCallback(
     (node: HTMLSpanElement | null) => {
@@ -978,7 +1026,9 @@ export const TugProgressPulsingDot = React.forwardRef<
     const root = rootRef.current;
     const dot = dotRef.current;
     const ring = ringRef.current;
-    if (!root || !dot || !ring) return;
+    const well = dotWellRef.current;
+    const ringWell = ringWellRef.current;
+    if (!root || !dot || !ring || !well || !ringWell) return;
 
     // Any effect run supersedes a pending demotion: a newer state abandons
     // the window (re-armed below when still appropriate), and a completed
@@ -991,15 +1041,20 @@ export const TugProgressPulsingDot = React.forwardRef<
     const isRunning = state === "running";
 
     if (mode === "static") {
+      // Settled: the render IS the pose and nothing is ticking. Drop the hold
+      // before the bookkeeping, so a deck whose last live glyph just settled
+      // disarms the probe in the same commit that stills it.
+      motionHoldRef.current?.();
+      motionHoldRef.current = null;
       // Static mode has no script: the render IS the settled pose. What
       // happens here is arrival bookkeeping and the exit.
-      if (dot.style.transform !== "") {
+      if (well.style.transform !== "") {
         // Just demoted from live: strip the live-mode inline machinery
         // before this frame paints. [data-static] already declares
-        // `transform: none` and `transition: none`, so the strip changes
-        // no computed value and can fire nothing.
-        dot.style.transform = "";
-        dot.style.transition = "";
+        // `display: contents` and `transition: none` on the well, so the
+        // strip changes no computed value and can fire nothing.
+        well.style.transform = "";
+        well.style.transition = "";
         root.style.removeProperty(PHASE_VAR);
         root.style.removeProperty(EMIT_PHASE_VAR);
       }
@@ -1016,6 +1071,12 @@ export const TugProgressPulsingDot = React.forwardRef<
     }
 
     shownRef.current = state;
+
+    // Live mode from here down — loops, crossings, or both. One hold for the
+    // whole of it, taken once and kept across every re-run of this effect.
+    if (motionHoldRef.current === null) {
+      motionHoldRef.current = acquireMotionHold();
+    }
 
     /**
      * Start the breath and the emitter — TOGETHER, which is the only way they
@@ -1167,19 +1228,22 @@ export const TugProgressPulsingDot = React.forwardRef<
         });
       };
       const onTransitionEnd = (event: TransitionEvent): void => {
-        if (event.target === dot && event.propertyName === "transform") {
+        // The WELL is what settles now, and the property filter matters more
+        // than it used to: the well also transitions `color`, so an untyped
+        // listener would demote on the tint crossing rather than the pose's.
+        if (event.target === well && event.propertyName === "transform") {
           settle();
         }
       };
-      dot.addEventListener("transitionend", onTransitionEnd);
+      well.addEventListener("transitionend", onTransitionEnd);
       const fallback = window.setTimeout(
         settle,
-        resolvedSettleMs(dot) + DEMOTE_SETTLE_SLACK,
+        resolvedSettleMs(well) + DEMOTE_SETTLE_SLACK,
       );
       demotionRef.current = {
         cancel() {
           cancelled = true;
-          dot.removeEventListener("transitionend", onTransitionEnd);
+          well.removeEventListener("transitionend", onTransitionEnd);
           window.clearTimeout(fallback);
           if (grace !== 0) cancelAnimationFrame(grace);
         },
@@ -1198,38 +1262,40 @@ export const TugProgressPulsingDot = React.forwardRef<
     // Whether it fires depends on whether anything flushed style between
     // the insertion and this effect, so the suppression is unconditional.
     if (previous === null) {
-      dot.style.transition = "none";
-      dot.style.transform = dotPose(1);
-      void dot.offsetWidth;
-      dot.style.transition = "";
+      well.style.transition = "none";
+      well.style.transform = dotPose(1);
+      void well.offsetWidth;
+      well.style.transition = "";
       startLoops(0);
       return;
     }
 
     // Just promoted from static: the render dropped [data-static], whose
-    // rules were carrying the pose, and the dot holds no inline transform.
+    // rules were carrying the pose, and the well holds no inline transform.
     // Seed the pose the static DOM was painting — suppressed, it IS that
     // pose — so the crossing below starts from exactly there.
-    if (dot.style.transform === "") {
-      dot.style.transition = "none";
-      dot.style.transform = dotPose(settledScaleFor(previous, size));
-      void dot.offsetWidth;
-      dot.style.transition = "";
+    if (well.style.transform === "") {
+      well.style.transition = "none";
+      well.style.transform = dotPose(settledScaleFor(previous, size));
+      void well.offsetWidth;
+      well.style.transition = "";
     }
 
     if (previous === "running" && !isRunning) {
+      // The breath's scale lives on the DOT; the well is standing at 1.
       const live = liveScale(dot);
       if (live !== null) {
-        dot.style.transition = "none";
-        dot.style.transform = dotPose(live);
+        well.style.transition = "none";
+        well.style.transform = dotPose(live);
       }
       delete root.dataset.breathing;
-      // Flush the pin while the transition is suppressed, so dropping the loop
-      // resolves to the same pose it was already painting instead of firing a
-      // transition from the keyframe's base value.
-      void dot.offsetWidth;
-      dot.style.transition = "";
-      dot.style.transform = dotPose(staticScale);
+      // Flush the pin while the transition is suppressed. The dot falls back
+      // to its base `scale(1)` in the same flush, so the PAINTED pose — well
+      // times dot — is exactly what it was, and dropping the loop fires
+      // nothing.
+      void well.offsetWidth;
+      well.style.transition = "";
+      well.style.transform = dotPose(staticScale);
       releaseEmitter(root, ring, emitTimerRef, () =>
         emitReleasedRef.current?.(),
       );
@@ -1238,9 +1304,20 @@ export const TugProgressPulsingDot = React.forwardRef<
     }
 
     if (previous !== "running" && isRunning) {
-      const live = liveScale(dot);
+      // Coming the other way the settled pose is on the WELL, and the dot is
+      // the one standing at 1.
+      const live = liveScale(well);
       const phase =
         live === null ? 0 : breathPhaseFor(live, scaleMin, scaleMax);
+      // Hand the pose back to the dot. The well carried the settled scale
+      // while the glyph was still; the breath is about to carry it again, and
+      // leaving the well at anything but 1 would multiply the two. Suppressed
+      // and flushed, so the release of the pose and the start of the loop land
+      // in one style pass at the same painted scale.
+      well.style.transition = "none";
+      well.style.transform = dotPose(1);
+      void well.offsetWidth;
+      well.style.transition = "";
       // Work resuming while the last settle's pulse is still in the air — the
       // ordinary way work resumes, since a pulse travels most of a cycle. Two
       // of the glyph's rules apply here and they point opposite ways: a lit
@@ -1260,7 +1337,7 @@ export const TugProgressPulsingDot = React.forwardRef<
       return;
     }
 
-    dot.style.transform = dotPose(isRunning ? 1 : staticScale);
+    well.style.transform = dotPose(isRunning ? 1 : staticScale);
     if (isRunning) ensureEmitter();
     else armDemotion();
   }, [state, staticScale, scaleMin, scaleMax, mode, size]);
@@ -1270,6 +1347,8 @@ export const TugProgressPulsingDot = React.forwardRef<
       if (emitTimerRef.current !== null)
         window.clearTimeout(emitTimerRef.current);
       demotionRef.current?.cancel();
+      motionHoldRef.current?.();
+      motionHoldRef.current = null;
     },
     [],
   );
@@ -1292,10 +1371,19 @@ export const TugProgressPulsingDot = React.forwardRef<
         className,
       )}
     >
-      <span ref={dotRef} className="tug-progress-pulsing-dot-dot" />
+      {/* Each figure sits in a WELL that owns its position, its crossing pose
+          and its tint, so the figure itself carries nothing but its keyframes
+          — the one structure in which WebKit cannot demote the loop on
+          account of a neighbouring transition. In static mode both wells are
+          `display: contents` and the glyph is the three boxes it always was. */}
+      <span ref={dotWellRef} className="tug-progress-pulsing-dot-dot-well">
+        <span ref={dotRef} className="tug-progress-pulsing-dot-dot" />
+      </span>
       {/* The emitted pulse. Its stroke opens as it travels, because a border on
           a scaled element paints at border × scale. */}
-      <span ref={ringRef} className="tug-progress-pulsing-dot-ring" />
+      <span ref={ringWellRef} className="tug-progress-pulsing-dot-ring-well">
+        <span ref={ringRef} className="tug-progress-pulsing-dot-ring" />
+      </span>
     </span>
   );
 });

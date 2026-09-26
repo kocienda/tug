@@ -124,7 +124,7 @@
  * cheap, runs on every lint, and catches the shape; the runtime half is
  * expensive, runs on named surfaces, and catches the result.
  *
- * **Why this one exports.** `audit-settle-motion.ts` is the shape this
+ * **Why this one exports.** `audit-motion.ts` is the shape this
  * follows in every other respect, but it calls `main()` at module scope, so
  * importing it runs the audit and exits the importing process. This script
  * exports {@link scanCss} and guards its entry with `import.meta.main`, so
@@ -360,7 +360,7 @@ function translateYArg(value: string): string | null {
  * Scan one stylesheet's text for the three rules.
  *
  * Exported so the self-check can feed it fixture strings — the divergence
- * from `audit-settle-motion.ts` that the docstring explains. `rel` is only
+ * from `audit-motion.ts` that the docstring explains. `rel` is only
  * ever reported back, so a fixture may name itself anything.
  *
  * Deliberately a scanner over the text rather than a parse: every question

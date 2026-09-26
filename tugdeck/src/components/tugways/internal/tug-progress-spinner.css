@@ -52,7 +52,7 @@
   animation: tug-progress-spinner-fade
     calc(var(--tugx-progress-spinner-cycle) * var(--tug-timing, 1))
     linear
-    infinite;
+    var(--tug-loop-iterations, infinite);
   /* Compositor promotion: an opacity loop without a layer of its own is
      main-thread-painted and janks under load. Scoped to running. */
   will-change: opacity;
@@ -62,7 +62,7 @@
   animation: tug-progress-spinner-fade
     calc(var(--tugx-progress-spinner-cycle) * var(--tug-timing, 1))
     linear
-    infinite;
+    var(--tug-loop-iterations, infinite);
   animation-play-state: paused;
 }
 

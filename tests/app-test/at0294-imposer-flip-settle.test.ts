@@ -44,7 +44,7 @@
  * inversion is the rule: a fixed-position descendant resolves against its
  * FRAME. What keeps that from breaking anything real is that nothing with
  * `position: fixed` lives inside a frame — viewport-positioned surfaces are
- * portaled to the canvas overlay root, and `audit:settle-motion` fails the
+ * portaled to the canvas overlay root, and `audit:motion` fails the
  * lint on any selector that puts one back.
  *
  * Note what the probe no longer does: it cannot discriminate residue. A frame
@@ -200,7 +200,7 @@ async function frameAnimations(app: App): Promise<FrameAnimation[]> {
           // no longer means it is running; the phase tells the two apart.
           // Read off localTime rather than off progress, because progress in
           // the before phase depends on the fill and this census must not:
-          // it is `null` under `none` and 0 under `backwards`, so a reader
+          // it is null under a none fill and 0 under a backwards one, so a reader
           // that branched on it would answer a different question the moment
           // a beat's fill changed. localTime is the effect's time unadjusted
           // by its delay, so the before phase is everything below the delay.

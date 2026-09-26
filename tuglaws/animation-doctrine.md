@@ -34,7 +34,7 @@ A glyph depicting in-flight work may scale, translate, breathe, and wave, in any
 
 ### [D3] The cost of motion is paid once, at authoring time {#d3-authoring-time}
 
-Every motion primitive declares its residency class (#residency), and the class is verified by measurement on the bench (#falsification), not asserted in a comment. The end state is the Tug animation API — primitives with declared classes, event-clock subscriptions, and a lint against raw `@keyframes`/`element.animate()` in product surfaces. Until that layer lands (its own follow-up scope), this document plus the bench discipline is the enforcement: new continuous motion is authored inside the qualifying form, cites this doc, and gets benched before it ships.
+Every motion primitive declares its residency class (#residency), and the class is verified by measurement on the bench (#falsification), not asserted in a comment. The end state is the Tug animation API — primitives with declared classes, event-clock subscriptions, and a lint against raw `@keyframes`/`element.animate()` in product surfaces. That API is still follow-up scope, but the enforcement no longer waits on it: the layer in #enforcement measures the frame from inside the page, lints every loop in the repository against the qualifying form, and stills the deck when the reading says the whole-page walk is back. New continuous motion is authored inside the qualifying form, cites this doc, and gets benched before it ships — and now a loop that skips all three has four guards to get past rather than a reviewer's memory.
 
 ### [D4] When real work is in flight, honest cost is acceptable; at rest, none is {#d4-honest-cost}
 
@@ -74,12 +74,82 @@ The second half is the half that is easy to lose. An effect animating only `tran
 
 Enforced twice, because a rule with one guard is a rule with a hole:
 
-- **Statically**, by `tugdeck/scripts/audit-settle-motion.ts` (`bun run audit:settle-motion`, inside `just lint`). It refuses a `transition` or `animation` naming any property but `transform` and `opacity` on a selector that can match `.tug-pane` or a descendant, and it refuses `position: fixed` on a selector that can match a descendant of `.tug-pane` — the containing-block trap a promoted frame springs.
+- **Statically**, by `tugdeck/scripts/audit-motion.ts` (`bun run audit:motion`, inside `just lint`). Its rules 1 and 2 refuse a `transition` or `animation` naming any property but `transform` and `opacity` on a selector that can match `.tug-pane` or a descendant, and it refuses `position: fixed` on a selector that can match a descendant of `.tug-pane` — the containing-block trap a promoted frame springs.
 - **At runtime**, by the settle's own record. While the settling mark is on, the frame-gap sampler reads each shown frame's effects and records a `settle-motion-violation` trace row naming the pane and the property — so an effect built with `element.animate()`, which no stylesheet scan can see and which is how TugAnimator works, is caught by the guard it would otherwise have walked past.
 
 A hit from either guard is a finding to read, not a reason to loosen the rule.
 
 **One standing hit is known, and naming it is what keeps the rest evidence.** A column that DIVIDES gives each member a share of the slot's height, and the settle carries that as a real `height` tween on every frame in the column — a main-thread property inside the settle window, which this law forbids. It is recorded rather than excused: the runtime guard reports it, `at0622-deck-settle-frames.test.ts` asserts those rows are present on a height-bearing gesture and that every one of them names `height` and nothing else. So a new property appearing there is a failure rather than a number to tune, and the zero the same file asserts over a pure slide means something because this non-zero exists beside it. Closing it means giving the division a form the compositor can run, which is its own work and is not this law's to assume.
+
+---
+
+## The enforcement layer {#enforcement}
+
+[D3] said the cost of motion is paid at authoring time, and then said that until an enforcement layer landed, this document plus the bench discipline was the enforcement. The layer has landed. It is five guards, and the reason there are five rather than one is that each of them can see something the others cannot — a stylesheet scan cannot see an effect built with `element.animate()`, a runtime census cannot see a rule nobody has mounted yet, and neither of them can see what a frame actually cost.
+
+**1. The page measures its own frame.** `tugdeck/src/lib/motion-guard/render-cost-probe.ts` takes `performance.now()` inside a `requestAnimationFrame` callback and again at the top of a `setTimeout(…, 0)` queued from it. In the HTML event loop the rendering update — style, layout, compositing — runs synchronously between those two points, so the interval is the frame's rendering cost and nothing else. It is public platform API throughout, which is the point: the shipping host keeps the inspector off in every build, so a reading that needs a private surface is a reading nobody can take on the build the user is running.
+
+**2. The probe is told when to look.** `registry.ts` hands out a hold; the hold count's 0→1 edge arms the probe and the 1→0 edge disarms it, and while armed it takes one sample every three seconds. Nothing polls `document.getAnimations()` on a timer, which would be [D7] broken by the very machinery written to enforce it.
+
+**3. Every long-running loop declares one variable.** A loop writes its iteration count as `var(--tug-loop-iterations, infinite)` and nothing else, so `html[data-tug-motion-demoted] { --tug-loop-iterations: 0 }` in `tug.css` stills all of them at once and no list has to be kept in sync with the stylesheets. Zero iterations leaves each element at its base style rather than frozen mid-cycle, which is what a blanket `animation-play-state: paused` would have done to every finite entrance on the page as well.
+
+**4. The breaker acts on the reading.** `breaker.ts` sets that attribute when three consecutive samples run over budget *with nothing in flight* — no session in `submitting`, `awaiting_first_token`, `streaming`, `tool_work`, `replaying` or `waking`. The in-flight gate is [D4] made executable: a streaming transcript legitimately lays out every frame, and the walk this exists to catch is the one that runs with nothing to show for it. The demotion is silent by design: the user is not the person who can act on it, so what it leaves is a `motion-demoted` deck-trace row carrying the three costs, the budget, and a census of what was running — read *before* the demotion lands, because `getAnimations()` forces a style update and a census taken afterwards would report zero loops and say nothing about what the deck was paying for. Motion resumes on the registry's next rising edge; after three trips in one page lifetime it latches, because a deck that flaps is worse than one that is quietly still.
+
+**5. Two static guards and one live one.** `bun run audit:motion` (inside `just lint`) reads every stylesheet *and* every `.ts`/`.tsx` theme object in the repository: rules 1 and 2 are [D9]'s, and rule 3 refuses a long-running loop that animates anything but a compositor property, eases through anything but a keyword or one cubic Bézier, composites with anything but `replace`, or writes a bare `infinite` instead of the variable. `animationCensus()` in `perf-monitor.ts` asks the same question of the animations that actually ran, which is the only way to see a WAAPI effect or an SVG target. And `at0629-motion-render-cost.test.ts` is the tripwire: it stands up 300 breathing dots, reads the quiet cost, reads it again with a driver writing an inline transform every frame, and goes red when the two stop being different.
+
+### The calibrated budget {#calibrated-budget}
+
+`RENDER_COST_BUDGET_MS = 16`. The rule that produced it: at least twice the quiet p95, and below the p50 of the deliberately-broken reading — a budget above the broken reading would never fire, and one at or below the quiet noise would fire on nothing. Three passes of `at0629` on an Apple M4 Max under macOS 27.0, 300 `pulsing-dot` glyphs in a pane, 900 long-running animations:
+
+| reading | p50 | p95 |
+|---|---|---|
+| quiet, 60 frames | 3 / 3 / 3 | 8 / 7 / 5 |
+| forced — one dot, `style.transform` written every frame | 17 / 17 / 17 | 19 / 19 / 19 |
+
+Twice the worst quiet p95 is 16 and the forced p50 is 17, so 16 is the smallest whole millisecond the rule admits. Three things about that number are worth knowing before anyone moves it.
+
+**The bench had to grow before the rule could be satisfied at all.** At 100 glyphs the same run read a quiet p95 of 5 against a forced p50 of 6, and twice 5 is more than 6 — the gauge did not separate the healthy deck from the broken one, which is a statement about the population rather than about the budget. Tripling the bench separated them, because the forced frame pays for a whole-page compositing walk priced by layer population and the quiet frame pays for nothing that scales at all. That is the residency table's claim arriving a second time, from the other end.
+
+**The constant is pinned by the noisier reading.** The forced p50 was stable to the millisecond across all three passes; the quiet p95 moved by 3 ms, with single tail frames as high as 20. The 2× factor is what absorbs that, and the breaker's three-consecutive-samples condition is the other half: one tail frame of 20 ms is not a diagnosis.
+
+**It is a backstop, not a detector.** A bench of 900 loops is deliberately extreme, and a budget calibrated against it is loose for a deck carrying a tenth of that, where a broken form costs proportionally less. The breaker catches the catastrophic case — the whole-page walk back in the frame loop — and the four guards above it are what catch everything smaller. Anyone tempted to lower it should lower the bench first and re-read both numbers, because the two move together.
+
+### Reading a live deck from the shell {#deck-motion-verb}
+
+`tugtool deck motion` is the shell end of `window.__tugMotion`, over the loopback `diag/eval` door the instance opens on `enable` and closes on `disable`. The reference run below is a debug build of the deck with two motion benches shown — 1802 long-running animations, 600 dots — which is not a number to quote as cost ([D5]: profile release builds only) but is exactly the right shape to show what the verb answers:
+
+```
+$ tugtool deck motion cost
+render cost over 30 frames: p50 4.00 ms  p95 11.00 ms  max 40.00 ms
+probe samples (* = a session was mid-turn): 19.00 2.00 8.00 6.00 7.00 7.00 6.00 5.00 39.00 6.00 12.00 11.00
+
+$ tugtool deck motion layers
+6111 elements, 2498 stacking contexts, 3762 render-layer candidates (upper bound)
+max depth 30, mean depth 16.7, deepest stacking chain 5
+     600  span.tug-progress-pulsing-dot-dot-well
+     600  span.tug-progress-pulsing-dot-dot
+     600  span.tug-progress-pulsing-dot-ring-well
+     600  span.tug-progress-pulsing-dot-ring
+
+$ tugtool deck motion bisect
+baseline p50 5.00 ms — read 4 of 4 group(s), guiltiest first
+      1.00 ms drop   paused p50   4.00 ms      2×  tug-arc-track-breath
+      1.00 ms drop   paused p50   4.00 ms    600×  tugx-progress-pulsing-dot-breathe
+      1.00 ms drop   paused p50   4.00 ms    600×  tugx-progress-pulsing-dot-emit-expand
+      0.00 ms drop   paused p50   5.00 ms    600×  tugx-progress-pulsing-dot-emit-fade
+```
+
+Six hundred breathing dots, and pausing all six hundred of one loop group moves the frame by a millisecond. That is what compositor residency reads like from the outside, and it is the reading `bisect` exists to produce in seconds on the build in front of the user rather than by elimination over the source.
+
+**`bisect` pauses, and [D5] says pausing reads worse.** WAAPI `pause()` demotes an effect to the main thread, so a group's paused reading carries a cost the running one did not — which makes every drop `bisect` reports a *lower bound*. A large drop is therefore a conviction and a zero drop is not an acquittal. The [D5]-clean method is still the probe sheet, and `bisect` is the fast first question rather than the answer.
+
+### Where the guards disagree, and why that stands {#guard-disagreement}
+
+`audit-motion.ts` refuses a long-running loop eased with `steps()`; `animationCensus()` passes one. The disagreement is recorded rather than reconciled, and the direction matters: the census is right about the engine — `steps()` was measured accelerated on 2026-07-29 in the caret-blink A/B, within noise of `linear` and of no animation at all — and the lint is right about the form. The qualifying form (#qualifying-form) admits keyword easing and one cubic Bézier, and a form is something an author can hold to without re-measuring; an engine behaviour that happens to be true today is not. So the lint is deliberately the stricter of the two, and nothing in the repository eases a long-running loop with `steps()` for the disagreement to be about. Making them agree — in either direction — throws away one of the two readings for nothing.
+
+### What this layer does not prove {#enforcement-limits}
+
+It reads one number on one machine. A budget calibrated on an M4 Max is not calibrated for the slowest machine Tug runs on, and the honest answer there is that the breaker's three-sample condition and its in-flight gate are what keep a slow machine from demoting itself constantly, not the constant. It says nothing about the WebContent process's CPU, which is a second opinion the in-page reading deliberately does not depend on. And no guard here can see a loop that is authored correctly and simply should not be running at all — that is [D1]'s question, and it is still answered by the surface's owner knowing when it is quiet.
 
 ---
 

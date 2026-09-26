@@ -43,7 +43,7 @@
   animation-name: tugx-icon-twinkle;
   animation-duration: calc(1500ms * var(--tug-timing, 1));
   animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
+  animation-iteration-count: var(--tug-loop-iterations, infinite);
   will-change: transform, opacity;
 }
 

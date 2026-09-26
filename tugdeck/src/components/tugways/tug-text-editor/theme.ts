@@ -335,7 +335,8 @@ export const tugTheme: Extension = EditorView.theme({
   // blink's phase is reset by the drag and typing rules below, not by
   // a layer rebuild.
   "&.cm-focused > .cm-scroller > .tug-text-editor-caret-layer": {
-    animation: "tug-text-editor-caret-blink 1.2s linear infinite",
+    animation:
+      "tug-text-editor-caret-blink 1.2s linear var(--tug-loop-iterations, infinite)",
   },
 
   "@keyframes tug-text-editor-caret-blink": {

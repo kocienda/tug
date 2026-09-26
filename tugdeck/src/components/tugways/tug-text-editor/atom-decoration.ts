@@ -961,7 +961,8 @@ export const sessionVerdictRegenPlugin = ViewPlugin.fromClass(
  */
 export const pendingAtomTheme: Extension = EditorView.baseTheme({
   "img[data-pending]": {
-    animation: "tug-atom-pending-pulse 1s ease-in-out infinite",
+    animation:
+      "tug-atom-pending-pulse 1s ease-in-out var(--tug-loop-iterations, infinite)",
   },
   "@keyframes tug-atom-pending-pulse": {
     "0%, 100%": {

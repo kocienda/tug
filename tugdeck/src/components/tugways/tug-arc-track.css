@@ -166,7 +166,7 @@
   .tug-arc-track:not([data-stopped]) .tug-arc-track-cell[data-state="active"]:not([data-steps]),
   .tug-arc-track:not([data-stopped]) .tug-arc-track-tick[data-state="active"] {
     animation: tug-arc-track-breath var(--tugx-arc-track-breath-ms, 2000ms)
-      ease-in-out infinite;
+      ease-in-out var(--tug-loop-iterations, infinite);
   }
 }
 

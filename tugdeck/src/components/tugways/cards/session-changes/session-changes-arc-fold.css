@@ -294,7 +294,8 @@
 
 .session-changes-arc-join-spin {
   flex: none;
-  animation: session-changes-arc-join-spin 1s linear infinite;
+  animation: session-changes-arc-join-spin 1s linear
+    var(--tug-loop-iterations, infinite);
   /* Compositor promotion: the spin runs exactly while the ladder does. */
   will-change: transform;
 }

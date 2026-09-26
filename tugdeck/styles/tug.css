@@ -63,6 +63,26 @@
    * NOT `atomBaselineOffsetPx()` — that is the baked atom renderers'
    * per-instance box offset, and the two answer different questions. */
   --tug-glyph-cap-offset: -0.15em;
+
+  /* The one knob every long-running loop's iteration count reads
+   * (`var(--tug-loop-iterations, infinite)`), and the one the motion circuit
+   * breaker turns. A loop runs forever while this is unset; under demotion it
+   * runs zero times, which leaves the element at its base style rather than
+   * frozen mid-cycle the way a blanket `animation-play-state: paused` would.
+   * The contract is enforced by `scripts/audit-motion.ts` rule 3 — a loop that
+   * writes a bare `infinite` is one the breaker cannot still.
+   *
+   * Declared here as the ABSENCE of a value: the fallback in each loop's own
+   * declaration is what makes it infinite, so a stylesheet that never loads
+   * this file still animates. */
+}
+
+/* The motion circuit breaker's demotion, set on `<html>` by
+ * `src/lib/motion-guard/` when the page's own render-cost reading says the
+ * compositing walk is back in the frame loop. Every finite transition and
+ * entrance keeps running; only the loops stand down. */
+html[data-tug-motion-demoted] {
+  --tug-loop-iterations: 0;
 }
 
 /* Motion-off rule: JS sets data-tug-motion="off" on body when --tug-motion is 0.

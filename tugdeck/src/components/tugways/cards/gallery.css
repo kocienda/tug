@@ -321,8 +321,16 @@
 
 .tug-pole-inner {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  /* Translated rather than scrolled by `background-position`, which is a
+     paint property and puts the loop on the main thread for as long as the
+     pole is up (`tuglaws/animation-doctrine.md`; the same shape
+     `tug-progress-bar-scroll` takes in `internal/tug-progress-bar.css`). The
+     stripe layer overhangs one tile to the left so the translate never
+     reveals an edge, and `.tug-pole`'s `overflow: hidden` clips it. */
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--tug-pole-stripe, 28.28px));
+  width: calc(100% + var(--tug-pole-stripe, 28.28px));
   background-image: repeating-linear-gradient(
     -45deg,
     var(--tugx-progress-fill, #ff8a38) 0px,
@@ -330,14 +338,17 @@
     transparent 5px,
     transparent 10px
   );
-  background-size: 28.28px 100%; /* sqrt(2) * 20px for 45deg alignment */
+  /* sqrt(2) * 20px for 45deg alignment */
+  background-size: var(--tug-pole-stripe, 28.28px) 100%;
   background-repeat: repeat-x;
-  animation: tug-pole-scroll calc(600ms * var(--tug-timing, 1)) linear infinite;
+  animation: tug-pole-scroll calc(600ms * var(--tug-timing, 1)) linear
+    var(--tug-loop-iterations, infinite);
+  will-change: transform;
 }
 
 @keyframes tug-pole-scroll {
-  from { background-position-x: 0; }
-  to   { background-position-x: 28.28px; }
+  from { transform: translateX(0); }
+  to   { transform: translateX(var(--tug-pole-stripe, 28.28px)); }
 }
 
 /* ============================================================================

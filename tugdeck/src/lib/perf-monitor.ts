@@ -634,13 +634,23 @@ function easingViolation(easing: string): string | null {
 /**
  * Inventory every long-running animation in the document and judge it
  * against the compositor-residency contract. The rules checked here ARE
- * that contract — there is no doctrine document yet, so this function and
- * the app-tests that assert on it (at0288, at0289) are where it lives:
- * only `transform`/`opacity`, only on an `HTMLElement`, no co-animated
- * property on the same box, and every timing function expressible as a
- * cubic Bézier (a multi-stop `linear()` demotes the whole animation to
- * main-thread blending; `steps()` does not — measured 2026-07-29, so the
- * rule set carries no steps() clause).
+ * that contract, read at runtime: only `transform`/`opacity`, only on an
+ * `HTMLElement`, no co-animated property on the same box, and every timing
+ * function expressible as a cubic Bézier (a multi-stop `linear()` demotes
+ * the whole animation to main-thread blending; `steps()` does not —
+ * measured 2026-07-29, so the rule set carries no steps() clause).
+ *
+ * The doctrine is `tuglaws/animation-doctrine.md`, and its enforcement
+ * section is what says where this census sits among the other four guards.
+ * Read one thing there before changing a rule here: the census and
+ * `scripts/audit-motion.ts` disagree about `steps()` on purpose, and the
+ * disagreement is recorded rather than reconciled. This function passes
+ * `steps()` because it was measured accelerated; the lint refuses it
+ * because the qualifying form admits keyword easing and one cubic Bézier
+ * and nothing else, and a form is a thing an author can hold to without
+ * re-measuring. So the lint is deliberately stricter than the measurement,
+ * and nothing in the repository eases a long-running loop with `steps()`
+ * for the disagreement to be about.
  *
  * This is the shared implementation behind the residency app-test and
  * any future DevPanel tile — a violation names itself, so a regression

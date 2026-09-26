@@ -60,7 +60,8 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 .session-changes-scanning-spin {
-  animation: session-changes-scanning-spin 1s linear infinite;
+  animation: session-changes-scanning-spin 1s linear
+    var(--tug-loop-iterations, infinite);
   /* Compositor promotion: keeps the spin off the main thread — the
      scanning state shows exactly while the app is busy. */
   will-change: transform;

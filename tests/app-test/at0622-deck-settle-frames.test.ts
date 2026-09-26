@@ -76,7 +76,7 @@
  * question of whether the cost grows with the card count.
  *
  * @covers tugdeck/src/lib/settle-frame-probe.ts
- * @covers tugdeck/scripts/audit-settle-motion.ts
+ * @covers tugdeck/scripts/audit-motion.ts
  * @covers tuglaws/animation-doctrine.md
  * @covers tugdeck/src/lib/pane-recede.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx

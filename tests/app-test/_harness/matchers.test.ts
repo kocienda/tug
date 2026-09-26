@@ -536,6 +536,18 @@ const EVENT_FIXTURES: Record<
     event: "perf.replay_ingest",
     fields: { frames: 3396, dispatchMs: 11 },
   },
+  "motion-demoted": {
+    kind: "motion-demoted",
+    costMs: [19, 21, 20],
+    budgetMs: 16,
+    trips: 1,
+    latched: false,
+    census: {
+      longRunning: 900,
+      byName: { "tugx-progress-pulsing-dot-breathe": 300 },
+      violations: [],
+    },
+  },
   "opening-bid-mismatch": {
     kind: "opening-bid-mismatch",
     memberId: "p2",

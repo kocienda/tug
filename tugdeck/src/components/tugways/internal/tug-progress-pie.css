@@ -28,7 +28,8 @@
 
 .tug-progress-pie-indeterminate {
   --tug-progress-pie-angle: 90deg;
-  animation: tug-progress-pie-spin calc(1200ms * var(--tug-timing, 1)) linear infinite;
+  animation: tug-progress-pie-spin calc(1200ms * var(--tug-timing, 1)) linear
+    var(--tug-loop-iterations, infinite);
   /* Compositor promotion: keeps the spin off the main thread. Scoped
      to indeterminate — a determinate pie holds still and costs no
      layer. */

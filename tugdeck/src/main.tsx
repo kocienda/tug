@@ -91,6 +91,7 @@ import {
   stopWakerCensus,
 } from "./lib/perf-monitor";
 import { initMotionObserver } from "./components/tugways/scale-timing";
+import { installMotionGuard } from "./lib/motion-guard";
 import { initThemeTokens } from "./theme-tokens";
 import { FONT_STACKS } from "./lib/editor-settings-store";
 import { deserialize } from "./serialization";
@@ -405,6 +406,13 @@ async function withBootHorizon<T>(
   // DeckManager construction. The cleanup function is intentionally not stored
   // here — the observer should live for the entire app lifetime.
   initMotionObserver();
+
+  // The motion guard, in EVERY build: the registry loop owners hold, the
+  // render-cost probe those holds arm, the input-latency observer, and the
+  // `window.__tugMotion` handle that makes a release deck answerable about
+  // what is ticking. At rest it costs one property assignment — a disarmed
+  // probe holds no timer and schedules no rendering update.
+  installMotionGuard();
 
   // Register card types before DeckManager construction so addCard("hello") works
   // from the first render.

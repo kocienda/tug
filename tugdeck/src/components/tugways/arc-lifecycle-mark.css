@@ -70,7 +70,7 @@
   .tug-arc-lifecycle-mark:not([data-stopped]) .tug-arc-lifecycle-mark-pill {
     animation: tug-arc-lifecycle-mark-breath
       var(--tugx-arc-lifecycle-mark-breath-ms, 2000ms)
-      ease-in-out infinite;
+      ease-in-out var(--tug-loop-iterations, infinite);
   }
 }
 

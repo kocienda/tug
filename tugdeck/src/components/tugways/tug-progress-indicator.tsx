@@ -98,6 +98,7 @@ import "./tug-progress-indicator.css";
 import React from "react";
 
 import { cn } from "@/lib/utils";
+import { useMotionHold } from "@/lib/motion-guard/registry";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugLabel, type TugLabelEmphasis } from "@/components/tugways/tug-label";
 import { useTugBoxDisabled } from "./internal/tug-box-context";
@@ -567,6 +568,12 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
     };
 
     const fillStyle = buildFillStyle(variant, effectiveRole);
+
+    // Tell the motion registry this glyph is moving, so the render-cost probe
+    // reads while it does ([D7], [P02]). The pulsing dot is excluded: it takes
+    // its own hold, spanning live mode rather than the `running` prop, because
+    // its emitter and its settle crossing both outlast `state === "running"`.
+    useMotionHold(effectiveState === "running" && variant !== "pulsing-dot");
 
     // No period jitter is applied here. The pulsing dot runs the nominal
     // period unless a caller pins one — see `dotDriftFor`, which only the

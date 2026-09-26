@@ -602,6 +602,19 @@ export interface SettleFrameReading {
   minOpacity: number;
   minOpacityPaneId: string;
   rectsChangedAfterLanding: string[];
+  /** Ticks at which a move existed and had not started — the pop, as a number. */
+  pendingTicks: number;
+  /** Ticks at which at least one frame painted off its own curve. */
+  offCurveTicks: number;
+  /** Every pane that painted off-curve at any tick. */
+  offCurvePaneIds: string[];
+  /** The longest run of CONSECUTIVE off-curve ticks. */
+  longestOffCurveRunTicks: number;
+  /**
+   * That run's first tick, in ms from the first tick carrying a
+   * transform-bearing effect at all. `-1` when there is no run.
+   */
+  longestOffCurveRunOffsetMs: number;
   violations: string[];
   fixedDescendants: number;
   suspended: boolean;

@@ -7,6 +7,7 @@ mod brief;
 mod changes;
 mod cli;
 mod commands;
+mod deck;
 mod draft;
 mod host;
 mod output;
@@ -116,6 +117,9 @@ fn main() -> ExitCode {
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
         Some(Commands::Brief(cmd)) => brief::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),
+
+        // The running deck — what is moving in the page, and what it costs.
+        Some(Commands::Deck(cmd)) => deck::dispatch(cmd, json),
 
         // The wheel's door: rotate this card at the turn's end.
         Some(Commands::Session(cmd)) => session::dispatch(cmd, json),

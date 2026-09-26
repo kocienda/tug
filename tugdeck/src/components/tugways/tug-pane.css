@@ -1834,7 +1834,7 @@ body {
    positioned surfaces — completion menus, alerts, banners, bulletins, the
    modal input dialog, the key sink — are portaled to the canvas overlay root,
    which is a sibling of the frames rather than a descendant of one, and
-   `tugdeck/scripts/audit-settle-motion.ts` fails the lint on any selector
+   `tugdeck/scripts/audit-motion.ts` fails the lint on any selector
    that reintroduces one. `TugSheet` stays portaled into the frame on purpose,
    because following the pane through every move is its contract, and an
    absolutely positioned descendant follows a transformed ancestor correctly.

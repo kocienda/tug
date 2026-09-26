@@ -2,6 +2,7 @@
 
 pub mod ask;
 pub mod changesets;
+pub mod deck_motion;
 pub mod file;
 pub mod file_probe;
 pub mod file_run;
@@ -16,6 +17,7 @@ pub mod tell;
 
 pub use ask::run_ask;
 pub use changesets::run_changesets;
+pub use deck_motion::run_deck_motion;
 pub use file::run_file;
 pub use gate::{GateCommands, run_gate};
 pub use hook::{HookCommands, run_hook};

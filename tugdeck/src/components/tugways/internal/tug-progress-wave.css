@@ -71,7 +71,7 @@
 .tug-progress-wave[data-state="running"] .tug-progress-wave-bar {
   animation-duration: calc(960ms * var(--tug-timing, 1));
   animation-timing-function: linear;
-  animation-iteration-count: infinite;
+  animation-iteration-count: var(--tug-loop-iterations, infinite);
   will-change: transform;
 }
 

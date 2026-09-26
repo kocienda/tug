@@ -51,29 +51,49 @@ const ESCAPE_THE_CARD = false;
 /**
  * How many glyphs the bench runs.
  *
- * Chosen so the shipped pulsing dot — four `@keyframes` loops per running
- * glyph — puts 400 long-running animations on the page, comfortably above the
- * noise floor of a `sample` run while still laying out inside one card. The
- * absolute number does not matter; holding it still across runs is the whole
- * point of the file.
+ * Chosen so the shipped pulsing dot — three `@keyframes` loops per running
+ * glyph — puts 900 long-running animations on the page, comfortably above the
+ * noise floor of a `sample` run. The absolute number does not matter; holding
+ * it still across runs is the whole point of the file.
+ *
+ * It was 100 until the render-cost budget was calibrated against it. At that
+ * population the deliberately-broken reading (`__tugMotion.__force`, a
+ * per-frame inline transform write) came in at a p50 of 6 ms against a quiet
+ * p95 of 5 — a gap the gauge could not be trusted to discriminate, and the one
+ * finding that says the bench was too small to calibrate against rather than
+ * that the budget was wrong. Tripling it separates the two readings, because
+ * the forced frame pays for a whole-page compositing walk that scales with the
+ * population and the quiet frame pays for nothing that does.
  */
-const BENCH_COUNT = 100;
+const BENCH_COUNT = 300;
 
 /** The size the Cards card actually asks for, so the bench measures a real glyph. */
 const BENCH_SIZE = 28;
 
-/** Which glyph the bench populates — one variant at a time, by design. */
+/**
+ * Which glyph the bench populates by default — one variant at a time, by
+ * design. A caller names another with the `variant` prop; the registry mounts
+ * a `pulsing-dot` bench under its own component id, which is the population
+ * the motion tripwire measures against.
+ */
 const BENCH_VARIANT: TugProgressIndicatorVariant = "bar";
+
+export interface GalleryMotionBenchProps {
+  /** @default {@link BENCH_VARIANT} */
+  variant?: TugProgressIndicatorVariant;
+}
 
 const CELLS = Array.from({ length: BENCH_COUNT }, (_, i) => i);
 
-export function GalleryMotionBench(): React.ReactElement {
+export function GalleryMotionBench({
+  variant = BENCH_VARIANT,
+}: GalleryMotionBenchProps = {}): React.ReactElement {
   const dots = (
     <div className={ESCAPE_THE_CARD ? "gmb-content gmb-escaped" : "gmb-content"}>
       {CELLS.map((i) => (
         <TugProgressIndicator
           key={i}
-          variant={BENCH_VARIANT}
+          variant={variant}
           size={BENCH_SIZE}
           state="running"
         />

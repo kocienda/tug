@@ -274,6 +274,10 @@ pub enum Commands {
     #[command(subcommand)]
     Host(HostCommands),
 
+    /// The running deck — ask the page about itself.
+    #[command(subcommand)]
+    Deck(DeckCommands),
+
     /// The app-test results ledger — what every run leaves behind, and what
     /// a red file's history says about it.
     #[command(subcommand)]
@@ -999,6 +1003,112 @@ pub enum StepAction {
         #[arg(long)]
         why: String,
     },
+}
+
+/// The running deck. One family so far: what is moving, and what it costs.
+#[derive(Subcommand)]
+pub enum DeckCommands {
+    /// Read and steer the deck's motion — census, render cost, bisect.
+    #[command(subcommand)]
+    Motion(DeckMotionCommands),
+}
+
+/// `tugtool deck motion …` — every reading rides `POST /api/eval` and the
+/// `window.__tugMotion` handle the deck binds in every build.
+///
+/// The verb exists because the shipping app keeps the Web Inspector off in
+/// every build by decision, so the one build a user actually runs is the one
+/// nobody can ask what is ticking. `enable` and `disable` are the door: they
+/// set and clear the per-instance `diag/eval` opt-in that the eval handler
+/// gates on. Everything else is loopback-only, and reads a page that is
+/// measuring itself with public platform API.
+#[derive(Subcommand)]
+pub enum DeckMotionCommands {
+    /// Every long-running animation: name, target, properties, violations.
+    List {
+        /// Census only animations inside this CSS selector.
+        #[arg(long)]
+        within: Option<String>,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Measure the frame's style-layout-compositing cost, now.
+    Cost {
+        /// How many frames to sample.
+        #[arg(long, default_value_t = 30)]
+        frames: u32,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// The element population the compositing walk pays for.
+    Layers {
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Pause every animation whose target matches a selector.
+    Pause {
+        /// CSS selector. Matched against each animation's target and its ancestors.
+        selector: String,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Resume them.
+    Resume {
+        /// CSS selector. Matched against each animation's target and its ancestors.
+        selector: String,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Pause each loop group in turn and report whose absence is felt.
+    Bisect {
+        /// Frames per group.
+        #[arg(long)]
+        frames: Option<u32>,
+        /// Read at most this many groups.
+        #[arg(long)]
+        cap: Option<u32>,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Input-to-next-paint, where the engine reports it.
+    Input {
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// What the render-cost probe is doing right now.
+    Probe {
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Still every long-running loop, or let them run again.
+    Demote {
+        /// `on` or `off`.
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Open the `diag/eval` door on this instance (loopback only).
+    Enable {
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+    /// Close it again.
+    Disable {
+        #[command(flatten)]
+        target: DeckTarget,
+    },
+}
+
+/// Which deck to talk to. Every `deck motion` subcommand takes these.
+#[derive(clap::Args)]
+pub struct DeckTarget {
+    /// tugcast port (skips instance discovery).
+    #[arg(long)]
+    pub port: Option<u16>,
+    /// Instance id to resolve the port from.
+    #[arg(long)]
+    pub instance: Option<String>,
 }
 
 #[derive(Subcommand)]

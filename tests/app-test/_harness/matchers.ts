@@ -278,6 +278,19 @@ export type DeckTraceEventShape = {
       fields: Record<string, unknown>;
     }
   | {
+      kind: "motion-demoted";
+      /** The consecutive over-budget render-cost samples that tripped it. */
+      costMs: number[];
+      budgetMs: number;
+      trips: number;
+      latched: boolean;
+      census: {
+        longRunning: number;
+        byName: Record<string, number>;
+        violations: string[];
+      };
+    }
+  | {
       kind: "space-switch-timing";
       fromSpaceId: string;
       toSpaceId: string;
@@ -337,6 +350,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-motion-violation",
   "opening-bid-mismatch",
   "session-lifecycle",
+  "motion-demoted",
   "space-switch-timing",
   "space-quiet",
 ] as const;
@@ -608,6 +622,18 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `session-lifecycle ${fmt(e.event)} ${Object.entries(e.fields)
         .map(([k, v]) => `${k}=${fmt(v)}`)
         .join(" ")}`;
+    case "motion-demoted":
+      return (
+        `motion-demoted cost=[${e.costMs.join(", ")}] budget=${e.budgetMs}ms ` +
+        `trip=${e.trips}${e.latched ? " latched" : ""} ` +
+        `loops=${e.census.longRunning} ` +
+        `names=[${Object.entries(e.census.byName)
+          .map(([name, count]) => `${name}×${count}`)
+          .join(", ")}]` +
+        (e.census.violations.length > 0
+          ? ` violations=[${e.census.violations.join(", ")}]`
+          : "")
+      );
     case "space-switch-timing":
       return `space-switch-timing ${fmt(e.fromSpaceId)}→${fmt(e.toSpaceId)} cards=${e.outgoingCards}/${e.incomingCards} commit=${e.commitMs.toFixed(1)} restore=${e.restoreMs.toFixed(1)} total=${e.totalMs.toFixed(1)} paint=${e.paintMs.toFixed(1)}`;
     case "space-quiet":

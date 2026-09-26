@@ -272,7 +272,8 @@ fmt:
 
 # Run clippy + fmt check, plus the deck's own tripwires. audit:visibility is
 # [L32]'s: a mechanism that decides visibility must own the state it fails to.
-# audit:settle-motion is the settle pipeline's, and it is [D9]'s static half.
+# audit:motion is the deck's motion tripwire. Rules 1 and 2 are the settle
+# pipeline's, and they are [D9]'s static half.
 # Rule 1: a pane frame is a containing block for its `position: fixed`
 # descendants, so a surface that positions from the viewport inside one
 # positions from the frame's corner instead — silently, and only once the
@@ -281,6 +282,14 @@ fmt:
 # `opacity` unless it stands itself down under `[data-imposer-settling]`.
 # [D9]'s runtime half is the settle's own `settle-frames` trace row — which
 # catches the effects no stylesheet scan can see.
+# Rule 3 is `tuglaws/animation-doctrine.md`'s: a loop that runs for as long as
+# the deck is up must be one Core Animation can hold, because the alternative
+# is a per-frame style commit and the whole page's compositing walk behind it.
+# It reads CodeMirror's JavaScript-authored styles as well as the stylesheets,
+# and it requires the `var(--tug-loop-iterations, infinite)` count the motion
+# circuit breaker demotes through. Its runtime half is `animationCensus()`,
+# which sees what a selector cannot say — an SVG target, an effect built with
+# `element.animate()`.
 # audit:type-alignment is the vertical type rhythm's, and it is the static
 # half of `tuglaws/type-alignment.md`. Text sharing a row shares a baseline by
 # a mechanism and never by a hand-tuned offset: rule 1 refuses a micro `top` /
@@ -293,7 +302,7 @@ fmt:
 # because no stylesheet scan can see a rendered baseline.
 lint: tugplug-lint
     cd tugdeck && bun run audit:visibility
-    cd tugdeck && bun run audit:settle-motion
+    cd tugdeck && bun run audit:motion
     cd tugdeck && bun run audit:type-alignment
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
