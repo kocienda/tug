@@ -102,6 +102,10 @@ export function CommitMasthead({
       >
         <TugSessionRow
           className="commit-masthead-row tug-masthead-frame-row"
+          /* The chrome's one drag surface, on the lead line. A commit card is a
+             CONTENT card — it is dragged between panes like any other — so it
+             wears the handle; only a rail goes without. */
+          grabHandle
           /* The two lines below start where the pill's own ink does, the same
              setting both mastheads beside this one pass. */
           subAlign="title"

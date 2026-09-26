@@ -481,9 +481,16 @@ body {
   padding: 0 var(--tug-space-md);
   background-color: var(--tugx-pane-title-bar-bg-inactive);
   border-bottom: 1px solid var(--tugx-pane-title-bar-divider);
-  cursor: grab;
   user-select: none;
   flex-shrink: 0;
+}
+
+/* A RAIL's whole bar is still its own drag surface, so the grab cursor stays
+   there. A content card's is not: only the grab handle drags, and only the
+   handle says so. Before the handle existed this lived on `.tug-pane-title-bar`
+   unconditionally, which is exactly the claim that is no longer true. */
+.tug-pane-title-bar[data-role="sidebar"] {
+  cursor: grab;
 }
 
 /* The masthead tier. The bar keeps its role — drag surface, controls host —
@@ -808,6 +815,48 @@ body {
   );
 }
 
+/* ── The handle, and the field it carries ─────────────────────────────────
+   The dots are the ONLY drag surface on a content card's chrome, and that is
+   why they are a real element rather than the `::after` they began as. A
+   pseudo-element is not separately hit-testable: a press on one reports its
+   ORIGINATING element as the event target, so `handleTitleBarPointerDown` could
+   not have told a press on the dots from a press on the bar beside them. Nor
+   does a pseudo take its own `cursor`, which is the other half of saying "grab
+   here" BEFORE the press rather than after it.
+
+   So the mark is two boxes. The HANDLE is the hit target and the flex item: it
+   takes the grow, holds the run open between the title and the controls, and
+   carries the cursor. The FIELD inside it is paint and nothing else — the
+   derived block-size, the stencil, the ink, the opacity the trigger moves.
+
+   The split is what lets the target be bigger than the mark. Nine pixels of
+   dots is an honest thing to LOOK at and a mean thing to HIT, so the handle
+   takes `align-self: stretch` and fills the band's full height while the field
+   inside it stays 9px. Stretch rather than a taller field, because the stencil
+   paints dots across whatever box it is given: a taller field is more ROWS, not
+   a bigger target.
+
+   FOUR mounts, ONE definition. The handle is mounted by the utility tier's bar
+   and by the LEAD LINE of each of the three masthead tiers, which reach it
+   through `TugSessionRow`'s `grabHandle` prop. The class is what scopes the
+   mark now, and it does the work three selectors used to: `TugSessionRow` is
+   also what the Cards rail mounts for its session cells, and those cells simply
+   never ask for a handle. What the mark IS does not differ per tier, so it is
+   written once; what each tier RESERVES differs, and that is stated in each
+   tier's own stylesheet. */
+.tug-pane-title-bar:not([data-role="sidebar"]) .tug-pane-grab-handle {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-inline-size: var(--tug-space-lg);
+  align-self: stretch;
+  cursor: grab;
+}
+
+.tug-pane-title-bar:not([data-role="sidebar"]) .tug-pane-grab-handle:active {
+  cursor: grabbing;
+}
+
 /* ── The field ────────────────────────────────────────────────────────────
    The block-size is DERIVED as `(rows - 1) × pitch + dot`, never stated: the
    vertical stencil opens at 0 and again every `pitch`, so a box of that height
@@ -820,57 +869,29 @@ body {
    painted ONCE across the box. A repeated mask would reintroduce exactly the
    per-tile rounding this technique exists to remove.
 
-   NO LIFT. The field sits where `align-self: center` puts it. A 0.5px upward
-   nudge shipped first, for a real reason — a line of text centers on its LINE
-   BOX, whose lower half is descender space the name mostly leaves empty, so an
-   honestly centered field reads a touch low against the word it is aligned to
-   — but a sub-pixel correction that is one device pixel at 2× and half of one
-   at 1× bought less than the resolution question it opened, and it took that
-   question with it when it went. Should anyone revisit it, the constraint
-   stands: the lift would be a `translate` and never a margin or an inset,
-   because the field is a flex item holding the run open and anything that
-   moved it through layout would move what it is holding.
+   NO LIFT. The field sits where the handle's `align-items: center` puts it. A
+   0.5px upward nudge shipped first, for a real reason — a line of text centers
+   on its LINE BOX, whose lower half is descender space the name mostly leaves
+   empty, so an honestly centered field reads a touch low against the word it is
+   aligned to — but a sub-pixel correction that is one device pixel at 2× and
+   half of one at 1× bought less than the resolution question it opened, and it
+   took that question with it when it went. Should anyone revisit it, the
+   constraint stands: the lift would be a `translate` and never a margin or an
+   inset, because the handle is a flex item holding the run open and anything
+   that moved it through layout would move what it is holding.
 
-   `pointer-events: none` because the band under the field IS the drag surface.
-   Livery that swallowed the gesture it advertises would be the one unambiguous
-   failure — and because the field is a child of the very bar it advertises, it
-   would not even break the hover that reveals it, which makes it the kind of
-   bug that only shows up under the pointer.
+   `pointer-events: none` on the FIELD, which is not the contradiction it looks
+   like now that the dots ARE the drag surface. The handle takes the press; the
+   field is paint inside it and has no business intercepting anything, least of
+   all the `pointerdown` its own parent is waiting for.
 
-   FADED, never removed: the field holds its space in the flex line at all
-   times and only `opacity` changes, so the title's measure and elision point
-   are identical hovered and not. A name that reflowed under the pointer would
-   be a worse problem than the one the mark solves.
-
-   FOUR selectors, ONE rule. The mark is drawn in two places — the utility
-   tier's bar, and the LEAD LINE of each of the three masthead tiers — and the
-   three tiers are named individually rather than as `.tug-session-row-name-line`
-   at large, because that class belongs to `TugSessionRow` and the Cards rail
-   mounts the same component for its session cells. Keyed off the masthead row
-   classes, a rail's cells are untouched; keyed off the shared class, every one
-   of them would have grown a field.
-
-   They are four selectors on one rule rather than four rules, and that is
-   deliberate: a stencil whose entire claim is that every dot rasterizes
-   identically is the last place to keep four authorings. The tiers differ in
-   what they RESERVE — the session tier subtracts its trailing inset and the
-   other two do not — and that difference is stated in each tier's own
-   stylesheet, where it belongs. What the field is does not differ, so it is
-   written once. */
-.tug-pane-title-bar:not([data-role="sidebar"])::after,
-.tug-pane-title-bar:not([data-role="sidebar"])
-  .session-masthead-row
-  .tug-session-row-name-line::after,
-.tug-pane-title-bar:not([data-role="sidebar"])
-  .card-masthead-row
-  .tug-session-row-name-line::after,
-.tug-pane-title-bar:not([data-role="sidebar"])
-  .commit-masthead-row
-  .tug-session-row-name-line::after {
-  content: "";
+   FADED, never removed: the handle holds its space in the flex line at all
+   times and only the field's `opacity` changes, so the title's measure and
+   elision point are identical hovered and not. A name that reflowed under the
+   pointer would be a worse problem than the one the mark solves. */
+.tug-pane-title-bar:not([data-role="sidebar"]) .tug-pane-grab-dots {
   flex: 1 1 0;
-  min-inline-size: var(--tug-space-lg);
-  align-self: center;
+  min-inline-size: 0;
   block-size: calc(
     (var(--tugx-pane-dot-rows) - 1) * var(--tugx-pane-dot-pitch) +
       var(--tugx-pane-dot-size)
@@ -890,18 +911,20 @@ body {
 }
 
 /* ── The trigger ──────────────────────────────────────────────────────────
-   The BAR, not the card. The mark appears exactly where `cursor: grab` already
-   is, so the thing that lights up is the surface that will take the press:
-   affordance and gesture share one boundary.
+   The BAR, not the card. The mark appears where the press has to land, so the
+   affordance and the gesture share one boundary.
 
    Card hover shipped first, on the argument that a mark nobody sees at rest
    cannot teach anyone the card is draggable and that you cross a card long
-   before you reach its chrome. It is reversed here. A mark firing from anywhere
-   inside a card claims the whole card is the handle, which is the wrong claim,
-   and on a dense deck every pointer move lit one. Learnability is what this
-   gives up, and the trade is deliberate: the bar is already where the cursor
-   changes, so the two signals now arrive together rather than from different
-   places.
+   before you reach its chrome. It is reversed. A mark firing from anywhere
+   inside a card claims the whole card is the handle — which, now that only the
+   dots drag, is the opposite of true — and on a dense deck every pointer move
+   lit one.
+
+   Bar hover rather than hover on the handle itself, and that is the deliberate
+   part: a 9px strip you would have to be touching already in order to see is a
+   target nobody can find. Entering the bar is the coarse gesture that reveals
+   the fine one.
 
    One thing this leaves open, and the pointer is the only thing that can settle
    it: a drag begins from a press inside the bar, so the field is up at the
@@ -909,39 +932,30 @@ body {
    rule drops the mark mid-drag — the card is being dragged and its handle has
    gone dark. Either that is fine, or the pane's `data-gesture` pins the field
    for the duration. */
-.tug-pane-title-bar:not([data-role="sidebar"]):hover::after,
-.tug-pane-title-bar:not([data-role="sidebar"]):hover
-  .session-masthead-row
-  .tug-session-row-name-line::after,
-.tug-pane-title-bar:not([data-role="sidebar"]):hover
-  .card-masthead-row
-  .tug-session-row-name-line::after,
-.tug-pane-title-bar:not([data-role="sidebar"]):hover
-  .commit-masthead-row
-  .tug-session-row-name-line::after {
+.tug-pane-title-bar:not([data-role="sidebar"]):hover .tug-pane-grab-dots {
   opacity: 1;
 }
 
 /* ── The utility tier (36px) ───────────────────────────────────────────────
    The plain bar is `space-between` over the icon, the title and the controls,
-   so the run is a real flex gap and the field is a real flex item in it.
-   Taking `space-between` off and giving the controls an auto margin is what
-   leaves a middle item somewhere to grow.
-
-   `order` on the CONTROLS, not on the pseudo: `::after` is the last item in
-   document order, so without this the field would lay out past the close box
-   rather than before it. This is the same adjustment the rail's stripe rule
-   makes, for the same reason.
+   so the run is a real flex gap and the handle is a real flex item in it.
+   Taking `space-between` off is what leaves a middle item somewhere to grow.
 
    The title gives up its grow, exactly as the three masthead lead lines do.
-   `.tug-pane-title` is `flex: 1` — basis 0 and grow 1 — so against a field at
+   `.tug-pane-title` is `flex: 1` — basis 0 and grow 1 — so against a handle at
    `flex: 1 1 0` the two would split the free run in HALF, whatever either one
    needs: a seven-letter name sitting in a box two hundred pixels wide with the
    dots starting nowhere near it, and a long name eliding at the bar's midpoint
    with empty band to its right. At content width the title takes what it
-   measures and the field takes the rest, which is what "fills the run between
-   the title and the controls" means. The title still shrinks, and the field's
+   measures and the handle takes the rest, which is what "fills the run between
+   the title and the controls" means. The title still shrinks, and the handle's
    own `min-inline-size` is the floor that stops it being squeezed to a sliver.
+
+   NO `order` here, unlike the rail's stripe band. That band is an `::after` and
+   therefore last in document order, so the rail has to reorder around it; this
+   handle is a real element mounted before the controls, and its own grow is
+   what pushes them to the end. The controls keep their auto margin for the
+   MASTHEAD tier, where the bar holds no handle of its own.
 
    And the leading margin, for the reason the rail's trailing band states one:
    a texture running into the thing beside it reads as that thing's furniture.
@@ -954,21 +968,12 @@ body {
   flex: 0 1 auto;
 }
 
-.tug-pane-title-bar:not([data-role="sidebar"])::after {
+.tug-pane-title-bar:not([data-role="sidebar"]) > .tug-pane-grab-handle {
   margin-inline-start: var(--tug-space-md);
 }
 
 .tug-pane-title-bar:not([data-role="sidebar"]) > .tug-pane-title-bar-controls {
-  order: 1;
   margin-inline-start: auto;
-}
-
-/* The masthead tier's own bar takes no field — on that tier the field goes on
-   the masthead's LEAD LINE, with the masthead's own stylesheet. Suppressed
-   rather than never matched, because the rule above is written against the bar
-   and a masthead bar is one. */
-.tug-pane-title-bar[data-masthead="true"]:not([data-role="sidebar"])::after {
-  content: none;
 }
 
 /* When a tab bar sits directly below, drop the title-bar divider so the title
@@ -1033,7 +1038,7 @@ body {
   --tugx-chrome-lid-rule-width: 0px;
 }
 
-.tug-pane-title-bar:active {
+.tug-pane-title-bar[data-role="sidebar"]:active {
   cursor: grabbing;
 }
 

@@ -616,6 +616,9 @@ export function SessionMasthead({
       <AnnotationScope value={annotation}>
         <SessionIdentityRow
           className="session-masthead-row tug-masthead-frame-row"
+          /* The chrome's one drag surface, on the lead line. Forwarded through
+             to `TugSessionRow`, which is where the prop is documented. */
+          grabHandle
           sessionId={sessionId}
           cardId={cardId}
           projectDir={projectDir}

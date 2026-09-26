@@ -102,7 +102,8 @@
 
 .tug-pane-title-bar:not([data-role="sidebar"])
   .session-masthead-row
-  .tug-session-row-name-line::after {
+  .tug-session-row-name-line
+  .tug-pane-grab-handle {
   margin-inline-start: var(--tug-space-md);
 }
 

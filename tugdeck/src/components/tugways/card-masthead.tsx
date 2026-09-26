@@ -87,6 +87,9 @@ export function CardMasthead({
     >
       <TugSessionRow
         className="card-masthead-row tug-masthead-frame-row"
+        /* The chrome's one drag surface, on the lead line. See the prop's own
+           note: it renders last and takes the line's grow. */
+        grabHandle
         /* The two lines below the title start where the TITLE does — three
            lines on two verticals read as a stack that was assembled rather than
            set. A card-wide chrome tier can afford the indent a rail cannot, and

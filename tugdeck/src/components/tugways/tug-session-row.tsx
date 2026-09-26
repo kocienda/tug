@@ -342,6 +342,22 @@ export interface TugSessionRowProps
   slots?: React.ReactNode;
 
   /**
+   * Whether this row carries the pane chrome's GRAB HANDLE — the dot field that
+   * is a content card's one drag surface. Off by default, and deliberately so:
+   * this component is mounted by the Cards rail's session cells as well as by
+   * the three masthead tiers, and a rail is not dragged by its chrome at all.
+   * Only a masthead asks.
+   *
+   * It renders LAST on the name line, after {@link slots}, because it takes the
+   * line's grow and fills the run out to the control cluster the line reserves.
+   * Anything placed after it would be pushed past the controls; anything it was
+   * placed before would be squeezed to nothing. The styling — and the reason the
+   * dots are a real element rather than the pseudo they began as — lives with
+   * the pane's chrome in `tug-pane.css`.
+   */
+  grabHandle?: boolean;
+
+  /**
    * The session's description — the AGENT's rolling synopsis, or the stand-in
    * that fills its place when there is none yet (the session's own first prompt,
    * else its creation stamp). **Not** the user's `/rename` name: that leads the
@@ -478,6 +494,7 @@ export const TugSessionRow = React.forwardRef<
     indicatorSize,
     name,
     slots,
+    grabHandle = false,
     description,
     descriptionFull,
     descriptionElided = false,
@@ -549,6 +566,21 @@ export const TugSessionRow = React.forwardRef<
           </TugLabel>
           {slots !== undefined && slots !== null ? (
             <span className="tug-session-row-slots">{slots}</span>
+          ) : null}
+          {grabHandle ? (
+            /* `aria-hidden` because the handle is pure affordance: it says
+               where the pointer may grab and carries no name, no value and no
+               keyboard route. A screen reader announcing "image" in the middle
+               of a card's title line would be noise about a gesture its user
+               cannot make. */
+            <span
+              className="tug-pane-grab-handle"
+              data-slot="tug-pane-grab-handle"
+              data-testid="tug-pane-grab-handle"
+              aria-hidden="true"
+            >
+              <span className="tug-pane-grab-dots" />
+            </span>
           ) : null}
         </span>
         {/* The description and the beat beneath it are ONE GROUP, and the

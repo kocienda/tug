@@ -33,8 +33,8 @@ import React, {
   type CSSProperties,
 } from "react";
 import {
+  Blocks,
   CircleDot,
-  FolderInput,
   MoreHorizontal,
   MoveHorizontal,
   X,
@@ -589,6 +589,18 @@ function CardTitleBar({
     (event: React.PointerEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
       if (target.closest(".tug-button")) return;
+      // A CONTENT card is dragged by its GRAB HANDLE and by nothing else. The
+      // handle is the dot field on the chrome — a real element precisely so this
+      // test can exist, because a press on a pseudo-element reports the pseudo's
+      // originating element as the target and this line could not have told the
+      // dots from the bar around them.
+      //
+      // A RAIL keeps the old behaviour, where the whole bar is the surface: a
+      // rail wears no handle (it is not dragged between panes the way a card is),
+      // so requiring one would make its bar undraggable rather than restricted.
+      // The CSS says the same thing twice — `cursor: grab` sits on a sidebar bar
+      // and on a content card's handle, and nowhere else.
+      if (!sidebar && target.closest(".tug-pane-grab-handle") === null) return;
       // Only a PRIMARY press moves a pane, and the guard is load-bearing
       // rather than tidy. The drag takes POINTER CAPTURE on the frame at
       // pointer-down; WebKit then retargets every later event of that pointer
@@ -610,7 +622,7 @@ function CardTitleBar({
       if (event.button !== 0 || isSecondaryPress(event.nativeEvent)) return;
       onDragStart?.(event);
     },
-    [onDragStart],
+    [onDragStart, sidebar],
   );
 
   // The controls cluster's measured width, published on the bar as
@@ -1095,6 +1107,24 @@ function CardTitleBar({
         />
       )}
 
+      {/* The chrome's one drag surface on the UTILITY tier. The masthead tiers
+          mount their own on the masthead's LEAD LINE, because that is where the
+          run between a title and the controls actually is; this bar's run is its
+          own, so here the handle is the bar's child. A rail gets none — its whole
+          bar is still the surface. Mounted before the controls so its grow is
+          what pushes them to the trailing edge, which is why the bar needs no
+          `order` the way the rail's stripe band does. */}
+      {masthead === null && !sidebar ? (
+        <span
+          className="tug-pane-grab-handle"
+          data-slot="tug-pane-grab-handle"
+          data-testid="tug-pane-grab-handle"
+          aria-hidden="true"
+        >
+          <span className="tug-pane-grab-dots" />
+        </span>
+      ) : null}
+
       <div ref={controlsElRef} className="tug-pane-title-bar-controls" data-testid="tug-pane-title-bar-controls">
         {/* The cluster reads in two registers, and its order is the argument.
             FIRST the rollup — every verb the pane offers, behind one `⋯`.
@@ -1277,7 +1307,7 @@ function CardTitleBar({
                       emphasis="ghost"
                       role="action"
                       size="sm"
-                      icon={<FolderInput />}
+                      icon={<Blocks />}
                       aria-label="Move to workspace"
                       disabled={spaces.length <= 1}
                       data-testid="tug-pane-title-bar-move-space-button"
