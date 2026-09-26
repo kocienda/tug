@@ -692,6 +692,272 @@ body {
   margin-inline-end: var(--tug-space-md);
 }
 
+/* ============================================================================
+   The grab-dot field — a content card's drag affordance
+   ========================================================================= */
+
+/**
+ * A content card's title bar is the drag surface along its whole run, and
+ * nothing said so at rest: you found the handle by trying it. The mark that
+ * says it is a field of 1px dots, three rows deep on a 4px pitch, filling the
+ * run between the title and the control cluster, faded up on card hover.
+ *
+ * It sits beside the rail's racing stripes on purpose. The two are the same
+ * kind of thing — livery on a title bar — and they are the reason each other
+ * is shaped the way it is:
+ *
+ *   - A RAIL gets no field, ever. Not for contrast: a rail is pinned to a deck
+ *     edge and is not dragged by its bar, so a drag affordance on one would
+ *     advertise a gesture that does not exist. Hence
+ *     `:not([data-role="sidebar"])` on every rule below, in with the first one
+ *     rather than after it, so no build ever exists in which a rail wears it.
+ *   - A rail's stripes paint from the GLOBAL family because a rail gave the
+ *     tinted band up. A content card kept its band, so the field paints from
+ *     the CARD-TITLEBAR family instead. Carrying either family onto the other's
+ *     ground is the near-white-on-near-white failure the rail's first pass
+ *     shipped, and swapping them here would ship it a second time.
+ *   - Both need `order: 1` on the controls for the same reason, stated twice
+ *     because the two selectors are disjoint.
+ *
+ * ── Why the dots are a MASK and not a tiled background ──
+ * The first pass drew `background-image: radial-gradient(…)` with
+ * `background-size: 4px 4px` and `repeat` — a 4×4 tile with a disc in it. The
+ * dots did not all look the same size, and two mechanisms compound to do that.
+ * A repeated background is composited tile by tile with each tile's device rect
+ * rounded independently, and this field's box never starts on a device pixel,
+ * being a flex item after a run of text of fractional width — so one dot lands
+ * clean and its neighbour spreads over two columns at half coverage and reads
+ * larger, softer and fainter. And a 1px circle is a curve sampled at one pixel,
+ * so its rasterization is entirely antialiasing, which amplifies the rounding
+ * rather than hiding it.
+ *
+ * So the field is a SOLID ink box masked to 1px SQUARES by two crossed
+ * hard-edged `repeating-linear-gradient`s under `mask-composite: intersect`.
+ * Each gradient is painted once across the whole box, so there are no per-tile
+ * rects to round and no curve to antialias, and every dot in the field shares
+ * one subpixel phase. Whatever phase that is, all the dots have it — which is
+ * the property the tiled version could not give.
+ *
+ * The stencil's stops are `#000`/`transparent`, and that hex is NOT a color:
+ * `mask-mode` defaults to `alpha`, so the stop means "opaque here" and nothing
+ * else. Tokenizing it would be a defect rather than an improvement — a stencil
+ * that moved with the theme is not a stencil. The field's color is
+ * `--tugx-pane-dot-ink`, on the box underneath.
+ */
+
+/* ── The constant, and the three knobs ─────────────────────────────────────
+   `--tugx-pane-dot-size` is a CONSTANT. It has no override anywhere, and it is
+   declared here, first, beside the things that do vary, so that the one piece
+   of geometry which must never move is visible rather than merely absent.
+   Density is the only axis the review left open.
+
+   Declared on the PANE rather than on the bar, because the masthead tiers draw
+   the field on their own name line — a descendant of the bar — from these same
+   knobs, and their rules live with their tiers. */
+.tug-pane {
+  --tugx-pane-dot-size: 1px;
+
+  --tugx-pane-dot-pitch: 4px;
+  --tugx-pane-dot-lift: 0.5px;
+  --tugx-pane-dot-rows: 3;
+}
+
+/* ── The stencil ──────────────────────────────────────────────────────────
+   Published as knobs so every place that draws the field — this tier and the
+   three masthead tiers — draws it from ONE definition. Two authorings of a
+   stencil whose whole claim is uniformity would be the wrong place to repeat
+   oneself. */
+.tug-pane {
+  --tugx-pane-dot-mask-x: repeating-linear-gradient(
+    to right,
+    #000 0 var(--tugx-pane-dot-size),
+    transparent var(--tugx-pane-dot-size) var(--tugx-pane-dot-pitch)
+  );
+  --tugx-pane-dot-mask-y: repeating-linear-gradient(
+    to bottom,
+    #000 0 var(--tugx-pane-dot-size),
+    transparent var(--tugx-pane-dot-size) var(--tugx-pane-dot-pitch)
+  );
+}
+
+/* ── The ink ──────────────────────────────────────────────────────────────
+   A control-weight ink from the card-titlebar family, mixed toward transparent
+   so the field reads as texture rather than as a row of glyphs — its whole
+   claim against the `…` a few pixels away is that it is a BLOCK of dots where
+   the button is a LINE of them, and matching the button's weight would hand the
+   button that argument back.
+
+   The FOCUSED pair is the base and the recede is the override, the same
+   polarity the rail's inks take above and for the same reason: a plainer
+   `.tug-pane[data-focused="true"] …` rule is a DESCENDANT selector and matches
+   any pane nested under a focused one, which the gallery's pane-in-a-pane
+   fixtures do. Keying the recede off the pane's own
+   `:not([data-focused="true"])` cannot make that mistake. */
+.tug-pane {
+  --tugx-pane-dot-ink: color-mix(
+    in oklab,
+    var(--tugx-pane-title-bar-icon-active) 50%,
+    transparent
+  );
+}
+
+.tug-pane:not([data-focused="true"]) {
+  --tugx-pane-dot-ink: color-mix(
+    in oklab,
+    var(--tugx-pane-title-bar-icon-inactive) 45%,
+    transparent
+  );
+}
+
+/* ── The field ────────────────────────────────────────────────────────────
+   The block-size is DERIVED as `(rows - 1) × pitch + dot`, never stated: the
+   vertical stencil opens at 0 and again every `pitch`, so a box of that height
+   closes exactly under the last row it wants and cuts no partial one — 5px
+   holds two rows at a 4px pitch, 9px holds three. A height stated
+   independently of the pitch would sooner or later cut a partial row.
+
+   `mask-repeat: no-repeat` and `mask-size: 100% 100%` are stated rather than
+   left to their defaults, and they are the whole point: each gradient must be
+   painted ONCE across the box. A repeated mask would reintroduce exactly the
+   per-tile rounding this technique exists to remove.
+
+   The lift is a `translate`, never a margin or an inset. The field is a flex
+   item holding the run open; anything that moved it through layout would move
+   what it is holding. 0.5px is one device pixel at 2× — the smallest honest
+   correction, and it lands the stencil back on the pixel grid rather than off
+   it. (A line of text centers on its LINE BOX, whose lower half is descender
+   space the name mostly leaves empty, so an honestly centered field reads low
+   against the word it is aligned to.)
+
+   `pointer-events: none` because the band under the field IS the drag surface.
+   Livery that swallowed the gesture it advertises would be the one unambiguous
+   failure, and with the card-hover trigger it would not even break the hover —
+   which makes it the kind of bug that only shows up under the pointer.
+
+   FADED, never removed: the field holds its space in the flex line at all
+   times and only `opacity` changes, so the title's measure and elision point
+   are identical hovered and not. A name that reflowed under the pointer would
+   be a worse problem than the one the mark solves.
+
+   FOUR selectors, ONE rule. The mark is drawn in two places — the utility
+   tier's bar, and the LEAD LINE of each of the three masthead tiers — and the
+   three tiers are named individually rather than as `.tug-session-row-name-line`
+   at large, because that class belongs to `TugSessionRow` and the Cards rail
+   mounts the same component for its session cells. Keyed off the masthead row
+   classes, a rail's cells are untouched; keyed off the shared class, every one
+   of them would have grown a field.
+
+   They are four selectors on one rule rather than four rules, and that is
+   deliberate: a stencil whose entire claim is that every dot rasterizes
+   identically is the last place to keep four authorings. The tiers differ in
+   what they RESERVE — the session tier subtracts its trailing inset and the
+   other two do not — and that difference is stated in each tier's own
+   stylesheet, where it belongs. What the field is does not differ, so it is
+   written once. */
+.tug-pane-title-bar:not([data-role="sidebar"])::after,
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .session-masthead-row
+  .tug-session-row-name-line::after,
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .card-masthead-row
+  .tug-session-row-name-line::after,
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .commit-masthead-row
+  .tug-session-row-name-line::after {
+  content: "";
+  flex: 1 1 0;
+  min-inline-size: var(--tug-space-lg);
+  align-self: center;
+  block-size: calc(
+    (var(--tugx-pane-dot-rows) - 1) * var(--tugx-pane-dot-pitch) +
+      var(--tugx-pane-dot-size)
+  );
+  translate: 0 calc(-1 * var(--tugx-pane-dot-lift));
+  background-color: var(--tugx-pane-dot-ink);
+  -webkit-mask-image: var(--tugx-pane-dot-mask-x), var(--tugx-pane-dot-mask-y);
+  mask-image: var(--tugx-pane-dot-mask-x), var(--tugx-pane-dot-mask-y);
+  -webkit-mask-repeat: no-repeat, no-repeat;
+  mask-repeat: no-repeat, no-repeat;
+  -webkit-mask-size: 100% 100%, 100% 100%;
+  mask-size: 100% 100%, 100% 100%;
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--tug-duration-fast, 120ms) ease-out;
+}
+
+/* ── The trigger ──────────────────────────────────────────────────────────
+   The CARD, not the bar. A mark nobody sees at rest cannot teach anyone the
+   card is draggable, and card hover buys most of that back: you cross a card
+   long before you reach its chrome, where bar hover only tells you what you
+   had already found. If card hover proves noisy on a dense deck the bar is the
+   fallback and this is a one-line change. */
+.tug-pane:hover .tug-pane-title-bar:not([data-role="sidebar"])::after,
+.tug-pane:hover
+  .tug-pane-title-bar:not([data-role="sidebar"])
+  .session-masthead-row
+  .tug-session-row-name-line::after,
+.tug-pane:hover
+  .tug-pane-title-bar:not([data-role="sidebar"])
+  .card-masthead-row
+  .tug-session-row-name-line::after,
+.tug-pane:hover
+  .tug-pane-title-bar:not([data-role="sidebar"])
+  .commit-masthead-row
+  .tug-session-row-name-line::after {
+  opacity: 1;
+}
+
+/* ── The utility tier (36px) ───────────────────────────────────────────────
+   The plain bar is `space-between` over the icon, the title and the controls,
+   so the run is a real flex gap and the field is a real flex item in it.
+   Taking `space-between` off and giving the controls an auto margin is what
+   leaves a middle item somewhere to grow.
+
+   `order` on the CONTROLS, not on the pseudo: `::after` is the last item in
+   document order, so without this the field would lay out past the close box
+   rather than before it. This is the same adjustment the rail's stripe rule
+   makes, for the same reason.
+
+   The title gives up its grow, exactly as the three masthead lead lines do.
+   `.tug-pane-title` is `flex: 1` — basis 0 and grow 1 — so against a field at
+   `flex: 1 1 0` the two would split the free run in HALF, whatever either one
+   needs: a seven-letter name sitting in a box two hundred pixels wide with the
+   dots starting nowhere near it, and a long name eliding at the bar's midpoint
+   with empty band to its right. At content width the title takes what it
+   measures and the field takes the rest, which is what "fills the run between
+   the title and the controls" means. The title still shrinks, and the field's
+   own `min-inline-size` is the floor that stops it being squeezed to a sliver.
+
+   And the leading margin, for the reason the rail's trailing band states one:
+   a texture running into the thing beside it reads as that thing's furniture.
+   The masthead tiers state the same `md` on their own lines. */
+.tug-pane-title-bar:not([data-role="sidebar"]) {
+  justify-content: flex-start;
+}
+
+.tug-pane-title-bar:not([data-role="sidebar"]) > .tug-pane-title {
+  flex: 0 1 auto;
+}
+
+.tug-pane-title-bar:not([data-role="sidebar"])::after {
+  margin-inline-start: var(--tug-space-md);
+}
+
+.tug-pane-title-bar:not([data-role="sidebar"]) > .tug-pane-title-bar-controls {
+  order: 1;
+  margin-inline-start: auto;
+}
+
+/* The masthead tier's own bar takes no field — on that tier the field goes on
+   the masthead's LEAD LINE, with the masthead's own stylesheet. Suppressed
+   rather than never matched, because the rule above is written against the bar
+   and a masthead bar is one. */
+.tug-pane-title-bar[data-masthead="true"]:not([data-role="sidebar"])::after {
+  content: none;
+}
+
 /* When a tab bar sits directly below, drop the title-bar divider so the title
    bar and tab bar read as one continuous chrome. The tab bar carries its own
    bottom divider against the content. Single-tab cards (no tab bar, content

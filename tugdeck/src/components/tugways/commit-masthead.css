@@ -31,6 +31,33 @@
   );
 }
 
+/* ── Making room for the grab-dot field ────────────────────────────────────
+   The field itself is drawn in `tug-pane.css`; what belongs here is what it
+   costs this line, beside the reserve it interacts with — the counterpart of
+   the rules the session and document tiers write for theirs.
+
+   A commit card is CONTENT, so it gets the mark: the exclusion is a rail's,
+   and a rail is not dragged by its bar while a commit card is. The subject
+   line's slack lives inside the title's own box, so the grow moves to the
+   field. Scoped to `.commit-masthead-row` and never to
+   `.tug-session-row-name-line` at large: that class is `TugSessionRow`'s and
+   the Cards rail mounts the same component for its session cells.
+
+   The metadata line below keeps its own run untouched — `CommitMetaCell` pins
+   to this tier's trailing edge and the field never reaches it. */
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .commit-masthead-row
+  .tug-session-row-name-line
+  .tug-list-row-title {
+  flex: 0 1 auto;
+}
+
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .commit-masthead-row
+  .tug-session-row-name-line::after {
+  margin-inline-start: var(--tug-space-md);
+}
+
 /* ── The metadata line ─────────────────────────────────────────────────────
    `CommitMetaCell` is authored for a LIST ROW's trailing edge, where the
    surface under it is the rail and the quiet gray stamp token is right. On the

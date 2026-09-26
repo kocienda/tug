@@ -67,6 +67,45 @@
   );
 }
 
+/* ── Making room for the grab-dot field ────────────────────────────────────
+   The field is drawn in `tug-pane.css`, beside the rail's racing stripes and
+   the utility tier's own copy; what belongs HERE is the one thing it costs
+   this line, because the reserve above is the rule it interacts with.
+
+   The empty run a reader sees between the callsign and the `…` is not a slot.
+   It is slack INSIDE the title's own box: the line is `[glyph][title]` with
+   the title at `flex: 1 1 auto`, and the reserve above is what holds the run
+   open. So putting anything in it means taking the grow away from the title
+   and handing it to the new item — which is what this does, and which is the
+   whole of what it does.
+
+   Scoped to `.session-masthead-row` and never to `.tug-session-row-name-line`
+   at large: that class is `TugSessionRow`'s, and the CARDS RAIL mounts the
+   same component for its session cells. An unscoped grow-removal would retype
+   every row in that rail.
+
+   The consequence is accepted rather than unnoticed: a long callsign now
+   elides against what the field leaves it rather than against the whole line,
+   AT REST as much as on hover, because the field holds its space either way.
+   The field's own `min-inline-size` is the floor that keeps it from being
+   squeezed to a sliver that would read as dirt.
+
+   Because the field lives on this line and this line reserves the cluster, it
+   can never run under the controls however wide they measure — and it follows
+   them in and out when a stack badge appears. */
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .session-masthead-row
+  .tug-session-row-name-line
+  .tug-list-row-title {
+  flex: 0 1 auto;
+}
+
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .session-masthead-row
+  .tug-session-row-name-line::after {
+  margin-inline-start: var(--tug-space-md);
+}
+
 /* The description clears the TAPE and nothing else.
 
    The tape is LIFTED into this band — that is the whole point of the lift, so

@@ -78,6 +78,34 @@
   );
 }
 
+/* ── Making room for the grab-dot field ────────────────────────────────────
+   The field itself is drawn in `tug-pane.css`; what belongs here is what it
+   costs this line, because the reserve above is the rule it interacts with —
+   the counterpart of the rules `session-masthead.css` and
+   `commit-masthead.css` write for their tiers.
+
+   The run between the name and the `…` is slack inside the TITLE's box, held
+   by a `flex: 1 1 auto` title, so filling it means handing the grow to the
+   field. Scoped to `.card-masthead-row` and never to
+   `.tug-session-row-name-line` at large: that class is `TugSessionRow`'s and
+   the Cards rail mounts the same component for its session cells.
+
+   Only the NAME line. The description shares the reserve above but not the
+   mark — the field is a drag affordance for the bar, and the bar's lead line
+   is where a reader looks for the card's own furniture. */
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .card-masthead-row
+  .tug-session-row-name-line
+  .tug-list-row-title {
+  flex: 0 1 auto;
+}
+
+.tug-pane-title-bar:not([data-role="sidebar"])
+  .card-masthead-row
+  .tug-session-row-name-line::after {
+  margin-inline-start: var(--tug-space-md);
+}
+
 /* ── A stand-in for the place ───────────────────────────────────────────────
    The second line answers WHERE the document lives, and a card that cannot
    answer it publishes a stand-in rather than nothing ([D132]) — the tier is a
