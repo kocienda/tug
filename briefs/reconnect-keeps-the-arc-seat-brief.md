@@ -26,6 +26,12 @@ The third report, from inside that arc's own card:
 
 The stage's own diagnosis, pasted with it, had the facts right and the cause out of reach: the arc record named a bound session the binder had just refused as dead, the `where` line named a different session, `tugtool arc doctor` said the records agree, and the wheel never dispatched Step 2 until the user typed. Every one of those is the demote seen from a different chair, and each is a gap of its own.
 
+The fourth report, from a third card, `tug/waxen-vixen`, with a screenshot of the right-click menu over `/arc grab-dots @briefs/grab-dots-brief.md` showing Run Here and Run in New Session dimmed:
+
+> Now this session has an arc annotation, but it refuses to give me the `Run` options in the right-click menu. WTF is going on???
+
+This one is not the demote. It is the menu answering a question about the brief from before the brief existed.
+
 ---
 
 ## Evidence {#evidence}
@@ -74,6 +80,8 @@ The stage's own diagnosis, pasted with it, had the facts right and the cause out
 
 **[F22] `tugtool arc doctor` answers "the records agree" over a dead seat.** `tugarc_core::doctor::diagnose` compares the ledger table, the arc log, the binding and the record, and raises `seat-missing` for a worktree the record names and the filesystem lacks. It never asks whether the bound session is live, on an open card, or reachable by the wheel. The stage ran it at 11:42:56, with the seat demoted and the wheel silent, and it reported no finding. **(verified from `doctor.rs` and the pasted transcript)**
 
+**[F23] The Run rows dim on exactly two facts, and one of them was stale.** `slashCommandMenuEntries` in `tugdeck/src/lib/annotator/registry.ts` disables both Run rows when `slashCommandFacts` reports no composer or an `@path` argument the resolver holds as `missing`. The `waxen-vixen` card is a live session card with a composer, and its cwd is the project root (`tugcode.claude_spawn … cwd=/Users/kocienda/Mounts/u/src/tug`). The file exists: `briefs/grab-dots-brief.md`, committed as `3ce597b06` at 11:43 UTC, and the live instance's `/api/fs/stat` answers `exists: true` for it under both the real and the `/u/src/tug` spelling. So the dimmer was a held `missing` verdict. The brief skill's turn names the path in its `Write` tool block before the file is on disk; the annotator probes it then and records `missing`. `path-resolution.ts` re-asks a "no" only when a filesystem frame names the path or after `RETRY_AFTER_MS`, sixty seconds, and the menu reads whatever is held at the moment it opens. A right-click inside that window over the hand-off line the same turn printed gets the answer from before the write. **(the mechanism is verified from the code and the live stat; that the screenshot fell inside the window is inference, and a second right-click a minute later that shows the rows live is what confirms it)**
+
 ---
 
 ## Decisions {#decisions}
@@ -99,6 +107,15 @@ The stage's own diagnosis, pasted with it, had the facts right and the cause out
 **[B10] The `where` line names the segment the shell holds.** `where_clause` is handed the seat, the live segment the binding sits on, rather than the bridge key, so `session <id> bound` on the prompt is the same string as `$TUG_SESSION_ID` in the stage's shell and the same string `arc status` reports as `bound_session`. That is what the seat brief's [B05] already says the line is for. The runner keeps addressing the bridge by its key; that is transport, and the stage never needs to see it.
 
 **[B11] The doctor's sixth record is the seat's liveness.** `tugarc_core::doctor` gains `seat-dead`: raised when the arc's bound session, read from the ledger the CLI can reach, is not `live`, or is live and seated on no open card. The message names the segment, its state, and the word `demoted` when that is why. A doctor that says the records agree while the wheel cannot prompt anybody has answered a question nobody asked; this is the question the stage asked it.
+
+**[B12] A file the session itself just wrote is confirmed, not re-asked.** The tool-result path already carries the write: a `Write` or `Edit` result, and a `TUG-FILE-RECEIPT` on a shell result, name the files that landed. When one arrives, the transcript hands those paths to `pathResolutionStore` as confirmed, the same way a filesystem frame naming them would, so a verdict recorded before the write is replaced the moment the deck learns the write happened rather than up to a minute later. The run rows then read the file the hand-off names as present the instant the hand-off is printed. The sixty-second retry and the filesystem frame stay as they are; this is the third door, for the one writer the deck watched do it.
+
+---
+
+## Open Questions {#open-questions}
+
+- **Does the `waxen-vixen` menu come back on its own?** [F23] predicts the rows read live on a right-click made more than a minute after the brief was written, and dimmed on one made inside that minute. If they stay dimmed past that, the second dimmer is in play, a card whose transcript host has no composer target, and that is a different finding. A second right-click settles it.
+- **Which recipe launched `Tug-release-tugarc-wizard-downloads.app` nine times?** The product name and source tree say a release-profile launch from the wizard-downloads worktree; the session summaries do not show the command. [B05] and [B06] hold whichever it was, so this does not gate the work, but the arc's transcript should be read once so the launch loop itself is understood.
 
 ---
 
@@ -130,3 +147,4 @@ The stage's own diagnosis, pasted with it, had the facts right and the cause out
 9. The sweep's departure receipt ([B09]): a runner test ticks an arc, closes its seat with no stop in the log, ticks again, and asserts an `arc-stop … seat lost` line and a receipt on the card.
 10. `where_clause` takes the seat ([B10]); the prompt test asserts the line's session equals the segment the dispatch seated, and `arc-implement`'s skill text says the two are one string.
 11. The doctor's `seat-dead` finding ([B11]), with a test over a demoted seat and one over a seat on no open card.
+12. Tool results confirm the paths they wrote ([B12]); a store test records `missing`, applies a `Write` result naming the path, and asserts `confirmed` with no probe and no timer, and an app-test right-clicks a hand-off line printed in the same turn as its brief and asserts the Run rows are live.
