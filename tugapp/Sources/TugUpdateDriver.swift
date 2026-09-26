@@ -64,6 +64,18 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     /// Re-sends the quit event when the app declined to terminate.
     private var retryTermination: (() -> Void)?
 
+    /// True between a *Stop for Now* press and whatever ends the stop.
+    ///
+    /// Stopping is Sparkle's cancel, and Sparkle answers a cancelled download
+    /// by tearing the session down — `dismissUpdateInstallation`, which
+    /// ordinarily publishes `dismissed` and takes the wizard with it. That is
+    /// right for every other way a session ends and wrong for this one: the
+    /// user asked to stop the download, not to be told the update no longer
+    /// exists. So while this is set, the teardown is absorbed and the flow
+    /// stays on `paused`, which is the only state the surface can offer a
+    /// Resume from.
+    private var stoppedForNow = false
+
     /// Which reply closures are held right now, as a stable `+`-joined list.
     ///
     /// The whole of what a press does is decided by which of these is non-nil,
@@ -165,6 +177,30 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
                 refuse(action)
             }
 
+        case .pause:
+            // Sparkle has one word for this and it is `cancel`; the flow's
+            // own word is `paused`, and the difference between them is the
+            // whole of what the surface promises. Publishing before the
+            // cancel means the stage is already `paused` when Sparkle's
+            // teardown arrives, and `stoppedForNow` is what absorbs it.
+            if let cancel = take(&cancelDownload) {
+                stoppedForNow = true
+                publish(.paused)
+                cancel()
+            } else {
+                refuse(action)
+            }
+
+        case .resume:
+            // Nothing was kept, so there is nothing to pick up: a resume is a
+            // fresh check that lands back on the same update, and the user
+            // presses Download again. The route is the one `check` already
+            // takes, which is also what clears whatever notice is standing.
+            stoppedForNow = false
+            take(&acknowledgement)?()
+            publish(.dismissed)
+            onCheckRequested?()
+
         case .retry:
             if let retry = retryTermination {
                 // Mid-install, and the app declined to quit. Sparkle says
@@ -236,9 +272,9 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
         case .install:
             guard snapshot.stage == .available || snapshot.stage == .readyToInstall else { return }
             publish(.failed("This update is no longer active. Check for updates again."))
-        case .later, .dismiss, .skip, .cancel:
+        case .later, .dismiss, .skip, .cancel, .pause:
             publish(.dismissed)
-        case .retry, .check:
+        case .retry, .check, .resume:
             break
         }
     }
@@ -296,6 +332,9 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     }
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        // A new session ends any stop: whatever the user stopped, this is a
+        // fresh look at the feed and its teardown is a real one again.
+        stoppedForNow = false
         cancelCheck = cancellation
         publish(.checkStarted(userInitiated: true))
     }
@@ -307,6 +346,7 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     ) {
         // The check is over, whichever way it started.
         cancelCheck = nil
+        stoppedForNow = false
         updateChoice = reply
 
         if appcastItem.isInformationOnlyUpdate {
@@ -366,6 +406,20 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
         updateChoice = nil
         installChoice = nil
         self.acknowledgement = acknowledgement
+        // The surface gets `localizedDescription`, which on a download
+        // failure is Sparkle's one generic sentence and says nothing about
+        // what went wrong. The domain, the code and the underlying error are
+        // the only things that do, so they go to the log rather than being
+        // thrown away on the way to a message box.
+        let ns = error as NSError
+        NSLog(
+            "TugUpdateDriver: updater error %@ (%ld)%@",
+            ns.domain,
+            ns.code,
+            (ns.userInfo[NSUnderlyingErrorKey] as? NSError).map {
+                " — underlying \($0.domain) (\($0.code)): \($0.localizedDescription)"
+            } ?? ""
+        )
         publish(.failed(error.localizedDescription))
     }
 
@@ -422,6 +476,12 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     /// started" — so every closure goes and the flow returns to idle. Called
     /// on abort and on ordinary completion alike.
     func dismissUpdateInstallation() {
+        // A stop is the one teardown the user did not ask to be the end of
+        // it. See `stoppedForNow`.
+        if stoppedForNow {
+            clearReplies()
+            return
+        }
         clearReplies()
         publish(.dismissed)
     }

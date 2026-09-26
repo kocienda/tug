@@ -105,6 +105,7 @@ import {
 } from "react";
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { appModalStore, usePublishAppModalOpen } from "@/lib/app-modal-store";
 import { useDeckManager } from "@/deck-manager-context";
 import { useLiveTurns } from "@/lib/live-turns-store";
 import {
@@ -141,8 +142,15 @@ import {
  *
  * The clock is generous, and deliberately: a slow network moving a percent a
  * minute is working, and a wizard that called it failed would be wrong far more
- * often than it was right. `downloading` resets its clock on every percent that
- * moves, so its deadline measures silence rather than duration.
+ * often than it was right. `downloading` resets its clock on every *byte* that
+ * arrives, so its deadline measures silence rather than duration — a link so
+ * slow that two minutes buy less than a percent is still a link that is
+ * working, and the horizon is for the case where nothing arrives at all.
+ *
+ * `paused` is deliberately absent, and that is [B12]: a transfer the user
+ * stopped is not a wait. Asking "is this taking too long?" about something
+ * that is taking as long as the user asked it to would be the wizard second-
+ * guessing a decision it was told about.
  */
 const WAIT_DEADLINE_MS: Partial<Record<UpdateStage, number>> = {
   checking: 60_000,
@@ -173,13 +181,26 @@ function useWaitingRow(stage: UpdateStage): RowKey {
 }
 
 /**
+ * The reading the horizon re-arms on — bytes and percent together, as one
+ * string, so that "has anything moved?" is one comparison.
+ */
+function moved(snapshot: { percent: number | null; receivedBytes: number }): string {
+  return `${snapshot.receivedBytes}:${snapshot.percent ?? -1}`;
+}
+
+/**
  * Whether the current wait has passed its horizon with nothing having moved.
  *
- * The clock is armed per stage and re-armed on every percent that changes,
- * which is why it subscribes to the store directly rather than depending on a
- * rendered value: percent is elided from the render snapshot ([L06]), so a
- * download that is making progress would otherwise look exactly like one that
- * had stopped.
+ * The clock is armed per stage and re-armed on every byte or percent that
+ * changes, which is why it subscribes to the store directly rather than
+ * depending on a rendered value: both are elided from the render snapshot
+ * ([L06]), so a download that is making progress would otherwise look exactly
+ * like one that had stopped.
+ *
+ * Bytes rather than percent alone ([B12]): on a 90 MB archive over a slow
+ * link, a whole percent is nearly a megabyte, and a transfer moving 100 KB a
+ * minute would trip a two-minute horizon while working perfectly. The percent
+ * stays in the reading because extraction reports one and no bytes.
  *
  * `rearm` is the Retry button's nonce — a retry that posts an action the host
  * does not move on must still put the clock back, or the failed row would come
@@ -197,11 +218,11 @@ function useStalled(stage: UpdateStage, rearm: number): boolean {
       timer = window.setTimeout(() => setStalled(true), deadline);
     };
     arm();
-    let lastPercent = updateStore.getSnapshot().percent;
+    let last = moved(updateStore.getSnapshot());
     const unsubscribe = updateStore.subscribe(() => {
-      const percent = updateStore.getSnapshot().percent;
-      if (percent === lastPercent) return;
-      lastPercent = percent;
+      const now = moved(updateStore.getSnapshot());
+      if (now === last) return;
+      last = now;
       arm();
     });
     return () => {
@@ -271,6 +292,10 @@ export function UpdateTug(): ReactElement {
   // ([B02]), and the two have no parent between them. This component is still
   // the only writer.
   const open = useUpdateTugOpen();
+  // Freeze the deck's card count while the wizard is up ([B01]). Radix traps
+  // the web view's focus and pointer; the menu bar is AppKit's and is not
+  // trapped, so the fact has to cross to the host for ⌘N to go dark.
+  usePublishAppModalOpen("update-tug", open);
   const [retryNonce, setRetryNonce] = useState(0);
   // True only while a Stop Work press is still inside its bounded wait. The
   // row cannot derive this from the count: a press whose sessions have not
@@ -283,10 +308,18 @@ export function UpdateTug(): ReactElement {
   // The host's door. A count rather than a callback, so the replay that follows
   // a deck reload re-reads a number this ref has already seen and nothing
   // happens; a number it has not seen is a raise, acted on exactly once ([B06]).
+  //
+  // Both doors consume their signal and then drop it while a sibling app-modal
+  // holds the app ([B04]): the ref advances, so nothing is queued behind the
+  // other wizard, and the pill stays lit and Check for Updates… stays enabled
+  // so the door is still there when the setup wizard closes. Stacking the two
+  // is what Spec S02 forbids, and raising the second over the first is how it
+  // would happen.
   const revealed = useRef(state.revealCount);
   useEffect(() => {
     if (revealed.current === state.revealCount) return;
     revealed.current = state.revealCount;
+    if (appModalStore.isOpenExcept("update-tug")) return;
     setUpdateTugOpen(true);
   }, [state.revealCount]);
 
@@ -297,6 +330,7 @@ export function UpdateTug(): ReactElement {
   useEffect(() => {
     if (requested.current === requestNonce) return;
     requested.current = requestNonce;
+    if (appModalStore.isOpenExcept("update-tug")) return;
     setUpdateTugOpen(true);
   }, [requestNonce]);
 
@@ -343,7 +377,11 @@ export function UpdateTug(): ReactElement {
     if (action === "retry") setRetryNonce((n) => n + 1);
     // Both of these ask the host for a new check, and the host's route to one
     // passes through `idle`. See the effect above.
-    if (action === "retry" || action === "check") expectingCheck.current = true;
+    // Resume is a third: nothing was kept, so it is a fresh check that lands
+    // back on the same update.
+    if (action === "retry" || action === "check" || action === "resume") {
+      expectingCheck.current = true;
+    }
     postUpdateAction(action);
   }, []);
 
@@ -418,13 +456,23 @@ export function UpdateTug(): ReactElement {
                 status={row.status}
                 label={row.label}
                 detail={row.detail}
+                body={row.body}
                 action={
                   row.cta ? (
                     <TugPushButton
                       size="sm"
                       emphasis={row.status === "error" ? "outlined" : "filled"}
                       role={row.status === "error" ? "danger" : "action"}
-                      disabled={row.status === "busy" && row.cta.action !== "cancel"}
+                      // A busy row's CTA is dead unless it is the one that
+                      // ends the thing that is busy — the press that stops a
+                      // download has to work while the download is running,
+                      // which is the whole of when it exists.
+                      disabled={
+                        row.status === "busy" &&
+                        row.cta.action !== "cancel" &&
+                        row.cta.action !== "pause" &&
+                        row.cta.action !== STOP_WORK
+                      }
                       data-testid={`update-tug-action-${row.cta.action}`}
                       onClick={() => {
                         if (!row.cta) return;

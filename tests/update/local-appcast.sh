@@ -22,7 +22,12 @@ set -euo pipefail
 # outright.
 #
 # Usage:
-#   tests/update/local-appcast.sh <path/to/Tug.app> [port]
+#   tests/update/local-appcast.sh <path/to/Tug.app> [port] [rate-kbps]
+#
+# A rate in kilobytes per second throttles the archive as it is served, so a
+# download can be watched moving, paused mid-transfer and resumed by hand
+# ([B14]). The default, 0, serves at loopback speed — which on a ~90 MB
+# archive is over before a bar has drawn twice.
 #
 # Leaves a server in the foreground; ^C tears it down along with its
 # scratch directory.
@@ -32,9 +37,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 APP="${1:-}"
 PORT="${2:-8765}"
+RATE_KBPS="${3:-0}"
 
 if [ -z "$APP" ] || [ ! -d "$APP" ]; then
-    echo "usage: $(basename "$0") <path/to/Tug.app> [port]" >&2
+    echo "usage: $(basename "$0") <path/to/Tug.app> [port] [rate-kbps]" >&2
     exit 2
 fi
 APP="$(cd "$APP" && pwd)"
@@ -85,6 +91,7 @@ cat <<INFO
 
 ==> Feed ready: http://127.0.0.1:$PORT/appcast.xml
     advertising $NEXT_SHORT ($NEXT_BUILD) over $CURRENT_SHORT ($CURRENT_BUILD)
+    serving at ${RATE_KBPS} kB/s (0 = unthrottled)
 
     In another terminal:
 
@@ -100,7 +107,17 @@ cat <<INFO
 
 INFO
 
-cd "$WORK_DIR/serve"
 # Not `exec` — that would replace this shell and take the cleanup trap with
 # it, leaving a ~90 MB scratch directory behind on every ^C.
-/usr/bin/python3 -m http.server "$PORT" --bind 127.0.0.1
+#
+# serve-feed.py rather than `python3 -m http.server`: the rehearsal needs a
+# throttle and it needs `Range`, and the stock handler has neither.
+#
+# Backgrounded and waited on rather than run in the foreground, so the trap
+# takes the server down with it. A foreground child survives a SIGTERM sent
+# to this script — the trap fires, the scratch directory goes, and the
+# server keeps the port until somebody finds it by hand.
+/usr/bin/python3 "$SCRIPT_DIR/serve-feed.py" "$WORK_DIR/serve" "$PORT" "$RATE_KBPS" &
+SERVER_PID=$!
+trap 'kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$WORK_DIR"' EXIT
+wait "$SERVER_PID"

@@ -31,6 +31,12 @@ import {
 } from "react";
 
 import { relaunchWarningLine } from "@/lib/update-relaunch-warning";
+import {
+  formatBytes,
+  newRateEstimator,
+  transferDetailLine,
+  type RateEstimator,
+} from "@/lib/transfer-rate";
 import type { LiveTurnsSnapshot } from "@/lib/live-turns-store";
 import {
   updateStore,
@@ -39,6 +45,7 @@ import {
   type UpdateStage,
 } from "@/lib/update-store";
 import type { TugStepRowStatus } from "./tug-step-row";
+import { TugProgressIndicator } from "./tug-progress-indicator";
 
 /** The four rows, in the order they are walked ([B02]). */
 export type RowKey = "check" | "download" | "stop-work" | "relaunch";
@@ -61,6 +68,13 @@ export interface RowModel {
   label: string;
   status: TugStepRowStatus;
   detail?: ReactNode;
+  /**
+   * The row's control slot — a progress bar on every row that is moving
+   * bytes ([B05]). Separate from {@link detail} because it is a control
+   * rather than prose, which is the distinction `TugStepRow`'s own slots
+   * already draw.
+   */
+  body?: ReactNode;
   cta?: {
     label: string;
     action: UpdateAction | typeof STOP_WORK;
@@ -86,6 +100,7 @@ export function rowForStage(stage: UpdateStage): RowKey | null {
       return "check";
     case "available":
     case "downloading":
+    case "paused":
     case "extracting":
       return "download";
     case "readyToInstall":
@@ -104,23 +119,156 @@ export function rowForStage(stage: UpdateStage): RowKey | null {
  * The whole of [L06] for this component, and the same span the inline surface
  * used: the percent moves about once a second through a download, and routing it
  * through a render would re-render the panel and its rows for a word.
+ *
+ * It says bytes, rate and time remaining rather than a bare percent ([B06]).
+ * The percent is the one thing the bar beside it already draws; what the number
+ * cannot say — how fast, how much longer — is what a person watching a slow
+ * download is actually deciding on. Rate and ETA are measured here, from the
+ * pairs the store hands over, and join the line only once they exist: a line
+ * that appeared complete with a made-up rate in it would be worse than one that
+ * grows.
+ *
+ * `data-progress` stays on the span. It is what `at0612` reads, and a percent
+ * is still the cheapest thing for a test to assert on.
  */
 export function ProgressDetail(): ReactElement {
   const [el, setEl] = useState<HTMLSpanElement | null>(null);
   useLayoutEffect(() => {
     if (el === null) return;
+    // The estimator lives in the closure rather than in a ref: it is reset by
+    // the row unmounting, which is exactly when a new transfer starts.
+    let rate: RateEstimator = newRateEstimator();
     const paint = (): void => {
-      const percent = updateStore.getSnapshot().percent;
+      const { percent, receivedBytes, expectedBytes } = updateStore.getSnapshot();
+      rate = rate.sample(receivedBytes, performance.now());
+      el.textContent = transferDetailLine(
+        receivedBytes,
+        expectedBytes,
+        rate.bytesPerSecond,
+      );
       // `null` is not zero: a total nobody has reported yet is "starting", and
       // a bar sitting at 0% would be saying something false.
-      el.textContent = percent === null ? "Starting…" : `${percent}% downloaded`;
       if (percent === null) el.removeAttribute("data-progress");
       else el.setAttribute("data-progress", String(percent));
+      // The measured rate, in bytes per second, beside the sentence that
+      // spells it out. `data-progress` is the percent a test can assert on;
+      // this is the same courtesy for the half of the line the host does not
+      // send, and the only way a test can tell "no rate yet" from "a rate
+      // that formatted to nothing".
+      if (rate.bytesPerSecond === null) el.removeAttribute("data-rate");
+      else el.setAttribute("data-rate", String(Math.round(rate.bytesPerSecond)));
     };
     paint();
     return updateStore.subscribe(paint);
   }, [el]);
   return <span ref={setEl} data-testid="update-tug-progress" />;
+}
+
+/**
+ * The download row's bar, painted rather than rendered ([B05], [B07]).
+ *
+ * Mounts one `TugProgressIndicator variant="bar"` and writes its value onto
+ * the root element from the same store subscription the detail line uses:
+ * the custom property for the fill, `data-painted` for the determinate /
+ * barber-pole switch, and `aria-valuenow` for anyone reading the row rather
+ * than looking at it. No `value` prop — the two paths are exclusive.
+ *
+ * Determinate the moment a total is known, and the barber pole until then,
+ * which is the same rule the detail line's `Starting…` follows. Extraction
+ * reports a percent with no byte total, so it draws from `percent` directly
+ * and the line beside it says what it is doing in words.
+ */
+export function TransferBar(): ReactElement {
+  const [el, setEl] = useState<HTMLSpanElement | null>(null);
+  useLayoutEffect(() => {
+    if (el === null) return;
+    const paint = (): void => {
+      const { percent, receivedBytes, expectedBytes } = updateStore.getSnapshot();
+      const fraction =
+        expectedBytes > 0
+          ? Math.min(1, receivedBytes / expectedBytes)
+          : percent === null
+            ? null
+            : percent / 100;
+      if (fraction === null) {
+        el.style.removeProperty("--tugx-progress-indicator-value");
+        el.removeAttribute("data-painted");
+        el.removeAttribute("aria-valuenow");
+        return;
+      }
+      el.style.setProperty("--tugx-progress-indicator-value", String(fraction));
+      el.setAttribute("data-painted", "");
+      el.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+    };
+    paint();
+    return updateStore.subscribe(paint);
+  }, [el]);
+  return (
+    <TugProgressIndicator
+      ref={setEl}
+      variant="bar"
+      state="running"
+      size={6}
+      aria-label="Download progress"
+      data-testid="update-tug-bar"
+    />
+  );
+}
+
+/**
+ * A bar for a row that is moving bytes Tug cannot count ([B05]).
+ *
+ * Checking, verifying the signature, installing: each is short, each is real
+ * work, and none of them reports a total. The pole says the app has not
+ * stopped — which is the only claim any of them can honestly make.
+ */
+function IndeterminateBar(): ReactElement {
+  return (
+    <TugProgressIndicator
+      variant="bar"
+      state="running"
+      size={6}
+      aria-label="Working"
+      data-testid="update-tug-bar"
+    />
+  );
+}
+
+/**
+ * What stopping the download would cost, said before the press rather than
+ * after it.
+ *
+ * Sparkle's download cannot be resumed where it left off — the spike settled
+ * that — so *Stop for Now* throws away everything that has arrived. A button
+ * that did so quietly would be the kind of button a user presses once and then
+ * never trusts again, so the row says the number out loud while the transfer
+ * is still running.
+ *
+ * Painted from the store for the same reason the line above it is ([L06]): the
+ * number it names moves about once a second, and waking React for a phrase is
+ * what the painted seam exists to avoid.
+ */
+function StopCostLine(): ReactElement {
+  const [el, setEl] = useState<HTMLSpanElement | null>(null);
+  useLayoutEffect(() => {
+    if (el === null) return;
+    const paint = (): void => {
+      const { receivedBytes } = updateStore.getSnapshot();
+      el.textContent =
+        receivedBytes > 0
+          ? `Stopping discards ${formatBytes(receivedBytes)} — the download starts over.`
+          : "Stopping starts the download over.";
+    };
+    paint();
+    return updateStore.subscribe(paint);
+  }, [el]);
+  return (
+    <span
+      className="update-tug-stop-cost"
+      ref={setEl}
+      data-testid="update-tug-stop-cost"
+    />
+  );
 }
 
 /**
@@ -186,6 +334,10 @@ export function deriveUpdateRows(
     case "checking":
       check.status = "busy";
       check.detail = "Looking for a newer version…";
+      // Sparkle reports no progress for a check, and there is none to report:
+      // it is one request. The pole says the app is waiting on the network
+      // rather than on the user.
+      check.body = <IndeterminateBar />;
       if (state.cancellable) check.cta = { label: "Cancel", action: "cancel" };
       break;
     case "available":
@@ -204,12 +356,31 @@ export function deriveUpdateRows(
       check.status = "done";
       download.status = "busy";
       download.detail = <ProgressDetail />;
-      if (state.cancellable) download.cta = { label: "Cancel", action: "cancel" };
+      download.body = (
+        <>
+          <TransferBar />
+          <StopCostLine />
+        </>
+      );
+      // *Stop for Now* rather than *Cancel*, and never *Pause*: the press
+      // ends this download and keeps the update in hand, which is neither of
+      // the other two words. What it costs is on the line above it.
+      if (state.cancellable) download.cta = { label: "Stop for Now", action: "pause" };
+      break;
+    case "paused":
+      check.status = "done";
+      download.status = "paused";
+      download.detail =
+        "Stopped. Nothing was kept — Resume starts the download again.";
+      download.cta = { label: "Resume", action: "resume" };
       break;
     case "extracting":
       check.status = "done";
       download.status = "busy";
       download.detail = "Verifying the signature…";
+      // Extraction reports a percent with no byte total, so the same painted
+      // bar draws it — determinate, and from `percent` rather than from bytes.
+      download.body = <TransferBar />;
       break;
     case "readyToInstall":
       check.status = "done";
@@ -222,6 +393,7 @@ export function deriveUpdateRows(
       download.detail = "Downloaded and verified.";
       relaunch.status = "busy";
       relaunch.detail = "Installing. Tug reopens in a moment…";
+      relaunch.body = <IndeterminateBar />;
       break;
     case "upToDate":
       check.status = "done";
@@ -254,6 +426,9 @@ export function deriveUpdateRows(
     const failed = hostRows.find((row) => row.key === waitingRow);
     if (failed) {
       failed.status = "error";
+      // A bar still running under a red dot would be claiming the work goes
+      // on. It does not: the row is waiting on a press.
+      failed.body = undefined;
       failed.detail =
         state.message === "" ? "Tug could not finish the update." : state.message;
       failed.cta = { label: "Retry", action: "retry" };
@@ -268,6 +443,7 @@ export function deriveUpdateRows(
     const waiting = hostRows.find((row) => row.key === waitingRow);
     if (waiting) {
       waiting.status = "error";
+      waiting.body = undefined;
       waiting.detail = "Tug has heard nothing back for a while.";
       waiting.cta = { label: "Retry", action: "retry" };
     }

@@ -32,6 +32,9 @@ enum UpdateStage: String {
     case available
     /// The archive is coming down.
     case downloading
+    /// The user stopped the download. Nothing is arriving, and nothing is
+    /// waiting on the network — only on them.
+    case paused
     /// The archive is unpacking.
     case extracting
     /// Unpacked and waiting on the user to relaunch.
@@ -61,6 +64,17 @@ enum UpdateAction: String {
     case skip
     /// Abort an in-flight check or download.
     case cancel
+    /// Stop a transfer that is in flight, keeping the flow in hand.
+    ///
+    /// The name is the wire's, not the surface's: what the update wizard's
+    /// button says is *Stop for Now*, because Sparkle's download cannot be
+    /// resumed where it left off — the spike settled that — and calling a
+    /// button "Pause" when the bytes are discarded would be a promise the
+    /// flow cannot keep.
+    case pause
+    /// Start a stopped transfer again. What that costs depends on who owns
+    /// the bytes; for the Sparkle download it starts over.
+    case resume
     /// Acknowledge a failure and check again.
     case retry
     /// Make the current notice go away.
@@ -108,6 +122,20 @@ struct UpdateSnapshot: Equatable {
     /// Download or extraction progress, 0...100, or `nil` when the stage has
     /// no progress or the total is not yet known.
     var percent: Int?
+    /// Bytes received so far in the current transfer, and the total, or 0
+    /// when there is no transfer or the total is not yet known.
+    ///
+    /// **Not part of what decides a publish.** `UpdateStateMachine.apply`
+    /// stamps these on *after* comparing, so two byte events inside the same
+    /// whole percent still compare equal and nothing crosses the bridge — the
+    /// bytes ride the publishes the percent already earns [B06]. That is why
+    /// they can sit on an `Equatable` snapshot at all: by the time anything
+    /// compares two snapshots, both sides carry the same stamped pair.
+    ///
+    /// The deck needs them because a percent alone cannot say how fast a
+    /// transfer is going or how much longer it has.
+    var receivedBytes: UInt64 = 0
+    var expectedBytes: UInt64 = 0
     /// The failure text in `error`, empty in every other stage.
     var message: String = ""
     /// How many times the host has asked for the surface to be shown.
@@ -148,6 +176,11 @@ struct UpdateSnapshot: Equatable {
             return "Checking for Updates..."
         case .available:
             return "Update to \(appName) \(version)..."
+        case .paused:
+            // The same title `available` carries, and for the same reason:
+            // an update is in hand and the flow is waiting on the user. The
+            // word the button uses belongs to the wizard, not to the menu.
+            return "Update to \(appName) \(version)..."
         case .downloading, .extracting:
             return "Downloading \(appName) \(version)..."
         case .readyToInstall:
@@ -178,6 +211,8 @@ struct UpdateSnapshot: Equatable {
             "releaseNotesFailed": releaseNotesFailed,
             "userInitiated": userInitiated,
             "percent": percent ?? NSNull(),
+            "receivedBytes": receivedBytes,
+            "expectedBytes": expectedBytes,
             "message": message,
             "cancellable": isCancellable,
             "revealCount": revealCount,
@@ -203,6 +238,8 @@ enum UpdateEvent: Equatable {
     case downloadExpectedLength(UInt64)
     /// A chunk arrived. The length is incremental, as Sparkle reports it.
     case downloadReceived(UInt64)
+    /// The user stopped the download.
+    case paused
     /// Extraction began.
     case extractionStarted
     /// Extraction progress, 0.0...1.0.
@@ -262,7 +299,15 @@ struct UpdateStateMachine {
         // new `UpdateSnapshot` cannot take the count back to zero.
         snapshot.revealCount = revealCount
         snapshot.currentVersion = currentVersion
-        return snapshot == before ? nil : snapshot
+        let changed = snapshot != before
+        // Stamped after the COMPARISON, which is the whole of [B06]: a
+        // `downloadReceived` inside the same whole percent leaves both sides
+        // carrying the previous stamp, compares equal, and publishes nothing.
+        // Stamping before the comparison would make every byte event a
+        // publish and undo the rule this machine exists to enforce.
+        snapshot.receivedBytes = receivedBytes
+        snapshot.expectedBytes = expectedBytes
+        return changed ? snapshot : nil
     }
 
     /// The host wants the surface shown. Bumps the counter and hands back the
@@ -271,6 +316,8 @@ struct UpdateStateMachine {
     mutating func requestReveal() -> UpdateSnapshot {
         revealCount &+= 1
         snapshot.revealCount = revealCount
+        snapshot.receivedBytes = receivedBytes
+        snapshot.expectedBytes = expectedBytes
         return snapshot
     }
 
@@ -313,6 +360,20 @@ struct UpdateStateMachine {
         case let .downloadReceived(length):
             receivedBytes &+= length
             snapshot.percent = downloadPercent()
+
+        case .paused:
+            // The version and the build stay — this is still the update the
+            // user was told about, and Resume is about that one. The bytes do
+            // not: Sparkle's download cannot be picked up where it stopped,
+            // so a transfer that stops has nothing left, and a snapshot that
+            // kept the pair would let the surface say "12.4 MB of 48.1 MB"
+            // about bytes that are gone. [B13] expected them kept; that
+            // clause was written for the host-owned download the spike ruled
+            // out.
+            resetTransfer()
+            snapshot.stage = .paused
+            snapshot.percent = nil
+            snapshot.message = ""
 
         case .extractionStarted:
             snapshot.stage = .extracting

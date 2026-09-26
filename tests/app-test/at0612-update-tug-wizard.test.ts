@@ -20,7 +20,7 @@
  * replacement; `update-surface-anchor [B##]` is the arc that put the anchor at
  * the top centre, and the anchor is the one thing this rewrite inherits intact.
  *
- * Six claims are worth naming, because they are what the arc rests on and what a
+ * Seven claims are worth naming, because they are what the arc rests on and what a
  * plausible refactor would quietly lose:
  *
  * 1. **A scheduled find opens nothing.** An update that arrives without anybody
@@ -44,6 +44,10 @@
  *    snapshot never named.
  * 6. **Progress is words on one span, never a render** [L06]. The span that is
  *    there at 7% is the span that is there at 99%.
+ * 7. **A download can be stopped, and what that costs is said first.** Sparkle's
+ *    download cannot be picked up where it left off, so the button is *Stop for
+ *    Now* rather than *Pause*, the row names the bytes it is about to throw
+ *    away, and the stopped row offers *Resume* rather than a failure.
  *
  * The actions are read back through a recorder standing in for the host's
  * `updateAction` message handler — which is also what keeps this file from
@@ -70,6 +74,10 @@
  * @covers tugdeck/src/lib/live-turns-store.ts
  * @covers tugdeck/src/lib/update-store.ts
  * @covers tugdeck/src/lib/update-tug-request-store.ts
+ * @covers tugdeck/src/lib/transfer-rate.ts
+ * @covers tugdeck/src/components/tugways/internal/tug-progress-bar.tsx
+ * @covers tugdeck/src/components/tugways/internal/tug-progress-bar.css
+ * @covers tugapp/Sources/UpdateState.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -106,6 +114,7 @@ const cta = (action: string): string =>
 const CLOSE = `[data-testid="update-tug-close"]`;
 /** The download row's detail line — the whole of what progress is. */
 const PROGRESS = `[data-testid="update-tug-progress"]`;
+const BAR = `[data-testid="update-tug-bar"]`;
 
 /** A snapshot in the shape `UpdateSnapshot.jsonObject` emits, host-side. */
 interface Payload {
@@ -117,6 +126,8 @@ interface Payload {
   releaseNotesFailed?: boolean;
   userInitiated?: boolean;
   percent?: number | null;
+  receivedBytes?: number;
+  expectedBytes?: number;
   message?: string;
   cancellable?: boolean;
   revealCount?: number;
@@ -132,6 +143,8 @@ function snapshot(stage: string, over: Partial<Payload> = {}): Payload {
     releaseNotesFailed: false,
     userInitiated: false,
     percent: null,
+    receivedBytes: 0,
+    expectedBytes: 0,
     message: "",
     cancellable: false,
     revealCount: reveal,
@@ -175,7 +188,7 @@ async function installActionRecorder(app: App): Promise<string> {
        // untouched, so the rest of the deck keeps working; an action name is
        // swallowed, which is what keeps a click in this file from reaching
        // Sparkle.
-       var ACTIONS = ["install","later","skip","cancel","retry","dismiss","check"];
+       var ACTIONS = ["install","later","skip","cancel","pause","resume","retry","dismiss","check"];
        var handler = w.webkit.messageHandlers.updateAction;
        var proto = Object.getPrototypeOf(handler);
        var orig = proto.postMessage;
@@ -785,7 +798,8 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
           { stage: "idle", actions: ["check"] },
           { stage: "checking", over: { cancellable: true }, actions: ["cancel"] },
           { stage: "available", actions: ["install"] },
-          { stage: "downloading", over: { cancellable: true }, actions: ["cancel"] },
+          { stage: "downloading", over: { cancellable: true }, actions: ["pause"] },
+          { stage: "paused", actions: ["resume"] },
           { stage: "readyToInstall", actions: ["install"] },
           { stage: "error", over: { message: "the feed did not answer" }, actions: ["retry"] },
           { stage: "extracting", actions: [] },
@@ -890,6 +904,85 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         await push(app, snapshot("idle"));
         await waitForWizardGone(app);
 
+        // ---- Stopping a download says what it costs, first ---------------
+        //
+        // The `file:` spike ruled out a resumable download, so the press
+        // throws away what has arrived. That is a thing a user has to be told
+        // *before* they press it, so the row carries the number while the
+        // transfer is still running — painted from the same store
+        // subscription as the line above it, which is why it is read from the
+        // DOM here rather than inferred from the snapshot pushed.
+        await goIdle(app);
+        await clearPosted(app);
+        await push(
+          app,
+          snapshot("downloading", {
+            cancellable: true,
+            percent: 25,
+            receivedBytes: 12_400_000,
+            expectedBytes: 48_100_000,
+            revealCount: nextReveal(),
+          }),
+        );
+        await waitForWizard(app, "downloading");
+        const cost = await app.evalJS<string>(
+          `(function () {
+             var el = document.querySelector('[data-testid="update-tug-stop-cost"]');
+             return el === null ? "" : (el.textContent || "").trim();
+           })()`,
+        );
+        note("at0612 stop cost", cost);
+        expect(cost).toContain("12.4 MB");
+        expect(cost).toContain("starts over");
+
+        // The button says what it does. Not *Pause*, which would promise the
+        // bytes are kept, and not *Cancel*, which would say the update is
+        // being given up rather than the download.
+        expect(await app.getElementText(cta("pause"))).toContain("Stop for Now");
+
+        await waitForClickable(app, cta("pause"));
+        await app.click(cta("pause"));
+        await app.waitForCondition<boolean>(
+          `window.__at0612.posted.length > 0`,
+          { timeoutMs: 10_000 },
+        );
+        expect(await postedActions(app)).toEqual(["pause"]);
+
+        // The host's answer: the stage the driver publishes when it has
+        // cancelled Sparkle's download and kept the update in hand.
+        await push(app, snapshot("paused"));
+        await waitForWizard(app, "paused");
+        // Held, not failed: the second row's dot is the amber one, and the
+        // download row's bar is gone because nothing is moving.
+        expect(await stepStatuses(app)).toEqual([
+          "done",
+          "paused",
+          "pending",
+          "pending",
+        ]);
+        expect(await elementCount(app, BAR)).toBe(0);
+        note("at0612 stopped", (await stepStatuses(app)).join("/"));
+
+        // And the way out of it is Resume, which the host answers with a
+        // fresh check — the wizard's own `idle` waypoint suppression, the
+        // same one Retry uses, is what keeps the panel standing through it.
+        await clearPosted(app);
+        await waitForClickable(app, cta("resume"));
+        await app.click(cta("resume"));
+        await app.waitForCondition<boolean>(
+          `window.__at0612.posted.length > 0`,
+          { timeoutMs: 10_000 },
+        );
+        expect(await postedActions(app)).toEqual(["resume"]);
+        await push(app, snapshot("idle"));
+        await letTimePass(app, 400);
+        expect(await elementCount(app, WIZARD)).toBe(1);
+        await push(app, snapshot("checking", { cancellable: true }));
+        await waitForWizard(app, "checking");
+        note("at0612 resume", "posts resume and survives the idle waypoint");
+        await push(app, snapshot("idle"));
+        await waitForWizardGone(app);
+
         // ---- The two terminal stages acknowledge, and only those ---------
         //
         // Sparkle will not finish its session without a reply to a notice, so
@@ -917,7 +1010,15 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
           note(`at0612 terminal ${stage}`, `${label} posts dismiss`);
         }
 
-        // ---- Progress is words, and never a render [L06] ----------------
+        // ---- Progress is a bar and a sentence, and never a render [L06] --
+        //
+        // Both surfaces are painted from one store subscription: the detail
+        // line's text and `data-progress`, and the bar's own
+        // `aria-valuenow`. Reading the bar through ARIA rather than through
+        // a measured width is deliberate — the width is a CSS `calc` over a
+        // custom property, and a test that measured pixels would be testing
+        // the layout engine. `aria-valuenow` is what the painter *claims*,
+        // and it is also what a screen reader is told.
         await goIdle(app);
         await push(
           app,
@@ -934,21 +1035,68 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
           await app.getElementAttribute(PROGRESS, "data-progress"),
         ).toBeNull();
         expect(await app.getElementText(PROGRESS)).toContain("Starting");
+        // And the bar runs its barber pole rather than sitting at a literal
+        // 0%: it claims no value and wears no `data-painted`.
+        expect(await elementCount(app, BAR)).toBe(1);
+        expect(await app.getElementAttribute(BAR, "aria-valuenow")).toBeNull();
+        expect(await app.getElementAttribute(BAR, "data-painted")).toBeNull();
 
+        const TOTAL = 48_100_000;
+        // Spaced, on purpose. A rate is defined over elapsed time, and the
+        // painter's estimator discards intervals under 20 ms rather than
+        // dividing by something near zero — so pushes fired back to back
+        // (this harness lands three in about 4 ms) measure nothing at all,
+        // and a test that ran that fast would be asserting the guard rather
+        // than the feature. 150 ms is a slow-ish real download's cadence.
+        const SPACING_MS = 150;
         for (const percent of [7, 42, 99]) {
-          await push(app, snapshot("downloading", { percent, cancellable: true }));
+          await new Promise((r) => setTimeout(r, SPACING_MS));
+          await push(
+            app,
+            snapshot("downloading", {
+              percent,
+              cancellable: true,
+              receivedBytes: Math.round((TOTAL * percent) / 100),
+              expectedBytes: TOTAL,
+            }),
+          );
           await app.waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(PROGRESS)})
                 ?.getAttribute("data-progress")) === ${JSON.stringify(String(percent))}`,
             { timeoutMs: 10_000 },
           );
           const text = await app.getElementText(PROGRESS);
-          note(`at0612 progress ${percent}%`, text);
-          expect(text).toContain(`${percent}%`);
+          const rate = await app.getElementAttribute(PROGRESS, "data-rate");
+          note(`at0612 progress ${percent}%`, `${text}  [data-rate=${rate}]`);
+          // Bytes, not a percent: the bar draws the fraction, and the line
+          // says what the fraction cannot ([B06]).
+          expect(text).toContain("48.1 MB");
+          expect(text).not.toContain(`${percent}%`);
+
+          // The bar moved with it. This is the assertion the whole painted
+          // seam exists for — a bar wired through React state would still
+          // pass every text assertion above.
+          await app.waitForCondition<boolean>(
+            `(document.querySelector(${JSON.stringify(BAR)})
+                ?.getAttribute("aria-valuenow")) === ${JSON.stringify(String(percent))}`,
+            { timeoutMs: 10_000 },
+          );
+          expect(await app.getElementAttribute(BAR, "data-painted")).not.toBeNull();
+          note(`at0612 bar ${percent}%`, "aria-valuenow tracks the transfer");
+
+          // The rate is measured on the deck rather than sent, so it is the
+          // one part of the line no host fixture can fake ([B06]). The first
+          // sample only anchors, so the rate appears from the second push on.
+          if (percent !== 7) {
+            expect(Number(rate), "a rate was measured").toBeGreaterThan(0);
+            expect(text, "and the line says it").toContain("/s");
+            expect(text, "with a time to go beside it").toContain("left");
+          }
         }
         // The panel has not been re-rendered out from under itself: the span
         // that was there at 7% is the span that is there at 99%.
         expect(await elementCount(app, PROGRESS)).toBe(1);
+        expect(await elementCount(app, BAR)).toBe(1);
         expect(await elementCount(app, WIZARD)).toBe(1);
 
         // ---- The pill's `x` hides, and hides only -----------------------

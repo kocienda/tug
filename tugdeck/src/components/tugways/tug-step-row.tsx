@@ -38,7 +38,13 @@ import {
  * `pending` (dimmed), `active` (the user's turn — a CTA shows), `busy` (an
  * async action in flight), `error` (failed — a retry CTA shows), `done`.
  */
-export type TugStepRowStatus = "pending" | "active" | "busy" | "error" | "done";
+export type TugStepRowStatus =
+  | "pending"
+  | "active"
+  | "busy"
+  | "paused"
+  | "error"
+  | "done";
 
 /** Dot diameter, mirrored by `--tugx-step-row-dot` in the stylesheet. */
 export const TUG_STEP_ROW_DOT_SIZE = 14;
@@ -57,6 +63,11 @@ export function tugStepRowDotVisual(status: TugStepRowStatus): {
       return { role: "action", state: "paused" };
     case "busy":
       return { role: "agent", state: "running" };
+    case "paused":
+      // A held thing, and the indicator's own default for one: amber rather
+      // than blue, because a step that stopped because the user said so is
+      // not the step the flow is waiting on the user to start.
+      return { role: "caution", state: "paused" };
     case "error":
       return { role: "danger", state: "aborted" };
     case "done":

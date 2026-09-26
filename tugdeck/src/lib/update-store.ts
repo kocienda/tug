@@ -69,6 +69,7 @@ export type UpdateStage =
   | "checking"
   | "available"
   | "downloading"
+  | "paused"
   | "extracting"
   | "readyToInstall"
   | "installing"
@@ -85,6 +86,8 @@ export type UpdateAction =
   | "later"
   | "skip"
   | "cancel"
+  | "pause"
+  | "resume"
   | "retry"
   | "dismiss"
   | "check";
@@ -128,6 +131,23 @@ export interface UpdateSnapshot {
    * at 0% because nobody has said how long the file is says something false.
    */
   percent: number | null;
+  /**
+   * Bytes received in the current transfer, and its total — `0` when there
+   * is no transfer or the total is not yet known.
+   *
+   * They ride the publishes `percent` already earns rather than any of their
+   * own: the host stamps them on after deciding whether a snapshot changed,
+   * so wire traffic is unchanged and a byte event inside the same whole
+   * percent still crosses nothing ([B06]). A percent alone cannot say how
+   * fast a transfer is going or how much longer it has, and those are the
+   * two things a person watching one actually wants.
+   *
+   * Elided from {@link UpdateRenderSnapshot} for the same reason `percent`
+   * is: they move with it, and a consumer cannot put in React state what it
+   * was never handed.
+   */
+  receivedBytes: number;
+  expectedBytes: number;
   /** The failure text in `error`, `""` in every other stage. */
   message: string;
   /** Whether the current stage holds something the user can call off. */
@@ -157,6 +177,8 @@ export const IDLE_UPDATE: UpdateSnapshot = {
   releaseNotesFailed: false,
   userInitiated: false,
   percent: null,
+  receivedBytes: 0,
+  expectedBytes: 0,
   message: "",
   cancellable: false,
   revealCount: 0,
@@ -167,6 +189,7 @@ const STAGES: readonly UpdateStage[] = [
   "checking",
   "available",
   "downloading",
+  "paused",
   "extracting",
   "readyToInstall",
   "installing",
@@ -184,6 +207,8 @@ function snapshotsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
     a.releaseNotesFailed === b.releaseNotesFailed &&
     a.userInitiated === b.userInitiated &&
     a.percent === b.percent &&
+    a.receivedBytes === b.receivedBytes &&
+    a.expectedBytes === b.expectedBytes &&
     a.message === b.message &&
     a.cancellable === b.cancellable &&
     a.revealCount === b.revealCount
@@ -191,12 +216,15 @@ function snapshotsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
 }
 
 /**
- * The snapshot minus the one field that moves a hundred times a download.
+ * The snapshot minus the three fields that move a hundred times a download.
  *
  * What React renders from. Progress is deliberately absent rather than
  * optional: a consumer cannot put it in state it was never handed.
  */
-export type UpdateRenderSnapshot = Omit<UpdateSnapshot, "percent">;
+export type UpdateRenderSnapshot = Omit<
+  UpdateSnapshot,
+  "percent" | "receivedBytes" | "expectedBytes"
+>;
 
 function renderFieldsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
   return (
@@ -216,7 +244,12 @@ function renderFieldsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
 }
 
 function toRenderSnapshot(snapshot: UpdateSnapshot): UpdateRenderSnapshot {
-  const { percent: _percent, ...rest } = snapshot;
+  const {
+    percent: _percent,
+    receivedBytes: _received,
+    expectedBytes: _expected,
+    ...rest
+  } = snapshot;
   return rest;
 }
 
@@ -303,6 +336,8 @@ export function updateFromPayload(
     ? (rawStage as UpdateStage)
     : "idle";
   const percent = payload.percent;
+  const nonNegative = (raw: unknown): number =>
+    typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
   const revealCount =
     typeof payload.revealCount === "number" &&
     Number.isFinite(payload.revealCount)
@@ -326,6 +361,8 @@ export function updateFromPayload(
       typeof percent === "number" && Number.isFinite(percent)
         ? Math.min(100, Math.max(0, Math.round(percent)))
         : null,
+    receivedBytes: nonNegative(payload.receivedBytes),
+    expectedBytes: nonNegative(payload.expectedBytes),
     message: typeof payload.message === "string" ? payload.message : "",
     cancellable: payload.cancellable === true,
     revealCount,

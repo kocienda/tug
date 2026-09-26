@@ -15,6 +15,7 @@ pub mod base_motion;
 pub mod changeset;
 pub mod changeset_all;
 pub mod claude_auth;
+pub mod claude_download;
 pub mod claude_usage;
 pub mod code;
 pub mod deck_seatings;

@@ -63,6 +63,23 @@
  *   labelPosition — inline | tooltip (suppress inline label; surface in
  *                   a hover tooltip)
  *
+ * # Painting a fast-moving value instead of passing it
+ *
+ * A value that moves a hundred times a transfer must not be React state
+ * ([L06], [B07]). The `bar` variant has a seam for exactly that: take the
+ * root element from this component's forwarded ref, and from your own store
+ * subscription write
+ *
+ *   - `--tugx-progress-indicator-value` — the fraction, 0…1;
+ *   - `data-painted` — present while the value is real, absent while it is
+ *     not, which is what swaps the barber pole for the fill and back;
+ *   - `aria-valuenow` — the percent, since this component only computes one
+ *     from a `value` prop it was not given.
+ *
+ * Pass no `value` when you paint: the two paths are mutually exclusive by
+ * construction, and a caller that did both would be two sources of truth for
+ * one width. `update-tug-rows`'s `TransferBar` is the worked example.
+ *
  * Laws: [L02] state arrives via props from the consumer's external store;
  *       [L06] appearance via CSS / DOM attributes, never React state;
  *       [L13] motion is per internal variant — every glyph here is now a

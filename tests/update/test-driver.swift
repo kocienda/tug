@@ -144,6 +144,99 @@ do {
     check("and reports the whole percent", extracting.snapshot.percent == 1)
 }
 
+// ── The byte pair rides the percent's publishes, never its own [B06] ─────
+//
+// The deck needs bytes to say how fast a transfer is going and how much
+// longer it has, and the snapshot carries them — but carrying them must not
+// turn every byte event into a publish, which is what the gate above exists
+// to prevent. The machine stamps them on AFTER deciding, so both sides of
+// the comparison carry the previous stamp and a sub-percent event still
+// compares equal. Get the ordering wrong and the test above reports 10,000
+// publishes; these say what the bytes themselves are worth.
+do {
+    print("bytes ride the percent's publishes")
+
+    var machine = machineWithUpdateFound()
+    machine.apply(.downloadStarted)
+    check("no transfer means no total", machine.snapshot.expectedBytes == 0)
+
+    machine.apply(.downloadExpectedLength(10_000))
+    check("the total lands as soon as it is known",
+          machine.snapshot.expectedBytes == 10_000)
+
+    // A sub-percent event: nothing crosses…
+    check("a sub-percent byte event publishes nothing",
+          machine.apply(.downloadReceived(5)) == nil)
+
+    // …and the one that does cross carries the bytes as of that moment,
+    // including the ones the silent events brought in.
+    guard let crossed = machine.apply(.downloadReceived(95)) else {
+        check("crossing a percent publishes", false, "got nil")
+        exit(1)
+    }
+    check("the publish carries the running total", crossed.receivedBytes == 100)
+    check("and the expected total with it", crossed.expectedBytes == 10_000)
+
+    // A new transfer starts from nothing rather than from the last one's
+    // stamp — a rate estimator fed a stale total would report a restart as
+    // a stall.
+    machine.apply(.checkStarted(userInitiated: false))
+    check("a fresh check clears the bytes", machine.snapshot.receivedBytes == 0)
+    check("and clears the total", machine.snapshot.expectedBytes == 0)
+}
+
+// ── Stopping a download, and what it keeps [B12], [B13] ─────────────────
+//
+// *Stop for Now* is the fallback the `file:` spike left standing: Sparkle's
+// download cannot be picked up where it stopped, so the flow keeps the update
+// and throws the bytes away. Both halves of that are load-bearing — the update
+// staying is what Resume is about, and the bytes going is what the surface
+// promised before the press.
+do {
+    print("stopping a download")
+
+    var machine = machineWithUpdateFound()
+    machine.apply(.downloadStarted)
+    machine.apply(.downloadExpectedLength(10_000))
+    machine.apply(.downloadReceived(4_000))
+    check("the transfer is under way", machine.snapshot.percent == 40)
+
+    guard let stopped = machine.apply(.paused) else {
+        check("stopping publishes", false, "got nil")
+        exit(1)
+    }
+    check("a stopped download is paused", stopped.stage == .paused)
+    check("it keeps the version", stopped.version == "0.9.0")
+    check("and the build", stopped.build == "412")
+    // The bytes are gone with the transfer. A snapshot that kept them would
+    // let a surface say "4.0 kB of 10.0 kB" about bytes nothing can reach.
+    check("the bytes are discarded", stopped.receivedBytes == 0)
+    check("and so is the total", stopped.expectedBytes == 0)
+    check("and the percent with them", stopped.percent == nil)
+    // Nothing is in flight, so there is nothing to call off — the way out of
+    // a stopped download is Resume or the panel's own Close.
+    check("a stopped download is not cancellable", !stopped.isCancellable)
+
+    // The menu says the same thing it says for an update waiting on the user,
+    // because that is what this is. The word the button uses is the wizard's.
+    check("the menu offers the update rather than a stopped download",
+          stopped.menuTitle(appName: "Tug") == "Update to Tug 0.9.0...")
+
+    // Resume is a fresh check, which is the route every restart takes. What
+    // matters here is that it lands back on a download with nothing carried
+    // over from the one that stopped.
+    machine.apply(.checkStarted(userInitiated: true))
+    machine.apply(.updateFound(version: "0.9.0", build: "412", notes: nil, userInitiated: true))
+    machine.apply(.downloadStarted)
+    machine.apply(.downloadExpectedLength(10_000))
+    guard let restarted = machine.apply(.downloadReceived(100)) else {
+        check("the restarted download publishes", false, "got nil")
+        exit(1)
+    }
+    check("the download starts over rather than resuming", restarted.receivedBytes == 100)
+    check("and is downloading again", restarted.stage == .downloading)
+}
+
 // ── Release notes never block an update [B11] ────────────────────────────
 do {
     print("release notes")
@@ -372,6 +465,8 @@ do {
     check("downloading serializes", JSONSerialization.isValidJSONObject(payload(machine.snapshot)))
     check("carries the whole percent", payload(machine.snapshot)["percent"] as? Int == 25)
     check("downloading is cancellable", payload(machine.snapshot)["cancellable"] as? Bool == true)
+    check("carries the bytes received", payload(machine.snapshot)["receivedBytes"] as? UInt64 == 50)
+    check("carries the bytes expected", payload(machine.snapshot)["expectedBytes"] as? UInt64 == 200)
 
     // Release notes are arbitrary HTML or Markdown, which is why the host
     // serializes rather than interpolating. A payload carrying quotes,

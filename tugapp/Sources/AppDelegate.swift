@@ -2507,6 +2507,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let id = menuItem.identifier?.rawValue else { return true }
 
+        // An app modal freezes the deck's card count [B01]. The Open Recent
+        // entries are built per open by `rebuildOpenRecentMenu` and carry no
+        // registry gate of their own — their identifiers are positional
+        // (`file.openRecent.0`…), so no table could carry them — and the
+        // prefix is the whole of their rule. It takes in `file.openRecent.
+        // clear` too, whose registry gate says the same thing through
+        // `changesCardCount`; one item answered twice with one answer is
+        // cheaper than a prefix with a hole in it.
+        if menuState.appModalOpen, id.hasPrefix("file.openRecent.") {
+            return false
+        }
+
         // Registry tier, ahead of everything hand-rolled. A command that
         // publishes a gate has answered for itself — enablement, checkmark,
         // and dynamic title all come from the one table the frontend
@@ -2527,7 +2539,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // so all three need a deck to open it into — dark until the frontend
         // has signalled ready.
         case "app.about", "app.settings", "app.keyboardShortcuts":
-            return frontendReady
+            // …and dark under an app modal, which all three would open a card
+            // behind [B03]. The rule is "anything that changes the card
+            // count", with no exceptions — a list with exceptions is a list
+            // somebody forgets to add to.
+            return frontendReady && !menuState.appModalOpen
+        // New Session and New Jot each put a card on the deck. Host-owned:
+        // `newSessionCard` has no registry entry at all, and New Jot's entry
+        // publishes only a chord, so neither is answered by the tier above.
+        case "file.newSessionCard", "file.newJot":
+            return !menuState.appModalOpen
         // The update door's title AND enablement, set here during the
         // validation sweep for the same reason Undo / Redo are: the live
         // truth is the driver's snapshot, which no pushed frontend state can
@@ -3426,12 +3447,25 @@ struct MenuState {
     /// the web view to be captured instead of firing.
     var captureArmed: Bool = false
 
+    /// An app-modal wizard (ConfigureTug, UpdateTug, TugVersionGate) is on
+    /// screen. Radix traps the web view's focus and pointer; the menu bar is
+    /// ours and is not trapped, so every item that would change the number of
+    /// cards on the deck goes dark for the span [B01].
+    ///
+    /// This field answers for the items the host still validates by hand —
+    /// New Session, New Jot, About, Settings, Keyboard Shortcuts, and the
+    /// Open Recent entries. Every item whose gate the command registry
+    /// publishes has the same fact folded in on the frontend side, and is
+    /// answered by the registry tier above [B02].
+    var appModalOpen: Bool = false
+
     static let empty = MenuState()
 
     init() {}
 
     init(payload: [String: Any]) {
         captureArmed = payload["captureArmed"] as? Bool ?? false
+        appModalOpen = payload["appModalOpen"] as? Bool ?? false
         if let rawPanes = payload["panes"] as? [[String: Any]] {
             panes = rawPanes.compactMap { entry in
                 guard let id = entry["id"] as? String else { return nil }

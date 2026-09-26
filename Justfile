@@ -1024,8 +1024,12 @@ release *ARGS:
 # being watched. The cost is that ^C ends the whole rehearsal — feed,
 # scratch directory and app together.
 #
+# A rate in kilobytes per second throttles the archive so the download can be
+# watched, and paused and resumed by hand ([B14] of the wizard-downloads
+# brief); 0 serves at loopback speed.
+#
 # Stand up a local signed feed and run the app against it (watch the pill).
-update-rehearse PORT="8765":
+update-rehearse PORT="8765" RATE="0":
     #!/usr/bin/env bash
     set -euo pipefail
     # Dev loop = cwd-derived identity; the forced bundle id is app-test-only.
@@ -1049,7 +1053,7 @@ update-rehearse PORT="8765":
     # anything, so this takes a minute. It has to be answering before the app
     # starts: automatic checks are on, and a check against a dead port is an
     # error alert rather than a pill.
-    bash tests/update/local-appcast.sh "$APP_DIR" "{{PORT}}" &
+    bash tests/update/local-appcast.sh "$APP_DIR" "{{PORT}}" "{{RATE}}" &
     FEED_PID=$!
     echo "==> Waiting for $FEED_URL"
     for _ in $(seq 1 300); do

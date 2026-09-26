@@ -78,7 +78,15 @@ import { sessionPrivateStore } from "./lib/session-private-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
 import { sessionUsageStore } from "./lib/session-usage-store";
 import { sessionCitationStore } from "./lib/session-citation-store";
-import { applyAuthResultPayload, applyInstallResultPayload, applyLogoutResultPayload } from "./lib/auth-store";
+import {
+  applyAuthResultPayload,
+  applyDownloadEnded,
+  applyDownloadFallbackPayload,
+  applyDownloadProgressPayload,
+  applyDownloadStoppedPayload,
+  applyInstallResultPayload,
+  applyLogoutResultPayload,
+} from "./lib/auth-store";
 import {
   applyVersionResultPayload,
   applyUpdateResultPayload,
@@ -89,6 +97,7 @@ import {
 } from "./lib/host-tools-store";
 import { requestLogout } from "./lib/logout-store";
 import { requestConfigureTug } from "./lib/configure-tug-request-store";
+import { appModalStore } from "./lib/app-modal-store";
 import { sessionSpawnErrorStore } from "./lib/session-spawn-error-store";
 import {
   fireFreshSpawn,
@@ -452,6 +461,26 @@ export function initActionDispatch(
     applyInstallResultPayload(payload);
   });
 
+  // claude_install_progress: bytes of the Tug-managed download, published on
+  // a whole-percent change ([B06]). The row's bar and its detail line are
+  // painted from the store directly, so these frames cost no re-render.
+  registerAction("claude_install_progress", (payload) => {
+    applyDownloadProgressPayload(payload);
+  });
+
+  // claude_download_stopped: the download was paused (bytes kept, on disk) or
+  // cancelled (bytes gone). No install result follows a stop — the row is
+  // holding its place rather than finished.
+  registerAction("claude_download_stopped", (payload) => {
+    applyDownloadStoppedPayload(payload);
+  });
+
+  // claude_install_fallback: the release channel could not be read, so the
+  // official script is running instead ([B08]). No bytes will follow.
+  registerAction("claude_install_fallback", () => {
+    applyDownloadFallbackPayload();
+  });
+
   // claude_version_result: tugcast's answer to `check_claude_version` — the
   // installed version and the newest stable release. Also re-broadcast after an
   // install or update, so the row settles on what actually landed.
@@ -463,6 +492,10 @@ export function initActionDispatch(
   // re-probe arrives separately as claude_version_result).
   registerAction("claude_update_result", (payload) => {
     applyUpdateResultPayload(payload);
+    // The update's transfer was the auth store's — it is the one that carries
+    // the bytes and the busy flag — and this frame is the only thing that ends
+    // it, because an update reports on the version store's frame instead.
+    applyDownloadEnded();
   });
 
   // host_tools_result: tugcast's answer to `check_host_tools` — whether this
@@ -496,7 +529,13 @@ export function initActionDispatch(
   // setup: app-level "Configure Tug…" trigger from the Tug menu. Bumps the
   // configure-tug-request nonce; ConfigureTugRequest stops any live turns and then opens
   // the wizard on demand.
+  //
+  // Dropped outright while the update wizard holds the app ([B04]). The menu
+  // item is dark for the same span, so this is the palette's and the control
+  // frame's half of one rule — an action that raised a second app-modal over
+  // the first would stack them, which is the thing Spec S02 forbids.
   registerAction("configure-tug", () => {
+    if (appModalStore.isOpenFor("update-tug")) return;
     requestConfigureTug();
   });
 

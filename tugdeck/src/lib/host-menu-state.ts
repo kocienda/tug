@@ -55,6 +55,7 @@ import type { SidebarMenuFact } from "../components/tugways/command-registry";
 import { keymapRegistry } from "../components/tugways/keymap-registry";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { chordCaptureState } from "../components/tugways/chord-capture-state";
+import { appModalStore } from "./app-modal-store";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
 import { resolveColumnMenuFact } from "./layout-selection";
 import { focusTravelDirections } from "./directional-focus";
@@ -316,6 +317,12 @@ function chordField(
  * migrate on their own schedules, and View ▸ Zoom In — registry chord, host
  * predicate — is permanently in that state rather than passing through it.
  *
+ * A `changesCardCount` entry is the one other way in: it publishes a gate
+ * while an app-modal wizard is open, whether or not it is mirrored, because
+ * the rule it carries is the frontend's answer even for an item whose
+ * ordinary enablement is not ([B02]). Outside a modal it contributes
+ * nothing, so an unmirrored item never gains a default-true gate.
+ *
  * Pure given the chain's current answers — exported for unit tests.
  */
 export function computeCommandCapabilities(
@@ -328,14 +335,22 @@ export function computeCommandCapabilities(
     const mirrored = isMirroredEntry(entry);
     const menuItemId = entry.menuItemId;
     if (menuItemId === undefined) continue;
-    if (!mirrored && !(menuItemId in chords)) continue;
+    const frozenByModal = entry.changesCardCount === true && chain.menu.appModalOpen;
+    if (!mirrored && !frozenByModal && !(menuItemId in chords)) continue;
     // A throwing predicate loses its own item's gate and nothing else. The
     // whole block is computed inside the payload flush, so letting one
     // predicate escape would abort the push and freeze every menu fact the
     // host has — the item that falls back to its own default is a far
     // smaller failure than a menu bar stuck on a stale snapshot.
     try {
-      const enabled = mirrored ? validateCommand(entry, chain) : undefined;
+      // The modal wins over the entry's own answer, and supplies one where
+      // the entry has none — an unmirrored item's gate exists only for the
+      // span the modal is up.
+      const enabled = frozenByModal
+        ? false
+        : mirrored
+          ? validateCommand(entry, chain)
+          : undefined;
       const rawState = mirrored ? queryCommandState(entry, chain) : undefined;
       const title = mirrored ? entry.dynamicTitle?.(chain) : undefined;
       gates[menuItemId] = {
@@ -696,6 +711,20 @@ export interface MenuStatePayload {
    * not recorded.
    */
   captureArmed: boolean;
+  /**
+   * An app-modal wizard — `ConfigureTug`, `UpdateTug` or `TugVersionGate` —
+   * is on screen, so nothing may change the number of cards on the deck
+   * ([B01]). Radix traps the web view; AppKit's menu bar is not trapped, and
+   * ⌘N under an open wizard would otherwise open a Session card behind it.
+   *
+   * The fact rides the push twice, because enablement has two tiers ([B02]).
+   * Every `changesCardCount` registry entry has it folded into its own gate
+   * in `commands`, and this field is what the host reads for the items it
+   * still validates by hand — New Session, New Jot, About, Settings,
+   * Keyboard Shortcuts, and the Open Recent entries. No chord is detached:
+   * a dimmed item eats its chord with a beep, which is the wanted answer.
+   */
+  appModalOpen: boolean;
 }
 
 /**
@@ -936,6 +965,10 @@ export class HostMenuStatePublisher {
   private activeTheme: string = BASE_THEME_NAME;
   /** Whether a chord capture is armed (see {@link MenuStatePayload.captureArmed}). */
   private captureArmed = false;
+  /** Whether an app-modal wizard is up (see {@link MenuStatePayload.appModalOpen}). */
+  private appModalOpen = false;
+  /** Whether `UpdateTug` specifically is up (see {@link CommandMenuFacts.updateTugOpen}). */
+  private updateTugOpen = false;
   /** The gates of the last flush, for {@link lastGateFor}. */
   private lastGates: Record<string, MenuCommandGate> = {};
   private lastSent: string | null = null;
@@ -1007,6 +1040,19 @@ export class HostMenuStatePublisher {
 
   setCaptureArmed(armed: boolean): void {
     this.captureArmed = armed;
+    this.scheduleFlush();
+  }
+
+  /**
+   * Publish whether an app-modal wizard is on screen ([B01]), and whether
+   * the one holding the app is `UpdateTug` ([B04]).
+   *
+   * Both facts move together because one store answers both, and splitting
+   * them into two setters would mean two flushes for one change.
+   */
+  setAppModalState(open: boolean, updateTugOpen: boolean): void {
+    this.appModalOpen = open;
+    this.updateTugOpen = updateTugOpen;
     this.scheduleFlush();
   }
 
@@ -1153,6 +1199,8 @@ export class HostMenuStatePublisher {
       // Delete row's gate and the rows it would delete from can never
       // disagree about how many there are ([P07]).
       spaceCount: spaces.length,
+      appModalOpen: this.appModalOpen,
+      updateTugOpen: this.updateTugOpen,
     };
     this.lastFacts = facts;
     const commands = computeCommandCapabilities(this.validationSource(facts));
@@ -1172,6 +1220,7 @@ export class HostMenuStatePublisher {
       activeTheme: this.activeTheme,
       openQuickly,
       captureArmed: this.captureArmed,
+      appModalOpen: this.appModalOpen,
     };
     const serialized = JSON.stringify(payload);
     if (serialized === this.lastSent) return;
@@ -1283,6 +1332,16 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // view, and detaching is the only way through its scan).
   chordCaptureState.subscribe(() => {
     publisher.setCaptureArmed(chordCaptureState.isArmed());
+  });
+  // An app-modal wizard freezes the deck's card count ([B01]). The fact rides
+  // the push twice — folded into the `changesCardCount` entries' gates, and
+  // as the top-level field the host reads for the items it still owns — so
+  // one subscription feeds both tiers.
+  appModalStore.subscribe(() => {
+    publisher.setAppModalState(
+      appModalStore.isOpen(),
+      appModalStore.isOpenFor("update-tug"),
+    );
   });
   // The native layer of `resolveChord`, joined from the registry's menu
   // claims and this publisher's own last-computed gates ([P15]). An item

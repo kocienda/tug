@@ -57,6 +57,8 @@ describe("update-store: a host snapshot lands whole", () => {
       releaseNotesFailed: false,
       userInitiated: true,
       percent: null,
+      receivedBytes: 0,
+      expectedBytes: 0,
       message: "",
       cancellable: false,
       revealCount: 0,
@@ -241,6 +243,72 @@ describe("update-store: progress never reaches React [L06]", () => {
       updateFromPayload(available({ stage: "downloading", percent: 42 })),
     );
     expect("percent" in updateStore.getRenderSnapshot()).toBe(false);
+  });
+
+  it("carries no byte pair on the render surface either", () => {
+    // They move with the percent, so a consumer that could read them could
+    // put them in React state and undo the whole arrangement ([B06]).
+    updateStore.apply(
+      updateFromPayload(
+        available({
+          stage: "downloading",
+          percent: 42,
+          receivedBytes: 20_000_000,
+          expectedBytes: 48_100_000,
+        }),
+      ),
+    );
+    const render = updateStore.getRenderSnapshot();
+    expect("receivedBytes" in render).toBe(false);
+    expect("expectedBytes" in render).toBe(false);
+    // And the painter still has them.
+    expect(updateStore.getSnapshot().receivedBytes).toBe(20_000_000);
+    expect(updateStore.getSnapshot().expectedBytes).toBe(48_100_000);
+  });
+
+  it("holds the render reference across a byte-and-percent change", () => {
+    updateStore.apply(
+      updateFromPayload(
+        available({
+          stage: "downloading",
+          percent: 1,
+          receivedBytes: 500_000,
+          expectedBytes: 48_100_000,
+        }),
+      ),
+    );
+    const first = updateStore.getRenderSnapshot();
+    for (let percent = 2; percent <= 100; percent += 1) {
+      updateStore.apply(
+        updateFromPayload(
+          available({
+            stage: "downloading",
+            percent,
+            receivedBytes: Math.round((48_100_000 * percent) / 100),
+            expectedBytes: 48_100_000,
+          }),
+        ),
+      );
+    }
+    expect(updateStore.getRenderSnapshot()).toBe(first);
+  });
+
+  it("a missing or nonsense byte pair reads as zero rather than as NaN", () => {
+    // An older host, or a partial payload. Zero is what "no transfer" looks
+    // like, and it is what the detail line already knows to say `Starting…`
+    // about.
+    updateStore.apply(
+      updateFromPayload(
+        available({
+          stage: "downloading",
+          percent: 10,
+          receivedBytes: "lots",
+          expectedBytes: -1,
+        }),
+      ),
+    );
+    expect(updateStore.getSnapshot().receivedBytes).toBe(0);
+    expect(updateStore.getSnapshot().expectedBytes).toBe(0);
   });
 
   it("moves the render snapshot when anything else changes", () => {

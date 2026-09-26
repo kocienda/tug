@@ -91,6 +91,113 @@ async fn broadcast_version_result(cat: Option<broadcast::Sender<Frame>>) {
     }
 }
 
+/// Send one CONTROL frame, or drop it if nothing is listening.
+fn send_control(cat: &Option<broadcast::Sender<Frame>>, body: &serde_json::Value) {
+    let Some(cat) = cat else { return };
+    if let Ok(bytes) = serde_json::to_vec(body) {
+        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
+    }
+}
+
+/// Run a Claude Code install or update the way [B08] has it: Tug fetches the
+/// release itself and reports the bytes, and the official script is what
+/// answers when the release channel does not.
+///
+/// `result_action` is the frame the wizard's row is waiting on —
+/// `claude_install_result` for a first install, `claude_update_result` for an
+/// update. The two differ in nothing but what the row says while it runs.
+///
+/// A resume is the same call: the partial file on disk is what makes it one,
+/// so nothing here has to know whether it is starting or continuing. What the
+/// deck reads off the first `claude_install_progress` frame is `received` — a
+/// resume that answers 0 started over (a newer version, or a server that
+/// ignored the range), which is the one thing the row has to say differently.
+async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action: &'static str) {
+    use crate::feeds::claude_download::{self, FetchOutcome, StopReason};
+
+    let token = claude_download::take_control();
+    let dir = claude_download::download_dir();
+    let platform = claude_download::platform();
+    // The last thing the fetch reported, so a stop can say where it stopped
+    // without the fetch having to hand its bookkeeping back.
+    let last = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0u64, String::new())));
+
+    let progress_cat = cat.clone();
+    let progress_last = std::sync::Arc::clone(&last);
+    let outcome = claude_download::fetch_binary(
+        claude_download::DOWNLOAD_BASE_URL,
+        &dir,
+        &platform,
+        &token,
+        move |received, expected, version| {
+            *progress_last.lock().unwrap_or_else(|e| e.into_inner()) =
+                (received, expected, version.to_string());
+            send_control(
+                &progress_cat,
+                &serde_json::json!({
+                    "action": "claude_install_progress",
+                    "received": received,
+                    "expected": expected,
+                    "version": version,
+                }),
+            );
+        },
+    )
+    .await;
+    claude_download::release_control(&token);
+
+    let (ok, error) = match outcome {
+        FetchOutcome::Ready { path, version } => {
+            info!(%version, "claude install: verified, running the installer");
+            claude_download::run_installer(&path).await
+        }
+        FetchOutcome::Stopped(reason) => {
+            let (received, expected, version) =
+                last.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            send_control(
+                &cat,
+                &serde_json::json!({
+                    "action": "claude_download_stopped",
+                    "reason": match reason {
+                        StopReason::Paused => "paused",
+                        StopReason::Cancelled => "cancelled",
+                    },
+                    "received": received,
+                    "expected": expected,
+                    "version": version,
+                }),
+            );
+            // A stop is not a result: the row is paused or back at its offer,
+            // and a `claude_install_result` would end the install it is still
+            // holding. Nothing else is sent.
+            return;
+        }
+        FetchOutcome::Failed(message) => (false, Some(message)),
+        FetchOutcome::Unresolved => {
+            // The release channel did not answer in a shape this can use. The
+            // official script is unchanged and still knows how ([B08]); the
+            // row runs its barber pole because there are no bytes to count.
+            info!("claude install: falling back to the official script");
+            send_control(
+                &cat,
+                &serde_json::json!({ "action": "claude_install_fallback" }),
+            );
+            crate::feeds::claude_auth::install().await
+        }
+    };
+
+    send_control(
+        &cat,
+        &serde_json::json!({ "action": result_action, "ok": ok, "error": error }),
+    );
+    // Re-probe regardless — on success `claude` is now reachable.
+    let state = crate::feeds::claude_auth::probe().await;
+    broadcast_auth_result(cat.clone(), state, None);
+    // …and report what version that install landed, so the row names it
+    // rather than staying blank until the next launch.
+    broadcast_version_result(cat).await;
+}
+
 /// Broadcast a `host_tools_result` CONTROL frame from a probed host.
 ///
 /// The floor rides along rather than being restated in the deck, so the one
@@ -264,33 +371,51 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 }
             });
         }
-        "install_claude" => {
-            // Tug-managed install: run the official installer, report the
-            // outcome, then re-probe (the installer drops `claude` in
-            // ~/.local/bin, which claude_executable() finds without a PATH
-            // edit). Spawned so dispatch returns while the install runs.
-            info!("dispatch_action: claude install requested");
+        "install_claude" | "claude_download_resume" => {
+            // Tug-managed install: fetch the release ourselves so the row can
+            // draw a real bar, verify it, and hand the binary its own
+            // `install` subcommand; the official script is the fallback when
+            // the channel cannot be read ([B08]). A resume is the same call —
+            // the partial file on disk is what makes it one ([B09]). Spawned
+            // so dispatch returns while the download runs.
+            info!(action, "dispatch_action: claude install requested");
             let cat = stream_outputs
                 .get(&FeedId::CONTROL)
                 .map(|(tx, _)| tx.clone());
-            tokio::spawn(async move {
-                let (ok, error) = crate::feeds::claude_auth::install().await;
-                if let Some(cat) = &cat {
-                    let body = serde_json::json!({
-                        "action": "claude_install_result",
-                        "ok": ok,
-                        "error": error,
-                    });
-                    if let Ok(bytes) = serde_json::to_vec(&body) {
-                        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-                    }
-                }
-                // Re-probe regardless — on success `claude` is now reachable.
-                let state = crate::feeds::claude_auth::probe().await;
-                broadcast_auth_result(cat.clone(), state, None);
-                // …and report what version that install landed, so the row
-                // names it rather than staying blank until the next launch.
-                broadcast_version_result(cat).await;
+            // Which row a resume belongs to is the deck's to say: the partial
+            // file knows its bytes and its version, not whether the user
+            // pressed Install or Update, and the two rows wait on different
+            // result frames.
+            let updating = serde_json::from_slice::<serde_json::Value>(raw_payload)
+                .ok()
+                .and_then(|v| v.get("update").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
+            let result_action = if updating {
+                "claude_update_result"
+            } else {
+                "claude_install_result"
+            };
+            tokio::spawn(run_claude_install(cat, result_action));
+        }
+        "claude_download_pause" => {
+            // Drop the in-flight request and keep the partial file ([B09]).
+            // A press that lands after the last byte finds nothing running,
+            // which is a no-op rather than an error.
+            info!("dispatch_action: claude download pause requested");
+            crate::feeds::claude_download::stop(crate::feeds::claude_download::StopReason::Paused);
+        }
+        "claude_download_cancel" => {
+            // Cancel is pause plus forgetting the bytes. The sweep runs
+            // whether or not anything was in flight: cancelling an *already*
+            // paused download is the case where nothing is, and the partial
+            // is the only thing left to remove.
+            info!("dispatch_action: claude download cancel requested");
+            crate::feeds::claude_download::stop(
+                crate::feeds::claude_download::StopReason::Cancelled,
+            );
+            let dir = crate::feeds::claude_download::download_dir();
+            tokio::task::spawn_blocking(move || {
+                crate::feeds::claude_download::discard_partials(&dir)
             });
         }
         "check_claude_version" => {
@@ -317,20 +442,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
             let cat = stream_outputs
                 .get(&FeedId::CONTROL)
                 .map(|(tx, _)| tx.clone());
-            tokio::spawn(async move {
-                let (ok, error) = crate::feeds::claude_auth::install().await;
-                if let Some(cat) = &cat {
-                    let body = serde_json::json!({
-                        "action": "claude_update_result",
-                        "ok": ok,
-                        "error": error,
-                    });
-                    if let Ok(bytes) = serde_json::to_vec(&body) {
-                        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-                    }
-                }
-                broadcast_version_result(cat).await;
-            });
+            tokio::spawn(run_claude_install(cat, "claude_update_result"));
         }
         "claude_sign_in" => {
             // Drive `claude auth login` and report the result back so the

@@ -39,11 +39,38 @@
   border-radius: inherit;
   background-color: var(--tugx-progress-indicator-fill, currentColor);
   transition: width calc(300ms * var(--tug-timing, 1)) ease;
+  /* Two ways in, and the outer one wins [B07]. `--tugx-progress-indicator-value`
+     is the PAINTED seam: a host that owns a fast-moving value writes it on the
+     indicator root from a store subscription and never wakes React. The inner
+     `--tugx-progress-bar-prop-value` is what the component itself writes inline
+     when a `value` prop was passed. They are never both set — a caller either
+     passes the value or paints it — so the fallback chain is a choice rather
+     than a precedence puzzle. */
+  width: calc(
+    var(--tugx-progress-indicator-value, var(--tugx-progress-bar-prop-value, 0)) * 100%
+  );
 }
 
 .tug-progress-bar-indeterminate {
   width: 100% !important;
   background-color: transparent;
+}
+
+/* A painted bar is determinate without a render.
+
+   React decides the barber pole from the `value` PROP, and a painted bar
+   passes none — so without this it would run the stripes forever, however
+   far along the transfer actually is. The painter writes `data-painted` on
+   the indicator root beside the value, and the stripes give way to the fill.
+   Removing the attribute puts the pole back, which is what a transfer whose
+   total is not yet known should show. [B07] */
+[data-slot="tug-progress-indicator"][data-painted] .tug-progress-bar-indeterminate {
+  width: calc(var(--tugx-progress-indicator-value, 0) * 100%) !important;
+  background-color: var(--tugx-progress-indicator-fill, currentColor);
+}
+
+[data-slot="tug-progress-indicator"][data-painted] .tug-progress-bar-indeterminate::before {
+  content: none;
 }
 
 /* The stripes live on a layer one 28.28px period wider than the fill,

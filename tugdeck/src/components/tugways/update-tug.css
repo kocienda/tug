@@ -31,6 +31,17 @@
   color: var(--tug7-element-tone-text-normal-success-rest);
 }
 
+/* The cost of stopping, under the download row's bar. Quieter than the detail
+ * line above it — it is a consequence rather than a status — and on its own
+ * line so the bar does not have to share one. */
+.update-tug-stop-cost {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.7;
+}
+
 /* The panel's one bottom button. The row list ends flush against the panel
  * padding, so the actions row carries the gap — the same header rhythm the title
  * uses above the list. */

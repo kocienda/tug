@@ -62,3 +62,14 @@
 .configure-tug .tug-alert-actions {
   margin-top: var(--tugx-header-margin);
 }
+
+/* The line under the bar that says a paused resume started over. Quieter than
+ * the detail line above it — it is context for what the numbers are doing, not
+ * a second reading of them. */
+.configure-tug-restarted {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.7;
+}

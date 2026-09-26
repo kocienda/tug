@@ -20,6 +20,18 @@
  * Color is inherited from the parent's `--tugx-progress-indicator-fill`.
  * Track uses `--tug7-surface-progress-primary-normal-default-rest`.
  *
+ * # The painted seam
+ *
+ * The fill's width is a CSS `calc` over a custom property rather than an
+ * inline `width`, which is what lets a value that moves a hundred times a
+ * download be drawn without a render ([B07]). A caller that passes `value`
+ * gets `--tugx-progress-bar-prop-value` written inline here and notices
+ * nothing. A caller that owns a fast-moving value instead writes
+ * `--tugx-progress-indicator-value` (0…1) on the indicator root from its own
+ * store subscription, plus `data-painted` to take the barber pole off — the
+ * two never both apply, because a caller either passes the value or paints
+ * it. See `tug-progress-bar.css`.
+ *
  * Laws: [L06] fill width via inline style, [L13] CSS keyframes only,
  *       [L16] pairings declared, [L19] component authoring guide
  */
@@ -54,15 +66,15 @@ export const TugProgressBar = React.forwardRef<HTMLDivElement, TugProgressBarPro
       ? Math.min(Math.max(value / max, 0), 1)
       : 0;
 
-    let widthPct: number | undefined;
+    let widthFraction: number | undefined;
     if (state === "completed") {
-      widthPct = 100;
+      widthFraction = 1;
     } else if (state === "stopped") {
-      widthPct = 0;
+      widthFraction = 0;
     } else if (isDeterminate) {
-      widthPct = fraction * 100;
+      widthFraction = fraction;
     } else if (state === "aborted") {
-      widthPct = 0;
+      widthFraction = 0;
     }
 
     const isIndeterminate =
@@ -76,18 +88,20 @@ export const TugProgressBar = React.forwardRef<HTMLDivElement, TugProgressBarPro
     // that retains its last full fill) as the new operation starting full and
     // emptying. Forward growth keeps the smooth 300ms transition. [L06]
     const prevDeterminateRef = useRef(isDeterminate);
-    const prevWidthRef = useRef(widthPct);
+    const prevWidthRef = useRef(widthFraction);
     const fillRef = useRef<HTMLDivElement>(null);
 
     useLayoutEffect(() => {
       const wasDeterminate = prevDeterminateRef.current;
       const prevWidth = prevWidthRef.current;
       prevDeterminateRef.current = isDeterminate;
-      prevWidthRef.current = widthPct;
+      prevWidthRef.current = widthFraction;
 
       const switchedToDeterminate = !wasDeterminate && isDeterminate;
       const decreased =
-        prevWidth !== undefined && widthPct !== undefined && widthPct < prevWidth;
+        prevWidth !== undefined &&
+        widthFraction !== undefined &&
+        widthFraction < prevWidth;
       if ((switchedToDeterminate || decreased) && fillRef.current) {
         fillRef.current.style.transition = "none";
         requestAnimationFrame(() => {
@@ -96,7 +110,7 @@ export const TugProgressBar = React.forwardRef<HTMLDivElement, TugProgressBarPro
           }
         });
       }
-    }, [isDeterminate, widthPct]);
+    }, [isDeterminate, widthFraction]);
 
     const sizeStyle: React.CSSProperties = {
       height: `${size}px`,
@@ -122,7 +136,13 @@ export const TugProgressBar = React.forwardRef<HTMLDivElement, TugProgressBarPro
             "tug-progress-bar-fill",
             isIndeterminate && state === "running" && "tug-progress-bar-indeterminate",
           )}
-          style={widthPct !== undefined ? { width: `${widthPct}%` } : undefined}
+          style={
+            widthFraction !== undefined
+              ? ({
+                  ["--tugx-progress-bar-prop-value" as string]: String(widthFraction),
+                } as React.CSSProperties)
+              : undefined
+          }
         />
       </div>
     );

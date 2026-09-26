@@ -23,7 +23,14 @@
  *   1. Claude Code — Tug-managed install + recheck, then the version it landed
  *      against the newest stable release, with an Update offer when it's
  *      behind. The updater IS the installer (the official installer always
- *      lands the newest stable build), so both live on one row.
+ *      lands the newest stable build), so both live on one row. Tug fetches
+ *      the release itself ([B08]) rather than piping the official script into
+ *      bash, so the row draws a real bar with bytes, rate and time remaining,
+ *      and the transfer can be paused and resumed ([B09]) — the partial file
+ *      is on disk, so a resume continues from the byte it stopped at. The
+ *      script is still the fallback for a release channel that cannot be read,
+ *      and there the row runs a barber pole and offers no Pause, because there
+ *      would be nothing behind it.
  *   2. Logged in to Claude — browser OAuth shell-out.
  *   3. Choose a default project directory — a path chooser prefilled with
  *      `~/tug`. Confirming creates the directory and writes it to tugbank as
@@ -83,10 +90,18 @@
 
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { CircleCheck, Rocket } from "lucide-react";
-import { type ReactElement, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { authStore, useAuth } from "@/lib/auth-store";
 import { useVersionGateOpen, deriveConfigureTugOpen } from "@/lib/macos-support";
+import { usePublishAppModalOpen } from "@/lib/app-modal-store";
 import { useAppTransportState } from "@/lib/transport-state-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { fireFreshSpawn } from "@/lib/session-restore";
@@ -121,6 +136,12 @@ import {
 import { hostToolsStore, useHostTools } from "@/lib/host-tools-store";
 import { useNetworkPath } from "@/lib/network-path-store";
 import {
+  formatBytes,
+  newRateEstimator,
+  transferDetailLine,
+  type RateEstimator,
+} from "@/lib/transfer-rate";
+import {
   subscriptionLabel,
   pendingOpenStepCopy,
   claudeInstalledCopy,
@@ -136,6 +157,7 @@ import {
 import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser } from "./tug-file-chooser";
 import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
+import { TugProgressIndicator } from "./tug-progress-indicator";
 import "./tug-alert.css";
 import "./configure-tug.css";
 
@@ -164,6 +186,112 @@ function parseProjectPath(entry: TaggedValue | undefined): string {
 }
 
 /**
+ * The Claude Code download's bar, painted rather than rendered ([B05], [B07],
+ * [L06]).
+ *
+ * The same seam the update wizard's bar uses, over `authStore` instead: the
+ * fraction goes onto the custom property, `data-painted` switches the bar off
+ * the barber pole, and `aria-valuenow` is there for anyone reading the row
+ * rather than looking at it. Indeterminate until a total is known, which for
+ * this download means until the manifest has been read — and forever on the
+ * script fallback, which reports nothing at all ([B08]).
+ */
+function ClaudeDownloadBar(): ReactElement {
+  const [el, setEl] = useState<HTMLSpanElement | null>(null);
+  useLayoutEffect(() => {
+    if (el === null) return;
+    const paint = (): void => {
+      const { receivedBytes, expectedBytes } = authStore.getSnapshot();
+      if (expectedBytes <= 0) {
+        el.style.removeProperty("--tugx-progress-indicator-value");
+        el.removeAttribute("data-painted");
+        el.removeAttribute("aria-valuenow");
+        return;
+      }
+      const fraction = Math.min(1, receivedBytes / expectedBytes);
+      el.style.setProperty("--tugx-progress-indicator-value", String(fraction));
+      el.setAttribute("data-painted", "");
+      el.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+    };
+    paint();
+    return authStore.subscribe(paint);
+  }, [el]);
+  return (
+    <TugProgressIndicator
+      ref={setEl}
+      variant="bar"
+      state="running"
+      size={6}
+      aria-label="Download progress"
+      data-testid="configure-tug-bar"
+    />
+  );
+}
+
+/**
+ * The download's detail line — bytes, rate and time remaining ([B06]), written
+ * onto its own span from a direct store subscription.
+ *
+ * The rate is measured here from the (bytes, time) pairs the store hands over,
+ * exactly as the update wizard measures its own: tugcast publishes on a whole
+ * percent, and how fast and how much longer are what a person watching a slow
+ * download is actually deciding on.
+ */
+function ClaudeDownloadDetail(): ReactElement {
+  const [el, setEl] = useState<HTMLSpanElement | null>(null);
+  useLayoutEffect(() => {
+    if (el === null) return;
+    // In the closure rather than a ref: it resets when the row unmounts, which
+    // is exactly when a new transfer starts.
+    let rate: RateEstimator = newRateEstimator();
+    const paint = (): void => {
+      const { receivedBytes, expectedBytes } = authStore.getSnapshot();
+      rate = rate.sample(receivedBytes, performance.now());
+      el.textContent = transferDetailLine(
+        receivedBytes,
+        expectedBytes,
+        rate.bytesPerSecond,
+      );
+      if (expectedBytes <= 0) el.removeAttribute("data-progress");
+      else
+        el.setAttribute(
+          "data-progress",
+          String(Math.floor((receivedBytes / expectedBytes) * 100)),
+        );
+    };
+    paint();
+    return authStore.subscribe(paint);
+  }, [el]);
+  return <span ref={setEl} data-testid="configure-tug-progress" />;
+}
+
+/**
+ * What a stopped download is holding, said on the paused row.
+ *
+ * The opposite sentence to the update wizard's: Sparkle's *Stop for Now*
+ * discards, so that row names what the press would cost. Here the bytes are a
+ * partial file on disk under Tug's own download directory, so the row names
+ * what it kept — and Resume continues from that byte rather than from the top
+ * ([B09]).
+ */
+function ClaudeHeldBytes(): ReactElement {
+  const [el, setEl] = useState<HTMLSpanElement | null>(null);
+  useLayoutEffect(() => {
+    if (el === null) return;
+    const paint = (): void => {
+      const { receivedBytes, expectedBytes } = authStore.getSnapshot();
+      el.textContent =
+        expectedBytes > 0
+          ? `Paused at ${formatBytes(receivedBytes)} of ${formatBytes(expectedBytes)} — Resume picks up where it stopped.`
+          : "Paused. Resume picks up where it stopped.";
+    };
+    paint();
+    return authStore.subscribe(paint);
+  }, [el]);
+  return <span ref={setEl} data-testid="configure-tug-held" />;
+}
+
+/**
  * The wizard's step row: {@link TugStepRow} with ConfigureTug's own trailing
  * slot composed around it — the CTA pair, or the green check on a settled step.
  * The plinth, the dot, the label and the detail line are the shared row's.
@@ -181,9 +309,19 @@ function StepRow({
   stepKey: string;
   status: StepStatus;
   label: string;
-  detail?: string;
+  detail?: ReactNode;
   body?: (returnHome: boolean) => ReactElement;
-  cta?: { label: string; onClick: () => void };
+  cta?: {
+    label: string;
+    onClick: () => void;
+    /**
+     * A press that is about the work in flight rather than a second start of
+     * it — Pause. A busy row's CTA is otherwise disabled, and a Pause the
+     * user could not press while the download runs would be a Pause in name
+     * only.
+     */
+    pressWhileBusy?: boolean;
+  };
   secondaryCta?: { label: string; onClick: () => void };
   /** This row's button is Return's home and wears the double ring. */
   returnHome: boolean;
@@ -214,7 +352,7 @@ function StepRow({
             // filled CTA of the step the user is actually on.
             emphasis={status === "error" || status === "done" ? "outlined" : "filled"}
             role={status === "error" ? "danger" : "action"}
-            disabled={status === "busy"}
+            disabled={status === "busy" && cta.pressWhileBusy !== true}
             persistentDefaultRing={returnHome}
             neverDefaultButton={!returnHome}
             onClick={cta.onClick}
@@ -238,8 +376,20 @@ function StepRow({
 }
 
 export function ConfigureTug(): ReactElement {
-  const { loggedIn, reason, account, signingIn, signInFailed, installing, verifyingInstall, installError } =
-    useAuth();
+  const {
+    loggedIn,
+    reason,
+    account,
+    signingIn,
+    signInFailed,
+    installing,
+    downloadPaused,
+    downloadFallback,
+    downloadRestarted,
+    downloadComplete,
+    verifyingInstall,
+    installError,
+  } = useAuth();
   const {
     installed,
     latest,
@@ -426,6 +576,11 @@ export function ConfigureTug(): ReactElement {
   });
   const open = deriveConfigureTugOpen(gateOpen, required || onDemand);
 
+  // Freeze the deck's card count while the wizard is up ([B01]). The write is
+  // a side effect of the derivation above rather than a second source of
+  // truth — `open` stays the one answer, and this publishes it outward.
+  usePublishAppModalOpen("configure-tug", open);
+
   // The first run is finished when the wizard's own claim on the app lets go:
   // Claude Code installed, logged in, and a session on the deck. That — not
   // merely having *seen* the wizard — is what `setup-seen` records, so a user
@@ -464,6 +619,33 @@ export function ConfigureTug(): ReactElement {
   const handleInstall = (): void => {
     authStore.setInstalling(true);
     getConnection()?.sendControlFrame("install_claude");
+  };
+  // Stop the transfer and keep what arrived ([B09]). The partial file is
+  // tugcast's, on disk and named for its version, so nothing here has to hold
+  // anything — the row's own bytes are replaced by the `claude_download_stopped`
+  // frame that answers this.
+  const handlePauseDownload = (): void => {
+    getConnection()?.sendControlFrame("claude_download_pause");
+  };
+  // Resume, which is the same install request: the partial on disk is what
+  // makes it a continuation. The store keeps the bytes it was holding so the
+  // row goes on saying how far it got until the first new progress frame.
+  const handleResumeDownload = (): void => {
+    authStore.setResuming();
+    // Which row this transfer belongs to is the deck's to say: the host's
+    // partial file knows the bytes and the version, not whether the user
+    // pressed Install or Update, and the two rows wait on different result
+    // frames.
+    getConnection()?.sendControlFrame("claude_download_resume", {
+      update: !claudeMissing,
+    });
+  };
+  // The ghost beside Resume: forget the bytes and put the row back at its
+  // offer. Local first, because the press should land on the row immediately;
+  // tugcast deletes the partial when the frame arrives.
+  const handleCancelDownload = (): void => {
+    authStore.endDownload();
+    getConnection()?.sendControlFrame("claude_download_cancel");
   };
   // Ask macOS to install the Command Line Tools. The offer's own result only
   // says Apple's panel came up; the probe that follows — and the one the
@@ -550,10 +732,10 @@ export function ConfigureTug(): ReactElement {
     key: string;
     status: StepStatus;
     label: string;
-    detail?: string;
+    detail?: ReactNode;
     /** Extra content under the detail line — the project directory's chooser. */
     body?: (returnHome: boolean) => ReactElement;
-    cta?: { label: string; onClick: () => void };
+    cta?: { label: string; onClick: () => void; pressWhileBusy?: boolean };
     /** A quieter alternative to the primary CTA, e.g. declining an offer. */
     secondaryCta?: { label: string; onClick: () => void };
   };
@@ -572,6 +754,25 @@ export function ConfigureTug(): ReactElement {
     status: toolsCopy.status,
     label: toolsCopy.label,
     detail: toolsCopy.detail,
+    // A barber pole while Apple's installer runs, and no Pause beside it
+    // ([B15]). Tug owns neither the bytes nor the process here — it watches
+    // /Library and waits — so a determinate bar would be inventing a number
+    // and a Pause button would be a control that could not do its job. The
+    // pole says only what is true: something is happening elsewhere, and Tug
+    // is still watching for it. Recheck stays the way out.
+    ...(toolsCopy.status === "busy"
+      ? {
+          body: () => (
+            <TugProgressIndicator
+              variant="bar"
+              state="running"
+              size={6}
+              aria-label="Working"
+              data-testid="configure-tug-bar"
+            />
+          ),
+        }
+      : {}),
     ...(toolsCopy.cta
       ? { cta: { label: toolsCopy.cta, onClick: handleOfferHostTools } }
       : {}),
@@ -600,13 +801,58 @@ export function ConfigureTug(): ReactElement {
   // lands the newest stable build), so the two differ only in what the row says.
   const claudeStep: Step = (() => {
     const key = "install";
+    // One row, two names. The installer is the updater, so which word the row
+    // wears is decided by whether Claude Code is here at all — including while
+    // a transfer is in flight, which is the case the old `installing` branch
+    // could not tell apart because it had no transfer to be in.
+    const label = claudeMissing ? "Install Claude Code" : "Update Claude Code";
+    // Stopped, with bytes on disk. The row says what it kept rather than what
+    // it would cost to stop — this pause really is one ([B09]) — and offers
+    // Resume with a ghost Cancel beside it, the primary-plus-ghost shape.
+    if (downloadPaused) {
+      return {
+        key,
+        status: "paused",
+        label,
+        detail: <ClaudeHeldBytes />,
+        cta: { label: "Resume", onClick: handleResumeDownload },
+        secondaryCta: { label: "Cancel", onClick: handleCancelDownload },
+      };
+    }
     if (installing || verifyingInstall) {
+      // A determinate bar and a byte line while Tug owns the transfer; the
+      // barber pole and a sentence while the official script does ([B08]), or
+      // while the install that follows the bytes is running its own steps.
+      //
+      // `downloadComplete` is that second half and it is not a nicety: the
+      // last byte is where tugcast lets go of the download, so a Pause
+      // offered past it is a button with nothing behind it — pressed, it
+      // finds nothing running and does nothing at all.
+      const counting = installing && !downloadFallback && !downloadComplete;
       return {
         key,
         status: "busy",
-        label: "Install Claude Code",
-        detail: "This can take a moment.",
-        cta: { label: "Installing…", onClick: handleInstall },
+        label,
+        detail: counting ? <ClaudeDownloadDetail /> : "This can take a moment.",
+        body: () => (
+          <>
+            <ClaudeDownloadBar />
+            {downloadRestarted && (
+              <span
+                className="configure-tug-restarted"
+                data-testid="configure-tug-restarted"
+              >
+                A newer version arrived — starting the download over.
+              </span>
+            )}
+          </>
+        ),
+        // Pause is only Pause where there are bytes to keep. The script
+        // fallback owns its own transfer and the post-download install step
+        // is not one, so neither offers it.
+        cta: counting
+          ? { label: "Pause", onClick: handlePauseDownload, pressWhileBusy: true }
+          : { label: "Installing…", onClick: handleInstall },
       };
     }
     if (installError) {

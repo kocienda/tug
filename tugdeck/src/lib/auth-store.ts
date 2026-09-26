@@ -67,6 +67,49 @@ export interface AuthSnapshot {
   /** True while a Tug-managed `install_claude` is running. */
   installing: boolean;
   /**
+   * True while a stopped Claude Code download is holding its bytes ([B09]).
+   * Unlike the update wizard's `paused`, this one really does keep them: the
+   * partial file is on disk under Tug's own download directory, named for the
+   * version it is bytes of, so it survives a tugcast restart and a relaunch.
+   */
+  downloadPaused: boolean;
+  /** The version the bytes on disk are of, or `null` when there are none. */
+  downloadVersion: string | null;
+  /**
+   * True when the running install is the official `curl | bash` script — the
+   * fallback [B08] keeps for a release channel that cannot be read. There are
+   * no bytes to count, so the row runs a barber pole and says less.
+   */
+  downloadFallback: boolean;
+  /**
+   * True when a resume came back at zero bytes. Either a newer release landed
+   * while the download was stopped, or the server ignored the `Range` and sent
+   * the whole file. Both mean the same thing to the person watching — it is
+   * starting over — so the row says that rather than which.
+   */
+  downloadRestarted: boolean;
+  /**
+   * The transfer reached its last byte and what is running now is the
+   * install itself — the checksum, then the binary's own `install`
+   * subcommand. tugcast has let go of the download by then, so there is
+   * nothing left for a Pause to stop; the row drops the Pause and goes back
+   * to a barber pole and a sentence, which is what the script fallback shows
+   * for the same reason.
+   *
+   * A render field rather than a painted one: it flips once per transfer,
+   * not once per percent.
+   */
+  downloadComplete: boolean;
+  /**
+   * Bytes received and expected for the download in flight (or held by a
+   * pause). They ride the `claude_install_progress` frames tugcast publishes
+   * on a whole-percent change ([B06]), and they are **elided from
+   * {@link AuthRenderSnapshot}** for the reason [L06] gives: a bar that moves
+   * a hundred times is painted from a direct subscription, never re-rendered.
+   */
+  receivedBytes: number;
+  expectedBytes: number;
+  /**
    * True between a successful `claude_install_result` and the `claude_auth_result`
    * the backend re-probes with right after. The two arrive as separate frames,
    * so without this bridge the install step would flash back to "needs install"
@@ -88,12 +131,45 @@ const INITIAL: AuthSnapshot = {
   loggingOut: false,
   logoutError: null,
   installing: false,
+  downloadPaused: false,
+  downloadVersion: null,
+  downloadFallback: false,
+  downloadRestarted: false,
+  downloadComplete: false,
+  receivedBytes: 0,
+  expectedBytes: 0,
   verifyingInstall: false,
   installError: null,
 };
 
+/**
+ * What React sees: everything but the byte pair ([L06]). Its reference is held
+ * stable across a bytes-only change, which is what makes
+ * `useSyncExternalStore` bail out of the re-render — so a 90 MB download costs
+ * the wizard nothing it did not already cost.
+ */
+export type AuthRenderSnapshot = Omit<
+  AuthSnapshot,
+  "receivedBytes" | "expectedBytes"
+>;
+
+/** Whether a render snapshot still describes this whole one. */
+function rendersMatch(
+  render: AuthRenderSnapshot,
+  next: AuthSnapshot,
+): boolean {
+  const keys = Object.keys(render) as Array<keyof AuthRenderSnapshot>;
+  return keys.every((key) => Object.is(render[key], next[key]));
+}
+
+function toRenderSnapshot(snapshot: AuthSnapshot): AuthRenderSnapshot {
+  const { receivedBytes: _received, expectedBytes: _expected, ...rest } = snapshot;
+  return rest;
+}
+
 class AuthStore {
   private _snapshot: AuthSnapshot = INITIAL;
+  private _renderSnapshot: AuthRenderSnapshot = toRenderSnapshot(INITIAL);
   private _listeners: Array<() => void> = [];
 
   subscribe = (listener: () => void): (() => void) => {
@@ -104,7 +180,11 @@ class AuthStore {
     };
   };
 
+  /** The whole truth, read imperatively by whoever paints the bar. */
   getSnapshot = (): AuthSnapshot => this._snapshot;
+
+  /** The render surface [L06] — no bytes, stable across a bytes-only change. */
+  getRenderSnapshot = (): AuthRenderSnapshot => this._renderSnapshot;
 
   /** Mark a sign-in attempt in flight (the wizard shows "Waiting for browser sign-in…"). */
   setSigningIn(signingIn: boolean): void {
@@ -131,13 +211,149 @@ class AuthStore {
     this.notify();
   }
 
-  /** Mark a Tug-managed install in flight (clears any prior install error). */
+  /**
+   * Mark a Tug-managed install in flight (clears any prior install error).
+   * A fresh install forgets any bytes a previous attempt was holding — it is
+   * about to ask for a release from the top.
+   */
   setInstalling(installing: boolean): void {
     this._snapshot = {
       ...this._snapshot,
       installing,
       installError: null,
       verifyingInstall: false,
+      downloadPaused: false,
+      downloadFallback: false,
+      downloadRestarted: false,
+      downloadComplete: false,
+      receivedBytes: 0,
+      expectedBytes: 0,
+      downloadVersion: null,
+    };
+    this.notify();
+  }
+
+  /**
+   * The Resume press. Unlike {@link setInstalling} this **keeps** the bytes,
+   * so the row goes on saying how far it got until the first progress frame
+   * of the resumed transfer replaces them.
+   */
+  setResuming(): void {
+    this._snapshot = {
+      ...this._snapshot,
+      installing: true,
+      downloadPaused: false,
+      downloadComplete: false,
+      installError: null,
+    };
+    this.notify();
+  }
+
+  /**
+   * Apply a `claude_install_progress` frame. Ends a pause, because bytes are
+   * arriving again.
+   *
+   * A frame that says zero when the store was holding more is a transfer that
+   * started over — a newer release while it was stopped, or a server that
+   * ignored the `Range` — and it is the only place that can be told, because
+   * received bytes never otherwise run backwards.
+   */
+  applyDownloadProgress(
+    received: number,
+    expected: number,
+    version: string | null,
+  ): void {
+    this._snapshot = {
+      ...this._snapshot,
+      installing: true,
+      downloadPaused: false,
+      downloadFallback: false,
+      downloadRestarted:
+        received === 0 && this._snapshot.receivedBytes > 0
+          ? true
+          : this._snapshot.downloadRestarted,
+      // The last frame of a transfer is the one that says it is over:
+      // tugcast reports once more after the stream ends, and lets go of the
+      // download before the installer runs.
+      downloadComplete: expected > 0 && received >= expected,
+      receivedBytes: received,
+      expectedBytes: expected,
+      downloadVersion: version,
+    };
+    this.notify();
+  }
+
+  /**
+   * Apply a `claude_download_stopped` frame. A pause holds its place — the
+   * partial file is on disk and the row offers Resume; a cancel forgets it,
+   * and the row goes back to its offer.
+   */
+  applyDownloadStopped(
+    reason: "paused" | "cancelled",
+    received: number,
+    expected: number,
+    version: string | null,
+  ): void {
+    this._snapshot =
+      reason === "paused"
+        ? {
+            ...this._snapshot,
+            installing: false,
+            downloadPaused: true,
+            downloadComplete: false,
+            receivedBytes: received,
+            expectedBytes: expected,
+            downloadVersion: version,
+          }
+        : {
+            ...this._snapshot,
+            installing: false,
+            downloadPaused: false,
+            downloadRestarted: false,
+            downloadComplete: false,
+            receivedBytes: 0,
+            expectedBytes: 0,
+            downloadVersion: null,
+          };
+    this.notify();
+  }
+
+  /**
+   * The release channel could not be read, so the official script is running
+   * instead ([B08]). There are no bytes, and there is no Pause: the script
+   * owns the transfer and Tug cannot stop it halfway.
+   */
+  markDownloadFallback(): void {
+    this._snapshot = {
+      ...this._snapshot,
+      installing: true,
+      downloadFallback: true,
+      downloadPaused: false,
+      downloadComplete: false,
+      receivedBytes: 0,
+      expectedBytes: 0,
+      downloadVersion: null,
+    };
+    this.notify();
+  }
+
+  /**
+   * End a download without an install result of its own: the Cancel press,
+   * and the `claude_update_result` that finishes an update (which is reported
+   * on the version store's frame rather than the install store's, so this is
+   * what puts the auth store's half of the row down).
+   */
+  endDownload(): void {
+    this._snapshot = {
+      ...this._snapshot,
+      installing: false,
+      downloadPaused: false,
+      downloadFallback: false,
+      downloadRestarted: false,
+      downloadComplete: false,
+      receivedBytes: 0,
+      expectedBytes: 0,
+      downloadVersion: null,
     };
     this.notify();
   }
@@ -154,6 +370,16 @@ class AuthStore {
       installing: false,
       verifyingInstall: ok,
       installError: ok ? null : (error ?? "install failed"),
+      // The download is over either way: on success the bytes became an
+      // installed binary, and on failure they were discarded rather than kept
+      // for a resume to continue something already known to be wrong.
+      downloadPaused: false,
+      downloadFallback: false,
+      downloadRestarted: false,
+      downloadComplete: false,
+      receivedBytes: 0,
+      expectedBytes: 0,
+      downloadVersion: null,
     };
     this.notify();
   }
@@ -233,15 +459,27 @@ class AuthStore {
   }
 
   private notify(): void {
+    // Recompute the render surface here rather than in every mutator, so a
+    // field added later cannot forget to. A bytes-only change leaves the
+    // reference exactly as it was, which is the whole point.
+    if (!rendersMatch(this._renderSnapshot, this._snapshot)) {
+      this._renderSnapshot = toRenderSnapshot(this._snapshot);
+    }
     for (const listener of this._listeners) listener();
   }
 }
 
 export const authStore = new AuthStore();
 
-/** React read of the app auth state ([L02]). */
-export function useAuth(): AuthSnapshot {
-  return useSyncExternalStore(authStore.subscribe, authStore.getSnapshot);
+/**
+ * React read of the app auth state ([L02]).
+ *
+ * Carries no byte counts by construction — a download's progress is drawn
+ * from {@link authStore}`.getSnapshot()` onto the bar and the detail line
+ * through a direct subscription, never through a re-render ([L06]).
+ */
+export function useAuth(): AuthRenderSnapshot {
+  return useSyncExternalStore(authStore.subscribe, authStore.getRenderSnapshot);
 }
 
 /**
@@ -283,6 +521,57 @@ export function applyInstallResultPayload(payload: Record<string, unknown>): voi
     payload.ok === true,
     typeof payload.error === "string" ? payload.error : null,
   );
+}
+
+/** A non-negative finite count, or 0 — the wire is not trusted to be either. */
+function nonNegative(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+}
+
+/**
+ * Apply a `claude_install_progress` CONTROL payload
+ * (`{received, expected, version}`).
+ */
+export function applyDownloadProgressPayload(
+  payload: Record<string, unknown>,
+): void {
+  authStore.applyDownloadProgress(
+    nonNegative(payload.received),
+    nonNegative(payload.expected),
+    typeof payload.version === "string" && payload.version.length > 0
+      ? payload.version
+      : null,
+  );
+}
+
+/**
+ * Apply a `claude_download_stopped` CONTROL payload
+ * (`{reason, received, expected, version}`). Anything but `paused` is read as
+ * a cancel, because forgetting bytes Tug is not sure about is the safe half.
+ */
+export function applyDownloadStoppedPayload(
+  payload: Record<string, unknown>,
+): void {
+  authStore.applyDownloadStopped(
+    payload.reason === "paused" ? "paused" : "cancelled",
+    nonNegative(payload.received),
+    nonNegative(payload.expected),
+    typeof payload.version === "string" && payload.version.length > 0
+      ? payload.version
+      : null,
+  );
+}
+
+/** Apply a `claude_install_fallback` CONTROL payload (it carries nothing). */
+export function applyDownloadFallbackPayload(): void {
+  authStore.markDownloadFallback();
+}
+
+/** End a download the auth store carried but does not get a result frame for. */
+export function applyDownloadEnded(): void {
+  authStore.endDownload();
 }
 
 /** Apply a `claude_logout_result` CONTROL payload (`{ok, error}`). */

@@ -261,6 +261,30 @@ export interface CommandMenuFacts {
    * than three counts of their own.
    */
   readonly spaceCount: number;
+  /**
+   * An app-modal wizard — `ConfigureTug`, `UpdateTug` or `TugVersionGate` —
+   * is on screen. Radix traps the web view's focus and pointer while one is;
+   * AppKit's menu bar is not trapped, so every command that would change the
+   * number of cards on the deck has to read this and go dark ([B01], [B02]).
+   *
+   * Read by {@link computeCommandCapabilities} through
+   * {@link CommandEntry.changesCardCount} rather than by a predicate per
+   * entry: the rule is one rule, and spelling it six times is six places to
+   * forget it in.
+   */
+  readonly appModalOpen: boolean;
+  /**
+   * `UpdateTug` specifically is on screen. Narrower than
+   * {@link appModalOpen} because the rule it carries is narrower: the two
+   * wizards gate each other's doors, and Configure Tug… is dark while the
+   * update wizard holds the app ([B04]). It is not a card-count rule, so it
+   * rides its own predicate rather than {@link CommandEntry.changesCardCount}.
+   *
+   * The reverse direction is not a menu gate at all: Check for Updates…
+   * stays enabled while `ConfigureTug` is open and its request is dropped,
+   * so the door is still there when the setup wizard closes.
+   */
+  readonly updateTugOpen: boolean;
 }
 
 /**
@@ -307,6 +331,8 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   focusTravel: null,
   sidebars: {},
   spaceCount: 0,
+  appModalOpen: false,
+  updateTugOpen: false,
 };
 
 /**
@@ -380,6 +406,26 @@ export interface CommandEntry {
    * and detaching is what keeps it shadowable after.
    */
   readonly disabledChord?: "keep" | "detach";
+  /**
+   * This command changes the number of cards on the deck, so it goes dark
+   * while an app-modal wizard is up ([B01]–[B03]).
+   *
+   * The flag ANDs `!menu.appModalOpen` into whatever the entry's own
+   * enablement says, and it also forces a gate to be published: three of the
+   * six items carrying it — New Text File, Open File, Clear Menu — have no
+   * predicate of their own and are not {@link mirrored}. That is safe
+   * precisely because the gate is published as `enabled: false` ONLY under a
+   * modal and omitted otherwise, so an unmirrored item never gains a
+   * default-true gate that would light past a tier still gating it.
+   *
+   * The host-owned items — New Session, New Jot, About, Settings, Keyboard
+   * Shortcuts, and the Open Recent entries — cannot ride this, because their
+   * enablement is not the frontend's to publish (About and its two
+   * neighbours gate on `frontendReady`, which no push can see). They read
+   * the same fact from the top-level `appModalOpen` field on the menuState
+   * payload instead.
+   */
+  readonly changesCardCount?: boolean;
   /**
    * Whether the command holds its menu key equivalent right now, asked
    * independently of whether the item is enabled.
@@ -1276,12 +1322,14 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "New Text File",
     routing: "first-responder",
     menuItemId: "file.newTextCard",
+    changesCardCount: true,
   },
   {
     id: TUG_ACTIONS.OPEN_FILE,
     title: "Open File…",
     routing: "first-responder",
     menuItemId: "file.openFile",
+    changesCardCount: true,
   },
   {
     // Two gates, and they answer different questions. The predicate is
@@ -1293,6 +1341,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     routing: "first-responder",
     menuItemId: "file.openQuickly",
     mirrored: true,
+    changesCardCount: true,
     validate: (chain) => chain.menu.openQuickly,
   },
   {
@@ -1325,6 +1374,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "Clear Menu",
     routing: "first-responder",
     menuItemId: "file.openRecent.clear",
+    changesCardCount: true,
   },
   {
     id: TUG_ACTIONS.CLOSE,
@@ -1333,6 +1383,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     menuItemId: "file.closeCard",
     bindings: [chord({ key: "KeyW", meta: true, label: "w" })],
     mirrored: true,
+    changesCardCount: true,
     validate: (chain) => chain.menu.focusedPaneActiveCardClosable,
   },
   {
@@ -1342,6 +1393,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     menuItemId: "file.closeAllCardTabs",
     bindings: [chord({ key: "KeyW", meta: true, alt: true, label: "w" })],
     mirrored: true,
+    changesCardCount: true,
     validate: (chain) => chain.menu.focusedPaneCardCount > 1,
   },
   // The save family gates on the frontmost Text card's block, reduced by
@@ -2395,6 +2447,12 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "Configure Tug…",
     routing: "registry",
     menuItemId: "app.configureTug",
+    // Dark while the update wizard holds the app ([B04]). Mirroring is safe
+    // here because the host has no hand-rolled case for this item — its
+    // enablement was the `default: true` arm, and this predicate is now the
+    // only answer there is.
+    mirrored: true,
+    validate: (chain) => !chain.menu.updateTugOpen,
   },
   {
     id: "logout",

@@ -32,6 +32,7 @@ const STAGES: UpdateStage[] = [
   "checking",
   "available",
   "downloading",
+  "paused",
   "extracting",
   "readyToInstall",
   "installing",
@@ -286,14 +287,15 @@ describe("update-tug-rows: the host's rows are unmoved", () => {
     expect(rows["stop-work"].status).toBe("pending");
   });
 
-  it("keeps Download's Cancel at the two cancellable stages", () => {
-    for (const stage of ["checking", "downloading"] as UpdateStage[]) {
-      const rows = rowsBy(stage, turns("alpha"), {
-        snapshot: { cancellable: true },
-      });
-      const row = stage === "checking" ? rows.check : rows.download;
-      expect(row.cta).toEqual({ label: "Cancel", action: "cancel" });
-    }
+  it("keeps the check row's Cancel", () => {
+    // The download row's press is no longer one of these: a download that is
+    // stopped keeps the update in hand, which `cancel` does not say. It is
+    // pinned in "stopping a download" below. A check has nothing to keep, so
+    // Cancel is still the right word for it.
+    const rows = rowsBy("checking", turns("alpha"), {
+      snapshot: { cancellable: true },
+    });
+    expect(rows.check.cta).toEqual({ label: "Cancel", action: "cancel" });
   });
 
   it("keeps Download as the press at `available`, which ends no turns", () => {
@@ -301,6 +303,48 @@ describe("update-tug-rows: the host's rows are unmoved", () => {
     expect(row.status).toBe("active");
     expect(row.detail).toBe("Downloading won't interrupt your work.");
     expect(row.cta).toEqual({ label: "Download", action: "install" });
+  });
+});
+
+describe("update-tug-rows: stopping a download, and starting it again", () => {
+  it("offers Stop for Now while bytes are arriving, never Cancel and never Pause", () => {
+    const download = rowsBy("downloading", NO_LIVE_TURNS, {
+      snapshot: { cancellable: true },
+    }).download;
+    expect(download.status).toBe("busy");
+    expect(download.cta).toEqual({ label: "Stop for Now", action: "pause" });
+  });
+
+  it("offers no stop at all when the host says the transfer cannot be called off", () => {
+    // `cancellable` is the host's word for "there is a closure to call". A
+    // button offered without one would be a press that does nothing.
+    expect(rowsBy("downloading").download.cta).toBeUndefined();
+  });
+
+  it("draws a stopped download as held rather than as failed", () => {
+    const download = rowsBy("paused").download;
+    // `paused`, not `error`: nothing went wrong, and a red dot over a
+    // decision the user made would be the wizard disagreeing with them.
+    expect(download.status).toBe("paused");
+    expect(download.cta).toEqual({ label: "Resume", action: "resume" });
+    expect(download.detail).toBe(
+      "Stopped. Nothing was kept — Resume starts the download again.",
+    );
+  });
+
+  it("says nothing is still moving on a stopped row", () => {
+    // A bar under a stopped row would be claiming the download goes on.
+    expect(rowsBy("paused").download.body).toBeUndefined();
+  });
+
+  it("keeps the check row settled behind a stopped download", () => {
+    expect(rowsBy("paused").check.status).toBe("done");
+    expect(rowsBy("paused").relaunch.status).toBe("pending");
+  });
+
+  it("leaves the Stop-work row alone — stopping a download ends no turns", () => {
+    const rows = rowsBy("paused", turns("alpha"));
+    expect(rows["stop-work"].status).toBe("pending");
   });
 });
 

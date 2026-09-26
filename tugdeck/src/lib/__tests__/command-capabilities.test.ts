@@ -776,4 +776,131 @@ describe("computeCommandCapabilities", () => {
       expect("chord" in gate, `${id} carries a chord`).toBe(true);
     }
   });
+
+  describe("changesCardCount under an app modal", () => {
+    // The wizards trap the web view and not the menu bar, so the commands
+    // that would put a card on the deck have to read the fact themselves
+    // ([B01], [B02]).
+    const mirroredEntry: CommandEntry = {
+      id: TUG_ACTIONS.CLOSE,
+      title: "Close",
+      routing: "first-responder",
+      menuItemId: "file.closeCard",
+      mirrored: true,
+      changesCardCount: true,
+      validate: (c) => c.menu.focusedPaneActiveCardClosable,
+    };
+    const bareEntry: CommandEntry = {
+      id: TUG_ACTIONS.OPEN_FILE,
+      title: "Open File…",
+      routing: "first-responder",
+      menuItemId: "file.openFile",
+      changesCardCount: true,
+    };
+
+    test("a mirrored entry goes dark however its own predicate answers", () => {
+      const chain = new ResponderChainManager();
+      const open = source(chain, {
+        focusedPaneActiveCardClosable: true,
+        appModalOpen: false,
+      });
+      expect(computeCommandCapabilities(open, [mirroredEntry])["file.closeCard"].enabled).toBe(
+        true,
+      );
+
+      const modal = source(chain, {
+        focusedPaneActiveCardClosable: true,
+        appModalOpen: true,
+      });
+      expect(computeCommandCapabilities(modal, [mirroredEntry])["file.closeCard"].enabled).toBe(
+        false,
+      );
+    });
+
+    test("an unmirrored entry gains a gate under the modal and none outside it", () => {
+      // The whole safety argument for putting the flag on an entry with no
+      // predicate: outside a modal it must publish NOTHING, or the host's own
+      // tier is overridden by a default-true gate the entry never earned.
+      const chain = new ResponderChainManager();
+      const outside = computeCommandCapabilities(
+        source(chain, { appModalOpen: false }),
+        [bareEntry],
+      );
+      expect(outside["file.openFile"]).toBeUndefined();
+
+      const inside = computeCommandCapabilities(
+        source(chain, { appModalOpen: true }),
+        [bareEntry],
+      );
+      expect(inside["file.openFile"].enabled).toBe(false);
+    });
+
+    test("the shipped table dims exactly the six card-count items", () => {
+      const chain = new ResponderChainManager();
+      const gates = computeCommandCapabilities(source(chain, { appModalOpen: true }));
+      const dark = Object.entries(gates)
+        .filter(([, gate]) => gate.enabled === false)
+        .map(([id]) => id);
+
+      for (const id of [
+        "file.newTextCard",
+        "file.openFile",
+        "file.openQuickly",
+        "file.openRecent.clear",
+        "file.closeCard",
+        "file.closeAllCardTabs",
+      ]) {
+        expect(dark, `${id} is dark under a modal`).toContain(id);
+      }
+
+      // And the ones the host still owns are not answered here — a gate
+      // published for About or New Session would override the tier that
+      // gates them on `frontendReady`.
+      for (const id of ["app.about", "app.settings", "app.keyboardShortcuts", "file.newJot"]) {
+        expect(gates[id]?.enabled, `${id} is the host's to answer`).toBeUndefined();
+      }
+    });
+  });
+
+  describe("the two wizards gate each other's doors", () => {
+    // [B04]. Configure Tug… is not a card-count item — it opens a wizard, not
+    // a card — so it carries its own predicate rather than the flag, and the
+    // fact it reads is narrower than `appModalOpen`.
+    test("Configure Tug… is dark only while UpdateTug holds the app", () => {
+      const chain = new ResponderChainManager();
+
+      const idle = computeCommandCapabilities(source(chain));
+      expect(idle["app.configureTug"].enabled).toBe(true);
+
+      const underUpdate = computeCommandCapabilities(
+        source(chain, { appModalOpen: true, updateTugOpen: true }),
+      );
+      expect(underUpdate["app.configureTug"].enabled).toBe(false);
+
+      // Under some OTHER app modal — the setup wizard itself, or the version
+      // gate — the item is not this rule's business. A predicate written
+      // against `appModalOpen` would dim it here, which is the near miss this
+      // pins against.
+      const underSibling = computeCommandCapabilities(
+        source(chain, { appModalOpen: true, updateTugOpen: false }),
+      );
+      expect(underSibling["app.configureTug"].enabled).toBe(true);
+    });
+
+    test("Check for Updates… publishes no gate at all", () => {
+      // The reverse direction is a dropped request rather than a dark item,
+      // and the proof is that the frontend says nothing about this item's
+      // enablement in any state — the host's own tier keeps it, and keeps it
+      // enabled ([B04]).
+      const chain = new ResponderChainManager();
+      for (const facts of [
+        {},
+        { appModalOpen: true, updateTugOpen: true },
+        { appModalOpen: true, updateTugOpen: false },
+      ]) {
+        const gates = computeCommandCapabilities(source(chain, facts));
+        expect(gates["app.checkForUpdates"]?.enabled).toBeUndefined();
+      }
+    });
+  });
 });

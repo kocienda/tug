@@ -26,6 +26,32 @@ final class UpdateController: NSObject {
     /// the appcast URL, bypassing the bundle-identity gate.
     static let feedOverrideEnvVar = "TUG_SPARKLE_FEED"
 
+    /// Rehearsal seam: a local file to hand Sparkle in place of the
+    /// appcast's enclosure URL.
+    ///
+    /// This is the instrument the `file:` spike is run with, and the spike's
+    /// answer is **no**: `SPUDownloader` refuses any scheme but http and
+    /// https, in both downloader modes, so a host that owns the archive
+    /// cannot hand it to Sparkle as a file path. The seam stays because the
+    /// question is worth re-asking of a new Sparkle, and because the shape
+    /// the refusal leaves standing — serving the local file over loopback
+    /// http — arrives through this same delegate method.
+    /// `tests/update/spike-file-enclosure.sh` runs it and records what
+    /// happened. Read only alongside `TUG_SPARKLE_FEED`, so a shipping
+    /// bundle pointed at the real feed cannot be aimed elsewhere by an
+    /// environment variable.
+    static let localEnclosureEnvVar = "TUG_SPARKLE_LOCAL_ENCLOSURE"
+
+    /// Rehearsal seam: answer `install` to a found update without a person.
+    ///
+    /// The rehearsal's whole point is that a person watches it, so this is
+    /// not for the rehearsal — it is for the scripted pass that has to reach
+    /// `readyToInstall` unattended and report whether it got there. It stops
+    /// *at* `readyToInstall`: nothing here ever answers install-and-relaunch,
+    /// so the scripted pass never installs anything. Gated on the feed
+    /// override for the same reason as the enclosure path above.
+    static let autopilotEnvVar = "TUG_SPARKLE_AUTOPILOT"
+
     private static let stableBundleIdentifier = "dev.tugapp.app"
 
     private var updater: SPUUpdater?
@@ -72,6 +98,23 @@ final class UpdateController: NSObject {
             !value.isEmpty
         else { return nil }
         return value
+    }
+
+    /// The local file to substitute for the enclosure, if the rehearsal
+    /// asked for one and a feed override is in force.
+    private var localEnclosure: URL? {
+        guard
+            feedOverride != nil,
+            let path = ProcessInfo.processInfo.environment[Self.localEnclosureEnvVar],
+            !path.isEmpty
+        else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    /// True when the scripted pass is driving this run.
+    private var isAutopilot: Bool {
+        feedOverride != nil
+            && ProcessInfo.processInfo.environment[Self.autopilotEnvVar] == "install"
     }
 
     /// Start Sparkle if this bundle is eligible, otherwise do nothing.
@@ -130,6 +173,13 @@ final class UpdateController: NSObject {
                 snapshot.message.isEmpty ? "" : " — \(snapshot.message)"
             )
             self?.onSnapshot?(snapshot)
+            // The scripted pass's one decision. `available` is the only
+            // stage that holds an `install` reply Sparkle is waiting on;
+            // every later stage runs itself.
+            if snapshot.stage == .available, self?.isAutopilot == true {
+                NSLog("UpdateController: autopilot — answering install")
+                self?.perform(.install)
+            }
         }
         driver.onFocusRequested = { [weak self] in
             self?.onFocusRequested?()
@@ -175,6 +225,29 @@ final class UpdateController: NSObject {
         )
 
         self.updater = updater
+
+        if isAutopilot {
+            // Nobody is going to pick Check for Updates…, and the scheduled
+            // check is up to two hours away. Asking once is not enough: a
+            // check that lands while Sparkle's launch cycle is still open is
+            // held for `didFinishUpdateCycleFor`, and a cycle that ended
+            // before the ask was recorded never releases it. So ask again
+            // until the flow moves off `idle`, which is the one thing that
+            // says a session took.
+            NSLog("UpdateController: autopilot — asking for a check")
+            autopilotCheck()
+        }
+    }
+
+    /// Ask for a check, and keep asking every five seconds until the flow
+    /// leaves `idle`. Scripted-pass only; see `autopilotEnvVar`.
+    @MainActor
+    private func autopilotCheck() {
+        guard driver.snapshot.stage == .idle else { return }
+        requestCheck()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            MainActor.assumeIsolated { self?.autopilotCheck() }
+        }
     }
 
     /// Apply a user decision — from the app menu today, from the deck's
@@ -252,6 +325,25 @@ extension UpdateController: SPUUpdaterDelegate {
     /// sanctioned way to override the feed (`setFeedURL` is discouraged).
     func feedURLString(for updater: SPUUpdater) -> String? {
         feedOverride
+    }
+
+    /// Point Sparkle's enclosure download at a local file when one is named
+    /// ([F11], [B10] of the wizard-downloads brief).
+    ///
+    /// Sparkle hands the request over mutable precisely so a delegate can
+    /// re-point it, and the EdDSA signature is verified on whatever arrives,
+    /// so a rewrite changes the route and not the trust. What it may not
+    /// change is the *scheme*: `SPUDownloader` rejects anything but http and
+    /// https before it starts, which is what the spike found. A `file:` URL
+    /// set here fails the download immediately; see `localEnclosureEnvVar`.
+    func updater(
+        _ updater: SPUUpdater,
+        willDownloadUpdate item: SUAppcastItem,
+        with request: NSMutableURLRequest
+    ) {
+        guard let local = localEnclosure else { return }
+        NSLog("UpdateController: rewriting the enclosure to %@", local.path)
+        request.url = local
     }
 
     /// Sparkle's own signal that a session is over and a new one may start.

@@ -21,6 +21,7 @@ import { type ReactElement } from "react";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { useHostInfo } from "@/lib/host-info-store";
 import { useVersionGateOpen, requiredMinimumLabel } from "@/lib/macos-support";
+import { usePublishAppModalOpen } from "@/lib/app-modal-store";
 import "./tug-alert.css";
 import "./tug-version-gate.css";
 
@@ -29,6 +30,10 @@ export function TugVersionGate(): ReactElement {
   const host = useHostInfo();
   const overlayRoot = useCanvasOverlay();
   const required = requiredMinimumLabel(host);
+
+  // Freeze the deck's card count while the gate is up ([B01]): the menu bar
+  // is not inside Radix's focus trap, so ⌘N would open a card behind it.
+  usePublishAppModalOpen("version-gate", open);
 
   return (
     <AlertDialog.Root open={open}>
