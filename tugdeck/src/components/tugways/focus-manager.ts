@@ -51,6 +51,7 @@ import type { ComponentKeyDeclaration, FocusKey } from "./focus-act";
 import type { ResponderChainManager } from "./responder-chain";
 import { resolveSpatial, type SpatialDirection, type SpatialOrder } from "./spatial-order";
 import { revealFocusTarget } from "./focus-reveal";
+import { KEY_CURSOR_ATTRIBUTE } from "./use-focus-cursor";
 import { resolveDefaultFocusTarget } from "@/default-focus";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { getRegistration } from "@/card-registry";
@@ -813,7 +814,9 @@ export class FocusContext {
    * and surface entry pass `true`.
    *
    * A keyboard key view is REVEALED: a ring the user cannot see is not a focus
-   * mark, so the new key view is scrolled into view by its owning scrollports
+   * mark, so the new key view's reveal target ({@link keyViewRevealElement} —
+   * the movement cursor's row for a roving group, the element itself
+   * otherwise) is scrolled into view by its owning scrollports
    * ({@link revealFocusTarget}). The early return above is what keeps this to
    * one reveal per move — a re-assertion of the same `(id, keyboard)` pair
    * never re-scrolls. Suppressed under `preventScroll` realizations, where the
@@ -825,7 +828,7 @@ export class FocusContext {
     this.keyViewKeyboard = keyboard;
     this.reproject();
     if (keyboard && !this.revealSuppressed && this.isActive()) {
-      const el = this.keyViewElement();
+      const el = this.keyViewRevealElement();
       if (el !== null) revealFocusTarget(el);
     }
     this.notify();
@@ -1002,7 +1005,7 @@ export class FocusContext {
     this.keyViewKeyboard = true;
     this.reproject();
     if (!this.revealSuppressed && this.isActive()) {
-      const el = this.keyViewElement();
+      const el = this.keyViewRevealElement();
       if (el !== null) revealFocusTarget(el);
     }
     this.focusKeyView();
@@ -2525,6 +2528,28 @@ export class FocusContext {
         : this.keyViewId;
     return document.querySelector<HTMLElement>(
       `[data-responder-id="${escaped}"], [data-tug-focusable="${escaped}"]`,
+    );
+  }
+
+  /**
+   * The element a keyboard reveal should bring into view for the current key
+   * view. For a ROVING single-stop group — a list, a tab bar, a choice group —
+   * the key view element is the CONTAINER that carries the engine focusable,
+   * and the thing the user is actually being moved to is the row the movement
+   * cursor sits on. Revealing the container instead is wrong twice over: it
+   * scrolls further than the move asked for, and a container taller than its
+   * scrollport is aligned by its leading edge, so arriving anywhere in a long
+   * list parks the list's top at the port ([L23]).
+   *
+   * So resolve to the `data-key-cursor` element inside the key view when there
+   * is one, and fall back to the container when there is not — a plain
+   * focusable with no roving cursor is its own reveal target.
+   */
+  keyViewRevealElement(): HTMLElement | null {
+    const el = this.keyViewElement();
+    if (el === null) return null;
+    return (
+      el.querySelector<HTMLElement>(`[${KEY_CURSOR_ATTRIBUTE}]`) ?? el
     );
   }
 

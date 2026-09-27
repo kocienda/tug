@@ -83,6 +83,29 @@ function seedJots(path: string, targetText: string): void {
   writeFileSync(path, `${JSON.stringify({ version: 1, jots }, null, 2)}\n`);
 }
 
+/**
+ * Wait until the Jots sidebar has finished sliding in: its left edge has
+ * stopped moving between polls and the whole card stands inside the viewport.
+ * The rows exist from the first frame of that slide, so waiting on a row is
+ * not waiting on the card, and a native click posted while it is still
+ * travelling is aimed at a viewport coordinate outside the web view — which
+ * the harness refuses outright.
+ */
+async function settleSidebar(app: App): Promise<void> {
+  await app.waitForCondition<boolean>(
+    `(() => {
+       const c = document.querySelector('.jots-card');
+       if (c === null) return false;
+       const box = c.getBoundingClientRect();
+       const x = Math.round(box.left);
+       const settled = window.__jotsCardX === x && box.right <= window.innerWidth;
+       window.__jotsCardX = x;
+       return settled;
+     })()`,
+    { timeoutMs: 5_000 },
+  );
+}
+
 /** Open the Jots card and bring the target row into view. */
 async function openCardAtTarget(app: App): Promise<void> {
   await app.enableDeckTrace(true);
@@ -96,6 +119,7 @@ async function openCardAtTarget(app: App): Promise<void> {
     `document.querySelector('${TARGET_ROW}') !== null`,
     { timeoutMs: 5_000 },
   );
+  await settleSidebar(app);
   await app.evalJS(
     `(() => { const c = document.querySelector('.jots-card');
               c.scrollTop = c.scrollHeight; return 1; })()`,
@@ -242,6 +266,8 @@ describe.skipIf(!SHOULD_RUN)("at0593 — closing a jot holds its place", () => {
             `document.querySelector('[data-jot-id="e1"]') !== null`,
             { timeoutMs: 5_000 },
           );
+
+          await settleSidebar(app);
 
           // The empty jot: its ✕ takes it away with no question asked.
           await app.nativeClickAtElement('[data-jot-id="e1"] .jot-row-delete');

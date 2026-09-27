@@ -7015,12 +7015,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // the key-view-GAIN projection paints `data-key-cursor` from
         // `cursorIndexRef`, so seeding the index first lands the bar on the
         // clicked row rather than re-projecting the pre-click position.
+        //
+        // `preventScroll` because a POINTER gesture already has its target
+        // under the pointer ([L23]): the press is where the user is looking,
+        // and nothing wants revealing. Without it the re-place reveals the key
+        // view ELEMENT — this list's container, which carries the engine
+        // focusable — and a container taller than its scrollport aligns to the
+        // port's leading edge, so every press on an overflowing list scrolled
+        // it to the top and the second press of a double-click landed on
+        // whichever row the scroll had carried under the pointer.
         moveCursorTo(index, false);
         if (manager !== null && cardId !== null) {
           manager.place(
             cardId,
             { kind: "focusable", id: focusableId },
-            { modality: "keyboard" },
+            { modality: "keyboard", preventScroll: true },
           );
         }
       };

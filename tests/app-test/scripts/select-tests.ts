@@ -311,6 +311,22 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // attribute into a form are named beside it, but the stamp itself has no
     // narrower home to name.
     "tugdeck/src/components/chrome/tug-pane.tsx": 21,
+
+    // The list. Every keyboard-navigable list the app stands — the Jots rail
+    // card, the Cards card, the pickers, the rail filter — is one instance of
+    // this module, and the behaviors a test can actually see (the cursor, the
+    // ring, selection on pointerdown, activation on double-click, windowing)
+    // are all expressed here rather than in any consumer. It sat at exactly
+    // 20, which is the budget holding by luck rather than by design.
+    //
+    // Recorded at 21 when at0632 (a press on a jot row holds the card's
+    // scroll) arrived. What that test pins is the list's OWN pointerdown
+    // re-place — the one call that promotes the container to the keyboard key
+    // view — and the suppression it now carries. The Jots card it drives is
+    // named beside it, but the card is the fixture; the handler the assertion
+    // is about lives nowhere but here, and naming only the card would leave
+    // the press covered by nothing.
+    "tugdeck/src/components/tugways/tug-list-view.tsx": 21,
 };
 
 /**

@@ -119,9 +119,17 @@ function revealWithin(scroller: HTMLElement, target: HTMLElement): void {
  * The signed scroll delta that brings `[start, end]` inside `[low, high]`,
  * or `0` when it already is.
  *
- * A target taller than the band is aligned to `low` rather than centered: the
- * leading edge is the one the user is reading from, and it is where the ring
- * lives. Scrolling the trailing edge in never pushes the leading edge out.
+ * A target TALLER than the band can never be brought inside, so the question
+ * is only whether the user can see any of it. If it already overlaps the band
+ * the answer is yes and the reveal is a no-op: a thing part of which is on
+ * screen needs no scroll, and aligning it to `low` would move the page under
+ * the reader to satisfy a geometry nothing was asking about. That is what a
+ * roving list's container is — always taller than its port once it overflows
+ * — and aligning it parked the list's top at the port on every reveal.
+ *
+ * A taller-than-band target that is wholly outside the band is still brought
+ * in by its LEADING edge rather than centered: the leading edge is the one the
+ * user reads from, and it is where the ring lives.
  */
 function revealDelta(
   start: number,
@@ -129,6 +137,7 @@ function revealDelta(
   low: number,
   high: number,
 ): number {
+  if (end - start > high - low && start < high && end > low) return 0;
   if (start < low) return start - low;
   if (end > high) return Math.min(end - high, start - low);
   return 0;

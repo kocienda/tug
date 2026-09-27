@@ -573,63 +573,23 @@ function JotEditorRow({
   // `restore` and releases its committed inline height) instead of racing it.
   const closingRef = useRef(false);
 
-  // Closing must not move the jot's title line, and what decides where that
-  // line sits is the CARD ROOT's `scrollTop` (the card's one scroller). The
-  // ascend every close performs re-reveals the key view, and while the editor
-  // is open the key view is the EDITING CELL — a cell taller than the
-  // scrollport, which `revealFocusTarget` brings in by its leading edge and so
-  // scrolls the card to do it. Revealing a cell that is one animation away
-  // from not existing moves the whole card content for nothing: the hop.
-  //
-  // So the card's resting scroll position is SAMPLED as it settles and the
-  // close puts it back. Sampled rather than latched at the gesture because the
-  // gesture is not always this component's to see: Escape is claimed by the
-  // responder chain, which ascends and stops the event before the row's own
-  // handler runs. A `scroll` event is dispatched asynchronously, while the
-  // ascend's reveal, the blur it produces, and the close that blur starts are
-  // all one task — so the sample the close reads is still the pre-reveal one,
-  // whichever gesture asked. Freezing it for the duration is what keeps the
-  // reveal's own write from being mistaken for the user's position.
-  //
-  // Clamping still has the last word: a position the shortened content cannot
-  // hold is geometry, not a jump.
-  const scrollHoldRef = useRef<{ el: HTMLElement; top: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = wrapRef.current?.closest<HTMLElement>(".jots-card") ?? null;
-    if (el === null) return;
-    scrollHoldRef.current = { el, top: el.scrollTop };
-    const onScroll = (): void => {
-      if (closingRef.current) return;
-      scrollHoldRef.current = { el, top: el.scrollTop };
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-  const holdScroll = useCallback((): void => {
-    const hold = scrollHoldRef.current;
-    if (hold === null) return;
-    if (Math.round(hold.el.scrollTop) !== Math.round(hold.top)) {
-      hold.el.scrollTop = hold.top;
-    }
-  }, []);
+  // Closing does not move the jot's title line, and nothing here has to hold
+  // the card's scroll to keep it still. The ascend every close performs
+  // re-reveals the key view — while the editor is open, the EDITING CELL,
+  // which is taller than the card's scrollport — and the reveal now leaves a
+  // taller-than-band target that already overlaps the band exactly where it
+  // is (`revealDelta`, `focus-reveal.ts`). A cell one animation away from not
+  // existing is the clearest case of a reveal that had nothing to ask for; the
+  // sampling that used to put the card back afterwards is what that rule
+  // retired. at0593 is the guard that the hop stays gone.
   const closeWithCollapse = useCallback((): void => {
     // Re-entrancy: ✕ ascends, and the ascend's blur arrives right behind it.
     if (closingRef.current) return;
     closingRef.current = true;
-    holdScroll();
     const el = wellRef.current;
     const commit = (): void => {
       if (store.getSnapshot().editingId === jot.id) {
         store.commitEdit();
-        // The swap puts the display row back at the header's own height, so
-        // there is nothing for the scroller to clamp — but the commit is the
-        // last beat of the close, and the hold is only honest if it outlives
-        // it. Once more after the commit paints, then release.
-        holdScroll();
-        requestAnimationFrame(() => {
-          holdScroll();
-          scrollHoldRef.current = null;
-        });
         return;
       }
       // Editing moved on without us (a second jot opened mid-collapse) —
@@ -639,7 +599,6 @@ function JotEditorRow({
         el.style.height = "";
         el.style.opacity = "";
       }
-      scrollHoldRef.current = null;
       closingRef.current = false;
     };
     if (el === null) {
@@ -662,7 +621,7 @@ function JotEditorRow({
         key: JOT_WELL_MOTION_SLOT,
       },
     ).finished.then(commit, commit);
-  }, [store, jot.id, holdScroll]);
+  }, [store, jot.id]);
   // Registers into the cell's per-row FocusModeContext, so `descendIntoRow`
   // finds this wrapper as the row's inner focusable. No key-view behavior:
   // a behavior-less leaf keeps Enter as a newline in the editor and leaves
