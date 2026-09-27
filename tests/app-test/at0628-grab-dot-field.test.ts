@@ -46,6 +46,14 @@
  * jiggled the mouse. The attribute is React's own half of hover and survives
  * the re-render.
  *
+ * The DRAG is the trigger's other blind spot, and it has a rule of its own. A
+ * press on the handle takes pointer capture on the frame, which retargets the
+ * whole pointer stream and fires the bar's `pointerleave` on the way — so the
+ * attribute goes out at the instant of the grab and the mark the hand is
+ * holding went dark with it. The frame's `data-gesture` pins the field for the
+ * gesture's duration, and the reading below proves the pin is what is doing it:
+ * mid-drag the attribute is absent and the field is up regardless.
+ *
  * That is also what makes the reveal readable here: the harness's
  * `revealPaneControls` dispatches the same `pointerenter` the product listens
  * on, and a dispatched event reaches the listener a real one does — where no
@@ -236,6 +244,17 @@ async function freezeFieldFade(app: App): Promise<void> {
        st.id = "at0628-no-fade";
        st.textContent = ".tug-pane-grab-dots { transition: none !important; }";
        document.head.appendChild(st);
+       return null;
+     })()`,
+  );
+}
+
+/** Take the forcing fixture back off, so a later step reads the real cascade. */
+async function unforceFieldVisible(app: App): Promise<void> {
+  await app.evalJS<null>(
+    `(function () {
+       var st = document.getElementById("at0628-force");
+       if (st !== null && st.parentNode !== null) st.parentNode.removeChild(st);
        return null;
      })()`,
   );
@@ -575,7 +594,37 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // because the handle runs out to the control cluster and its centre can
         // fall outside the webview's visible frame, which the native mouse refuses
         // rather than silently clicking the edge.
-        const gestureAfterDragFrom = async (sel: string): Promise<string | null> => {
+        // The forcing fixture comes off first: from here on the field's opacity
+        // is read to learn what the CASCADE says, and an `!important` 1 would
+        // answer for every rule under it.
+        await unforceFieldVisible(app);
+        await wait(120);
+
+        /** The field's state, read while a gesture is in flight or after it. */
+        const fieldNow = async (): Promise<{ opacity: string; within: boolean }> =>
+          app.evalJS<{ opacity: string; within: boolean }>(
+            `(function () {
+               var bar = document.querySelector('.tug-pane[data-pane-id="p1"] [data-testid="tug-pane-title-bar"]');
+               var dots = document.querySelector(
+                 '.tug-pane[data-pane-id="p1"] .tug-pane-grab-dots'
+               );
+               return {
+                 opacity: dots === null ? "" : getComputedStyle(dots).opacity,
+                 within: bar !== null && bar.hasAttribute("data-pointer-within")
+               };
+             })()`,
+          );
+
+        interface Gesture {
+          /** Which panes wore `data-gesture`, mid-flight. */
+          held: string | null;
+          /** The field, mid-flight. */
+          mid: { opacity: string; within: boolean };
+          /** The field, once the gesture has landed and the button is up. */
+          after: { opacity: string; within: boolean };
+        }
+
+        const gestureAfterDragFrom = async (sel: string): Promise<Gesture> => {
           const at = await app.evalJS<{ x: number; y: number } | null>(
             `(function (s) {
                var el = document.querySelector(s);
@@ -585,7 +634,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
              })(${JSON.stringify(sel)})`,
           );
           expect(at, `${sel} is on screen to be pressed`).not.toBeNull();
-          if (at === null) return null;
+          if (at === null) throw new Error(`${sel} is not on screen`);
           const to = { x: at.x + 24, y: at.y };
           const under = await app.evalJS<string>(
             `(function (x, y) {
@@ -610,21 +659,47 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
                }).join(",");
              })()`,
           );
+          const mid = await fieldNow();
+          note(`mid-gesture from ${sel}: ${JSON.stringify(mid)}`);
           await app.nativeMouseUp(to);
           await wait(400);
-          return held;
+          const after = await fieldNow();
+          note(`after release from ${sel}: ${JSON.stringify(after)}`);
+          return { held, mid, after };
         };
 
         // The TITLE, a few pixels from the dots and squarely on the bar: the old
         // behaviour would have taken this press and moved the card.
         const onTitle = await gestureAfterDragFrom(`${SESSION_BAR} .tug-list-row-title`);
-        note(`drag from the title: data-gesture=${JSON.stringify(onTitle)}`);
-        expect(onTitle, "a drag from the title never begins").toBeNull();
+        note(`drag from the title: data-gesture=${JSON.stringify(onTitle.held)}`);
+        expect(onTitle.held, "a drag from the title never begins").toBeNull();
 
         // The HANDLE: the one surface that does.
         const onHandle = await gestureAfterDragFrom(`${SESSION_BAR} .tug-pane-grab-handle`);
-        note(`drag from the handle: data-gesture=${JSON.stringify(onHandle)}`);
-        expect(onHandle, "a drag from the handle does").toBe("p1=true");
+        note(`drag from the handle: data-gesture=${JSON.stringify(onHandle.held)}`);
+        expect(onHandle.held, "a drag from the handle does").toBe("p1=true");
+
+        // ---- 6. THE MARK THE HAND IS HOLDING STAYS LIT.
+        //
+        // A press on the handle takes POINTER CAPTURE on the frame, and capture
+        // retargets the pointer's whole stream — so the bar's own
+        // `pointerleave` fires as the capture is taken and no `pointerenter`
+        // follows while the gesture runs. The reading below is the proof, and it
+        // is why the pin is a second rule rather than a wider trigger: the
+        // attribute the trigger reads is GONE mid-drag, and the field is up
+        // anyway, off the frame's `data-gesture`.
+        expect(onHandle.mid.within, "capture takes the bar's pointer-within away").toBe(
+          false,
+        );
+        expect(onHandle.mid.opacity, "and the dots stay lit through the drag").toBe("1");
+
+        // And the release hands the trigger back: the pointer is still on the
+        // bar it was dragging, so the field stays up as the pin lets go rather
+        // than blinking out at the drop.
+        expect(onHandle.after.within, "the release restores pointer-within").toBe(true);
+        expect(onHandle.after.opacity, "and the dots do not blink out at the drop").toBe(
+          "1",
+        );
       } finally {
         await app.close();
       }

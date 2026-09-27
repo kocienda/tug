@@ -926,13 +926,6 @@ body {
    target nobody can find. Entering the bar is the coarse gesture that reveals
    the fine one.
 
-   One thing this leaves open, and the pointer is the only thing that can settle
-   it: a drag begins from a press inside the bar, so the field is up at the
-   moment of grab, but the gesture then carries the pointer off the bar and this
-   rule drops the mark mid-drag — the card is being dragged and its handle has
-   gone dark. Either that is fine, or the pane's `data-gesture` pins the field
-   for the duration.
-
    `[data-pointer-within]` rather than `:hover`, and for the same reason the
    rollup row reads that attribute: the pseudo-class is the engine's own, and
    the engine only re-decides it when the cursor MOVES. A press in the masthead
@@ -943,6 +936,26 @@ body {
    writes it), so it is still up across a re-render and a dispatched event
    reaches it exactly as a real one does. */
 .tug-pane-title-bar:not([data-role="sidebar"])[data-pointer-within]
+  .tug-pane-grab-dots {
+  opacity: 1;
+}
+
+/* ── The pin, for the gesture the trigger cannot see ───────────────────────
+   A drag is the one time the hand is DEMONSTRABLY on the handle and the
+   attribute above says it is not. The press takes POINTER CAPTURE on the frame,
+   and capture retargets the pointer's whole stream — the bar's own
+   `pointerleave` fires as the capture is taken and no later `pointerenter` is
+   coming, because every move belongs to the frame now. So the mark the hand is
+   holding went dark the instant it was grabbed.
+
+   `data-gesture="true"` on the FRAME is what says a hand is on this card, and
+   it is written at pointer-down and held until the landing finishes — so the
+   field stays up for the grab, the travel, the drop, and the settle that
+   follows, and goes out only when the card has come to rest. `"true"` and not
+   any gesture: a `resize` stamps the same attribute from a press on the pane's
+   edge, where the dots are neither held nor pointed at. */
+.tug-pane[data-gesture="true"]
+  .tug-pane-title-bar:not([data-role="sidebar"])
   .tug-pane-grab-dots {
   opacity: 1;
 }
