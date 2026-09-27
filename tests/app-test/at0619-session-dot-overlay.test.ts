@@ -81,6 +81,7 @@
  * @covers tugdeck/src/components/tugways/tug-text-editor/atom-decoration.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  * @covers tugdeck/src/components/tugways/session-phase-dot.tsx
+ * @covers tugdeck/src/lib/code-session-store/use-session-phase.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -99,6 +100,9 @@ const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
 const LAYER = ".cm-tug-session-dot-layer";
 const HOST = ".cm-tug-session-dot-host";
 const CHIP = `${COMPOSER} img[data-atom-well-x]`;
+/** The masthead's own mark — a `SessionPhaseDot`, and the one this file reads. */
+const MASTHEAD_DOT =
+  '[data-slot="session-masthead"] [data-slot="tug-progress-indicator"]';
 
 /** The sidecar a copy of one session atom would have written. */
 const SIDECAR = JSON.stringify({
@@ -292,7 +296,12 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
               masthead: (function(){
                 var m = document.querySelector(
                   '[data-slot="session-masthead"] [data-slot="tug-progress-indicator"]');
-                return m === null ? "absent" : (m.getAttribute('data-phase') || "");
+                if (m === null) return "absent";
+                return [
+                  m.getAttribute('data-state') || "",
+                  m.getAttribute('data-role') || "",
+                  m.hasAttribute('data-phase') ? "has-phase" : "no-phase",
+                ].join("/");
               })(),
               breathing: root === null
                 ? "absent" : String(root.dataset.breathing !== undefined),
@@ -310,7 +319,16 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         expect(breath.phase).toBe("idle");
         // While the card's own session is demonstrably mid-turn — which is
         // what makes the inert dot a decision rather than an absence of one.
-        expect(breath.masthead).not.toBe("idle");
+        //
+        // Read off `data-state` / `data-role` rather than `data-phase`: the
+        // masthead mark is a `SessionPhaseDot`, which carries the visual
+        // TRIPLE and no phase identifier, so the six keys a working session
+        // flips between write nothing. The old reading asked `data-phase` for
+        // `not.toBe("idle")` and kept passing on the `""` a missing attribute
+        // returns — vacuous, and it would have stayed green through this
+        // whole change. Both halves are asserted: the reading that survives,
+        // and the absence that made the old one meaningless.
+        expect(breath.masthead).toBe("running/action/no-phase");
 
         // ---- E. The mark is bounded by the pill it stands in. ------------
         //
@@ -489,6 +507,340 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         expect(after.hosts).toBe(0);
         // And only the chip went: the text typed in front of it is untouched.
         expect(after.text).toContain(TYPED);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a working session's dot writes nothing per phase, and its flush is a real one",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0619-session-dot-phase-churn",
+        foreground: true,
+      });
+      try {
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.bindSession("A", {
+          tugSessionId: SESSION_ID,
+          projectDir: PROJECT_DIR,
+        });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(MASTHEAD_DOT)}) !== null`,
+          { timeoutMs: 20_000 },
+        );
+
+        // ---- F. Zero writes per phase. -----------------------------------
+        //
+        // The masthead mark is a `SessionPhaseDot`. Opening a turn walks the
+        // session through `submitting` and `awaiting_first_token` at least,
+        // and `streaming` once tokens arrive — separate phase keys, all
+        // mapping to ONE visual triple. So the element should take exactly
+        // one new visual state across the whole opening, not one per key.
+        //
+        // Scoped to this one element rather than to every
+        // `.tug-progress-indicator` on the page, deliberately. The Z2 STATE
+        // cell's flanking indicators are NOT `SessionPhaseDot`s — they take
+        // the phase key and still carry `data-phase`, correctly, because that
+        // cell's whole job is to name the phase. A document-wide observer
+        // would record their writes and convict this dot of them.
+        await app.evalJS<null>(`(function(){
+          var el = document.querySelector(${JSON.stringify(MASTHEAD_DOT)});
+          var seen = [];
+          var records = 0;
+          var read = function(){
+            return (el.getAttribute('data-state') || '') + '/' +
+                   (el.getAttribute('data-role') || '');
+          };
+          seen.push(read());
+          var obs = new MutationObserver(function(list){
+            records += list.length;
+            var now = read();
+            if (seen[seen.length - 1] !== now) seen.push(now);
+          });
+          obs.observe(el, { attributes: true });
+          window.__at0619 = {
+            stop: function(){ obs.disconnect(); },
+            read: function(){
+              return {
+                seen: seen,
+                records: records,
+                phase: el.hasAttribute('data-phase'),
+              };
+            },
+          };
+          return null;
+        })()`);
+
+        await app.driveSession("A", { op: "send", text: "at0619 phase churn" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(MASTHEAD_DOT)})
+             .getAttribute('data-state') === 'running'`,
+          { timeoutMs: 20_000 },
+        );
+
+        const working = await app.evalJS<{
+          seen: readonly string[];
+          records: number;
+          phase: boolean;
+        }>(`window.__at0619.read()`);
+        note("at0619 phase churn (working)", JSON.stringify(working));
+
+        // Quiet, then working — and nothing in between, however many phase
+        // keys the session actually passed through to get there. A dot still
+        // keyed on the phase would show `submitting` and
+        // `awaiting_first_token` as separate writes.
+        expect(working.seen).toEqual(["stopped/inherit", "running/action"]);
+        // And it never carried a phase identifier at all, which is what made
+        // the old `data-phase` reading in this file vacuous.
+        expect(working.phase).toBe(false);
+
+        // ---- The control: the observer is demonstrably watching. ---------
+        //
+        // `records` above is already non-zero, so the observer is wired —
+        // but that only shows it saw the ONE crossing it was meant to. What
+        // has to be shown beside it is that a state which genuinely differs
+        // produces a genuinely new entry, or "one entry" would be a property
+        // of an observer that records almost nothing rather than of a dot
+        // that writes almost nothing.
+        //
+        // Closing the transport is the cheapest such state: it reads
+        // `offline`, which maps to `danger`/`aborted` — both axes different
+        // from the working triple. It is also one of the few the harness can
+        // drive on a synthetically bound session, where nothing answers a
+        // turn and so `interrupting` and `idle` are out of reach.
+        await app.driveSession("A", { op: "transportClose" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(MASTHEAD_DOT)})
+             .getAttribute('data-role') === 'danger'`,
+          { timeoutMs: 20_000 },
+        );
+        const after = await app.evalJS<{
+          seen: readonly string[];
+          records: number;
+        }>(`(function(){ window.__at0619.stop(); return window.__at0619.read(); })()`);
+        note("at0619 phase churn (after transport close)", JSON.stringify(after));
+        expect(after.records).toBeGreaterThan(working.records);
+        expect(after.seen).toEqual([
+          "stopped/inherit",
+          "running/action",
+          "aborted/danger",
+        ]);
+
+        // ---- G. `flushStyle` is a real flush on this engine. -------------
+        //
+        // `flushStyle(el)` is `el.getAnimations()`, chosen over
+        // `void el.offsetWidth` because it resolves style without forcing
+        // layout. The whole of that substitution rests on one inferred
+        // claim: that `getAnimations()` does NOT fast-path on an element with
+        // no animations to report. If it did, the crossing seeds in the dot
+        // component would coalesce with the pose after them and every
+        // crossing would fire from the stale pose — a tear that no static
+        // reading of the DOM would show.
+        //
+        // So the claim is gated here, in the real engine, on the exact shape
+        // the seed sites use: write `transition: none` and a pose, flush,
+        // release the transition, write another pose, then read the
+        // resulting `CSSTransition`'s first keyframe. A real flush makes it
+        // the seeded pose; a flush that did nothing makes it the pose before
+        // the seed. The no-flush arm is carried alongside precisely so a
+        // green result cannot be an artefact of the probe.
+        const flush = await app.evalJS<{
+          withGetAnimations: string | null;
+          withOffsetWidth: string | null;
+          withNoFlush: string | null;
+        }>(`(function(){
+          // The transition is declared by a STYLESHEET rule that exists
+          // before the element does, and the element's starting pose is
+          // written inline and settled, so the seed below has a real
+          // before-change style to be distinguished from. Declaring both at
+          // once in \`cssText\` at insertion gives the element no prior style
+          // and no transition ever fires — which reads as a flush failure
+          // and is only a broken probe.
+          var sheet = document.createElement('style');
+          sheet.textContent =
+            '.at0619-flush-host { position: fixed; left: 2px; top: 2px;' +
+            ' width: 40px; height: 40px; opacity: 0.01; pointer-events: none }' +
+            '.at0619-flush-host div { width: 20px; height: 20px;' +
+            ' transition: transform 300ms linear }';
+          document.head.appendChild(sheet);
+          var host = document.createElement('div');
+          host.className = 'at0619-flush-host';
+          document.body.appendChild(host);
+          var probe = function(flushFn){
+            var el = document.createElement('div');
+            host.appendChild(el);
+            el.style.transform = 'scale(1)';
+            el.getAnimations();
+            el.style.transition = 'none';
+            el.style.transform = 'scale(0.5)';
+            flushFn(el);
+            el.style.transition = '';
+            el.style.transform = 'scale(2)';
+            var ts = el.getAnimations().filter(function(a){
+              return a.constructor.name === 'CSSTransition';
+            });
+            var from = ts.length === 0 ? null
+              : (ts[0].effect.getKeyframes()[0].transform || null);
+            el.remove();
+            return from;
+          };
+          var out = {
+            withGetAnimations: probe(function(el){ el.getAnimations(); }),
+            withOffsetWidth: probe(function(el){ void el.offsetWidth; }),
+            withNoFlush: probe(function(){}),
+          };
+          host.remove();
+          sheet.remove();
+          return out;
+        })()`);
+        note("at0619 flush probe", JSON.stringify(flush));
+        // The flush this file now uses sees the seed...
+        expect(flush.withGetAnimations).toBe("scale(0.5)");
+        // ...exactly as the `offsetWidth` it replaced did...
+        expect(flush.withOffsetWidth).toBe("scale(0.5)");
+        // ...and the absence of a flush is what tears, which is what makes
+        // the two assertions above mean something.
+        expect(flush.withNoFlush).toBe("scale(1)");
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a session that starts working comes up on one clock",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0619-session-dot-weld",
+        foreground: true,
+      });
+      try {
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.bindSession("A", {
+          tugSessionId: SESSION_ID,
+          projectDir: PROJECT_DIR,
+        });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(MASTHEAD_DOT)}) !== null`,
+          { timeoutMs: 20_000 },
+        );
+
+        // The settled→running crossing, driven on a real session rather than
+        // reasoned about. `at0629` asserts the weld over three hundred bench
+        // glyphs, but those are born running; this is the other way in, and
+        // it is the one the app actually takes — a quiet dot promoted out of
+        // static mode, its settled pose handed back from the well, and both
+        // loops opened against a phase computed from where it was standing.
+        //
+        // **The resume-MID-PULSE arm of [P05] is not reachable from this
+        // harness, and pretending otherwise is worse than saying so.** It
+        // needs a session that stops and resumes inside one breath, and the
+        // only settle this harness can drive is a transport close, after
+        // which the masthead mark is unmounted outright — sampled for 15
+        // seconds after a reconnect and a second send, the selector answers
+        // `gone` and never anything else. That arm rests on the same
+        // `startLoops` these legs exercise, plus the well's absorb, and it is
+        // the well that would want the coverage. Recorded as a follow-on
+        // rather than asserted through a driver that cannot reach it.
+        const watch = `(function(){
+          var el = document.querySelector(${JSON.stringify(MASTHEAD_DOT)});
+          var root = el.querySelector('.tug-progress-pulsing-dot') || el;
+          var seen = [];
+          var obs = new MutationObserver(function(list){
+            for (var i = 0; i < list.length; i++) {
+              if (seen.length < 40) {
+                seen.push(list[i].attributeName + '=' +
+                  (root.getAttribute(list[i].attributeName) === null
+                    ? 'off' : 'on'));
+              }
+            }
+          });
+          obs.observe(root, {
+            attributes: true,
+            attributeFilter: ['data-breathing', 'data-emitting'],
+          });
+          window.__at0619weld = {
+            gates: function(){ return seen; },
+            read: function(){
+              var loops = root.getAnimations({ subtree: true })
+                .filter(function(a){ return a instanceof CSSAnimation; });
+              var st = loops.map(function(a){ return a.startTime; });
+              return {
+                loops: loops.length,
+                names: loops.map(function(a){ return a.animationName; }),
+                nulls: st.filter(function(x){ return x === null; }).length,
+                spread: st.length < 2 ? 0
+                  : Math.max.apply(null, st) - Math.min.apply(null, st),
+                gates: seen,
+              };
+            },
+          };
+          return null;
+        })()`;
+        await app.evalJS<null>(watch);
+
+        // Null-safe, because the masthead mark is unmounted across a
+        // transport close and a bare `.getAttribute` on the gap throws — an
+        // EvalError the harness reports with no hint of which frame it
+        // happened on.
+        const stateIs = (want: string): string => `(function(){
+          var el = document.querySelector(${JSON.stringify(MASTHEAD_DOT)});
+          return el !== null &&
+                 el.getAttribute('data-state') === ${JSON.stringify(want)};
+        })()`;
+
+        await app.driveSession("A", { op: "send", text: "at0619 weld" });
+        await app.waitForCondition<boolean>(stateIs("running"), {
+          timeoutMs: 20_000,
+        });
+
+        const weld = await app.evalJS<{
+          loops: number;
+          names: readonly string[];
+          nulls: number;
+          spread: number;
+          gates: readonly string[];
+        }>(`window.__at0619weld.read()`);
+        note("at0619 weld after crossing", JSON.stringify(weld));
+
+        // Three loops — the breath, and the ring's expand and fade. A dot
+        // that came back with fewer is one whose gates did not both open, and
+        // the spread assertion below would pass vacuously on it.
+        expect(weld.loops).toBe(3);
+        // A `null` start time is an unwelded loop wearing a different face:
+        // it reads as no disagreement at all to a naive min/max.
+        expect(weld.nulls).toBe(0);
+        expect(weld.spread).toBe(0);
+        // Both gates opened, in the one write `startLoops` makes. The order
+        // is the function's; what matters is that neither is missing, since a
+        // dot that never opened its emitter would report a two-loop weld and
+        // be convicted by the count above rather than by this.
+        expect(weld.gates).toEqual(["data-breathing=on", "data-emitting=on"]);
+
+        // ---- Settling drops the breath and keeps the pulse. --------------
+        //
+        // The other half of the crossing, and the one the weld has to leave
+        // alone: a lit ring finishes its travel on its own clock however the
+        // work ended. So `data-breathing` goes and `data-emitting` does not,
+        // in that order, at the moment the state changes.
+        await app.driveSession("A", { op: "transportClose" });
+        await app.waitForCondition<boolean>(stateIs("aborted"), {
+          timeoutMs: 20_000,
+        });
+        const settled = await app.evalJS<readonly string[]>(
+          `window.__at0619weld.gates()`,
+        );
+        note("at0619 gates through the settle", JSON.stringify(settled));
+        expect(settled.slice(0, 3)).toEqual([
+          "data-breathing=on",
+          "data-emitting=on",
+          "data-breathing=off",
+        ]);
+
       } finally {
         await app.close();
       }

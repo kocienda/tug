@@ -191,6 +191,23 @@ describe("nothingInFlight", () => {
   });
 });
 
+/**
+ * The gate reads cost and nothing else, and it did not always.
+ *
+ * It used to require that nothing was in flight when a sample was taken, on
+ * the reasoning that a streaming transcript legitimately lays out every frame
+ * ([D4]) and the walk worth catching is the one with nothing to show for it.
+ * `tugtool deck motion probe` settled it on the release deck: **0 trips
+ * across more than eighty motion holds**, with 17, 19, 24 and 39 ms samples
+ * in the ring — all over budget, all discarded, because in flight is this
+ * deck's normal state.
+ *
+ * The cases below that pin the new behaviour were written as its opposite,
+ * and they are rewritten rather than deleted, because the reading that was
+ * clearing those runs is the finding. `inFlight` still rides every sample and
+ * the `motion-demoted` trace row; {@link nothingInFlight} is untouched and its
+ * own cases above still hold. The flag lost its vote, not its job.
+ */
 describe("shouldTrip", () => {
   test("fewer samples than the run needs is never a trip", () => {
     // The probe arms on a rising motion edge, so a deck that has only just
@@ -215,12 +232,26 @@ describe("shouldTrip", () => {
     expect(shouldTrip([sample(9), sample(2), sample(11)], 6)).toBe(false);
   });
 
-  test("one in-flight sample in the run clears it", () => {
-    // A streaming transcript legitimately lays out every frame ([D4]). The
-    // run has to be clean, not merely mostly clean.
+  test("an in-flight sample counts toward the run like any other", () => {
+    // The inversion. An over-budget frame taken while a session was streaming
+    // is not the stream's alibi for the loops — the app's work triggers the
+    // walk and the running loops set its price, so that frame is the loops'
+    // bill arriving when the deck can least afford it.
+    expect(shouldTrip([sample(9), sample(11, true), sample(8)], 6)).toBe(true);
+  });
+
+  test("a run that was entirely in flight trips", () => {
+    // The release deck's actual shape, and the one the old gate could never
+    // fire on: every sample over budget, every sample taken mid-turn.
     expect(
-      shouldTrip([sample(9), sample(11, true), sample(8)], 6),
-    ).toBe(false);
+      shouldTrip([sample(17, true), sample(19, true), sample(24, true)], 6),
+    ).toBe(true);
+  });
+
+  test("in flight does not make an under-budget sample count", () => {
+    // The gate reads cost and nothing else — which cuts both ways. Dropping
+    // the flag must not turn a cheap frame into a trip.
+    expect(shouldTrip([sample(9), sample(2, true), sample(11)], 6)).toBe(false);
   });
 
   test("a sample exactly at the budget is not over it", () => {

@@ -24,17 +24,38 @@
  * gets quieter and nothing announces itself to the user, because the reader is
  * not the person who can act on it. The `motion-demoted` deck-trace row is.
  *
- * ## Why three samples, and why `inFlight` gates them
+ * ## Why three samples, and why `inFlight` no longer gates them
  *
- * A streaming transcript legitimately lays out every frame ([D4]); the walk
- * this breaker exists to catch is the one that runs with nothing to show for
- * it ([F02]). So a sample counts toward a trip only if nothing was in flight
- * when it was taken — `awaiting_approval` breathes a dot and moves no DOM,
- * which is exactly the case where an over-budget frame is the loop's fault.
+ * The gate used to require that nothing was in flight when a sample was
+ * taken. The reasoning was that a streaming transcript legitimately lays out
+ * every frame ([D4]), so the walk worth catching is the one that runs with
+ * nothing to show for it ([F02]) — sound about ATTRIBUTION, and wrong as
+ * policy, for a reason that only a measurement could settle.
  *
- * And it is three consecutive samples rather than one because a single
- * polluted frame is not a diagnosis (Risk R03). At {@link SAMPLE_INTERVAL_MS}
- * that is nine seconds of a deck paying for a walk it does not need.
+ * The measurement: `tugtool deck motion probe` on the release deck read **0
+ * trips across more than eighty motion holds**, with samples of 17, 19, 24
+ * and 39 ms sitting in the ring — every one of them over budget, and every
+ * one of them discarded because something was in flight. In flight is this
+ * deck's normal state. The breaker could not fire on the one deck it was
+ * built for.
+ *
+ * What the old gate misread is where the cost comes from. The app's own work
+ * triggers the compositing walk; the running loops set the PRICE of each one.
+ * So an over-budget frame during a stream is not the stream's alibi for the
+ * loops — it is the loops' bill, arriving at the moment the deck is least
+ * able to afford it. A sample now counts on `costMs > budgetMs` alone.
+ *
+ * Two guards carry the safety that the third one used to be credited with.
+ * It is three CONSECUTIVE samples rather than one, because a single polluted
+ * frame is not a diagnosis (Risk R03) — at {@link SAMPLE_INTERVAL_MS} that is
+ * nine seconds of a deck paying for a walk it does not need. And fewer than
+ * `needed` samples is never a trip, which is what keeps a page that has said
+ * nothing yet from tripping on its first check.
+ *
+ * `inFlight` is still recorded on every sample and still rides the
+ * `motion-demoted` trace row, and {@link nothingInFlight} keeps its meaning.
+ * The flag lost its vote, not its job: it is how a reader of the trace tells
+ * a bill that arrived on a busy deck from one that arrived on a still one.
  *
  * ## The latch
  *
@@ -94,14 +115,16 @@ export function nothingInFlight(phases: readonly string[]): boolean {
 }
 
 /**
- * Whether the last `needed` samples are all over budget with nothing in
- * flight.
+ * Whether the last `needed` samples are all over budget.
  *
  * Fewer than `needed` samples is never a trip — the probe arms on a rising
  * motion edge and a deck that has only just started moving has said nothing
- * yet. A single in-flight sample anywhere in the tail clears it: the run has
- * to be clean, not merely mostly clean, because the one reading this breaker
- * must never act on is a busy deck doing its job.
+ * yet. That guard is load-bearing twice over: `every` over an empty slice is
+ * `true`, so a page with no samples at all would otherwise trip on its first
+ * check.
+ *
+ * `inFlight` is deliberately not read here; see the module docblock for the
+ * reading that took it out of the gate.
  */
 export function shouldTrip(
   samples: readonly RenderCostSample[],
@@ -110,9 +133,7 @@ export function shouldTrip(
 ): boolean {
   if (needed <= 0) return false;
   if (samples.length < needed) return false;
-  return samples
-    .slice(-needed)
-    .every((sample) => sample.inFlight === false && sample.costMs > budgetMs);
+  return samples.slice(-needed).every((sample) => sample.costMs > budgetMs);
 }
 
 /** A census summary small enough to ride a trace row. */

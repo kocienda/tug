@@ -269,6 +269,74 @@ describe("rule 3 clause 3 — one Core Animation segment", () => {
     expect(hits[0].detail).toContain("steps(3)");
   });
 
+  test("a `cubic-bezier()` per keyframe segment is the permitted form", () => {
+    // The doctrine's easing bullet permits a Bézier declared per segment, in
+    // the steps themselves, because Core Animation expresses a SEGMENT's
+    // easing as one Bézier and that is one per segment. The lint already
+    // reads it that way — `easingIsAccelerable` accepts any bare
+    // `cubic-bezier(…)` wherever it is declared — and the correction to the
+    // doctrine therefore changes no code. This case is what says so, rather
+    // than a grep somebody has to re-run.
+    //
+    // It is exactly the shape the pulsing dot's breath now carries: a curve
+    // per leg, the final stop declaring none so it inherits the rule's
+    // `linear`, and three stops instead of the twenty-one the old "sample it
+    // into offsets" advice produced.
+    expect(
+      scan(`
+        @keyframes fx {
+          0% {
+            animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+            transform: scale(0.8);
+          }
+          30% {
+            animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+            transform: scale(1.2);
+          }
+          100% { transform: scale(0.8); }
+        }
+        .glyph {
+          animation: fx 1s linear var(--tug-loop-iterations, infinite);
+        }
+      `),
+    ).toEqual([]);
+  });
+
+  test("the same shape with `steps()` or a multi-stop `linear()` is not", () => {
+    // The other half, on the same fixture, so the case above is a reading of
+    // the easing rather than of the block's shape. A clause that passed
+    // everything in this position would pass the Bézier too.
+    const stepped = scan(`
+      @keyframes fx {
+        0% {
+          animation-timing-function: steps(4);
+          transform: scale(0.8);
+        }
+        100% { transform: scale(1.2); }
+      }
+      .glyph {
+        animation: fx 1s linear var(--tug-loop-iterations, infinite);
+      }
+    `);
+    expect(rules(stepped)).toEqual([3]);
+    expect(stepped[0].detail).toContain("steps(4)");
+
+    const sampled = scan(`
+      @keyframes fx {
+        0% {
+          animation-timing-function: linear(0, 0.3, 1);
+          transform: scale(0.8);
+        }
+        100% { transform: scale(1.2); }
+      }
+      .glyph {
+        animation: fx 1s linear var(--tug-loop-iterations, infinite);
+      }
+    `);
+    expect(rules(sampled)).toEqual([3]);
+    expect(sampled[0].detail).toContain("linear(0, 0.3, 1)");
+  });
+
   test("an easing token resolves one level through the corpus's `:root`", () => {
     expect(
       scan(

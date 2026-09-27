@@ -220,6 +220,31 @@ interface CostReading {
 }
 
 /**
+ * The mean of a burst, which is the only statistic fine enough for the
+ * streamed leg's two falsifiers.
+ *
+ * `performance.now()` is coarsened to the millisecond in this engine, so
+ * every reading in a burst is an integer and a percentile of them is an
+ * integer too. That is fine for a budget gate — the budget is 16 ms and the
+ * readings are 3 — and useless for "did this reading move", where the
+ * difference the driver makes is a fraction of a millisecond on a bench this
+ * cheap. Averaging sixty quantized samples recovers the resolution the
+ * quantization took, because the rounding is what varies between them.
+ *
+ * Reported to two decimals wherever it is noted, so the `Diagnostics:`
+ * section shows the separation rather than two numbers that read as equal.
+ */
+function mean(burst: readonly number[]): number {
+  if (burst.length === 0) return 0;
+  return burst.reduce((sum, ms) => sum + ms, 0) / burst.length;
+}
+
+/** A mean, rounded for a `note()`. */
+function meanOf(reading: CostReading): number {
+  return Math.round(mean(reading.burst) * 100) / 100;
+}
+
+/**
  * Take a `cost(frames)` reading.
  *
  * `evaluateJavaScript` does not await a promise, so the call is started, its
@@ -353,6 +378,227 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(census.violations).toEqual([]);
         expect(census.retained).toBe(0);
         expect(census.longRunning).toBeGreaterThan(0);
+
+        // ---- The weld: one clock, and it survives a style recalc. -------
+        //
+        // The dot and its ring run three separate CSS loops on three separate
+        // elements, and nothing in CSS makes them agree. What makes them one
+        // clock is that the component assigns all three an identical
+        // `startTime` the moment it opens the gates ([P04]). That is an
+        // assertion about data, so it is assertable — which the arrangement it
+        // replaced was not: two loops "started in the same style flush" is a
+        // claim about an ordering no test can read back.
+        //
+        // Read over every bench dot rather than one, because the failure this
+        // guards against is per-glyph: a dot whose gates opened apart sheds
+        // rings out of its breath for as long as it runs, and one sampled dot
+        // that happened to open cleanly would report nothing.
+        const weld = await app.evalJS<{
+          dots: number;
+          loopsPerDot: number[];
+          spreads: number[];
+          nullStarts: number;
+        }>(`(function(){
+          var roots = document.querySelectorAll(${JSON.stringify(BENCH_LOOPS)});
+          var loopsPerDot = [], spreads = [], nullStarts = 0;
+          for (var i = 0; i < roots.length; i++) {
+            var loops = roots[i].getAnimations({ subtree: true })
+              .filter(function (a) { return a instanceof CSSAnimation; });
+            loopsPerDot.push(loops.length);
+            var st = [];
+            for (var j = 0; j < loops.length; j++) {
+              if (loops[j].startTime === null) nullStarts++;
+              else st.push(loops[j].startTime);
+            }
+            if (st.length > 1) {
+              spreads.push(Math.max.apply(null, st) - Math.min.apply(null, st));
+            }
+          }
+          return {
+            dots: roots.length,
+            loopsPerDot: Array.from(new Set(loopsPerDot)),
+            spreads: Array.from(new Set(spreads)),
+            nullStarts: nullStarts,
+          };
+        })()`);
+        note("at0629 weld", weld);
+        expect(weld.dots).toBe(BENCH_COUNT);
+        // Three loops each — the breath, the ring's expand and its fade. Not
+        // written as a literal count of 900: how many loops one glyph carries
+        // is the stylesheet's fact, and the claim here is that every dot
+        // agrees with every other about it.
+        expect(weld.loopsPerDot).toEqual([3]);
+        // A `null` start time is an unwelded loop wearing a different face —
+        // it reads as no disagreement at all to a naive min/max.
+        expect(weld.nullStarts).toBe(0);
+        // One distinct spread across three hundred dots, and it is zero.
+        expect(weld.spreads).toEqual([0]);
+
+        // ---- Risk R01: a style recalculation does not move the weld. ----
+        //
+        // The weld is written once, at the crossing. If a later style
+        // recalculation re-created the animations — which is what a changed
+        // `animation-name`, a re-inserted stylesheet or an unlucky invalidation
+        // would do — they would come back at the recalculation's own start
+        // time and the weld would be silently gone. So: dirty style with an
+        // attribute the component knows nothing about, force the resolve, and
+        // read the three back.
+        const afterRecalc = await app.evalJS<{
+          spreads: number[];
+          moved: number;
+          opacity: string;
+        }>(`(function(){
+          var roots = document.querySelectorAll(${JSON.stringify(BENCH_LOOPS)});
+          var before = [];
+          for (var i = 0; i < roots.length; i++) {
+            before.push(roots[i].getAnimations({ subtree: true })
+              .filter(function (a) { return a instanceof CSSAnimation; })
+              .map(function (a) { return a.startTime; }));
+          }
+          var opacity = "";
+          for (var i = 0; i < roots.length; i++) {
+            roots[i].setAttribute('data-at0629-recalc', String(i));
+            opacity = getComputedStyle(roots[i]).opacity;
+          }
+          var spreads = [], moved = 0;
+          for (var i = 0; i < roots.length; i++) {
+            var loops = roots[i].getAnimations({ subtree: true })
+              .filter(function (a) { return a instanceof CSSAnimation; });
+            var st = loops.map(function (a) { return a.startTime; });
+            for (var j = 0; j < st.length; j++) {
+              if (before[i][j] !== st[j]) moved++;
+            }
+            if (st.length > 1) {
+              spreads.push(Math.max.apply(null, st) - Math.min.apply(null, st));
+            }
+            roots[i].removeAttribute('data-at0629-recalc');
+          }
+          return { spreads: Array.from(new Set(spreads)), moved: moved,
+                   opacity: opacity };
+        })()`);
+        note("at0629 weld after recalc", afterRecalc);
+        // The read is real: a `getComputedStyle` that resolved nothing would
+        // make the whole leg vacuous.
+        expect(afterRecalc.opacity).not.toBe("");
+        expect(afterRecalc.moved).toBe(0);
+        expect(afterRecalc.spreads).toEqual([0]);
+
+        // ---- The streamed commit: the deck the deck actually is. --------
+        //
+        // The quiet reading above is taken on a deck where nothing is
+        // dirtying style, and that is the reading's weakness rather than its
+        // strength: the dots do not CAUSE the compositing walk, they set the
+        // PRICE of each one. A bench with nothing committing pays for no
+        // walks, so a green quiet p50 says very little about what three
+        // hundred running loops cost a deck that is doing something.
+        //
+        // `__stream(true)` is that something, in its most innocent form: one
+        // `data-*` attribute per frame on a `<span>` that animates nothing.
+        // No transform, no transition, nothing the dots can see. It is what a
+        // streaming transcript's React commit does to this page — dirty
+        // style, schedule a rendering update — and the walk inside that
+        // update is then priced by every running transform animation here.
+        //
+        // Deliberately not `__force`, which writes an inline transform on a
+        // dot and demotes that animation to main-thread ticking: that probe
+        // proves the instrument by breaking something, and this one prices
+        // the deck without touching it.
+        //
+        // **The leg carries two controls, and only one of them is asserted
+        // on cost.** The plan asked for a pair: the streamed reading above
+        // the quiet one (the driver is doing something) and the demoted one
+        // below it (what it is doing is billed by the dots). The second is
+        // asserted below and is decisive — 0.17–0.32 ms against 3.4–3.7. The
+        // first is measured, noted, and deliberately NOT asserted, because
+        // four runs put its margin at 0.02, 0.20, 0.31 and 0.30 ms and a
+        // 0.02 ms margin is a coin flip dressed as a test.
+        //
+        // The reason is the instrument rather than the driver. `cost()`
+        // takes each of its sixty readings with a `requestAnimationFrame`
+        // plus a `setTimeout`, which schedules a rendering update per frame
+        // all by itself — so the "quiet" leg is already buying most of the
+        // walks this driver was added to buy, and the two readings are
+        // nearly the same measurement. What the pair was for is carried
+        // instead by the tick assertion just below, which reads the driver's
+        // own counter: a driver that silently no-ops is caught there, hard,
+        // rather than inferred from two numbers a millisecond clock cannot
+        // tell apart.
+        const streamedPopulation = await app.evalJS<number>(
+          `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length`,
+        );
+        const streaming = await app.evalJS<{ streaming: boolean }>(
+          `window.__tugMotion.__stream(true)`,
+        );
+        expect(streaming.streaming).toBe(true);
+        // The driver is demonstrably running before anything is read off it.
+        // A silently no-opping driver is how a measurement of this shape gets
+        // decided the wrong way.
+        await app.waitForCondition<boolean>(
+          `(function(){
+             var el = document.querySelector('[data-tug-stream-node]');
+             return el !== null && Number(el.getAttribute('data-tug-stream-tick')) > 5;
+           })()`,
+          { timeoutMs: 8_000 },
+        );
+        const streamed = await cost(app, "__at0629streamed", 60);
+        note("at0629 streamed render cost", {
+          population: streamedPopulation,
+          p50: streamed.p50,
+          p95: streamed.p95,
+          max: streamed.max,
+          mean: meanOf(streamed),
+          quietMean: meanOf(quiet),
+          budgetMs,
+        });
+        expect(streamedPopulation).toBe(BENCH_COUNT);
+        expect(
+          streamed.p50,
+          `three hundred breathing dots under one innocent style commit per ` +
+            `frame cost ${streamed.p50} ms against a ${budgetMs} ms budget. ` +
+            `This is the reading the budget exists for — the deck doing work ` +
+            `while the loops run — so a red here is the doctrine's claim ` +
+            `failing, not a calibration question.`,
+        ).toBeLessThan(budgetMs);
+        // Noted rather than asserted; see above for why. The direction has
+        // held on every run taken so far, so a `note()` reading BELOW the
+        // quiet one is worth a look even though nothing here goes red for it.
+        note("at0629 streamed over quiet", {
+          streamedMean: meanOf(streamed),
+          quietMean: meanOf(quiet),
+          marginMs: Math.round((mean(streamed.burst) - mean(quiet.burst)) * 100) / 100,
+        });
+
+        // The control. If the same cost comes back with every loop stilled,
+        // the number is about the driver rather than about the dots — and the
+        // assertion above would be measuring `setAttribute`.
+        const streamedDemoted = await app.evalJS<null>(`(function(){
+          window.__tugMotion.demote(true);
+          return null;
+        })()`);
+        expect(streamedDemoted).toBe(null);
+        const demotedStream = await cost(app, "__at0629streamdemoted", 60);
+        note("at0629 streamed render cost, loops demoted", {
+          p50: demotedStream.p50,
+          p95: demotedStream.p95,
+          max: demotedStream.max,
+          mean: meanOf(demotedStream),
+        });
+        await app.evalJS<unknown>(`window.__tugMotion.demote(false)`);
+        await app.evalJS<unknown>(`window.__tugMotion.__stream(false)`);
+        expect(
+          mean(demotedStream.burst),
+          `the same per-frame commit with every loop stilled cost ` +
+            `${meanOf(demotedStream)} ms against ${meanOf(streamed)} ms with ` +
+            `them running. A reading that does not fall is a reading about ` +
+            `the commit rather than about the loops it is supposed to price.`,
+        ).toBeLessThan(mean(streamed.burst));
+        // ...and the driver is off before the pause, demote and breaker legs
+        // below, which would otherwise read a deck with a rAF loop on it.
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector('[data-tug-stream-node]') === null`,
+          ),
+        ).toBe(true);
 
         // ---- The forcing probe: what makes the quiet reading falsifiable.
         const forcing = await app.evalJS<{ forcing: boolean }>(

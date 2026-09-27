@@ -11,9 +11,14 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { TugProgressIndicatorPhaseVisual } from "@/components/tugways/tug-progress-indicator";
 import type { JobItem } from "../select-jobs";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
-import { sessionSessionPhaseVisual } from "../session-phase-visual";
+import {
+  SESSION_PHASE_LABELS,
+  sessionSessionPhaseVisual,
+  type SessionPhaseKey,
+} from "../session-phase-visual";
 import {
   joinOfferStands,
   joinOfferArcName,
@@ -210,5 +215,74 @@ describe("joinOfferBase and joinOfferArcName — what stands, and about what", (
       expect(joinOfferBase("tugarc/ready#a1", arcs) !== null).toBe(stands);
       expect(joinOfferArcName("tugarc/ready#a1", arcs) !== null).toBe(stands);
     }
+  });
+});
+
+/**
+ * The phase → visual triple mapping, which is what `useSessionPhaseVisual`
+ * hands the dot.
+ *
+ * Asserted over `sessionSessionPhaseVisual` directly rather than through the
+ * hook: the mapping is the decision, the hook is the walk, and the walk needs
+ * a React runtime and a live card to say anything at all.
+ */
+describe("the visual triple a working session holds still on", () => {
+  /**
+   * The six keys the deck flips between while a session works. Every flip
+   * among them must write nothing to the DOM, which is only true if they all
+   * map to one triple BY VALUE.
+   */
+  const WORKING_KEYS: readonly SessionPhaseKey[] = [
+    "streaming",
+    "tool_work",
+    "submitting",
+    "awaiting_first_token",
+    "replaying",
+    "waking",
+  ];
+
+  test("all six map to the same triple by value", () => {
+    const expected: TugProgressIndicatorPhaseVisual = {
+      role: "action",
+      state: "running",
+    };
+    for (const key of WORKING_KEYS) {
+      expect(sessionSessionPhaseVisual(key), `${key} differs`).toEqual(
+        expected,
+      );
+    }
+    // And no `shape`: the indicator's default is `dot`, and a key that named
+    // one here would put a diamond on an ordinary working session.
+    for (const key of WORKING_KEYS) {
+      expect(sessionSessionPhaseVisual(key).shape).toBeUndefined();
+    }
+  });
+
+  test("the neighbours that must NOT collapse into them still differ", () => {
+    // If these matched, a session crossing into them would also write
+    // nothing — and the whole point of those keys is that they look
+    // different. The zero-mutation property is only worth having if it is
+    // zero for the states that are visually identical and non-zero for the
+    // states that are not.
+    const working = sessionSessionPhaseVisual("streaming");
+    for (const key of ["idle", "background", "ready", "offline"] as const) {
+      expect(sessionSessionPhaseVisual(key), `${key} collapsed`).not.toEqual(
+        working,
+      );
+    }
+  });
+
+  test("every phase key yields a role and a state", () => {
+    for (const key of Object.keys(SESSION_PHASE_LABELS) as SessionPhaseKey[]) {
+      const visual = sessionSessionPhaseVisual(key);
+      expect(visual.role, `${key} has no role`).toBeDefined();
+      expect(visual.state, `${key} has no state`).toBeDefined();
+    }
+  });
+
+  test("shape is returned for background alone", () => {
+    const withShape = (Object.keys(SESSION_PHASE_LABELS) as SessionPhaseKey[])
+      .filter((key) => sessionSessionPhaseVisual(key).shape !== undefined);
+    expect(withShape).toEqual(["background"]);
   });
 });

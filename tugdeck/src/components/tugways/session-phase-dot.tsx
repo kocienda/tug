@@ -18,6 +18,17 @@
  * answers `idle` for a session whose live state cannot be reached, so a closed
  * or external row gets a quiet dot rather than no dot or a red one.
  *
+ * **The dot carries no phase identifier, and that is the point.** It reads the
+ * visual TRIPLE — `{ role, state, shape }` — rather than the phase key, and
+ * passes the three as props. The six keys a working session flips between
+ * (`streaming`, `tool_work`, `submitting`, `awaiting_first_token`,
+ * `replaying`, `waking`) all map to the same triple, so none of those
+ * crossings writes anything to the DOM. Passing the key instead put a
+ * `data-phase` on the element and rewrote it on every flip, invalidating
+ * style for a subtree whose appearance was identical before and after. A
+ * surface that genuinely needs to name the phase reads the LABEL, which is
+ * phase-keyed and stays so; this dot is not one of them.
+ *
  * Laws: [L02] the phase enters through `useSyncExternalStore` (inside the hook);
  *       [L06] the pulse is CSS on an engine attribute, never React state;
  *       [L13] motion is the indicator's.
@@ -26,15 +37,8 @@
 import React from "react";
 
 import { dotDriftFor } from "@/components/tugways/internal/tug-progress-pulsing-dot";
-import {
-  TugProgressIndicator,
-  type TugProgressIndicatorPhaseVisual,
-} from "@/components/tugways/tug-progress-indicator";
-import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
-import { useSessionPhase } from "@/lib/code-session-store/use-session-phase";
-
-const PHASE_VISUAL: (key: string) => TugProgressIndicatorPhaseVisual =
-  sessionSessionPhaseVisual;
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
+import { useSessionPhaseVisual } from "@/lib/code-session-store/use-session-phase";
 
 export interface SessionPhaseDotProps {
   /** The session whose liveness this dot reads. */
@@ -57,13 +61,17 @@ export function SessionPhaseDot({
   size,
   drift = false,
 }: SessionPhaseDotProps): React.ReactElement {
-  const phase = useSessionPhase(sessionId);
+  const visual = useSessionPhaseVisual(sessionId);
   return (
     <TugProgressIndicator
       variant="pulsing-dot"
       size={size}
-      phase={phase}
-      phaseVisual={PHASE_VISUAL}
+      // The triple, spread as three props. `shape` is returned only for
+      // `background`, so `undefined` here correctly leaves the indicator at
+      // its `dot` default rather than naming one.
+      role={visual.role}
+      state={visual.state}
+      shape={visual.shape}
       // Keyed on the session so it keeps its rate across a filter, a reorder, a
       // scroll out of view and back — and across a rebind onto another card.
       style={drift ? dotDriftFor(sessionId) : undefined}

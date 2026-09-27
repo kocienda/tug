@@ -139,6 +139,8 @@ export interface TugMotionDiagnostics {
   reset(): void;
   /** Test-mode only: the driver that lights the walk ([D5], #forcing-probe). */
   __force?(on: boolean): { forcing: boolean };
+  /** Test-mode only: one innocent style commit per frame ([P06]). */
+  __stream?(on: boolean): { streaming: boolean };
 }
 
 declare global {
@@ -228,6 +230,57 @@ function setForcing(on: boolean): { forcing: boolean } {
   };
   forcingFrame = requestAnimationFrame(tick);
   return { forcing: true };
+}
+
+/**
+ * One attribute write per frame on an element that animates nothing — what a
+ * streaming transcript's React commit does to this page, in miniature.
+ *
+ * It is deliberately **not** {@link setForcing}. That driver writes an inline
+ * `transform` on a dot, which is the disqualifying form: it demotes that one
+ * animation to main-thread ticking, so the cost it lights is partly the cost
+ * of having broken the thing under test. This one writes a `data-*` attribute
+ * on a `<span>` with no animation and no transition on it. Nothing about the
+ * dots changes; what changes is that style is dirty every frame, which is
+ * what schedules a rendering update, and the compositing walk inside that
+ * update is priced by every running transform animation on the page ([P06]).
+ *
+ * That is the whole point of having it. A quiet bench pays for no walks, so a
+ * green render-cost reading on one says nothing about what the loops cost —
+ * the dots do not cause the walks, they set the price of each one. The value
+ * written is irrelevant and is never read; the commit is the instrument.
+ */
+let streamFrame: number | null = null;
+let streamNode: HTMLElement | null = null;
+
+function setStreaming(on: boolean): { streaming: boolean } {
+  if (!on) {
+    if (streamFrame !== null) {
+      cancelAnimationFrame(streamFrame);
+      streamFrame = null;
+    }
+    streamNode?.remove();
+    streamNode = null;
+    return { streaming: false };
+  }
+  if (streamFrame !== null) return { streaming: true };
+  const node = document.createElement("span");
+  // Off-screen and inert. It must not animate, must not transition, and must
+  // not be something a layout pass has an opinion about — the reading is
+  // supposed to be about the dots, not about this.
+  node.setAttribute("data-tug-stream-node", "");
+  node.style.cssText =
+    "position:fixed;left:-1px;top:-1px;width:1px;height:1px;" +
+    "opacity:0;pointer-events:none";
+  document.body.appendChild(node);
+  streamNode = node;
+  let tick = 0;
+  const step = (): void => {
+    node.setAttribute("data-tug-stream-tick", String(++tick));
+    streamFrame = requestAnimationFrame(step);
+  };
+  streamFrame = requestAnimationFrame(step);
+  return { streaming: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +405,7 @@ export function installMotionDiagnostics(): void {
   if (typeof window === "undefined") return;
   if (window.__tugTestMode === true) {
     tugMotion.__force = setForcing;
+    tugMotion.__stream = setStreaming;
   }
   window.__tugMotion = tugMotion;
 }

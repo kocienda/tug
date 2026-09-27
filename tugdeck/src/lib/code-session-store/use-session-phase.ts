@@ -48,9 +48,11 @@ import {
 import { cardServicesStore } from "@/lib/card-services-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
+import type { TugProgressIndicatorPhaseVisual } from "@/components/tugways/tug-progress-indicator";
 import { countRunningJobs } from "@/lib/code-session-store/select-jobs";
 import {
   sessionSessionPhaseKey,
+  sessionSessionPhaseVisual,
   type SessionPhaseKey,
 } from "@/lib/code-session-store/session-phase-visual";
 import type { CodeSessionSnapshot } from "@/lib/code-session-store/types";
@@ -249,6 +251,34 @@ export function useSessionPhase(sessionId: string): SessionPhaseKey {
   const join = useCardArcJoin(cardId, services?.changesController ?? null);
   const joinReady = joinOfferStands(join.arcId, join.arcs);
   return sessionPhaseFromSnapshot(snap, joinReady);
+}
+
+/**
+ * A session's **visual triple** — `{ role, state, shape }` — live.
+ *
+ * The same walk as {@link useSessionPhase}, with the key mapped through
+ * `sessionSessionPhaseVisual` before it is handed out. The point is what the
+ * caller then writes to the DOM: six of the keys a working session flips
+ * between — `streaming`, `tool_work`, `submitting`, `awaiting_first_token`,
+ * `replaying`, `waking` — map to the SAME triple, so a component that renders
+ * the triple rather than the key writes nothing on any of those crossings.
+ * Rendering the key instead put a `data-phase` on the element and rewrote it
+ * on every flip, which invalidated style for a subtree whose appearance had
+ * not changed at all.
+ *
+ * **Nothing here is interned, memoized, or held in a `Map`, and that is
+ * deliberate.** The triple crosses into the indicator as three string props,
+ * which React compares by value — a fresh object each render costs a
+ * comparison of three short strings and buys nothing that identity would. The
+ * mapping also runs after the `useSyncExternalStore` read rather than inside a
+ * `getSnapshot`, so there is no identity hazard to guard against: an unstable
+ * object returned from `getSnapshot` would loop, and this is not one. An
+ * earlier cut cached these and the cache was pure cost.
+ */
+export function useSessionPhaseVisual(
+  sessionId: string,
+): TugProgressIndicatorPhaseVisual {
+  return sessionSessionPhaseVisual(useSessionPhase(sessionId));
 }
 
 /**

@@ -553,8 +553,12 @@
   opacity: 0;
 }
 
-/* One period, the loops on the two child spans — started together,
-   phase-locked for as long as they run.
+/* One period, the loops on the two child spans — welded by a shared
+   `startTime` the component assigns, for as long as they run.
+
+   ONE duration across all three loops is what makes one `startTime` a weld
+   rather than three coincidences. Anything that gives the ring its own
+   duration breaks the component's weld and not only this rule.
 
    The gate is `data-breathing` / `data-emitting`, written by the component,
    NOT `data-state`. State is React's to set and it changes the moment the work
@@ -576,40 +580,14 @@
   animation-iteration-count: var(--tug-loop-iterations, infinite);
 }
 
-/* Negative, and written by the component when it starts a loop: the phase whose
-   pose matches where the settled dot was standing, so the breath picks the dot
-   up rather than snapping it to the trough. Zero — a start at the bottom of the
-   breath — is only right on a first mount.
-
-   ONE phase, TWO variables, because the two loops can be started apart even
-   though they must always run together. Work resuming while the last settle's
-   pulse is still travelling is the case: the breath starts at once, at the
-   dot's own phase, and the ring keeps flying on the clock it was shed under
-   until it lands — at which point the component restarts BOTH from the breath's
-   position and they are welded again. A single variable makes that impossible,
-   because writing the breath's phase would drag the flying ring's delay with it
-   and jump the pulse mid-travel. */
-.tug-progress-pulsing-dot[data-breathing] .tug-progress-pulsing-dot-dot {
-  animation-delay: calc(
-    var(--tugx-progress-pulsing-dot-period) *
-      var(--tugx-progress-pulsing-dot-phase, 0)
-  );
-}
-
-.tug-progress-pulsing-dot[data-emitting] .tug-progress-pulsing-dot-ring {
-  animation-delay: calc(
-    var(--tugx-progress-pulsing-dot-period) *
-      var(--tugx-progress-pulsing-dot-emit-phase, 0)
-  );
-}
-
 /* Turn at 30%: cosine up over the first 600ms, cosine down over the remaining
-   1400ms. Runs 0 → 1 → 0, so the two-stop keyframe plays out and back on one
-   pass. */
+   1400ms. Runs trough → peak → trough, so one pass of the three-stop keyframe
+   below is one whole breath. */
 .tug-progress-pulsing-dot[data-breathing] .tug-progress-pulsing-dot-dot {
-  /* Overridable by NAME, not by an easing: the shape lives in the stops, so a
-     different envelope is a different keyframe block. The gallery's turn bench
-     injects one and points these at it. */
+  /* Overridable by NAME, not by a rule-level easing: the shape lives in the
+     stops and in the per-segment bezier on each of them, so a different
+     envelope is a different keyframe block. The gallery's turn bench injects
+     one and points these at it. */
   animation-name: var(
     --tugx-progress-pulsing-dot-breathe-name,
     tugx-progress-pulsing-dot-breathe
@@ -677,88 +655,52 @@
   );
 }
 
-/* The shape lives HERE, in the stops — not in an easing function.
+/* The shape lives in three stops and a bezier per segment — and the two
+ * reasons for that are not the same reason.
  *
- * This is the qualifying-form easing rule of `tuglaws/animation-doctrine.md`,
- * and this file is where it was learned. It is not a style preference; it is
- * the difference between this glyph
- * costing 28% of the main thread and costing under 1%. The envelope used to be
- * carried by 14-to-21-stop `linear()` easings over two-stop keyframes, which
- * made the timing a single-variable knob and read beautifully. It also made
- * every loop unacceleratable: Core Animation expresses a segment's easing as a
- * cubic bezier, a multi-stop `linear()` is not one, and WebKit responds by
+ * QUALIFICATION is the first, and it is the qualifying-form easing rule of
+ * `tuglaws/animation-doctrine.md`; this file is where it was learned. Core
+ * Animation expresses a segment's easing as a cubic bezier, so a multi-stop
+ * `linear()` is not one and neither is a `steps()`, and WebKit responds by
  * declining to accelerate the animation at all — blending it on the main
- * thread, every element, every frame. Measured on a 100-glyph bench that was
- * 18.0% with the easings and 0.9% without them.
+ * thread, every element, every frame. The envelope used to be carried by
+ * 14-to-21-stop `linear()` easings over two-stop keyframes, which read
+ * beautifully and measured 18.0% of the main thread on a 100-glyph bench
+ * against 0.9% without them. A per-segment `cubic-bezier()` does NOT trip this
+ * rule: it is the exact form Core Animation speaks.
  *
- * A many-stop keyframe animation with `linear` interpolation between the stops
- * is the same curve by construction — the stops below are the same samples of
- * the same cosine legs and the same cubic ease-out that the easings were built
- * from — and Core Animation runs it natively.
+ * PRICE PER KEYFRAME is the second, and it bills animations that already
+ * qualified — which is why the first fix, sampling the curve into 21 linear
+ * stops, bought nothing here. WebKit rebuilds its layer-overlap map from
+ * scratch on every compositing update, and for each layer carrying a running
+ * transform animation it re-derives the box that layer can reach by sampling
+ * the animation once per keyframe, allocating a style per sample, with no
+ * cache across updates. Measured on the release deck at a fixed population of
+ * 23 dots, 21 sampled stops cost a mean of 22.0 samples of
+ * `computeExtentOfTransformAnimation` per three-second process sample; the
+ * three-stop form below cost 5.7, and the two distributions did not overlap.
  *
- * Regenerate all three together if the envelope changes; `breathEnvelope` in
- * the component is the source these were sampled from, and `--…-emit-birth`
- * must agree with the turn they encode. */
+ * So: as few stops as the shape needs, and the shape itself in a
+ * `cubic-bezier()` on each stop that begins a segment. The rule-level
+ * `animation-timing-function: linear` on the two rules above is what a segment
+ * inherits when its own stop declares nothing, which is why the final stop of
+ * each block carries none — and `audit-motion.ts` rule 3 still reads that
+ * rule-level value.
+ *
+ * These blocks are GENERATED. `breathKeyframes(0.3, "tugx-progress-pulsing-dot")`
+ * in the component emits them byte for byte, and `breath-keyframes.test.ts`
+ * reads this file from disk and asserts the equality, so the generator is the
+ * source rather than a comment claiming to be. Regenerate all three together
+ * if the envelope changes; `--…-emit-birth` must agree with the turn they
+ * encode. */
 @keyframes tugx-progress-pulsing-dot-breathe {
   0% {
+    animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
     transform: scale(var(--tugx-progress-pulsing-dot-trough-resolved));
   }
-  3.75% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.0381));
-  }
-  7.5% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.1464));
-  }
-  11.25% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.3087));
-  }
-  15% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.5));
-  }
-  18.75% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.6913));
-  }
-  22.5% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.8536));
-  }
-  26.25% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.9619));
-  }
   30% {
+    animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
     transform: scale(var(--tugx-progress-pulsing-dot-peak-resolved));
-  }
-  35.8333% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.983));
-  }
-  41.6667% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.933));
-  }
-  47.5% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.8536));
-  }
-  53.3333% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.75));
-  }
-  59.1667% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.6294));
-  }
-  65% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.5));
-  }
-  70.8333% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.3706));
-  }
-  76.6667% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.25));
-  }
-  82.5% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.1464));
-  }
-  88.3333% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.067));
-  }
-  94.1667% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-trough-resolved) + (var(--tugx-progress-pulsing-dot-peak-resolved) - var(--tugx-progress-pulsing-dot-trough-resolved)) * 0.017));
   }
   100% {
     transform: scale(var(--tugx-progress-pulsing-dot-trough-resolved));
@@ -768,40 +710,8 @@
 @keyframes tugx-progress-pulsing-dot-emit-expand {
   0%,
   27% {
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
     transform: scale(var(--tugx-progress-pulsing-dot-birth-resolved));
-  }
-  33.0833% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.2297));
-  }
-  39.1667% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.4213));
-  }
-  45.25% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.5781));
-  }
-  51.3333% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.7037));
-  }
-  57.4167% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.8015));
-  }
-  63.5% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.875));
-  }
-  69.5833% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.9277));
-  }
-  75.6667% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.963));
-  }
-  81.75% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.9844));
-  }
-  87.8333% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.9954));
-  }
-  93.9167% {
-    transform: scale(calc(var(--tugx-progress-pulsing-dot-birth-resolved) + (var(--tugx-progress-pulsing-dot-reach-resolved) - var(--tugx-progress-pulsing-dot-birth-resolved)) * 0.9994));
   }
   100% {
     transform: scale(var(--tugx-progress-pulsing-dot-reach-resolved));
