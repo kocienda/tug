@@ -931,8 +931,19 @@ body {
    moment of grab, but the gesture then carries the pointer off the bar and this
    rule drops the mark mid-drag — the card is being dragged and its handle has
    gone dark. Either that is fine, or the pane's `data-gesture` pins the field
-   for the duration. */
-.tug-pane-title-bar:not([data-role="sidebar"]):hover .tug-pane-grab-dots {
+   for the duration.
+
+   `[data-pointer-within]` rather than `:hover`, and for the same reason the
+   rollup row reads that attribute: the pseudo-class is the engine's own, and
+   the engine only re-decides it when the cursor MOVES. A press in the masthead
+   activates the card, which restyles and re-renders the bar under a stationary
+   pointer — and the dots went out and stayed out until the hand jiggled the
+   mouse, which is the engine recomputing a hover it had never dropped. The
+   attribute is derived from `pointerenter`/`pointerleave` (see the effect that
+   writes it), so it is still up across a re-render and a dispatched event
+   reaches it exactly as a real one does. */
+.tug-pane-title-bar:not([data-role="sidebar"])[data-pointer-within]
+  .tug-pane-grab-dots {
   opacity: 1;
 }
 

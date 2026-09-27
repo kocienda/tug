@@ -36,19 +36,27 @@
  *      whether or not the field is drawn. A name that reflowed under the
  *      pointer would be a worse problem than the one the mark solves.
  *
- * ── Why the pointer never appears below ──
- * The trigger is a real `:hover` pseudo-class, which WebKit decides by
- * hit-testing against the PHYSICAL cursor. A background app-test has no
- * business moving that cursor and, in a non-key window, could not usefully move
- * it anyway — which is why the harness's `revealPaneControls` dispatches
- * `pointerenter` instead, and why that door does nothing for a pseudo-class.
+ * ── The trigger, and why the pointer CAN appear below ──
+ * The trigger is `[data-pointer-within]` on the bar — the attribute the pane
+ * derives from `pointerenter`/`pointerleave` — and not the `:hover`
+ * pseudo-class it shipped as. WebKit decides a pseudo-class by hit-testing
+ * against the PHYSICAL cursor and only re-decides it when that cursor moves, so
+ * a press in the masthead, which activates the card and re-renders the bar
+ * under a stationary pointer, put the dots out and left them out until the hand
+ * jiggled the mouse. The attribute is React's own half of hover and survives
+ * the re-render.
  *
- * It does not matter here, and that is the third claim restated: everything
- * about the field except its opacity is true at rest. So the geometry is read
- * at rest, and the measure claim is proven by forcing the one property the
- * trigger changes and re-measuring the title — which is a stricter reading than
- * a hover would give, because it isolates the field's paint from every other
- * thing a pointer entering a card would also do.
+ * That is also what makes the reveal readable here: the harness's
+ * `revealPaneControls` dispatches the same `pointerenter` the product listens
+ * on, and a dispatched event reaches the listener a real one does — where no
+ * dispatch can move a pseudo-class.
+ *
+ * The geometry is still read at REST, which is the third claim restated:
+ * everything about the field except its opacity is true there. And the measure
+ * claim is proven by forcing the one property the trigger changes and
+ * re-measuring the title — a stricter reading than the reveal gives, because it
+ * isolates the field's paint from every other thing a pointer entering a card
+ * also does.
  *
  * ── The absence is half the subject ──
  * A rail is pinned to a deck edge and is not dragged by its bar, so a drag
@@ -208,6 +216,25 @@ async function forceFieldVisible(app: App): Promise<void> {
        st.textContent =
          '.tug-pane-title-bar:not([data-role="sidebar"]) .tug-pane-grab-dots' +
          ' { opacity: 1 !important; }';
+       document.head.appendChild(st);
+       return null;
+     })()`,
+  );
+}
+
+/**
+ * Stand the field's fade down, so its opacity resolves rather than animates.
+ *
+ * Nothing about what is asserted changes: the fade is 120ms of easing on the
+ * one property the trigger moves, and an occluded harness window suspends the
+ * timeline that would advance it. See the call site.
+ */
+async function freezeFieldFade(app: App): Promise<void> {
+  await app.evalJS<null>(
+    `(function () {
+       var st = document.createElement("style");
+       st.id = "at0628-no-fade";
+       st.textContent = ".tug-pane-grab-dots { transition: none !important; }";
        document.head.appendChild(st);
        return null;
      })()`,
@@ -442,6 +469,58 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         expect(cell, "the Cards rail lists the bound session").not.toBeNull();
         expect(cell?.handles, "a rail's session cell grows no handle").toBe(0);
         expect(cell?.grow, "and its title keeps its grow").toBe("1");
+
+        // ---- 3b. THE POINTER LIGHTS IT, and a re-render does not put it out.
+        //
+        // The trigger is the bar's `data-pointer-within`, not `:hover`: the
+        // pseudo-class is re-decided only when the physical cursor MOVES, so a
+        // press in the masthead — which activates the card and re-renders the
+        // bar beneath a pointer that has not moved — dropped the dots and left
+        // them dropped until the hand jiggled the mouse. Reading the reveal
+        // through the dispatched `pointerenter` is the guard: under `:hover`
+        // this step is unreachable at all.
+        const SESSION_LINE = `${SESSION_FRAME} .tug-session-row-name-line`;
+        // The FADE is stood down first, and this is not cosmetic. The field
+        // crosses to 1 over a 120ms `opacity` transition, and a transition is
+        // driven by the document's animation timeline — which an OCCLUDED
+        // harness window suspends along with `requestAnimationFrame`. Left on,
+        // the computed value sits at the transition's start value for as long
+        // as the window stays covered, and the reveal reads as a failure that
+        // is really the compositor asleep. Stood down, the resolved value is
+        // the cascade's own, which is what this step is about.
+        await freezeFieldFade(app);
+        await app.revealPaneControls('.tug-pane[data-pane-id="p1"]');
+        await wait(200);
+        const revealed = await readLine(app, SESSION_LINE);
+        note(`pointer within the bar: opacity ${revealed?.opacity}`);
+        expect(revealed?.opacity, "the pointer lights the field").toBe("1");
+
+        // The activation the bug was reported from: a card focused under a
+        // stationary pointer re-renders its bar, and the mark must still be up
+        // afterwards. Focus is taken through the product's own door rather than
+        // by a press, because a press in a background, non-key window does not
+        // arrive as a `pointerdown` the page sees (see step 5).
+        await app.evalJS<null>(
+          `(function () { window.__tug.activateCard("B"); return null; })()`,
+        );
+        await wait(200);
+        await app.evalJS<null>(
+          `(function () { window.__tug.activateCard("A"); return null; })()`,
+        );
+        await wait(300);
+        const afterActivate = await readLine(app, SESSION_LINE);
+        note(`after re-activating the card: opacity ${afterActivate?.opacity}`);
+        expect(
+          afterActivate?.opacity,
+          "and a re-render under a stationary pointer does not put it out",
+        ).toBe("1");
+
+        // Off the bar again, so the rest state the next step measures from is
+        // the real one — and so the trigger is read in both directions.
+        await app.concealPaneControls('.tug-pane[data-pane-id="p1"]');
+        await wait(200);
+        const concealed = await readLine(app, SESSION_LINE);
+        expect(concealed?.opacity, "and leaving the bar puts it out").toBe("0");
 
         // ---- 4. The measure does not move when the field is drawn.
         await forceFieldVisible(app);
