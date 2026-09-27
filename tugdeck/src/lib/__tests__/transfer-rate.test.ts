@@ -121,3 +121,50 @@ describe("transferDetailLine", () => {
     expect(formatRate(1_200_000)).toBe("1.2 MB/s");
   });
 });
+
+describe("transferDetailLine: the trailing clause ([B05])", () => {
+  test("the warning joins after an em dash rather than as another term", () => {
+    expect(
+      transferDetailLine(12_400_000, 48_100_000, null, "stopping discards it"),
+    ).toBe("12.4 MB of 48.1 MB — stopping discards it");
+  });
+
+  test("the ETA is what a line too long sheds, never the warning", () => {
+    // All three facts plus the clause runs past what one row of the 560px
+    // panel can show, and a wrapped row would move every row under it. The
+    // ETA goes because the bar and the byte count between them imply it; the
+    // warning stays because nothing else in the panel says it.
+    expect(
+      transferDetailLine(
+        12_400_000,
+        48_100_000,
+        1_200_000,
+        "stopping discards it",
+      ),
+    ).toBe("12.4 MB of 48.1 MB · 1.2 MB/s — stopping discards it");
+  });
+
+  test("a line with no warning keeps its ETA", () => {
+    expect(transferDetailLine(12_400_000, 48_100_000, 1_200_000)).toBe(
+      "12.4 MB of 48.1 MB · 1.2 MB/s · about 30 s left",
+    );
+  });
+
+  test("the budget reaches only the line it was measured on", () => {
+    // The 58-character budget is the UpdateTug download row's 352px column
+    // with *Stop for Now* beside it. ConfigureTug paints its own download line
+    // through this same function, in a different row of a different panel, and
+    // passes no trailer — so the shed must not reach it. The widest a
+    // trailerless line gets is the three longest clauses this function can
+    // format, and every one of them keeps its ETA.
+    const widest = transferDetailLine(999_900_000, 999_900_000_000, 999_900_000);
+    expect(widest.length).toBeGreaterThan(48);
+    expect(widest).toContain("left");
+  });
+
+  test("the warning survives a total nobody has reported yet", () => {
+    expect(transferDetailLine(0, 0, null, "stopping starts it over")).toBe(
+      "Starting… — stopping starts it over",
+    );
+  });
+});

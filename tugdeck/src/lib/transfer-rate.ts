@@ -36,6 +36,34 @@ const RATE_SMOOTHING = 0.25;
  */
 const MIN_SAMPLE_MS = 20;
 
+/**
+ * How many characters of one detail line the UpdateTug download row can show
+ * before it wraps — and a wrap is what this budget exists to prevent, because a
+ * row saying its line in two lines while its neighbours say theirs in one is the
+ * geometry complaint this whole surface was fixed for ([B01]).
+ *
+ * The number is measured rather than reasoned. `at0632` reads the row's own box
+ * in the running app and records it: the download row gives its detail line
+ * **338px** while *Stop for Now* stands beside it — the narrowest any row of the
+ * wizard gets — and the line renders at close to **5.76px per character** at
+ * 13px, so 58 is the last count that fits (58 × 5.76 = 334px). The other rows
+ * are wider (360–474px), which is why the budget belongs to the tightest of
+ * them.
+ *
+ * Because it was measured on one row, it governs only the line that row asks
+ * for: a call that passes a `trailer` is the download row mid-transfer with
+ * *Stop for Now* beside it, and it is the only shape that can outgrow 352px.
+ * ConfigureTug paints its own download line through this function and is a
+ * different row of a different panel — a budget taken from the wizard's
+ * narrowest column is not a fact about it, so it is not applied there.
+ *
+ * It is a character count rather than a width because the alternative is reading
+ * the element's width from the painter once a second, which is a layout read in
+ * the one place ([L06]) exists to keep free of them. Crossing it sheds the ETA,
+ * and the ETA is the one clause here that can be shed.
+ */
+const DETAIL_LINE_BUDGET = 58;
+
 /** A running rate estimate, folded one sample at a time. */
 export interface RateEstimator {
   /** Bytes per second, or `null` before two usable samples have arrived. */
@@ -134,18 +162,31 @@ export function formatRemaining(seconds: number): string {
  * the host did not say. Rate and ETA join the line only once they are
  * measured, so the line grows from left to right as the transfer settles
  * rather than appearing all at once with a made-up number in it.
+ *
+ * `trailer` is a consequence rather than a measurement — what stopping would
+ * cost, said while the transfer is still running ([B05]) — and it joins after an
+ * em dash rather than as another `·` term, because it is not one more fact about
+ * the transfer. It is also the one clause that cannot be shed: a line too long
+ * with it drops the **ETA** first and keeps the warning, since the ETA is a
+ * number the bar and the byte count between them already imply and the warning
+ * is the only place the panel says the download starts over.
  */
 export function transferDetailLine(
   received: number,
   expected: number,
   bytesPerSecond: number | null,
+  trailer?: string,
 ): string {
-  if (expected <= 0) return "Starting…";
+  const tail = trailer === undefined || trailer === "" ? "" : ` — ${trailer}`;
+  if (expected <= 0) return `Starting…${tail}`;
   const parts = [`${formatBytes(received)} of ${formatBytes(expected)}`];
+  let remaining = "";
   if (bytesPerSecond !== null && bytesPerSecond > 0) {
     parts.push(formatRate(bytesPerSecond));
-    const remaining = formatRemaining((expected - received) / bytesPerSecond);
-    if (remaining !== "") parts.push(remaining);
+    remaining = formatRemaining((expected - received) / bytesPerSecond);
   }
-  return parts.join(" · ");
+  if (remaining === "") return `${parts.join(" · ")}${tail}`;
+  const withEta = `${[...parts, remaining].join(" · ")}${tail}`;
+  if (tail === "" || withEta.length <= DETAIL_LINE_BUDGET) return withEta;
+  return `${parts.join(" · ")}${tail}`;
 }

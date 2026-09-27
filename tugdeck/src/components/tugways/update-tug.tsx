@@ -541,6 +541,7 @@ export function UpdateTug(): ReactElement {
                 label={row.label}
                 detail={row.detail}
                 body={row.body}
+                edge={row.edge}
                 action={
                   row.cta ? (
                     <TugPushButton

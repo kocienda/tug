@@ -1,7 +1,7 @@
 /**
  * TugStepRow — one step of a wizard-like checklist: a pulsing dot, a label, an
- * optional detail line or body, and a trailing slot for whatever the host hangs
- * on the right.
+ * optional detail line or body, a trailing slot for whatever the host hangs on
+ * the right, and an `edge` strip along the bottom of the plinth.
  *
  * The shape is ConfigureTug's, lifted whole so there is one row rather than a
  * copy per surface: a fixed-height rounded plinth on the transcript's block
@@ -10,6 +10,13 @@
  * is the row's own ([D02]/[D106]) — `active` is the user's turn and does not
  * breathe, only `busy` does — so every checklist in the app says "waiting",
  * "working", "failed" and "done" the same way.
+ *
+ * `edge` is where a progress indicator goes, and the reason it exists is that a
+ * signal about work in flight may cost no layout metric ([B01]): the strip is
+ * absolutely positioned chrome on the plinth, so a row that gains one is the
+ * same height as a row that has not. `body` is the other thing — a stacking
+ * slot under the detail line, which ConfigureTug's file-chooser row uses and
+ * answers for the height it costs by raising `--tugx-step-row-h` on that row.
  *
  * What the row does NOT decide is what rides in the trailing slot. ConfigureTug
  * puts a CTA there, or a green check on a settled step; the update surface puts
@@ -82,6 +89,7 @@ export function TugStepRow({
   detail,
   body,
   action,
+  edge,
   className,
 }: {
   /** Written to `data-step`, so a host or a test can address one row. */
@@ -99,6 +107,12 @@ export function TugStepRow({
   body?: ReactNode;
   /** The trailing slot: a CTA cluster, a check, or nothing. */
   action?: ReactNode;
+  /**
+   * A strip along the bottom of the plinth — a progress bar, typically. It is
+   * chrome rather than content: absolutely positioned, out of the content
+   * column, so filling it never changes the row's height ([B01]/[B02]).
+   */
+  edge?: ReactNode;
   className?: string;
 }): ReactElement {
   const { role, state } = tugStepRowDotVisual(status);
@@ -125,6 +139,7 @@ export function TugStepRow({
         {body && <div className="tug-step-row-body">{body}</div>}
       </div>
       {action ? <div className="tug-step-row-action">{action}</div> : null}
+      {edge ? <div className="tug-step-row-edge">{edge}</div> : null}
     </li>
   );
 }

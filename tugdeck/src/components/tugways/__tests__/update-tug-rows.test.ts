@@ -270,6 +270,9 @@ describe("update-tug-rows: the host's rows are unmoved", () => {
     expect(rows.download.status).toBe("error");
     expect(rows.download.detail).toBe("the feed did not answer");
     expect(rows.download.cta).toEqual({ label: "Retry", action: "retry" });
+    // A bar still running under a red dot would be claiming the work goes on.
+    expect(rows.download.edge).toBeUndefined();
+    expect(rows.download.body).toBeUndefined();
     // The sweep marks every row before the failure done. The deck's row is not
     // the host's to mark, and at `error` there is nothing to stop *for*.
     expect(rows["stop-work"].status).toBe("pending");
@@ -284,6 +287,8 @@ describe("update-tug-rows: the host's rows are unmoved", () => {
     expect(rows.download.status).toBe("error");
     expect(rows.download.detail).toBe("Tug has heard nothing back for a while.");
     expect(rows.download.cta).toEqual({ label: "Retry", action: "retry" });
+    expect(rows.download.edge).toBeUndefined();
+    expect(rows.download.body).toBeUndefined();
     expect(rows["stop-work"].status).toBe("pending");
   });
 
@@ -328,12 +333,13 @@ describe("update-tug-rows: stopping a download, and starting it again", () => {
     expect(download.status).toBe("paused");
     expect(download.cta).toEqual({ label: "Resume", action: "resume" });
     expect(download.detail).toBe(
-      "Stopped. Nothing was kept — Resume starts the download again.",
+      "Stopped. Nothing was kept — Resume starts over.",
     );
   });
 
   it("says nothing is still moving on a stopped row", () => {
     // A bar under a stopped row would be claiming the download goes on.
+    expect(rowsBy("paused").download.edge).toBeUndefined();
     expect(rowsBy("paused").download.body).toBeUndefined();
   });
 
@@ -345,6 +351,47 @@ describe("update-tug-rows: stopping a download, and starting it again", () => {
   it("leaves the Stop-work row alone — stopping a download ends no turns", () => {
     const rows = rowsBy("paused", turns("alpha"));
     expect(rows["stop-work"].status).toBe("pending");
+  });
+});
+
+describe("update-tug-rows: a bar costs the row no height ([B01]/[B04])", () => {
+  /** The stages with a fraction to report, and the row each one's bar rides. */
+  const BUSY: [UpdateStage, RowKey][] = [
+    ["downloading", "download"],
+    ["extracting", "download"],
+  ];
+
+  it("puts every bar it draws on the edge", () => {
+    for (const [stage, key] of BUSY) {
+      expect(rowsBy(stage)[key].edge).toBeDefined();
+    }
+  });
+
+  it("leaves `body` empty on every row at every stage", () => {
+    // `body` stacks under the detail line, so a row that filled it would be
+    // taller than the three beside it — which is the whole complaint this
+    // wizard's rows exist to answer. The edge slot is where a bar goes.
+    for (const stage of STAGES) {
+      const rows = rowsBy(stage, turns("alpha"));
+      for (const row of Object.values(rows)) {
+        expect(row.body).toBeUndefined();
+      }
+    }
+  });
+
+  it("gives no bar to a stage with no fraction to report", () => {
+    // `checking` and `installing` are real work with no total, so the only
+    // claim a bar could make is "not stopped" — which the row's dot already
+    // makes by breathing on `busy`. A second element saying it is the same
+    // sentence twice, and the louder of the two.
+    const busyStages = new Set(BUSY.map(([stage]) => stage));
+    for (const stage of STAGES) {
+      if (busyStages.has(stage)) continue;
+      const rows = rowsBy(stage, turns("alpha"));
+      for (const row of Object.values(rows)) {
+        expect(row.edge).toBeUndefined();
+      }
+    }
   });
 });
 

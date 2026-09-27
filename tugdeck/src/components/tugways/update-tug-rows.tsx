@@ -32,7 +32,6 @@ import {
 
 import { relaunchWarningLine } from "@/lib/update-relaunch-warning";
 import {
-  formatBytes,
   newRateEstimator,
   transferDetailLine,
   type RateEstimator,
@@ -69,12 +68,22 @@ export interface RowModel {
   status: TugStepRowStatus;
   detail?: ReactNode;
   /**
-   * The row's control slot — a progress bar on every row that is moving
-   * bytes ([B05]). Separate from {@link detail} because it is a control
-   * rather than prose, which is the distinction `TugStepRow`'s own slots
-   * already draw.
+   * The row's stacking control slot, under the detail line. No row of this
+   * wizard uses it: a slot that stacks costs the row a line, and every row
+   * here keeps one height through the whole flow ([B01]). It stays on the
+   * model because it is `TugStepRow`'s slot rather than this file's, and a
+   * future row of prose-plus-control would want it.
    */
   body?: ReactNode;
+  /**
+   * The strip along the bottom of the plinth — a progress bar on every row
+   * that has a fraction to report ([B04]). It is where the bar goes rather than
+   * {@link body} because chrome on the plinth costs no height, and a bar that
+   * cost one moved every row under it. A stage with no fraction gets no strip:
+   * the row's dot already breathes on `busy`, and a barber pole at the edge is
+   * that same sentence said louder.
+   */
+  edge?: ReactNode;
   cta?: {
     label: string;
     action: UpdateAction | typeof STOP_WORK;
@@ -120,7 +129,10 @@ export function rowForStage(stage: UpdateStage): RowKey | null {
  * used: the percent moves about once a second through a download, and routing it
  * through a render would re-render the panel and its rows for a word.
  *
- * It says bytes, rate and time remaining rather than a bare percent ([B06]).
+ * It says bytes, rate and time remaining rather than a bare percent ([B06]), and
+ * what stopping would cost as its closing clause ([B05]) — a consequence the
+ * panel says nowhere else, folded into this line rather than given one of its
+ * own so the row stays the same two lines as every other row.
  * The percent is the one thing the bar beside it already draws; what the number
  * cannot say — how fast, how much longer — is what a person watching a slow
  * download is actually deciding on. Rate and ETA are measured here, from the
@@ -139,12 +151,29 @@ export function ProgressDetail(): ReactElement {
     // the row unmounting, which is exactly when a new transfer starts.
     let rate: RateEstimator = newRateEstimator();
     const paint = (): void => {
-      const { percent, receivedBytes, expectedBytes } = updateStore.getSnapshot();
+      const { percent, receivedBytes, expectedBytes, cancellable } =
+        updateStore.getSnapshot();
       rate = rate.sample(receivedBytes, performance.now());
       el.textContent = transferDetailLine(
         receivedBytes,
         expectedBytes,
         rate.bytesPerSecond,
+        // Sparkle's download cannot be resumed where it left off — the spike
+        // settled that — so *Stop for Now* throws away everything that has
+        // arrived. A button that did so quietly would be the kind a user
+        // presses once and never trusts again. The line names the bytes just
+        // before this clause, so the clause says "it" rather than the number a
+        // second time.
+        //
+        // Only where the press exists. `cancellable` is the host's word for
+        // "there is a closure to call", and it is what gates the button; a
+        // warning about a button that is not there would be describing a press
+        // the user cannot make, and it would spend the room the ETA wants.
+        !cancellable
+          ? undefined
+          : receivedBytes > 0
+            ? "stopping discards it"
+            : "stopping starts it over",
       );
       // `null` is not zero: a total nobody has reported yet is "starting", and
       // a bar sitting at 0% would be saying something false.
@@ -216,62 +245,6 @@ export function TransferBar(): ReactElement {
 }
 
 /**
- * A bar for a row that is moving bytes Tug cannot count ([B05]).
- *
- * Checking, verifying the signature, installing: each is short, each is real
- * work, and none of them reports a total. The pole says the app has not
- * stopped — which is the only claim any of them can honestly make.
- */
-function IndeterminateBar(): ReactElement {
-  return (
-    <TugProgressIndicator
-      variant="bar"
-      state="running"
-      size={6}
-      aria-label="Working"
-      data-testid="update-tug-bar"
-    />
-  );
-}
-
-/**
- * What stopping the download would cost, said before the press rather than
- * after it.
- *
- * Sparkle's download cannot be resumed where it left off — the spike settled
- * that — so *Stop for Now* throws away everything that has arrived. A button
- * that did so quietly would be the kind of button a user presses once and then
- * never trusts again, so the row says the number out loud while the transfer
- * is still running.
- *
- * Painted from the store for the same reason the line above it is ([L06]): the
- * number it names moves about once a second, and waking React for a phrase is
- * what the painted seam exists to avoid.
- */
-function StopCostLine(): ReactElement {
-  const [el, setEl] = useState<HTMLSpanElement | null>(null);
-  useLayoutEffect(() => {
-    if (el === null) return;
-    const paint = (): void => {
-      const { receivedBytes } = updateStore.getSnapshot();
-      el.textContent =
-        receivedBytes > 0
-          ? `Stopping discards ${formatBytes(receivedBytes)} — the download starts over.`
-          : "Stopping starts the download over.";
-    };
-    paint();
-    return updateStore.subscribe(paint);
-  }, [el]);
-  return (
-    <span
-      className="update-tug-stop-cost"
-      ref={setEl}
-      data-testid="update-tug-stop-cost"
-    />
-  );
-}
-
-/**
  * The check row's detail line, prefixed with the version the user is running.
  *
  * One sentence pattern across every stage the row has something to say in:
@@ -334,10 +307,14 @@ export function deriveUpdateRows(
     case "checking":
       check.status = "busy";
       check.detail = "Looking for a newer version…";
-      // Sparkle reports no progress for a check, and there is none to report:
-      // it is one request. The pole says the app is waiting on the network
-      // rather than on the user.
-      check.body = <IndeterminateBar />;
+      // No bar. Sparkle reports no progress for a check and there is none to
+      // report — it is one request — so the only honest claim a bar could make
+      // here is "not stopped", which is exactly what the row's dot already says
+      // by breathing on `busy`. Watching a real check settled it: a barber pole
+      // at the plinth's edge was the loudest thing in the panel, saying the dot's
+      // sentence louder and looking like a determinate bar that had not been told
+      // its value. The edge strip is for a fraction; where there is no fraction,
+      // the dot carries it alone.
       if (state.cancellable) check.cta = { label: "Cancel", action: "cancel" };
       break;
     case "available":
@@ -356,22 +333,21 @@ export function deriveUpdateRows(
       check.status = "done";
       download.status = "busy";
       download.detail = <ProgressDetail />;
-      download.body = (
-        <>
-          <TransferBar />
-          <StopCostLine />
-        </>
-      );
+      download.edge = <TransferBar />;
       // *Stop for Now* rather than *Cancel*, and never *Pause*: the press
       // ends this download and keeps the update in hand, which is neither of
-      // the other two words. What it costs is on the line above it.
+      // the other two words. What it costs is the closing clause of the detail
+      // line above it.
       if (state.cancellable) download.cta = { label: "Stop for Now", action: "pause" };
       break;
     case "paused":
       check.status = "done";
       download.status = "paused";
       download.detail =
-        "Stopped. Nothing was kept — Resume starts the download again.";
+        // Short enough to say in one line at the panel's width: the row is the
+        // same height as its neighbours, and a sentence that wrapped would make
+        // it say its line in two while they say theirs in one.
+        "Stopped. Nothing was kept — Resume starts over.";
       download.cta = { label: "Resume", action: "resume" };
       break;
     case "extracting":
@@ -380,7 +356,7 @@ export function deriveUpdateRows(
       download.detail = "Verifying the signature…";
       // Extraction reports a percent with no byte total, so the same painted
       // bar draws it — determinate, and from `percent` rather than from bytes.
-      download.body = <TransferBar />;
+      download.edge = <TransferBar />;
       break;
     case "readyToInstall":
       check.status = "done";
@@ -393,7 +369,8 @@ export function deriveUpdateRows(
       download.detail = "Downloaded and verified.";
       relaunch.status = "busy";
       relaunch.detail = "Installing. Tug reopens in a moment…";
-      relaunch.body = <IndeterminateBar />;
+      // No bar, for the reason the check row has none: nothing here reports a
+      // fraction, and the dot already says the work is running.
       break;
     case "upToDate":
       check.status = "done";
@@ -429,6 +406,7 @@ export function deriveUpdateRows(
       // A bar still running under a red dot would be claiming the work goes
       // on. It does not: the row is waiting on a press.
       failed.body = undefined;
+      failed.edge = undefined;
       failed.detail =
         state.message === "" ? "Tug could not finish the update." : state.message;
       failed.cta = { label: "Retry", action: "retry" };
@@ -444,6 +422,7 @@ export function deriveUpdateRows(
     if (waiting) {
       waiting.status = "error";
       waiting.body = undefined;
+      waiting.edge = undefined;
       waiting.detail = "Tug has heard nothing back for a while.";
       waiting.cta = { label: "Retry", action: "retry" };
     }

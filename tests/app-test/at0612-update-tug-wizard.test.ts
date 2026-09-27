@@ -46,8 +46,11 @@
  *    there at 7% is the span that is there at 99%.
  * 7. **A download can be stopped, and what that costs is said first.** Sparkle's
  *    download cannot be picked up where it left off, so the button is *Stop for
- *    Now* rather than *Pause*, the row names the bytes it is about to throw
- *    away, and the stopped row offers *Resume* rather than a failure.
+ *    Now* rather than *Pause*, the download row's own detail line names the
+ *    bytes and closes on what stopping does to them, and the stopped row offers
+ *    *Resume* rather than a failure. The warning has no element of its own: a
+ *    second line would have made that row taller than the three beside it, which
+ *    `at0632` measures.
  *
  * The actions are read back through a recorder standing in for the host's
  * `updateAction` message handler — which is also what keeps this file from
@@ -71,6 +74,7 @@
  * @covers tugdeck/src/components/chrome/update-pill.tsx
  * @covers tugdeck/src/components/chrome/update-pill.css
  * @covers tugdeck/src/components/tugways/tug-step-row.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-row.css
  * @covers tugdeck/src/lib/live-turns-store.ts
  * @covers tugdeck/src/lib/update-store.ts
  * @covers tugdeck/src/lib/update-tug-request-store.ts
@@ -115,6 +119,8 @@ const CLOSE = `[data-testid="update-tug-close"]`;
 /** The download row's detail line — the whole of what progress is. */
 const PROGRESS = `[data-testid="update-tug-progress"]`;
 const BAR = `[data-testid="update-tug-bar"]`;
+/** The bar's place: a strip on the plinth, never a member of the content column. */
+const ROW_EDGE = `.tug-step-row-edge`;
 
 /** A snapshot in the shape `UpdateSnapshot.jsonObject` emits, host-side. */
 interface Payload {
@@ -908,10 +914,11 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         //
         // The `file:` spike ruled out a resumable download, so the press
         // throws away what has arrived. That is a thing a user has to be told
-        // *before* they press it, so the row carries the number while the
-        // transfer is still running — painted from the same store
-        // subscription as the line above it, which is why it is read from the
-        // DOM here rather than inferred from the snapshot pushed.
+        // *before* they press it, so the download row's detail line closes on
+        // it while the transfer is still running — one painted span rather than
+        // a second line, because a second line would make this row taller than
+        // the three beside it. Read from the DOM rather than inferred from the
+        // snapshot pushed, because the store subscription is what writes it.
         await goIdle(app);
         await clearPosted(app);
         await push(
@@ -927,13 +934,23 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
         await waitForWizard(app, "downloading");
         const cost = await app.evalJS<string>(
           `(function () {
-             var el = document.querySelector('[data-testid="update-tug-stop-cost"]');
+             var el = document.querySelector(${JSON.stringify(PROGRESS)});
              return el === null ? "" : (el.textContent || "").trim();
            })()`,
         );
         note("at0612 stop cost", cost);
         expect(cost).toContain("12.4 MB");
-        expect(cost).toContain("starts over");
+        expect(cost).toContain("stopping discards it");
+        // And it has no element of its own to be found under.
+        expect(await elementCount(app, `[data-testid="update-tug-stop-cost"]`)).toBe(0);
+
+        // The bar is chrome on the plinth rather than content in the column,
+        // which is what lets a row gain one without growing: it is a child of
+        // the row's edge strip, and the row's `main` holds no bar at all.
+        expect(await elementCount(app, `${STEP_ROWS} ${ROW_EDGE} ${BAR}`)).toBe(1);
+        expect(
+          await elementCount(app, `${STEP_ROWS} .tug-step-row-main ${BAR}`),
+        ).toBe(0);
 
         // The button says what it does. Not *Pause*, which would promise the
         // bytes are kept, and not *Cancel*, which would say the update is
@@ -1090,9 +1107,50 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
           if (percent !== 7) {
             expect(Number(rate), "a rate was measured").toBeGreaterThan(0);
             expect(text, "and the line says it").toContain("/s");
-            expect(text, "with a time to go beside it").toContain("left");
+            // No time to go beside it, and that is the trade ([B05]): these
+            // pushes are `cancellable`, so the line is carrying the stop-cost
+            // warning, and all four clauses do not fit the 352px this row gives
+            // its detail line — which `at0632` measures. The ETA is what goes,
+            // because the bar and the byte count between them imply it and
+            // nothing else in the panel says what stopping costs.
+            expect(text, "the warning holds its place").toContain(
+              "stopping discards it",
+            );
+            expect(text, "and the ETA is what yielded").not.toContain("left");
           }
         }
+
+        // And with no *Stop for Now* to warn about, the room goes back to the
+        // ETA. The warning names a press, so it is there exactly where the
+        // press is — which is also what keeps the line inside one row.
+        //
+        // Two pushes, because the first one goes *backwards* from 99% and a
+        // reading that went backwards re-anchors the estimator rather than
+        // reporting a negative rate — so the rate this asserts on is measured
+        // across the second.
+        for (const percent of [50, 60]) {
+          await new Promise((r) => setTimeout(r, 150));
+          await push(
+            app,
+            snapshot("downloading", {
+              percent,
+              cancellable: false,
+              receivedBytes: Math.round((TOTAL * percent) / 100),
+              expectedBytes: TOTAL,
+            }),
+          );
+          await app.waitForCondition<boolean>(
+            `(document.querySelector(${JSON.stringify(PROGRESS)})
+                ?.getAttribute("data-progress")) === ${JSON.stringify(String(percent))}`,
+            { timeoutMs: 10_000 },
+          );
+        }
+        const uncancellable = await app.getElementText(PROGRESS);
+        note("at0612 progress, no stop", uncancellable);
+        expect(uncancellable).not.toContain("stopping");
+        expect(uncancellable).toContain("left");
+        expect(await elementCount(app, cta("pause"))).toBe(0);
+
         // The panel has not been re-rendered out from under itself: the span
         // that was there at 7% is the span that is there at 99%.
         expect(await elementCount(app, PROGRESS)).toBe(1);

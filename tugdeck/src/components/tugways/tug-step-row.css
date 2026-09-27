@@ -4,9 +4,15 @@
  * label. The row sets no color of its own (it inherits the host panel's text),
  * so it needs no @tug-renders-on; a pending row dims via opacity.
  *
- * Every row is the SAME fixed height whatever its state, so a step growing from
- * one line to label + detail + CTA never makes its host hop. A host whose row
- * carries a control rather than prose raises `--tugx-step-row-h` on that row.
+ * `--tugx-step-row-h` is a FLOOR, not a height: a row with both a detail line
+ * and a body grows past it. What keeps a wizard's rows level is therefore a
+ * discipline rather than a rule in this file — a row that gains something while
+ * work is in flight puts it in the `edge` slot, which is absolutely positioned
+ * chrome on the plinth and costs no height ([B01]/[B02]) — and an app-test that
+ * walks every stage measuring each row against the panel as it opened is what
+ * defends the discipline ([B06]/[B07]). A host whose row legitimately stacks a
+ * control under its detail line raises `--tugx-step-row-h` on that row and
+ * holds the taller value across every state that row can be in.
  */
 
 .tug-step-row {
@@ -21,6 +27,8 @@
   display: flex;
   gap: 12px;
   align-items: center;
+  /* The containing block for the `edge` strip. */
+  position: relative;
   min-height: var(--tugx-step-row-h);
   padding: 0 var(--tug-space-md);
   background: var(--tugx-block-surface);
@@ -65,9 +73,10 @@
   opacity: 0.8;
 }
 
-/* The detail line's slot, occupied by content instead of text. It takes the
- * detail's place rather than stacking below it, so such a row is the same two
- * lines as every other row. */
+/* The slot below the detail line, occupied by content instead of text. It
+ * STACKS — a row carrying both is taller than one carrying neither — so a host
+ * that uses it raises `--tugx-step-row-h` on that row to pay for the line. A
+ * progress indicator does not belong here; it belongs in `edge`. */
 .tug-step-row-body {
   padding-left: calc(var(--tugx-step-row-dot) + var(--tugx-step-row-headline-gap));
   min-height: calc(13px * 1.45);
@@ -81,4 +90,20 @@
   display: flex;
   align-items: center;
   gap: var(--tug-space-md);
+}
+
+/* The strip along the bottom of the plinth: a progress bar's place, out of the
+ * content column so a row gaining one does not grow ([B01]/[B02]). It carries
+ * the plinth's bottom radii itself and clips its child to them, rather than the
+ * plinth hiding its overflow — which would also clip a CTA's focus ring drawn
+ * with a positive `outline-offset` ([B03]). */
+.tug-step-row-edge {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  border-end-start-radius: var(--tugx-block-chrome-radius);
+  border-end-end-radius: var(--tugx-block-chrome-radius);
 }
