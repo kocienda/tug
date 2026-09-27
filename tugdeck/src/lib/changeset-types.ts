@@ -264,6 +264,12 @@ export interface ArcChangesetEntry {
    *  fall back to the plan pair. */
   run_position?: number;
   run_length?: number;
+  /** Whether the declared run has finished — every step through the run's
+   *  end is closed. The server's own reading of the arc log, never derived
+   *  here from the counters, so the deck and the server cannot disagree about
+   *  one arc. Absent when false. Distinct from readiness: a finished run
+   *  under a wheel is not offered until its audit marks. */
+  run_complete?: boolean;
   /** What `step_current` *is* — the latest `step-start` declaration's title. */
   step_title?: string;
   /** When the arc was last touched — the newest arc-log line's timestamp for
@@ -867,6 +873,8 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
         typeof value.run_position === "number") &&
       (value.run_length === undefined ||
         typeof value.run_length === "number") &&
+      (value.run_complete === undefined ||
+        typeof value.run_complete === "boolean") &&
       (value.step_title === undefined ||
         typeof value.step_title === "string") &&
       (value.last_activity === undefined ||

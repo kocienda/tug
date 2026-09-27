@@ -96,6 +96,10 @@ describe("changeset wire contract", () => {
     );
     expect(isChangesetEntry({ ...base, run_position: "2" })).toBe(false);
     expect(isChangesetEntry({ ...base, run_length: null })).toBe(false);
+    // The run's completion is the server's fact: absent when false, a
+    // boolean once the run has closed, never a number or a string.
+    expect(isChangesetEntry({ ...base, run_complete: true })).toBe(true);
+    expect(isChangesetEntry({ ...base, run_complete: 1 })).toBe(false);
     // `documents` is optional both ways: absent on an arc with neither
     // document, an object of absolute paths and titles once one exists. Each
     // field inside it is optional and, when present, a string.

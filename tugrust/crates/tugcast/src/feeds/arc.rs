@@ -440,7 +440,23 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // consults the clock before it returns nothing. A stalled one stops as
     // `Stalled` and keeps its `resume` — the fold's `arc-stop` arm does not
     // clear it — so the next press still means something.
-    if let Some(stage) = record.resume {
+    if let Some(resumed) = record.resume {
+        // **A resume from the seam opens the audit** rather than re-seating
+        // implement. A stop pressed between the last step closing and the
+        // audit's `arc-stage` line is stamped `implement` — the stage that was
+        // seated — but there is nothing left in implement to walk: the run is
+        // complete and no audit has marked. Re-seating implement there sent a
+        // session to close no step, end a turn, and only then rotate to the
+        // audit on the following tick; the person who pressed Resume asked
+        // for the audit, and a fresh seat is what an audit wants anyway,
+        // because it reads the diff cold. So the stage resolves to `Audit`
+        // here, and it always rotates — a `Continue` would ask the implement
+        // session to audit its own work. The `arc-stage audit` line the
+        // rotation writes clears this `resume`, as every stage line does.
+        let seam_audit = resumed == ArcStage::Implement
+            && facts.ledger.run_complete
+            && !facts.audit_declared;
+        let stage = if seam_audit { ArcStage::Audit } else { resumed };
         let steps = (stage == ArcStage::Implement)
             .then(|| facts.ledger.first_pending.zip(facts.ledger.run_through))
             .flatten();
@@ -453,8 +469,14 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         }
         if !facts.session_idle {
             if facts.stalled {
+                // The hung turn is the seated session's, and at the seam that
+                // session is implement's — the audit this resume was on its
+                // way to opening was never seated. So the stop is stamped with
+                // the stage that was, which is what the arc track lights and
+                // what the register reads to tell a stop at the seam from a
+                // stop inside the audit.
                 return Some(ArcAction::Stop {
-                    stage,
+                    stage: resumed,
                     reason: ArcStopReason::Stalled,
                 });
             }
@@ -469,7 +491,7 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         //
         // A card that has been taken — another session bound, or the stage's
         // one gone — has nothing to continue, and rotates exactly as before.
-        if facts.stage_session_current {
+        if facts.stage_session_current && !seam_audit {
             return Some(ArcAction::Continue { stage, steps });
         }
         return Some(ArcAction::Rotate(Rotation {
@@ -2191,6 +2213,85 @@ mod tests {
         let mut facts = facts();
         facts.session_idle = false;
         assert_eq!(arc_action(&record, &facts), None);
+    }
+
+    /// **A resume from a stop at the seam opens the audit.** The stop landed
+    /// in implement because that was the seated stage, but every step is
+    /// closed and nothing has audited the tree — so the stage the person is
+    /// asking for back is the audit, not an implement stage with nothing to
+    /// walk. It rotates whether or not the card is still implement's own: an
+    /// audit reads the diff cold, and a `Continue` would ask the session that
+    /// wrote the work to audit it.
+    #[test]
+    fn a_resume_from_the_seam_opens_the_audit() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+        let mut facts = implementing(None, false);
+        facts.ledger.first_pending = None;
+        facts.ledger.run_complete = true;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit))),
+            "on the stage's own card, the audit still rotates rather than continues"
+        );
+
+        facts.stage_session_current = false;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit))),
+            "and on a taken card"
+        );
+
+        facts.session_live = false;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit))),
+            "and onto a dead session"
+        );
+
+        // The asking turn still has to end first, as for every resume.
+        let mut waiting = implementing(None, false);
+        waiting.ledger.first_pending = None;
+        waiting.ledger.run_complete = true;
+        waiting.session_idle = false;
+        assert_eq!(arc_action(&record, &waiting), None);
+
+        // And a hung turn is stopped as the stage that was seated. The audit
+        // was never rotated, so stamping the stop `audit` would light the
+        // audit cell on the track and make the register say an audit stopped
+        // that never began.
+        waiting.stalled = true;
+        assert_eq!(
+            arc_action(&record, &waiting),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::Stalled,
+            }),
+        );
+
+        // An audit that already marked is not re-opened by a resume: the
+        // stop's own stage is picked back up, and the next tick reads `Done`.
+        let mut audited = implementing(None, false);
+        audited.ledger.first_pending = None;
+        audited.ledger.run_complete = true;
+        audited.audit_declared = true;
+        assert_eq!(
+            arc_action(&record, &audited),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Implement,
+                steps: None,
+            })
+        );
+
+        // And a stop mid-walk resumes implement with its range, as before.
+        let walking = implementing(None, false);
+        assert_eq!(
+            arc_action(&record, &walking),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Implement,
+                steps: Some((4, 9)),
+            })
+        );
     }
 
     #[test]

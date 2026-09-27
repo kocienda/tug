@@ -588,6 +588,16 @@ pub enum ChangesetEntry {
         run_position: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run_length: Option<u32>,
+        /// Whether the declared run has finished — every step through the
+        /// run's `--through` is closed. The server's own fact, read from the
+        /// arc log where `run_position`/`run_length` are read, so a surface
+        /// never derives it from the counters and disagrees with the log
+        /// about one arc. False (and off the wire) for an undeclared run, a
+        /// run still walking, and a step parked or reopened after the run
+        /// closed. Distinct from readiness: a finished run under a wheel is
+        /// not offered until its audit marks.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        run_complete: bool,
         /// What `step_current` *is* — the latest `step-start` declaration's
         /// title, so a display can say more than a counter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2013,6 +2023,7 @@ mod tests {
             step_total: None,
             run_position: None,
             run_length: None,
+            run_complete: false,
             step_title: None,
             last_activity: None,
             documents: ArcDocuments::default(),
@@ -2058,6 +2069,7 @@ mod tests {
         assert!(!json.contains("step_current"));
         assert!(!json.contains("run_position"));
         assert!(!json.contains("run_length"));
+        assert!(!json.contains("run_complete"));
         // …and so do the plan path and its review state, which most arcs
         // never record. Absence is "nothing to say" on both.
         assert!(!json.contains("plan_path"));

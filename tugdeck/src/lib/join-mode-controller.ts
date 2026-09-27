@@ -489,6 +489,7 @@ export class JoinModeController implements LandingMode {
               // The composer says the same thing the two rows do, so a live
               // wheel holds this surface's offer shut too.
               run: entry?.arc ?? null,
+              runComplete: entry?.run_complete === true,
               resolvePhase: getChangesetJoinStore()?.state(
                 changesController.workspaceKey,
                 registerTarget.name,

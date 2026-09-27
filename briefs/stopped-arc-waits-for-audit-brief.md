@@ -54,7 +54,7 @@ Two things went wrong at once: the machine called the arc ready, and the surface
 
 ## Open Questions {#open-questions}
 
-- Whether "land it unaudited" actually works from the deck on a stopped arc. `/arc-join <name>` is the door, `ensureCandidate` runs the ladder on mode entry, and nothing in `tugtool` refuses an unready arc [F07] — but the path has not been driven on a stopped arc, and the sentence in [B03] promises it. Driving it once, in the same arc, settles this.
+- ~~Whether "land it unaudited" actually works from the deck on a stopped arc.~~ **Settled 2026-09-27, by driving it.** `at0633-arc-stopped-at-the-seam` stops a finished planned arc at the seam with `tugtool arc stop`, opens the room with `/arc-join <name>`, and presses Join with a message of its own: the room opens in join mode, the candidate comes to stand, the register keeps reading `unaudited` on the composer as on the row, and the press lands the branch on the base — the base tip becomes the pressed message and the arc leaves the lane. The sentence in [B03] promises nothing the deck cannot do.
 
 ---
 

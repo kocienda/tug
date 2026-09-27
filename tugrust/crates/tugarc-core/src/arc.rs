@@ -1532,6 +1532,32 @@ mod tests {
     /// alone would leave one standing.
     #[test]
     #[serial]
+    fn an_audit_stage_line_clears_the_resume_it_answers() {
+        // A resume from a stop at the seam is answered by a rotation to the
+        // audit, not to the stage the stop named. The `arc-stage audit` line
+        // that rotation writes must clear the standing resume exactly as a
+        // re-rotation of implement would, or the next tick reads the resume
+        // again and rotates a second audit over the first.
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::StoppedByUser).unwrap();
+        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
+        assert_eq!(read_arc(root, "d").unwrap().resume, Some(ArcStage::Implement));
+
+        append_arc_stage(root, "d", ArcStage::Audit, "s2", None).unwrap();
+        let record = read_arc(root, "d").unwrap();
+        assert_eq!(record.resume, None, "the rotation answered the resume");
+        assert_eq!(record.stopped, None);
+        assert_eq!(record.current_stage(), Some(ArcStage::Audit));
+    }
+
+    /// The marker's whole job: the stage is already seated and already moving,
+    /// so the arc is running again and nobody is owed a rotation. `arc-resume`
+    /// alone would leave one standing.
+    #[test]
+    #[serial]
     fn arc_continue_clears_the_stop_and_the_resume_and_adds_no_stage() {
         let fixture = log_repo("");
         let root = fixture.root();

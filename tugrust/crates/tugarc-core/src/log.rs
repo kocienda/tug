@@ -697,15 +697,16 @@ pub fn read_declarations(repo_root: &Path, arc: &str) -> ArcDeclarations {
 ///
 /// `wheel` is the caller's reading of the arc record ([`WheelReading`]).
 /// [`WheelReading::Live`] is a record that exists, is not `done`, and carries
-/// no stop. [`WheelReading::Off`] is every other case but one: no record is
-/// every hand-driven arc, untouched; `arc-done` is an arc that reached its
-/// terminal line; and a standing `arc-stop` in any stage before the audit is
-/// an arc whose audit never began. The one case apart is
-/// [`WheelReading::StoppedInAudit`]: the stop *means* the audit did not mark,
-/// whoever stopped it and for whatever reason, and an arc nothing audited is
-/// not ready. It stays joinable — `arc join` lands an unaudited branch and
-/// its receipt says so — but the offer is never called ready over it.
+/// no stop. [`WheelReading::Stopped`] is a standing `arc-stop` on a record
+/// that is not `done`, whichever stage the stop names: a stop in any stage of
+/// a wheel-driven arc is the same fact — the audit has not marked — whoever
+/// stopped it and for whatever reason, so the offer waits for the audit's
+/// mark exactly as it does under a live wheel. The escape from a broken wheel
+/// is the unaudited join: `arc join` lands an unaudited branch and its receipt
+/// says so, but that is the user's act and is never called ready.
 /// `arc-resume` clears the stop and the wheel is live again.
+/// [`WheelReading::Off`] is what remains: no record is every hand-driven arc,
+/// untouched, and `arc-done` is an arc that reached its terminal line.
 ///
 /// With the wheel off, the three original ways to be armed are restored
 /// verbatim, one for each way work is asked for:
@@ -748,11 +749,11 @@ pub enum WheelReading {
     /// A record exists, is not `done`, and carries no stop: a stage is seated
     /// or about to be, and the audit's own declaration is the only arming.
     Live,
-    /// A standing stop whose stage is the audit. The audit did not mark, and
-    /// the stop is not a substitute for its mark.
-    StoppedInAudit,
-    /// No record, a `done` record, or a stop in a stage before the audit: no
-    /// wheel stands over the arc, and the three pre-wheel arms answer.
+    /// A standing stop on a record that is not `done`, in any stage. The
+    /// audit did not mark, and the stop is not a substitute for its mark.
+    Stopped,
+    /// No record, or a `done` record: no wheel stands over the arc, and the
+    /// three pre-wheel arms answer.
     Off,
 }
 
@@ -762,8 +763,7 @@ impl WheelReading {
             Some(record) if record.done => Self::Off,
             Some(record) => match &record.stopped {
                 None => Self::Live,
-                Some((crate::arc::ArcStage::Audit, _)) => Self::StoppedInAudit,
-                Some(_) => Self::Off,
+                Some(_) => Self::Stopped,
             },
             None => Self::Off,
         }
@@ -784,10 +784,10 @@ pub fn join_ready(
     match wheel {
         // The audit's own declaration, and nothing else. Not `run_complete`,
         // not `built` — the implement stage declares `built` itself, and the
-        // stage that may still change the code runs after it. A stop in the
-        // audit is the same reading: the audit did not mark, and the stop
+        // stage that may still change the code runs after it. A stop in any
+        // stage is the same reading: the audit did not mark, and the stop
         // does not make it have.
-        WheelReading::Live | WheelReading::StoppedInAudit => {
+        WheelReading::Live | WheelReading::Stopped => {
             return matches!(decls.latest, Some(ArcDeclaration::Audited));
         }
         WheelReading::Off => {}
@@ -1751,13 +1751,13 @@ mod tests {
         ));
     }
 
-    /// **A wheel that is off restores every arm, verbatim.** No record, a
-    /// done record, or a stop before the audit: the same declarations the
-    /// gate refuses above answer exactly as they did before the gate existed.
+    /// **A wheel that is off restores every arm, verbatim.** No record or a
+    /// done record: the same declarations the gate refuses above answer
+    /// exactly as they did before the gate existed.
     /// The plan-less arm is included because it is the one that does not go
     /// through `latest` at all.
     #[test]
-    fn a_stopped_wheel_restores_every_arm() {
+    fn a_wheel_that_is_off_restores_every_arm() {
         for latest in [
             None,
             Some(ArcDeclaration::Built),
@@ -1795,13 +1795,15 @@ mod tests {
         ));
     }
 
-    /// **A stopped audit never arms the join.** The stop means the audit did
-    /// not mark, whoever stopped it: `run_complete` is true because the
-    /// implement stage closed every step, and that is exactly the arm a stop
-    /// used to fall back to — offering, as *ready*, a tree nothing audited.
-    /// Only the audit's own declaration answers; the stop's reason does not.
+    /// **A stopped wheel never arms the join until the audit marks.** The
+    /// stop means the audit did not mark, whoever stopped it and whichever
+    /// stage the stop names: `run_complete` is true because the implement
+    /// stage closed every step, and that is exactly the arm a stop before the
+    /// audit used to fall back to — offering, as *ready*, a tree nothing
+    /// audited. Only the audit's own declaration answers; the stop's stage
+    /// and reason do not.
     #[test]
-    fn a_stopped_audit_is_not_ready_until_audited() {
+    fn a_stopped_wheel_is_not_ready_until_audited() {
         assert!(
             !join_ready(
                 3,
@@ -1809,9 +1811,9 @@ mod tests {
                 false,
                 &armed_three_ways(None),
                 true,
-                WheelReading::StoppedInAudit
+                WheelReading::Stopped
             ),
-            "a finished run stopped in its audit is unaudited, not ready"
+            "a finished run stopped at the seam before its audit is unaudited, not ready"
         );
         assert!(
             !join_ready(
@@ -1820,7 +1822,7 @@ mod tests {
                 false,
                 &armed_three_ways(Some(ArcDeclaration::Built)),
                 true,
-                WheelReading::StoppedInAudit
+                WheelReading::Stopped
             ),
             "`built` is the implement stage's word and does not stand in for the audit's"
         );
@@ -1830,12 +1832,22 @@ mod tests {
             false,
             &armed_three_ways(Some(ArcDeclaration::Audited)),
             true,
-            WheelReading::StoppedInAudit
+            WheelReading::Stopped
+        ));
+        // The plan-less arm is behind the same gate: a stop on a wheel-driven
+        // arc with no steps is still an arc nothing audited.
+        assert!(!join_ready(
+            1,
+            false,
+            false,
+            &ArcDeclarations::default(),
+            false,
+            WheelReading::Stopped
         ));
     }
 
-    /// The reading, from the record: the three cases each caller used to
-    /// derive by hand, plus the one they were missing.
+    /// The reading, from the record: a stop in any stage reads `Stopped`, and
+    /// only no record or a done one reads `Off`.
     #[test]
     fn the_wheel_reading_is_the_records() {
         use crate::arc::{ArcRecord, ArcStage};
@@ -1861,11 +1873,15 @@ mod tests {
         let done = record(None, true);
         assert_eq!(WheelReading::of(Some(&done)), WheelReading::Off);
         let stopped_early = record(Some((ArcStage::Implement, "stopped by user")), false);
-        assert_eq!(WheelReading::of(Some(&stopped_early)), WheelReading::Off);
+        assert_eq!(
+            WheelReading::of(Some(&stopped_early)),
+            WheelReading::Stopped,
+            "a stop before the audit is a stop: the audit did not mark"
+        );
         let stopped_in_audit = record(Some((ArcStage::Audit, "stopped by user")), false);
         assert_eq!(
             WheelReading::of(Some(&stopped_in_audit)),
-            WheelReading::StoppedInAudit,
+            WheelReading::Stopped,
             "and a person's stop reads the same: the audit did not mark"
         );
     }

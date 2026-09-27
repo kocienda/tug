@@ -561,6 +561,7 @@ function ArcRow({
           // The shade is where the offer is actually pressed, so a stage the
           // wheel still has seated is named here rather than read around.
           run={entry.arc ?? null}
+          runComplete={entry.run_complete === true}
           altitude="entry"
         />
       </span>

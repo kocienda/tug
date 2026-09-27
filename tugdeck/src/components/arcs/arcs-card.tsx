@@ -772,6 +772,9 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
     // A live wheel outranks the offer: the section shows the stage that is
     // running rather than a readiness the audit has not signed off on.
     run: entry.arc ?? null,
+    // …and whether that wheel's walk is over, which is what tells a stop
+    // mid-walk from a stop at the seam before the audit.
+    runComplete: entry.run_complete === true,
   });
   // A READY arc says so in the lifecycle line's own words, and draws no band
   // ([P08]). The register's third line was chrome restating a settled fact one

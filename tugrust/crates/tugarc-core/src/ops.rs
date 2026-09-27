@@ -7763,13 +7763,13 @@ Some context.
         (temp, root)
     }
 
-    /// **The offer waits for the audit, and a broken audit does not hold the
-    /// landing hostage.** A finished run under a live wheel is recorded and
-    /// not yet offered; `audited` offers it; and so does an `arc-stop`, which
-    /// is the escape [B03] names.
+    /// **The offer waits for the audit.** A finished run under a live wheel
+    /// is recorded and not yet offered; `built` does not offer it; `audited`
+    /// does. A stop is not an escape from this (see the test below), only
+    /// the unaudited join is, and that is the user's act.
     #[serial]
     #[test]
-    fn a_live_wheel_holds_the_offer_until_the_audit_or_a_stop() {
+    fn a_live_wheel_holds_the_offer_until_the_audit() {
         let (_temp, root) = wheeled_arc("audit-gate-arc");
         let detail = arc_detail_entry_in(&root, "audit-gate-arc").unwrap();
         assert!(
@@ -7798,12 +7798,14 @@ Some context.
         );
     }
 
-    /// The other half of the escape: an arc stopped *before* its audit falls
-    /// back to every arm it had before the gate, so a wheel that broke cannot
-    /// leave finished work unlandable.
+    /// **A stopped wheel holds the offer until the audit marks.** An arc
+    /// stopped *before* its audit is the same fact as one stopped in it: the
+    /// audit did not mark. A wheel that broke cannot leave finished work
+    /// unlandable — `arc join` lands the unaudited branch — but the offer is
+    /// never called ready over a tree nothing audited.
     #[serial]
     #[test]
-    fn a_stopped_wheel_releases_the_offer_over_a_real_log() {
+    fn a_stopped_wheel_holds_the_offer_until_the_audit_marks() {
         let (_temp, root) = wheeled_arc("audit-stop-arc");
         mark("audit-stop-arc", MarkStage::Built, None).unwrap();
         assert!(
@@ -7819,11 +7821,22 @@ Some context.
             crate::arc::ArcStopReason::Stalled,
         )
         .unwrap();
+        let feed = arc_detail_entry_in(&root, "audit-stop-arc").unwrap();
+        assert!(feed.run_complete, "the implement stage closed every step");
+        assert!(
+            !feed.join_ready,
+            "a wheel that broke before the audit is an arc nothing audited, and is not ready"
+        );
+        let cli = status_in(&root, "audit-stop-arc").unwrap();
+        assert_eq!(cli.stage, feed.stage, "the CLI reads the same arc the same way");
+        assert_ne!(cli.stage, "ready");
+
+        mark("audit-stop-arc", MarkStage::Audited, None).unwrap();
         assert!(
             arc_detail_entry_in(&root, "audit-stop-arc")
                 .unwrap()
                 .join_ready,
-            "a wheel that broke before the audit must not hold the landing hostage"
+            "the audit's own declaration is the one thing that arms it"
         );
     }
 

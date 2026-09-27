@@ -448,14 +448,20 @@ describe("a live arc holds the offer", () => {
     expect(implementing?.line).toBe("imposer2 is in implement — the join waits for the audit");
   });
 
-  test("a stopped wheel does not hold the surface hostage", () => {
-    // A stop before the audit: the join never needed a wheel, and the offer
-    // the wheel was holding is released as it always was.
-    const stopped = reg(reconciled(), {
-      run: { stage: "implement", stopped: "stalled", stopped_stage: "implement" },
-    });
-    expect(stopped?.line).toBe("Ready to join to main");
-    expect(stopped?.word).toBe("ready");
+  test("a stopped wheel holds the surface until the audit marks", () => {
+    // A stop at the seam — every step closed, the audit not yet seated — is
+    // the same fact as a stop in the audit: nothing audited the tree. The
+    // offer is not released whatever the stop's reason, and the sentence
+    // names the seam rather than an audit that never began.
+    for (const stopped of ["stalled", "stopped by user"]) {
+      const seam = reg(reconciled(), {
+        run: { stage: "implement", stopped, stopped_stage: "implement" },
+        runComplete: true,
+      });
+      expect(seam?.phase).toBe("awaiting");
+      expect(seam?.line).toBe("imposer2 stopped before its audit — resume it, or land it unaudited");
+      expect(seam?.word).toBe("unaudited");
+    }
   });
 
   test("a stopped audit is unaudited, not ready", () => {
@@ -483,12 +489,22 @@ describe("a live arc holds the offer", () => {
     });
     expect(held?.phase).toBe("awaiting");
     expect(held?.word).toBe("unaudited");
-    // And a stop before the audit at the same stage stays silent, as before.
+    // A stop mid-walk at the same stage stays silent: the arc is simply
+    // unfinished, and there is nothing yet for a person to decide.
     const early = reg(null, {
       stage: "implementing",
       run: { stage: "implement", stopped: "stopped by user", stopped_stage: "implement" },
     });
     expect(early).toBeNull();
+    // The same stop with the walk over is the seam, and the seam speaks.
+    const seam = reg(null, {
+      stage: "implementing",
+      run: { stage: "implement", stopped: "stopped by user", stopped_stage: "implement" },
+      runComplete: true,
+    });
+    expect(seam?.phase).toBe("awaiting");
+    expect(seam?.line).toBe("imposer2 stopped before its audit — resume it, or land it unaudited");
+    expect(seam?.word).toBe("unaudited");
   });
 
   test("a stopped audit that had already signed off is still ready", () => {

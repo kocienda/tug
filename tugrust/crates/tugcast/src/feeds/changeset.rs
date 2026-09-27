@@ -1789,6 +1789,7 @@ async fn arc_entries(
                 step_total: detail.step_total,
                 run_position: detail.run_position,
                 run_length: detail.run_length,
+                run_complete: detail.run_complete,
                 step_title: detail.step_title,
                 last_activity: detail.last_activity,
                 arc: detail.arc.map(|arc| tugcast_core::types::ArcRunState {
@@ -4305,6 +4306,7 @@ Some context.
             step_total: None,
             run_position: None,
             run_length: None,
+            run_complete: false,
             step_title: None,
             last_activity: None,
             documents: Default::default(),
@@ -4396,6 +4398,7 @@ Some context.
                     step_total: None,
                     run_position: None,
                     run_length: None,
+                    run_complete: false,
                     step_title: None,
                     last_activity: None,
                     documents: Default::default(),
