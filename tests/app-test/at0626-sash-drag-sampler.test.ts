@@ -58,6 +58,12 @@
  * gauge's own budget, stated against the display the run is on rather than
  * against the 60Hz constant.
  *
+ * **The box is the pin.** On every held tick each member's laid-out height is
+ * the inline px height the drag wrote on it. The pin is written in the
+ * pointer handler; what the eye sees is the box, and anything animating
+ * `height` — `chrome.css`'s window-shade transition, a settle beat — outranks
+ * the inline value for as long as it runs and puts the box behind the hand.
+ *
  * **The hold stands and every exit releases it.** The card roots take exactly
  * one layout, at the mark; nothing inside either transcript is resized or
  * committed while the hold is on; and none of a released drag, a press that
@@ -81,6 +87,7 @@
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
+ * @covers tugdeck/styles/chrome.css
  * @covers tugdeck/src/lib/motion-guard/render-cost-probe.ts
  */
 
@@ -337,6 +344,15 @@ interface Tick {
   gesture: boolean;
   /** How many of the divided members carried `data-still-crossing`. */
   marked: number;
+  /**
+   * The largest distance, over the divided members, between a member's
+   * laid-out height and the inline px height the drag pinned on it — zero
+   * on a tick where no member carries a px height. A box that reads other
+   * than its pin is being animated by something that outranks inline style
+   * in the cascade, which is the one way a pin can be written on time and
+   * still be seen late.
+   */
+  lag: number;
 }
 
 /** One rendering-cost sample, from the gauge's own `sampleFrame`. */
@@ -538,15 +554,26 @@ async function arm(app: App): Promise<void> {
         var now = performance.now();
         var seam = document.querySelector(seamSel);
         var marked = 0;
+        var lag = 0;
         panes.forEach(function (sel) {
           var el = document.querySelector(sel);
-          if (el !== null && el.hasAttribute("data-still-crossing")) marked += 1;
+          if (el === null) return;
+          if (el.hasAttribute("data-still-crossing")) marked += 1;
+          // The box against its pin. A rect read here flushes layout at most
+          // once per pointer move — the rendering update would have done the
+          // same work a moment later — and it is the only reading that can
+          // tell a pin written on time from a box that follows it late.
+          if (/px$/.test(el.style.height)) {
+            var box = el.getBoundingClientRect().height;
+            lag = Math.max(lag, Math.abs(box - parseFloat(el.style.height)));
+          }
         });
         state.ticks.push({
           t: now,
           gap: now - last,
           gesture: seam !== null && seam.getAttribute("data-gesture") === "seam",
           marked: marked,
+          lag: lag,
         });
         last = now;
         setTimeout(beat, 0);
@@ -806,6 +833,24 @@ describe.skipIf(!SHOULD_RUN)(
             `the render cost p95 inside the held window is under the ` +
               `${fmt(intervalMs)}ms display interval`,
           ).toBeLessThan(intervalMs);
+          // The box is where the pin says, on every tick. The pin is written
+          // in the pointer handler and that is provable from the DOM alone;
+          // what the eye sees is the laid-out box, and a running animation
+          // on `height` — the window-shade `transition` in `chrome.css`, a
+          // settle beat — outranks an inline value for as long as it runs.
+          // The shade ease was exactly this: 100ms behind the hand on every
+          // move, a gap opening under the seam and closing after it, with
+          // every other bar in this file green.
+          const lags = inHold(run.ticks).map((t) => t.lag);
+          note(
+            "at0626 box against pin",
+            `inside the hold, max ${fmt(Math.max(0, ...lags))}px, ` +
+              `p95 ${fmt(percentile(lags, 0.95))}px over ${lags.length} ticks`,
+          );
+          expect(
+            Math.max(0, ...lags),
+            "each member's laid-out height is its pinned height on every held tick",
+          ).toBeLessThan(1);
 
           // The hold the previous arc proved, still standing under this one.
           const insideHold = run.deliveries.filter(

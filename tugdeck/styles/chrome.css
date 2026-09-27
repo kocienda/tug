@@ -199,6 +199,21 @@
   transition: none;
 }
 
+/* …and for a frame a hand positions from OUTSIDE it. `data-pointer-owned` is
+   the latch mark every pointer-driven placement writes on the frames it
+   moves — the pane's own drag, a zone drop's landing, and a seam drag on
+   every member of its place — and a seam drag writes each member's `height`
+   in px on every move. Armed by that write, the shade ease put each box
+   100ms behind its pin: the seam and every `top` snapped and the heights
+   chased them, which read as a gap opening under the sash and closing a beat
+   after the hand stopped. `data-gesture` alone cannot cover it: the seam
+   drag stamps that on the seam, not the members, and on a rail member the
+   pair `[data-gesture="true"][data-pointer-owned]` is the lifted livery.
+   `at0632` holds the box to the pin on every tick of the gesture. */
+.tug-pane[data-pointer-owned] {
+  transition: none;
+}
+
 /* …and it stands down for the same reason while the imposer is settling. The
    settle carries a frame's height as a real geometry tween over
    `--tugx-imposer-settle-duration`; the shade ease is a different clock on the
