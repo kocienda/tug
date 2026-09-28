@@ -287,25 +287,75 @@ function median(values: readonly number[]): number | null {
  * long task as the display's rate and then report the run as smooth against
  * it. `movePending` is the reading that says the deck is mid-gesture even
  * though no clock has started, so a tick carrying it is excluded.
+ *
+ * The `quiet` argument is how a caller says which ticks nothing was competing
+ * with. It is per-tick rather than per-gap, and a gap counts as quiet only when
+ * both of its ends are: a gap with one contended end was contended. A caller
+ * that has no such reading passes nothing, and every tick counts as quiet,
+ * which is the same answer the fallback chain gives.
  */
-function deriveFramePeriodMs(samples: readonly SettleFrameSample[]): number {
+function deriveFramePeriodMs(
+  ticks: readonly number[],
+  quiet: readonly boolean[] | undefined,
+): number {
   const quietGaps: number[] = [];
   const allGaps: number[] = [];
-  for (let i = 1; i < samples.length; i += 1) {
-    const gap = samples[i].t - samples[i - 1].t;
+  for (let i = 1; i < ticks.length; i += 1) {
+    const gap = ticks[i] - ticks[i - 1];
     allGaps.push(gap);
-    if (
-      samples[i].moveCurrentTime === null &&
-      !samples[i].movePending &&
-      samples[i - 1].moveCurrentTime === null &&
-      !samples[i - 1].movePending
-    ) {
+    if (quiet === undefined || (quiet[i] && quiet[i - 1])) {
       quietGaps.push(gap);
     }
   }
-  return (
-    median(quietGaps) ?? median(allGaps) ?? FALLBACK_FRAME_PERIOD_MS
-  );
+  return median(quietGaps) ?? median(allGaps) ?? FALLBACK_FRAME_PERIOD_MS;
+}
+
+/**
+ * The cadence half of a frame reading: how fast the display runs, and which
+ * gaps in the run were longer than one of its frames.
+ *
+ * It is the ONE definition of that computation ([P02]). Two instruments ask it:
+ * {@link classifySettleFrames}, which reads a settle's per-pane samples and
+ * carries a quiet flag per tick, and the switch record in
+ * `space-switch-frames.ts`, which has nothing but the tick series. Both get
+ * their `framePeriodMs`, `longestGapMs` and `gapsOverOneFrame` from here, so a
+ * reading taken by one is comparable with a reading taken by the other. A
+ * second copy of this arithmetic anywhere is the defect this function exists to
+ * prevent — the numbers would drift apart silently, each looking plausible.
+ */
+export interface FrameCadenceReading {
+  /** The display's period in ms, derived from the run — see below. */
+  readonly framePeriodMs: number;
+  readonly longestGapMs: number;
+  /** Gaps over `framePeriodMs * GAP_TOLERANCE`. */
+  readonly gapsOverOneFrame: number;
+  /** The gap series itself, so a reader can see the shape and not only its summary. */
+  readonly gaps: readonly number[];
+  /** Tick count below {@link SUSPENSION_FLOOR_TICKS}; the whole reading is void. */
+  readonly suspended: boolean;
+}
+
+export function classifyFrameCadence(
+  ticks: readonly number[],
+  quiet?: readonly boolean[],
+): FrameCadenceReading {
+  const framePeriodMs = deriveFramePeriodMs(ticks, quiet);
+  const gaps: number[] = [];
+  let longestGapMs = 0;
+  let gapsOverOneFrame = 0;
+  for (let i = 1; i < ticks.length; i += 1) {
+    const gap = ticks[i] - ticks[i - 1];
+    gaps.push(gap);
+    if (gap > longestGapMs) longestGapMs = gap;
+    if (gap > framePeriodMs * GAP_TOLERANCE) gapsOverOneFrame += 1;
+  }
+  return {
+    framePeriodMs,
+    longestGapMs,
+    gapsOverOneFrame,
+    gaps,
+    suspended: ticks.length < SUSPENSION_FLOOR_TICKS,
+  };
 }
 
 function rectKey(frame: SettleFramePaneSample): string {
@@ -360,15 +410,17 @@ export function classifySettleFrames(
 ): SettleFrameReading {
   if (samples.length === 0) return EMPTY_READING;
 
-  const framePeriodMs = deriveFramePeriodMs(samples);
-
-  let longestGapMs = 0;
-  let gapsOverOneFrame = 0;
-  for (let i = 1; i < samples.length; i += 1) {
-    const gap = samples[i].t - samples[i - 1].t;
-    if (gap > longestGapMs) longestGapMs = gap;
-    if (gap > framePeriodMs * GAP_TOLERANCE) gapsOverOneFrame += 1;
-  }
+  // The cadence half is {@link classifyFrameCadence}'s, shared with the switch
+  // record so the two instruments cannot drift ([P02]). A settle's ticks carry
+  // a quiet reading the switch record has no equivalent of, so it is passed
+  // alongside rather than inferred from the timestamps.
+  const cadence = classifyFrameCadence(
+    samples.map((sample) => sample.t),
+    samples.map(
+      (sample) => sample.moveCurrentTime === null && !sample.movePending,
+    ),
+  );
+  const { framePeriodMs, longestGapMs, gapsOverOneFrame } = cadence;
 
   let moveBornAt: number | null = null;
   let moveAdvancedAt: number | null = null;
@@ -601,7 +653,7 @@ export function classifySettleFrames(
         : longestOffCurveRunStartT - effectFirstSeenAt,
     violations: [...violations],
     fixedDescendants,
-    suspended: samples.length < SUSPENSION_FLOOR_TICKS,
+    suspended: cadence.suspended,
   };
 }
 

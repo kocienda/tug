@@ -157,7 +157,6 @@ import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-control
 import {
   SHOWN_PANE_FRAMES,
   paneCanvasOf,
-  useSpaceLayerShown,
 } from "@/components/chrome/space-layer";
 
 // ===========================================================================
@@ -399,21 +398,17 @@ export interface CardTitleBarProps {
    */
   onSetWidth?: (preset: ContentWidth) => void;
   /**
-   * The workspace list, in the user's order, and which one is active. Feeds
-   * the Move to Workspace popup: its rows are the workspaces OTHER than
-   * {@link activeSpaceId}, by name. Resolved in `DeckCanvas`, where the
-   * spaces store lives — a pane cannot see the level above its own deck.
-   *
-   * A list of one is not an absent control: the trigger renders disabled and
-   * its tooltip says why, which is the spine's rule everywhere else.
-   */
-  spaces?: readonly { id: string; name: string }[];
-  /** The workspace this pane's card currently lives in — never a menu row. */
-  activeSpaceId?: string;
-  /**
    * File the pane's active card into another workspace. Wired in `DeckCanvas`
    * to `moveCardToSpace`; [B04] holds, so the user stays where they are and
    * the card is announced only by the destination's count changing.
+   *
+   * The workspace list the popup offers — every workspace OTHER than the one
+   * this pane stands in, by name, in the user's order — is not a prop. The bar
+   * reads it off the deck store itself (below), because a list threaded
+   * through every pane's props changed on every switch and re-rendered every
+   * pane in every mounted workspace for a menu nobody had opened. A list of
+   * one is not an absent control: the trigger renders disabled and its
+   * tooltip says why, which is the spine's rule everywhere else.
    */
   onMoveToSpace?: (spaceId: string) => void;
   /**
@@ -512,8 +507,6 @@ function CardTitleBar({
   placeArrangement,
   onArrangePlace,
   onSetWidth,
-  spaces = EMPTY_SPACES,
-  activeSpaceId,
   onMoveToSpace,
   masthead = null,
   sidebar = false,
@@ -643,9 +636,18 @@ function CardTitleBar({
   // reveal to ask for.
   const deck = useContext(DeckManagerContext);
 
-  // Whether this pane's workspace is the one on screen. The gate on every
-  // measurement this bar takes — see the controls-width effect.
-  const layerShown = useSpaceLayerShown();
+  // The workspace list, for the move control alone ([L02]). Off the same
+  // snapshot the canvas reads, through `useSyncExternalStore`, so the bar
+  // re-renders when a workspace is added, renamed or made active — and
+  // nothing above it does. With no deck behind the bar there are no
+  // workspaces, and no `onMoveToSpace` either, so the control is not drawn.
+  const spacesSnapshot = useSyncExternalStore(
+    deck?.subscribeSpaces ?? NO_SPACES_SUBSCRIBE,
+    deck !== null ? deck.getSpacesSnapshot : NO_SPACES_SNAPSHOT,
+    NO_SPACES_SNAPSHOT,
+  );
+  const spaces = spacesSnapshot?.spaces ?? EMPTY_SPACES;
+  const activeSpaceId = spacesSnapshot?.activeSpaceId;
 
   // Whether the pointer is inside the title bar — the fact the rollup's reveal
   // reads. Written to the DOM as `data-pointer-within`, never to React state
@@ -690,17 +692,25 @@ function CardTitleBar({
     const bar = barElRef.current;
     const controls = controlsElRef.current;
     if (bar === null || controls === null) return;
-    // Nothing measures in the dark. A pane in a workspace the canvas is
-    // hiding has no boxes, so `offsetWidth` reads 0 and the bar would learn
-    // that its controls are no width at all — a reading about a `display:
-    // none` ancestor rather than about this bar. The effect is keyed on the
-    // shown bit, so the measurement is taken in the very commit that reveals
-    // the workspace ([B06], (#geometry-on-show)).
-    if (!layerShown) return;
-    bar.style.setProperty(
-      "--tugx-pane-controls-width",
-      `${controls.offsetWidth}px`,
-    );
+    // The observer is the only reader, and that is deliberate on both sides.
+    //
+    // No synchronous `offsetWidth` here: a read in a layout effect forces a
+    // layout in the middle of React's commit, and on a workspace switch every
+    // arriving pane would pay one — the read→write→read chain the motion
+    // probe named first. An observer's first delivery lands in the frame's
+    // own rendering steps, after the engine's one layout and before its
+    // paint, so the bar is never painted without the property and the
+    // engine resolves once.
+    //
+    // And no gate on the workspace being shown. A pane in a hidden workspace
+    // is laid out — its layer is `visibility: hidden` over `content-visibility:
+    // hidden`, which skips paint and hit-testing and keeps the boxes ([B02]) —
+    // but a ResizeObserver is SILENT under one: it delivers nothing for
+    // contents the engine is skipping, and catches up in the first frame
+    // after the layer is shown, before that frame paints (measured on this
+    // engine and pinned by `at0642`). So the controls are read the moment
+    // they are on screen and never before, which is exactly what the shown
+    // gate used to arrange by hand ([L23]).
     const observer = new ResizeObserver(() => {
       bar.style.setProperty(
         "--tugx-pane-controls-width",
@@ -711,7 +721,7 @@ function CardTitleBar({
     return () => {
       observer.disconnect();
     };
-  }, [layerShown]);
+  }, []);
 
   // Controlled-mode open state for the close-confirm popover (the shared
   // `TugConfirmPopover` component). The X button and the imperative
@@ -2126,16 +2136,11 @@ export interface TugPaneProps {
    */
   onRevealPane?: (entry: SlotStackEntry) => void;
   /**
-   * The workspace list and the active workspace, threaded straight to
-   * {@link CardTitleBarProps.spaces} and `activeSpaceId`. Resolved in
-   * `DeckCanvas`, which is where the spaces store lives.
-   */
-  spaces?: readonly { id: string; name: string }[];
-  activeSpaceId?: string;
-  /**
    * File this pane's active card into another workspace. Wired in
    * `DeckCanvas` to `moveCardToSpace`; the pane and its title bar only report
-   * the choice, the same shape {@link onRevealPane} above takes.
+   * the choice, the same shape {@link onRevealPane} above takes. The
+   * workspace list the menu offers is the title bar's own read off the store
+   * — see {@link CardTitleBarProps.onMoveToSpace}.
    */
   onMoveToSpace?: (spaceId: string) => void;
   /**
@@ -2271,10 +2276,13 @@ function cssLength(value: CSSProperties["left"]): string {
 // `slotStack` prop does not hand the title bar a fresh identity per render.
 const EMPTY_SLOT_STACK: readonly SlotStackEntry[] = [];
 
-// The same trick for the workspace list: a pane rendered before the spaces
-// store has been consulted takes one frozen empty array rather than a new one
-// each render.
+// The same trick for the workspace list: a title bar with no deck behind it
+// takes one frozen empty array rather than a new one each render, and the
+// two frozen functions beside it are what `useSyncExternalStore` is handed
+// in that case — a subscription that never fires and a snapshot of nothing.
 const EMPTY_SPACES: readonly { id: string; name: string }[] = [];
+const NO_SPACES_SUBSCRIBE = (): (() => void) => () => {};
+const NO_SPACES_SNAPSHOT = (): null => null;
 
 type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
@@ -2317,8 +2325,6 @@ export function TugPane({
   contentWidthPx,
   slotStack = EMPTY_SLOT_STACK,
   onRevealPane,
-  spaces,
-  activeSpaceId: spacesActiveSpaceId,
   onMoveToSpace,
   sidebarStack,
   isSidebarPane = false,
@@ -2408,11 +2414,6 @@ export function TugPane({
   const stackId = id;
   const minContentSize = minContentSizeProp ?? DEFAULT_MIN_CONTENT;
   const store = useDeckManager();
-
-  // Whether this pane's workspace is the one on screen ([B06]). Every
-  // measurement below is armed on it, so a hidden workspace measures nothing
-  // and a shown one measures in the commit that reveals it.
-  const layerShown = useSpaceLayerShown();
 
   const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null);
   // Frame element exposed via TugPaneFrameContext and bridged through
@@ -2817,20 +2818,19 @@ export function TugPane({
       setAccessoryHeight(0);
       return;
     }
-    // A hidden workspace's pane measures nothing ([B06],
-    // (#geometry-on-show)). Its accessory has no box, so the reading would
-    // be 0 — and 0 is not "this tab bar is flat", it is "this tab bar is not
-    // being laid out". It would drop the pane's `minSize` by the bar's whole
-    // height and the frame would step on the commit that reveals it. Keyed
-    // on the shown bit, so the reading is taken in that commit instead.
-    if (!layerShown) return;
-    setAccessoryHeight(el.getBoundingClientRect().height);
+    // Observer-only, for the two reasons the title bar's controls-width
+    // effect gives: a synchronous rect read here is a forced layout inside
+    // the commit, and a ResizeObserver under a hidden workspace layer is
+    // silent until the layer is shown and then delivers before the first
+    // shown frame paints. The height it reports is the tab bar's real one
+    // whether the pane is on screen or parked — a hidden pane is laid out
+    // ([B02]) — so nothing here is a reading about an ancestor's `display`.
     const ro = new ResizeObserver(() => {
       setAccessoryHeight(el.getBoundingClientRect().height);
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [resolvedAccessory, layerShown]);
+  }, [resolvedAccessory]);
 
   // ---------------------------------------------------------------------------
   // onMinSizeChange — content-reported minimum drives resize clamp
@@ -4932,8 +4932,6 @@ export function TugPane({
             activeCardId={activeCardId}
             slotStack={slotStack}
             onRevealPane={onRevealPane}
-            spaces={spaces}
-            activeSpaceId={spacesActiveSpaceId}
             // Neither verb is a rail's, and the bar is told so by being handed
             // neither handler — the same shape `onSetWidth` already takes
             // above. The bar drops its whole rollup on a sidebar card, so this

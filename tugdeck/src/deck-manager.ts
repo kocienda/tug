@@ -107,12 +107,9 @@ import { TugVersionGate } from "./components/tugways/tug-version-gate";
 import { ErrorBoundary } from "./components/chrome/error-boundary";
 import {
   CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
-  FROZEN_FRAME_ATTRIBUTES,
   paneCanvasOf,
   SHOWN_PANE_FRAMES,
   SPACE_SWITCHING_ATTRIBUTE,
-  type FrozenPaneFrame,
-  type FrozenSpacePicture,
 } from "./components/chrome/space-layer";
 import { TugBannerProvider } from "./components/chrome/tug-banner-bridge";
 import { RateLimitBulletinBridge } from "./components/chrome/rate-limit-bulletin-bridge";
@@ -1065,19 +1062,6 @@ export class DeckManager implements IDeckManagerStore {
    */
   private _lastPlaceRuns: PlaceRuns = { rail: null, column: null };
 
-  /**
-   * The departing workspace of the switch now on screen, as a picture — or
-   * `null` when no switch has been made, or when the last one was made with
-   * motion off ([B05]).
-   *
-   * Written by {@link _measureDepartingPicture} inside the swap batch and read
-   * imperatively by the crossfade effect in `DeckCanvas`, which is the only
-   * reader: there is no store and no notify here, because a picture is not
-   * state anything renders from — it is a measurement one effect takes and
-   * another applies, in the same switch.
-   */
-  private _departingPicture: FrozenSpacePicture | null = null;
-
   private initialLayout: object | null;
 
   // ---- Spaces: the level above the deck ([P03]) ----
@@ -1094,6 +1078,11 @@ export class DeckManager implements IDeckManagerStore {
 
   /** Which entry in {@link spaces} is rendered. */
   private activeSpaceId = "";
+
+  /** When the last {@link activateSpace} began — see the store interface. */
+  private spaceSwitchStartedAt: number | null = null;
+
+  public getSpaceSwitchStartedAt = (): number | null => this.spaceSwitchStartedAt;
 
   /**
    * The workspaces React is holding mounted ([P01], [B06]).
@@ -1281,73 +1270,6 @@ export class DeckManager implements IDeckManagerStore {
     this.spaceRestoreHook = hook;
   };
 
-  /**
-   * Take the picture of the workspace about to depart ([B01], [B02], [B05]).
-   *
-   * Called from inside the swap batch, beside the write of
-   * {@link SPACE_SWITCHING_ATTRIBUTE} and before the `notify` — the one instant
-   * that precedes every layout effect in the arriving layer, and so the last
-   * one at which the outgoing frames still stand where the user saw them. One
-   * commit later they have been re-derived against the arriving deck's inset
-   * variables and nothing can recover where they were.
-   *
-   * The sweep is {@link SHOWN_PANE_FRAMES}, so it reads exactly the frames on
-   * screen: the workspace being left is still the shown one here, and every
-   * other layer is hidden and has no boxes at all.
-   *
-   * With motion off there is no dissolve to freeze — the outgoing layer is
-   * `display: none` from the commit and the crossfade effect writes no
-   * crossing mark — so the sweep is skipped and the picture cleared, and a
-   * reduced-motion switch costs no measurement.
-   */
-  private _measureDepartingPicture(): void {
-    if (!isTugMotionEnabled() || typeof document === "undefined") {
-      this._departingPicture = null;
-      return;
-    }
-    const canvas = this.container.querySelector<HTMLElement>(
-      CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
-    );
-    if (canvas === null) {
-      this._departingPicture = null;
-      return;
-    }
-    const origin = canvas.getBoundingClientRect();
-    const zoom = getTugZoom() || 1;
-    const picture = new Map<string, FrozenPaneFrame>();
-    for (const frame of document.querySelectorAll<HTMLElement>(
-      SHOWN_PANE_FRAMES,
-    )) {
-      const paneId = frame.getAttribute("data-pane-id");
-      if (paneId === null || paneId === "") continue;
-      const rect = frame.getBoundingClientRect();
-      const attributes: Record<string, string | null> = {};
-      for (const name of FROZEN_FRAME_ATTRIBUTES) {
-        attributes[name] = frame.getAttribute(name);
-      }
-      picture.set(paneId, {
-        rect: {
-          x: (rect.left - origin.left) / zoom,
-          y: (rect.top - origin.top) / zoom,
-          width: rect.width / zoom,
-          height: rect.height / zoom,
-        },
-        attributes,
-      });
-    }
-    this._departingPicture = picture;
-  }
-
-  /**
-   * The picture taken at the last switch commit, for the crossfade effect to
-   * apply — `null` when there is none to apply.
-   *
-   * Imperative by design: the effect that reads this runs in the commit the
-   * measurement was taken in, and a store would hand it a value one render
-   * too late.
-   */
-  public departingSpacePicture = (): FrozenSpacePicture | null =>
-    this._departingPicture;
 
   /**
    * Render `spaceId`'s deck, parking the one on screen ([P04]).
@@ -1401,6 +1323,7 @@ export class DeckManager implements IDeckManagerStore {
     // synchronous span; `paintMs` is stamped in the double rAF at the end,
     // which is the only place the record can be made.
     const t0 = performance.now();
+    this.spaceSwitchStartedAt = t0;
     const fromSpaceId = outgoing.id;
     const outgoingCards = this.deckState.cards.length;
     const incomingCards = incomingDeck.cards.length;
@@ -1473,12 +1396,6 @@ export class DeckManager implements IDeckManagerStore {
         // render, a harness with no deck mounted — simply gets no mark, which
         // is the honest answer: there is nothing on screen to animate.
         //
-        // The departing workspace's picture is taken here, an instant before
-        // the mark and for the same reason the mark is written here ([B02]):
-        // this is the last moment the outgoing frames still stand where the
-        // user saw them. Before the `setAttribute` rather than after it, so no
-        // reading is taken across a mark a stylesheet could one day key on.
-        this._measureDepartingPicture();
         this.container
           .querySelector<HTMLElement>(CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR)
           ?.setAttribute(SPACE_SWITCHING_ATTRIBUTE, "");

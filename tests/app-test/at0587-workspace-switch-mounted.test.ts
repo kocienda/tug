@@ -10,8 +10,9 @@
  *
  * So the canvas now renders one wrapper per MOUNTED workspace and shows
  * exactly one ([B06]). A switch is a style change: the outgoing workspace's
- * panes are still in the document, still holding their cards, with no boxes;
- * the incoming workspace's panes were never taken down to be rebuilt.
+ * panes are still in the document, still holding their cards, laid out and
+ * unpainted; the incoming workspace's panes were never taken down to be
+ * rebuilt.
  *
  * The test drives the real app and asserts the negative twice over:
  *
@@ -26,8 +27,14 @@
  *      two's. Those two events are `CardHost`'s own record of being stood up
  *      and taken down, so their absence is the claim stated at its source.
  *   4. The outgoing workspace's panes are still in the document, inside the
- *      wrapper that carries no `data-space-shown`, and have no client rects —
- *      mounted and hidden, which is the whole shape.
+ *      wrapper that carries no `data-space-shown`, and none of them is being
+ *      rendered — mounted and hidden, which is the whole shape. This leg used
+ *      to read "no client rects", which pinned `display: none`'s side-effect
+ *      rather than [B06]'s decision; a hidden layer now KEEPS its layout
+ *      ([B02] of `workspace-switch-cheap`), so the reading is
+ *      `checkVisibility()`, which is false under `visibility: hidden` and
+ *      `content-visibility: hidden` alike and was false under `display: none`
+ *      too. The decision — mounted, not rebuilt, not on screen — is unchanged.
  *   5. Switch back, and the stamped scroller is the same node at the same
  *      pixel. at0578 asserts the same pixel from the replay side; this one
  *      asserts it from the side where there was nothing to replay.
@@ -50,11 +57,12 @@
  *
  * The second test is the other half of the same design, and it is the one
  * that keeps [B06] honest rather than merely cheap. A workspace hidden with
- * `display: none` has no boxes, and every canvas geometry is a measurement of
+ * `display: none` had no boxes, and every canvas geometry is a measurement of
  * real boxes — the rail's width, the flow strip's offsets, a pane's
  * chrome-measured floor. A measurement taken while the workspace was in the
- * dark would read zero and stick, so the rule is that a hidden workspace
- * measures nothing and every reading is armed on the transition to shown. The
+ * dark would have read zero and stuck, so the rule became that a hidden
+ * workspace measures nothing and every reading is armed on the transition to
+ * shown ([L23]) — and the rule stands as written whatever hides the layer. The
  * test states that as an equality a defect cannot satisfy by accident: the
  * same workspace, laid out under flow with a pinned rail, is reached twice —
  * once by switching into it and once by booting straight into it — and every
@@ -157,7 +165,7 @@ interface LayerReading {
   layers: number;
   shown: number;
   hiddenPanes: number;
-  hiddenPanesWithBoxes: number;
+  hiddenPanesPainted: number;
   shownPanes: number;
   stampedIsHidden: boolean;
   stampedIsInDocument: boolean;
@@ -413,6 +421,15 @@ describe.skipIf(!SHOULD_RUN)(
           const mark = await app.evalJS<number>(
             `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
           );
+          // The position the user LEAVES at, read at the switch rather than
+          // taken from `savedTop`: a transcript still measuring its rows grows
+          // above the anchor and the list keeps the anchored row in place, so
+          // the number written in leg 1 can be tens of pixels stale by now.
+          // Leg 5's claim is "the same pixel", and this is the pixel.
+          const leftAt = await app.evalJS<number>(
+            `document.querySelector(${JSON.stringify(SCROLLER)}).scrollTop`,
+          );
+          expect(leftAt).toBeGreaterThan(RESTORE_TOLERANCE_PX);
           await app.evalJS<null>(
             `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_TWO)} }), null)`,
           );
@@ -476,8 +493,8 @@ describe.skipIf(!SHOULD_RUN)(
                 layers: layers.length,
                 shown: shown.length,
                 hiddenPanes: hiddenPanes.length,
-                hiddenPanesWithBoxes: hiddenPanes.filter(function (p) {
-                  return p.getClientRects().length > 0;
+                hiddenPanesPainted: hiddenPanes.filter(function (p) {
+                  return p.checkVisibility ? p.checkVisibility() : p.getClientRects().length > 0;
                 }).length,
                 shownPanes: panesIn(shown).length,
                 stampedIsInDocument: stamped !== null,
@@ -491,9 +508,10 @@ describe.skipIf(!SHOULD_RUN)(
           expect(reading.layers).toBe(2);
           expect(reading.shown).toBe(1);
           expect(reading.shownPanes).toBeGreaterThan(0);
-          // The workspace we left is still standing, with no boxes.
+          // The workspace we left is still standing, and none of it is being
+          // rendered. Not "has no boxes": see the file header on leg 4.
           expect(reading.hiddenPanes).toBeGreaterThan(0);
-          expect(reading.hiddenPanesWithBoxes).toBe(0);
+          expect(reading.hiddenPanesPainted).toBe(0);
           // And the very element holding the transcript is one of the things
           // standing in it — the same node, not a rebuilt one.
           expect(reading.stampedIsInDocument).toBe(true);
@@ -548,7 +566,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note(`after the return: ${JSON.stringify(landed)}`);
           expect(landed.sameNode).toBe(true);
-          expect(Math.abs(landed.scrollTop - savedTop)).toBeLessThanOrEqual(
+          expect(Math.abs(landed.scrollTop - leftAt)).toBeLessThanOrEqual(
             RESTORE_TOLERANCE_PX,
           );
           expect(await app.getActiveCardId()).toBe("A");

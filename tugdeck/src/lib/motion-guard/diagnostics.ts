@@ -51,6 +51,13 @@ import {
   inputLatency,
   type InputLatencyReading,
 } from "./input-latency";
+import {
+  armGeometryChains,
+  disarmGeometryChains,
+  readGeometryChains,
+  type ChainArmReading,
+  type GeometryChainReading,
+} from "./geometry-chain-probe";
 
 /** Frames per reading in {@link TugMotionDiagnostics.cost}. */
 export const COST_FRAMES_DEFAULT = 30;
@@ -135,6 +142,17 @@ export interface TugMotionDiagnostics {
   demote(on: boolean): ProbeReading;
   /** Move the breaker's budget. Takes effect on the next sample. */
   setBudget(ms: number): ProbeReading;
+  /**
+   * The read→write→read chains under a gesture ([P03], Spec S04).
+   *
+   * `arm` and `disarm` MUTATE — they replace platform property descriptors —
+   * so this member has the same standing as `pause`, `demote` and `setBudget`:
+   * the only door to it on a release build is the loopback eval endpoint, gated
+   * on dev mode or the per-instance `diag/eval` opt-in. Nothing arms it on load,
+   * and an armed probe is paying a stack capture per geometry read, so it is
+   * armed around the gesture under study and disarmed after.
+   */
+  chains(mode: "arm" | "read" | "disarm"): ChainArmReading | GeometryChainReading;
   /** Clear the probe's samples and the input ring, and un-latch the breaker. */
   reset(): void;
   /** Test-mode only: the driver that lights the walk ([D5], #forcing-probe). */
@@ -385,6 +403,12 @@ export const tugMotion: TugMotionDiagnostics = {
   setBudget(ms) {
     motionBreaker.setBudget(ms);
     return tugMotion.probe();
+  },
+
+  chains(mode) {
+    if (mode === "arm") return armGeometryChains();
+    if (mode === "disarm") return disarmGeometryChains();
+    return readGeometryChains();
   },
 
   reset() {

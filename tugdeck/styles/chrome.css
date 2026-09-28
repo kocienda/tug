@@ -115,29 +115,6 @@
   --tug-z-drop-zone-indicator-rail: 99960;
 }
 
-/* ---- Canvas tier: the workspace being left, for one switch ([B09]) ----
- *
- * A workspace switch moves nothing: both decks are already drawn where the
- * commit puts them. So the join between the two still pictures is the
- * departing workspace painted OVER the arriving one and dissolved off it —
- * which means the departing layer has to outrank every box the arriving one
- * owns, its rails included. Below the band, the strip a rail covers would
- * change in a single frame while the rest of the canvas dissolved.
- *
- * 8999 is the one value above the rail band (`SIDEBAR_PANE_ZINDEX_BASE` 8990
- * and the eight ranks above it) and still strictly below the overlay base, so
- * a popup portaled out of either workspace stays reachable over the fade. The
- * band gave the value up for this; `SIDEBAR_PANE_ZINDEX_MAX_RANK` says why it
- * could afford to.
- *
- * Spent by `space-layer.css` on the crossing wrapper and nowhere else, and
- * only while `data-space-crossing` stands — one `divide-join` window, owed
- * back four ways.
- */
-:root {
-  --tug-z-space-crossing: 8999;
-}
-
 /* ---- Canvas overlay root ----
  *
  * The single deck-level overlay container (one per <DeckCanvas />).
@@ -232,16 +209,22 @@
 /* …and it stands down for the length of a workspace switch, which is the third
    clock on this property and the one nothing else could reach.
 
-   `[P02]`'s mark governs the IMPOSER: an `arm` under the switch epoch declines
+   The epoch's mark governs the IMPOSER: an `arm` under it declines
    and launches no tween. It says nothing about this rule, and this rule is not
    the imposer's — a pane frame whose height changes on the shown transition
    eases here on `--tug-motion-duration-fast`, armed by the layout write rather
    than by any settle. The recording in `briefs/workspace-switch-quiet-recording.md`
    measured exactly that: a frame arriving 240px taller than it settles to, the
-   last of three steps landing 116ms after the swap, inside the dissolve.
+   last of three steps landing 116ms after the swap.
 
    Two stand-downs were already here and neither covers it — a switch is not a
-   pointer gesture and not an imposer settle — so the epoch needs its own. */
+   pointer gesture and not an imposer settle — so the epoch needs its own.
+
+   The mark outlived the cover it was introduced beside ([B05]). While a switch
+   dissolved, this rule and the cover overlapped and it was easy to read the
+   stand-down as part of the fade; it never was. The cover HID a late arrival and
+   this stops it easing, and the cut removed only the first. `space-settled.ts`
+   is the rule for when the mark lifts. */
 [data-space-switching] .tug-pane {
   transition: none;
 }

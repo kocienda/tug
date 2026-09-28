@@ -565,11 +565,23 @@ const EVENT_FIXTURES: Record<
     totalMs: 7,
     paintMs: 41,
   },
-  "space-quiet": {
-    kind: "space-quiet",
+  "space-epoch": {
+    kind: "space-epoch",
     toSpaceId: "space-b",
-    quietMs: 41,
-    quietReason: "quiet",
+    epochMs: 41,
+    epochReason: "settled",
+  },
+  "space-switch-frames": {
+    kind: "space-switch-frames",
+    toSpaceId: "space-b",
+    ticks: 36,
+    framePeriodMs: 16.7,
+    firstPaintDelayMs: 284,
+    longestGapMs: 68,
+    gapsOverOneFrame: 3,
+    gapsOverBudget: 5,
+    gaps: [16.7, 68, 16.7],
+    suspended: false,
   },
 };
 

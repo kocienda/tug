@@ -83,6 +83,9 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         DeckMotionCommands::Demote { state, .. } => {
             format!("window.__tugMotion.demote({})", state == "on")
         }
+        DeckMotionCommands::Chains { mode, .. } => {
+            format!("window.__tugMotion.chains({})", json(mode))
+        }
         DeckMotionCommands::Enable { .. } | DeckMotionCommands::Disable { .. } => return None,
     })
 }
@@ -99,6 +102,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Input { target }
         | DeckMotionCommands::Probe { target }
         | DeckMotionCommands::Demote { target, .. }
+        | DeckMotionCommands::Chains { target, .. }
         | DeckMotionCommands::Enable { target }
         | DeckMotionCommands::Disable { target } => target,
     }
@@ -224,6 +228,7 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Input { .. } => render_input(value),
         DeckMotionCommands::Probe { .. } => render_probe(value),
         DeckMotionCommands::Demote { .. } => fallback(value),
+        DeckMotionCommands::Chains { mode, .. } => render_chains(mode, value),
         DeckMotionCommands::Enable { .. } | DeckMotionCommands::Disable { .. } => fallback(value),
     }
 }
@@ -349,6 +354,72 @@ fn render_layers(value: &serde_json::Value) {
             let name = pair.first().and_then(|n| n.as_str()).unwrap_or("?");
             let count = pair.get(1).and_then(|c| c.as_i64()).unwrap_or(0);
             println!("  {count:>6}  {name}");
+        }
+    }
+}
+
+/// The chain reading, ranked by the read that pays.
+///
+/// `arm` and `disarm` hand back only `{armed, cap}`, so they print one line and
+/// say what the cap is — a truncated reading is a lower bound, and the reader
+/// needs to know the ceiling before the gesture rather than after.
+///
+/// A `read` prints the ranked sites with their writing sites beneath, because
+/// the read is the fixable end: the write is usually something the code must do,
+/// and the read is what can move above it or batch with its peers. Each site is
+/// a multi-line stack, indented so the ranking stays legible.
+fn render_chains(mode: &str, value: &serde_json::Value) {
+    if mode != "read" {
+        match value.get("armed").and_then(|v| v.as_bool()) {
+            Some(armed) => println!(
+                "chains {}: cap {} entries",
+                if armed { "armed" } else { "disarmed" },
+                num_at(value, "cap") as i64
+            ),
+            None => fallback(value),
+        }
+        return;
+    }
+    let Some(ranked) = value.get("ranked").and_then(|r| r.as_array()) else {
+        fallback(value);
+        return;
+    };
+    println!(
+        "{} chains over {} entries in {} tasks{}",
+        num_at(value, "chains") as i64,
+        num_at(value, "entries") as i64,
+        num_at(value, "tasks") as i64,
+        if value
+            .get("truncated")
+            .and_then(|t| t.as_bool())
+            .unwrap_or(false)
+        {
+            " (TRUNCATED — a lower bound)"
+        } else {
+            ""
+        }
+    );
+    for site in ranked.iter().take(10) {
+        println!(
+            "  {:>5} chains  [{}]",
+            num_at(site, "chains") as i64,
+            joined(site, "names")
+        );
+        for line in str_at(site, "site").lines() {
+            println!("      read  {}", line.trim());
+        }
+        if let Some(writes) = site.get("writeSites").and_then(|w| w.as_array()) {
+            for write in writes {
+                let first = write
+                    .as_str()
+                    .unwrap_or("")
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                println!("      write {first}");
+            }
         }
     }
 }
@@ -498,6 +569,23 @@ mod tests {
             eval_code_for(&DeckMotionCommands::Probe { target: target() }).as_deref(),
             Some("window.__tugMotion.probe()")
         );
+    }
+
+    /// One case per mode, because the mode is the whole of what `chains`
+    /// carries and a verb that armed when it was asked to read would restore
+    /// nothing and report an empty log as a clean deck.
+    #[test]
+    fn chains_carries_its_mode() {
+        for mode in ["arm", "read", "disarm"] {
+            let cmd = DeckMotionCommands::Chains {
+                mode: mode.to_string(),
+                target: target(),
+            };
+            assert_eq!(
+                eval_code_for(&cmd).as_deref(),
+                Some(format!(r#"window.__tugMotion.chains("{mode}")"#).as_str())
+            );
+        }
     }
 
     /// The case the JSON encoding exists for. An attribute selector is the

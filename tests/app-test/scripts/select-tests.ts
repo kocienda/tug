@@ -166,63 +166,36 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // recorded failure mode is exactly an attribute-green/pixel-dark ring.
     "tugdeck/src/components/tugways/focus-manager.ts": 29,
 
-    // The deck's one canvas. Every arrangement rule the deck has is expressed
-    // there — the frames' placements, the seam elements, and every custom
-    // property the imposer's `calc()`s read — so a test that asserts geometry
-    // in pixels has nowhere else to name. It sat at exactly 20 for a long time,
-    // which was the budget holding by luck rather than by design.
+    // The deck's one canvas. Re-keyed rather than raised: this ratchet compares
+    // against `git show HEAD`, so an entry edited in place is a refinancing
+    // however well argued, and the delete-and-re-add is what puts the decision in
+    // the diff instead of hiding it in a changed digit. The key was deleted in the
+    // round before this one for exactly that reason.
     //
-    // 20 → 21 for at0456, which pins the overflow column: past two members a
-    // column stops dividing and starts scrolling, and BOTH halves of that live
-    // in this file — the seam handles are not rendered, and the per-slot offset
-    // property is published in its place. Naming a narrower module instead
-    // would be a fiction; the alternative of not naming it at all would leave
-    // the seam gate covered by nothing, which is the failure the declaration
-    // exists to prevent.
+    // Every arrangement rule the deck has is expressed in this file — the frames'
+    // placements, the seam elements, and every custom property the imposer's
+    // `calc()`s read — so a test that asserts geometry in pixels has nowhere else
+    // to name. The number's history: 20 by luck, 21 (at0456's overflow column),
+    // held at 21 across the ⌃⌘-digit handover, 22 (at0594's column-mode cover),
+    // 23 (at0622's settle frame record), 24 (at0624's reveal-after-arrival), 25
+    // (at0626's rail sash drag), 26 (at0632's jot-row press, which arrived in
+    // `f98397bb2` without the number moving and was named rather than absorbed
+    // when the next raise found it), 27 (at0640's cut, whose five absences are all
+    // claims about the switch layout effect and about nothing narrower). Each of
+    // those was argued when it landed and the arguments are in this file's git
+    // history rather than re-copied here.
     //
-    // Held at 21 across the ⌃⌘-digit handover: at0466 arrived naming this file
-    // (the handler that turns the chord into a committed band offset is one of
-    // its action cases) and at0371 stopped naming it in the same change, since
-    // the width verb it drives no longer reaches the canvas through a chord.
-    //
-    // Re-recorded at 22, deleted and re-added rather than raised in place, for
-    // at0594: a column mode flip is a cover, not a fade — the survivor's fused
-    // beat, the retiring member's hold released at the chain's completion,
-    // and the cover mark the cut census reads all live in this file's settle,
-    // and no other app-test samples a flip frame by frame. The one narrower
-    // module it also names, `lib/cut-detector.ts`, covers the census rule but
-    // not the settle that writes the mark; naming only it would leave the
-    // hold's release — the defect the file exists to pin — covered by nothing.
-    //
-    // Re-recorded at 23, the same way, for at0622: the settle frame probe asks
-    // whether the deck's motion ARRIVED, which every earlier file took for
-    // granted once it had established that a rect was on a tween. The frame
-    // promotion, the recede layer and the settle's own frame record all land in
-    // this file, so the paths at0622 will hold to a bar are this file's. The
-    // narrower module it also names, `lib/settle-frame-probe.ts`, is the
-    // instrument rather than the subject; naming only it would leave every
-    // surface the bar is actually about covered by nothing.
-    //
-    // Re-recorded at 24, deleted and re-added rather than raised in place,
-    // for at0624: the REVEAL after an arrival — the second of the two beats a
-    // file opened outside the band owes the reader — is a commit of its own
-    // with a settle of its own, and no other app-test samples it frame by
-    // frame. The settle it runs is this file's, so the surface the pin is
-    // about has nowhere narrower to name; the two narrower modules at0624
-    // also names, `lib/open-file-in-card.ts` and `lib/settle-frame-probe.ts`,
-    // are the door and the instrument rather than the motion.
-    //
-    // Re-recorded at 25, deleted and re-added rather than raised in place, for
-    // at0626: a rail sash drag is `PlaceSeam`'s, and `PlaceSeam` is this file's
-    // — the pointer capture, the move latch, the per-frame publish and the
-    // three exits the hold has to ride are all in one closure here, and no
-    // other app-test samples that gesture frame by frame. The narrower modules
-    // at0626 also names are the parts rather than the whole:
-    // `lib/layout-imposer.ts` computes the bounds the drag clamps into,
-    // `lib/fold-crossing.ts` is the hold's mechanism and `tug-pane.css` the
-    // rule that enforces it, but the gesture that has to acquire and release
-    // it lives nowhere but here.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 25,
+    // The 28th is at0643, and it is the one file in the corpus that reads the
+    // switch's FRAME RECORD rather than its geometry or its absences. The sampler
+    // it arms — the rAF loop, its 600 ms window, the gesture origin it measures
+    // first paint from, and the `enableKind` gate that keeps it from costing a
+    // neighbour's test frames — lives entirely in the switch layout effect here.
+    // The narrower modules at0643 also names carry the arithmetic
+    // (`lib/space-switch-frames.ts`) and the two layer states
+    // (`space-layer.css`); neither holds the origin or the gate, so naming only
+    // those would leave the instrument this arc's whole acceptance rests on
+    // covered by nothing.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 28,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that

@@ -3,10 +3,13 @@
  * is visible when the light comes on.
  *
  * A card that moves workspaces changes React parent: `DeckCanvas` renders one
- * `.tug-space-layer` per mounted workspace, and `space-layer.css` gives the
- * inactive ones `display: none`. So the move is a full unmount and remount of
- * the card's subtree, and the remount lands inside a subtree with no boxes
- * ([F01]–[F03] of the arc's brief). The `[A9]` state bag replays user data
+ * `.tug-space-layer` per mounted workspace, and `space-layer.css` hides the
+ * inactive ones — with `display: none` when this test was written, and now
+ * with `visibility: hidden` over a `content-visibility: hidden` subtree that
+ * keeps its layout. Either way the move is a full unmount and remount of the
+ * card's subtree, and the remount lands in a subtree that is NOT BEING
+ * RENDERED ([F01]–[F03] of the arc's brief), which is the condition every
+ * one-shot below trips on. The `[A9]` state bag replays user data
  * across that rebuild; what it does not carry is DERIVED APPEARANCE — an
  * entrance animation's end state, a published CSS metric, a measured cap — and
  * every mount-time one-shot that writes one became a latent defect the day a

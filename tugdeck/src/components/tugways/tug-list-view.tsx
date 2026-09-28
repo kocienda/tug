@@ -3667,6 +3667,18 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
               anchor.rowDepth,
             ),
           );
+          // Land it now, not on the next commit. The heartbeat below runs
+          // on this list's OWN commits, and a target installed into a list
+          // whose content is already populated and measured — a card moved
+          // between workspaces, arriving with its rows intact — may get no
+          // further commit of its own. It used to get one anyway, from the
+          // canvas re-rendering every card on every store commit; behind a
+          // memo boundary (a parked workspace's layer) that accident is
+          // gone, and a target nobody applied would leave the reader at the
+          // top. A resolver that is
+          // not yet resolvable answers `null` here and the heartbeat still
+          // lands it later, exactly as before.
+          smartScroll.applyRestoreTarget();
           return;
         }
 

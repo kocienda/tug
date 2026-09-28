@@ -2125,8 +2125,8 @@ export function SessionCardBody({
   // so empty-deps semantics correctly maps to "once per fresh
   // session bind." A WORKSPACE move is the exception and is [L23]'s
   // third class: the pane changes React parent, so the body is rebuilt
-  // on the far side — inside a `display: none` layer, which is why the
-  // effect below reads `layerShown` before it plays anything.
+  // on the far side — inside a hidden layer, which is why the effect
+  // below reads `layerShown` before it plays anything.
   const sessionCardRootRef = useRef<HTMLDivElement | null>(null);
 
   // Whether this card's workspace layer is the shown one. `DeckCanvas`
@@ -2797,6 +2797,11 @@ export function SessionCardBody({
   //       design, `cancel()` takes the animation away, and the
   //       hand-written "0" becomes the card's inline style forever. A
   //       Session card moved into a hidden workspace came back blank.
+  //       A hidden layer keeps its boxes now and `commitStyles()` does
+  //       not throw under one (measured; [B02] of workspace-switch-
+  //       cheap), so that road to the defect is closed — and the
+  //       ownership stays, because it is what makes every other road
+  //       to it a no-op.
   useLayoutEffect(() => {
     const el = sessionCardRootRef.current;
     if (el === null) return;
@@ -2813,9 +2818,12 @@ export function SessionCardBody({
     if (snap.phase === "replaying" || deriveColdRestoreActive(snap)) return;
     // No entrance in a workspace nobody is looking at. There is no
     // picker exit to share a beat with in a hidden layer, and a mount
-    // that may land hidden plays no entrance ([L23]'s third class,
-    // [L32]) — the whole point of the fade is a handoff the user is
-    // watching, and the element has no box to animate against here.
+    // that lands hidden plays no entrance ([L23]'s third class) — the
+    // whole point of the fade is a handoff the user is watching. Not a
+    // measurement rule any more: the element has a box in the dark, and
+    // the beat would run out unpainted. It is declined because motion
+    // for nobody is a cost with no reader, the same reason a card in a
+    // hidden layer declines a broadcast.
     if (!layerShown) return;
     // Set the start state inline so the first paint after commit
     // shows opacity:0 — WAAPI's pending-phase doesn't apply the

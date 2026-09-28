@@ -95,6 +95,19 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
     deckStore !== null ? deckStore.getSnapshot : () => null,
     () => null,
   );
+  // The level above the deck, for a card whose pane stands in a PARKED
+  // workspace. A hidden layer is laid out from its parked record and its
+  // title bar renders exactly what the shown one does ([B02] of
+  // workspace-switch-cheap), so the badge has to answer for a card the live
+  // deck does not hold — otherwise the bar gains this chip on show, and a bar
+  // that changes width on show is a late write the switch was made cheap to
+  // remove. `subscribe` fires for changes inside the live deck and never for
+  // the parked records, so this is its own subscription ([L02]).
+  const spaces = useSyncExternalStore(
+    deckStore?.subscribeSpaces ?? (() => () => {}),
+    deckStore !== null ? deckStore.getSpacesSnapshot : () => null,
+    () => null,
+  );
   // Controlled, so selecting a slot can close the popup in the same act that
   // moves the card. Every dismissal path Radix offers — the trigger again,
   // Escape, a click outside — routes through the same setter.
@@ -107,17 +120,33 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
 
   if (deck === null || cardId === undefined) return null;
 
-  const kind = deck.imposition.kind;
+  // The deck whose pane hosts this card: the live one, or the parked record
+  // of whichever mounted workspace holds it. A card id is unique across
+  // decks, so the first deck that holds it is the only one.
+  const holds = (candidate: { panes: readonly { cardIds: readonly string[] }[] }): boolean =>
+    candidate.panes.some((pane) => pane.cardIds.includes(cardId));
+  let home: typeof deck | null = holds(deck) ? deck : null;
+  if (home === null && spaces !== null) {
+    for (const parked of spaces.mountedDecks.values()) {
+      if (holds(parked)) {
+        home = parked;
+        break;
+      }
+    }
+  }
+  if (home === null) return null;
+
+  const kind = home.imposition.kind;
   // No imposition, or an imposition with one place in it: there is no position
   // to report, so there is no chip.
   if (kind === undefined || slotCount(kind) <= 1) return null;
 
-  const host = deck.panes.find((pane) => pane.cardIds.includes(cardId));
+  const host = home.panes.find((pane) => pane.cardIds.includes(cardId));
   if (host === undefined || host.slot === undefined) return null;
 
   // A sidebar — the Cards card among them — is the imposition's fixed end rather
   // than a member of the chain it bounds. The same guard `SlotPicker` applies.
-  const sidebar = findSidebarPanes(deck).some((entry) => entry.pane.id === host.id);
+  const sidebar = findSidebarPanes(home).some((entry) => entry.pane.id === host.id);
   if (sidebar) return null;
 
   const count = slotCount(kind);

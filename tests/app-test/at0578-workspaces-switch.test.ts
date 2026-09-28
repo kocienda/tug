@@ -214,6 +214,15 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         const mark = await app.evalJS<number>(
           `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
         );
+        // The position the user LEAVES at, read at the switch rather than at
+        // the write above: a transcript still measuring its rows grows above
+        // the anchor and the list keeps the anchored row in place, so
+        // `savedTop` can be tens of pixels stale by now. Leg 4's claim is
+        // "the same pixel", and this is the pixel.
+        const leftAt = await app.evalJS<number>(
+          `document.querySelector(${JSON.stringify(SCROLLER)}).scrollTop`,
+        );
+        expect(leftAt).toBeGreaterThan(RESTORE_TOLERANCE_PX);
         await app.evalJS<null>(
           `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_TWO)} }), null)`,
         );
@@ -280,7 +289,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
           `(function(){
             var el = document.querySelector(${JSON.stringify(SCROLLER)});
             if (el === null) return false;
-            return Math.abs(el.scrollTop - ${savedTop}) <= ${RESTORE_TOLERANCE_PX};
+            return Math.abs(el.scrollTop - ${leftAt}) <= ${RESTORE_TOLERANCE_PX};
           })()`,
           { timeoutMs: 10_000 },
         );

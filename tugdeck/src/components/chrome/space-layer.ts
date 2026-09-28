@@ -31,41 +31,24 @@ export const SPACE_SHOWN_ATTRIBUTE = "data-space-shown";
 export const SPACE_LAYER_ATTRIBUTE = "data-space-layer";
 
 /**
- * Present on the OUTGOING wrapper for the length of one crossfade beat ([B09]).
+ * On the CANVAS CONTAINER for the length of one workspace switch ([B05]).
  *
- * The third state of a layer, and the only one that is neither of the other
- * two: shown enough to paint, inert to the pointer, and owed back. Written and
- * removed by `deck-canvas.tsx` alone, never present on the shown layer, and
- * never on any layer once the beat lands — see `space-layer.css` for the rule
- * and `[L32]` for why the beat carries a deadline.
+ * The switch epoch. Between the swap commit and the instant the epoch closes,
+ * every frame of the arriving workspace is already drawn exactly where the
+ * commit puts it, and nothing on the canvas may animate. `"cut"` says that for
+ * the swap commit itself — `arm` takes the new arrangement as its baseline and
+ * launches nothing — but the swap commit is not the only one a switch produces.
+ * `activateSpace` calls `activateCard` outside the swap batch, and every
+ * geometry a hidden layer could not take lands on the shown transition: a
+ * composer's line box, a pane's accessory height, a sheet's clamps. Each of
+ * those is its own commit, spelled `"cross"`, and each one animated is motion
+ * the reader did not ask for — they gestured at a workspace, not at a pane.
  *
- * **And a picture rather than a live layer.** The commit that hides a layer
- * withholds every arrangement prop from its panes, so a departing frame left to
- * itself falls back to a stale free position and a departing rail stops being
- * pinned at all; the same commit's inset variables belong to the ARRIVING
- * workspace, so keeping the props would have been no better. The frames hold
- * still because the effect that writes this attribute also freezes them —
- * {@link FrozenSpacePicture}, measured before the swap commit and applied as
- * inline rects and re-stamped attributes for the length of the beat. Nothing
- * about the crossing state is live, and that is the definition rather than a
- * limitation of it: a picture cannot re-lay-out, which is exactly the property
- * a dissolve needs.
- */
-export const SPACE_CROSSING_ATTRIBUTE = "data-space-crossing";
-
-/**
- * On the CANVAS CONTAINER for the length of one workspace switch ([B03]).
- *
- * The switch epoch. Between the swap commit and the instant the dissolve is
- * armed, every frame of the arriving workspace is already drawn exactly where
- * the commit puts it, and nothing on the canvas may animate. `"cut"` says that
- * for the swap commit itself — `arm` takes the new arrangement as its baseline
- * and launches nothing — but the swap commit is not the only one a switch
- * produces. `activateSpace` calls `activateCard` outside the swap batch, and
- * every geometry a hidden layer could not take lands on the shown transition:
- * a composer's line box, a pane's accessory height, a sheet's clamps. Each of
- * those is its own commit, spelled `"cross"`, and each one arriving under a
- * dissolve is motion the reader did not ask for.
+ * **The mark outlives the cover that used to share its window ([P05]).** It was
+ * introduced alongside the crossfade and it is easy to read as part of it, but
+ * the two answered different questions: the cover hid late arrivals, and this
+ * stands the imposer down over them. Retiring the cover leaves this doing the
+ * whole job alone, and `space-settled.ts` is the rule for when it lifts.
  *
  * So the epoch is a mark rather than a word on one commit, and `arm` treats it
  * as REDUCED MOTION for the length of one switch — not as a cut. The
@@ -81,12 +64,20 @@ export const SPACE_CROSSING_ATTRIBUTE = "data-space-crossing";
  * canvas's does. The manager writes it at the one moment that precedes all of
  * them.
  *
- * **Owed back by `deck-canvas.tsx`**, which sweeps for it on the container the
- * way it sweeps for {@link SPACE_CROSSING_ATTRIBUTE} — by looking rather than
- * by remembering, the only reading still right after a layer has been
- * unmounted underneath it. It is a debt from the frame it is written ([L32]),
- * and the removal is unconditional, idempotent, and reached by every exit the
- * crossfade effect has.
+ * **Owed back by `deck-canvas.tsx`**, which sweeps for it on the container by
+ * looking rather than by remembering — the only reading still right after a
+ * layer has been unmounted underneath it. It is a debt from the frame it is
+ * written ([L32]), and the removal is unconditional, idempotent, and reached by
+ * every path that ENDS an epoch: the settled gate closing, the bound, the
+ * deadline, the next switch, and the effect's own cleanup.
+ *
+ * **And it is swept on those paths only, never on entry into the effect.** One
+ * writer owns it now — `DeckManager`, inside the swap commit — so a sweep at the
+ * top of the canvas's effect body would strip the mark in the very commit that
+ * opened the epoch, and every late re-arm the mark exists to stand down would
+ * animate. Under the cover an unconditional entry sweep was harmless because
+ * the effect re-asserted the mark for the length of the hold; with no hold there
+ * is nothing to re-assert it, and the epoch would end before it began.
  */
 export const SPACE_SWITCHING_ATTRIBUTE = "data-space-switching";
 
@@ -98,72 +89,15 @@ export const SPACE_SWITCHING_ATTRIBUTE = "data-space-switching";
  * gives the same answer whether the sweep runs from the document, the deck
  * root, or an element inside the shown layer, which is what lets one constant
  * replace the bare `.tug-pane[data-pane-id]` everywhere. A hidden layer's
- * subtree has no boxes at all, so a sweep that caught one would be measuring
- * a stack of zero rects at the origin and treating them as places a card
- * could snap to, occlude, or settle against.
+ * subtree keeps its boxes ([B02]) — every hidden pane has the REAL rect it
+ * would have on screen — so a sweep that caught one would find a place a card
+ * could snap to, occlude, or settle against, on a workspace nobody is looking
+ * at. Under the old `display: none` the same mistake read as a stack of zero
+ * rects at the origin; now it reads as plausible geometry, which is worse,
+ * and is why this clause is load-bearing rather than defensive.
  */
 export const SHOWN_PANE_FRAMES =
   `.tug-pane[data-pane-id]:not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
-
-/**
- * The frame attributes a departing pane loses along with its arrangement
- * props, and so the ones the picture has to carry.
- *
- * Every one of them is written by `TugPane` out of a prop the layer render
- * withholds from a hidden layer — `data-rail-side` and the two rail-member
- * bits out of `sidebarStack`, `data-column-member` out of `columnMember`,
- * `data-imposed` out of `placement`. They are not decoration: `tug-pane.css`
- * keys the whole `[data-rail-treatment="panel"]` family on
- * `[data-role="sidebar"][data-rail-side]`, so a departing rail card that has
- * lost `data-rail-side` loses its panel background, chrome and seams as well
- * as its place.
- *
- * The list is the contract between the sweep that records them and the effect
- * that re-stamps them, which is why it lives here rather than in either.
- */
-export const FROZEN_FRAME_ATTRIBUTES = [
-  "data-rail-side",
-  "data-rail-member-index",
-  "data-rail-member-last",
-  "data-column-member",
-  "data-imposed",
-] as const;
-
-/**
- * One departing pane frame, as the picture holds it: where it stood and what
- * it was wearing.
- *
- * The rect is in canvas coordinates and in LAYOUT space — divided by
- * `body { zoom }` the same way every other canvas-relative reading in
- * `DeckManager` is — because that is the space inline `left`/`top`/`width`/
- * `height` are interpreted in. `attributes` carries one entry per name in
- * {@link FROZEN_FRAME_ATTRIBUTES}, `null` meaning the frame did not have it,
- * so a re-stamp can tell "absent" from "unrecorded" without consulting the
- * live pane.
- */
-export interface FrozenPaneFrame {
-  readonly rect: {
-    readonly x: number;
-    readonly y: number;
-    readonly width: number;
-    readonly height: number;
-  };
-  readonly attributes: Readonly<Record<string, string | null>>;
-}
-
-/**
- * The departing workspace, as a picture: every frame that was on screen the
- * instant before the switch commit, keyed by pane id ([B01], [B02]).
- *
- * Taken by `DeckManager.activateSpace` inside the swap batch and before its
- * `notify`, which is the last instant the outgoing frames still stand where
- * the user saw them — after the commit they have been re-laid-out against the
- * arriving deck and the information is gone, so no layout effect in
- * `DeckCanvas` can take this measurement itself. Read imperatively by the
- * crossfade effect, which applies it for the length of one beat and hands it
- * back.
- */
-export type FrozenSpacePicture = ReadonlyMap<string, FrozenPaneFrame>;
 
 /**
  * Whether the workspace a card is mounted in is the one on screen.
@@ -180,6 +114,29 @@ export type FrozenSpacePicture = ReadonlyMap<string, FrozenPaneFrame>;
  * for every host that renders no layers at all — a unit harness, a card
  * rendered on its own — which is the honest answer there: if there is one
  * workspace, it is on screen.
+ *
+ * **It is no longer a measurement gate.** It was, for as long as the hidden
+ * layer was `display: none`: a pane in one had no boxes, so every mount-time
+ * measurement — a title bar's controls width, a tab bar's height, a
+ * composer's line box, a sheet's clamps — read zero in the dark and was armed
+ * on the shown transition instead ([L23]'s third class, as it was written).
+ * A hidden layer keeps its layout now ([B02] of workspace-switch-cheap): a
+ * parked pane's rects are real and equal to the ones it will have on screen —
+ * every layer is arranged from its own deck, so a parked pane already stands
+ * where the reveal will find it (`LayerArrangement` in `deck-canvas.tsx`) — and a
+ * `ResizeObserver` under a hidden layer is silent until the layer is shown
+ * and then delivers before the first shown frame paints. So a measurement
+ * that is observer-backed needs no gate at all. The one gate that still reads
+ * a pane's position — `tug-sheet.tsx`'s clamps — is a re-arm for the case a
+ * window was resized while the workspace was parked: the swap commit
+ * re-solves the arriving arrangement against the new canvas, a pane may move
+ * in that commit, and a move is not a resize, so no observer catches it.
+ * `at0642` is the pin on the facts.
+ *
+ * What still reads it, and why each is not a measurement: the Workspaces
+ * card's broadcast guard above; the Session card's first-mount fade, which is
+ * an entrance for a watcher and plays for nobody in the dark; and the sheet's
+ * two clamps, for the resize-while-parked case above.
  */
 export const SpaceLayerShownContext = createContext(true);
 
@@ -236,8 +193,9 @@ export interface VisibleCanvasBand {
  * `paneCanvasOf` above answers which element the canvas is; this answers
  * whether its box is worth reading. The two questions are separate because the
  * element can be right and the reading still worthless: a canvas inside a
- * hidden workspace layer has no boxes at all, a deck mid-mount has not been
- * laid out yet, and a canvas scrolled entirely off the window has a box with
+ * hidden workspace layer is not being rendered (and its clamps are gated on
+ * the shown transition regardless), a deck mid-mount has not been laid out
+ * yet, and a canvas scrolled entirely off the window has a box with
  * nothing of it on screen. Every one of those reads as a rect at or near the
  * viewport origin, and a clamp that believed it would compute a floor from
  * that origin and write a cap with no relation to where the panel stands.

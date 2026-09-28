@@ -175,17 +175,17 @@ export type SettleArmOutcome = "carried" | "unarmed" | "declined" | "unchanged";
 export type SettleArmReason = "cut" | "switching";
 
 /**
- * What lifted the cover a workspace switch holds ([P03], Spec S01).
+ * What closed a workspace switch's epoch ([P06], Spec S02).
  *
- * `"quiet"` — the arriving picture went still: no settle in flight and no
- * layout-affecting write under the arriving layer for `QUIET_FRAMES`
+ * `"settled"` — the arriving picture went still: no settle in flight and no
+ * layout-affecting write under the arriving layer for `EPOCH_SILENT_FRAMES`
  * consecutive animation frames.
- * `"bound"` — `SPACE_QUIET_BOUND_MS` expired first and the cover came off over
- * whatever the workspace had. Not a failure: a backgrounded window suspends
- * `requestAnimationFrame`, so an occluded deck releases on the bound every
- * time and that is the ruled behaviour rather than a defect.
+ * `"bound"` — `SPACE_EPOCH_BOUND_MS` expired first and the mark came off over
+ * whatever the workspace was still doing. Not a failure: a backgrounded window
+ * suspends `requestAnimationFrame`, so an occluded deck closes on the bound
+ * every time and that is the ruled behaviour rather than a defect.
  */
-export type SpaceQuietReason = "quiet" | "bound";
+export type SpaceEpochReason = "settled" | "bound";
 
 /** Entry-point tag on `selection-restore` events. */
 export type SelectionRestoreVia =
@@ -843,25 +843,59 @@ export type DeckTraceEvent = {
     }
   | {
       /**
-       * The cover a workspace switch holds, and what lifted it ([P06]).
+       * A workspace switch's epoch, and what closed it ([P06], Spec S02).
        *
-       * The gate lives in `deck-canvas.tsx` and `space-switch-timing` is
-       * written by `deck-manager.ts`, so each writer records what it measures
-       * rather than threading a number across a module boundary; the two are
-       * correlated by `toSpaceId`. Opt-in for the same reason the timing event
-       * is: a measurement under study, not evidence of a defect.
+       * The epoch is the span in which the imposer is stood down over the
+       * arriving workspace's late geometry ([B05]). The gate lives in
+       * `deck-canvas.tsx` and `space-switch-timing` is written by
+       * `deck-manager.ts`, so each writer records what it measures rather than
+       * threading a number across a module boundary; the two are correlated by
+       * `toSpaceId`. Opt-in for the same reason the timing event is: a
+       * measurement under study, not evidence of a defect.
        */
-      kind: "space-quiet";
+      kind: "space-epoch";
       toSpaceId: string;
-      /** Swap commit to the instant the dissolve was armed. */
-      quietMs: number;
+      /** Swap commit to the instant the mark came off. */
+      epochMs: number;
       /**
-       * Which clause of the rule released the cover. A reading that is
-       * `"bound"` every time is a finding rather than a failure — an occluded
-       * window suspends `requestAnimationFrame`, and the frame counter the
-       * quiet path rides goes with it.
+       * Which clause of the rule closed the epoch. A reading that is `"bound"`
+       * every time is a finding rather than a failure — an occluded window
+       * suspends `requestAnimationFrame`, and the frame counter the settled path
+       * rides goes with it.
        */
-      quietReason: SpaceQuietReason;
+      epochReason: SpaceEpochReason;
+    }
+  | {
+      /**
+       * How the 600 ms after one switch actually painted ([P01], Spec S01).
+       *
+       * `space-switch-timing` measures the synchronous switch and stops where
+       * the click task keeps going, so a 6 ms `totalMs` sits happily beside a
+       * screen frozen for 300 ms. This row is that span: `firstPaintDelayMs` is
+       * the GESTURE to the first rAF tick, which cannot fire until the click
+       * task ends, and the gap counts are the roughness after it.
+       * `commitDelayMs` is the gesture to the swap commit — React's render
+       * phase, which the sampler's own arming sits after and could not see;
+       * measured, it is about half the freeze on a three-workspace deck, which
+       * is why the origin is the store's stamp rather than the commit.
+       *
+       * Opt-in for the same reason the other two switch rows are — a
+       * measurement under study rather than evidence of a defect. Correlated
+       * with them by `toSpaceId`. Every field is
+       * `SpaceSwitchFrameReading`'s, computed by the cadence classifier
+       * `settle-frames` reads, never inline.
+       */
+      kind: "space-switch-frames";
+      toSpaceId: string;
+      ticks: number;
+      framePeriodMs: number;
+      firstPaintDelayMs: number;
+      commitDelayMs: number;
+      longestGapMs: number;
+      gapsOverOneFrame: number;
+      gapsOverBudget: number;
+      gaps: readonly number[];
+      suspended: boolean;
     }
 );
 
@@ -919,7 +953,11 @@ export type DeckTraceEventInput =
       Extract<DeckTraceEvent, { kind: "space-switch-timing" }>,
       StampedFields
     >
-  | Omit<Extract<DeckTraceEvent, { kind: "space-quiet" }>, StampedFields>;
+  | Omit<Extract<DeckTraceEvent, { kind: "space-epoch" }>, StampedFields>
+  | Omit<
+      Extract<DeckTraceEvent, { kind: "space-switch-frames" }>,
+      StampedFields
+    >;
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -1104,6 +1142,13 @@ let seqCounter = 0;
 let enabled = false;
 
 /**
+ * The cost-bearing kinds a caller has armed by name — see
+ * {@link DeckTrace.enableKind}. Empty by default, so a kind whose PRODUCTION
+ * costs frames runs nothing until somebody asks for it specifically.
+ */
+const armedKinds = new Set<DeckTraceEvent["kind"]>();
+
+/**
  * Event kinds that record regardless of the enable gate.
  *
  * Recording defaults to OFF, which is right for the high-volume focus
@@ -1193,6 +1238,37 @@ export interface DeckTrace {
    * buffer.
    */
   enable(flag: boolean): void;
+  /**
+   * Whether recording is on.
+   *
+   * For the caller whose COST is conditional, not just its record. `record`
+   * already drops an event nobody asked for, which is enough for a writer that
+   * merely hands over numbers it already had — but a writer that would run a
+   * per-frame loop to PRODUCE them has to ask first, or the deck pays for a
+   * measurement nobody reads. The animation doctrine's [D1] is the rule: a
+   * settled surface holds no timers, and a bench probe that arms itself on a
+   * shipping path has stopped being a bench probe.
+   */
+  isEnabled(): boolean;
+  /**
+   * Arm or disarm one COST-BEARING kind, on top of the global flag.
+   *
+   * Most kinds cost nothing until somebody records one: the writer already had
+   * the numbers, and `record` drops the row when tracing is off. A cost-bearing
+   * kind is the exception — `space-switch-frames` has to run a 600 ms rAF loop
+   * to produce its numbers at all — and for those the global flag is the wrong
+   * door, because it is shared. `at0622` enables tracing to read the SETTLE's
+   * frame record, and under a global door that turned on the switch sampler
+   * too, whose extra rAF subscriber pushed at0622's own move-beat gap bar from
+   * under two display frames to 2.12–2.29. One test paying for another test's
+   * instrument is the shape this exists to prevent.
+   *
+   * Defaults OFF, and independent of {@link DeckTrace.enable} — a reading wants
+   * both.
+   */
+  enableKind(kind: DeckTraceEvent["kind"], on: boolean): void;
+  /** Whether that kind is armed. See {@link DeckTrace.enableKind}. */
+  isKindEnabled(kind: DeckTraceEvent["kind"]): boolean;
   /**
    * Return the current sequence counter. Paired with
    * {@link DeckTrace.since} to slice "events since this mark".
@@ -1292,6 +1368,16 @@ export const deckTrace: DeckTrace = {
     } else {
       uninstallObservers();
     }
+  },
+  isEnabled() {
+    return enabled;
+  },
+  enableKind(kind, on) {
+    if (on === true) armedKinds.add(kind);
+    else armedKinds.delete(kind);
+  },
+  isKindEnabled(kind) {
+    return enabled && armedKinds.has(kind);
   },
   mark() {
     return seqCounter;

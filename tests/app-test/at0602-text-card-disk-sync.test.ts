@@ -1414,12 +1414,12 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         await app.evalJS<null>(
           `(window.tugdeck.lab.dispatch("new-space"), null)`,
         );
-        // Past the crossfade beat, and with the card's own layer confirmed
-        // hidden — the premise is an ANCESTOR carrying `display: none`, so a
-        // shape that left the card's host visible would prove nothing.
+        // With the card's own layer confirmed hidden — the premise is an
+        // ANCESTOR the canvas is hiding, so a shape that left the card's host
+        // visible would prove nothing. The wait used also to clear a crossfade
+        // beat; the switch is a cut now, so there is no beat to clear.
         await app.waitForCondition<boolean>(
           `(function(){
-            if (document.querySelector('.tug-space-layer[data-space-crossing]') !== null) return false;
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
             if (host === null) return false;
             var layer = host.closest('.tug-space-layer');
@@ -1428,16 +1428,22 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           })()`,
           { timeoutMs: 8000 },
         );
-        const hiddenHeight = await app.evalJS<number>(
+        // A hidden layer KEEPS its layout now ([B02] of `workspace-switch-cheap`)
+        // — the scroller has a real height — so the premise is stated as what
+        // it always meant: the card is not being rendered. `checkVisibility()`
+        // is false under `visibility: hidden` and `content-visibility: hidden`
+        // alike, and was false under `display: none` too.
+        const hiddenRendered = await app.evalJS<boolean | null>(
           `(function(){
             var s = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
-            return s === null ? -1 : s.getBoundingClientRect().height;
+            if (s === null) return null;
+            return s.checkVisibility ? s.checkVisibility() : s.getBoundingClientRect().height > 0;
           })()`,
         );
         expect(
-          hiddenHeight,
-          "a card in a hidden workspace has no layout to measure",
-        ).toBe(0);
+          hiddenRendered,
+          "a card in a hidden workspace is not being rendered",
+        ).toBe(false);
 
         // Write from outside the app while the workspace is off screen.
         fs.writeFileSync(file, "EXTERNAL-WRITER LINE\n" + TALL_CONTENT, "utf8");

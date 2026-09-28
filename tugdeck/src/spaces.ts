@@ -84,12 +84,26 @@ export interface SpacesSnapshot {
 /**
  * Strip the session-only fields from a deck about to be parked (List L01).
  *
- * These are exactly the fields `serialize` already omits, and for the same
- * reasons stated one by one on {@link DeckState}: a bullseye posture, a strip
- * offset, a sheet's floor claim, an arrival mark are all things derived from
- * what is on screen, and nothing of a parked space is on screen. `parkedDeck`
- * is the in-memory twin of that omission — a space returns the way a relaunch
- * returns, which is the only way a switch and a restart can be made to agree.
+ * These are fields `serialize` already omits, and for the reasons stated one
+ * by one on {@link DeckState}: a bullseye posture, a sheet's floor claim, an
+ * opening bid, an arrival mark are all things derived from what is on screen,
+ * and nothing of a parked space is on screen. `parkedDeck` is the in-memory
+ * twin of that omission — a space returns the way a relaunch returns.
+ *
+ * **The strip offsets are kept**, and they used to go. A parked workspace is
+ * no longer off screen in the sense that mattered: its layer stays mounted
+ * and LAID OUT, arranged from this very record ([B02] of
+ * workspace-switch-cheap), so where its flow strip, its columns and its rails
+ * stand is where the reader will find them the instant the layer is shown.
+ * Stripped, a parked layer stood at offset zero and the return slid every
+ * strip to reveal the active card — a whole-workspace move in the first
+ * frames after the switch, which is exactly the late write the switch was
+ * being made cheap to remove. Kept, the layer already stands where the reveal
+ * would put it and the reveal finds nothing to move. `serialize` still omits
+ * them, so a restart still re-reveals; a switch and a restart now agree on
+ * everything but a strip the user had scrolled away from its active card,
+ * which a switch keeps and a restart brings back — the better answer for a
+ * reader who left it there on purpose.
  *
  * `hasFocus` is not stripped but re-seeded to `true`, as `deserialize` seeds
  * it: the live deck's own value is re-applied at the moment of return, so what
@@ -101,9 +115,6 @@ export interface SpacesSnapshot {
 export function parkedDeck(deck: DeckState): DeckState {
   const {
     bullseyePaneId: _bullseyePaneId,
-    flowOffset: _flowOffset,
-    columnOffsets: _columnOffsets,
-    railOffsets: _railOffsets,
     sheetReservations: _sheetReservations,
     openingBids: _openingBids,
     arriving: _arriving,

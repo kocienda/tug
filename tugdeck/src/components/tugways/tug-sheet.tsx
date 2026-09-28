@@ -1408,6 +1408,16 @@ export function TugSheetContent({
   // Whether this sheet's workspace layer is the shown one. Both canvas clamps
   // below refuse to measure while it is false and re-run when it flips — the
   // re-arm [L32]'s third clause requires of a refusal.
+  //
+  // Not because a hidden pane has no box: it has one, and a real one, and it
+  // stands where it will be shown — every layer is arranged from its own deck
+  // ([B02] of workspace-switch-cheap). The one case left is a window resized
+  // while this workspace was parked: the swap commit re-solves the arriving
+  // arrangement against the new canvas, this pane may move in that commit,
+  // and a move is not a resize, so no `ResizeObserver` would catch it. A cap
+  // measured in the dark against the old position would then be a cap for
+  // where the panel is not. So the clamps re-run on the shown transition —
+  // one forced read per OPEN sheet on a switch, which is rare and cheap.
   const layerShown = useSpaceLayerShown();
   // The shade's own scrim element ([P17]); the enter/exit effects fade it in
   // step with the roll (out a beat sooner, so it reads as gone on landing).
@@ -1494,20 +1504,21 @@ export function TugSheetContent({
   useLayoutEffect(() => {
     const clip = clipRef.current;
     if (clip === null || bottomAnchorEl === null || paneFrameEl === null) return;
-    // Nothing to measure in a workspace nobody is looking at; the effect
-    // re-runs on the shown transition, which is what `layerShown` is in the
-    // dependency array for.
+    // A pane may have been re-solved in the commit that showed it (see
+    // `layerShown`'s declaration); the effect re-runs on the shown
+    // transition, which is what `layerShown` is in the dependency array for.
     if (!layerShown) return;
     const canvas = paneCanvasOf(paneFrameEl);
     const measure = (): void => {
       // The canvas box first, and REFUSE on a reading that is not one ([B03]).
-      // A hidden workspace layer generates no boxes and a deck mid-mount has
-      // not been laid out, so both answer a rect at the viewport origin; the
-      // floor below would then be computed from that origin and written as a
-      // cap over a panel standing somewhere else entirely. Writing nothing
-      // leaves the cap this effect wrote last pass standing, or the CSS
-      // fallback if it has not written one — either is a panel where it was,
-      // which is the correct answer to a question nobody can see to ask.
+      // A deck mid-mount has not been laid out, and a canvas scrolled off the
+      // window has a box with nothing of it on screen; both answer a rect at
+      // or near the viewport origin, and the floor below would then be
+      // computed from that origin and written as a cap over a panel standing
+      // somewhere else entirely. Writing nothing leaves the cap this effect
+      // wrote last pass standing, or the CSS fallback if it has not written
+      // one — either is a panel where it was, which is the correct answer to
+      // a question nobody can see to ask.
       const band = visibleCanvasBand(
         canvas?.getBoundingClientRect() ?? null,
         window.innerHeight,

@@ -1088,6 +1088,18 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// The read→write→read chains under a gesture, by call site.
+    ///
+    /// `arm` before the gesture, `read` after it, `disarm` to put the wrapped
+    /// descriptors back. An armed probe captures a stack per geometry read, so
+    /// it is armed around the gesture under study rather than left on.
+    Chains {
+        /// `arm`, `read` or `disarm`.
+        #[arg(long, value_parser = ["arm", "read", "disarm"])]
+        mode: String,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// Open the `diag/eval` door on this instance (loopback only).
     Enable {
         #[command(flatten)]

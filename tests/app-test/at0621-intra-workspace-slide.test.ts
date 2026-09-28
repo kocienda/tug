@@ -32,10 +32,10 @@
  *
  * ## The sweep
  *
- * The answer to that hazard is in the crossfade layout effect in
+ * The answer to that hazard is in the switch layout effect in
  * `deck-canvas.tsx`, which
- * already runs on every change of `spacesSnapshot.activeSpaceId` and already
- * sweeps the document for the crossing attribute. It now also drops from
+ * already runs on every change of `spacesSnapshot.activeSpaceId`. It also drops
+ * from
  * `pendingArrivalsRef` every pane id whose frame is no longer among
  * `SHOWN_PANE_FRAMES`, running that id's registered restorers first — the
  * restorers are what hand back the inline `opacity: "0"` the hold wrote, and
@@ -43,9 +43,9 @@
  * merely faded.
  *
  * It sits ABOVE the effect's early returns, because a stale pending arrival is
- * stale whether or not a dissolve is opening. Reduced motion, a deleted
- * outgoing workspace and an empty one are precisely the paths on which the id
- * would otherwise be stranded with its frame still held at zero.
+ * stale whether or not an epoch is opening. A first show and a re-activation of
+ * the workspace already on screen are precisely the paths on which the id would
+ * otherwise be stranded with its frame still held at zero.
  *
  * ## The two legs
  *

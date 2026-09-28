@@ -13,7 +13,6 @@
 
 import type { DeckState, CardStateBag } from "./layout-tree";
 import type { SpacesSnapshot } from "./spaces";
-import type { FrozenSpacePicture } from "./components/chrome/space-layer";
 import type {
   ColumnMoveTarget,
   ContentWidth,
@@ -111,6 +110,15 @@ export interface IDeckManagerStore {
   /** The same run under the other place's name — a rail and a column divide
    *  one vertical extent. */
   getRailRunHeight: () => number | null;
+  /**
+   * The `performance.now()` at which the most recent `activateSpace` began,
+   * or `null` before any switch. It is the origin the switch frame record
+   * measures first paint from: the GESTURE, not the swap commit. Measured, the
+   * commit lands about 75 ms after the gesture on a three-workspace deck —
+   * React's whole render of the canvas runs between them — so a record whose
+   * origin was the commit could never contain the freeze it exists to show.
+   */
+  getSpaceSwitchStartedAt: () => number | null;
 
   /**
    * Commit where a drag left a scrolled strip — an overflowing column's
@@ -593,19 +601,6 @@ export interface IDeckManagerStore {
    * replayed when the workspace returns.
    */
   activateSpace: (spaceId: string) => void;
-
-  /**
-   * The departing workspace of the switch now on screen, as a picture — every
-   * frame that was painted the instant before the swap commit, keyed by pane
-   * id — or `null` when there is none ([B01], [B02]).
-   *
-   * Read imperatively by the crossfade effect in `DeckCanvas`, which is the
-   * only reader, and only for the length of one beat. Not part of any
-   * snapshot: a picture is a measurement one effect takes and another applies
-   * inside the same switch, and a store would hand it over one render too
-   * late.
-   */
-  departingSpacePicture: () => FrozenSpacePicture | null;
 
   /**
    * Add a workspace, activate it, and stand its factory rail ([P05]). The

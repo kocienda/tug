@@ -302,10 +302,22 @@ export type DeckTraceEventShape = {
       paintMs: number;
     }
   | {
-      kind: "space-quiet";
+      kind: "space-epoch";
       toSpaceId: string;
-      quietMs: number;
-      quietReason: "quiet" | "bound";
+      epochMs: number;
+      epochReason: "settled" | "bound";
+    }
+  | {
+      kind: "space-switch-frames";
+      toSpaceId: string;
+      ticks: number;
+      framePeriodMs: number;
+      firstPaintDelayMs: number;
+      longestGapMs: number;
+      gapsOverOneFrame: number;
+      gapsOverBudget: number;
+      gaps: readonly number[];
+      suspended: boolean;
     }
 );
 
@@ -352,7 +364,8 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "session-lifecycle",
   "motion-demoted",
   "space-switch-timing",
-  "space-quiet",
+  "space-epoch",
+  "space-switch-frames",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
 
@@ -636,8 +649,15 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       );
     case "space-switch-timing":
       return `space-switch-timing ${fmt(e.fromSpaceId)}→${fmt(e.toSpaceId)} cards=${e.outgoingCards}/${e.incomingCards} commit=${e.commitMs.toFixed(1)} restore=${e.restoreMs.toFixed(1)} total=${e.totalMs.toFixed(1)} paint=${e.paintMs.toFixed(1)}`;
-    case "space-quiet":
-      return `space-quiet →${fmt(e.toSpaceId)} quiet=${e.quietMs}ms via ${e.quietReason}`;
+    case "space-epoch":
+      return `space-epoch →${fmt(e.toSpaceId)} epoch=${e.epochMs}ms via ${e.epochReason}`;
+    case "space-switch-frames":
+      // A suspended reading prints as VOID rather than as a row of numbers: an
+      // occluded harness window suspends rAF, and the summary's counts are -1
+      // there precisely so nobody reads a suspension as a smooth switch.
+      return e.suspended
+        ? `space-switch-frames →${fmt(e.toSpaceId)} VOID (suspended, ticks=${e.ticks})`
+        : `space-switch-frames →${fmt(e.toSpaceId)} ticks=${e.ticks} period=${e.framePeriodMs.toFixed(1)} firstPaint=${e.firstPaintDelayMs.toFixed(1)} longestGap=${e.longestGapMs.toFixed(1)} overFrame=${e.gapsOverOneFrame} overBudget=${e.gapsOverBudget}`;
     default: {
       // Exhaustiveness pin: if a new kind is added to DeckTraceEventShape,
       // the assignment below fails because `e` is no longer `never`.

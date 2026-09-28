@@ -1,10 +1,12 @@
 /**
  * The pure helpers over the space record ([P01], [P02], List L01).
  *
- * `parkedDeck` is the one with teeth: it is the in-memory twin of the fields
+ * `parkedDeck` is the one with teeth: it is the in-memory twin of the postures
  * `serialize` omits, and the reason a workspace that is switched away from and
  * back comes back the way a relaunch comes back rather than carrying a posture
- * nobody asked to keep.
+ * nobody asked to keep. The strip offsets are the exception, and the test
+ * below says why: a parked layer is laid out from this record, so its
+ * standing is where the reader will find it.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -48,7 +50,7 @@ const plainDeck: DeckState = {
 };
 
 describe("parkedDeck", () => {
-  test("strips every session-only field a parked deck must not carry", () => {
+  test("strips every posture a parked deck must not carry, and keeps its standing", () => {
     const live: DeckState = {
       ...plainDeck,
       bullseyePaneId: "p1",
@@ -63,9 +65,6 @@ describe("parkedDeck", () => {
     const json = JSON.stringify(parked);
     for (const field of [
       "bullseyePaneId",
-      "flowOffset",
-      "columnOffsets",
-      "railOffsets",
       "sheetReservations",
       "openingBids",
       "arriving",
@@ -73,6 +72,14 @@ describe("parkedDeck", () => {
       expect(field in parked).toBe(false);
       expect(json).not.toContain(field);
     }
+    // The strip offsets are STANDING, not posture: a parked layer is laid
+    // out from this record ([B02] of workspace-switch-cheap), and a flow
+    // strip parked at zero would slide to reveal its active card in the
+    // first frames after the return — the whole-workspace move the cheap
+    // switch exists to remove. Kept, the layer already stands there.
+    expect(parked.flowOffset).toBe(640);
+    expect(parked.columnOffsets).toEqual({ 1: 173 });
+    expect(parked.railOffsets).toEqual({ right: 88 });
     // What the deck IS survives whole — the stripping is of postures, not of
     // the arrangement the user made.
     expect(parked.cards).toEqual(live.cards);

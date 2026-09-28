@@ -12,7 +12,7 @@
  * layer cannot take — a composer's line box, a pane bar's controls width, a
  * pane's accessory height, a sheet's two clamps, a transcript's row window —
  * and each of those is a candidate for a write that lands one or more frames
- * AFTER the swap commit, under a dissolve that is already running. So is the
+ * AFTER the swap commit, inside the epoch that is already standing. So is the
  * activation's own second commit, which `activateSpace` step (7) produces by
  * calling `activateCard` outside the swap batch.
  *
@@ -55,17 +55,17 @@
  * the commit's own word kept, the rule that answered it named beside it.
  *
  * **The switch lands still.** The four success criteria, over all six runs:
- * no pane frame in the shown layer moves or resizes after the beat; none ever
- * computes an opacity below 1 or carries an inline `opacity: 0`; the cover
- * records a `quietMs` inside `SPACE_QUIET_BOUND_MS`; and no scroller under
- * the shown layer moves.
+ * no pane frame in the shown layer moves or resizes after the epoch closes;
+ * none ever computes an opacity below 1 or carries an inline `opacity: 0`; the
+ * epoch records an `epochMs` inside `SPACE_EPOCH_BOUND_MS`; and no scroller
+ * under the shown layer moves.
  *
  * Two things stay notes on purpose, and both would otherwise be tests that
- * pass for the wrong reason. `quietReason` is noted rather than asserted —
- * the quiet path's frame counter rides `requestAnimationFrame` and a covered
- * window suspends it, so asserting `"quiet"` would be red on a busy desktop
+ * pass for the wrong reason. `epochReason` is noted rather than asserted —
+ * the settled path's frame counter rides `requestAnimationFrame` and a covered
+ * window suspends it, so asserting `"settled"` would be red on a busy desktop
  * for a reason that is not the product; the rule's proof is the unit test
- * over `spaceDissolveDue`. And the scroller criterion is VACUOUS on this
+ * over `spaceEpochClosed`. And the scroller criterion is VACUOUS on this
  * fixture — no transcript here overflows, so the sampler has never tracked a
  * scroller at all — which is noted beside the assertion rather than left for
  * a reader to discover.
@@ -82,13 +82,13 @@
  *    re-tune quiet. This is the one condition where the parked deck's stored
  *    offsets provably do not reveal the remembered pane under the current
  *    band — the case where the switch's second commit can land a CARRIED
- *    arrangement change one commit after the swap, with the settle animating
- *    it under the dissolve.
+ *    arrangement change one commit after the swap, which the epoch's mark is
+ *    what stands the settle down over.
  *
  * ## Why `setInterval` and why a rAF counter beside it
  *
- * `setInterval` rather than `requestAnimationFrame`, for the reason
- * at0592 states: a covered harness window suspends rAF, and a sampler that
+ * `setInterval` rather than `requestAnimationFrame`, for the reason the
+ * retired at0592 stated: a covered harness window suspends rAF, and a sampler that
  * never ran would report a perfectly still switch whatever happened. The
  * sample count is asserted for the same reason.
  *
@@ -176,7 +176,15 @@ const HIDDEN_TURNS = 60;
 
 const SHOWN_FRAMES =
   "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]";
-const CROSSING_LAYERS = ".tug-space-layer[data-space-crossing]";
+/**
+ * The canvas while the switch epoch stands.
+ *
+ * This used to be the crossing layer's selector, and the re-pointing keeps the
+ * pin rather than moving it: the claim these samples support is "nothing moved
+ * after the switch's window closed", and the epoch's mark IS that window now
+ * that no cover is held. The cover's own span was always a sub-span of it.
+ */
+const EPOCH_MARKED = "[data-deck-canvas-background][data-space-switching]";
 const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
 /** The element Spec S02 names as the canvas container. */
 const CANVAS_CONTAINER = "[data-deck-canvas-background]";
@@ -197,11 +205,11 @@ const DECK_CONTAINER = "#deck-container";
 const SWITCHING_MARK = "[data-space-switching]";
 
 /**
- * How long the crossing attribute may stand before the wait gives up. Same
- * generosity as at0592's: the beat is a few hundred ms and this is several
- * multiples of it, so it catches only a beat that never lands.
+ * How long the epoch's mark may stand before the wait gives up. Several
+ * multiples of the bound, so it catches only an epoch that never closes rather
+ * than one that closed late under load.
  */
-const CROSSING_BOUND_MS = 1_500;
+const EPOCH_WAIT_MS = 1_500;
 
 const settle = (ms = 400): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -211,16 +219,16 @@ const settle = (ms = 400): Promise<void> =>
 // ---------------------------------------------------------------------------
 
 /**
- * One tracked value's history, reduced. `afterCross` is the count of changes
- * that landed after the last sample at which any layer still carried
- * `data-space-crossing` — the movement this arc exists to remove.
+ * One tracked value's history, reduced. `afterEpoch` is the count of changes
+ * that landed after the last sample at which the canvas still carried the
+ * switch epoch's mark — the movement this arc exists to remove.
  */
 interface Tracked {
   first: string;
   last: string;
   changes: number;
   lastChangeMs: number;
-  afterCross: number;
+  afterEpoch: number;
 }
 
 interface Summary {
@@ -228,17 +236,17 @@ interface Summary {
   keys: number;
   /** Every one that ever changed, rendered `key first -> last (xN, last @Mms)`. */
   moved: string[];
-  /** Every one that changed after the crossing attribute was gone. */
-  movedAfterCross: string[];
+  /** Every one that changed after the epoch's mark was gone. */
+  movedAfterEpoch: string[];
 }
 
 interface Reading {
   samples: number;
   rafTicks: number;
-  /** Samples at which some layer carried `data-space-crossing`. */
-  crossSeen: number;
-  crossFirstMs: number;
-  crossLastMs: number;
+  /** Samples at which the canvas carried the switch epoch's mark. */
+  epochSeen: number;
+  epochFirstMs: number;
+  epochLastMs: number;
   /** The canvas container's width at the first and last sample. */
   containerWidth: string;
   /**
@@ -289,9 +297,9 @@ const SAMPLER_START = `(function () {
     t0: Date.now(),
     samples: 0,
     rafTicks: 0,
-    crossSeen: 0,
-    crossFirstMs: -1,
-    crossLastMs: -1,
+    epochSeen: 0,
+    epochFirstMs: -1,
+    epochLastMs: -1,
     widthFirst: "",
     widthLast: "",
     minOpacity: 2,
@@ -339,7 +347,7 @@ const SAMPLER_START = `(function () {
     var rec = bucket[key];
     if (rec === undefined) {
       bucket[key] = {
-        first: value, last: value, changes: 0, lastChangeMs: -1, afterCross: 0,
+        first: value, last: value, changes: 0, lastChangeMs: -1, afterEpoch: 0,
       };
       return;
     }
@@ -347,20 +355,20 @@ const SAMPLER_START = `(function () {
     rec.changes += 1;
     rec.lastChangeMs = ms();
     rec.last = value;
-    // The crossing bookkeeping runs FIRST in the tick, so during the beat
-    // \`crossLastMs\` is this very sample and nothing counts as after it. One
+    // The epoch bookkeeping runs FIRST in the tick, so while the mark stands
+    // \`epochLastMs\` is this very sample and nothing counts as after it. One
     // sample interval of margin keeps the tick the attribute vanished in on
     // the beat's side of the line.
-    if (s.crossLastMs >= 0 && ms() > s.crossLastMs + 16) rec.afterCross += 1;
+    if (s.epochLastMs >= 0 && ms() > s.epochLastMs + 16) rec.afterEpoch += 1;
   }
 
   s.timer = setInterval(function () {
     try {
       s.samples += 1;
-      if (document.querySelectorAll(${JSON.stringify(CROSSING_LAYERS)}).length > 0) {
-        s.crossSeen += 1;
-        if (s.crossFirstMs < 0) s.crossFirstMs = ms();
-        s.crossLastMs = ms();
+      if (document.querySelectorAll(${JSON.stringify(EPOCH_MARKED)}).length > 0) {
+        s.epochSeen += 1;
+        if (s.epochFirstMs < 0) s.epochFirstMs = ms();
+        s.epochLastMs = ms();
       }
 
       var container = document.querySelector(${JSON.stringify(CANVAS_CONTAINER)});
@@ -443,7 +451,7 @@ const SAMPLER_READ = `(function () {
   clearInterval(s.timer);
   if (s.rafId !== undefined) window.cancelAnimationFrame(s.rafId);
   function summarize(bucket) {
-    var out = { keys: 0, moved: [], movedAfterCross: [] };
+    var out = { keys: 0, moved: [], movedAfterEpoch: [] };
     for (var k in bucket) {
       if (!Object.prototype.hasOwnProperty.call(bucket, k)) continue;
       out.keys += 1;
@@ -453,16 +461,16 @@ const SAMPLER_READ = `(function () {
           k + " [" + r.first + "] -> [" + r.last + "] x" + r.changes +
           " last@" + r.lastChangeMs + "ms");
       }
-      if (r.afterCross > 0) out.movedAfterCross.push(k + " x" + r.afterCross);
+      if (r.afterEpoch > 0) out.movedAfterEpoch.push(k + " x" + r.afterEpoch);
     }
     return out;
   }
   return {
     samples: s.samples,
     rafTicks: s.rafTicks,
-    crossSeen: s.crossSeen,
-    crossFirstMs: s.crossFirstMs,
-    crossLastMs: s.crossLastMs,
+    epochSeen: s.epochSeen,
+    epochFirstMs: s.epochFirstMs,
+    epochLastMs: s.epochLastMs,
     containerWidth: s.widthFirst + " -> " + s.widthLast,
     minOpacity: s.minOpacity === 2 ? -1 : s.minOpacity,
     minOpacityAt: s.minOpacityAt,
@@ -493,8 +501,8 @@ const TRACE_KINDS = [
   "settle-retarget",
   "settle-release",
   "space-switch-timing",
-  // The cover's own record ([P06]): how long it was held and what lifted it.
-  "space-quiet",
+  // The epoch's own record ([P06]): how long it stood and what closed it.
+  "space-epoch",
 ];
 
 const traceRead = (mark: number): string =>
@@ -530,47 +538,52 @@ function armsFromSwap(trace: string): ArmRecord[] {
 }
 
 /**
- * How long the cover may be held before it dissolves over whatever the
- * arriving workspace has.
+ * How long the switch epoch may stand before it closes over whatever the
+ * arriving workspace is still doing.
  *
- * Mirrored from `SPACE_QUIET_BOUND_MS` in `tugdeck/src/lib/space-quiet.ts`
+ * Mirrored from `SPACE_EPOCH_BOUND_MS` in `tugdeck/src/lib/space-settled.ts`
  * rather than imported: an app-test is a separate program driving the built
  * app over a bridge, and it has no module graph in common with the deck. A
  * change to the constant that forgot this line would turn the assertion below
  * into a looser one, which is why the assertion states the number it is
  * holding to in its own message.
+ *
+ * It moved from 200 to 400 with the module's own bound: the cover's ceiling was
+ * the eye, because the wait was added to the dissolve that followed it, and the
+ * cut removed that addend. The PIN here is the relation — the recorded span
+ * against the module's bound — and the relation is what must not move.
  */
-const SPACE_QUIET_BOUND_MS = 200;
+const SPACE_EPOCH_BOUND_MS = 400;
 
 /**
  * How far past the bound a BOUND-path reading may land before it is a finding.
  *
  * The bound is a `setTimeout`, and a `setTimeout` fires no SOONER than its
- * delay — never earlier, routinely later. So a cover that came off on the
- * bound records a `quietMs` of 200-and-a-bit, and holding the bound path to
- * `<= 200` would be an assertion that is red exactly when the path it covers
- * is taken. That path is not a defect: a covered harness window suspends
- * `requestAnimationFrame`, the gate's frame counter rides it, and releasing on
- * the bound is the ruled behaviour ([B06]) rather than a failure.
+ * delay — never earlier, routinely later. So an epoch that closed on the bound
+ * records an `epochMs` of the-bound-and-a-bit, and holding the bound path to
+ * `<= the bound` would be an assertion that is red exactly when the path it
+ * covers is taken. That path is not a defect: a covered harness window suspends
+ * `requestAnimationFrame`, the gate's frame counter rides it, and closing on the
+ * bound is the ruled behaviour rather than a failure.
  *
  * So the two paths are asserted at their own precisions. A `"quiet"` reading
  * is the product's own measurement and is held to the bound exactly. A
- * `"bound"` reading is a timer's, and what it has to show is that the cover
+ * `"bound"` reading is a timer's, and what it has to show is that the epoch
  * was BOUNDED at all — 50ms of slack for timer skew under load, which is far
  * short of the deadline that nets the whole beat.
  */
-const SPACE_QUIET_BOUND_SLOP_MS = 50;
+const SPACE_EPOCH_BOUND_SLOP_MS = 50;
 
-/** One `space-quiet` record — the cover's own account of itself ([P06]). */
-interface QuietRecord {
+/** One `space-epoch` record — the epoch's own account of itself ([P06]). */
+interface EpochRecord {
   kind: string;
   toSpaceId?: string;
-  quietMs?: number;
-  quietReason?: string;
+  epochMs?: number;
+  epochReason?: string;
 }
 
 /**
- * The `space-quiet` record this switch wrote, or `undefined` when the gate
+ * The `space-epoch` record this switch wrote, or `undefined` when the gate
  * never fired at all — which is a failure rather than an absence, and the
  * caller says so.
  *
@@ -578,13 +591,13 @@ interface QuietRecord {
  * because the window is opened before the gesture and could in principle
  * still hold the tail of an earlier beat.
  */
-function quietForSwitch(
+function epochForSwitch(
   trace: string,
   toSpaceId: string,
-): QuietRecord | undefined {
-  const events = JSON.parse(trace) as QuietRecord[];
+): EpochRecord | undefined {
+  const events = JSON.parse(trace) as EpochRecord[];
   return events
-    .filter((e) => e.kind === "space-quiet" && e.toSpaceId === toSpaceId)
+    .filter((e) => e.kind === "space-epoch" && e.toSpaceId === toSpaceId)
     .at(-1);
 }
 
@@ -804,7 +817,7 @@ const RESIZE_RESTORE = `(function () {
 
 /**
  * One switch, sampled end to end: install, gesture, wait for the swap, wait
- * for the beat to hand its attribute back, then sit for well past any beat the
+ * for the epoch to hand its mark back, then sit for well past any window the
  * switch could have launched so the sampler has seen the late writes this file
  * is for.
  */
@@ -829,11 +842,11 @@ async function recordSwitch(
   // 900ms below.
   try {
     await app.waitForCondition<boolean>(
-      `document.querySelectorAll(${JSON.stringify(CROSSING_LAYERS)}).length === 0`,
-      { timeoutMs: CROSSING_BOUND_MS },
+      `document.querySelectorAll(${JSON.stringify(EPOCH_MARKED)}).length === 0`,
+      { timeoutMs: EPOCH_WAIT_MS },
     );
   } catch {
-    note(`at0620 ${label}: the crossing attribute still stood after ${CROSSING_BOUND_MS}ms`);
+    note(`at0620 ${label}: the epoch's mark still stood after ${EPOCH_WAIT_MS}ms`);
   }
   await settle(900);
 
@@ -842,26 +855,21 @@ async function recordSwitch(
   note(`at0620 ${label} canvas: ${JSON.stringify(reading)}`);
   note(`at0620 ${label} trace: ${trace}`);
   // The debt is paid ([L32]). The mark stands from the swap commit to the
-  // canvas's own layout-effect pass, and by now the switch is a second in the
-  // past — a mark still standing here is a canvas on which nothing will ever
+  // instant the epoch closes, and by now the switch is a second in the past —
+  // a mark still standing here is a canvas on which nothing will ever
   // animate again, which is the failure mode a deferred reveal with no
   // deadline always has. Asserted inside the helper so every one of the six
   // runs is held to it rather than only the last.
+  //
+  // One assertion, not two: the cover used to have a mark of its own and this
+  // helper checked both, and with the cover gone the two selectors name the
+  // same attribute. `EPOCH_MARKED` stays as the SAMPLER's selector, which is
+  // canvas-scoped because that is what the samples are of.
   expect(
     await app.evalJS<number>(
       `document.querySelectorAll(${JSON.stringify(SWITCHING_MARK)}).length`,
     ),
     `${label}: the switch epoch was handed back`,
-  ).toBe(0);
-  // And the cover with it. The beat now starts LATER than it used to — the
-  // hold runs first — so this is the reading that says the whole of it still
-  // lands inside the window this helper waits out, rather than the crossing
-  // attribute being left standing over the workspace the user is looking at.
-  expect(
-    await app.evalJS<number>(
-      `document.querySelectorAll(${JSON.stringify(CROSSING_LAYERS)}).length`,
-    ),
-    `${label}: the cover came off`,
   ).toBe(0);
   return { reading, trace };
 }
@@ -1013,7 +1021,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- The answer rAF owes this arc. -----------------------------
           //
           // Every run, with the workspace it arrived in — which is what the
-          // `space-quiet` record is keyed by.
+          // `space-epoch` record is keyed by.
           const SWITCHES = [
             { label: "plain A->B", run: plainTo, to: SPACE_TWO },
             { label: "plain B->A", run: plainBack, to: SPACE_ONE },
@@ -1031,10 +1039,10 @@ describe.skipIf(!SHOULD_RUN)(
             `${sampleTotal} interval samples — ${rafTotal === 0 ? "SUSPENDED" : "TICKING"}`,
           );
           const lateMoves = readings
-            .map((r, i) => `${i}: ${r.panes.movedAfterCross.length} pane / ` +
-              `${r.scrollers.movedAfterCross.length} scroll / ` +
-              `${r.clamps.movedAfterCross.length} clamp / ` +
-              `${r.lineBoxes.movedAfterCross.length} line-box`)
+            .map((r, i) => `${i}: ${r.panes.movedAfterEpoch.length} pane / ` +
+              `${r.scrollers.movedAfterEpoch.length} scroll / ` +
+              `${r.clamps.movedAfterEpoch.length} clamp / ` +
+              `${r.lineBoxes.movedAfterEpoch.length} line-box`)
             .join(" | ");
           note(`at0620 changes landing after the beat, per run — ${lateMoves}`);
 
@@ -1094,19 +1102,19 @@ describe.skipIf(!SHOULD_RUN)(
               `${label}: the sampler saw the shown layer's frames`,
             ).toBeGreaterThan(0);
 
-            // (1) Nothing moves after the beat. `afterCross` counts changes
+            // (1) Nothing moves after the beat. `afterEpoch` counts changes
             // landing more than one sample interval past the last sample at
-            // which any layer still carried the crossing attribute, and the
+            // which the canvas still carried the epoch's mark, and the
             // window runs ~900ms past that point — so this is the 400ms the
             // criterion asks for and then some. Rect keys only: opacity is
             // criterion (2)'s, and reading it here would conflate a fade with
             // a move.
-            const movedRects = r.panes.movedAfterCross.filter((k) =>
+            const movedRects = r.panes.movedAfterEpoch.filter((k) =>
               k.includes("|rect"),
             );
             expect(
               movedRects,
-              `${label}: no pane frame moved or resized after the dissolve`,
+              `${label}: no pane frame moved or resized after the epoch closed`,
             ).toEqual([]);
 
             // (2) The arriving workspace is never faded. Two halves, because
@@ -1123,38 +1131,38 @@ describe.skipIf(!SHOULD_RUN)(
               `${label}: no shown pane frame was held at an inline opacity 0`,
             ).toEqual([]);
 
-            // (3) The cover was held, and it was held inside the bound
-            // ([P06]). `quietReason` is NOTED rather than asserted, and that
-            // is deliberate: the quiet path's frame counter rides
+            // (3) The epoch stood, and it closed inside the bound ([P06]).
+            // `epochReason` is NOTED rather than asserted, and that is
+            // deliberate: the settled path's frame counter rides
             // `requestAnimationFrame`, a covered window suspends rAF, and a
-            // test asserting `"quiet"` would be red on a busy desktop for a
+            // test asserting `"settled"` would be red on a busy desktop for a
             // reason that is the window manager rather than the product. The
-            // rule's own proof is the unit test over `spaceDissolveDue`.
+            // rule's own proof is the unit test over `spaceEpochClosed`.
             //
             // But the two paths cannot be held to one number. A `"bound"`
             // reading is a `setTimeout`'s, and a `setTimeout` fires no sooner
-            // than its delay — so `<= SPACE_QUIET_BOUND_MS` on that path is an
+            // than its delay — so `<= SPACE_EPOCH_BOUND_MS` on that path is an
             // assertion that is red precisely when the occlusion the note
             // above describes actually happens. Each path is therefore held to
-            // its own precision ({@link SPACE_QUIET_BOUND_SLOP_MS}).
-            const quiet = quietForSwitch(run.trace, to);
+            // its own precision ({@link SPACE_EPOCH_BOUND_SLOP_MS}).
+            const epoch = epochForSwitch(run.trace, to);
             note(
-              `at0620 ${label} cover: ${quiet === undefined ? "NO RECORD" : `${quiet.quietMs}ms via ${quiet.quietReason}`}`,
+              `at0620 ${label} epoch: ${epoch === undefined ? "NO RECORD" : `${epoch.epochMs}ms via ${epoch.epochReason}`}`,
             );
             expect(
-              quiet,
-              `${label}: the cover recorded what lifted it`,
+              epoch,
+              `${label}: the epoch recorded what closed it`,
             ).toBeDefined();
-            const quietCeiling =
-              quiet?.quietReason === "bound"
-                ? SPACE_QUIET_BOUND_MS + SPACE_QUIET_BOUND_SLOP_MS
-                : SPACE_QUIET_BOUND_MS;
+            const epochCeiling =
+              epoch?.epochReason === "bound"
+                ? SPACE_EPOCH_BOUND_MS + SPACE_EPOCH_BOUND_SLOP_MS
+                : SPACE_EPOCH_BOUND_MS;
             expect(
-              quiet?.quietMs ?? Number.POSITIVE_INFINITY,
-              `${label}: the cover came off inside ${quietCeiling}ms ` +
-                `(via ${quiet?.quietReason ?? "no record"}; the bound is ` +
-                `${SPACE_QUIET_BOUND_MS}ms)`,
-            ).toBeLessThanOrEqual(quietCeiling);
+              epoch?.epochMs ?? Number.POSITIVE_INFINITY,
+              `${label}: the epoch closed inside ${epochCeiling}ms ` +
+                `(via ${epoch?.epochReason ?? "no record"}; the bound is ` +
+                `${SPACE_EPOCH_BOUND_MS}ms)`,
+            ).toBeLessThanOrEqual(epochCeiling);
 
             // (4) No scroller under the shown layer moved ([Q02]).
             //

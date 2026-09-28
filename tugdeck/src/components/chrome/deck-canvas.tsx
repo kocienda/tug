@@ -17,7 +17,7 @@
  * and `showComponentGallery`.
  */
 
-import React, { useCallback, useMemo, useState, useEffect, useRef, useSyncExternalStore, useLayoutEffect } from "react";
+import React, { memo, useCallback, useMemo, useState, useEffect, useRef, useSyncExternalStore, useLayoutEffect } from "react";
 import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
 import {
   beginResizeEpisode,
@@ -45,7 +45,7 @@ import { applyBagFocus, transferFocusForActivation } from "@/focus-transfer";
 import {
   deckTrace,
   type CommitLanding,
-  type SpaceQuietReason,
+  type SpaceEpochReason,
 } from "@/deck-trace";
 import {
   revealSidebarCard,
@@ -58,6 +58,7 @@ import {
   TugPane,
   type ArrivingSeat,
   type SidebarStackStanding,
+  type TugPaneProps,
 } from "./tug-pane";
 import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
@@ -143,9 +144,13 @@ import {
   IMPOSER_SETTLE_END,
 } from "@/lib/settle-notice";
 import {
-  SPACE_QUIET_BOUND_MS,
-  spaceDissolveDue,
-} from "@/lib/space-quiet";
+  SPACE_EPOCH_BOUND_MS,
+  spaceEpochClosed,
+} from "@/lib/space-settled";
+import {
+  classifySpaceSwitchFrames,
+  SPACE_SWITCH_FRAME_WINDOW_MS,
+} from "@/lib/space-switch-frames";
 import {
   motionDurationMs,
   motionKeyframes,
@@ -186,15 +191,17 @@ import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
 import {
-  FROZEN_FRAME_ATTRIBUTES,
   SHOWN_PANE_FRAMES,
-  SPACE_CROSSING_ATTRIBUTE,
   SPACE_LAYER_ATTRIBUTE,
   SPACE_LAYER_CLASS,
   SPACE_SHOWN_ATTRIBUTE,
   SPACE_SWITCHING_ATTRIBUTE,
   SpaceLayerShownContext,
 } from "./space-layer";
+import {
+  stillHiddenLayerLoops,
+  stillLoopOnStart,
+} from "./space-layer-loops";
 import "./space-layer.css";
 import "./rail-vacancy.css";
 import "./margin-cap.css";
@@ -378,13 +385,14 @@ function buildZIndexMap(
 /** The most rails the band can order before it would collide with the overlay
  *  base. Far past any real deck; the clamp is here so it cannot ever collide.
  *
- *  Eight rather than nine: 8999, the top of the ten values under the overlay
- *  base, is `--tug-z-space-crossing` now — the tier the DEPARTING workspace
- *  stands at for the length of one switch ([B09]). It has to clear the
- *  ARRIVING workspace's rails, because a rail band that reached 8999 would
- *  have painted the incoming rail strip over the departing one at the instant
- *  of the commit, which is the pop the crossfade exists to remove. No deck has
- *  ever stood two rails a side, let alone nine. */
+ *  Eight rather than nine, and 8999 is free again. The top of the ten values
+ *  under the overlay base was the canvas tier the departing workspace stood at
+ *  for the length of one switch, and the cut retired both that tier and the
+ *  layer that spent it ([B01]). So the reason the band gave the
+ *  value up is gone, and the clamp stays at 8 anyway: nothing needs the ninth
+ *  rank, because no deck has ever stood two rails a side, let alone nine.
+ *  Raising it would be a change with no caller asking for it, and would spend
+ *  the one value a future canvas tier could have. */
 const SIDEBAR_PANE_ZINDEX_MAX_RANK = 8;
 
 /**
@@ -788,8 +796,10 @@ function arrangementSignature(
  * a window resize). The restorer runs in the settle's completion handler,
  * after that commit lands.
  *
- * The switch freeze wants a hand-back too and does NOT use this one: see
- * {@link freezeInline} for why a property React renders needs one that yields.
+ * It is the only inline hand-back on this canvas now. The switch used to need a
+ * second one that YIELDED — a frame whose workspace came back on screen mid-beat
+ * belongs to React, not to the writer that froze it — and the cut removed the
+ * freeze and with it the only caller ([B01], [P04]).
  */
 function inlineRestorer(
   el: HTMLElement,
@@ -799,91 +809,6 @@ function inlineRestorer(
   return () => {
     if (prev === "") el.style.removeProperty(property);
     else el.style.setProperty(property, prev);
-  };
-}
-
-/**
- * Whether a frame's workspace is the one on screen — the question every switch
- * freeze hand-back asks before it writes.
- *
- * A frame in a layer with no wrapper at all (a unit harness, a deck rendered
- * without layers) answers `false`, which is the honest answer there: nothing
- * is switching, so nothing owns the property but the freeze that wrote it.
- */
-function frameIsInShownLayer(el: HTMLElement): boolean {
-  const layer = el.closest<HTMLElement>(`.${SPACE_LAYER_CLASS}`);
-  return layer !== null && layer.hasAttribute(SPACE_SHOWN_ATTRIBUTE);
-}
-
-/**
- * Write `value` over an inline property for the length of a switch beat, and
- * return a hand-back that pays the debt only while it is still owed.
- *
- * The plain {@link inlineRestorer} is right for a property React does not
- * render — `opacity` on a pane frame — where the captured value is `""` and
- * the hand-back is a removal. It is wrong for the switch freeze, which
- * overrides `left`/`top`/`width`/`height`: React renders all four out of
- * `modeStyle`, so the captured value is whatever React wrote in the commit
- * that HID the layer. If the layer is shown again before the beat tears down —
- * an interrupted beat is exactly that, since the switch back re-shows the layer
- * and the first beat's landing arrives afterwards — React has already written
- * the layer's real geometry, and writing the captured value over it would pin
- * the returning workspace at the stale free frames the freeze existed to hide.
- *
- * So the rule is OWNERSHIP rather than equality: a frame whose workspace is on
- * screen again is React's, and the freeze owes it nothing. Equality alone is
- * not enough and was tried — React re-writing the same value it wrote before
- * looks identical to nobody having written at all, which is the common case for
- * an attribute and possible for a rect. The value check stays as the second
- * condition, for the hidden frame some other writer has since taken over.
- *
- * While the layer stays hidden the captured value is exactly right: a hidden
- * layer's `style` prop is identical from render to render, so React's diff
- * writes nothing to the DOM until the layer is shown again ([B03]).
- */
-function freezeInline(
-  el: HTMLElement,
-  property: "width" | "height" | "left" | "top",
-  value: string,
-): () => void {
-  const prev = el.style.getPropertyValue(property);
-  el.style.setProperty(property, value);
-  return () => {
-    if (frameIsInShownLayer(el)) return;
-    if (el.style.getPropertyValue(property) !== value) return;
-    if (prev === "") el.style.removeProperty(property);
-    else el.style.setProperty(property, prev);
-  };
-}
-
-/**
- * The same write and the same hand-back for an attribute.
- *
- * `null` for "was not there" is the whole reason the recorded value is not a
- * string: an attribute the frame never had is handed back by REMOVING it, and
- * one it had with an empty value — `data-rail-member-last`, which is a
- * presence bit — by writing `""` back. Collapsing the two would strip a bit
- * that was set or set one that never was.
- *
- * The ownership test in {@link freezeInline} matters most here. A departing
- * rail is frozen with `data-rail-side="right"`, and the workspace coming back
- * has React write that same value — so an equality check would read it as the
- * freeze's own write and hand back the hidden layer's `null`, stripping the
- * panel treatment off a rail that is on screen.
- */
-function freezeAttribute(
-  el: HTMLElement,
-  name: string,
-  value: string | null,
-): () => void {
-  const prev = el.getAttribute(name);
-  if (value === null) el.removeAttribute(name);
-  else el.setAttribute(name, value);
-  return () => {
-    if (frameIsInShownLayer(el)) return;
-    if (el.getAttribute(name) !== value) return;
-    if (prev === null) el.removeAttribute(name);
-    else el.setAttribute(name, prev);
   };
 }
 
@@ -926,16 +851,15 @@ interface SettleTween {
 }
 
 /**
- * How long after a crossfade's tweens should have finished the beat is torn
- * down anyway ([L32] clause 2).
+ * How long after the epoch's own bound the mark is swept anyway ([L32] clause 2).
  *
  * A margin rather than the bare duration because the deadline is the net, not
- * the clock: it must never fire while the fade is still on screen, and it must
- * fire soon enough that a stranded layer is a blink rather than a state. One
- * frame of slack at 60Hz is about 16ms; this is generous over that and still
- * inside the length of the beat it guards.
+ * the clock: it must never fire while the epoch's own gate could still close it
+ * properly and record its span, and it must fire soon enough that a stranded
+ * mark is a blink rather than a state. One frame of slack at 60Hz is about 16ms;
+ * this is generous over that and still short beside the bound it guards.
  */
-const SPACE_CROSSFADE_DEADLINE_MARGIN_MS = 120;
+const SPACE_EPOCH_DEADLINE_MARGIN_MS = 120;
 
 /**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
@@ -1750,13 +1674,746 @@ interface SpaceLayer {
   deck: DeckState;
 }
 
+/** What `imposeStyle` places a frame by — a slot anchor, with its flow strip position when the deck flows. */
+type PanePlacement = Parameters<typeof imposeStyle>[0];
+
+/**
+ * Everything a workspace's panes are ARRANGED BY, derived from its deck and
+ * nothing else — the rails and their allocation, the columns and theirs, the
+ * flow strip, every per-pane placement, and the maps the pane render reads.
+ *
+ * It exists as one value rather than a dozen memos because a hidden
+ * workspace layer needs it too. A hidden layer keeps its layout ([B02]), and
+ * a layer laid out without its arrangement is laid out WRONG: every parked
+ * pane stood at its free rect, the whole workspace was re-imposed in the
+ * commit that revealed it, and the departing one was re-laid out back to its
+ * free rects, unpainted. That re-arrangement was the largest late write a
+ * switch made, and the source of every geometry re-read the arriving panes
+ * paid — a transcript pinning its scroll against a viewport that had just
+ * changed height, a clamp measuring a frame that had just moved. With each
+ * layer arranged from its own deck a switch moves nothing: the arriving panes
+ * are already standing where they will be shown, and the departing ones stay
+ * where they were.
+ *
+ * The shown layer's arrangement is derived from the live `deckState`; a
+ * hidden layer's from the parked record on the spaces snapshot, cached by
+ * that record's identity ({@link arrangementOfParkedDeck}). A parked deck is
+ * the relaunch shape — `parkedDeck` strips the strip offsets, the bullseye
+ * and the arrival marks — so a parked layer stands as it would after a
+ * restart, and `_resolveShownArrangement` re-solves it against the canvas in
+ * the swap commit, which is where a window resized while it was parked is
+ * corrected: in the commit that shows it, with nothing left to arm.
+ */
+interface LayerArrangement {
+  readonly sidebarPaneIds: ReadonlySet<string>;
+  readonly sidebarRails: ReturnType<typeof sidebarRailsOf>;
+  readonly flowStrip: ReturnType<typeof deckFlowStrip>;
+  readonly flowOffset: number;
+  readonly deckColumns: ReturnType<typeof deckColumnsOf>;
+  readonly columnOffsets: NonNullable<DeckState["columnOffsets"]>;
+  readonly railOffsets: NonNullable<DeckState["railOffsets"]>;
+  readonly columnMemberByPaneId: ReadonlyMap<string, ColumnMemberPlacement>;
+  readonly columnModeByPaneId: ReadonlyMap<string, ColumnMode>;
+  readonly arrivingSeatByPaneId: ReadonlyMap<string, ArrivingSeat>;
+  readonly railWidthOf: (side: SidebarSide) => number;
+  readonly vacantRails: readonly { side: SidebarSide; style: React.CSSProperties }[];
+  readonly stackByPaneId: ReadonlyMap<string, SidebarStackStanding>;
+  readonly sortedStacks: readonly TugPaneState[];
+  readonly zIndexMap: ReturnType<typeof buildZIndexMap>;
+  readonly slotStackByPaneId: ReadonlyMap<string, readonly SlotStackEntry[]>;
+  readonly hostStackIdByCardId: ReadonlyMap<string, string>;
+  readonly cardsById: ReadonlyMap<string, DeckState["cards"][number]>;
+  readonly impositionKind: DeckState["imposition"]["kind"];
+  readonly placementFor: (pane: TugPaneState) => PanePlacement | undefined;
+  readonly contentWidthPx: number;
+  readonly bullseyePaneId: string | null;
+  readonly bullseyeAnchorCentre: string | undefined;
+}
+
+/**
+ * Derive a deck's arrangement. Pure over its inputs; `cardTitleVersion` is an
+ * input because the slot-stack picker names its rows with the title bar's
+ * own text, which folds a per-card override in that the deck cannot see.
+ */
+function deriveLayerArrangement(
+  deck: DeckState,
+  placeRuns: PlaceRuns,
+  cardTitleVersion: number,
+): LayerArrangement {
+  void cardTitleVersion;
+  const panes = deck.panes;
+  const cards = deck.cards;
+  const imposition = deck.imposition;
+
+  // Every pane hosting a sidebar card, pinned or dragged loose. They share the
+  // z-band above the free panes: a rail must never be occluded by a card, and
+  // that is a property of being a rail rather than of any one card on it.
+  const sidebarPaneIds = new Set(
+    findSidebarPanes(deck).map(({ pane }) => pane.id),
+  );
+  // The rails standing on the deck's edges, and the stack membership each
+  // sidebar pane derives its frame from. A closed or unpinned sidebar card
+  // holds no side and is absent: the arrangement spans what its rail is not
+  // taking, which when nothing is pinned is the whole canvas.
+  const sidebarRails = sidebarRailsOf(deck, placeRuns);
+  const flowStrip = deckFlowStrip(deck);
+  const flowOffset = deck.flowOffset ?? 0;
+  const deckColumns = deckColumnsOf(deck, placeRuns.column);
+  const columnOffsets = deck.columnOffsets ?? EMPTY_COLUMN_OFFSETS;
+  const railOffsets = deck.railOffsets ?? EMPTY_RAIL_OFFSETS;
+
+  const columnMemberByPaneId = new Map<string, ColumnMemberPlacement>();
+  for (const column of deckColumns) {
+    if (!columnDrawsSplit(column)) continue;
+    const strip = stripCoordinatesOf(column.allocation);
+    column.members.forEach((paneId, index) => {
+      columnMemberByPaneId.set(paneId, {
+        slot: column.slot,
+        index,
+        count: column.members.length,
+        standing: column.allocation?.standing ?? "shared",
+        ...(strip === undefined ? {} : { strip }),
+      });
+    });
+  }
+  const columnModeByPaneId = new Map<string, ColumnMode>();
+  for (const column of deckColumns) {
+    for (const paneId of column.members) columnModeByPaneId.set(paneId, column.mode);
+  }
+  const arrivingSeatByPaneId = new Map<string, ArrivingSeat>();
+  {
+    const marks = deck.arriving;
+    const kind = imposition.kind;
+    if (marks !== undefined && kind !== undefined) {
+      for (const pane of panes) {
+        if (marks[pane.id] !== true) continue;
+        if (pane.slot === undefined) continue;
+        const slot = clampSlot(kind, pane.slot);
+        const column = deckColumns.find((c) => c.slot === slot);
+        arrivingSeatByPaneId.set(
+          pane.id,
+          column !== undefined &&
+            column.mode === "split" &&
+            column.members.length > 0
+            ? "bottom"
+            : "run",
+        );
+      }
+    }
+  }
+  const railWidthOf = (side: SidebarSide): number =>
+    sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
+  const vacantRails: { side: SidebarSide; style: React.CSSProperties }[] = [];
+  if (sidebarRails.length === 1) {
+    const standing = sidebarRails[0];
+    const side: SidebarSide = standing.side === "left" ? "right" : "left";
+    vacantRails.push({
+      side,
+      style: imposeSidebarStyle(side, standing.width, {
+        widthProperty: sidebarWidthProperty(standing.side),
+      }),
+    });
+  }
+  const stackByPaneId = new Map<string, SidebarStackStanding>();
+  for (const rail of sidebarRails) {
+    const strip = stripCoordinatesOf(rail.allocation);
+    rail.members.forEach((member, index) => {
+      stackByPaneId.set(member.paneId, {
+        side: rail.side,
+        componentId: member.componentId,
+        count: rail.members.length,
+        memberIndex: index,
+        standing: rail.allocation?.standing ?? "shared",
+        ...(strip === undefined ? {} : { strip }),
+      });
+    });
+  }
+
+  // Stable ID order: no DOM reordering on focus change. Z-index from the
+  // store's array position (first = lowest), rails above every free pane.
+  const sortedStacks = [...panes].sort((a, b) => a.id.localeCompare(b.id));
+  const zIndexMap = buildZIndexMap(panes, sidebarPaneIds);
+
+  const slotStackByPaneId = ((): Map<string, readonly SlotStackEntry[]> => {
+    const cardsForTitles = new Map(cards.map((c) => [c.id, c]));
+    const rails = sidebarRailsOf(deck, UNMEASURED_RUNS);
+    const railSideOf = new Map<string, SidebarSide>();
+    for (const { componentId, pane } of findSidebarPanes(deck)) {
+      if (!isSidebarPinned(imposition, componentId)) continue;
+      railSideOf.set(pane.id, sidebarSide(imposition, componentId));
+    }
+    const byPlace = new Map<string, TugPaneState[]>();
+    for (const pane of panes) {
+      const railSide = railSideOf.get(pane.id);
+      const place =
+        railSide !== undefined
+          ? `rail:${railSide}`
+          : pane.slot === undefined
+            ? undefined
+            : `slot:${pane.slot}`;
+      if (place === undefined) continue;
+      const members = byPlace.get(place);
+      if (members) members.push(pane);
+      else byPlace.set(place, [pane]);
+    }
+    const paneById = new Map(panes.map((pane) => [pane.id, pane]));
+    const map = new Map<string, readonly SlotStackEntry[]>();
+    for (const [place, members] of byPlace.entries()) {
+      const splitRail = rails.find((rail) => `rail:${rail.side}` === place);
+      const ordered =
+        splitRail === undefined
+          ? // Topmost first, matching the host menu-state convention.
+            [...members].reverse()
+          : splitRail.members
+              .map((member) => paneById.get(member.paneId))
+              .filter((pane): pane is TugPaneState => pane !== undefined);
+      const entries: SlotStackEntry[] = ordered.map((pane, i) => {
+        const activeCard = cardsForTitles.get(pane.activeCardId);
+        const icon = activeCard
+          ? getRegistration(activeCard.componentId)?.defaultMeta.icon
+          : undefined;
+        return {
+          paneId: pane.id,
+          cardId: pane.activeCardId,
+          title: paneTitleBarTextFor(pane, cardsForTitles),
+          ...(icon === undefined ? {} : { icon }),
+          selected:
+            splitRail === undefined ? i === 0 : pane.id === deck.activePaneId,
+        };
+      });
+      for (const pane of members) map.set(pane.id, entries);
+    }
+    return map;
+  })();
+
+  const hostStackIdByCardId = new Map<string, string>();
+  for (const s of panes) {
+    for (const cid of s.cardIds) hostStackIdByCardId.set(cid, s.id);
+  }
+  const cardsById = new Map<string, (typeof cards)[number]>();
+  for (const c of cards) cardsById.set(c.id, c);
+
+  // Where each imposed pane stands. In FLOW that is exactly what it is: a
+  // slot's place is the running sum of every occupied slot before it, and the
+  // strip position rides down on the placement itself, so no pane ever
+  // re-derives deck-wide geometry from its own props ([P09]).
+  const impositionKind = imposition.kind;
+  const placementFor = (pane: TugPaneState): PanePlacement | undefined => {
+    if (impositionKind === undefined || pane.slot === undefined) {
+      return undefined;
+    }
+    const placement = resolvePlacement(impositionKind, pane.slot);
+    const stripLeft = flowStrip?.positions.get(placement.slot);
+    return stripLeft === undefined
+      ? placement
+      : { ...placement, flow: { stripLeft } };
+  };
+  // The width an ordinary card opens at in this arrangement — the
+  // arrangement's number, not any one card's; read only by a size-locked pane
+  // to size the SLOT it is centred in.
+  const contentWidthPx = resolveContentWidthPx(
+    imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH,
+    0,
+  );
+
+  // The pane standing in bullseye, and where it WAS before it took the
+  // posture — its centre, as a CSS length expression, in the frames
+  // container's coordinates. The other content panes are sorted around that
+  // line so each leaves by the side it was already on and no crossing is
+  // possible by construction.
+  const bullseyePaneId = bullseyePaneIdOf(deck);
+  const bullseyeAnchorCentre = ((): string | undefined => {
+    if (bullseyePaneId === null) return undefined;
+    const pane = panes.find((p) => p.id === bullseyePaneId);
+    if (pane === undefined) return undefined;
+    const railStanding = stackByPaneId.get(pane.id);
+    if (railStanding !== undefined) {
+      const railWidth = railWidthOf(railStanding.side);
+      const half = `var(${sidebarWidthProperty(railStanding.side)}, ${railWidth}px) / 2`;
+      return railStanding.side === "left"
+        ? `calc(${RAIL_EDGE_INSET_PX}px + ${half})`
+        : `calc(100% - ${RAIL_EDGE_INSET_PX}px - ${half})`;
+    }
+    const placement = placementFor(pane);
+    const left =
+      placement === undefined
+        ? `${pane.position.x}px`
+        : String(imposeStyle(placement, pane.size.width).left ?? "0px");
+    return `calc(${left} + ${pane.size.width / 2}px)`;
+  })();
+
+  return {
+    sidebarPaneIds,
+    sidebarRails,
+    flowStrip,
+    flowOffset,
+    deckColumns,
+    columnOffsets,
+    railOffsets,
+    columnMemberByPaneId,
+    columnModeByPaneId,
+    arrivingSeatByPaneId,
+    railWidthOf,
+    vacantRails,
+    stackByPaneId,
+    sortedStacks,
+    zIndexMap,
+    slotStackByPaneId,
+    hostStackIdByCardId,
+    cardsById,
+    impositionKind,
+    placementFor,
+    contentWidthPx,
+    bullseyePaneId,
+    bullseyeAnchorCentre,
+  };
+}
+
+/**
+ * A parked deck's arrangement, cached by the record's identity. A parked
+ * record is immutable — `parkedDeck` mints one at the switch away and nothing
+ * touches it until the workspace returns — so its arrangement is derived once
+ * per record per run height, however many times the canvas renders in
+ * between.
+ */
+const parkedArrangements = new WeakMap<
+  DeckState,
+  { rail: PlaceRuns["rail"]; column: PlaceRuns["column"]; titles: number; value: LayerArrangement }
+>();
+function arrangementOfParkedDeck(
+  deck: DeckState,
+  placeRuns: PlaceRuns,
+  cardTitleVersion: number,
+): LayerArrangement {
+  const hit = parkedArrangements.get(deck);
+  if (
+    hit !== undefined &&
+    hit.rail === placeRuns.rail &&
+    hit.column === placeRuns.column &&
+    hit.titles === cardTitleVersion
+  ) {
+    return hit.value;
+  }
+  const value = deriveLayerArrangement(deck, placeRuns, cardTitleVersion);
+  parkedArrangements.set(deck, {
+    rail: placeRuns.rail,
+    column: placeRuns.column,
+    titles: cardTitleVersion,
+    value,
+  });
+  return value;
+}
+
+/**
+ * Write the custom properties an arrangement's `calc()` chains resolve
+ * against — rail widths and insets, rail and column seams, strip coordinates,
+ * overflow offsets, the flow strip — onto `el`.
+ *
+ * Called on the CANVAS for the shown deck, where the seams, caps and drop
+ * zones outside every layer read them, and on EVERY layer wrapper for that
+ * layer's own deck. A wrapper carries its own copy so a hidden layer's frames
+ * resolve their placement against their own rails rather than the shown
+ * deck's ([B02]): a custom property inherits through the hidden wrapper's box
+ * and through the shown wrapper's `display: contents` alike. The shown
+ * wrapper's values equal the canvas's, so nothing is written on a switch.
+ *
+ * `columnRun` is the column run's measured height, for the offset gauge; the
+ * gauges themselves (`publish*`) are the deck's and are published by the
+ * canvas alone.
+ */
+function writeArrangementVariables(
+  el: HTMLElement,
+  a: LayerArrangement,
+  columnRun: number | null,
+  publish: boolean,
+): void {
+  for (const side of ["left", "right"] as const) {
+    const width = a.railWidthOf(side);
+    el.style.setProperty(sidebarWidthProperty(side), `${width}px`);
+    el.style.setProperty(
+      `--tug-imposer-inset-${side}`,
+      width === 0
+        ? "0px"
+        : railSpanInset(`var(${sidebarWidthProperty(side)})`),
+    );
+    const rail = a.sidebarRails.find((r) => r.side === side);
+    const railOverflows = rail?.allocation?.standing === "overflow";
+    const seams = railOverflows ? [] : (rail?.seams ?? []);
+    seams.forEach((fraction, index) => {
+      el.style.setProperty(railSeamProperty(side, index), String(fraction));
+    });
+    for (
+      let index = seams.length;
+      index <= SIDEBAR_PANE_ZINDEX_MAX_RANK;
+      index += 1
+    ) {
+      el.style.removeProperty(railSeamProperty(side, index));
+    }
+    if (railOverflows) {
+      el.style.setProperty(
+        railOffsetProperty(side),
+        `${Math.round(a.railOffsets[side] ?? 0)}px`,
+      );
+    } else {
+      el.style.removeProperty(railOffsetProperty(side));
+    }
+    const railStrip = stripCoordinatesOf(rail?.allocation) ?? [];
+    railStrip.forEach((coordinate, index) => {
+      el.style.setProperty(
+        railStripProperty(side, index),
+        `${Math.round(coordinate)}px`,
+      );
+    });
+    for (
+      let index = railStrip.length;
+      index <= SIDEBAR_PANE_ZINDEX_MAX_RANK + 1;
+      index += 1
+    ) {
+      el.style.removeProperty(railStripProperty(side, index));
+    }
+  }
+  const overflowing = (column: DeckColumn): boolean =>
+    column.allocation?.standing === "overflow";
+  const seamsBySlot = new Map(
+    a.deckColumns.map((column) => [
+      column.slot,
+      overflowing(column) ? [] : column.seams,
+    ]),
+  );
+  const offsetBySlot = new Map(
+    a.deckColumns
+      .filter(overflowing)
+      .map((column) => [column.slot, a.columnOffsets[column.slot] ?? 0]),
+  );
+  const stripBySlot = new Map(
+    a.deckColumns.map((column) => [
+      column.slot,
+      stripCoordinatesOf(column.allocation) ?? [],
+    ]),
+  );
+  for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
+    const seams = seamsBySlot.get(slot) ?? [];
+    seams.forEach((fraction, index) => {
+      el.style.setProperty(columnSeamProperty(slot, index), String(fraction));
+    });
+    for (
+      let index = seams.length;
+      index <= COLUMN_SEAM_MAX_INDEX;
+      index += 1
+    ) {
+      el.style.removeProperty(columnSeamProperty(slot, index));
+    }
+    const offset = offsetBySlot.get(slot);
+    if (offset === undefined) {
+      el.style.removeProperty(columnOffsetProperty(slot));
+    } else {
+      el.style.setProperty(
+        columnOffsetProperty(slot),
+        `${Math.round(offset)}px`,
+      );
+    }
+    const columnStrip = stripBySlot.get(slot) ?? [];
+    columnStrip.forEach((coordinate, index) => {
+      el.style.setProperty(
+        columnStripProperty(slot, index),
+        `${Math.round(coordinate)}px`,
+      );
+    });
+    for (
+      let index = columnStrip.length;
+      index <= COLUMN_SEAM_MAX_INDEX + 1;
+      index += 1
+    ) {
+      el.style.removeProperty(columnStripProperty(slot, index));
+    }
+    if (publish) {
+      publishColumnOffset(
+        slot,
+        offset === undefined || columnRun === null || columnRun <= 0
+          ? null
+          : offset / columnRun,
+      );
+    }
+  }
+  if (a.flowStrip === null) {
+    el.style.removeProperty(FLOW_OFFSET_PROPERTY);
+    el.style.removeProperty(FLOW_STRIP_PROPERTY);
+  } else {
+    el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(a.flowOffset)}px`);
+    el.style.setProperty(FLOW_STRIP_PROPERTY, `${a.flowStrip.width}px`);
+  }
+}
+
+/**
+ * One workspace layer: the wrapper `space-layer.css` keys on, carrying its
+ * own deck's arrangement variables so its frames stand where that deck puts
+ * them whether or not the layer is shown ([B02]). The attribute is the whole
+ * of what a switch changes on it; the variables are the layer's own and do
+ * not move on a switch.
+ */
+function SpaceLayerWrapper({
+  spaceId,
+  shown,
+  arrangement,
+  columnRun,
+  children,
+}: {
+  spaceId: string;
+  shown: boolean;
+  arrangement: LayerArrangement;
+  columnRun: number | null;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    writeArrangementVariables(el, arrangement, columnRun, false);
+  }, [arrangement, columnRun]);
+  return (
+    <div
+      ref={ref}
+      className="tug-space-layer"
+      data-space-layer={spaceId}
+      {...(shown ? { "data-space-shown": "" } : {})}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * One workspace's panes and card hosts, from its own deck and its own
+ * arrangement — the whole of what a layer renders under its wrapper.
+ *
+ * **Memoized, and the memo holds for every workspace that STAYS parked
+ * ([B02]).** The canvas re-renders on every store commit, and a switch is one;
+ * without a boundary here that render reached every pane and every card host
+ * of every mounted workspace, shown or not, the same whether the arriving
+ * workspace held twelve cards or one. A parked layer's props are all stable:
+ * its deck is the record the store holds for it, its arrangement is cached
+ * per deck (`arrangementOfParkedDeck`), it takes no handlers a hidden pane
+ * could reach, and the store is a singleton. So a layer that is parked before
+ * and after a commit is skipped whole — read off the fiber tree, every prop
+ * identical across a switch.
+ *
+ * What it does NOT skip is the two layers a switch changes hands between:
+ * `shown` flips, `onRevealPane` and `dropZones` come and go with it, the
+ * leaving deck is `parkedDeck`'s fresh copy and the arriving one is the
+ * store's re-solve, so both arrangements are minted new and both render
+ * whole. On a three-workspace deck that is most of the render phase, and the
+ * boundary is worth the one layer of six that stayed parked; a deck with
+ * more workspaces gets more of it. Letting the switching pair bail out too
+ * needs identity kept through parking and re-solving, and handlers given to
+ * every layer and inert when hidden, the shape `onMoveToSpace` already
+ * takes — `briefs/workspace-switch-cheap-readings.md` has the numbers.
+ *
+ * The workspace list the title bar's move control needs is deliberately NOT
+ * a prop: threaded through here it changed on every switch and broke the
+ * boundary for every layer at once. The bar reads it off the store itself.
+ */
+const LayerPanes = memo(function LayerPanes({
+  shown,
+  deck,
+  arr,
+  store,
+  onRevealPane,
+  dropZones,
+}: {
+  shown: boolean;
+  deck: DeckState;
+  arr: LayerArrangement;
+  store: IDeckManagerStore;
+  onRevealPane: TugPaneProps["onRevealPane"];
+  dropZones: DropZoneHost | undefined;
+}) {
+  return (
+    <>
+      {/* TugPanes: one per pane in this workspace's deck.
+          Rendered in stable ID order (no DOM reordering on focus change).
+          Z-index from store array position (first = lowest). Panes whose
+          active card's componentId is unregistered are skipped with a
+          warning. */}
+      {arr.sortedStacks.map((stackState) => {
+        const activeCard = arr.cardsById.get(stackState.activeCardId);
+        const fallbackCard =
+          activeCard ?? arr.cardsById.get(stackState.cardIds[0]);
+        const componentId = fallbackCard?.componentId;
+        if (!componentId) {
+          console.warn(
+            `[DeckCanvas] stack "${stackState.id}" has no active card -- skipping render.`,
+          );
+          return null;
+        }
+
+        const registration = getRegistration(componentId);
+        if (!registration) {
+          console.warn(
+            `[DeckCanvas] stack "${stackState.id}" references unregistered componentId "${componentId}" -- skipping render.`,
+          );
+          return null;
+        }
+
+        /**
+         * onClose wrapper: when the closed stack matches
+         * Close-button handler: delegates to store. No gallery-stack bookkeeping
+         * needed — show-component-gallery re-derives the gallery stack from
+         * the live snapshot on every dispatch.
+         */
+        const handleClose = () => {
+          store.handlePaneClosed(stackState.id);
+        };
+
+        const stackCards = stackState.cardIds
+          .map((cid) => arr.cardsById.get(cid))
+          .filter((c): c is NonNullable<typeof c> => c !== undefined);
+        const hasMultipleCards = stackCards.length > 1;
+
+        return (
+          <TugPane
+            key={stackState.id}
+            stackState={stackState}
+            meta={registration.defaultMeta}
+            layoutRole={registration.layoutRole}
+            // A pane is one box shared by every tab in the stack, so
+            // its resize floor must clear the widest card kind it
+            // hosts — not just the active tab. `getStackSizePolicy`
+            // takes the element-wise max of the stack's mins.
+            sizePolicy={getStackSizePolicy(
+              stackCards.map((c) => c.componentId),
+              // A folded pane is sized by the folded policy ([P04]):
+              // the open card's 600px floor is what its transcript and
+              // composer need, and a wall cannot pack while every member
+              // still claims it.
+              //
+              // And an UNBOUND pane is sized by the unbound policy ([B04],
+              // [D195]), on the same fact `placeMembers` reads, so the frame's
+              // resize floor and the column's member floor are one answer
+              // rather than two. The unbound policy's height floor is zero, and
+              // `TugPane` floors its chrome-measured `minSize` to
+              // `sizePolicy.min` — so what stands is the chrome's own
+              // measurement rather than a collapsed frame. The hidden arriving
+              // seat is untouched by this: it comes from the `arriving` prop,
+              // resolved from `DeckState.arriving`, not from `minSize`.
+              {
+                folded: stackState.folded === true,
+                unbound: isUnboundMember(deck, stackState.id),
+              },
+            )}
+            zIndex={
+              arr.zIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE
+            }
+            // Every placement below is THIS layer's own, shown or not.
+            // A hidden pane resolves it against its own wrapper's
+            // inset variables — `SpaceLayerWrapper` writes them from
+            // the same arrangement — so it stands where its deck puts
+            // it and not where the shown deck's rails would. What a
+            // hidden layer does NOT take is interaction: no drop zones,
+            // no close, no reveal, no move menu.
+            placement={arr.placementFor(stackState)}
+            bullseye={arr.bullseyePaneId === stackState.id}
+            // Every OTHER content pane leaves the canvas while bullseye
+            // holds — receding a card that is still sitting there is not
+            // what "distraction-free" means. Rails are excluded and stay at
+            // their pins: a rail leaving would take the band's insets with
+            // it, and the bullseyed card would jump the moment the posture
+            // began.
+            bullseyeExit={
+              arr.bullseyePaneId !== null &&
+              arr.bullseyePaneId !== stackState.id &&
+              !arr.sidebarPaneIds.has(stackState.id)
+                ? arr.bullseyeAnchorCentre
+                : undefined
+            }
+            contentWidthPx={arr.contentWidthPx}
+            slotStack={arr.slotStackByPaneId.get(stackState.id)}
+            columnMember={arr.columnMemberByPaneId.get(stackState.id)}
+            columnMode={arr.columnModeByPaneId.get(stackState.id)}
+            arriving={arr.arrivingSeatByPaneId.get(stackState.id)}
+            // The pane's own field ([P01]) rather than `paneFoldedOf` over
+            // the deck state: the selector exists for readers holding a state
+            // and an id, and this one is already holding the pane.
+            folded={stackState.folded === true}
+            onRevealPane={shown ? onRevealPane : undefined}
+            // Given to EVERY layer, shown or not, because the title bar
+            // renders its move control on the handler's presence and a
+            // bar that gains a control on show is a bar that changes
+            // width on show. A hidden pane cannot reach it — no pointer,
+            // no focus ([B02], `at0641`) — so the handler is inert there.
+            //
+            // The pane's ACTIVE card is what moves — the one the title
+            // bar is naming. [B04]: the move does not follow the card,
+            // so nothing here touches the active workspace.
+            onMoveToSpace={(spaceId) => {
+              store.moveCardToSpace(stackState.activeCardId, spaceId);
+            }}
+            sidebarStack={arr.stackByPaneId.get(stackState.id)}
+            isSidebarPane={arr.sidebarPaneIds.has(stackState.id)}
+            onCardMoved={store.handlePaneMoved}
+            onClose={shown ? handleClose : undefined}
+            dropZones={shown ? dropZones : undefined}
+            onCardMerged={
+              shown
+                ? (sourceStackId, targetStackId, insertIndex) => {
+                    // Resolve the active card id from the source stack at
+                    // commit time.
+                    const snapshot = store.getSnapshot();
+                    const sourceStack = snapshot.panes.find(
+                      (s) => s.id === sourceStackId,
+                    );
+                    if (!sourceStack) return;
+                    store.moveCardToPane(
+                      sourceStackId,
+                      sourceStack.activeCardId,
+                      targetStackId,
+                      insertIndex,
+                    );
+                  }
+                : undefined
+            }
+            activeCardId={stackState.activeCardId}
+            cards={hasMultipleCards ? stackCards : undefined}
+            cardTitle={hasMultipleCards ? stackState.title : undefined}
+            acceptedFamilies={
+              hasMultipleCards ? stackState.acceptsFamilies : undefined
+            }
+          />
+        );
+      })}
+
+      {/* Flat card-content list: every card of THIS workspace is mounted
+          exactly once and routes its DOM via portal into its host stack's
+          content div. React keys by cardId so React preserves component
+          identity when a card moves between stacks (detach / merge).
+          Non-active cards render with `display: none` so they stay alive
+          without affecting layout. Content factories and contexts live in
+          CardHost; see card-host.tsx. */}
+      {deck.cards.map((card) => {
+        const hostStackId = arr.hostStackIdByCardId.get(card.id);
+        if (!hostStackId) return null;
+        const hostStack = deck.panes.find((s) => s.id === hostStackId);
+        return (
+          <CardHost
+            key={card.id}
+            cardId={card.id}
+            hostStackId={hostStackId}
+            componentId={card.componentId}
+            isActive={hostStack?.activeCardId === card.id}
+          />
+        );
+      })}
+    </>
+  );
+});
+
 /**
  * DeckCanvas — plain function component (no `forwardRef`).
  *
  * Renders the responder-chain root and, per mounted workspace, one wrapper
  * holding a TugPane per entry in that workspace's deck ([B06]). Exactly one
  * wrapper is shown; the rest carry no `data-space-shown` and are
- * `display: none`, which is how a workspace switch became a style change
+ * hidden — laid out but unpainted, unreachable and still ([B02]) — which is
+ * how a workspace switch became a style change
  * rather than an unmount of every card on one side and a mount of every card
  * on the other.
  *
@@ -1833,278 +2490,45 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     }
     return layers;
   }, [spacesSnapshot, deckState]);
-  // Every pane hosting a sidebar card, pinned or dragged loose. They share the
-  // z-band above the free panes: a rail must never be occluded by a card, and
-  // that is a property of being a rail rather than of any one card on it.
-  const sidebarPaneIds = useMemo(
-    () => new Set(findSidebarPanes(deckState).map(({ pane }) => pane.id)),
-    [deckState],
-  );
-  // The rails standing on the deck's edges, and the stack membership each
-  // sidebar pane derives its frame from. A closed or unpinned sidebar card
-  // holds no side and is absent: the arrangement spans what its rail is not
-  // taking, which when nothing is pinned is the whole canvas.
-  // The runs the deck's two kinds of place divide, measured off the store —
-  // the one pair every allocation on this canvas is derived against ([P06]).
-  // Read at render rather than stored: a run is a measurement, and the store
-  // is the one reader of it.
+  // The shown deck's arrangement — one derivation the whole body reads from,
+  // and the same one every hidden layer takes from its own parked deck in the
+  // render below. `placeRuns` are the canvas's measured run heights, the same
+  // for every layer because every layer stands in the same canvas.
   const placeRuns: PlaceRuns = {
     rail: store.getRailRunHeight(),
     column: store.getColumnRunHeight(),
   };
-  const sidebarRails = sidebarRailsOf(deckState, placeRuns);
-  // The strip, when the deck is in flow — the deck's ONE resolution of it
-  // ([P09]). Declared up here rather than beside the placements memo it feeds
-  // because the inset effect below publishes its width, and the effect order
-  // in this file is load-bearing.
-  const flowStrip = useMemo(() => deckFlowStrip(deckState), [deckState]);
-  const flowOffset = deckState.flowOffset ?? 0;
-  // The occupied slots and how each one's panes stand — the deck's ONE reading
-  // of its columns ([P11]). Declared here for the same reason the strip is: the
-  // inset effect below publishes the seam fractions, and the effect order in
-  // this file is load-bearing.
-  const deckColumns = useMemo(
-    () => deckColumnsOf(deckState, placeRuns.column),
-    [deckState, placeRuns.column],
+  const shownArrangement = useMemo(
+    () => deriveLayerArrangement(deckState, placeRuns, cardTitleVersion),
+    // `placeRuns` is minted per render; its two numbers are the dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deckState, placeRuns.rail, placeRuns.column, cardTitleVersion],
   );
-  // How far each overflowing column has slid its strip up behind the run
-  // ([P12]) — the vertical twin of `flowOffset`, and per-slot because each
-  // column scrolls on its own. Published by the inset effect below.
-  const columnOffsets = deckState.columnOffsets ?? EMPTY_COLUMN_OFFSETS;
-  // And the same number per SIDE, for the rails that overflow ([P12]).
-  const railOffsets = deckState.railOffsets ?? EMPTY_RAIL_OFFSETS;
-  // Each member's standing in its column, for the panes that have one. Only a
-  // SPLIT column of two or more contributes: a stacked column and a column of
-  // one take the undivided run, which is the frame they had before a slot could
-  // be divided at all.
-  const columnMemberByPaneId = useMemo(() => {
-    const map = new Map<string, ColumnMemberPlacement>();
-    for (const column of deckColumns) {
-      if (!columnDrawsSplit(column)) continue;
-      const strip = stripCoordinatesOf(column.allocation);
-      column.members.forEach((paneId, index) => {
-        map.set(paneId, {
-          slot: column.slot,
-          index,
-          count: column.members.length,
-          standing: column.allocation?.standing ?? "shared",
-          ...(strip === undefined ? {} : { strip }),
-        });
-      });
-    }
-    return map;
-  }, [deckColumns]);
-  // And the arrangement each member's column is SET to, which is a different
-  // question from the one above: membership never destroys an arrangement, and
-  // a slot split while it holds one card is split from that moment even though
-  // its lone member goes on taking the undivided run. The badge in a pane's
-  // cluster names the arrangement — so it reads THIS map, and reads the
-  // placement above only for the band index and the depth ([D121]).
-  const columnModeByPaneId = useMemo(() => {
-    const map = new Map<string, ColumnMode>();
-    for (const column of deckColumns) {
-      for (const paneId of column.members) map.set(paneId, column.mode);
-    }
-    return map;
-  }, [deckColumns]);
-  // The seat each ARRIVING pane draws at while it is hidden ([B08]). A
-  // marked pane is left out of `deckColumns` by construction, so its column
-  // here is the standing members' column: split with someone standing, and
-  // the newcomer sits at the run's bottom over the neighbour that will
-  // shrink; otherwise — a stacked column, or a slot it has to itself — it
-  // takes the undivided run, which is the frame it will have once revealed.
-  const arrivingSeatByPaneId = useMemo(() => {
-    const map = new Map<string, ArrivingSeat>();
-    const marks = deckState.arriving;
-    const kind = deckState.imposition.kind;
-    if (marks === undefined || kind === undefined) return map;
-    for (const pane of deckState.panes) {
-      if (marks[pane.id] !== true) continue;
-      if (pane.slot === undefined) continue;
-      const slot = clampSlot(kind, pane.slot);
-      const column = deckColumns.find((c) => c.slot === slot);
-      map.set(
-        pane.id,
-        column !== undefined &&
-          column.mode === "split" &&
-          column.members.length > 0
-          ? "bottom"
-          : "run",
-      );
-    }
-    return map;
-  }, [deckState, deckColumns]);
-  const railWidthOf = (side: SidebarSide): number =>
-    sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
-  // The held-open deck edge ([B10]). A side with no rail has no frame the
-  // drop-zone engine could read a zone from, so while exactly one rail
-  // stands — the only shape in which a rail card can be in the air over an
-  // empty side — a tile stands at the other side's anchor, at the width the
-  // dragged card's own rail takes. That is the standing rail's width: with
-  // one rail on the deck, every rail card in the air came from it, and the
-  // tile reads that rail's live width property so a width drag moves it in
-  // the same reflow. Nothing in the imposition remembers a width for an
-  // empty side (a rail's width is its widest member's, [F08]), so there is
-  // no stored width to prefer over the card's own.
-  const vacantRails: { side: SidebarSide; style: React.CSSProperties }[] = [];
-  if (sidebarRails.length === 1) {
-    const standing = sidebarRails[0];
-    const side: SidebarSide = standing.side === "left" ? "right" : "left";
-    vacantRails.push({
-      side,
-      style: imposeSidebarStyle(side, standing.width, {
-        widthProperty: sidebarWidthProperty(standing.side),
-      }),
-    });
-  }
-  // Each member's standing on its rail: which side, how many share it, how they
-  // stand against one another, and where this one is in that order. The pane
-  // renders its own frame from these ([L09]) — a split member's pins are its
-  // index's share of the run.
-  const stackByPaneId = new Map<string, SidebarStackStanding>();
-  for (const rail of sidebarRails) {
-    const strip = stripCoordinatesOf(rail.allocation);
-    rail.members.forEach((member, index) => {
-      stackByPaneId.set(member.paneId, {
-        side: rail.side,
-        componentId: member.componentId,
-        count: rail.members.length,
-        memberIndex: index,
-        standing: rail.allocation?.standing ?? "shared",
-        ...(strip === undefined ? {} : { strip }),
-      });
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Stable render order
-  // ---------------------------------------------------------------------------
-  // Stacks are rendered in a stable order (sorted by ID) so that focusCard
-  // reordering the store array only changes z-index values -- React never
-  // calls insertBefore to move DOM nodes. This preserves the browser's
-  // pointer->click event sequence when clicking interactive elements on
-  // unfocused stacks: the synchronous pane-activation path on pointerdown
-  // updates z-index before click fires, so the stack is already focused.
-  //
-  // Z-index comes from each stack's position in the *store* array (focus
-  // order), not from the stable render order.
-
-  const { sortedStacks, zIndexMap } = useMemo(() => {
-    const sorted = [...panes].sort((a, b) => a.id.localeCompare(b.id));
-    return { sortedStacks: sorted, zIndexMap: buildZIndexMap(panes, sidebarPaneIds) };
-  }, [panes, sidebarPaneIds]);
-
-  // A slot is a stack: every pane holding it, the last one topmost ([D121]).
-  // The membership is derived here rather than stored, and here rather than in
-  // the pane, for the same reason `placement` is — a pane cannot see its
-  // slot's other occupants from its own state. Entries arrive at the title bar
-  // display-resolved, so the picker needs no store access.
-  //
-  // Keyed on `panes`/`cards` rather than on the whole deck snapshot so a pane's
-  // `slotStack` prop — and therefore the picker's `items` array — keeps a
-  // stable identity across renders that changed neither.
-  const slotStackByPaneId = useMemo(() => {
-    // A picker row shows the title bar's own text, which folds in the live
-    // override a card publishes on `cardTitleStore`. That store is not the
-    // deck, so the memo above would never see an override land — subscribing
-    // to its revision is what makes a Session card that has just bound to a
-    // project rename its row as well as its title bar. [L02]
-    void cardTitleVersion;
-    const cardsForTitles = new Map(cards.map((c) => [c.id, c]));
-    // A pane stands in a stack when it shares a PLACE with other panes, and the
-    // deck has two kinds of place: a numbered slot, and a side's rail. Both are
-    // front-to-back stacks of full-size panes, so both get the same badge and
-    // the same picker — the rail was the one that had to be taught, because a
-    // rail's members are found through the imposition rather than off the pane.
-    // Membership and mode only, so the places' runs are beside the point and
-    // no allocation is asked for.
-    const rails = sidebarRailsOf(deckState, UNMEASURED_RUNS);
-    const railSideOf = new Map<string, SidebarSide>();
-    for (const { componentId, pane } of findSidebarPanes(deckState)) {
-      if (!isSidebarPinned(imposition, componentId)) continue;
-      railSideOf.set(pane.id, sidebarSide(imposition, componentId));
-    }
-    const byPlace = new Map<string, TugPaneState[]>();
-    for (const pane of panes) {
-      const railSide = railSideOf.get(pane.id);
-      const place =
-        railSide !== undefined
-          ? `rail:${railSide}`
-          : pane.slot === undefined
-            ? undefined
-            : `slot:${pane.slot}`;
-      if (place === undefined) continue;
-      const members = byPlace.get(place);
-      if (members) members.push(pane);
-      else byPlace.set(place, [pane]);
-    }
-    const paneById = new Map(panes.map((pane) => [pane.id, pane]));
-    const map = new Map<string, readonly SlotStackEntry[]>();
-    for (const [place, members] of byPlace.entries()) {
-      // A SPLIT rail's rows are a different list from a stack's, because the
-      // question they answer is different. In a stack the rows are a depth
-      // order and the check marks the one card you can actually see. In a
-      // split nothing is occluded: the rows read top to bottom, the order the
-      // eye reads the rail in, and the check marks the FOCUSED member — the
-      // pane the deck would act on — with nothing checked when focus rests
-      // outside the rail. Checking the topmost there would be a claim about
-      // z-order dressed up as a claim about what you are looking at.
-      const splitRail = rails.find(
-        (rail) => `rail:${rail.side}` === place,
-      );
-      const ordered =
-        splitRail === undefined
-          ? // Topmost first, matching the host menu-state convention.
-            [...members].reverse()
-          : splitRail.members
-              .map((member) => paneById.get(member.paneId))
-              .filter((pane): pane is TugPaneState => pane !== undefined);
-      const entries: SlotStackEntry[] = ordered.map((pane, i) => {
-        // A row is a miniature of the title bar it stands for, so it takes
-        // both of that title bar's parts from the same places the title bar
-        // does: the icon off the active card's registration, and the title
-        // through the one composer in `lib/pane-title.ts`. Resolved here
-        // rather than in the pane because the title bar renders its picker
-        // from props alone and reaches for neither a registry nor a store.
-        const activeCard = cardsForTitles.get(pane.activeCardId);
-        const icon = activeCard
-          ? getRegistration(activeCard.componentId)?.defaultMeta.icon
-          : undefined;
-        return {
-          paneId: pane.id,
-          cardId: pane.activeCardId,
-          title: paneTitleBarTextFor(pane, cardsForTitles),
-          ...(icon === undefined ? {} : { icon }),
-          selected:
-            splitRail === undefined
-              ? i === 0
-              : pane.id === deckState.activePaneId,
-        };
-      });
-      for (const pane of members) map.set(pane.id, entries);
-    }
-    return map;
-  }, [panes, cards, cardTitleVersion, deckState, imposition]);
-
-  // Build a cardId → hostStackId map so `CardHost` can look up its
-  // host stack without re-scanning the stacks array on every render.
-  const hostStackIdByCardId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of panes) {
-      for (const cid of s.cardIds) map.set(cid, s.id);
-    }
-    return map;
-  }, [panes]);
-
-  // Build a cardId → CardState map once per render. Consumed by the stack
-  // render loop (active-card lookup, componentId resolution) and by the
-  // card render loop. Hoisted out of `.map()` so the Map isn't rebuilt per
-  // stack.
-  const cardsById = useMemo(() => {
-    const map = new Map<string, typeof cards[number]>();
-    for (const c of cards) map.set(c.id, c);
-    return map;
-  }, [cards]);
+  const {
+    sidebarPaneIds,
+    sidebarRails,
+    flowStrip,
+    flowOffset,
+    deckColumns,
+    columnOffsets,
+    railOffsets,
+    columnMemberByPaneId,
+    columnModeByPaneId,
+    arrivingSeatByPaneId,
+    railWidthOf,
+    vacantRails,
+    stackByPaneId,
+    sortedStacks,
+    zIndexMap,
+    slotStackByPaneId,
+    hostStackIdByCardId,
+    cardsById,
+    impositionKind,
+    placementFor,
+    contentWidthPx,
+    bullseyePaneId,
+    bullseyeAnchorCentre,
+  } = shownArrangement;
 
   // ---------------------------------------------------------------------------
   // Visual focus
@@ -3060,170 +3484,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    for (const side of ["left", "right"] as const) {
-      const width = railWidthOf(side);
-      el.style.setProperty(sidebarWidthProperty(side), `${width}px`);
-      el.style.setProperty(
-        `--tug-imposer-inset-${side}`,
-        width === 0
-          ? "0px"
-          : railSpanInset(`var(${sidebarWidthProperty(side)})`),
-      );
-      // Both sides are written on every pass, and every index past the current
-      // gap count is removed rather than left standing. A rail going three
-      // members to two would otherwise leave seam 1 behind, and a frame reading
-      // it would be pinned to a seam that is no longer anywhere.
-      //
-      // An overflowing rail reads no seams and a shared one reads no offset, so
-      // the two writes are exclusive by construction — the same discipline the
-      // columns below keep, and for the same reason: a side crossing the
-      // boundary in either direction must not leave a stale number a frame
-      // could still pin itself against.
-      const rail = sidebarRails.find((r) => r.side === side);
-      const railOverflows = rail?.allocation?.standing === "overflow";
-      const seams = railOverflows ? [] : (rail?.seams ?? []);
-      seams.forEach((fraction, index) => {
-        el.style.setProperty(railSeamProperty(side, index), String(fraction));
-      });
-      for (
-        let index = seams.length;
-        index <= SIDEBAR_PANE_ZINDEX_MAX_RANK;
-        index += 1
-      ) {
-        el.style.removeProperty(railSeamProperty(side, index));
-      }
-      // The other half of that exclusivity: the offset stands only while the
-      // side overflows, and is swept the moment it stops.
-      if (railOverflows) {
-        el.style.setProperty(
-          railOffsetProperty(side),
-          `${Math.round(railOffsets[side] ?? 0)}px`,
-        );
-      } else {
-        el.style.removeProperty(railOffsetProperty(side));
-      }
-      // The strip coordinates ride with the offset, for the same reason and on
-      // the same terms: an overflowing member's frame pins to the coordinate
-      // above it and the one below it, so a side that stops overflowing must
-      // not leave one standing. There are `n + 1` of them for `n` members —
-      // every top, then the strip's own end, which the offset clamp reads — so
-      // the sweep runs one index further than the seams' does.
-      const railStrip = stripCoordinatesOf(rail?.allocation) ?? [];
-      railStrip.forEach((coordinate, index) => {
-        el.style.setProperty(
-          railStripProperty(side, index),
-          `${Math.round(coordinate)}px`,
-        );
-      });
-      for (
-        let index = railStrip.length;
-        index <= SIDEBAR_PANE_ZINDEX_MAX_RANK + 1;
-        index += 1
-      ) {
-        el.style.removeProperty(railStripProperty(side, index));
-      }
-    }
-    // The column seams, written per slot and swept the same way the rails' are:
-    // every index past a column's live seam count is removed, and every slot
-    // the largest arrangement could have is visited whether or not it currently
-    // holds panes. A column that lost a member — or a whole slot that emptied,
-    // or a kind change that took the slot away — would otherwise leave a seam
-    // property standing for a frame to pin itself against.
-    // An overflowing column reads no seams and a shared one reads no offset,
-    // so the two writes are exclusive by construction: a slot publishes one or
-    // the other, and whichever it is not is swept away in the same pass. That
-    // is what keeps a column crossing the boundary in either direction from
-    // holding a stale number a frame could still pin itself against.
-    const overflowing = (column: DeckColumn): boolean =>
-      column.allocation?.standing === "overflow";
-    const seamsBySlot = new Map(
-      deckColumns.map((column) => [
-        column.slot,
-        overflowing(column) ? [] : column.seams,
-      ]),
-    );
-    const offsetBySlot = new Map(
-      deckColumns
-        .filter(overflowing)
-        .map((column) => [column.slot, columnOffsets[column.slot] ?? 0]),
-    );
-    const stripBySlot = new Map(
-      deckColumns.map((column) => [
-        column.slot,
-        stripCoordinatesOf(column.allocation) ?? [],
-      ]),
-    );
-    const columnRun = store.getColumnRunHeight();
-    for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
-      const seams = seamsBySlot.get(slot) ?? [];
-      seams.forEach((fraction, index) => {
-        el.style.setProperty(columnSeamProperty(slot, index), String(fraction));
-      });
-      for (
-        let index = seams.length;
-        index <= COLUMN_SEAM_MAX_INDEX;
-        index += 1
-      ) {
-        el.style.removeProperty(columnSeamProperty(slot, index));
-      }
-      const offset = offsetBySlot.get(slot);
-      if (offset === undefined) {
-        el.style.removeProperty(columnOffsetProperty(slot));
-      } else {
-        el.style.setProperty(
-          columnOffsetProperty(slot),
-          `${Math.round(offset)}px`,
-        );
-      }
-      // The slot's strip coordinates, on the rails' terms exactly: written for
-      // an overflowing column, swept for a sharing one, and swept one index
-      // past the seams because `n` members make `n + 1` coordinates.
-      const columnStrip = stripBySlot.get(slot) ?? [];
-      columnStrip.forEach((coordinate, index) => {
-        el.style.setProperty(
-          columnStripProperty(slot, index),
-          `${Math.round(coordinate)}px`,
-        );
-      });
-      for (
-        let index = columnStrip.length;
-        index <= COLUMN_SEAM_MAX_INDEX + 1;
-        index += 1
-      ) {
-        el.style.removeProperty(columnStripProperty(slot, index));
-      }
-      // The gauge channel carries the same number to instruments outside the
-      // canvas ([P08]). It rides the COMMITTED write as well as the per-frame
-      // one so a gauge and the deck agree at rest, not only mid-gesture, and
-      // it is a fraction of the run for the reason the whole channel is
-      // fractional: the miniature's field is this run at another scale.
-      publishColumnOffset(
-        slot,
-        offset === undefined || columnRun === null || columnRun <= 0
-          ? null
-          : offset / columnRun,
-      );
-    }
-    // Both flow properties are written together or removed together: a strip
-    // width standing without an offset (or the reverse) would clamp one frame
-    // against a viewport the other does not believe in. In fit they are absent
-    // and `imposeStyle`'s fit expression never reads them.
-    if (flowStrip === null) {
-      el.style.removeProperty(FLOW_OFFSET_PROPERTY);
-      el.style.removeProperty(FLOW_STRIP_PROPERTY);
-    } else {
-      el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(flowOffset)}px`);
-      el.style.setProperty(FLOW_STRIP_PROPERTY, `${flowStrip.width}px`);
-    }
+    writeArrangementVariables(el, shownArrangement, store.getColumnRunHeight(), true);
     const flowBand = store.getBandWidth();
     publishFlowOffset(
       flowStrip === null || flowBand === null || flowBand <= 0
         ? null
         : flowOffset / flowBand,
     );
-    // `railWidthOf` and both seam sweeps read `sidebarRails` and `deckColumns`,
-    // which `railSummary` summarises — the widths, modes, and fractions in it
-    // are exactly what this effect writes.
+    // Keyed on the summary rather than on `arrangement`: the arrangement is
+    // re-derived on every deck commit and most commits move none of these
+    // numbers, and a style write that changes nothing is still a style write.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railSummary]);
 
@@ -5819,28 +6089,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // ([P09]) — it walks every pane once per commit either way — and the strip
   // position it resolves rides down on the placement itself, so no pane ever
   // re-derives deck-wide geometry from its own props.
-  const impositionKind = deckState.imposition.kind;
-  const placementFor = useCallback(
-    (pane: TugPaneState) => {
-      if (impositionKind === undefined || pane.slot === undefined) {
-        return undefined;
-      }
-      const placement = resolvePlacement(impositionKind, pane.slot);
-      const stripLeft = flowStrip?.positions.get(placement.slot);
-      return stripLeft === undefined
-        ? placement
-        : { ...placement, flow: { stripLeft } };
-    },
-    [impositionKind, flowStrip],
-  );
-
-  // The width an ordinary card opens at in this arrangement. Resolved with no
-  // per-pane bounds — this is the arrangement's number, not any one card's —
-  // and read only by a size-locked pane, to size the SLOT it is centred in.
-  const contentWidthPx = resolveContentWidthPx(
-    deckState.imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH,
-    0,
-  );
+  //
+  // `impositionKind`, `placementFor` and `contentWidthPx` are the shown
+  // arrangement's, destructured above; every hidden layer reads the same
+  // three off its own.
 
   /**
    * The slots of the arrangement no pane stands in, each with the frame style
@@ -5892,68 +6144,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     return tiles;
   }, [impositionKind, deckState, flowStrip]);
 
-  // The pane standing in bullseye, derived once per render and handed down as
-  // a boolean per pane. Read here rather than in each pane because the answer
-  // is deck state — which pane holds the first responder — and a pane cannot
-  // see that from its own props.
-  const bullseyePaneId = bullseyePaneIdOf(deckState);
+  // `bullseyePaneId` and `bullseyeAnchorCentre` are the shown arrangement's,
+  // destructured above. The pane standing in bullseye is deck state — which
+  // pane holds the first responder — so the canvas derives it once and hands
+  // each pane a boolean; the anchor centre is the line the other content
+  // panes sort around on their way out, so each leaves by the side it was
+  // already on and no crossing is possible by construction ([P10] for what
+  // flow does to it).
 
-  // Where the bullseyed pane WAS before it took the posture — its centre, as
-  // a CSS length expression, in the frames container's coordinates.
-  //
-  // This is the line the other content panes are sorted around: everything
-  // left of it leaves by the left edge, everything right of it by the right.
-  // Sorting around the CANVAS centre instead was the first cut and it let
-  // cards cross the bullseyed card on their way out — bullseye the leftmost
-  // card of a three-up and the middle card, still left of the canvas centre,
-  // would slide left THROUGH the card that was arriving there. Sorting around
-  // the bullseyed card's own former place makes crossings impossible by
-  // construction: each pane leaves by the side it was already on.
-  //
-  // It is the pane's PRE-bullseye anchor deliberately, not its bullseyed one.
-  // Bullseye writes nothing, so the pane still carries its slot and its
-  // stored position, and `placementFor` still answers with the placement it
-  // will return to — which is exactly the reference the user's eye used
-  // before the gesture started.
-  //
-  // A bullseyed RAIL is anchored at its pin on the deck's edge, not at its
-  // stored `position.x` — which for a pinned pane is the same superseded
-  // last-known value an imposed pane's is, and would put the line the other
-  // panes sort around wherever the rail last happened to be dragged. Its
-  // width is the RAIL's (the widest member's), because that is the box the
-  // band is already inset by and the box the rail returns to.
-  const bullseyeAnchorCentre = ((): string | undefined => {
-    if (bullseyePaneId === null) return undefined;
-    const pane = deckState.panes.find((p) => p.id === bullseyePaneId);
-    if (pane === undefined) return undefined;
-    const railStanding = stackByPaneId.get(pane.id);
-    if (railStanding !== undefined) {
-      // Written out rather than taken from `imposeSidebarStyle`, whose `left`
-      // is a calc over `--tugx-rail-side` — a property that rail's own frame
-      // declares on itself. Read from any other pane it would resolve to
-      // nothing. The width term is the live rail property with the
-      // React-known width as its fallback, the same pairing every rail
-      // expression uses, so a drag moves this line in the same reflow.
-      const railWidth = railWidthOf(railStanding.side);
-      const half = `var(${sidebarWidthProperty(railStanding.side)}, ${railWidth}px) / 2`;
-      return railStanding.side === "left"
-        ? `calc(${RAIL_EDGE_INSET_PX}px + ${half})`
-        : `calc(100% - ${RAIL_EDGE_INSET_PX}px - ${half})`;
-    }
-    // Through `placementFor`, so on a flow deck this line is the FLOW left —
-    // strip position and viewport offset — rather than the fit anchor. That is
-    // the one part of bullseye flow touches ([P10]): the bullseyed pane's own
-    // geometry is unchanged (still centred one-up, still offset-free, above),
-    // but the line the OTHERS sort around has to be where they actually stand,
-    // or the sort that makes crossings impossible sorts around a place nothing
-    // is and they cross on the way out.
-    const placement = placementFor(pane);
-    const left =
-      placement === undefined
-        ? `${pane.position.x}px`
-        : String(imposeStyle(placement, pane.size.width).left ?? "0px");
-    return `calc(${left} + ${pane.size.width / 2}px)`;
-  })();
 
   // Raise the pane a stack-picker row names. The same path `assignCardToSlot`
   // takes for its raise, and for the same reason: a bare `activateCard` flips
@@ -6502,87 +6700,181 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   }, [store]);
 
   // ---------------------------------------------------------------------------
-  // The switch is one dissolve
+  // The switch is a cut, and what it leaves behind is the epoch
   // ---------------------------------------------------------------------------
-  // A workspace switch lands as a cut ([P11]): both sets of frames are already
-  // drawn where the commit puts them, the settle declines it, and nothing
-  // moves. What is left is the JOIN between two still pictures, and this is
-  // it — the workspace being left painted OVER the one arriving for the length
-  // of one `divide-join` window, and dissolved off it.
+  // A workspace switch lands as a cut ([B01]): both sets of frames are already
+  // drawn where the commit puts them, the settle declines it, and nothing moves.
+  // Nothing is painted over anything and nothing is faded — the reader sees the
+  // arriving workspace in the first frame the browser serves after the click
+  // task ends. Tried live against every crossfade variant the sketch built, the
+  // pure cut was the one the user called "better, by a lot" ([F08]).
   //
-  // One layer moves, not two. The arriving workspace is opaque underneath from
-  // the first frame and is never touched; only the departing wrapper's own
-  // opacity is tweened, 1 to 0. That is what makes anything the two workspaces
-  // share appear not to move at all: where the picture is the same on both
-  // sides, `t·C + (1−t)·C` is `C` at every instant. Fading both at once — a
-  // true crossfade — put two partial pictures over canvas ground and showed
-  // the ground between them, which is the blank this replaced.
+  // What the cut does NOT answer is how long the arriving workspace goes on
+  // ARRIVING. Geometry a hidden layer could not take — a composer's line box, a
+  // pane bar's controls width, a sheet's clamps — lands in the commits after the
+  // swap, and a pane whose rect moves in those frames must not be animated to
+  // its new place: the reader gestured at a workspace, not at that pane ([B05]).
+  // `data-space-switching` is the mark that stands the imposer down over that
+  // window, `DeckManager` writes it inside the swap commit, and this effect is
+  // what owes it back.
   //
-  // The tween rides the WRAPPER rather than the frames under it, which is the
-  // other half of the same argument: one opacity composites the departing deck
-  // as a single picture, where N of them would have let its own overlapping
-  // panes show through each other on the way out. `space-layer.css` gives the
-  // wrapper the box and the z-index that makes that possible.
+  // So this effect is now one thing: the rule for when the epoch closes.
+  // `space-settled.ts` decides it over three facts — two watched and one
+  // counted — and the gate below is what gathers them. Everything here is DOM:
+  // one attribute on the container, no React state, nothing that renders ([L06]).
   //
-  // Everything here is DOM: an attribute on the outgoing wrapper and one
-  // opacity tween on it, no React state, nothing that renders ([L06]). The
-  // wrapper is `display: none` at rest, so the beat is a debt from the moment
-  // it is opened, and `[L32]` is the law that names what that debt costs if it
-  // is not paid: the departing workspace painted over the arriving one forever,
-  // opaque, at the top of the canvas, taking no pointer. Hence four separate
-  // ways for the beat to land, all of them the same idempotent `teardown` — the
-  // completion of the tween, a deadline, the next switch, and the effect's own
-  // cleanup.
-  const crossfadeRef = useRef<{
+  // **The mark has ONE writer now, and that is what re-shaped this effect.**
+  // While the cover existed this body stripped the mark unconditionally on entry
+  // and then re-asserted it for the length of the hold, so two owners wrote it
+  // across two consecutive windows. With no hold there is nothing to re-assert
+  // it, and an entry sweep would strip the mark in the very commit that OPENED
+  // the epoch — ending it before it began and handing every late re-arm straight
+  // to the imposer. So the entry path drops the prior epoch's timers and never
+  // touches the attribute, and the attribute comes off only on a path that ends
+  // an epoch.
+  //
+  // It is a debt from the frame it is written ([L32]), and three paths pay it:
+  // the gate closing, the bound, and the deadline standing behind both. The
+  // effect's cleanup drops the machinery WITHOUT touching the mark, because on a
+  // switch that cleanup runs after the next swap commit has already written it.
+  const switchEpochRef = useRef<{
     generation: number;
-    anims: TugAnimation[];
-    restores: Array<() => void>;
     deadline: number | null;
     /**
-     * The quiet gate's own teardown, while one is open ([P03]).
+     * The gate's own teardown, while an epoch is open.
      *
      * Held on the state object rather than in the effect's closure because
-     * `teardown` is what every one of the beat's four landings runs, and a
-     * gate holding a `ResizeObserver`, a frame callback and a timer has to be
-     * closed by all four — including the ones that arrive from a LATER
-     * effect run, which has no reach into the earlier run's variables.
+     * every path that ends an epoch has to close it, including the ones that
+     * arrive from a LATER effect run — which has no reach into the earlier run's
+     * variables. A gate left open holds a `ResizeObserver`, a frame callback and
+     * a timer, all asking a question nothing can act on any more.
      */
     closeGate: (() => void) | null;
   }>({
     generation: 0,
-    anims: [],
-    restores: [],
     deadline: null,
     closeGate: null,
   });
-  /** The workspace the last commit was showing — the one a switch fades OUT. */
+  // Nothing loops in the dark, part two: a loop that STARTS under a hidden
+  // layer is paused as it starts. The switch effect below handles the loops
+  // that exist at the switch; this is for the card mounted into a parked
+  // workspace, or the component whose loop begins on a store change while its
+  // workspace is off screen. Delegated on the container because
+  // `animationstart` bubbles and names its animation — see
+  // `space-layer-loops.ts` for why this is not a stylesheet rule.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    el.addEventListener("animationstart", stillLoopOnStart);
+    return () => {
+      el.removeEventListener("animationstart", stillLoopOnStart);
+    };
+  }, []);
+
+  /** The workspace the last commit was showing — the one a switch leaves. */
   const previousSpaceIdRef = useRef<string | null>(null);
+  /**
+   * The switch frame sampler's canceller, while one is running (Spec S01).
+   *
+   * On a ref rather than in the effect's closure because the sampler is armed
+   * ABOVE the effect's early returns, and those paths run no cleanup — the next
+   * switch and the canvas's unmount are what stop it there.
+   */
+  const switchFrameSamplerRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => switchFrameSamplerRef.current?.(), []);
   useLayoutEffect(() => {
     const activeSpaceId = spacesSnapshot.activeSpaceId;
     const previousSpaceId = previousSpaceIdRef.current;
     previousSpaceIdRef.current = activeSpaceId;
-    const state = crossfadeRef.current;
+    const state = switchEpochRef.current;
+
+    // ---- The switch's frame record ([P01], Spec S01). ---------------------
+    //
+    // Armed here, above every early return below, because each of those is a
+    // switch that still painted: reduced motion, a deleted outgoing workspace
+    // and an empty one all arrive and all pay the rebuild this record measures.
+    // A sampler armed lower down would report only the switches that happened
+    // to open a cover.
+    //
+    // `performance.now()` read here IS the swap commit: this is a layout effect
+    // on the commit that swapped the layers, still inside the click task, so no
+    // frame can have been served yet. It is NOT the gesture, and the record's
+    // first-paint number is measured from the gesture instead — the store's
+    // stamp, taken as `activateSpace` was entered. Measured, this commit lands
+    // about 75 ms after that stamp on a three-workspace deck, because React's
+    // whole render of the canvas runs between the store's notify and the
+    // commit it produces; a record that began here reported a third of the
+    // freeze and called it the whole. `commitDelayMs` carries the difference.
+    //
+    // It reads nothing off the DOM and classifies nothing per tick — one
+    // timestamp pushed, and one classification when the window closes. A probe
+    // whose own cost lands inside the window it measures is measuring itself.
+    //
+    // **Gated on this kind being armed BY NAME, and that gate is load-bearing.**
+    // `record` would drop the row anyway, but the LOOP would still have run —
+    // 600 ms of rAF callbacks per switch, producing numbers nobody reads. That
+    // is the per-frame JS the animation doctrine's [D1] bans, and it was
+    // measured rather than reasoned about: ungated, this loop pushed `at0622`'s
+    // move-beat gap bar from under two display frames to 2.12–2.29, and a
+    // reverse-patch probe of these two files put it back under.
+    //
+    // The global `enable(true)` is NOT a narrow enough door, which is the second
+    // half of the same finding: `at0622` turns tracing on to read the SETTLE's
+    // frame record, so a global gate armed this sampler inside a test measuring
+    // something else, and the red survived. `enableKind` is per-kind for exactly
+    // this — an instrument that costs frames is armed by the reading that wants
+    // it, never by a neighbour.
+    if (
+      deckTrace.isKindEnabled("space-switch-frames") &&
+      previousSpaceId !== null &&
+      previousSpaceId !== activeSpaceId
+    ) {
+      switchFrameSamplerRef.current?.();
+      const armedAt = performance.now();
+      const stampedAt = store.getSpaceSwitchStartedAt();
+      // A stamp older than a few seconds belongs to some earlier switch — a
+      // path that changed the active workspace without `activateSpace` would
+      // leave one behind — and the commit is the honest origin then.
+      const gestureAt =
+        stampedAt !== null && armedAt - stampedAt < 5000 ? stampedAt : armedAt;
+      const ticks: number[] = [];
+      let sampleId: number | null = null;
+      const stopSampler = (): void => {
+        if (sampleId !== null) window.cancelAnimationFrame(sampleId);
+        sampleId = null;
+        if (switchFrameSamplerRef.current === stopSampler) {
+          switchFrameSamplerRef.current = null;
+        }
+      };
+      const sample = (t: number): void => {
+        sampleId = null;
+        ticks.push(t);
+        if (t - armedAt < SPACE_SWITCH_FRAME_WINDOW_MS) {
+          sampleId = window.requestAnimationFrame(sample);
+          return;
+        }
+        stopSampler();
+        deckTrace.record({
+          kind: "space-switch-frames",
+          ...classifySpaceSwitchFrames(activeSpaceId, armedAt, ticks, gestureAt),
+        });
+      };
+      sampleId = window.requestAnimationFrame(sample);
+      switchFrameSamplerRef.current = stopSampler;
+    }
 
     /**
-     * End whatever beat is in flight, and leave no residue ([B09]).
+     * Drop the prior epoch's machinery, and touch the mark on no account.
      *
-     * Unconditional and idempotent: it bumps the generation first, so any
-     * landing still to arrive for the beat it just ended is a no-op, and it
-     * strips the attribute by sweeping for it rather than by remembering which
-     * element wore it — the only reading that is still right after a layer has
-     * been unmounted underneath a beat.
-     *
-     * `hold-at-current` rather than `snap-to-end` is the load-bearing choice:
-     * it commits the interpolated value into `el.style` SYNCHRONOUSLY, so the
-     * restorers below run after the commit and take it off. `snap-to-end`
-     * commits in a microtask, which would land the baked opacity after the
-     * hand-back and freeze a frame at whatever the tween had reached.
+     * Bumps the generation first, so any landing still to arrive for the epoch
+     * it just ended is a no-op. What it does NOT do is remove
+     * `SPACE_SWITCHING_ATTRIBUTE`, and that omission is the whole correction of
+     * this step: on a switch-driven run the swap commit has ALREADY written the
+     * mark for the epoch now opening, so a sweep here would end that epoch in
+     * the commit that opened it and every late re-arm would animate.
      */
-    const teardown = (): void => {
+    const releaseEpoch = (): void => {
       state.generation += 1;
-      // First, and before the timers: the gate holds an observer and a frame
-      // callback that would otherwise go on asking a question whose answer
-      // can no longer be acted on.
       const closeGate = state.closeGate;
       state.closeGate = null;
       if (closeGate !== null) closeGate();
@@ -6590,35 +6882,35 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         window.clearTimeout(state.deadline);
         state.deadline = null;
       }
-      const anims = state.anims;
-      state.anims = [];
-      for (const anim of anims) anim.cancel("hold-at-current");
-      const restores = state.restores;
-      state.restores = [];
-      for (const restore of restores) restore();
-      const el = containerRef.current;
-      if (el !== null) {
-        for (const layer of el.querySelectorAll<HTMLElement>(
-          `.${SPACE_LAYER_CLASS}[${SPACE_CROSSING_ATTRIBUTE}]`,
-        )) {
-          layer.removeAttribute(SPACE_CROSSING_ATTRIBUTE);
-        }
-        // The switch epoch closes here too, and for the same reason the
-        // crossing attribute does: the dissolve being armed IS the end of the
-        // window in which nothing may animate ([B03] — when the dissolve
-        // BEGINS, not when it ends). Inside the unconditional `teardown` so
-        // every exit the effect has pays the debt — the tween completing, the
-        // deadline firing, the next switch arriving, the effect's own cleanup
-        // — and swept off the element rather than off a remembered one, which
-        // is the only reading still right after a layer has been unmounted
-        // underneath a beat.
-        el.removeAttribute(SPACE_SWITCHING_ATTRIBUTE);
-      }
     };
-    teardown();
+
+    /**
+     * Close the epoch: drop the machinery and pay the mark back ([L32]).
+     *
+     * Swept off the container by LOOKING rather than off a remembered element,
+     * which is the only reading still right after a layer has been unmounted
+     * underneath an epoch. Idempotent, and reached by the three paths that end
+     * one — the gate going settled, the bound, and the deadline behind both.
+     */
+    const endEpoch = (): void => {
+      releaseEpoch();
+      const el = containerRef.current;
+      if (el !== null) el.removeAttribute(SPACE_SWITCHING_ATTRIBUTE);
+    };
+
+    releaseEpoch();
 
     const root = containerRef.current;
     if (root === null) return;
+
+    // Nothing loops in the dark ([B02]). A hidden layer keeps its layout and
+    // its animations keep running on this engine, so the departing layer's
+    // loops are paused here, in the commit that hides it, and the arriving
+    // layer's are resumed in the one that shows it. Every run of this effect,
+    // the first show included: a deck that boots with a parked workspace
+    // already mounted has loops to still before any switch. Only infinite
+    // loops, never a settle's tween — `space-layer-loops.ts` says why.
+    stillHiddenLayerLoops(root);
 
     // ---- The stale pending arrival, swept ([P05]). ------------------------
     //
@@ -6678,232 +6970,61 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
     }
 
-    // Four ways there is nothing to fade, and every one of them writes nothing
-    // at all rather than opening a beat that would have to be closed. The last
-    // is a workspace that was DELETED rather than switched away from: its
-    // layer left with it, and there is no picture to cross from.
-    if (previousSpaceId === null) return;
-    if (previousSpaceId === activeSpaceId) return;
-    if (!isTugMotionEnabled()) return;
-    const layerOf = (spaceId: string): HTMLElement | null =>
-      root.querySelector<HTMLElement>(
-        `.${SPACE_LAYER_CLASS}[${SPACE_LAYER_ATTRIBUTE}="${CSS.escape(spaceId)}"]`,
-      );
-    const outgoing = layerOf(previousSpaceId);
-    if (outgoing === null) return;
-
-    // The wrapper's OWN subtree, scoped. `SHOWN_PANE_FRAMES` cannot answer
-    // here — it excludes anything inside a layer without `data-space-shown`,
-    // which is exactly the layer being dissolved — and widening it is not the
-    // answer either: its nine readers all mean "the panes on screen", and a
-    // layer on its way out is not one of them.
+    // Two ways there is no epoch to run, and each writes nothing at all rather
+    // than opening one that would have to be closed. `previousSpaceId === null`
+    // is the first show: `DeckManager` writes the mark only in `activateSpace`,
+    // which needs a workspace to leave, so there is nothing outstanding there.
     //
-    // Only the OUTGOING side is counted now, because only it is animated: a
-    // departing workspace with no frames has no picture to dissolve, and
-    // opening a beat for it would put an empty box over the canvas for a few
-    // hundred ms and then take it away again.
-    const outgoingFrames = outgoing.querySelectorAll(".tug-pane[data-pane-id]");
-    if (outgoingFrames.length === 0) return;
-
-    // On top, painted, and inert. The panes under it have boxes again, at the
-    // same absolute positions they had a frame ago — the wrapper's box is the
-    // canvas container's box — and the whole layer takes no pointer.
-    outgoing.setAttribute(SPACE_CROSSING_ATTRIBUTE, "");
-
-    // ---- The picture, applied ([B01], [B03], [B04]). ----------------------
-    //
-    // The panes under the crossing wrapper have boxes again, but NOT at the
-    // positions they had a frame ago: this commit withheld `placement`,
-    // `sidebarStack`, `columnMember` and `contentWidthPx` from every pane in
-    // a layer that is no longer shown, so a departing slotted pane fell back
-    // to its stored free frame and a departing rail card stopped being pinned
-    // at all. Even a pane that had kept its placement would resolve it
-    // against the ARRIVING deck's inset variables, which are written on the
-    // shared canvas container. Either way the dissolve would fade a picture
-    // nobody laid out.
-    //
-    // So the departing layer is frozen as a picture rather than kept live: the
-    // rect the manager measured an instant before this commit is written back
-    // as inline `left`/`top`/`width`/`height`, and the five arrangement
-    // attributes the frame lost with its props are re-stamped. Writing all
-    // four sides of the rect is what makes the override total — an imposed
-    // frame pins `top` and `bottom` and a rail pins `height: auto`, and CSS
-    // drops `bottom` when `top` and `height` are both given, so a px height
-    // wins over the live pin rather than fighting it.
-    //
-    // The attributes are not garnish. `tug-pane.css` keys the whole
-    // `[data-rail-treatment="panel"]` family on
-    // `[data-role="sidebar"][data-rail-side]`, so a departing rail card
-    // without `data-rail-side` loses its panel background, chrome and seams
-    // as well as its place — the frozen rect alone would hold a card that has
-    // gone transparent exactly where it stood.
-    //
-    // This is a layout effect, so every write lands before paint and the
-    // mis-placed frame is never seen. Each write pushes its hand-back onto
-    // `state.restores`, the same list the opacity tween uses, so the residue
-    // comes off by every exit `teardown()` has — the tween completing, the
-    // deadline firing, the next switch arriving, the effect's own cleanup.
-    // Each hand-back pays only while the debt is still owed — a frame whose
-    // workspace is on screen again is React's, and the freeze writes nothing
-    // over it. That is what makes an interrupted beat safe: the switch back
-    // re-shows this layer and React writes its real geometry, and only then
-    // does the beat tear down ([B03]). See {@link freezeInline}.
-    //
-    // Below the `isTugMotionEnabled()` return above, so a reduced-motion
-    // switch freezes nothing — there is no dissolve to freeze, and the
-    // manager took no picture ([B05]).
-    //
-    // Only the OUTGOING side, and nothing in the arriving layer, which is
-    // opaque underneath from the first frame and is what makes shared pixels
-    // stand still ([B04]).
-    const picture = store.departingSpacePicture();
-    if (picture !== null) {
-      for (const frame of outgoingFrames) {
-        if (!(frame instanceof HTMLElement)) continue;
-        const paneId = frame.getAttribute("data-pane-id");
-        if (paneId === null) continue;
-        const frozen = picture.get(paneId);
-        // A pane the picture does not name was not on screen when the switch
-        // committed — it arrived into the hidden layer afterwards, or the
-        // sweep found no canvas. Left alone rather than guessed at: a frame
-        // with no recorded place has no place to be put back to.
-        if (frozen === undefined) continue;
-        state.restores.push(
-          freezeInline(frame, "left", `${frozen.rect.x}px`),
-          freezeInline(frame, "top", `${frozen.rect.y}px`),
-          freezeInline(frame, "width", `${frozen.rect.width}px`),
-          freezeInline(frame, "height", `${frozen.rect.height}px`),
-        );
-        for (const name of FROZEN_FRAME_ATTRIBUTES) {
-          const value = frozen.attributes[name];
-          if (value === undefined) continue;
-          state.restores.push(freezeAttribute(frame, name, value));
-        }
-      }
+    // Both close rather than plainly return, and this is the ONE place an
+    // unconditional sweep is right — it is the exact complement of the path the
+    // sweep would be fatal on. A real epoch only ever opens on a run where the
+    // workspace CHANGED, so neither of these two can be ending one; what they
+    // can do is find a mark that a swap wrote and that no gate was ever armed
+    // for, which without this would stand forever with the imposer down under it
+    // ([L32]). Removing the old unconditional entry teardown is what opened that
+    // gap, so it is closed here rather than left to the deadline.
+    if (previousSpaceId === null || previousSpaceId === activeSpaceId) {
+      endEpoch();
+      return;
     }
 
-    // And the switch epoch is re-opened, for the length of the hold (Spec
-    // S02).
+    // ---- The gate that closes the epoch (Spec S02). ------------------------
     //
-    // `teardown()` at the top of this body is unconditional and strips the
-    // mark the swap commit just wrote — including on the run the switch
-    // itself triggers, which is this one. That is right for a switch that
-    // cuts: the mark's window ends at the canvas's own layout-effect pass and
-    // nothing more is owed. It is fatal for a switch that HOLDS: the whole
-    // point of the hold is that late geometry lands while the cover is up,
-    // and every one of those commits has to reach `arm` as part of the switch
-    // rather than as an ordinary arrangement change.
+    // Three sources, composed by `spaceEpochClosed` and gathered here. Two are
+    // watched rather than polled; the third is counted, because "silent for N
+    // consecutive frames" has no event to listen for.
     //
-    // So the mark is written twice by two owners, for two consecutive
-    // windows: the manager's covers the arriving layer's child-first layout
-    // effects, and this one covers the hold. No commit falls between them —
-    // there is no point between `teardown()` and here at which a subscriber
-    // can run. It comes off when the dissolve BEGINS ([B03]), which is in
-    // `fire` below and in `teardown` for every other landing.
+    // **Armed on every switch, with no reduced-motion or empty-layer escape.**
+    // The cover's gate sat below an `isTugMotionEnabled()` return and an
+    // outgoing-frames count, because both were reasons not to dissolve. Neither
+    // is a reason not to close an epoch: the mark is written by the swap commit
+    // whatever the motion setting says, so a path that returned before arming
+    // would leave it standing with nothing left to take it off — the imposer
+    // stood down on that canvas forever, which is the exact [L32] failure the
+    // mark's own doc comment warns about.
     //
-    // Only on this path, and that is what keeps reduced motion a cut: the
-    // `isTugMotionEnabled()` and empty-outgoing returns above are ABOVE this
-    // line, so no cover is held and no mark is re-asserted for them.
-    root.setAttribute(SPACE_SWITCHING_ATTRIBUTE, "");
-
-    // The deck's one clock. `divide-join` is the recipe every fade on this
-    // canvas already runs on — the settle's own depart and arrive beats — so
-    // a switch dissolves over the same length and shape
-    // rather than a curve this call site picked for itself.
-    const curve = motionKeyframes("divide-join", {
-      nominalMs: settleDurationRef.current,
-    });
-    const generation = state.generation;
-    let outstanding = 0;
-    const land = (): void => {
-      outstanding -= 1;
-      if (outstanding === 0 && state.generation === generation) teardown();
-    };
-
-    /**
-     * The dissolve itself, unchanged in length, easing and shape — only the
-     * MOMENT it starts is new. The gate below decides that.
-     */
-    const startDissolve = (): void => {
-      // Taken BEFORE the tween: TugAnimator commits a final value into
-      // `el.style` on completion, so the residue is owed back whichever way
-      // this beat ends.
-      state.restores.push(inlineRestorer(outgoing, "opacity"));
-      const anim = animate(
-        outgoing,
-        { opacity: [1, 0] },
-        {
-          // Raw ms: TugAnimator scales by getTugTiming() itself.
-          duration: curve.durationMs,
-          easing: "ease-out",
-          // `fill: "none"` is where [P08] lives. Nothing in this effect writes
-          // an inline hide anywhere, so an animation that never launches leaves
-          // a visible layer rather than a hidden one — and the visible one is
-          // the DEPARTING workspace, which the teardown below takes off in the
-          // same turn. The arriving workspace is opaque underneath either way,
-          // so the worst a failed launch can do is a cut.
-          //
-          // **Deliberately NOT the settle's `backwards`, and this is the one
-          // place in the file where the two choices differ.** The settle holds
-          // each frame's start pose in the frame because the base style there
-          // is the DESTINATION and painting it early is the defect. Here the
-          // base style is the safe pose: keyframe 0 is `opacity: 1`, which is
-          // what the layer already computes, so a backwards fill would buy
-          // nothing — and the failure mode it would have to survive is a
-          // launch that never happens, which must leave the departing layer
-          // VISIBLE for the teardown to cut. A fill that ever applied a hide
-          // before the active phase would turn that benign cut into a frame of
-          // nothing. Do not sweep this one to match the settle.
-          fill: "none",
-          key: "space-dissolve",
-        },
-      );
-      state.anims.push(anim);
-      outstanding += 1;
-      anim.finished.then(land, land);
-    };
-
-    // ---- The quiet gate ([P03], Spec S01). --------------------------------
-    //
-    // The cover is the departing workspace itself, opaque and pixel-identical
-    // to the frame before the switch, so holding it costs the reader nothing
-    // but the old screen standing for a few more frames. What it BUYS is that
-    // the geometry a hidden layer could not take — a composer's line box, a
-    // pane bar's controls width, a sheet's clamps — lands behind the cover
-    // instead of through a half-transparent picture of the workspace the user
-    // just left.
-    //
-    // Three sources, composed by `spaceDissolveDue` and gathered here. Two of
-    // them are watched rather than polled; the third is counted, because
-    // "silent for N consecutive frames" has no event to listen for.
-    //
-    // **This is where [L32] actually bites.** Before the hold, the beat failed
-    // toward a cut: `fill: "none"` meant an animation that never launched left
-    // the departing layer visible and the next `teardown()` took it off, so no
-    // timer was needed for the failure to be benign. Holding removes that
-    // property — between the swap commit and the gate firing NOTHING is
-    // animating, so there is no `.finished` to land, and the only things that
-    // can end the beat are the bound and the deadline. Hence the deadline is
-    // armed below at effect time over the whole beat rather than re-armed when
-    // the gate fires: re-arming would leave this window covered by the bound's
-    // own `setTimeout` alone, and one dropped timer there paints the departing
-    // workspace over the arriving one forever.
-    const quietStart = performance.now();
+    // **And this is where [L32] bites hardest.** Between the swap commit and the
+    // gate firing NOTHING is animating, so there is no `.finished` to land on
+    // and the only things that can end the epoch are the bound and the deadline.
+    // Hence the deadline is armed below over the whole window rather than
+    // re-armed when the gate fires.
+    const epochStart = performance.now();
     let lastCommitSeq = settleCommitSeqRef.current;
     let silentFrames = 0;
     let resizedSinceFrame = false;
     let frameId: number | null = null;
     let boundTimer: number | null = null;
     let fired = false;
+    const generation = state.generation;
 
     // Source one: a pane frame under the ARRIVING layer changing box. The
     // recording says this is the only source that produced visible motion, so
     // it is what `silentFrames` is silent about.
     //
-    // A `WeakMap` of last-seen boxes rather than swallowing the first
-    // callback: `ResizeObserver` delivers an initial observation per target
-    // and may batch them across deliveries, so "ignore the first callback" is
-    // a guess about batching. "Ignore a box we have not seen before" is not.
+    // A `WeakMap` of last-seen boxes rather than swallowing the first callback:
+    // `ResizeObserver` delivers an initial observation per target and may batch
+    // them across deliveries, so "ignore the first callback" is a guess about
+    // batching. "Ignore a box we have not seen before" is not.
     const seenBoxes = new WeakMap<Element, string>();
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -6940,49 +7061,44 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
     };
 
-    const fire = (reason: SpaceQuietReason): void => {
+    const fire = (reason: SpaceEpochReason): void => {
       if (fired) return;
       fired = true;
       if (state.closeGate === closeGate) state.closeGate = null;
       closeGate();
-      // A gate whose beat was superseded has nothing to start: `teardown` has
-      // already bumped the generation, swept the crossing attribute and taken
-      // the mark off, and the layer this would have faded may not be in the
-      // document any more.
+      // An epoch that was superseded has nothing left to record: a later switch
+      // has already bumped the generation and owns the mark now, and recording
+      // this one's span would attribute it to the wrong switch.
       if (state.generation !== generation) return;
       deckTrace.record({
-        kind: "space-quiet",
+        kind: "space-epoch",
         toSpaceId: activeSpaceId,
-        quietMs: Math.round(performance.now() - quietStart),
-        quietReason: reason,
+        epochMs: Math.round(performance.now() - epochStart),
+        epochReason: reason,
       });
-      // Spec S02: the epoch closes when the dissolve BEGINS, not when it ends.
-      // From here the switch is over as far as `arm` is concerned, and a
-      // commit landing during the fade is an ordinary arrangement change.
-      root.removeAttribute(SPACE_SWITCHING_ATTRIBUTE);
-      startDissolve();
+      endEpoch();
     };
 
     /**
-     * Re-ask the rule. Never assumes a fire means quiet — every source is a
-     * reason to ASK, and `spaceDissolveDue` is the only thing that answers.
+     * Re-ask the rule. Never assumes a source firing means the epoch is over —
+     * every source is a reason to ASK, and `spaceEpochClosed` is the only thing
+     * that answers.
      */
     const evaluate = (): void => {
       if (fired) return;
       if (
-        spaceDissolveDue({
+        spaceEpochClosed({
           // Source two: the canvas's own settling mark, read rather than
           // remembered, so a settle that ended by any of its several paths is
           // seen the same way.
           settled: !root.hasAttribute("data-imposer-settling"),
           silentFrames,
           // The bound has its own timer and its own call to `fire`; asking
-          // about it here would mean a second clock disagreeing with the
-          // first.
+          // about it here would mean a second clock disagreeing with the first.
           boundElapsed: false,
         })
       ) {
-        fire("quiet");
+        fire("settled");
       }
     };
 
@@ -6992,8 +7108,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     root.addEventListener(IMPOSER_SETTLE_END, onSettleEnd);
 
     // The frame counter, and the one thing here that is a loop. It runs ONLY
-    // while the gate is open and is cancelled with it, so the canvas is not
-    // left with a rAF pump nobody reads.
+    // while the gate is open and is cancelled with it, so the canvas is not left
+    // with a rAF pump nobody reads.
     //
     // Source three rides it: `settleCommitSeqRef` moving means a commit landed
     // since the last frame, which the recording says a rect watch alone would
@@ -7016,26 +7132,29 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     boundTimer = window.setTimeout(() => {
       boundTimer = null;
       fire("bound");
-    }, SPACE_QUIET_BOUND_MS);
+    }, SPACE_EPOCH_BOUND_MS);
 
     state.closeGate = closeGate;
 
-    // The deadline [L32] clause 2 asks for. A completion handler is not on its
-    // own an end state: a layer unmounted mid-beat takes its animations with
-    // it and no `.finished` ever settles, which would strand the attribute —
-    // and with it a `display: contents` wrapper over the workspace the user is
-    // looking at. Scaled by the same factor TugAnimator scales the tween by,
-    // so a slowed-down deck is not cut short by its own safety net.
+    // The deadline [L32] clause 2 asks for. The bound's own `setTimeout` is the
+    // ordinary end, and this stands behind it: a canvas unmounted and remounted,
+    // or a dropped timer, would otherwise strand the mark and leave the imposer
+    // stood down on a deck the reader is working in. No tween length in it any
+    // more — there is no tween — so it is the bound plus a margin, scaled the
+    // way TugAnimator scales, so a slowed-down deck is not cut short by its own
+    // safety net.
     const deadlineMs =
-      SPACE_QUIET_BOUND_MS +
-      curve.durationMs * getTugTiming() +
-      SPACE_CROSSFADE_DEADLINE_MARGIN_MS;
+      SPACE_EPOCH_BOUND_MS * getTugTiming() + SPACE_EPOCH_DEADLINE_MARGIN_MS;
     state.deadline = window.setTimeout(() => {
       state.deadline = null;
-      if (state.generation === generation) teardown();
+      if (state.generation === generation) endEpoch();
     }, deadlineMs);
 
-    return () => teardown();
+    // The cleanup drops the machinery and leaves the mark alone. On a switch it
+    // runs AFTER the next swap commit has written the mark for the next epoch,
+    // so sweeping here would strip a debt that is not this run's to pay; on a
+    // real unmount the container is going away with it.
+    return () => releaseEpoch();
   }, [spacesSnapshot.activeSpaceId]);
 
   // ---------------------------------------------------------------------------
@@ -7273,7 +7392,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           The wrapper is `display: contents` while shown — it has no box at
           all, so the panes lay out against `containerRef` exactly as before,
           with no new stacking context between them and the seams, caps and
-          shadows they share the canvas with. Hidden, it is `display: none`.
+          shadows they share the canvas with. Hidden, it is a box the size of
+          the canvas, `visibility: hidden` with its contents skipped ([B02]).
           Both rules are in space-layer.css, keyed on `data-space-shown`
           ([L06]); this body writes the attribute and nothing else.
 
@@ -7281,239 +7401,38 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           close, no reveal, no move menu. They are mounted so their cards stay
           alive, and nothing more. */}
       {spaceLayers.map((layer) => {
-        const layerCardsById = layer.shown
-          ? cardsById
-          : new Map(layer.deck.cards.map((c) => [c.id, c] as const));
-        const layerStacks = layer.shown
-          ? sortedStacks
-          : [...layer.deck.panes].sort((a, b) => a.id.localeCompare(b.id));
-        const layerSidebarPaneIds = layer.shown
-          ? sidebarPaneIds
-          : new Set(findSidebarPanes(layer.deck).map(({ pane }) => pane.id));
-        // A hidden workspace is ranked too — `buildZIndexMap` says why: it is
-        // painted, opaque and on top, for the beat it is being dissolved off.
-        const layerZIndexMap = layer.shown
-          ? zIndexMap
-          : buildZIndexMap(layer.deck.panes, layerSidebarPaneIds);
-        const layerHostStackIdByCardId = layer.shown
-          ? hostStackIdByCardId
-          : new Map(
-              layer.deck.panes.flatMap((p) =>
-                p.cardIds.map((cid) => [cid, p.id] as const),
-              ),
-            );
+        // Each layer is arranged from its OWN deck ([B02]): the shown one
+        // from the live `deckState`, a hidden one from its parked record. A
+        // hidden pane therefore stands exactly where it will be shown, and a
+        // switch moves nothing — see `LayerArrangement`.
+        const arr = layer.shown
+          ? shownArrangement
+          : arrangementOfParkedDeck(layer.deck, placeRuns, cardTitleVersion);
         return (
-          <div
+          <SpaceLayerWrapper
             key={layer.spaceId}
-            className="tug-space-layer"
-            data-space-layer={layer.spaceId}
-            {...(layer.shown ? { "data-space-shown": "" } : {})}
+            spaceId={layer.spaceId}
+            shown={layer.shown}
+            arrangement={arr}
+            columnRun={placeRuns.column}
           >
             {/* The one fact a card in here may need about its own standing:
                 whether the workspace it is mounted in is on screen. Read by
                 anything that acts on a BROADCAST rather than on the responder
                 chain — see the context's own doc. */}
             <SpaceLayerShownContext.Provider value={layer.shown}>
-            {/* TugPanes: one per pane in this workspace's deck.
-                Rendered in stable ID order (no DOM reordering on focus change).
-                Z-index from store array position (first = lowest). Panes whose
-                active card's componentId is unregistered are skipped with a
-                warning. */}
-            {layerStacks.map((stackState) => {
-              const activeCard = layerCardsById.get(stackState.activeCardId);
-              const fallbackCard =
-                activeCard ?? layerCardsById.get(stackState.cardIds[0]);
-              const componentId = fallbackCard?.componentId;
-              if (!componentId) {
-                console.warn(
-                  `[DeckCanvas] stack "${stackState.id}" has no active card -- skipping render.`,
-                );
-                return null;
-              }
-
-              const registration = getRegistration(componentId);
-              if (!registration) {
-                console.warn(
-                  `[DeckCanvas] stack "${stackState.id}" references unregistered componentId "${componentId}" -- skipping render.`,
-                );
-                return null;
-              }
-
-              /**
-               * onClose wrapper: when the closed stack matches
-               * Close-button handler: delegates to store. No gallery-stack bookkeeping
-               * needed — show-component-gallery re-derives the gallery stack from
-               * the live snapshot on every dispatch.
-               */
-              const handleClose = () => {
-                store.handlePaneClosed(stackState.id);
-              };
-
-              const stackCards = stackState.cardIds
-                .map((cid) => layerCardsById.get(cid))
-                .filter((c): c is NonNullable<typeof c> => c !== undefined);
-              const hasMultipleCards = stackCards.length > 1;
-
-              return (
-                <TugPane
-                  key={stackState.id}
-                  stackState={stackState}
-                  meta={registration.defaultMeta}
-                  layoutRole={registration.layoutRole}
-                  // A pane is one box shared by every tab in the stack, so
-                  // its resize floor must clear the widest card kind it
-                  // hosts — not just the active tab. `getStackSizePolicy`
-                  // takes the element-wise max of the stack's mins.
-                  sizePolicy={getStackSizePolicy(
-                    stackCards.map((c) => c.componentId),
-                    // A folded pane is sized by the folded policy ([P04]):
-                    // the open card's 600px floor is what its transcript and
-                    // composer need, and a wall cannot pack while every member
-                    // still claims it.
-                    //
-                    // And an UNBOUND pane is sized by the unbound policy ([B04],
-                    // [D195]), on the same fact `placeMembers` reads, so the frame's
-                    // resize floor and the column's member floor are one answer
-                    // rather than two. The unbound policy's height floor is zero, and
-                    // `TugPane` floors its chrome-measured `minSize` to
-                    // `sizePolicy.min` — so what stands is the chrome's own
-                    // measurement rather than a collapsed frame. The hidden arriving
-                    // seat is untouched by this: it comes from the `arriving` prop,
-                    // resolved from `DeckState.arriving`, not from `minSize`.
-                    {
-                      folded: stackState.folded === true,
-                      unbound: isUnboundMember(layer.deck, stackState.id),
-                    },
-                  )}
-                  zIndex={
-                    layerZIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE
-                  }
-                  // Every placement below is the SHOWN workspace's. A hidden
-                  // one has no imposition to stand in — its panes come back
-                  // through these same props the moment it is shown, which is
-                  // the commit that also reveals them.
-                  //
-                  // Which leaves the ONE layer that is hidden and still
-                  // painted: the crossing layer of a switch dissolve. It takes
-                  // its frame from the FREEZE rather than from these props —
-                  // the crossfade effect above writes each departing frame's
-                  // measured rect and re-stamps the arrangement attributes
-                  // these props would have carried, for the length of the beat
-                  // and no longer. So withholding them here is correct for
-                  // that layer too, and deliberately so: a departing pane
-                  // holding a live placement would resolve it against the
-                  // ARRIVING deck's inset variables, which is a different
-                  // wrong answer rather than a right one.
-                  placement={layer.shown ? placementFor(stackState) : undefined}
-                  bullseye={layer.shown && bullseyePaneId === stackState.id}
-                  // Every OTHER content pane leaves the canvas while bullseye
-                  // holds — receding a card that is still sitting there is not
-                  // what "distraction-free" means. Rails are excluded and stay at
-                  // their pins: a rail leaving would take the band's insets with
-                  // it, and the bullseyed card would jump the moment the posture
-                  // began.
-                  bullseyeExit={
-                    layer.shown &&
-                    bullseyePaneId !== null &&
-                    bullseyePaneId !== stackState.id &&
-                    !layerSidebarPaneIds.has(stackState.id)
-                      ? bullseyeAnchorCentre
-                      : undefined
-                  }
-                  contentWidthPx={layer.shown ? contentWidthPx : undefined}
-                  slotStack={
-                    layer.shown ? slotStackByPaneId.get(stackState.id) : undefined
-                  }
-                  columnMember={
-                    layer.shown
-                      ? columnMemberByPaneId.get(stackState.id)
-                      : undefined
-                  }
-                  columnMode={
-                    layer.shown ? columnModeByPaneId.get(stackState.id) : undefined
-                  }
-                  arriving={
-                    layer.shown
-                      ? arrivingSeatByPaneId.get(stackState.id)
-                      : undefined
-                  }
-                  // The pane's own field ([P01]) rather than `paneFoldedOf` over
-                  // the deck state: the selector exists for readers holding a state
-                  // and an id, and this one is already holding the pane.
-                  folded={stackState.folded === true}
-                  onRevealPane={layer.shown ? handleRevealPane : undefined}
-                  spaces={spacesSnapshot.spaces}
-                  activeSpaceId={spacesSnapshot.activeSpaceId}
-                  onMoveToSpace={
-                    layer.shown
-                      ? (spaceId) => {
-                          // The pane's ACTIVE card is what moves — the one the
-                          // title bar is naming. [B04]: the move does not follow
-                          // the card, so nothing here touches the active
-                          // workspace.
-                          store.moveCardToSpace(stackState.activeCardId, spaceId);
-                        }
-                      : undefined
-                  }
-                  sidebarStack={
-                    layer.shown ? stackByPaneId.get(stackState.id) : undefined
-                  }
-                  isSidebarPane={layerSidebarPaneIds.has(stackState.id)}
-                  onCardMoved={store.handlePaneMoved}
-                  onClose={layer.shown ? handleClose : undefined}
-                  dropZones={layer.shown ? dropZoneHost : undefined}
-                  onCardMerged={
-                    layer.shown
-                      ? (sourceStackId, targetStackId, insertIndex) => {
-                          // Resolve the active card id from the source stack at
-                          // commit time.
-                          const snapshot = store.getSnapshot();
-                          const sourceStack = snapshot.panes.find(
-                            (s) => s.id === sourceStackId,
-                          );
-                          if (!sourceStack) return;
-                          store.moveCardToPane(
-                            sourceStackId,
-                            sourceStack.activeCardId,
-                            targetStackId,
-                            insertIndex,
-                          );
-                        }
-                      : undefined
-                  }
-                  activeCardId={stackState.activeCardId}
-                  cards={hasMultipleCards ? stackCards : undefined}
-                  cardTitle={hasMultipleCards ? stackState.title : undefined}
-                  acceptedFamilies={
-                    hasMultipleCards ? stackState.acceptsFamilies : undefined
-                  }
-                />
-              );
-            })}
-
-            {/* Flat card-content list: every card of THIS workspace is mounted
-                exactly once and routes its DOM via portal into its host stack's
-                content div. React keys by cardId so React preserves component
-                identity when a card moves between stacks (detach / merge).
-                Non-active cards render with `display: none` so they stay alive
-                without affecting layout. Content factories and contexts live in
-                CardHost; see card-host.tsx. */}
-            {layer.deck.cards.map((card) => {
-              const hostStackId = layerHostStackIdByCardId.get(card.id);
-              if (!hostStackId) return null;
-              const hostStack = layer.deck.panes.find((s) => s.id === hostStackId);
-              return (
-                <CardHost
-                  key={card.id}
-                  cardId={card.id}
-                  hostStackId={hostStackId}
-                  componentId={card.componentId}
-                  isActive={hostStack?.activeCardId === card.id}
-                />
-              );
-            })}
+            {/* The layer's panes and card hosts, behind the memo boundary
+                that keeps a parked workspace out of the switch's render. */}
+            <LayerPanes
+              shown={layer.shown}
+              deck={layer.deck}
+              arr={arr}
+              store={store}
+              onRevealPane={layer.shown ? handleRevealPane : undefined}
+              dropZones={layer.shown ? dropZoneHost : undefined}
+            />
             </SpaceLayerShownContext.Provider>
-          </div>
+          </SpaceLayerWrapper>
         );
       })}
 

@@ -14,89 +14,100 @@
  * them and the seams, caps and shadows they share a z-order with. A wrapper
  * that drew a box would have changed every geometry on the canvas.
  *
- * The hidden rule is the ordinary one, and `display: none` is chosen over a
- * visibility or opacity trick deliberately: a hidden workspace must cost no
- * layout and no paint, and must not be reachable by the pointer. What it
- * does cost is that its subtree has no boxes, so it can take no measurement
- * while hidden — every canvas geometry is armed on the transition to shown.
+ * **The hidden rule keeps the workspace's render state ([B02]).** It used to
+ * be `display: none`, and that threw the subtree's whole rendering state away
+ * — no computed styles, no boxes, no layers, and a scroller whose `scrollTop`
+ * was zeroed the moment it was hidden. Every re-show was therefore a rebuild:
+ * the first unavoidable style resolve of a switch, the compositing rebuild of
+ * the arriving tree in the frames after it, and a scroll position that had to
+ * be put back by hand. A hidden workspace is now laid out exactly as it was,
+ * and what hides it is three things that each answer one question:
  *
- * There is a third state, and it lasts one beat. A switch dissolves: the
- * workspace being left is painted OVER the one arriving, at full opacity, for
- * the length of a `divide-join` window, and is dissolved off it ([B09]). The
- * arriving workspace is never faded — it stands there opaque, underneath, from
- * the first frame. That is the whole of the choreography, and it is what makes
- * anything the two workspaces share stand perfectly still: a pixel the same in
- * both is `t·C + (1−t)·C` at every instant of the beat, which is `C`. A true
- * crossfade — both layers through partial opacity at once — could not say that,
- * and the canvas ground showing between them was the blank a reader saw.
+ *   - `visibility: hidden` on the wrapper takes it off screen and out of
+ *     hit-testing and focus — the property's own contract — and inherits, so
+ *     every descendant is hidden unless it says otherwise.
+ *   - `content-visibility: hidden` skips the contents' PAINT and HIT-TESTING
+ *     unconditionally, whatever a descendant says about its own visibility.
+ *     Measured on this engine (WebKit 605.1.15) it does exactly that and no
+ *     more: it does NOT skip the contents' layout and does NOT still their
+ *     animations, which is why the other two lines exist and why a hidden
+ *     pane still has a real box (below). The measurements are in
+ *     `briefs/workspace-switch-cheap-readings.md`.
+ *   - `pointer-events: none` says in the rule what the other two already
+ *     imply, so a reader does not have to derive it.
  *
- * For that beat the OUTGOING wrapper carries `data-space-crossing`, and the
- * rule below is the one place a layer is allowed a box of its own.
- * `deck-canvas.tsx` writes the attribute and owes it back; `[L32]` is why that
- * debt carries a deadline rather than only a completion handler.
+ * `position: absolute; inset: 0` is not decoration. `content-visibility`
+ * implies `contain: size`, which means a box's size stops being derived from
+ * its contents — and a wrapper whose size came from its contents would
+ * collapse to nothing, taking its containment with it. Both edges of this box
+ * are fixed by the insets instead, so there is nothing for `contain: size` to
+ * collapse and no `contain-intrinsic-size` to guess at. The box is out of flow
+ * and matches the canvas container exactly, so the panes inside it — whose
+ * absolute positions now resolve against it rather than the canvas — land on
+ * the same pixels they would have landed on shown.
+ *
+ * **A hidden pane HAS a box now, and every sweep has to know it.** Under
+ * `display: none` a hidden layer's frames had no rects, so a sweep that caught
+ * one measured zeros at the origin. Now it would measure the pane's REAL rect
+ * — a place a card could snap to, occlude, or settle against, on a workspace
+ * nobody is looking at. That is why `SHOWN_PANE_FRAMES` in `space-layer.ts`
+ * is the only spelling of "the panes on screen", and why its `:not()` clause
+ * is load-bearing rather than defensive.
+ *
+ * **Nothing loops in the dark, and the rule is not in this file.** A loop
+ * running behind a hidden workspace is a resting cost paid for a deck the
+ * reader is not looking at, and `display: none` stilled every one for free.
+ * The obvious replacement — `.tug-space-layer:not([data-space-shown]) *` with
+ * `animation-play-state: paused` — was tried and measured: a universal
+ * descendant rule keyed on the layer's attribute restyles both layers whole on
+ * every switch, and it cost about 100 ms of post-swap work per switch. So the
+ * pause is taken on the loops themselves, in `space-layer-loops.ts`, from the
+ * canvas's switch effect and a delegated `animationstart` listener: infinite
+ * loops only, paused in the commit that hides their layer and resumed in the
+ * one that shows it. Transitions are not suppressed while hidden — a finite
+ * one runs out unpainted, and the switch epoch's own rule in `chrome.css`
+ * stands pane transitions down for the frames that matter.
+ *
+ * `[A9]`'s state bag is untouched by this rule: it still carries user data
+ * across a card's rebuild when it moves workspaces. The mount-time re-arms
+ * that `display: none` made necessary are settled in `space-layer.ts` under
+ * `useSpaceLayerShown()`: a hidden measurement is real again, an observer
+ * under a hidden layer catches up before the first shown frame paints, and
+ * what still arms on the shown transition does so for a reason other than
+ * the box — an entrance nobody would watch, a broadcast, or a pane that is
+ * not yet standing where it will be shown.
+ *
+ * **Two states, and there used to be three ([B01]).** A switch dissolved: the
+ * workspace being left was painted over the one arriving for a `divide-join`
+ * window and faded off it, and for that beat the outgoing wrapper carried a
+ * crossing-state box of its own. The cut replaced it. A switch is now these
+ * rules changing hands and nothing else: no third state, no z tier above the
+ * canvas, and no frozen picture of the departing workspace to hold still while
+ * something faded over it. The pure cut, tried live against every crossfade
+ * variant, was the one the user called "better, by a lot".
+ *
+ * The switch epoch outlives it. `data-space-switching` on the canvas container
+ * still marks the window in which the arriving workspace's late geometry lands
+ * and the imposer is stood down ([B05]) — that mark answered a different
+ * question from the cover's and it is untouched here. It is an attribute, not a
+ * layer state, so no rule in this file keys on it.
  *
  * [L06]: the state is an attribute the canvas writes and a rule here, never
  * an inline style computed in React.
  */
 
 .tug-space-layer {
-  display: none;
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  visibility: hidden;
+  content-visibility: hidden;
+  pointer-events: none;
 }
 
 .tug-space-layer[data-space-shown] {
   display: contents;
-}
-
-/*
- * The crossing layer: a box, on top, inert, for one beat ([B09]).
- *
- * Last of the three, in the order the states occur. The specificity is not in
- * doubt either way — (0,2,0) against the resting rule's (0,1,0) — but a layer
- * is hidden, then shown, then handed back, and the file reads in that order.
- *
- * And it is the one rule that departs from `display: contents`, deliberately.
- * The departing workspace needs two things a box-less wrapper cannot give it:
- * ONE z-index, so the whole of it stands over the arriving workspace's cards
- * AND rails rather than interleaving with them rank by rank; and ONE opacity,
- * so it dissolves as a single picture rather than as N frames that show
- * through each other wherever they overlap.
- *
- * The box a pane's position resolves against is the same box. The canvas
- * container is `position: absolute; inset: 0` with no padding and no border,
- * and so is this, so a departing pane's padding box is identical to the one it
- * resolved against a frame ago. `overflow` is left alone for the same reason:
- * the wrapper must clip nothing the container did not.
- *
- * But the same box was never what held the frames still, and for a long time
- * this comment claimed it was. What a pane resolves INSIDE that box is its own
- * arrangement, and the commit that hides a layer withholds every prop the
- * arrangement comes from — so a departing slotted pane fell back to its stored
- * free frame and a departing rail card stopped being pinned at all, and the
- * dissolve faded a spray of cards nobody had laid out. A pane that had kept its
- * placement would have been no better: the imposer's `calc()` chains read the
- * `--tug-imposer-*` custom properties off the shared canvas container, and
- * during the beat those hold the ARRIVING workspace's rails and columns.
- *
- * So the frames hold still because they are FROZEN, not because nothing
- * disturbed them. For the length of the beat the departing workspace is a
- * picture rather than a live layer: `deck-canvas.tsx` writes each frame's
- * measured rect on as inline `left`/`top`/`width`/`height` in the same layout
- * effect that writes this attribute, and re-stamps the arrangement attributes
- * the frame lost with its props — `data-rail-side` above all, which the whole
- * `[data-rail-treatment="panel"]` family in `tug-pane.css` keys on. The rect
- * is measured by `DeckManager` an instant before the swap commit, because that
- * is the last moment the outgoing frames still stand where the user saw them.
- * Every write is owed back by the same `teardown()` that sweeps this attribute.
- *
- * `pointer-events: none` inherits to the whole subtree, so the departing
- * workspace takes no click, no hover and no drop while it is still painted —
- * which matters more now that it is the layer on top.
- */
-.tug-space-layer[data-space-crossing] {
-  display: block;
-  position: absolute;
-  inset: 0;
-  box-sizing: border-box;
-  z-index: var(--tug-z-space-crossing);
-  pointer-events: none;
+  visibility: visible;
+  content-visibility: visible;
+  pointer-events: auto;
 }
