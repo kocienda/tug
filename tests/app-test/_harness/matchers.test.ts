@@ -583,6 +583,11 @@ const EVENT_FIXTURES: Record<
     gaps: [16.7, 68, 16.7],
     suspended: false,
   },
+  "layer-render": {
+    kind: "layer-render",
+    spaceId: "space-c",
+    shown: false,
+  },
 };
 
 describe("summarizeEvent — exhaustive per-kind coverage", () => {

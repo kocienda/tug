@@ -181,21 +181,21 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // (at0626's rail sash drag), 26 (at0632's jot-row press, which arrived in
     // `f98397bb2` without the number moving and was named rather than absorbed
     // when the next raise found it), 27 (at0640's cut, whose five absences are all
-    // claims about the switch layout effect and about nothing narrower). Each of
-    // those was argued when it landed and the arguments are in this file's git
-    // history rather than re-copied here.
+    // claims about the switch layout effect and about nothing narrower), 28
+    // (at0643's frame record, whose sampler, gesture origin and `enableKind` gate
+    // all live in the switch layout effect here). Each of those was argued when
+    // it landed and the arguments are in this file's git history rather than
+    // re-copied here.
     //
-    // The 28th is at0643, and it is the one file in the corpus that reads the
-    // switch's FRAME RECORD rather than its geometry or its absences. The sampler
-    // it arms — the rAF loop, its 600 ms window, the gesture origin it measures
-    // first paint from, and the `enableKind` gate that keeps it from costing a
-    // neighbour's test frames — lives entirely in the switch layout effect here.
-    // The narrower modules at0643 also names carry the arithmetic
-    // (`lib/space-switch-frames.ts`) and the two layer states
-    // (`space-layer.css`); neither holds the origin or the gate, so naming only
-    // those would leave the instrument this arc's whole acceptance rests on
-    // covered by nothing.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 28,
+    // The 29th is at0644, and it pins the memo boundary around `LayerPanes`: a
+    // workspace that stays parked across a switch commits ZERO times. The
+    // boundary is this file's — the component, the props threaded to it, and the
+    // discipline that keeps a switch-varying value (the workspace list, last
+    // time) off its prop list all live here, and the counter that reads it is a
+    // layout effect inside the same component. `deck-trace.ts`, which at0644
+    // also names, carries the kind and the gate but not the boundary; naming only
+    // it would leave the one prop list the zero depends on covered by nothing.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 29,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that

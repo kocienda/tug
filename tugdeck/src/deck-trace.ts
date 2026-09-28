@@ -897,6 +897,25 @@ export type DeckTraceEvent = {
       gaps: readonly number[];
       suspended: boolean;
     }
+  | {
+      /**
+       * One workspace layer's panes COMMITTED — `LayerPanes` in
+       * `deck-canvas.tsx` rendered and React committed the result. Written
+       * from a layout effect with no dependency list, so it fires once per
+       * commit of that component and never for a commit the memo boundary
+       * bailed out of, which is the whole point: the count of these rows for a
+       * workspace that stays parked across a switch is the number that says
+       * the boundary held, and it is zero or it is a regression.
+       *
+       * Opt-in, and armed BY KIND the way `space-switch-frames` is. The row
+       * costs almost nothing, but the discipline is the same: an instrument a
+       * test reads is armed by that test and by nothing else, so the product
+       * pays nothing at rest and no neighbouring test pays for it either.
+       */
+      kind: "layer-render";
+      spaceId: string;
+      shown: boolean;
+    }
 );
 
 /**
@@ -957,7 +976,8 @@ export type DeckTraceEventInput =
   | Omit<
       Extract<DeckTraceEvent, { kind: "space-switch-frames" }>,
       StampedFields
-    >;
+    >
+  | Omit<Extract<DeckTraceEvent, { kind: "layer-render" }>, StampedFields>;
 
 // ---------------------------------------------------------------------------
 // Utilities

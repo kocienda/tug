@@ -319,6 +319,11 @@ export type DeckTraceEventShape = {
       gaps: readonly number[];
       suspended: boolean;
     }
+  | {
+      kind: "layer-render";
+      spaceId: string;
+      shown: boolean;
+    }
 );
 
 /**
@@ -366,6 +371,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "space-switch-timing",
   "space-epoch",
   "space-switch-frames",
+  "layer-render",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
 
@@ -658,6 +664,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return e.suspended
         ? `space-switch-frames →${fmt(e.toSpaceId)} VOID (suspended, ticks=${e.ticks})`
         : `space-switch-frames →${fmt(e.toSpaceId)} ticks=${e.ticks} period=${e.framePeriodMs.toFixed(1)} firstPaint=${e.firstPaintDelayMs.toFixed(1)} longestGap=${e.longestGapMs.toFixed(1)} overFrame=${e.gapsOverOneFrame} overBudget=${e.gapsOverBudget}`;
+    case "layer-render":
+      return `layer-render ${fmt(e.spaceId)} ${e.shown ? "shown" : "parked"}`;
     default: {
       // Exhaustiveness pin: if a new kind is added to DeckTraceEventShape,
       // the assignment below fails because `e` is no longer `never`.

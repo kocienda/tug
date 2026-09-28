@@ -2211,8 +2211,19 @@ function SpaceLayerWrapper({
  * The workspace list the title bar's move control needs is deliberately NOT
  * a prop: threaded through here it changed on every switch and broke the
  * boundary for every layer at once. The bar reads it off the store itself.
+ *
+ * **The boundary is instrumented, and the instrument is armed by kind.** The
+ * layout effect below has no dependency list, so it runs once per commit of
+ * THIS component — never for a commit the memo bailed out of — and when the
+ * `layer-render` trace kind is armed it records one row per commit, keyed by
+ * `spaceId`. A test that switches between two workspaces on a deck with a
+ * third mounted reads those rows and asserts the third's count is zero; that
+ * is the one number that says the memo boundary held, and it cannot flap. At
+ * rest the effect is one `isKindEnabled` read per commit of a layer that
+ * rendered anyway, and it records nothing.
  */
 const LayerPanes = memo(function LayerPanes({
+  spaceId,
   shown,
   deck,
   arr,
@@ -2220,6 +2231,7 @@ const LayerPanes = memo(function LayerPanes({
   onRevealPane,
   dropZones,
 }: {
+  spaceId: string;
   shown: boolean;
   deck: DeckState;
   arr: LayerArrangement;
@@ -2227,6 +2239,10 @@ const LayerPanes = memo(function LayerPanes({
   onRevealPane: TugPaneProps["onRevealPane"];
   dropZones: DropZoneHost | undefined;
 }) {
+  useLayoutEffect(() => {
+    if (!deckTrace.isKindEnabled("layer-render")) return;
+    deckTrace.record({ kind: "layer-render", spaceId, shown });
+  });
   return (
     <>
       {/* TugPanes: one per pane in this workspace's deck.
@@ -7424,6 +7440,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             {/* The layer's panes and card hosts, behind the memo boundary
                 that keeps a parked workspace out of the switch's render. */}
             <LayerPanes
+              spaceId={layer.spaceId}
               shown={layer.shown}
               deck={layer.deck}
               arr={arr}

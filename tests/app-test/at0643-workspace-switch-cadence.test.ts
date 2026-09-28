@@ -84,6 +84,21 @@
  * made red by a neighbour's instrument. `enableKind("space-switch-frames")` is
  * per-kind for exactly that, and this file is the reading that asks for it.
  *
+ * ## Two tiers: the bar says "did it break", the warning says "is it drifting"
+ *
+ * The hard bars above are held exactly where they were set, and a switch twice
+ * as slow as the one that was measured would still pass them — that is the
+ * margin a tripwire needs, and it is deliberate. What the margin costs is
+ * warning: a first paint that slides from 60 ms to 120 ms is inside the bar
+ * and invisible until it crosses 150 and goes red all at once. So above the
+ * bars sits a second tier that asserts nothing. A first paint over
+ * {@link FIRST_PAINT_WARN_MS}, or ANY gap over the 20 ms absolute budget
+ * (`gapsOverBudget > 0`, which the record already carries), writes a `note()`
+ * that names itself a DRIFT WARNING, so it shows in the `Diagnostics:` section
+ * of every run that crosses it and in none that does not. A reader of the
+ * report can tell the two apart: a red is a break, a drift line is a number
+ * that has started to move.
+ *
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/space-switch-frames.ts
  * @covers tugdeck/src/components/chrome/space-layer.css
@@ -140,6 +155,18 @@ const SHOWN_FRAMES =
  * clear it by a wide margin while ordinary machine load never touches it.
  */
 const FIRST_PAINT_BUDGET_MS = 150;
+
+/**
+ * The drift-warning tier for first paint, in milliseconds from the gesture.
+ *
+ * Not a bar: crossing it writes a `note()` and fails nothing. Set from the same
+ * measured 51–67 ms the hard bar was set from, with room for ordinary machine
+ * load — a reading here is a switch half again slower than any that was
+ * measured, which is worth a line in the report and is not yet a break. The
+ * hard bar stays at {@link FIRST_PAINT_BUDGET_MS} for the reason the file
+ * header gives; this constant is what keeps the margin from being silent.
+ */
+const FIRST_PAINT_WARN_MS = 100;
 
 /**
  * The longest tolerated gap, in DISPLAY FRAMES rather than in milliseconds.
@@ -458,6 +485,30 @@ function assertCadence(label: string, r: FrameRecord): boolean {
         `was occluded, so no cadence claim is made about this switch`,
     );
     return false;
+  }
+
+  // The warning tier, before the bars. It asserts nothing; it puts a line in
+  // the report when a reading has moved toward a bar without reaching it. Two
+  // triggers, each named: first paint over FIRST_PAINT_WARN_MS, and any gap
+  // over the 20 ms absolute budget (the arc's written criterion, which the
+  // relative bar below deliberately does not hold).
+  const drift: string[] = [];
+  if (r.firstPaintDelayMs > FIRST_PAINT_WARN_MS) {
+    drift.push(
+      `first paint ${r.firstPaintDelayMs}ms is over the ${FIRST_PAINT_WARN_MS}ms ` +
+        `warning tier (measured 51–67ms when the bar was set; hard bar ` +
+        `${FIRST_PAINT_BUDGET_MS}ms)`,
+    );
+  }
+  if (r.gapsOverBudget > 0) {
+    drift.push(
+      `${r.gapsOverBudget} gap(s) over the 20ms absolute budget, longest ` +
+        `${r.longestGapMs}ms at a ${r.framePeriodMs}ms period (hard bar ` +
+        `${LONGEST_GAP_FRAMES} frames, ${LONGEST_GAP_FRAMES * r.framePeriodMs}ms)`,
+    );
+  }
+  if (drift.length > 0) {
+    note(`at0643 ${label}: DRIFT WARNING — ${drift.join("; ")}`);
   }
 
   expect(

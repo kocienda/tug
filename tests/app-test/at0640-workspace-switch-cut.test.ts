@@ -36,6 +36,43 @@
  * effect's unconditional entry teardown and its re-assertion could disagree,
  * and the case a generation counter exists for.
  *
+ * ## The frames do not move, and that is a count of zero
+ *
+ * A hidden layer keeps its layout, so a parked pane already stands where it
+ * will be shown and a switch has nothing to write on it. That is the cleanest
+ * statement of "the arriving workspace did not move", and it is read here as
+ * what a `MutationObserver` sees: installed before the dispatch and read after
+ * the epoch closes, it records every attribute mutation on a
+ * `.tug-pane[data-pane-id]` under any `.tug-space-layer`, and the GEOMETRY
+ * count — a `style` write that changes any box property an imposed frame is
+ * actually pinned by (`left`, `right`, `top`, `bottom`, `width`, `height`,
+ * `transform`) — is zero. Both ends of every pin, because both ends are live:
+ * `imposeStyle` gives an imposed frame `top` AND `bottom`, and
+ * `imposeSidebarStyle` gives a rail the same, so a list naming only `top`
+ * would watch one end of every vertical run in this fixture and miss the other.
+ *
+ * The two writes a switch does make are outside the filter by construction:
+ * the epoch mark lands on the canvas container and the
+ * `data-space-shown` flip lands on the wrappers, neither of which is a pane
+ * frame. The Workspaces card's chip churn — hundreds of mutations per switch,
+ * in every mounted copy — is below the frames and is correct behaviour, so it
+ * is not a pane either.
+ *
+ * The bar is geometry rather than "any attribute", and that narrowing is a
+ * measurement, not a preference. This first ran asserting zero attribute
+ * writes of any kind and reported what a switch actually does to the frames of
+ * the arriving workspace: `data-focused` rewritten (the focus moving to the
+ * arriving deck's active pane, which the readings paper records and which is
+ * correct), same-valued `data-focused` re-writes on the others, and a `style`
+ * write that swaps two frames' `z-index` — the parked arrangement and the live
+ * re-solve disagree about stacking order, though never about a box. On the
+ * first switch, which MOUNTS the arriving workspace, the frames' DOM-effect
+ * attributes (`data-focused`, `data-receded`, `data-masthead`) are written
+ * after insertion and observed too. None of those is the arriving workspace
+ * moving. Every one of them is counted and reported by attribute name, so the
+ * report says what a switch writes on a frame; only the geometry is asserted,
+ * because that is the claim and it is the one that cannot flap.
+ *
  * ## `epochReason` is noted, never asserted
  *
  * The settled path's frame counter rides `requestAnimationFrame`, and a covered
@@ -133,6 +170,20 @@ interface CutReading {
   hiddenPainted: number;
   /** How many shown frames the sampler ever saw. */
   frameKeys: number;
+  /**
+   * `style` mutations on any pane frame under any layer that changed the
+   * frame's box (`left`/`right`/`top`/`bottom`/`width`/`height`/`transform`),
+   * from before the dispatch to the read. Zero is the claim.
+   */
+  frameGeometryMutations: number;
+  /** The first few of those, `paneId: old -> new`, for the report. */
+  frameGeometrySamples: string[];
+  /**
+   * Every OTHER attribute mutation on a pane frame, counted by attribute name
+   * (`style` here means a style write that moved no box). Reported, not
+   * asserted — see the file header.
+   */
+  frameOtherMutations: Record<string, number>;
 }
 
 /**
@@ -156,9 +207,63 @@ const SAMPLER_START = `(function () {
     inlineZero: [],
     hiddenPainted: 0,
     frameKeys: {},
+    frameGeometryMutations: 0,
+    frameGeometrySamples: [],
+    frameOtherMutations: {},
   };
   window.__at0640 = s;
   function ms() { return Date.now() - s.t0; }
+
+  // The frames' stillness. Every attribute write on a pane frame under a layer
+  // is recorded, from now until the read; the mark and the wrappers' flip are
+  // not frames and never match. A \`style\` write is a GEOMETRY mutation only
+  // if it changed the box — \`attributeOldValue\` is what lets the old and new
+  // declarations be compared property by property.
+  var GEOMETRY =
+    ["left", "right", "top", "bottom", "width", "height", "transform"];
+  function boxOf(cssText) {
+    var out = {};
+    var decls = String(cssText || "").split(";");
+    for (var d = 0; d < decls.length; d++) {
+      var colon = decls[d].indexOf(":");
+      if (colon < 0) continue;
+      var name = decls[d].slice(0, colon).trim();
+      if (GEOMETRY.indexOf(name) >= 0) out[name] = decls[d].slice(colon + 1).trim();
+    }
+    return out;
+  }
+  function boxMoved(oldCss, newCss) {
+    var a = boxOf(oldCss), b = boxOf(newCss);
+    for (var g = 0; g < GEOMETRY.length; g++) {
+      if ((a[GEOMETRY[g]] || "") !== (b[GEOMETRY[g]] || "")) return true;
+    }
+    return false;
+  }
+  function noteMutation(rec) {
+    var t = rec.target;
+    if (!(t instanceof Element)) return;
+    if (!t.matches(".tug-space-layer .tug-pane[data-pane-id]")) return;
+    var name = rec.attributeName;
+    if (name === "style" && boxMoved(rec.oldValue, t.getAttribute("style"))) {
+      s.frameGeometryMutations += 1;
+      if (s.frameGeometrySamples.length < 6) {
+        s.frameGeometrySamples.push(
+          t.getAttribute("data-pane-id") + ": " + JSON.stringify(rec.oldValue) +
+            " -> " + JSON.stringify(t.getAttribute("style")) + " @" + ms() + "ms");
+      }
+      return;
+    }
+    s.frameOtherMutations[name] = (s.frameOtherMutations[name] || 0) + 1;
+  }
+  s.observer = new MutationObserver(function (records) {
+    for (var i = 0; i < records.length; i++) {
+      noteMutation(records[i]);
+    }
+  });
+  s.noteMutation = noteMutation;
+  s.observer.observe(document.body, {
+    attributes: true, attributeOldValue: true, subtree: true,
+  });
 
   function tickRaf() {
     s.rafTicks += 1;
@@ -233,6 +338,12 @@ const SAMPLER_READ = `(function () {
   var s = window.__at0640;
   clearInterval(s.timer);
   if (s.rafId !== undefined) window.cancelAnimationFrame(s.rafId);
+  if (s.observer) {
+    // Drain what the observer has queued but not yet delivered, then stop.
+    var pending = s.observer.takeRecords();
+    for (var i = 0; i < pending.length; i++) s.noteMutation(pending[i]);
+    s.observer.disconnect();
+  }
   var keys = 0;
   for (var k in s.frameKeys) {
     if (Object.prototype.hasOwnProperty.call(s.frameKeys, k)) keys += 1;
@@ -250,6 +361,9 @@ const SAMPLER_READ = `(function () {
     inlineZero: s.inlineZero,
     hiddenPainted: s.hiddenPainted,
     frameKeys: keys,
+    frameGeometryMutations: s.frameGeometryMutations,
+    frameGeometrySamples: s.frameGeometrySamples,
+    frameOtherMutations: s.frameOtherMutations,
   };
 })()`;
 
@@ -440,6 +554,23 @@ function assertCut(label: string, r: CutReading): void {
   expect(
     r.hiddenPainted,
     `${label}: no frame under a hidden layer reported itself visible`,
+  ).toBe(0);
+
+  // (6) No pane frame moved. A parked pane already stands where it will be
+  // shown, so the switch writes no box on any frame, under either layer — the
+  // mark is on the canvas, the flip is on the wrappers, and the Workspaces
+  // card's churn is below the frames. Zero cannot flap. What a switch DOES
+  // write on a frame (focus, and a stacking-order swap on the arriving deck)
+  // rides the reading's `frameOtherMutations`, by attribute name, and is not
+  // asserted.
+  expect(
+    r.frameGeometryMutations,
+    `${label}: no pane frame under any layer had its box written across the ` +
+      `switch (left/right/top/bottom/width/height/transform) — ` +
+      `${r.frameGeometryMutations} observed` +
+      (r.frameGeometrySamples.length > 0
+        ? `, first: ${r.frameGeometrySamples.join("; ")}`
+        : ""),
   ).toBe(0);
 }
 
