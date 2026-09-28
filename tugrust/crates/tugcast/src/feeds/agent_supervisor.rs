@@ -3782,6 +3782,14 @@ fn parse_model_selector(payload: &[u8]) -> Option<String> {
     (!model.is_empty()).then(|| model.to_owned())
 }
 
+/// The `mode` field of a `permission_mode` CODE_INPUT frame. A blank mode
+/// reads as absent — there is no permission mode named "".
+fn parse_permission_mode_selector(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let mode = value.get("mode")?.as_str()?.trim();
+    (!mode.is_empty()).then(|| mode.to_owned())
+}
+
 /// The two spellings of the one door, as a prompt's first token.
 const ARC_DOOR_PREFIXES: [&str; 2] = ["/arc", "/tugplug:arc"];
 
@@ -5432,10 +5440,14 @@ impl AgentSupervisor {
             }
             // Stamp the resolved permission mode onto the entry the same way:
             // on the fresh insert, or while still `Idle` (rebound but not yet
-            // spawned). Never while running — the live tugcode was spawned with
-            // the original `--permission-mode` and a post-spawn `permission_mode`
-            // frame is the path for live changes. The bridge reads this field at
-            // spawn time so the mode is correct from claude's first instant.
+            // spawned). This is the mode the session is *born* in; the entry
+            // tracks the mode it is *in*, so a live `permission_mode` frame
+            // moves the field too (see the stamp in `dispatch_one`). Not from
+            // here while running — a spawn payload's mode is what the deck
+            // remembered for the card, and the live frame is the later word.
+            // The bridge reads this field at spawn time, so the mode is correct
+            // from claude's first instant and a respawn carries the mode the
+            // session is in rather than the one it was born in.
             if inserted || entry.spawn_state == SpawnState::Idle {
                 entry.permission_mode = permission_mode;
                 // The provisional tag is stamped on the same fresh/Idle path and
@@ -11753,8 +11765,10 @@ impl AgentSupervisor {
         // wire, never seen by tugcode (the merger reconciles by
         // session-scoped FIFO, not by id). Other CODE_INPUT types —
         // `tool_approval`, `interrupt`, `permission_mode`, `model_change`,
-        // `session_command`, `stop_task`, `request_replay` — fall through
-        // unchanged. See [DM08] / [Step 5.3](#step-5-3) in the
+        // `session_command`, `stop_task`, `request_replay` — are forwarded
+        // unchanged; `model_change` and `permission_mode` are read on the way
+        // past and stamped onto the entry, which alters the entry and never
+        // the frame. See [DM08] / [Step 5.3](#step-5-3) in the
         // mid-turn-replay plan.
         if let Some("user_message") = inspected.as_ref().and_then(|i| i.msg_type()) {
             let inspected = inspected.as_ref().expect("checked Some above");
@@ -11842,6 +11856,23 @@ impl AgentSupervisor {
                     self.note_model_switch(tug_session_id.as_str(), &model)
                         .await;
                 }
+            }
+        }
+
+        // ── permission_mode stamp ───────────────────────────────────────────
+        //
+        // The frame is the path a live mode change takes: it reaches the
+        // running tugcode and flips it, and the forward below is unchanged by
+        // this. What it also does is move the entry, because
+        // `entry.permission_mode` is what every respawn — a wheel rotation, an
+        // arc Resume, a crash-loop respawn — hands the next child as
+        // `--permission-mode`. An entry stamped only at birth means the
+        // respawn silently undoes the switch the user made, which is the one
+        // thing a direct action must never do.
+        if let Some("permission_mode") = inspected.as_ref().and_then(|i| i.msg_type()) {
+            if let Some(mode) = parse_permission_mode_selector(&frame.payload) {
+                let mut entry = entry_arc.lock().await;
+                entry.permission_mode = Some(mode);
             }
         }
 
@@ -12924,16 +12955,15 @@ impl AgentSupervisor {
         // Per-session workspace path. Read from the ledger entry so
         // each session's tugcode subprocess gets its own cwd. Also
         // thread `session_mode` so the tugcode subprocess receives
-        // `--session-mode new|resume`. The sessions recorder lets the
+        // `--session-mode new|resume`. The permission mode is *not* threaded
+        // from here: the bridge reads `entry.permission_mode` itself on every
+        // spawn it takes, so its crash-loop retries see a live change too.
+        // The sessions recorder lets the
         // bridge transition the ledger row when it sees `session_init`,
         // `result`, `resume_failed`, or terminal teardown on the IPC stream.
-        let (project_dir, session_mode, permission_mode) = {
+        let (project_dir, session_mode) = {
             let entry = entry_arc.lock().await;
-            (
-                entry.project_dir.clone(),
-                entry.session_mode,
-                entry.permission_mode.clone(),
-            )
+            (entry.project_dir.clone(), entry.session_mode)
         };
         let sessions_recorder = self.sessions_recorder.clone();
         let session_ledger_for_bridge = self.session_ledger.clone();
@@ -12955,7 +12985,6 @@ impl AgentSupervisor {
                 spawner,
                 project_dir,
                 session_mode,
-                permission_mode,
                 sessions_recorder,
                 session_ledger_for_bridge,
                 changeset_bumper_for_bridge,
@@ -18065,6 +18094,99 @@ mod tests {
         assert!(
             sup.registry.find_entry_by_path(project_dir).is_none(),
             "the last refcount released tears the workspace down"
+        );
+    }
+
+    /// Records the `--permission-mode` every spawn is handed, then stalls the
+    /// way `StallSpawner` does — the test reads the modes off the channel
+    /// because the spawn happens in a detached bridge task.
+    struct RecordingSpawner {
+        modes: mpsc::UnboundedSender<Option<String>>,
+    }
+
+    impl ChildSpawner for RecordingSpawner {
+        fn spawn_child(
+            &self,
+            _project_dir: &std::path::Path,
+            _session_id: &str,
+            _session_mode: SessionMode,
+            _resume_claude_session_id: Option<&str>,
+            permission_mode: Option<&str>,
+        ) -> SpawnFuture {
+            let _ = self.modes.send(permission_mode.map(str::to_string));
+            Box::pin(async { pending::<std::io::Result<SessionChild>>().await })
+        }
+    }
+
+    /// The spawn is a detached task, so the mode arrives on the channel rather
+    /// than with the call that caused it.
+    async fn next_spawned_mode(rx: &mut mpsc::UnboundedReceiver<Option<String>>) -> Option<String> {
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("a spawn reached the spawner within 5s")
+            .expect("the spawner channel is open")
+    }
+
+    fn permission_mode_frame(tug_session_id: &str, mode: &str) -> Frame {
+        Frame::new(
+            FeedId::CODE_INPUT,
+            serde_json::to_vec(&serde_json::json!({
+                "tug_session_id": tug_session_id,
+                "type": "permission_mode",
+                "mode": mode,
+            }))
+            .unwrap(),
+        )
+    }
+
+    /// The mode the user switched to mid-flight is the mode the next spawn
+    /// gets. Every respawn — a wheel rotation, an arc Resume, a crash-loop
+    /// respawn — reads `entry.permission_mode` and hands it to the child as
+    /// `--permission-mode`, so a live `permission_mode` frame has to move it;
+    /// otherwise the respawn silently undoes a direct action the user took.
+    #[tokio::test]
+    async fn a_live_permission_mode_change_is_the_mode_the_respawn_spawns_with() {
+        let (tx, mut spawned_modes) = mpsc::unbounded_channel::<Option<String>>();
+        let factory: SpawnerFactory = Arc::new(move || {
+            Arc::new(RecordingSpawner { modes: tx.clone() }) as Arc<dyn ChildSpawner>
+        });
+        let ((sup, _state_rx, _meta_rx, _control_rx), mut register_rx) =
+            make_supervisor_with_spawner(factory);
+        tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "spawn_session",
+            "card_id": "card-1",
+            "tug_session_id": "sess-1",
+            "project_dir": test_project_dir(),
+            "line_id": "line-sess-1",
+            "permission_mode": "auto",
+        }))
+        .unwrap();
+        sup.handle_control("spawn_session", &payload, 10)
+            .await
+            .expect_handled();
+
+        assert_eq!(
+            next_spawned_mode(&mut spawned_modes).await.as_deref(),
+            Some("auto"),
+            "the birth spawn carries the mode the deck asked for",
+        );
+
+        // The chip's switch, as the deck sends it: a live frame, which reaches
+        // the running tugcode.
+        sup.dispatch_one(permission_mode_frame("sess-1", "bypassPermissions"))
+            .await;
+
+        // The respawn a rotation or an arc Resume takes. (A crash-loop respawn
+        // never leaves the bridge; it is covered by
+        // `a_crash_loop_respawn_carries_the_mode_the_session_is_in`.)
+        sup.spawn_session_worker(&TugSessionId::new("sess-1")).await;
+
+        assert_eq!(
+            next_spawned_mode(&mut spawned_modes).await.as_deref(),
+            Some("bypassPermissions"),
+            "the respawn carries the mode the session is in, not the one it was born in",
         );
     }
 
@@ -27822,7 +27944,6 @@ mod bridge_panic_tests {
             Arc::new(PanicMidBracketSpawner),
             PathBuf::from(env!("CARGO_MANIFEST_DIR")),
             SessionMode::Resume,
-            None,
             Arc::new(NoopSessionsRecorder),
             None,
             crate::feeds::changeset::ChangesetBumper::disconnected(),
@@ -28084,7 +28205,6 @@ mod replay_bracket_close_tests {
             Arc::new(DiesMidBracketSpawner),
             PathBuf::from(env!("CARGO_MANIFEST_DIR")),
             SessionMode::Resume,
-            None,
             Arc::new(NoopSessionsRecorder),
             None,
             crate::feeds::changeset::ChangesetBumper::disconnected(),
@@ -28114,5 +28234,116 @@ mod replay_bracket_close_tests {
             .unwrap()
             .1;
         assert_eq!(close["error"]["kind"], "replay_exception");
+    }
+
+    /// Records the `--permission-mode` of every spawn and dies immediately, so
+    /// the bridge's own retry loop runs. The first spawn also stamps the entry
+    /// the way `dispatch_one` does when the user's `permission_mode` frame
+    /// arrives while the child is up.
+    struct DiesAfterStampingSpawner {
+        modes: mpsc::UnboundedSender<Option<String>>,
+        entry: Arc<Mutex<LedgerEntry>>,
+        stamp: String,
+        spawns: std::sync::atomic::AtomicUsize,
+    }
+
+    impl ChildSpawner for DiesAfterStampingSpawner {
+        fn spawn_child(
+            &self,
+            _project_dir: &std::path::Path,
+            _session_id: &str,
+            _session_mode: SessionMode,
+            _resume_claude_session_id: Option<&str>,
+            permission_mode: Option<&str>,
+        ) -> SpawnFuture {
+            let _ = self.modes.send(permission_mode.map(str::to_string));
+            let first = self
+                .spawns
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                == 0;
+            let entry = Arc::clone(&self.entry);
+            let stamp = self.stamp.clone();
+            Box::pin(async move {
+                if first {
+                    entry.lock().await.permission_mode = Some(stamp);
+                }
+                let (bridge_stdin, child_stdin_read) = tokio::io::duplex(8192);
+                Ok(SessionChild {
+                    stdin: Box::new(bridge_stdin),
+                    // Empty stdout: the child is gone the instant it is up, so
+                    // the bridge counts a crash and takes its retry.
+                    stdout: Box::new(&b""[..]),
+                    pid: None,
+                    _keepalive: Box::new(child_stdin_read),
+                    stderr_tail: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+                })
+            })
+        }
+    }
+
+    /// A crash-loop respawn carries the mode the session is in, like every
+    /// other respawn.
+    ///
+    /// The three respawns are not three copies of one path. A wheel rotation
+    /// and an arc Resume each go round `spawn_session_worker`, which reads
+    /// `entry.permission_mode` fresh; a crash-loop respawn never leaves
+    /// `run_session_bridge`, so it only sees the entry if the loop reads it
+    /// again. A mode resolved once, above the loop, would hand every retry the
+    /// mode the bridge started on — putting the session back in the mode the
+    /// user switched away from, which is the whole defect, surviving on the
+    /// one path nothing else covers.
+    #[tokio::test]
+    async fn a_crash_loop_respawn_carries_the_mode_the_session_is_in() {
+        let tug_id = TugSessionId::new("sess-crash-loop-mode");
+        // Two crashes: the first spawn dies and is retried, the second spends
+        // the budget and ends the bridge.
+        let entry = Arc::new(Mutex::new(LedgerEntry::new(
+            tug_id.clone(),
+            WorkspaceKey::from_test_str(env!("CARGO_MANIFEST_DIR")),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::Resume,
+            CrashBudget::new(2, Duration::from_secs(60)),
+        )));
+        entry.lock().await.permission_mode = Some("auto".to_string());
+        let (tx, mut spawned_modes) = mpsc::unbounded_channel::<Option<String>>();
+        let (_input_tx, input_rx) = mpsc::channel::<Frame>(4);
+        let (merger_tx, _merger_rx) = mpsc::channel::<Frame>(16);
+        let (state_tx, _state_rx) = broadcast::channel::<Frame>(16);
+
+        run_session_bridge(
+            tug_id.clone(),
+            entry.clone(),
+            input_rx,
+            merger_tx,
+            state_tx,
+            None,
+            Arc::new(DiesAfterStampingSpawner {
+                modes: tx,
+                entry: entry.clone(),
+                stamp: "bypassPermissions".to_string(),
+                spawns: std::sync::atomic::AtomicUsize::new(0),
+            }),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::Resume,
+            Arc::new(NoopSessionsRecorder),
+            None,
+            crate::feeds::changeset::ChangesetBumper::disconnected(),
+            CancellationToken::new(),
+            Duration::from_millis(1),
+        )
+        .await;
+
+        let mut modes = Vec::new();
+        while let Ok(mode) = spawned_modes.try_recv() {
+            modes.push(mode);
+        }
+        assert_eq!(
+            modes
+                .iter()
+                .map(|m| m.as_deref().unwrap_or(""))
+                .collect::<Vec<_>>(),
+            vec!["auto", "bypassPermissions"],
+            "the retry spawns in the mode the entry holds, not the one the bridge began on",
+        );
     }
 }

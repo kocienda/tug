@@ -876,6 +876,68 @@ mod tests {
         assert!(prompt.get("text").is_none());
     }
 
+    /// The mode the user switched to off-cycle is the mode that survives a
+    /// rotation — the thing the user actually saw go wrong, at the altitude
+    /// the rotation happens.
+    ///
+    /// Two halves, and both matter. The rotation names no permission mode of
+    /// its own: `session` says which card rotates and never what it rotates
+    /// into, so the mode is not a rotation's to carry. And the entry it
+    /// rotates still reads the switched-to mode, because `entry.permission_mode`
+    /// is what the next spawn hands the child as `--permission-mode`. A card
+    /// whose entry had gone back to its birth mode would come back in it.
+    #[tokio::test]
+    async fn a_rotation_carries_no_mode_and_leaves_the_switched_to_one_standing() {
+        let (sup, _register_rx) = test_minimal_supervisor();
+        let tug_id = TugSessionId::new("sess-stage-live");
+        let entry_arc = insert_ledger_entry_for_tests(&sup, &tug_id).await;
+        let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Live;
+            entry.input_tx = Some(input_tx);
+            entry.permission_mode = Some("auto".to_string());
+        }
+
+        // The chip's switch, mid-stage: the deck's own frame, off any cycle
+        // the wheel drives.
+        sup.dispatch_one(code_input_frame(&serde_json::json!({
+            "tug_session_id": "sess-stage-live",
+            "type": "permission_mode",
+            "mode": "bypassPermissions",
+        })))
+        .await;
+        let forwarded = input_rx.recv().await.expect("the frame reaches tugcode");
+        assert_eq!(
+            body(&forwarded)["type"], "permission_mode",
+            "the stamp reads the frame on the way past and never eats it",
+        );
+
+        rotate(&sup, &request(Some("opus")))
+            .await
+            .expect("a live card takes the rotation");
+
+        let mut sent = Vec::new();
+        while let Ok(frame) = input_rx.try_recv() {
+            sent.push(frame);
+        }
+        assert_eq!(
+            frame_types(&sent),
+            vec!["model_change", "session_command", "user_message"],
+            "a rotation's frames are the same three; none of them is about the mode",
+        );
+        assert!(
+            sent.iter().all(|frame| body(frame).get("mode").is_none()),
+            "no rotation frame names a permission mode",
+        );
+
+        assert_eq!(
+            entry_arc.lock().await.permission_mode.as_deref(),
+            Some("bypassPermissions"),
+            "the rotated card's next spawn carries the mode the user switched to",
+        );
+    }
+
     #[tokio::test]
     async fn a_spawning_rotation_queues_its_frames_in_order() {
         let (sup, _register_rx) = test_minimal_supervisor();

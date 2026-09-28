@@ -548,11 +548,6 @@ pub async fn run_session_bridge(
     spawner: Arc<dyn ChildSpawner>,
     project_dir: PathBuf,
     session_mode: SessionMode,
-    // Deck-wide / per-card default permission mode resolved by tugdeck at
-    // spawn time, forwarded to tugcode as `--permission-mode`. `None` when
-    // tugdeck sent no mode. Stable for the life of the session (read once
-    // off the ledger entry), so crash-loop respawns re-apply the same mode.
-    permission_mode: Option<String>,
     sessions_recorder: Arc<dyn SessionsRecorder>,
     // Optional handle to the sqlite session ledger. When present, the
     // relay loop loads per-turn telemetry on `replay_started` and
@@ -704,6 +699,19 @@ pub async fn run_session_bridge(
         let resume_claude_session_id = {
             let entry = ledger_entry.lock().await;
             entry.claude_session_id.clone()
+        };
+
+        // The mode the session is *in*, read fresh on every iteration for the
+        // same reason `resume_claude_session_id` is: a live `permission_mode`
+        // frame moves `entry.permission_mode` while the child is up, and a
+        // crash-loop respawn is the one respawn that never leaves this
+        // function. Read once above the loop it would hand every retry the
+        // mode the bridge began on, silently undoing the switch the user made
+        // — the same defect the entry's stamp exists to close, surviving on
+        // the one path that never goes back round `spawn_session_worker`.
+        let permission_mode = {
+            let entry = ledger_entry.lock().await;
+            entry.permission_mode.clone()
         };
 
         // Spawn subprocess — interruptible by cancel so
