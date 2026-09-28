@@ -14,12 +14,13 @@
 //!
 //! ## The subcommand that settles an incident
 //!
-//! `bisect` pauses each loop group in turn, measures the frame's render cost
-//! with it paused, resumes it, and sorts by the drop. The group whose absence
-//! collapses the cost is the one paying for the compositing walk — named in
-//! seconds, on the build in front of the user, rather than by elimination over
-//! the source. It is bounded so it finishes inside `eval_handler`'s
-//! thirty-second ceiling.
+//! `bisect` pauses every long-running loop, measures the floor, then wakes one
+//! family at a time — every animation of a figure, split by whether the figure
+//! is on screen — measures the frame with only that family running, and sorts
+//! by the price above the floor. The family whose presence alone raises the
+//! cost is the one paying for the compositing walk — named in seconds, on the
+//! build in front of the user, rather than by elimination over the source. It
+//! is bounded so it finishes inside `eval_handler`'s thirty-second ceiling.
 //!
 //! ## Exit codes
 //!
@@ -57,6 +58,10 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         DeckMotionCommands::Cost { frames, .. } => {
             format!("window.__tugMotion.cost({frames})")
         }
+        DeckMotionCommands::Rest { window, .. } => match window {
+            Some(window) => format!("window.__tugMotion.rest({window})"),
+            None => "window.__tugMotion.rest()".to_string(),
+        },
         DeckMotionCommands::Layers { .. } => "window.__tugMotion.layers()".to_string(),
         DeckMotionCommands::Pause { selector, .. } => {
             format!("window.__tugMotion.pause({})", json(selector))
@@ -95,6 +100,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
     match cmd {
         DeckMotionCommands::List { target, .. }
         | DeckMotionCommands::Cost { target, .. }
+        | DeckMotionCommands::Rest { target, .. }
         | DeckMotionCommands::Layers { target }
         | DeckMotionCommands::Pause { target, .. }
         | DeckMotionCommands::Resume { target, .. }
@@ -221,6 +227,7 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
     match cmd {
         DeckMotionCommands::List { .. } => render_list(value),
         DeckMotionCommands::Cost { .. } => render_cost(value),
+        DeckMotionCommands::Rest { .. } => render_rest(value),
         DeckMotionCommands::Layers { .. } => render_layers(value),
         DeckMotionCommands::Pause { .. } => render_count(value, "paused"),
         DeckMotionCommands::Resume { .. } => render_count(value, "resumed"),
@@ -305,6 +312,9 @@ fn render_cost(value: &serde_json::Value) {
         num_at(value, "p95"),
         num_at(value, "max")
     );
+    if let Some(rest) = value.get("rest") {
+        render_rest(rest);
+    }
     if let Some(samples) = value.get("samples").and_then(|s| s.as_array())
         && !samples.is_empty()
     {
@@ -312,8 +322,9 @@ fn render_cost(value: &serde_json::Value) {
             .iter()
             .map(|s| {
                 format!(
-                    "{:.2}{}",
+                    "{:.2}/{}{}",
                     num_at(s, "costMs"),
+                    num_at(s, "updatesPerSecond") as i64,
                     if s.get("inFlight").and_then(|f| f.as_bool()).unwrap_or(false) {
                         "*"
                     } else {
@@ -323,10 +334,30 @@ fn render_cost(value: &serde_json::Value) {
             })
             .collect();
         println!(
-            "probe samples (* = a session was mid-turn): {}",
+            "probe samples as cost ms/updates per s (* = a session was mid-turn): {}",
             recent.join(" ")
         );
     }
+}
+
+/// The at-rest reading: how many updates a second held the main thread past
+/// the floor, and for how long in total. Zero is the doctrine's invariant, and
+/// the display rate is a loop that never left the main thread.
+fn render_rest(value: &serde_json::Value) {
+    if value.get("updatesPerSecond").is_none() {
+        fallback(value);
+        return;
+    }
+    println!(
+        "at rest: {} update(s)/s over a {:.0} ms floor, holding the main thread {} ms/s (window {:.0} ms, {} ticks, median gap {:.0} ms, worst {:.0} ms)",
+        num_at(value, "updatesPerSecond") as i64,
+        num_at(value, "floorMs"),
+        num_at(value, "busyMsPerSecond") as i64,
+        num_at(value, "windowMs"),
+        num_at(value, "ticks") as i64,
+        num_at(value, "medianGapMs"),
+        num_at(value, "maxGapMs")
+    );
 }
 
 fn render_layers(value: &serde_json::Value) {
@@ -437,18 +468,21 @@ fn render_bisect(value: &serde_json::Value) {
         return;
     };
     println!(
-        "baseline p50 {:.2} ms — read {} of {} group(s), guiltiest first",
+        "everything running p50 {:.2} ms, everything paused p50 {:.2} ms — read {} of {} family(ies), guiltiest first",
         num_at(value, "baselineP50"),
+        num_at(value, "floorP50"),
         num_at(value, "groupsRead") as i64,
         num_at(value, "groupsFound") as i64
     );
     for group in groups {
         println!(
-            "  {:>8.2} ms drop   paused p50 {:>6.2} ms   {:>4}×  {}",
-            num_at(group, "drop"),
-            num_at(group, "pausedP50"),
+            "  {:>8.2} ms price   alone p50 {:>6.2} ms   {:>4}× in {:>4} figure(s)  {} ({})",
+            num_at(group, "price"),
+            num_at(group, "aloneP50"),
             num_at(group, "count") as i64,
-            str_at(group, "name")
+            num_at(group, "figures") as i64,
+            str_at(group, "name"),
+            str_at(group, "placement")
         );
     }
 }
@@ -500,10 +534,19 @@ fn render_probe(value: &serde_json::Value) {
     if let Some(samples) = value.get("samples").and_then(|s| s.as_array()) {
         let recent: Vec<String> = samples
             .iter()
-            .map(|s| format!("{:.2}", num_at(s, "costMs")))
+            .map(|s| {
+                format!(
+                    "{:.2}/{}",
+                    num_at(s, "costMs"),
+                    num_at(s, "updatesPerSecond") as i64
+                )
+            })
             .collect();
         if !recent.is_empty() {
-            println!("recent samples: {}", recent.join(" "));
+            println!(
+                "recent samples as cost ms/updates per s: {}",
+                recent.join(" ")
+            );
         }
     }
 }
@@ -552,6 +595,26 @@ mod tests {
         assert_eq!(
             eval_code_for(&cmd).as_deref(),
             Some("window.__tugMotion.cost(45)")
+        );
+    }
+
+    #[test]
+    fn rest_omits_a_window_it_was_not_given() {
+        let bare = DeckMotionCommands::Rest {
+            window: None,
+            target: target(),
+        };
+        assert_eq!(
+            eval_code_for(&bare).as_deref(),
+            Some("window.__tugMotion.rest()")
+        );
+        let windowed = DeckMotionCommands::Rest {
+            window: Some(2000),
+            target: target(),
+        };
+        assert_eq!(
+            eval_code_for(&windowed).as_deref(),
+            Some("window.__tugMotion.rest(2000)")
         );
     }
 

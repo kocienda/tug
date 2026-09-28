@@ -21,11 +21,31 @@
  *
  * ## What it is for
  *
- * `bisect()` is the one that settles an incident: it pauses each loop group in
- * turn, measures the render cost with it paused, resumes it, and sorts by the
- * drop. The group whose pause collapses the cost is the culprit, named in
- * seconds on the build in front of the user, rather than by elimination over
- * the source ([F03], [B04]).
+ * `bisect()` is the one that settles an incident. It reads **additively**:
+ * every long-running animation on the page is paused first, the floor is
+ * measured, and then one family at a time is woken, measured alone, and put
+ * back to sleep. A family's price is what the frame costs with only that
+ * family running, above the floor — the one reading that two loops dirtying
+ * the same style on the same frame cannot hide, which is what the old
+ * one-group-at-a-time subtraction did: pausing a dot's breath left its ring
+ * dirtying the same box, so the drop read 0.00 for a family that cost 10 ms.
+ *
+ * A **family** is every animation sharing a figure — the target element, or
+ * the ancestor that owns it. Figures are found by name rather than declared:
+ * the deck's glyphs are BEM-shaped (`tug-progress-pulsing-dot` above
+ * `tug-progress-pulsing-dot-dot-well` above `tug-progress-pulsing-dot-dot`),
+ * so the figure root is the highest ancestor whose class shares a stem with
+ * the target's, and a loop whose ancestors share nothing is its own figure.
+ * Families are then split by **placement** — on screen or scrolled out of
+ * view, per an `IntersectionObserver` — because that is the line the cost
+ * runs along on this WebKit: an off-screen dot is not compositor-resident
+ * and an on-screen one costs nothing measurable.
+ *
+ * Every pause and every resume of a family happens in one synchronous turn
+ * over the whole family, so a figure's loops keep their weld: paused in one
+ * task they hold the same phase, and played in one task they resume on the
+ * same start time. The old verb paused one loop group for a second while its
+ * siblings ran, and the dot and its ring came back out of phase.
  *
  * @module lib/motion-guard/diagnostics
  */
@@ -38,13 +58,22 @@ import {
 } from "@/lib/perf-monitor";
 
 import { motionHolds } from "./registry";
+import {
+  offscreenPauseEnabled,
+  offscreenPaused,
+  offscreenWatched,
+  setOffscreenPause,
+} from "./offscreen";
+import { liveMarks, type LiveMarksReading } from "./one-live-mark";
 import { motionBreaker } from "./breaker";
 import {
   burst,
   renderCostProbe,
+  sampleRest,
   summarize,
   type RenderCostSample,
   type RenderCostSummary,
+  type RestReading,
 } from "./render-cost-probe";
 import {
   clearInputLatency,
@@ -62,44 +91,66 @@ import {
 /** Frames per reading in {@link TugMotionDiagnostics.cost}. */
 export const COST_FRAMES_DEFAULT = 30;
 
-/** Frames per group in {@link TugMotionDiagnostics.bisect}. */
+/** Frames per family in {@link TugMotionDiagnostics.bisect}. */
 export const BISECT_FRAMES = 20;
+
+/**
+ * Frames a bisect lets pass after every pause and play before it reads.
+ *
+ * `play()` on a paused animation runs it on the main thread until WebKit
+ * re-accelerates it on a later rendering update, and a burst taken across
+ * that transition prices the resume rather than the family: on the release
+ * deck every family alone read a flat 5 ms above a 1 ms floor until the
+ * settle was added. The same holds for the floor after the big pause.
+ */
+export const BISECT_SETTLE_FRAMES = 10;
 
 /**
  * How many loop groups one `bisect()` reads.
  *
  * `eval_handler` on tugcast gives a call 30 seconds. The cost is
- * `groups × frames × frame-time`, and a saturated deck paints at 15 fps, so
- * 20 frames a group is ~1.3 s there. Eight groups is ~11 s at that rate, with
- * room for the baseline. A deck with more loop names truncates and says how
- * many it read, rather than timing out with nothing.
+ * `families × (settle + frames) × frame-time`, and a saturated deck paints at
+ * 15 fps, so 30 frames a family is ~2 s there. Eight families is ~16 s at
+ * that rate, with room for the baseline and the floor. A deck with more
+ * families truncates and says how many it read, rather than timing out with
+ * nothing.
  */
 export const BISECT_GROUP_CAP = 8;
 
 export interface RenderCostReading extends RenderCostSummary {
   /** The frames just taken, in order. */
   burst: number[];
+  /** The at-rest reading taken right after the burst. */
+  rest: RestReading;
   /** What the armed probe has been recording in the background. */
   samples: RenderCostSample[];
 }
 
+/** Where a family's figures sit relative to the viewport and their clips. */
+export type BisectPlacement = "on-screen" | "off-screen";
+
 export interface BisectGroupReading {
-  /** The animation name the group shares. */
+  /** The family: the figure root's stem class, or the target's. */
   name: string;
-  /** How many animations carry that name. */
+  placement: BisectPlacement;
+  /** How many animations the family runs. */
   count: number;
-  /** p50 render cost with the group paused. */
-  pausedP50: number;
-  /** Baseline p50 minus {@link BisectGroupReading.pausedP50}. Bigger is guiltier. */
-  drop: number;
+  /** How many figures those animations belong to. */
+  figures: number;
+  /** p50 render cost with only this family running. */
+  aloneP50: number;
+  /** {@link BisectGroupReading.aloneP50} above the floor. Bigger is guiltier. */
+  price: number;
 }
 
 export interface BisectReading {
-  /** p50 render cost with everything running. */
+  /** p50 render cost with everything running, as the deck was found. */
   baselineP50: number;
-  /** One row per group, sorted by drop, guiltiest first. */
+  /** p50 render cost with every long-running loop paused. */
+  floorP50: number;
+  /** One row per family, sorted by price, guiltiest first. */
   groups: BisectGroupReading[];
-  /** How many groups the deck had, and how many this call read. */
+  /** How many families the deck had, and how many this call read. */
   groupsFound: number;
   groupsRead: number;
 }
@@ -118,7 +169,18 @@ export interface ProbeReading {
    * calibrated number lands in one place.
    */
   budgetMs: number;
+  /** The at-rest budget, in updates per second; read for the same reason. */
+  restBudgetPerSecond: number;
   samples: RenderCostSample[];
+}
+
+export interface OffscreenReading {
+  /** Whether the rule is in force. */
+  enabled: boolean;
+  /** Figures registered with the observer. */
+  watched: number;
+  /** Of those, the ones out of view and stilled right now. */
+  paused: number;
 }
 
 export interface TugMotionDiagnostics {
@@ -130,7 +192,9 @@ export interface TugMotionDiagnostics {
   resume(selector: string): { resumed: number };
   /** Take `frames` readings now, and hand back the probe's recent ones too. */
   cost(frames?: number): Promise<RenderCostReading>;
-  /** Pause each loop group in turn and report which one's absence is felt. */
+  /** Watch the main thread for `windowMs` and count the updates over the floor. */
+  rest(windowMs?: number): Promise<RestReading>;
+  /** Pause everything, wake one family at a time, and price each alone. */
   bisect(options?: { frames?: number; cap?: number }): Promise<BisectReading>;
   /** The population the compositing walk pays for ([F04]). */
   layers(): LayerTreeProbe;
@@ -142,6 +206,16 @@ export interface TugMotionDiagnostics {
   demote(on: boolean): ProbeReading;
   /** Move the breaker's budget. Takes effect on the next sample. */
   setBudget(ms: number): ProbeReading;
+  /** Move the breaker's at-rest budget. Takes effect on the next sample. */
+  setRestBudget(perSecond: number): ProbeReading;
+  /**
+   * The off-screen rule: how many figures are watched and how many are out of
+   * view and stilled. With an argument, turn the rule off or on — diagnostics
+   * only, so a bench can read one population both ways.
+   */
+  offscreen(on?: boolean): OffscreenReading;
+  /** The one-live-mark rule: groups, members, and how many are understudies. */
+  liveMarks(): LiveMarksReading;
   /**
    * The read→write→read chains under a gesture ([P03], Spec S04).
    *
@@ -185,16 +259,6 @@ function matching(selector: string): Animation[] {
   });
 }
 
-function animationName(animation: Animation): string {
-  // `CSSAnimation.animationName` is the loop's name; a script-driven
-  // animation has only its `id`, and an anonymous one groups under `<waapi>`.
-  const css = animation as Animation & { animationName?: string };
-  if (typeof css.animationName === "string" && css.animationName !== "") {
-    return css.animationName;
-  }
-  return animation.id !== "" ? animation.id : "<waapi>";
-}
-
 function longRunningAnimations(): Animation[] {
   return document.getAnimations().filter((animation) => {
     const effect = animation.effect;
@@ -203,6 +267,115 @@ function longRunningAnimations(): Animation[] {
     const timing = effect.getTiming();
     return (timing.iterations ?? 1) === Infinity;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Figures and families, for `bisect`
+// ---------------------------------------------------------------------------
+
+/** Whether class `stem` is a BEM stem of class `name`: `name` is `stem-…`. */
+function isStemOf(stem: string, name: string): boolean {
+  return name.length > stem.length && name.startsWith(`${stem}-`);
+}
+
+/**
+ * The figure an animation's target belongs to.
+ *
+ * Climbs while the ancestor's classes share a stem with the target's in
+ * either direction — `…-dot` under `…-dot-well` under `…-dot` — and stops at
+ * the first ancestor that shares nothing. A target whose parent shares
+ * nothing is its own figure.
+ */
+export function figureRootOf(target: Element): Element {
+  const names = Array.from(target.classList);
+  let root = target;
+  let node = target.parentElement;
+  while (node !== null && node !== document.body) {
+    const classes = Array.from(node.classList);
+    const owns = classes.some((c) =>
+      names.some((n) => isStemOf(c, n) || isStemOf(n, c)),
+    );
+    if (!owns) break;
+    root = node;
+    node = node.parentElement;
+  }
+  return root;
+}
+
+/**
+ * The family a figure belongs to: its shortest class that is a stem of one
+ * of the loop target's classes, else its own class, else its tag. A `tug-`
+ * class wins over a library's — the caret layer is `cm-layer` to CodeMirror
+ * and `tug-text-editor-caret-layer` to the deck, and the deck's name is the
+ * one a reader can find.
+ */
+export function familyNameOf(root: Element, target: Element): string {
+  const names = Array.from(target.classList);
+  const rank = (c: string): number => (c.startsWith("tug") ? 0 : 1);
+  const own = Array.from(root.classList).sort(
+    (a, b) => rank(a) - rank(b) || a.length - b.length,
+  );
+  const stems = own.filter((c) => names.some((n) => isStemOf(c, n)));
+  if (stems.length > 0) return stems[0]!;
+  return own.length > 0 ? own[0]! : root.tagName.toLowerCase();
+}
+
+/**
+ * Which of `elements` intersect the viewport through every clip on the way,
+ * read once through an `IntersectionObserver` — the one platform reading
+ * that accounts for a scroller's clip without a `getComputedStyle` walk per
+ * element.
+ */
+function onScreen(elements: readonly Element[]): Promise<Set<Element>> {
+  return new Promise((resolve) => {
+    if (elements.length === 0) {
+      resolve(new Set());
+      return;
+    }
+    const visible = new Set<Element>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) visible.add(entry.target);
+      }
+      observer.disconnect();
+      resolve(visible);
+    });
+    for (const element of elements) observer.observe(element);
+  });
+}
+
+interface Family {
+  name: string;
+  placement: BisectPlacement;
+  animations: Animation[];
+  figures: Set<Element>;
+}
+
+/** Group the long-running animations into families, by figure and placement. */
+async function familiesOf(animations: readonly Animation[]): Promise<Family[]> {
+  const rootOf = new Map<Animation, Element>();
+  for (const animation of animations) {
+    const target = targetOf(animation);
+    if (target !== null) rootOf.set(animation, figureRootOf(target));
+  }
+  const visible = await onScreen(Array.from(new Set(rootOf.values())));
+  const families = new Map<string, Family>();
+  for (const animation of animations) {
+    const root = rootOf.get(animation);
+    const target = targetOf(animation);
+    if (root === undefined || target === null) continue;
+    const name = familyNameOf(root, target);
+    const placement: BisectPlacement = visible.has(root) ? "on-screen" : "off-screen";
+    const key = `${name} ${placement}`;
+    let family = families.get(key);
+    if (family === undefined) {
+      family = { name, placement, animations: [], figures: new Set() };
+      families.set(key, family);
+    }
+    family.animations.push(animation);
+    family.figures.add(root);
+  }
+  return Array.from(families.values());
 }
 
 // ---------------------------------------------------------------------------
@@ -324,54 +497,69 @@ export const tugMotion: TugMotionDiagnostics = {
 
   async cost(frames = COST_FRAMES_DEFAULT) {
     const readings = await burst(frames);
+    // After the burst, never during it: the burst's own rAF pairs would read
+    // as stalls in the chain.
+    const rest = await sampleRest();
     return {
       burst: readings,
       ...summarize(readings),
+      rest,
       samples: renderCostProbe.samples(),
     };
+  },
+
+  rest(windowMs) {
+    return sampleRest(windowMs);
   },
 
   async bisect(options) {
     const frames = options?.frames ?? BISECT_FRAMES;
     const cap = options?.cap ?? BISECT_GROUP_CAP;
 
-    const byName = new Map<string, Animation[]>();
-    for (const animation of longRunningAnimations()) {
-      const name = animationName(animation);
-      const group = byName.get(name);
-      if (group === undefined) byName.set(name, [animation]);
-      else group.push(animation);
-    }
-    const names = Array.from(byName.keys()).slice(0, cap);
+    const all = longRunningAnimations();
+    // An animation already paused before the bisect began is put back
+    // exactly as it was found; the reading is about what running costs,
+    // not a licence to restart something somebody else stopped.
+    const running = all.filter((animation) => animation.playState === "running");
+    const families = (await familiesOf(running)).sort(
+      (a, b) => b.animations.length - a.animations.length,
+    );
+    const read = families.slice(0, cap);
 
     const baselineP50 = summarize(await burst(frames)).p50;
 
+    // Everything down in one turn, so every figure's loops hold one phase.
+    for (const animation of running) animation.pause();
+    await burst(BISECT_SETTLE_FRAMES);
+    const floorP50 = summarize(await burst(frames)).p50;
+
     const groups: BisectGroupReading[] = [];
-    for (const name of names) {
-      const group = byName.get(name) ?? [];
-      // A group already paused before the bisect began is put back exactly
-      // as it was found; the reading is about what pausing changes, not a
-      // licence to restart something somebody else stopped.
-      const wasRunning = group.map((animation) => animation.playState === "running");
-      for (const animation of group) animation.pause();
-      const pausedP50 = summarize(await burst(frames)).p50;
-      group.forEach((animation, i) => {
-        if (wasRunning[i] === true) animation.play();
-      });
+    for (const family of read) {
+      // Up in one turn, down in one turn: a figure's loops resume on one
+      // start time and pause on one phase, and the weld survives.
+      for (const animation of family.animations) animation.play();
+      await burst(BISECT_SETTLE_FRAMES);
+      const aloneP50 = summarize(await burst(frames)).p50;
+      for (const animation of family.animations) animation.pause();
       groups.push({
-        name,
-        count: group.length,
-        pausedP50,
-        drop: baselineP50 - pausedP50,
+        name: family.name,
+        placement: family.placement,
+        count: family.animations.length,
+        figures: family.figures.size,
+        aloneP50,
+        price: aloneP50 - floorP50,
       });
     }
-    groups.sort((a, b) => b.drop - a.drop);
+
+    for (const animation of running) animation.play();
+    groups.sort((a, b) => b.price - a.price);
 
     return {
       baselineP50,
+      floorP50,
       groups,
-      groupsFound: byName.size,
-      groupsRead: names.length,
+      groupsFound: families.length,
+      groupsRead: read.length,
     };
   },
 
@@ -391,6 +579,7 @@ export const tugMotion: TugMotionDiagnostics = {
       latched: motionBreaker.latched,
       trips: motionBreaker.trips,
       budgetMs: motionBreaker.budgetMs,
+      restBudgetPerSecond: motionBreaker.restBudgetPerSecond,
       samples: renderCostProbe.samples(),
     };
   },
@@ -403,6 +592,24 @@ export const tugMotion: TugMotionDiagnostics = {
   setBudget(ms) {
     motionBreaker.setBudget(ms);
     return tugMotion.probe();
+  },
+
+  setRestBudget(perSecond) {
+    motionBreaker.setRestBudget(perSecond);
+    return tugMotion.probe();
+  },
+
+  offscreen(on) {
+    if (on !== undefined) setOffscreenPause(on);
+    return {
+      enabled: offscreenPauseEnabled(),
+      watched: offscreenWatched(),
+      paused: offscreenPaused(),
+    };
+  },
+
+  liveMarks() {
+    return liveMarks();
   },
 
   chains(mode) {

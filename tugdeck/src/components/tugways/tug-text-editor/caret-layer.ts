@@ -85,10 +85,11 @@
  */
 
 import { EditorView, layer, RectangleMarker, ViewPlugin } from "@codemirror/view";
-import type { LayerMarker } from "@codemirror/view";
+import type { LayerMarker, ViewUpdate } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 
 import { getResponderChainManager } from "@/action-dispatch";
+import { acquireMotionHold } from "@/lib/motion-guard";
 import { deckTrace } from "@/deck-trace";
 import { getFocusManager, KBF_ATTRIBUTE } from "../focus-manager";
 import { revealFocusTarget } from "../focus-reveal";
@@ -377,6 +378,48 @@ export const tugCaretLayer: Extension = layer({
     ];
   },
 });
+
+// ---------------------------------------------------------------------------
+// The blink's motion hold
+// ---------------------------------------------------------------------------
+
+/**
+ * The caret blink's motion hold.
+ *
+ * `theme.ts` declares the blink on `.cm-focused > .cm-scroller >
+ * .tug-text-editor-caret-layer`, so it runs exactly while the editor is
+ * focused and owns no animation object otherwise. This plugin says the same
+ * thing to the motion registry ([D7]): a hold taken on focus, released on
+ * blur and on destroy, so the render-cost probe reads while the caret ticks
+ * and the census can name it. Before this the blink was the one long-running
+ * loop the registry never saw ([F10]).
+ */
+export const tugCaretBlinkHold: Extension = ViewPlugin.fromClass(
+  class {
+    private release: (() => void) | null = null;
+
+    constructor(view: EditorView) {
+      this.sync(view.hasFocus);
+    }
+
+    update(update: ViewUpdate): void {
+      if (update.focusChanged) this.sync(update.view.hasFocus);
+    }
+
+    destroy(): void {
+      this.sync(false);
+    }
+
+    private sync(focused: boolean): void {
+      if (focused && this.release === null) {
+        this.release = acquireMotionHold();
+      } else if (!focused && this.release !== null) {
+        this.release();
+        this.release = null;
+      }
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Caret reveal

@@ -538,8 +538,11 @@ const EVENT_FIXTURES: Record<
   },
   "motion-demoted": {
     kind: "motion-demoted",
+    reason: "cost",
     costMs: [19, 21, 20],
     budgetMs: 16,
+    updatesPerSecond: [60, 61, 59],
+    restBudgetPerSecond: 10,
     trips: 1,
     latched: false,
     census: {

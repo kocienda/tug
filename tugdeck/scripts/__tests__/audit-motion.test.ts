@@ -31,16 +31,39 @@ import {
   type Source,
 } from "../audit-motion";
 
+/**
+ * The hold owner every fixture below declares, so a fixture about rules 1
+ * to 3 varies one thing at a time and rule 4 stays out of its reading. Rule
+ * 4's own fixtures build their corpus by hand.
+ */
+const OWNER: Source = {
+  path: "owner.tsx",
+  text: `import { useMotionHold } from "@/lib/motion-guard";\nuseMotionHold(true);\n`,
+  kind: "ts",
+};
+
 /** Scan one stylesheet fixture, with any further files as its corpus. */
 function scan(css: string, ...rest: readonly Source[]): Hit[] {
-  const self: Source = { path: "fixture.css", text: css, kind: "css" };
-  return scanCss(css, "fixture.css", collectMotionContext([self, ...rest]));
+  const text = `${css}\n/* @tug-motion-hold owner.tsx */\n`;
+  const self: Source = { path: "fixture.css", text, kind: "css" };
+  return scanCss(
+    text,
+    "fixture.css",
+    collectMotionContext([self, OWNER, ...rest]),
+  );
 }
 
 /** Scan one TypeScript fixture, with any further files as its corpus. */
 function scanTypeScript(ts: string, ...rest: readonly Source[]): Hit[] {
-  const self: Source = { path: "fixture.ts", text: ts, kind: "ts" };
-  return scanTs(ts, "fixture.ts", collectMotionContext([self, ...rest]));
+  const text = `${ts}\n// @tug-motion-hold owner.tsx\n`;
+  const self: Source = { path: "fixture.ts", text, kind: "ts" };
+  return scanTs(text, "fixture.ts", collectMotionContext([self, OWNER, ...rest]));
+}
+
+/** Scan a stylesheet with exactly the corpus given — no owner is implied. */
+function scanBare(css: string, rel: string, ...rest: readonly Source[]): Hit[] {
+  const self: Source = { path: rel, text: css, kind: "css" };
+  return scanCss(css, rel, collectMotionContext([self, ...rest]));
 }
 
 /** The rule numbers a fixture fires, in order. */
@@ -491,6 +514,129 @@ describe("rule 3 clause 5 — the breaker's contract", () => {
         }
       `),
     ).toEqual([]);
+  });
+});
+
+describe("rule 4 — every long-running loop has a hold owner", () => {
+  test("a loop that names an owner that takes a hold fires nothing", () => {
+    expect(scan(COMPLIANT)).toEqual([]);
+  });
+
+  test("a loop that declares no owner is a hit", () => {
+    const hits = scanBare(COMPLIANT, "fixture.css", OWNER);
+    expect(rules(hits)).toEqual([4]);
+    expect(hits[0].detail).toContain("declares no hold owner");
+    expect(hits[0].selector).toBe(".glyph");
+  });
+
+  test("an owner nobody has is a hit that names the path", () => {
+    const hits = scanBare(
+      `${COMPLIANT}\n/* @tug-motion-hold missing.tsx */\n`,
+      "fixture.css",
+      OWNER,
+    );
+    expect(rules(hits)).toEqual([4]);
+    expect(hits[0].detail).toContain("`missing.tsx`");
+  });
+
+  test("an owner that takes no hold is the same hit", () => {
+    // The file exists and mounts the glyph; nothing in it calls the
+    // registry. That is exactly the caret blink's shape before it was
+    // registered, and the rule exists to refuse it.
+    const idle: Source = {
+      path: "idle.tsx",
+      text: `export function Idle() { return null; }\n`,
+      kind: "ts",
+    };
+    const hits = scanBare(
+      `${COMPLIANT}\n/* @tug-motion-hold idle.tsx */\n`,
+      "fixture.css",
+      idle,
+    );
+    expect(rules(hits)).toEqual([4]);
+    expect(hits[0].detail).toContain("`idle.tsx`");
+  });
+
+  test("a relative path resolves against the annotated file's directory", () => {
+    const owner: Source = {
+      path: "src/components/tugways/tug-progress-indicator.tsx",
+      text: `useMotionHold(running);\n`,
+      kind: "ts",
+    };
+    expect(
+      scanBare(
+        `${COMPLIANT}\n/* @tug-motion-hold ../tug-progress-indicator.tsx */\n`,
+        "src/components/tugways/internal/tug-progress-ring.css",
+        owner,
+      ),
+    ).toEqual([]);
+    // The same annotation from a directory it does not resolve from.
+    expect(
+      rules(
+        scanBare(
+          `${COMPLIANT}\n/* @tug-motion-hold ../tug-progress-indicator.tsx */\n`,
+          "src/components/tugways/tug-progress-ring.css",
+          owner,
+        ),
+      ),
+    ).toEqual([4]);
+  });
+
+  test("the registry's own definition is not an owner", () => {
+    // `export function acquireMotionHold(` declares the hold; a loop that
+    // named the registry as its owner would be registered by nobody.
+    const registry: Source = {
+      path: "registry.ts",
+      text: `export function acquireMotionHold(): () => void { return () => {}; }\n`,
+      kind: "ts",
+    };
+    expect(
+      rules(
+        scanBare(
+          `${COMPLIANT}\n/* @tug-motion-hold registry.ts */\n`,
+          "fixture.css",
+          registry,
+        ),
+      ),
+    ).toEqual([4]);
+  });
+
+  test("a finite animation needs no owner", () => {
+    expect(
+      scanBare(
+        `
+@keyframes fx {
+  from { transform: scale(1); }
+  to   { transform: scale(1.2); }
+}
+.glyph {
+  animation: fx 1s ease-in-out 1;
+}
+`,
+        "fixture.css",
+      ),
+    ).toEqual([]);
+  });
+
+  test("a JS-authored loop may own itself", () => {
+    // `atom-decoration.ts` declares the pending pulse and takes its hold in
+    // the same file, which is the shape the annotation has to admit.
+    const text = `
+import { acquireMotionHold } from "@/lib/motion-guard";
+const release = acquireMotionHold();
+// @tug-motion-hold ./self.ts
+export const theme = EditorView.baseTheme({
+  "img[data-pending]": {
+    animation: "pulse 1s ease-in-out var(--tug-loop-iterations, infinite)",
+  },
+  "@keyframes pulse": {
+    "0%, 100%": { opacity: "0.4" },
+    "50%": { opacity: "1" },
+  },
+});
+`;
+    const self: Source = { path: "self.ts", text, kind: "ts" };
+    expect(scanTs(text, "self.ts", collectMotionContext([self]))).toEqual([]);
   });
 });
 

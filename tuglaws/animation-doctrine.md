@@ -1,6 +1,6 @@
 # Animation Doctrine
 
-*Motion in Tug is event-clocked and quiet by construction. Every animated surface owns its silence; every running animation is authored in a form whose cost is known, measured, and paid at gesture edges — never per frame, never at rest.*
+*Motion in Tug is event-clocked and quiet by construction. Every animated surface owns its silence; every running animation is authored in a form whose cost is known, measured, and paid at gesture edges — never per frame, never at rest. A deck at rest schedules no rendering update the main thread can feel, and that is read on the deck the user is running, never assumed from a bench.*
 
 *Cross-references: `[L##]` → [tuglaws.md](tuglaws.md). `[D##]` (two digits) → [design-decisions.md](design-decisions.md). The laws in this document are the single-digit `[D1]`–`[D9]`. `[D1]`–`[D8]` were coined by the *jul30 perf program* and `[D9]` by the *deck-animation-pipeline* arc — code comments already cite them by those names, so the names are permanent.*
 
@@ -8,7 +8,7 @@
 
 ## The engine facts this doctrine stands on {#engine-facts}
 
-Three findings, measured on the real release deck and source-verified against WebKit trunk (`RenderLayerCompositor.cpp`, `KeyframeEffect.cpp`, `RenderElement.cpp`), are the ground truth under every law here:
+Five findings, measured on the real release deck and source-verified against WebKit trunk (`RenderLayerCompositor.cpp`, `KeyframeEffect.cpp`, `RenderElement.cpp`, `AnimationTimelinesController.cpp`, `DocumentTimeline.cpp`), are the ground truth under every law here:
 
 1. **The per-frame whole-page compositing walk is caused by per-frame main-thread transform style commits, not by transform animations as such.** A software-ticking animation invalidates style on every rendering update; any transform-family diff trips `recompositeChangeRequiresGeometryUpdate` → the `computeCompositingRequirements` traversal over the entire page's layer tree, priced by total mounted layer population. `will-change` is irrelevant to this — the trigger is the style diff, not compositing status. Opacity is exempt by construction: it is absent from the geometry-update property list, and its value pushes straight to the compositor layer even when software-ticked.
 
@@ -18,7 +18,11 @@ Three findings, measured on the real release deck and source-verified against We
 
    This is a different fact from #2 and the two are easy to conflate. #2 is about QUALIFICATION — whether the engine will accelerate the effect at all. This one is about PRICE — what an accelerated effect still costs each time somebody else dirties style. An author who reads only #2 concludes that stop count is free, which is how the advice below used to read.
 
-The corollary that organizes everything else: **the disease was only ever per-frame and at-rest cost.** A fixed handful of walks at the edges of a real user gesture is honest interactive cost ([D4]); a walk per frame, or any cost on a settled deck, is not.
+4. **A rendering update runs every frame for as long as any animation exists on the document timeline, resident or not.** `shouldRunUpdateAnimationsAndSendEventsIgnoringSuspensionState` is true while the timeline's animation list is non-empty, so a deck with one resident dot breathing schedules sixty updates a second by construction — each of them the timeline's tick and nothing else. "Zero rendering updates at rest" is therefore not a state a deck with a live session on it can be in; what a resident deck can be is one whose updates cost nothing the main thread can feel. The invariant below is counted **over a floor**: an update that holds the main thread past a millisecond timer chain's own jitter is a walk, and one that does not is the tick. And `document.timeline.currentTime` cannot be the counter — it is cached per rendering update and cleared by a timer one interval later, so at rest it reads live and a still deck reads exactly as busy as a ticking one. The passive reading that works is the gap between consecutive fires of the chain (#invariant).
+
+5. **A long-running loop on a figure scrolled out of its scroller's view is not compositor-resident on this WebKit.** Measured on the release deck by family, with every loop of a figure paused and resumed together so no weld broke: 28 on-screen dots running cost the frame nothing measurable, 215 off-screen dots running cost it 10 ms — about 0.05 ms per figure per frame, every frame, for as long as they ran — and the deck read sixty updates a second at rest with nothing on screen moving. Which rule refuses the layer (clipped out of the scroller's visible rect, no backing store, a compositing policy) is not established, and the fix does not depend on it: an off-screen loop does not run (#enforcement, guard 5). `content-visibility: auto` on the row does not change this — a skipped row's animations stay resident and running, measured (#offscreen-limit).
+
+The corollary that organizes everything else: **the disease was only ever per-frame and at-rest cost.** A fixed handful of walks at the edges of a real user gesture is honest interactive cost ([D4]); a walk per frame, or any cost on a settled deck, is not. And whether a deck is paying it is a reading taken on that deck, at rest, with the user's content on it (#cheap-is-a-reading) — the bench proves that a form can be cheap, and only the live deck proves that it is.
 
 ---
 
@@ -30,7 +34,9 @@ Two of the nine organize the rest: **[D1] the quiet contract** governs what a su
 
 Every surface that animates continuously has a data-driven notion of *quiet* that only its owner component can know: no data flowing, no work in flight, no gesture underway. The contract: **when my data is quiet, I am motion-silent and animation-object-free** — no running animations, no live timers driving repaint, no retained finished `CSSTransition`s. A settled deck is then zero running animations *by construction*, surface by surface — assertable by census and enforced as an invariant (the idle-silence gate, `at0291`), not a hope.
 
-The stronger form, preferred wherever it applies: a thing that would not move gets **no animation object at all** — a zero-delta FLIP frame gets no tween, a settled session's dot demotes to `data-static`, an unfocused editor's caret rule is `animation-name: none`.
+The stronger form, preferred wherever it applies: a thing that would not move gets **no animation object at all** — a zero-delta FLIP frame gets no tween, a settled session's dot demotes to `data-static`, an unfocused editor's caret rule is `animation-name: none`, a figure scrolled out of view carries no loop, and a session cited two hundred times in one column breathes in one place.
+
+**The invariant, in the form it is read: with nothing streaming and no gesture in flight, the deck schedules no rendering update that holds the main thread past the floor.** A probe armed on the motion registry's rising edge reads zero updates a second over the floor once the deck is still, and it reads it on the live deck (#invariant). "p50 under 16 ms" was the previous statement of this law's enforcement, and it accepted the disease: a deck paying a 7 ms rendering update every frame with nothing streaming is under any per-frame budget on every sample, and it is the deck that starves a fold. `cost()` keeps its meaning as the price of the frames that do run; the invariant is how many run. An animation that fails it is broken however it is authored.
 
 ### [D2] Live-work motion runs in the contained form {#d2-contained-form}
 
@@ -89,63 +95,118 @@ A hit from either guard is a finding to read, not a reason to loosen the rule.
 
 ## The enforcement layer {#enforcement}
 
-[D3] said the cost of motion is paid at authoring time, and then said that until an enforcement layer landed, this document plus the bench discipline was the enforcement. The layer has landed. It is five guards, and the reason there are five rather than one is that each of them can see something the others cannot — a stylesheet scan cannot see an effect built with `element.animate()`, a runtime census cannot see a rule nobody has mounted yet, and neither of them can see what a frame actually cost.
+[D3] said the cost of motion is paid at authoring time, and then said that until an enforcement layer landed, this document plus the bench discipline was the enforcement. The layer has landed. It is seven guards, and the reason there are seven rather than one is that each of them can see something the others cannot — a stylesheet scan cannot see an effect built with `element.animate()`, a runtime census cannot see a rule nobody has mounted yet, a frame's price cannot say how many frames run, and none of those can see a figure that is authored correctly and running where nobody can see it.
 
-**1. The page measures its own frame.** `tugdeck/src/lib/motion-guard/render-cost-probe.ts` takes `performance.now()` inside a `requestAnimationFrame` callback and again at the top of a `setTimeout(…, 0)` queued from it. In the HTML event loop the rendering update — style, layout, compositing — runs synchronously between those two points, so the interval is the frame's rendering cost and nothing else. It is public platform API throughout, which is the point: the shipping host keeps the inspector off in every build, so a reading that needs a private surface is a reading nobody can take on the build the user is running.
+**1. The page measures its own frame, and counts how many it runs.** `tugdeck/src/lib/motion-guard/render-cost-probe.ts` takes two readings. The cost: `performance.now()` inside a `requestAnimationFrame` callback and again at the top of a `setTimeout(…, 0)` queued from it; in the HTML event loop the rendering update — style, layout, compositing — runs synchronously between those two points, so the interval is the frame's rendering cost and nothing else. The count: for one second a chain of one-millisecond timers, hopped through a `MessageChannel` so the nesting clamp never coarsens it, records the gap between consecutive fires; a gap that exceeds the chain's own median by more than the floor (2 ms) is a rendering update — or another task — that held the main thread that long, and the count per second is `updatesPerSecond`, with the time held as `busyMsPerSecond`. Both are public platform API throughout, which is the point: the shipping host keeps the inspector off in every build, so a reading that needs a private surface is a reading nobody can take on the build the user is running. A resident loop reads zero over the floor; a software-ticked one reads the display rate.
 
-**2. The probe is told when to look.** `registry.ts` hands out a hold; the hold count's 0→1 edge arms the probe and the 1→0 edge disarms it, and while armed it takes one sample every three seconds. Nothing polls `document.getAnimations()` on a timer, which would be [D7] broken by the very machinery written to enforce it.
+**2. The probe is told when to look.** `registry.ts` hands out a hold, and every long-running loop the deck ships takes one; the hold count's 0→1 edge arms the probe and the 1→0 edge disarms it, and while armed it takes one sample — a cost reading and an at-rest reading — every three seconds. Nothing polls `document.getAnimations()` on a timer, which would be [D7] broken by the very machinery written to enforce it. Six hundred timer fires a second for one second in every three, while motion is already running, is the price of the count; a deck at rest takes none.
 
-**3. Every long-running loop declares one variable.** A loop writes its iteration count as `var(--tug-loop-iterations, infinite)` and nothing else, so `html[data-tug-motion-demoted] { --tug-loop-iterations: 0 }` in `tug.css` stills all of them at once and no list has to be kept in sync with the stylesheets. Zero iterations leaves each element at its base style rather than frozen mid-cycle, which is what a blanket `animation-play-state: paused` would have done to every finite entrance on the page as well.
+**3. Every long-running loop declares one variable.** A loop writes its iteration count as `var(--tug-loop-iterations, infinite)` and nothing else, so one attribute can still all of them at once and no list has to be kept in sync with the stylesheets. Three marks turn the knob, all in `tug.css`: `html[data-tug-motion-demoted]` (guard 4), `[data-tug-offscreen]` and `[data-tug-understudy]` (guard 5). Zero iterations leaves each element at its base style rather than frozen mid-cycle, which is what a blanket `animation-play-state: paused` would have done to every finite entrance on the page as well — and it leaves the engine holding no animation for the element at all, which `paused` does not.
 
-**4. The breaker acts on the reading.** `breaker.ts` sets that attribute when three consecutive samples run over budget *with nothing in flight* — no session in `submitting`, `awaiting_first_token`, `streaming`, `tool_work`, `replaying` or `waking`. The in-flight gate is [D4] made executable: a streaming transcript legitimately lays out every frame, and the walk this exists to catch is the one that runs with nothing to show for it. The demotion is silent by design: the user is not the person who can act on it, so what it leaves is a `motion-demoted` deck-trace row carrying the three costs, the budget, and a census of what was running — read *before* the demotion lands, because `getAnimations()` forces a style update and a census taken afterwards would report zero loops and say nothing about what the deck was paying for. Motion resumes on the registry's next rising edge; after three trips in one page lifetime it latches, because a deck that flaps is worse than one that is quietly still.
+**4. The breaker acts on the readings, on two conditions.** `breaker.ts` sets the demotion attribute when three consecutive samples run over the cost budget, or when three consecutive samples read over the at-rest budget *with nothing in flight and no gesture running* — no session in `submitting`, `awaiting_first_token`, `streaming`, `tool_work`, `replaying` or `waking`, no settle, fold or switch. The gates are on the count and not on the cost, and that is deliberate on both sides: an over-budget frame during a stream is not the stream's alibi for the loops but the loops' bill, arriving when the deck can least afford it, so the cost condition counts every sample; while a streaming transcript and a settle both schedule an update every frame for a reason, so the at-rest condition counts only the samples that have none. The demotion is silent by design: the user is not the person who can act on it, so what it leaves is a `motion-demoted` deck-trace row carrying the three readings, the budget, which condition tripped (`cost` or `rest`), and a census of what was running — read *before* the demotion lands, because `getAnimations()` forces a style update and a census taken afterwards would report zero loops and say nothing about what the deck was paying for. Motion resumes on the registry's next rising edge; after three trips in one page lifetime it latches, because a deck that flaps is worse than one that is quietly still.
 
-**5. Two static guards and one live one.** `bun run audit:motion` (inside `just lint`) reads every stylesheet *and* every `.ts`/`.tsx` theme object in the repository: rules 1 and 2 are [D9]'s, and rule 3 refuses a long-running loop that animates anything but a compositor property, eases through anything but a keyword or one cubic Bézier, composites with anything but `replace`, or writes a bare `infinite` instead of the variable. `animationCensus()` in `perf-monitor.ts` asks the same question of the animations that actually ran, which is the only way to see a WAAPI effect or an SVG target. And `at0629-motion-render-cost.test.ts` is the tripwire: it stands up 300 breathing dots, reads the quiet cost, reads it again with a driver writing an inline transform every frame, and goes red when the two stop being different.
+**5. Off-screen content costs zero, and a live thing is drawn live once per view.** The two rules of #offscreen-limit, and they are guards in the same sense the breaker is: a figure that registers with `useOffscreenPause` carries no loop while its box is outside the visible area of its scroller or the viewport, and a mark that registers with `useOneLiveMark` breathes only while it is the first of its group in view. Both are marks the stylesheet reads through guard 3, so a loop that honours the variable is covered by construction, and a loop that does not is refused by guard 6.
 
-### The calibrated budget {#calibrated-budget}
+**6. Two static guards and two live ones.** `bun run audit:motion` (inside `just lint`) reads every stylesheet *and* every `.ts`/`.tsx` theme object in the repository: rules 1 and 2 are [D9]'s, and rule 3 refuses a long-running loop that animates anything but a compositor property, eases through anything but a keyword or one cubic Bézier, composites with anything but `replace`, or writes a bare `infinite` instead of the variable. `animationCensus()` in `perf-monitor.ts` asks the same question of the animations that actually ran, which is the only way to see a WAAPI effect or an SVG target. `at0629-motion-render-cost.test.ts` is the tripwire: it stands up 300 breathing dots, reads the bench as it ships, reads the quiet cost and the at-rest count with every dot running, reads both again with a driver writing an inline transform every frame, seats the same population in a list scroller and reads the off-screen rule against the untreated list and the declarative candidate, and goes red when a healthy reading and a broken one stop being different. `at0645-overview-one-live-mark.test.ts` fills an Overview column with 240 posts from one working session and holds it to one breathing figure, following the scroll.
 
-`RENDER_COST_BUDGET_MS = 16`. The rule that produced it: at least twice the quiet p95, and below the p50 of the deliberately-broken reading — a budget above the broken reading would never fire, and one at or below the quiet noise would fire on nothing. Three passes of `at0629` on an Apple M4 Max under macOS 27.0, 300 `pulsing-dot` glyphs in a pane, 900 long-running animations:
+**7. The reading on the user's deck.** #cheap-is-a-reading: no change to a long-running loop is called cheap on a bench number. The at-rest count and the additive bisect are read on the release deck with the user's content on it, and written into the arc's record.
+
+### The invariant, and how it is read {#invariant}
+
+The number the layer exists to read is the at-rest count: **updates a second over the floor, with nothing in flight, on the live deck — and it reads zero.** Engine fact 4 is why it is a count over a floor rather than a count: the timeline ticks every frame for as long as one resident animation exists, and the tick is not what a fold starves on; the update that resolves animated style on the main thread and walks the compositing tree behind it is, and that one is priced in milliseconds a timer chain can see. Engine fact 4 is also why `document.timeline.currentTime` is not the instrument.
+
+What the release deck read before the off-screen rule, taken by the same chain the gauge now ships and posted through `/api/eval` (Tug.app release build, 2026-09-28; 54 pulsing dots, 6 arc lifecycle marks, 1 arc track, 6 wave loops, 62 motion holds, no session mid-turn):
+
+| condition | ticks in the window | median gap | updates/s over the floor | main thread held, ms/s |
+|---|---|---|---|---|
+| quiet | 598 | 1 ms | 59 | 141 |
+| forced — a per-frame inline transform write on one dot | 604 | 1 ms | 60 | 137 |
+| quiet, again | 652 | 1 ms | 51 | 54 |
+
+Sixty rendering updates a second at rest, each holding the main thread 4 to 6 ms, and a forced main-thread loop changed nothing because the deck was already paying a walk every frame — with 54 dots, not the 223 the Overview column carried when the fold was first seen starving, where the same disease read 12 to 15 ms an update. `cost()` on the same deck read p50 1 ms, p95 3 ms, and called it healthy. That is the whole argument for the count: the price of a frame cannot see a cheap frame that runs every frame.
+
+The same chain on the bench as it ships reads 2 updates a second over the floor with 169 dots breathing in a pane, and 0 to 1 with the 12 in view of a 300-row scroller (#offscreen-limit). The reading the deck owes at rest is that one, and taking it on the release deck is #cheap-is-a-reading.
+
+### The calibrated budgets {#calibrated-budget}
+
+Two budgets, both read off `at0629`, both re-derived on 2026-09-28 from the bench as it ships — the off-screen rule on, so the dots the pane clips out of view carry no animation — with the first calibration kept below as the record of what was accepted before it. Three passes per column, Apple M4 Max, macOS 27.0, 300 or 100 `pulsing-dot` glyphs of the 3-stop form in a 560 px pane.
+
+**`REST_UPDATES_BUDGET_PER_S = 10`, the at-rest budget, and it is the detector.** The rule: at least twice the worst quiet reading and below the broken one. A still deck is not a silent one — a store sweep, a telemetry commit or a garbage collection is a stall the chain sees and none of them is a loop — so the quiet readings are not zero on the flow bench; the broken reading is the display rate.
+
+| updates/s over a 2 ms floor | 100 glyphs, all in view | 300 glyphs, rule on — 169 in view | 300 glyphs, every dot running |
+|---|---|---|---|
+| quiet | 3 / 2 / 2 | 2 / 2 / 2 | 3 / 3 / 3 |
+| on-screen dots only — the 131 clipped dots paused by hand | — | — | 5 / 4 / 4 |
+| forced — one dot, `style.transform` written every frame | 60 | 60 | 60 |
+| a 300-row list scroller, rule on — 12 in view | — | 0 / 0 / 0 / 0 / 1 / 1 | — |
+
+Twice the worst quiet reading, 5, is 10, and the forced reading is 60 at every population, so 10 is the smallest whole number the rule admits, with the display rate six times above it. It is the number that convicts the walk now: the forced walk on the 3-stop dot costs the frame 3 ms at 100 glyphs and 8 at 300 — inside the quiet tail at either population, so the cost gauge cannot see it — and reads 60 a second against 2 or 3 on the same deck in the same run.
+
+**`RENDER_COST_BUDGET_MS = 16`, the cost budget, and it is now the backstop.** Its rule was: at least twice the quiet p95, and below the p50 of the deliberately-broken reading.
+
+| milliseconds | 100 glyphs, all in view | 300 glyphs, rule on — 169 in view | 300 glyphs, every dot running |
+|---|---|---|---|
+| quiet p50 | 2 / 2 / 2 | 3 / 2 / 4 | 3 / 3 / 3 |
+| quiet p95 | 3 / 3 / 3 | 5 / 5 / 5 | 7 / 7 / 7 |
+| quiet max, one frame in sixty | 3 / 8 / 19 | 13 / 8 / 14 | 11 / 10 / 11 |
+| forced p50 | 3 / 3 / 3 | — | 8 / 8 / 8 |
+| forced p95 | 7 / 7 / 7 | — | 9 / 9 / 9 |
+| main thread held at rest, ms/s | 17 / 14 / 18 | 25 / 25 / 25 | 40 / 41 / 43 |
+
+Three things the table says.
+
+**The quiet p50 does not move with the population and the at-rest count does not move; what moves is the p95, 3 → 5 → 7, and the time held per second, 17 → 25 → 41 ms.** That last row is about 0.13 ms a second for every running dot, on screen or off, in the pane's clip — the timeline's tick over the resident population (engine fact 4), and an order of magnitude under the 3 ms a second per figure the release deck paid for an off-screen dot in a scroller. So this bench does not reproduce the disease; what its p95 carries at 300 is the tick, and the pane-clipped dots the first calibration was taken over cost the same tick as the ones in view. The disease lives in the scroller, where the list legs read it (#offscreen-limit), and on the release deck, where it counts.
+
+**The rule's two ends have crossed, and the cost gauge no longer discriminates the walk.** Twice the worst shipped quiet p95 is 10; the forced p50 is 8 at 300 glyphs and 3 at 100. The walk got cheap: the forced frame is priced per keyframe per layer running a transform animation (engine fact 3), and the dot went from 21 stops to 3, so the driver that cost 17 ms a frame on the first calibration costs 8 on this one. That is the pulsing dot's correction arriving from the other end, and the conviction moved to the count above, where the same driver reads 60 against 2.
+
+**So 16 stands, by its lower bound alone.** Twice the worst quiet p95 ever recorded on this bench is 16 — 8 on the first calibration, 7 on this one with every dot running — and a budget the quiet tail can reach fires on nothing: the `max` row holds single frames of 13, 14 and 19 ms on a deck doing nothing. It is what stills the deck on the catastrophic frame — the whole-page walk back in the frame loop at a price that starves a fold — and it counts every sample, in flight or not, because an over-budget frame during a stream is the loops' bill rather than the stream's alibi. The breaker's three-consecutive-samples condition is the other half: one tail frame is not a diagnosis. Anyone moving either constant re-reads both tables on the bench as it ships and moves the two together.
+
+**The first calibration, kept as the record of what was accepted.** `RENDER_COST_BUDGET_MS = 16` was derived on 2026-09-26 from 300 `pulsing-dot` glyphs in a pane with every dot running — there was no off-screen rule — and the 21-stop dot:
 
 | reading | p50 | p95 |
 |---|---|---|
 | quiet, 60 frames | 3 / 3 / 3 | 8 / 7 / 5 |
 | forced — one dot, `style.transform` written every frame | 17 / 17 / 17 | 19 / 19 / 19 |
 
-Twice the worst quiet p95 is 16 and the forced p50 is 17, so 16 is the smallest whole millisecond the rule admits. Three things about that number are worth knowing before anyone moves it.
-
-**The bench had to grow before the rule could be satisfied at all.** At 100 glyphs the same run read a quiet p95 of 5 against a forced p50 of 6, and twice 5 is more than 6 — the gauge did not separate the healthy deck from the broken one, which is a statement about the population rather than about the budget. Tripling the bench separated them, because the forced frame pays for a whole-page compositing walk priced by layer population and the quiet frame pays for nothing that scales at all. That is the residency table's claim arriving a second time, from the other end.
-
-**The constant is pinned by the noisier reading.** The forced p50 was stable to the millisecond across all three passes; the quiet p95 moved by 3 ms, with single tail frames as high as 20. The 2× factor is what absorbs that, and the breaker's three-consecutive-samples condition is the other half: one tail frame of 20 ms is not a diagnosis.
-
-**It is a backstop, not a detector.** A bench of 900 loops is deliberately extreme, and a budget calibrated against it is loose for a deck carrying a tenth of that, where a broken form costs proportionally less. The breaker catches the catastrophic case — the whole-page walk back in the frame loop — and the four guards above it are what catch everything smaller. Anyone tempted to lower it should lower the bench first and re-read both numbers, because the two move together.
+Twice the worst quiet p95 was 16 and the forced p50 17, so 16 was the smallest whole millisecond the rule admitted. The record beside it said the bench had to grow from 100 glyphs, where the quiet p95 read 5 against a forced p50 of 6, because "the forced frame pays for a whole-page compositing walk priced by layer population and the quiet frame pays for nothing that scales at all" — and the table beside that sentence showed the quiet p95 rising from 5 to 8 with the population. What rose was the tick over 900 resident loops, recorded as healthy noise, and the breaker was tuned to a per-frame price on a deck whose disease was a per-frame count; there was no at-rest budget to tune. It is kept here because a budget with no record of what it was tuned against is a number nobody can move.
 
 ### Reading a live deck from the shell {#deck-motion-verb}
 
-`tugtool deck motion` is the shell end of `window.__tugMotion`, over the loopback `diag/eval` door the instance opens on `enable` and closes on `disable`. The reference run below is a debug build of the deck with two motion benches shown — 1802 long-running animations, 600 dots — which is not a number to quote as cost ([D5]: profile release builds only) but is exactly the right shape to show what the verb answers:
+`tugtool deck motion` is the shell end of `window.__tugMotion`, over the loopback `diag/eval` door the instance opens on `enable` and closes on `disable`. Two verbs carry the invariant and the diagnosis.
+
+`rest` is the count. On the release deck before the off-screen rule it read the first row of the table in #invariant:
 
 ```
-$ tugtool deck motion cost
-render cost over 30 frames: p50 4.00 ms  p95 11.00 ms  max 40.00 ms
-probe samples (* = a session was mid-turn): 19.00 2.00 8.00 6.00 7.00 7.00 6.00 5.00 39.00 6.00 12.00 11.00
+$ tugtool deck motion rest
+at rest: 59 update(s)/s over a 2 ms floor, holding the main thread 141 ms/s (window 1000 ms, 598 ticks, median gap 1 ms, worst 12 ms)
+```
 
-$ tugtool deck motion layers
-6111 elements, 2498 stacking contexts, 3762 render-layer candidates (upper bound)
-max depth 30, mean depth 16.7, deepest stacking chain 5
-     600  span.tug-progress-pulsing-dot-dot-well
-     600  span.tug-progress-pulsing-dot-dot
-     600  span.tug-progress-pulsing-dot-ring-well
-     600  span.tug-progress-pulsing-dot-ring
+and on the bench as it ships, with the 12 figures of a 300-row scroller in view:
 
+```
+at rest: 0 update(s)/s over a 2 ms floor, holding the main thread 0 ms/s (window 1000 ms, 743 ticks, median gap 1 ms, worst 3 ms)
+```
+
+`bisect` is the diagnosis, and it reads **additively**: every long-running loop on the page is paused first, the floor is measured, and then one family at a time is woken, measured alone, and put back to sleep. A family's price is what the frame costs with only that family running, above the floor. That is the one reading two loops dirtying the same style on the same frame cannot hide — the previous verb paused one keyframe-name group at a time while its siblings ran, and read a drop of 0.00 for a dot family that cost 10 ms, because pausing the breath left the ring dirtying the same box. A **family** is every animation sharing a figure — the target element or the ancestor that owns it, found by the BEM stem the deck's glyphs share — split by **placement**, on screen or scrolled out of view, because that is the line the cost runs along (engine fact 5). Every pause and every resume of a family happens in one synchronous turn over the whole family, so a figure's loops keep their weld.
+
+The reading that found the disease was this algorithm run by hand on the release deck before the verb carried it: everything paused, 3 ms; the 28 on-screen dots alone, 3 ms; the 215 off-screen dots alone, 13 ms; everything running, 12 to 15. The verb prints the same shape — this one from the bench as it ships, where the pane-clipped family prices at nothing because it pays the tick and not the walk:
+
+```
 $ tugtool deck motion bisect
-baseline p50 5.00 ms — read 4 of 4 group(s), guiltiest first
-      1.00 ms drop   paused p50   4.00 ms      2×  tug-arc-track-breath
-      1.00 ms drop   paused p50   4.00 ms    600×  tugx-progress-pulsing-dot-breathe
-      1.00 ms drop   paused p50   4.00 ms    600×  tugx-progress-pulsing-dot-emit-expand
-      0.00 ms drop   paused p50   5.00 ms    600×  tugx-progress-pulsing-dot-emit-fade
+everything running p50 3.00 ms, everything paused p50 3.00 ms — read 2 of 2 family(ies), guiltiest first
+      0.00 ms price   alone p50   3.00 ms    507× in  169 figure(s)  tug-progress-pulsing-dot (on-screen)
+      0.00 ms price   alone p50   3.00 ms    393× in  131 figure(s)  tug-progress-pulsing-dot (off-screen)
 ```
 
-Six hundred breathing dots, and pausing all six hundred of one loop group moves the frame by a millisecond. That is what compositor residency reads like from the outside, and it is the reading `bisect` exists to produce in seconds on the build in front of the user rather than by elimination over the source.
+A family whose presence alone raises the cost is the one paying for the compositing walk, named in seconds on the build in front of the user rather than by elimination over the source.
 
-**`bisect` pauses, and [D5] says pausing reads worse.** WAAPI `pause()` demotes an effect to the main thread, so a group's paused reading carries a cost the running one did not — which makes every drop `bisect` reports a *lower bound*. A large drop is therefore a conviction and a zero drop is not an acquittal. The [D5]-clean method is still the probe sheet, and `bisect` is the fast first question rather than the answer.
+**`bisect` pauses, and [D5] says pausing reads worse.** WAAPI `pause()` demotes an effect to the main thread, so the floor carries a cost the running deck does not — which makes every price `bisect` reports a *lower bound*. A large price is a conviction and a zero is not an acquittal. The [D5]-clean method is still the probe sheet, and `bisect` is the fast first question rather than the answer.
+
+### Cheap is a reading on the user's deck {#cheap-is-a-reading}
+
+**The bench proves authoring; only the live deck proves cost.** Every reading in this document that was taken on a bench understates the deck: a bench cannot stand up a session that is mid-turn, a column of two hundred and forty citations of it, a workspace that was never taken down, or the layer population that prices the walk — and the off-screen disease that pinned the release deck's WebContent process cost the bench 0.13 ms a second per dot and the deck 3. So no change to a long-running loop is called cheap on a bench number again. For any such change, the arc's audit reads two things on the release deck with the user's content on it — `tugtool deck motion rest`, which must read zero over the floor with nothing in flight, and `tugtool deck motion bisect`, whose top family must price at nothing — and writes both readings into the arc's own record, so the claim can be checked days later against the deck it was made on rather than against a memory of a bench.
+
+Two things make the reading honest. The window must be raised: an occluded window suspends `requestAnimationFrame`, the probe waits, and a count taken then is a reading of a deck that is not rendering ([D5]). And the forcing probe proves the instrument: `__force(true)` on the same deck must read the display rate, or a zero is a broken gauge rather than a quiet deck (#falsification).
 
 ### Where the guards disagree, and why that stands {#guard-disagreement}
 
@@ -153,7 +214,7 @@ Six hundred breathing dots, and pausing all six hundred of one loop group moves 
 
 ### What this layer does not prove {#enforcement-limits}
 
-It reads one number on one machine. A budget calibrated on an M4 Max is not calibrated for the slowest machine Tug runs on, and the honest answer there is that the breaker's three-sample condition and its in-flight gate are what keep a slow machine from demoting itself constantly, not the constant. It says nothing about the WebContent process's CPU, which is a second opinion the in-page reading deliberately does not depend on. And no guard here can see a loop that is authored correctly and simply should not be running at all — that is [D1]'s question, and it is still answered by the surface's owner knowing when it is quiet.
+It reads two numbers on one machine. A budget calibrated on an M4 Max is not calibrated for the slowest machine Tug runs on, and the honest answer there is that the breaker's three-sample condition and the at-rest condition's in-flight gate are what keep a slow machine from demoting itself constantly, not the constants. The count reads updates over a floor, so a walk cheaper than 2 ms a frame is invisible to it and visible only in the time held per second, which is recorded and not judged. It says nothing about the WebContent process's CPU, which is a second opinion the in-page reading deliberately does not depend on. And no guard here can see a loop that is authored correctly, on screen, and simply should not be running at all — that is [D1]'s question, and it is still answered by the surface's owner knowing when it is quiet.
 
 ---
 
@@ -168,6 +229,24 @@ Three classes. The numbers are the permanent evidence, from the jul29B/jul30 pro
 | **main-thread** | per-frame JS style mutation (rAF), or any effect demoted to software ticking | the whole-page walk per frame, priced by total mounted layer population: an rAF transform loop lit the lab bench from ≈0 to walk 18 / `updateRendering` 21; the same frames rAF-driven on release read **2622** samples/4s against the qualifying settle's 290. One software-ticking transform on the heavy deck cost 85 samples/5s; thirty cost 112; zero cost 0. Forbidden in product surfaces; bench probes only |
 
 Two multipliers on the main-thread class, recorded so nobody re-derives them: `will-change` is irrelevant to the walk (the trigger is the style diff, not compositing status — hinted layers still cost memory and population); and the walk's price scales with mounted layer population, so the population diet (brief I3) divides a cost that containment zeroes.
+
+### Residency stops at the scroller's edge {#offscreen-limit}
+
+**The classes above are measured on screen, and the compositor-contained class is not earned by a figure whose box is outside the visible area of its scroller.** The claim used to be made without that qualifier, and the deck paid for it: the Overview card cites a working session under every post, so one live session was two hundred and twenty-three breathing dots, two hundred and fifteen of them under the fold, and the release deck read sixty rendering updates a second at rest, each holding the main thread 12 to 15 ms, from figures nobody could see (engine fact 5). On screen the same dot costs nothing measurable. Whether WebKit refuses the layer for want of a backing store, a clip that empties its visible rect, or a compositing policy is not established; what is established is the price, about 0.05 ms per off-screen figure per frame, and that it scales with the population, which is the one thing a resident animation's cost never does.
+
+The rule that follows is a rule for every loop rather than a patch for one card: **no animation runs on a figure whose box is outside the visible area of its scroller or the viewport** (`tugdeck/src/lib/motion-guard/offscreen.ts`). One `IntersectionObserver` rooted on the viewport watches every figure that registers — the viewport root is the whole point, because an intersection is computed through every clipping ancestor on the way up, so a figure inside a list scroller inside a pane inside a workspace layer needs no knowledge of any of them. A figure out of view is marked `data-tug-offscreen`, and the stylesheet resolves `--tug-loop-iterations: 0` under the mark — the same knob the circuit breaker turns. Zero iterations is stronger than `animation-play-state: paused`: the engine holds no animation for the figure at all, and `getAnimations()` on it is empty. A figure scrolled back in has its loops created afresh, and a figure with more than one loop resumes through its own weld — the pulsing dot re-welds its three loops to one start time the moment it hears it is visible — so nothing returns out of phase with itself. The rule costs an observer delivery per figure per crossing of the viewport edge and nothing per frame ([D7]: the engine reports the crossing; nothing polls).
+
+The declarative candidate was benched against it on the same population, and lost. Three hundred dots one to a row inside a `TugListView` scroller, 288 of them under the fold, on the app-test bundle (Apple M4 Max, macOS 27.0; `at0629`'s list legs, so any machine can re-read it), six passes on 2026-09-28 after the two that chose the mechanism:
+
+| condition | updates/s over the floor | main thread held, ms/s | loops resident |
+|---|---|---|---|
+| the observer rule on | 0 / 0 / 0 / 0 / 1 / 1 | 0 / 0 / 0 / 0 / 3 / 3 | 36 — the 12 figures in view |
+| untreated, rule off | 3 / 3 / 4 / 4 / 4 / 4 | 32 / 36 / 37 / 38 / 38 / 38 | 900 |
+| `content-visibility: auto` on every row (`TugListView.offscreenSkip`, 287 rows skipped), rule off | 0 / 0 / 2 / 0 / 0 / 3 | 0 / 0 / 18 / 0 / 0 / 16 | 900 |
+
+A skipped row's animations stay resident and running on this WebKit — every one of the 900 loops was still there with 287 rows skipped, on every pass — and what the skip saves on the main thread is all of the untreated cost on some passes and half of it on others (the two passes that chose the mechanism read 2 updates and 15 ms on both). That is the same finding the workspace layer recorded for `content-visibility: hidden` (`space-layer-loops.ts`), and it is why the rule is an observer and a mark rather than a property: only the mark leaves the engine with nothing to run. The `updates/s` column understates the untreated case, and the reason is recorded with it: an update on this bench costs about 3 ms, barely over the 2 ms floor, so most of them go uncounted here while the `ms/s` column still sees them; on the release deck an update cost 4 to 6 ms and every one counted, which is why the same disease read sixty there.
+
+The rule is applied to every figure that owns a long-running loop and can sit in a scroller: the pulsing dot watches itself, the bar, ring, spinner, pie and wave indicators, the arc lifecycle mark, the arc track and the skeleton take `useOffscreenPause` beside their motion hold. The Overview card's session marks are pulsing dots, so the card is covered without knowing it — and the card is further held to **one live mark per live session per view** (`one-live-mark.ts`): every citation of a session registers under the session's id, the first one in view breathes, and every other one is an understudy under `data-tug-understudy`, the same knob again, showing the session's pose and none of its breath. A column of 240 posts from one working session is then one breathing figure, and the breath follows the scroll (`at0645`). A mark is the session's presence, and presence is one thing.
 
 The interaction term, measured because it shipped machinery: **a React commit landing inside a running transform animation's window is superadditive** — settle alone 343 walk samples, a commit stream alone 654, both together 1809 (81% above their sum), with median frame delivery degrading 17ms → 20ms and four times the dropped frames. A commit dirties compositing while the animation's extent is reserved, forcing exactly the recompute the reservation exists to avoid. Deferring wire-origin notifications through the window (`CodeSessionStore.holdNotifications`) recovered 95% of that penalty (1556 → 386, within noise of settle-alone) with every deferred event landing in one flush at release.
 

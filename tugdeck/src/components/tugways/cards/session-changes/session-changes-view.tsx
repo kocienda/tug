@@ -35,6 +35,7 @@ import React, { useCallback, useMemo, useState, useSyncExternalStore } from "rea
 import { GitCommitHorizontal, LoaderCircle, X } from "lucide-react";
 
 import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";
+import { useMotionHold } from "@/lib/motion-guard";
 import {
   TugNoGitNotice,
   shouldShowNoGitNotice,
@@ -457,6 +458,9 @@ export function SessionChangesView({
   // rather than a false "No changes" green.
   const isCleanAllClear = isEmpty && snap.composed;
   const isAwaitingScan = isEmpty && !snap.composed;
+  // The scanning spinner runs for as long as the view waits on the first
+  // scan (`session-changes-view.css`), and the motion registry hears it ([D7]).
+  useMotionHold(isAwaitingScan);
 
   // The head entries (session + unattributed) the banner controls act on.
   // Every diffable file across them yields one expand key; the whole-view Diff

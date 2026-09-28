@@ -85,6 +85,21 @@ html[data-tug-motion-demoted] {
   --tug-loop-iterations: 0;
 }
 
+/* Off-screen content costs zero: `src/lib/motion-guard/offscreen.ts` marks a
+ * figure whose box is out of its scroller's view — or the viewport's — and the
+ * mark turns the same knob. A figure paused here and a figure demoted above
+ * are one state, and every loop the audit lets ship honours both. */
+[data-tug-offscreen] {
+  --tug-loop-iterations: 0;
+}
+
+/* One live mark per live session in a list: `src/lib/motion-guard/one-live-mark.ts`
+ * elects the first reference in view and marks every other one an understudy,
+ * which draws the session's pose and none of its breath. The same knob again. */
+[data-tug-understudy] {
+  --tug-loop-iterations: 0;
+}
+
 /* Motion-off rule: JS sets data-tug-motion="off" on body when --tug-motion is 0.
  * `*` matches elements only, so the generated-content selectors are not
  * redundant — without them a ::before/::after animation keeps running with

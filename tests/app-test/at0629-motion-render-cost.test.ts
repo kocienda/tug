@@ -36,9 +36,56 @@
  * belongs to the loops: pausing every animation in the bench and re-measuring
  * gives the floor the quiet reading is standing on.
  *
+ * ## The calibration reading is the bench as it ships
+ *
+ * The first reading of the run is taken with the off-screen rule on, which
+ * is the deck the user gets: the dots the pane clips carry no animation and
+ * the on-screen population runs. Its quiet cost and its at-rest count are
+ * what the two budgets are derived from. The quiet and forced readings that
+ * follow are taken with the rule parked, every dot running, because they are
+ * about the glyph's own cost and the gauge's two ends — and the difference
+ * between the two quiet readings is the record of what the clipped
+ * population costs, which is the disease the first calibration was taken
+ * over without knowing it.
+ *
+ * ## The at-rest gauge
+ *
+ * A frame's cost cannot say how many frames run. A deck paying a 7 ms
+ * rendering update every frame with nothing streaming is under budget on
+ * every sample and reads as healthy — and it is the deck that starves a
+ * fold. So the probe carries a second reading, `rest()`: a chain of
+ * one-millisecond timers watches the main thread for a second and counts the
+ * fires that came late by more than the floor, which is how many rendering
+ * updates held the thread. The leg reads it three ways on the same bench:
+ * every dot running, with the off-screen rule switched off so the bench's
+ * own clipped dots run (noted — a record of what the pane's clip costs, not
+ * a claim); the off-screen dots paused by hand, so only the resident
+ * on-screen population runs, which must read under the at-rest budget; and
+ * the forcing probe on, which must read the display rate. The resident
+ * reading and the forced one are the two ends the gauge has to tell apart,
+ * on one deck, in one run.
+ *
+ * ## Off-screen content costs zero
+ *
+ * The last legs re-seat the same population one glyph to a row inside a
+ * `TugListView` scroller, which is where the Overview card's dots were found
+ * dirtying style every frame from under the fold. Three readings of one
+ * population: the rule on (`lib/motion-guard/offscreen.ts` — an
+ * intersection observer marks every figure out of view and the stylesheet
+ * turns its loops off), which must read under the at-rest budget with the
+ * off-screen figures carrying no animations at all; the rule off, the
+ * untreated list, noted; and the declarative candidate, the primitive's own
+ * `offscreenSkip` (`content-visibility: auto` on every measured row) with
+ * the rule off, noted. The two noted readings are the bench that chose the
+ * mechanism, kept so the choice can be re-read on any machine. Then the
+ * scroller is scrolled to its foot and the figures that crossed in must be
+ * breathing with their three loops welded to one start time — the dot's own
+ * weld, applied on return — while the ones that crossed out carry the mark
+ * and no animation.
+ *
  * ## The breaker
  *
- * The last two legs are the circuit breaker's. By hand, `demote(true)` must
+ * The last legs are the circuit breaker's. By hand, `demote(true)` must
  * still every loop through one CSS variable and change nothing else: each dot
  * still carries `data-breathing`, because the demotion is a CSS answer to a CSS
  * contract and React never hears about it ([L06], [P09]). On its own, a budget
@@ -46,6 +93,14 @@
  * with nothing in flight — and the `motion-demoted` trace row is the only
  * record a silent demotion leaves. Its census must say what the deck was paying
  * for, which is why it is read before the demotion lands rather than after.
+ * The at-rest condition is driven the same way — a rest budget of zero — and
+ * its row must say `rest` and carry the three readings that tripped it.
+ *
+ * The at-rest budget is parked out of reach for exactly the legs that run a
+ * population with the off-screen rule switched off — an off-screen dot is
+ * not compositor-resident on this WebKit, and three hundred of them read as
+ * a loop at rest that the breaker would still under the reading. The park
+ * comes off with `reset()` before the breaker's own legs.
  *
  * ## What is derived and what is asserted
  *
@@ -83,6 +138,7 @@
  * @covers tugdeck/src/lib/motion-guard/input-latency.ts
  * @covers tugdeck/src/lib/motion-guard/diagnostics.ts
  * @covers tugdeck/src/lib/motion-guard/breaker.ts
+ * @covers tugdeck/src/lib/motion-guard/offscreen.ts
  * @covers tugdeck/src/lib/motion-guard/index.ts
  * @covers tugdeck/src/deck-trace.ts
  * @covers tugdeck/styles/tug.css
@@ -90,6 +146,7 @@
  * @covers tugdeck/src/components/tugways/internal/tug-progress-pulsing-dot.css
  * @covers tugdeck/src/components/tugways/tug-progress-indicator.tsx
  * @covers tugdeck/src/components/tugways/cards/gallery-motion-bench.tsx
+ * @covers tugdeck/src/components/tugways/cards/gallery-motion-bench.css
  * @covers tugdeck/src/components/tugways/tug-text-editor/session-dot-layer.tsx
  * @covers tugdeck/src/lib/perf-monitor.ts
  */
@@ -112,8 +169,11 @@ import { launchTugApp, note, type App, type DeckTraceEvent } from "./_harness";
  */
 interface MotionDemotedRow {
   kind: "motion-demoted";
+  reason: "cost" | "rest";
   costMs: number[];
   budgetMs: number;
+  updatesPerSecond: number[];
+  restBudgetPerSecond: number;
   trips: number;
   latched: boolean;
   census: {
@@ -142,6 +202,24 @@ const BENCH = '[data-card-id="B"]';
 const BENCH_DOTS = `${BENCH} .tug-progress-pulsing-dot[data-breathing]`;
 /** Every animation inside the bench, for the pause leg. */
 const BENCH_LOOPS = `${BENCH} .tug-progress-pulsing-dot`;
+
+/**
+ * The list-hosted benches, seated alone for the off-screen legs — each under
+ * its own card id, because the card host keeps a card's content by id, and a
+ * re-seed that changed only the component would find the old list still
+ * mounted under the new name.
+ */
+const LIST_CARD = "L";
+const SKIP_CARD = "S";
+function listBench(cardId: string): string {
+  return `[data-card-id="${cardId}"]`;
+}
+function listDots(cardId: string): string {
+  return `${listBench(cardId)} .tug-progress-pulsing-dot[data-breathing]`;
+}
+function listScroller(cardId: string): string {
+  return `${listBench(cardId)} .tug-list-view`;
+}
 
 const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
 const CHIP = `${COMPOSER} img[data-atom-well-x]`;
@@ -210,6 +288,91 @@ function deckShape() {
     activePaneId: "p2",
     hasFocus: true,
   };
+}
+
+/** One pane, one list-hosted bench, for the off-screen legs. */
+function listDeckShape(cardId: string, componentId: string) {
+  return {
+    cards: [{ id: cardId, componentId, title: "Motion bench (list)", closable: true }],
+    panes: [
+      {
+        id: "p1",
+        position: { x: 20, y: 20 },
+        size: { width: 560, height: 560 },
+        cardIds: [cardId],
+        activeCardId: cardId,
+        title: "",
+        acceptsFamilies: ["maker"],
+      },
+    ],
+    activePaneId: "p1",
+    hasFocus: true,
+  };
+}
+
+interface OffscreenReading {
+  enabled: boolean;
+  watched: number;
+  paused: number;
+}
+
+/**
+ * What the list bench's figures are doing: how many carry the off-screen
+ * mark, how many carry any animation, and how many of those are running.
+ */
+interface ListFigures {
+  dots: number;
+  marked: number;
+  animated: number;
+  running: number;
+  spreads: number[];
+}
+
+function listFigures(cardId: string): string {
+  return `(function(){
+  var roots = document.querySelectorAll(${JSON.stringify(listDots(cardId))});
+  var marked = 0, animated = 0, running = 0, spreads = [];
+  for (var i = 0; i < roots.length; i++) {
+    var root = roots[i];
+    if (root.hasAttribute("data-tug-offscreen")) marked++;
+    var loops = root.getAnimations({ subtree: true })
+      .filter(function (a) { return a instanceof CSSAnimation; });
+    if (loops.length > 0) animated++;
+    var st = [];
+    for (var j = 0; j < loops.length; j++) {
+      if (loops[j].playState === "running") running++;
+      if (loops[j].startTime !== null) st.push(loops[j].startTime);
+    }
+    if (st.length > 1) {
+      spreads.push(Math.max.apply(null, st) - Math.min.apply(null, st));
+    }
+  }
+  return {
+    dots: roots.length, marked: marked, animated: animated, running: running,
+    spreads: Array.from(new Set(spreads)),
+  };
+})()`;
+}
+
+/**
+ * Seat one list-hosted bench alone and wait for every row to mount. Inline
+ * mode mounts all three hundred at their real heights; the wait is for the
+ * dots to be breathing, which is the moment the observer has something to
+ * watch.
+ */
+async function seatListBench(
+  app: App,
+  cardId: string,
+  componentId: string,
+): Promise<void> {
+  await app.seedDeckState({
+    state: listDeckShape(cardId, componentId),
+    focusCardId: cardId,
+  });
+  await app.waitForCondition<boolean>(
+    `document.querySelectorAll(${JSON.stringify(listDots(cardId))}).length === ${BENCH_COUNT}`,
+    { timeoutMs: 30_000 },
+  );
 }
 
 interface CostReading {
@@ -284,6 +447,63 @@ async function cost(
   })()`);
 }
 
+interface RestReading {
+  updatesPerSecond: number;
+  busyMsPerSecond: number;
+  windowMs: number;
+  ticks: number;
+  medianGapMs: number;
+  maxGapMs: number;
+  floorMs: number;
+}
+
+/**
+ * Take a `rest()` reading, parked on a slot the same way `cost` is.
+ *
+ * The chain runs on timers rather than frames, so it resolves even under an
+ * occluded window — but the reading it takes there is of a throttled timer
+ * queue, not of the deck, which is why every `rest` here follows a `cost`
+ * that already proved the window is painting.
+ */
+async function rest(app: App, slot: string): Promise<RestReading> {
+  await app.evalJS<null>(`(function(){
+    window.${slot} = { done: false };
+    window.__tugMotion.rest().then(function (reading) {
+      window.${slot} = { done: true, reading: reading };
+    });
+    return null;
+  })()`);
+  await app.waitForCondition<boolean>(
+    `window.${slot} !== undefined && window.${slot}.done === true`,
+    { timeoutMs: 15_000 },
+  );
+  return app.evalJS<RestReading>(`window.${slot}.reading`);
+}
+
+/**
+ * The bench's dots, split by whether their box intersects the pane's.
+ *
+ * The pane is the clip (`overflow: clip` on `.tug-pane`): a dot laid out
+ * below the pane's bottom edge is inside the card's flow and out of view,
+ * which is exactly the population the gauge has to be able to tell from the
+ * one on screen. The card element itself is not the box to read — it is the
+ * flow container, and it is as tall as its three hundred dots.
+ */
+const SPLIT_DOTS = `(function(){
+  var roots = document.querySelectorAll(${JSON.stringify(BENCH_LOOPS)});
+  var pane = roots.length > 0 ? roots[0].closest('.tug-pane') : null;
+  if (pane === null) return { on: [], off: [] };
+  var box = pane.getBoundingClientRect();
+  var on = [], off = [];
+  for (var i = 0; i < roots.length; i++) {
+    var r = roots[i].getBoundingClientRect();
+    var visible = r.bottom > box.top && r.top < box.bottom &&
+                  r.right > box.left && r.left < box.right;
+    (visible ? on : off).push(roots[i]);
+  }
+  return { on: on, off: off };
+})()`;
+
 describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
   test(
     "a bench of breathing dots costs the frame less than the budget, and a single main-thread write costs more",
@@ -306,12 +526,14 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
           armed: boolean;
           holds: number;
           budgetMs: number;
+          restBudgetPerSecond: number;
           demoted: boolean;
         }>(`(function(){
           var p = window.__tugMotion.probe();
           return {
             armed: p.armed, holds: p.holds,
-            budgetMs: p.budgetMs, demoted: p.demoted,
+            budgetMs: p.budgetMs, restBudgetPerSecond: p.restBudgetPerSecond,
+            demoted: p.demoted,
           };
         })()`);
         note("at0629 probe", armed);
@@ -319,6 +541,68 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(armed.holds).toBeGreaterThan(0);
         expect(armed.demoted).toBe(false);
         const budgetMs = armed.budgetMs;
+        const restBudget = armed.restBudgetPerSecond;
+        expect(restBudget).toBeGreaterThan(0);
+
+        // ---- The calibration reading: the bench as it ships. -------------
+        //
+        // The off-screen rule is on, so the dots the pane clips out of view
+        // carry no animation and what runs is the on-screen population. This
+        // is the reading the two budgets are derived from, and it has to be
+        // this one: a quiet reading taken with the clipped dots running
+        // contains the disease the rule exists to remove — an off-screen loop
+        // is not compositor-resident on this WebKit and dirties style every
+        // frame from under the fold — and a budget derived over it is a
+        // budget tuned never to fire on it. That is what the first
+        // calibration did, and the record of it is in the doctrine. The
+        // legs below park the rule and read the same population running, so
+        // the two readings stand side by side in one run.
+        const shipped = await app.evalJS<OffscreenReading>(
+          `window.__tugMotion.offscreen()`,
+        );
+        note("at0629 off-screen rule as shipped", shipped);
+        expect(shipped.enabled).toBe(true);
+        const quietShipped = await cost(app, "__at0629quietShipped", 60);
+        const restShipped = await rest(app, "__at0629restShipped");
+        note("at0629 quiet render cost, rule on", {
+          p50: quietShipped.p50,
+          p95: quietShipped.p95,
+          max: quietShipped.max,
+          offscreen: shipped.paused,
+          budgetMs,
+        });
+        note("at0629 at rest, rule on", { ...restShipped, restBudget });
+        expect(
+          quietShipped.p95,
+          `the bench as it ships read a quiet p95 of ${quietShipped.p95} ms ` +
+            `against a ${budgetMs} ms budget. The budget is at least twice ` +
+            `this reading's worst p95 across the calibration passes, so a red ` +
+            `here says the deck regressed or the calibration wants re-reading ` +
+            `on this machine — re-read it into RENDER_COST_BUDGET_MS with the ` +
+            `doctrine's rule, never loosen the assertion.`,
+        ).toBeLessThan(budgetMs);
+        expect(
+          restShipped.updatesPerSecond,
+          `the bench as it ships read ${restShipped.updatesPerSecond} ` +
+            `updates/s at rest against a budget of ${restBudget}. With the ` +
+            `off-screen rule on, every loop that runs is on screen and ` +
+            `resident, and a reading over the budget says one of them is ` +
+            `ticking on the main thread.`,
+        ).toBeLessThan(restBudget);
+
+        // The flow bench is read with the off-screen rule OFF, so the dots
+        // the pane clips still run: these legs are about the glyph's own
+        // cost and the gauge's two ends, and the rule would take the
+        // clipped population out of both. The rule's own legs come last.
+        const ruleOff = await app.evalJS<OffscreenReading>(
+          `window.__tugMotion.offscreen(false)`,
+        );
+        note("at0629 off-screen rule parked for the flow bench", ruleOff);
+        expect(ruleOff.enabled).toBe(false);
+        expect(ruleOff.paused).toBe(0);
+        // Park the at-rest trip for the legs that read the bench running
+        // with the rule off; see the header. `reset()` puts it back.
+        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(1e9)`);
 
         // ---- The quiet reading: the claim. -------------------------------
         const quiet = await cost(app, "__at0629quiet", 60);
@@ -661,6 +945,169 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(pausedStates).toEqual(["paused"]);
         expect(resumed).toBe(paused);
 
+        // ---- The at-rest gauge: updates per second, three ways. ----------
+        //
+        // Every dot running is the bench as it is, and the reading is a
+        // record rather than a claim: the dots below the card's fold dirty
+        // style every frame on this WebKit, and until off-screen content
+        // reads zero this number says how much of the bench is off screen.
+        const restAll = await rest(app, "__at0629restAll");
+        note("at0629 at rest, every dot running", restAll);
+        expect(restAll.ticks).toBeGreaterThan(100);
+        expect(restAll.windowMs).toBeGreaterThanOrEqual(1000);
+
+        // The resident reading: pause only the dots the card has clipped
+        // out of view, so what runs is the on-screen population — the one
+        // that costs the frame nothing measurable. This is the reading the
+        // doctrine's invariant is stated in, and it has to read under the
+        // at-rest budget or the gauge cannot tell a resident deck from a
+        // broken one.
+        const split = await app.evalJS<{ on: number; off: number }>(`(function(){
+          var s = ${SPLIT_DOTS};
+          return { on: s.on.length, off: s.off.length };
+        })()`);
+        note("at0629 bench dots by placement", split);
+        expect(split.on).toBeGreaterThan(0);
+        expect(split.off).toBeGreaterThan(0);
+        expect(split.on + split.off).toBe(BENCH_COUNT);
+        const pausedOff = await app.evalJS<number>(`(function(){
+          var s = ${SPLIT_DOTS};
+          var n = 0;
+          for (var i = 0; i < s.off.length; i++) {
+            var loops = s.off[i].getAnimations({ subtree: true });
+            for (var j = 0; j < loops.length; j++) { loops[j].pause(); n++; }
+          }
+          return n;
+        })()`);
+        expect(pausedOff).toBeGreaterThan(0);
+        const restResident = await rest(app, "__at0629restResident");
+        const resumedOff = await app.evalJS<number>(`(function(){
+          var s = ${SPLIT_DOTS};
+          var n = 0;
+          for (var i = 0; i < s.off.length; i++) {
+            var loops = s.off[i].getAnimations({ subtree: true });
+            for (var j = 0; j < loops.length; j++) { loops[j].play(); n++; }
+          }
+          return n;
+        })()`);
+        note("at0629 at rest, on-screen dots only", {
+          ...restResident,
+          onScreen: split.on,
+          pausedOff,
+          resumedOff,
+          restBudget,
+        });
+        expect(resumedOff).toBe(pausedOff);
+        expect(
+          restResident.updatesPerSecond,
+          `${split.on} resident dots read ${restResident.updatesPerSecond} ` +
+            `updates/s at rest against a budget of ${restBudget}. A resident ` +
+            `loop holds the main thread for nothing; a reading here says the ` +
+            `on-screen population is ticking on the main thread, or the ` +
+            `floor wants re-reading on this machine.`,
+        ).toBeLessThan(restBudget);
+
+        // The other end: the forcing probe writes a transform every frame,
+        // so every frame is a rendering update that resolves style on the
+        // main thread and pays the walk. The gauge must read the display
+        // rate, or it is not reading updates.
+        await app.evalJS<unknown>(`window.__tugMotion.__force(true)`);
+        await app.waitForCondition<boolean>(
+          `(function(){
+             var el = document.querySelector('.tug-progress-pulsing-dot-dot');
+             return el !== null && el.style.transform !== "";
+           })()`,
+          { timeoutMs: 8_000 },
+        );
+        const restForced = await rest(app, "__at0629restForced");
+        await app.evalJS<unknown>(`window.__tugMotion.__force(false)`);
+        note("at0629 at rest, forced", restForced);
+        expect(
+          restForced.updatesPerSecond,
+          `a per-frame inline transform write read ${restForced.updatesPerSecond} ` +
+            `updates/s. A forced loop that does not read the display rate ` +
+            `means the chain is not seeing the frame, not that the deck is fast.`,
+        ).toBeGreaterThanOrEqual(45);
+        expect(restForced.updatesPerSecond).toBeGreaterThan(
+          restResident.updatesPerSecond,
+        );
+
+        // ---- The bisect: families by figure and placement, welds kept. ---
+        //
+        // The old verb grouped by keyframe name and paused one group while
+        // its siblings ran, which read 0.00 for a family that cost 10 ms and
+        // left every dot's ring out of phase with its breath. The new one
+        // pauses whole figures, wakes one family at a time, and splits the
+        // bench's dots by the pane's clip. What is asserted is the shape —
+        // the dots are one family in two placements, every figure counted —
+        // and the weld afterwards, which is the reading the user saw break.
+        await app.evalJS<null>(`(function(){
+          window.__at0629bisect = { done: false };
+          window.__tugMotion.bisect({ frames: 10, cap: 4 }).then(function (r) {
+            window.__at0629bisect = { done: true, reading: r };
+          });
+          return null;
+        })()`);
+        await app.waitForCondition<boolean>(
+          `window.__at0629bisect !== undefined && window.__at0629bisect.done === true`,
+          { timeoutMs: 30_000 },
+        );
+        const bisect = await app.evalJS<{
+          baselineP50: number;
+          floorP50: number;
+          groupsFound: number;
+          groupsRead: number;
+          groups: {
+            name: string;
+            placement: string;
+            count: number;
+            figures: number;
+            aloneP50: number;
+            price: number;
+          }[];
+        }>(`window.__at0629bisect.reading`);
+        note("at0629 bisect", bisect);
+        const dotFamilies = bisect.groups.filter(
+          (group) => group.name === "tug-progress-pulsing-dot",
+        );
+        expect(dotFamilies.map((group) => group.placement).sort()).toEqual([
+          "off-screen",
+          "on-screen",
+        ]);
+        expect(
+          dotFamilies.reduce((sum, group) => sum + group.figures, 0),
+        ).toBe(BENCH_COUNT);
+        for (const group of dotFamilies) {
+          // Three loops a figure, read off the family rather than written
+          // down: the count is the census's fact, the ratio is the claim.
+          expect(group.count).toBe(group.figures * 3);
+        }
+        const weldAfterBisect = await app.evalJS<{
+          spreads: number[];
+          running: number;
+        }>(`(function(){
+          var roots = document.querySelectorAll(${JSON.stringify(BENCH_LOOPS)});
+          var spreads = [], running = 0;
+          for (var i = 0; i < roots.length; i++) {
+            var loops = roots[i].getAnimations({ subtree: true })
+              .filter(function (a) { return a instanceof CSSAnimation; });
+            var st = [];
+            for (var j = 0; j < loops.length; j++) {
+              if (loops[j].playState === "running") running++;
+              if (loops[j].startTime !== null) st.push(loops[j].startTime);
+            }
+            if (st.length > 1) {
+              spreads.push(Math.max.apply(null, st) - Math.min.apply(null, st));
+            }
+          }
+          return { spreads: Array.from(new Set(spreads)), running: running };
+        })()`);
+        note("at0629 weld after bisect", weldAfterBisect);
+        // Every loop the bisect paused is running again, and every figure's
+        // three loops still share one start time.
+        expect(weldAfterBisect.running).toBe(longRunningInBench);
+        expect(weldAfterBisect.spreads).toEqual([0]);
+
         // ---- The composer chip's dot is the same glyph. ------------------
         await app.bindSession("A", {
           tugSessionId: SESSION_ID,
@@ -779,17 +1226,22 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // samples every 3 s and the run is three samples long.
         const mark = await app.markDeckTrace();
         await app.evalJS<unknown>(`window.__tugMotion.setBudget(0)`);
+        // Three samples, each a frame reading plus a one-second rest window,
+        // three seconds apart.
         await app.waitForCondition<boolean>(
           `window.__tugMotion.probe().demoted === true`,
-          { timeoutMs: 15_000 },
+          { timeoutMs: 25_000 },
         );
         const trace = await app.getDeckTrace({ since: mark });
         const trips = trace.filter(isMotionDemoted);
         note(
           "at0629 motion-demoted rows",
           trips.map((event) => ({
+            reason: event.reason,
             costMs: event.costMs,
             budgetMs: event.budgetMs,
+            updatesPerSecond: event.updatesPerSecond,
+            restBudgetPerSecond: event.restBudgetPerSecond,
             trips: event.trips,
             latched: event.latched,
             longRunning: event.census.longRunning,
@@ -798,7 +1250,9 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         );
         expect(trips.length).toBe(1);
         const trip = trips[0];
+        expect(trip.reason).toBe("cost");
         expect(trip.costMs.length).toBe(3);
+        expect(trip.updatesPerSecond.length).toBe(3);
         expect(trip.budgetMs).toBe(0);
         expect(trip.latched).toBe(false);
         // The census is read BEFORE the demotion lands, so the row says what
@@ -811,13 +1265,14 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
           trips: number;
           latched: boolean;
           budgetMs: number;
+          restBudgetPerSecond: number;
           longRunning: number;
         }>(`(function(){
           window.__tugMotion.reset();
           var p = window.__tugMotion.probe();
           return {
             demoted: p.demoted, trips: p.trips, latched: p.latched,
-            budgetMs: p.budgetMs,
+            budgetMs: p.budgetMs, restBudgetPerSecond: p.restBudgetPerSecond,
             longRunning: window.__tugMotion.list().longRunning,
           };
         })()`);
@@ -825,10 +1280,203 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(afterReset.demoted).toBe(false);
         expect(afterReset.trips).toBe(0);
         expect(afterReset.latched).toBe(false);
-        // The budget goes back with everything else: a `setBudget(0)` that
-        // survived would leave the deck one sample from demoting again.
+        // The budgets go back with everything else: a `setBudget(0)` that
+        // survived would leave the deck one sample from demoting again, and
+        // a parked rest budget that survived would leave it unable to.
         expect(afterReset.budgetMs).toBe(budgetMs);
+        expect(afterReset.restBudgetPerSecond).toBe(restBudget);
         expect(afterReset.longRunning).toBeGreaterThan(0);
+
+        // ---- The breaker, on updates at rest. ----------------------------
+        //
+        // A rest budget of zero makes any reading over it, and the forcing
+        // probe makes sure there is one; the bound session is idle and no
+        // settle is running, so every sample is at rest. The row has to say
+        // which condition tripped, because the two readings mean different
+        // things to whoever reads the trace days later.
+        const restMark = await app.markDeckTrace();
+        await app.evalJS<unknown>(`window.__tugMotion.__force(true)`);
+        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(0)`);
+        await app.waitForCondition<boolean>(
+          `window.__tugMotion.probe().demoted === true`,
+          { timeoutMs: 25_000 },
+        );
+        await app.evalJS<unknown>(`window.__tugMotion.__force(false)`);
+        const restTrips = (await app.getDeckTrace({ since: restMark })).filter(
+          isMotionDemoted,
+        );
+        note(
+          "at0629 motion-demoted rows, at rest",
+          restTrips.map((event) => ({
+            reason: event.reason,
+            costMs: event.costMs,
+            updatesPerSecond: event.updatesPerSecond,
+            restBudgetPerSecond: event.restBudgetPerSecond,
+            trips: event.trips,
+          })),
+        );
+        expect(restTrips.length).toBe(1);
+        const restTrip = restTrips[0];
+        expect(restTrip.reason).toBe("rest");
+        expect(restTrip.restBudgetPerSecond).toBe(0);
+        expect(restTrip.updatesPerSecond.length).toBe(3);
+        for (const reading of restTrip.updatesPerSecond) {
+          expect(reading).toBeGreaterThan(0);
+        }
+        expect(restTrip.census.longRunning).toBeGreaterThan(0);
+
+        const afterRestReset = await app.evalJS<{
+          demoted: boolean;
+          restBudgetPerSecond: number;
+        }>(`(function(){
+          window.__tugMotion.reset();
+          var p = window.__tugMotion.probe();
+          return { demoted: p.demoted, restBudgetPerSecond: p.restBudgetPerSecond };
+        })()`);
+        expect(afterRestReset.demoted).toBe(false);
+        expect(afterRestReset.restBudgetPerSecond).toBe(restBudget);
+
+        // ---- Off-screen content costs zero. ------------------------------
+        //
+        // The same population, one glyph to a row inside a list scroller,
+        // nearly all of it under the fold. With the rule on, every figure out
+        // of view carries the mark and no animation, and the deck reads under
+        // the at-rest budget with three hundred dots mounted.
+        await app.evalJS<unknown>(`window.__tugMotion.offscreen(true)`);
+        await seatListBench(app, LIST_CARD, "gallery-motion-bench-dot-list");
+        await app.waitForCondition<boolean>(
+          `window.__tugMotion.offscreen().paused > 0`,
+          { timeoutMs: 8_000 },
+        );
+        // A cost reading first: it proves the window is painting before a
+        // timer-chain reading is trusted (see `rest`).
+        const listCost = await cost(app, "__at0629listCost", 30);
+        const ruleOn = await app.evalJS<OffscreenReading>(
+          `window.__tugMotion.offscreen()`,
+        );
+        const figuresOn = await app.evalJS<ListFigures>(listFigures(LIST_CARD));
+        const restRuleOn = await rest(app, "__at0629restRuleOn");
+        note("at0629 list bench, rule on", {
+          ...restRuleOn,
+          costP50: listCost.p50,
+          rule: ruleOn,
+          figures: figuresOn,
+          restBudget,
+        });
+        expect(ruleOn.enabled).toBe(true);
+        expect(ruleOn.watched).toBeGreaterThanOrEqual(BENCH_COUNT);
+        expect(figuresOn.dots).toBe(BENCH_COUNT);
+        // Most of the list is under the fold, and every figure there carries
+        // the mark and nothing else.
+        expect(figuresOn.marked).toBeGreaterThan(BENCH_COUNT / 2);
+        expect(figuresOn.animated).toBe(BENCH_COUNT - figuresOn.marked);
+        expect(figuresOn.running).toBe(figuresOn.animated * 3);
+        expect(figuresOn.spreads).toEqual([0]);
+        expect(
+          restRuleOn.updatesPerSecond,
+          `${BENCH_COUNT} dots in a list scroller, ${figuresOn.marked} of ` +
+            `them out of view and stilled, read ${restRuleOn.updatesPerSecond} ` +
+            `updates/s at rest against a budget of ${restBudget}. Off-screen ` +
+            `content costs zero, or the rule is not reaching these figures.`,
+        ).toBeLessThan(restBudget);
+
+        // The untreated list: the rule off, every dot running, the disease
+        // the rule exists for. Noted rather than asserted, because the
+        // number is a property of this WebKit on this machine; the rest
+        // budget is parked while it runs so the breaker does not still the
+        // bench under the reading.
+        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(1e9)`);
+        const ruleOffList = await app.evalJS<OffscreenReading>(
+          `window.__tugMotion.offscreen(false)`,
+        );
+        const figuresOff = await app.evalJS<ListFigures>(listFigures(LIST_CARD));
+        const restRuleOff = await rest(app, "__at0629restRuleOff");
+        note("at0629 list bench, rule off", {
+          ...restRuleOff,
+          rule: ruleOffList,
+          figures: figuresOff,
+        });
+        expect(figuresOff.marked).toBe(0);
+        expect(figuresOff.animated).toBe(BENCH_COUNT);
+        expect(figuresOff.running).toBe(BENCH_COUNT * 3);
+
+        // The declarative candidate: the primitive's `offscreenSkip`, which
+        // is `content-visibility: auto` on every measured row, read with the
+        // rule off. Noted for the same reason. The rows have to have earned
+        // their stamp first, which the cell observer does on measurement.
+        await seatListBench(app, SKIP_CARD, "gallery-motion-bench-dot-list-skip");
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(`${listBench(SKIP_CARD)} .tug-list-view-cell[data-cv-ready]`)}).length === ${BENCH_COUNT}`,
+          { timeoutMs: 15_000 },
+        );
+        const figuresSkip = await app.evalJS<ListFigures & { skipped: number }>(
+          `(function(){
+             var f = ${listFigures(SKIP_CARD)};
+             f.skipped = document.querySelectorAll(${JSON.stringify(`${listBench(SKIP_CARD)} .tug-list-view-cell[data-cv-skipped]`)}).length;
+             return f;
+           })()`,
+        );
+        const restSkip = await rest(app, "__at0629restSkip");
+        note("at0629 list bench, content-visibility skip, rule off", {
+          ...restSkip,
+          figures: figuresSkip,
+        });
+        expect(figuresSkip.dots).toBe(BENCH_COUNT);
+        expect(figuresSkip.marked).toBe(0);
+        // The reading that CHOSE the observer, and the reason it is asserted
+        // rather than only noted: the doctrine's residency limit
+        // (#offscreen-limit) rests on the claim that a skipped subtree's
+        // animations stay resident and running on this WebKit, and a claim
+        // nothing pins can stop being true with nothing going red. The rows
+        // have to have been skipped for the claim to be about anything, so
+        // that is pinned first.
+        expect(figuresSkip.skipped).toBeGreaterThan(BENCH_COUNT / 2);
+        expect(figuresSkip.animated).toBe(BENCH_COUNT);
+        expect(figuresSkip.running).toBe(BENCH_COUNT * 3);
+        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(${restBudget})`);
+
+        // ---- Resuming on scroll-in goes through the dot's own weld. ------
+        //
+        // Back on the untreated list with the rule on, scrolled to its foot:
+        // the figures that crossed in are breathing with their three loops on
+        // one start time, and the ones that crossed out carry the mark.
+        await app.evalJS<unknown>(`window.__tugMotion.offscreen(true)`);
+        await seatListBench(app, LIST_CARD, "gallery-motion-bench-dot-list");
+        await app.waitForCondition<boolean>(
+          `window.__tugMotion.offscreen().paused > 0`,
+          { timeoutMs: 8_000 },
+        );
+        const firstMarkedBefore = await app.evalJS<boolean>(`(function(){
+          var roots = document.querySelectorAll(${JSON.stringify(listDots(LIST_CARD))});
+          return roots[0].hasAttribute("data-tug-offscreen");
+        })()`);
+        await app.evalJS<unknown>(`(function(){
+          var s = document.querySelector(${JSON.stringify(listScroller(LIST_CARD))});
+          s.scrollTop = s.scrollHeight;
+          return null;
+        })()`);
+        await app.waitForCondition<boolean>(
+          `(function(){
+             var roots = document.querySelectorAll(${JSON.stringify(listDots(LIST_CARD))});
+             var first = roots[0], last = roots[roots.length - 1];
+             return first.hasAttribute("data-tug-offscreen") &&
+               !last.hasAttribute("data-tug-offscreen") &&
+               last.getAnimations({ subtree: true }).length > 0;
+           })()`,
+          { timeoutMs: 8_000 },
+        );
+        const figuresScrolled = await app.evalJS<ListFigures>(listFigures(LIST_CARD));
+        note("at0629 list bench, scrolled to the foot", {
+          firstMarkedBefore,
+          figures: figuresScrolled,
+        });
+        expect(firstMarkedBefore).toBe(false);
+        expect(figuresScrolled.marked).toBeGreaterThan(BENCH_COUNT / 2);
+        expect(figuresScrolled.animated).toBe(BENCH_COUNT - figuresScrolled.marked);
+        expect(figuresScrolled.running).toBe(figuresScrolled.animated * 3);
+        // Every figure that came back in was re-welded: one start time a
+        // figure, never three.
+        expect(figuresScrolled.spreads).toEqual([0]);
       } finally {
         await app.close();
       }

@@ -108,6 +108,27 @@
  * reach resolves to no keyframes and clause 1 passes vacuously; the runtime
  * census is the other half of that.
  *
+ * **Rule 4 — every long-running loop has a hold owner.**
+ *
+ * The motion registry (`src/lib/motion-guard/registry.ts`) is the deck's
+ * event clock for motion: a loop owner takes a hold when its loop starts and
+ * drops it when the loop stops, and the hold count's edges are what arm the
+ * render-cost probe and what the census and the bisect read. A loop nobody
+ * registers runs where no instrument is looking — the caret blink was one
+ * for as long as the registry existed. So a file declaring a long-running
+ * loop names its owner with an `@tug-motion-hold <path>` annotation, in a
+ * comment, and the rule checks two things: that the annotation is there, and
+ * that the file it names is in the corpus and calls `useMotionHold(` or
+ * `acquireMotionHold(`. A path starting `./` or `../` resolves against the
+ * annotated file's directory; any other path is repository-relative. A file
+ * may name itself.
+ *
+ * The annotation is a declaration rather than an inference because the
+ * owner is not derivable from the stylesheet: the six progress glyphs'
+ * loops live in six files under `internal/` and the one owner that holds
+ * for five of them is `tug-progress-indicator.tsx`, a level up. A rule that
+ * guessed by basename would pass the wrong file and fail the right one.
+ *
  * **What rule 3 cannot see, and who sees it instead.** The census flags an
  * animation whose target is an SVG element as never accelerated; this cannot,
  * because a selector does not say what it matches — `tugx-icon-twinkle` on
@@ -226,11 +247,23 @@ const SETTLING_MARK = "[data-imposer-settling]";
 const LOOP_ITERATIONS_VAR = "--tug-loop-iterations";
 const LOOP_ITERATIONS_FORM = `var(${LOOP_ITERATIONS_VAR}, infinite)`;
 
+/** Rule 4's annotation: a loop file naming the file that holds for it. */
+const HOLD_ANNOTATION = "@tug-motion-hold";
+
+/**
+ * What makes a TypeScript file a hold owner: a call to the registry. The
+ * negative lookbehind keeps the registry's own definitions out of the set —
+ * `export function acquireMotionHold(` declares the hold, it does not take
+ * one — and the motion guard's directory is excluded below for the same
+ * reason.
+ */
+const HOLD_CALL = /(?<!function\s)\b(?:useMotionHold|acquireMotionHold)\s*\(/;
+
 export interface Hit {
   readonly path: string;
   readonly line: number;
   readonly selector: string;
-  readonly rule: 1 | 2 | 3;
+  readonly rule: 1 | 2 | 3 | 4;
   readonly detail: string;
 }
 
@@ -680,6 +713,8 @@ export interface MotionContext {
   readonly variables: Map<string, string>;
   /** Selector → the `animation-name` / `animation` values declared on it. */
   readonly animationsBySelector: Map<string, string[]>;
+  /** Every TypeScript file that takes a motion hold, by corpus path. */
+  readonly holdOwners: Set<string>;
 }
 
 export function collectMotionContext(
@@ -691,8 +726,16 @@ export function collectMotionContext(
   const transitioned = new Map<string, string>();
   const variables = new Map<string, string>();
   const animationsBySelector = new Map<string, string[]>();
+  const holdOwners = new Set<string>();
 
   for (const source of sources) {
+    if (
+      source.kind === "ts" &&
+      !source.path.includes("lib/motion-guard/") &&
+      HOLD_CALL.test(source.text)
+    ) {
+      holdOwners.add(source.path);
+    }
     for (const block of blocksOf(source)) {
       const body = block.body;
       const owner = keyframesOwner(block);
@@ -775,7 +818,29 @@ export function collectMotionContext(
     transitioned,
     variables,
     animationsBySelector,
+    holdOwners,
   };
+}
+
+/**
+ * The hold owners a file declares, resolved to corpus paths.
+ *
+ * Read from the raw text rather than the stripped one, because the
+ * annotation lives in a comment by design: it is a fact about the file, not
+ * a declaration the engine reads.
+ */
+export function declaredHoldOwners(raw: string, rel: string): string[] {
+  const owners: string[] = [];
+  const pattern = new RegExp(`${HOLD_ANNOTATION}\\s+(\\S+)`, "g");
+  for (const match of raw.matchAll(pattern)) {
+    const value = match[1].replace(/\*\/$/, "");
+    owners.push(
+      value.startsWith("./") || value.startsWith("../")
+        ? path.posix.normalize(path.posix.join(path.posix.dirname(rel), value))
+        : value,
+    );
+  }
+  return owners;
 }
 
 // ---------------------------------------------------------------------------
@@ -954,6 +1019,7 @@ function scanBlocks(
   blocks: readonly Block[],
   rel: string,
   context: MotionContext,
+  holdOwners: readonly string[],
 ): Hit[] {
   const hits: Hit[] = [];
 
@@ -1081,6 +1147,25 @@ function scanBlocks(
         hits.push({ path: rel, line, selector, rule: 3, detail });
       }
     }
+
+    // ---- Rule 4: the loop has a hold owner. ---------------------------
+    const ownerDetails: string[] = [];
+    if (holdOwners.length === 0) {
+      ownerDetails.push(
+        `a long-running loop declares no hold owner; name the file that takes its motion hold with \`${HOLD_ANNOTATION} <path>\``,
+      );
+    }
+    for (const owner of holdOwners) {
+      if (context.holdOwners.has(owner)) continue;
+      ownerDetails.push(
+        `a long-running loop names \`${owner}\` as its hold owner, which is not in the corpus or takes no motion hold`,
+      );
+    }
+    for (const detail of ownerDetails) {
+      for (const selector of selectors) {
+        hits.push({ path: rel, line, selector, rule: 4, detail });
+      }
+    }
   }
 
   return hits;
@@ -1092,7 +1177,12 @@ export function scanCss(
   rel: string,
   context: MotionContext,
 ): Hit[] {
-  return scanBlocks(cssBlocks(stripComments(raw)), rel, context);
+  return scanBlocks(
+    cssBlocks(stripComments(raw)),
+    rel,
+    context,
+    declaredHoldOwners(raw, rel),
+  );
 }
 
 /** Scan one `.ts`/`.tsx` file's JS-authored styles. */
@@ -1101,7 +1191,7 @@ export function scanTs(
   rel: string,
   context: MotionContext,
 ): Hit[] {
-  return scanBlocks(tsBlocks(raw), rel, context);
+  return scanBlocks(tsBlocks(raw), rel, context, declaredHoldOwners(raw, rel));
 }
 
 // ---------------------------------------------------------------------------
@@ -1170,6 +1260,10 @@ function main(): void {
         `\`opacity\`, \`translate\`, \`rotate\` or \`scale\`; keep every transition off the ` +
         `loop's own box; ease with a keyword or one \`cubic-bezier()\`; and write the count ` +
         `\`${LOOP_ITERATIONS_FORM}\` so the motion breaker can still it.\n` +
+        `  rule 4: a loop that runs for as long as the deck is up is registered, or no ` +
+        `instrument can see it. Name the file that takes its motion hold with ` +
+        `\`${HOLD_ANNOTATION} <path>\` in a comment, and have that file call ` +
+        `\`useMotionHold(\` or \`acquireMotionHold(\`.\n` +
         `  A hit is a finding to read, not a reason to loosen the rule.`,
     );
     process.exit(1);

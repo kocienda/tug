@@ -2166,6 +2166,7 @@ html[data-mods="shift"] [data-default-chord="shift"] {
  *   </span>
  */
 
+/* @tug-motion-hold ./tug-button.tsx */
 .tug-petals {
   --tug-petals-size: 28px;
   position: relative;

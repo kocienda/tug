@@ -1040,6 +1040,14 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// Count the rendering updates per second that hold the main thread at rest.
+    Rest {
+        /// How long to watch, in milliseconds.
+        #[arg(long)]
+        window: Option<u32>,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// The element population the compositing walk pays for.
     Layers {
         #[command(flatten)]

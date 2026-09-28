@@ -59,6 +59,7 @@
   font-size: 0.875rem;
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
+/* @tug-motion-hold ./session-changes-view.tsx */
 .session-changes-scanning-spin {
   animation: session-changes-scanning-spin 1s linear
     var(--tug-loop-iterations, infinite);

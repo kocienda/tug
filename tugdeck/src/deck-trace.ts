@@ -799,9 +799,18 @@ export type DeckTraceEvent = {
       // was watching. The census rides along because the question the row has
       // to answer, days later, is WHICH loops the deck was paying for.
       kind: "motion-demoted";
-      /** The consecutive over-budget samples that tripped it. */
+      /**
+       * Which reading tripped it: `cost`, three samples over the render
+       * budget; or `rest`, three samples reading updates per second over
+       * the at-rest budget with nothing in flight and no gesture running.
+       */
+      reason: "cost" | "rest";
+      /** The three samples' render costs, whichever condition tripped. */
       costMs: number[];
       budgetMs: number;
+      /** The same three samples' at-rest readings. */
+      updatesPerSecond: number[];
+      restBudgetPerSecond: number;
       /** How many times the breaker has tripped this page lifetime. */
       trips: number;
       /** Whether the demotion is now latched until `reset()` or a reload. */

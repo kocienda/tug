@@ -48,6 +48,7 @@
   opacity: var(--tugx-progress-spinner-rest-opacity);
 }
 
+/* @tug-motion-hold ../tug-progress-indicator.tsx */
 .tug-progress-spinner-running .tug-progress-spinner-spoke {
   animation: tug-progress-spinner-fade
     calc(var(--tugx-progress-spinner-cycle) * var(--tug-timing, 1))

@@ -66,6 +66,7 @@
   --tugx-step-fraction-font-size: var(--tug-font-size-xs);
 }
 
+/* @tug-motion-hold ./arc-lifecycle-mark.tsx */
 @media (prefers-reduced-motion: no-preference) {
   .tug-arc-lifecycle-mark:not([data-stopped]) .tug-arc-lifecycle-mark-pill {
     animation: tug-arc-lifecycle-mark-breath

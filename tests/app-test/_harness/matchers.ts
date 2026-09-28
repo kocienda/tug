@@ -279,9 +279,14 @@ export type DeckTraceEventShape = {
     }
   | {
       kind: "motion-demoted";
-      /** The consecutive over-budget render-cost samples that tripped it. */
+      /** Which reading tripped it: render cost, or updates at rest. */
+      reason: "cost" | "rest";
+      /** The three samples' render costs, whichever condition tripped. */
       costMs: number[];
       budgetMs: number;
+      /** The same three samples' at-rest readings, in updates per second. */
+      updatesPerSecond: number[];
+      restBudgetPerSecond: number;
       trips: number;
       latched: boolean;
       census: {
@@ -643,7 +648,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
         .join(" ")}`;
     case "motion-demoted":
       return (
-        `motion-demoted cost=[${e.costMs.join(", ")}] budget=${e.budgetMs}ms ` +
+        `motion-demoted by ${e.reason} cost=[${e.costMs.join(", ")}] budget=${e.budgetMs}ms ` +
+        `rest=[${e.updatesPerSecond.join(", ")}]/s budget=${e.restBudgetPerSecond}/s ` +
         `trip=${e.trips}${e.latched ? " latched" : ""} ` +
         `loops=${e.census.longRunning} ` +
         `names=[${Object.entries(e.census.byName)

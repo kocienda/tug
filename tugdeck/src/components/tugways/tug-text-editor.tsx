@@ -174,6 +174,7 @@ import { createCMSelectionAdapter } from "./tug-text-editor/selection-adapter";
 import type { TextSelectionAdapter } from "./text-selection-adapter";
 import {
   revealCaret,
+  tugCaretBlinkHold,
   tugCaretInteractionPlugin,
   tugCaretLayer,
 } from "./tug-text-editor/caret-layer";
@@ -1252,6 +1253,9 @@ function buildExtensions(
     //     caret-cache staleness.
     tugSelectionLayer,
     tugCaretLayer,
+    // The blink's motion hold: taken on focus, released on blur, so the
+    // registry sees the one loop it used to miss.
+    tugCaretBlinkHold,
     tugCaretInteractionPlugin,
     tugTheme,
     hostFocusMirror(host),

@@ -1017,6 +1017,42 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
+  // The same population one glyph to a row inside a `TugListView` scroller,
+  // so nearly all of it sits out of view — the placement the off-screen rule
+  // is about. Two ids: the list as it is, and the list asking the primitive
+  // to skip its off-screen rows with `content-visibility: auto`, so the
+  // mechanism bench can read one population both ways.
+  registerCard({
+    componentId: "gallery-motion-bench-dot-list",
+    contentFactory: (_cardId) => (
+      <GalleryMotionBench variant="pulsing-dot" host="list" />
+    ),
+    defaultMeta: {
+      title: "Motion bench (dot, list)",
+      icon: "Activity",
+      closable: true,
+    },
+    family: "maker",
+    acceptsFamilies: ["maker"],
+    sizePolicy: GALLERY_COMPLEX_SIZE,
+    category: CATEGORIES.feedback,
+  });
+  registerCard({
+    componentId: "gallery-motion-bench-dot-list-skip",
+    contentFactory: (_cardId) => (
+      <GalleryMotionBench variant="pulsing-dot" host="list" offscreenSkip />
+    ),
+    defaultMeta: {
+      title: "Motion bench (dot, list, skip)",
+      icon: "Activity",
+      closable: true,
+    },
+    family: "maker",
+    acceptsFamilies: ["maker"],
+    sizePolicy: GALLERY_COMPLEX_SIZE,
+    category: CATEGORIES.feedback,
+  });
+
   registerCard({
     componentId: "gallery-tool-call-header",
     contentFactory: (_cardId) => <GalleryBlockHeader />,

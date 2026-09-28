@@ -68,6 +68,7 @@
    TugListView cell — runs no animations inside it at all, and no
    amount of promotion here changes that; see the tail-cell opt-out in
    `tug-list-view.css`. */
+/* @tug-motion-hold ../tug-progress-indicator.tsx */
 .tug-progress-wave[data-state="running"] .tug-progress-wave-bar {
   animation-duration: calc(960ms * var(--tug-timing, 1));
   animation-timing-function: linear;

@@ -37,6 +37,7 @@
    costs no compositing layer — and note it only helps where the subtree is
    being rendered at all; an ancestor the engine skips runs no animation
    inside it regardless. */
+/* @tug-motion-hold ./internal/tug-button.tsx */
 [data-tug-activity="twinkle"] .tug-icon-spark {
   transform-box: fill-box;
   transform-origin: center;

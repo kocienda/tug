@@ -25,6 +25,7 @@ import { TugSeparator } from "@/components/tugways/tug-separator";
 import { TugBox } from "@/components/tugways/tug-box";
 import { TugCheckbox } from "@/components/tugways/tug-checkbox";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
+import { useMotionHold } from "@/lib/motion-guard";
 import { TugSlider } from "@/components/tugways/tug-slider";
 import type { ActionPhase } from "@/components/tugways/responder-chain";
 import { createNumberFormatter } from "@/lib/tug-format";
@@ -64,6 +65,9 @@ function formatValue(v: number, decimals: number = 2): string {
  * **Authoritative reference:** (#s08-gallery-tab)
  */
 export function GalleryScaleTiming() {
+  // The barber pole scrolls for as long as the card is mounted
+  // (`gallery.css`), and the motion registry hears it ([D7]).
+  useMotionHold(true);
   const [scale, setScaleState] = useState(DEFAULT_SCALE);
   const [timing, setTimingState] = useState(DEFAULT_TIMING);
   const [motionOn, setMotionOnState] = useState(DEFAULT_MOTION);

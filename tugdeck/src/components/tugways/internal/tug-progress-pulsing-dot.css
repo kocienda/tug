@@ -574,6 +574,7 @@
    multiplier instead: hinted layers still cost backing memory and mounted
    layer population, and 200 of them on a rail column raises the price of
    every walk anything else causes. */
+/* @tug-motion-hold ./tug-progress-pulsing-dot.tsx */
 .tug-progress-pulsing-dot[data-breathing] .tug-progress-pulsing-dot-dot,
 .tug-progress-pulsing-dot[data-emitting] .tug-progress-pulsing-dot-ring {
   animation-duration: var(--tugx-progress-pulsing-dot-period);

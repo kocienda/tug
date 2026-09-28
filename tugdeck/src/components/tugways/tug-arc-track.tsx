@@ -30,6 +30,7 @@ import "./tug-arc-track.css";
 import React from "react";
 
 import { TugTooltip } from "./tug-tooltip";
+import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
 import type { ArcRunState, ArcChangesetEntry, ArcStep } from "@/lib/changeset-types";
 import { PLANNED_KIND_SENTENCE } from "@/lib/arc-meta-facts";
 
@@ -640,8 +641,17 @@ export function TugArcTrack({
   // out: a plain arc did not skip devise and review, it never had them. It
   // did have a brief, so it draws one.
   const phases: readonly ArcPhase[] = model.planned ? ARC_PHASES : DIRECT_PHASES;
+  // A track that is not stopped always has one cell or tick breathing — the
+  // phase in hand, or the step in hand (`tug-arc-track.css`) — and the
+  // motion registry hears it ([D7]).
+  useMotionHold(model.stopped === null);
+  // And it is stilled while it is out of its scroller's view
+  // (`lib/motion-guard/offscreen.ts`).
+  const rootRef = React.useRef<HTMLSpanElement | null>(null);
+  useOffscreenPause(rootRef, model.stopped === null);
   return (
     <span
+      ref={rootRef}
       className="tug-arc-track"
       data-slot="tug-arc-track"
       data-phase={model.phase}

@@ -53,6 +53,7 @@ import React from "react";
 import { LoaderCircle, TriangleAlert } from "lucide-react";
 
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import { useMotionHold } from "@/lib/motion-guard";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import {
@@ -419,6 +420,9 @@ export function SessionChangesArcJoin({
     resolveAct: resolve.act,
   });
   const { outcome, resolve: resolveFace } = face;
+  // The resolve spinner runs for the length of a ladder run
+  // (`session-changes-arc-fold.css`), and the motion registry hears it ([D7]).
+  useMotionHold(resolveFace === "progress");
 
   // What the resolved face actually has to show. `resolved` is the face every
   // standing candidate wears, and the ordinary clean join reaches it having

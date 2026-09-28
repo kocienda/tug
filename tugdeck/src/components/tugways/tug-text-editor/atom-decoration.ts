@@ -48,6 +48,7 @@ import {
   type AtomSegment,
 } from "@/lib/tug-atom-img";
 import type { AtomBytesStore } from "@/lib/atom-bytes-store";
+import { acquireMotionHold } from "@/lib/motion-guard";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { payloadForAtom } from "@/lib/annotator/payloads";
@@ -635,6 +636,12 @@ export function removeAtomById(view: EditorView, id: string): void {
 class PendingAtomSyncPlugin implements PluginValue {
   private unsubscribe: (() => void) | null = null;
   private subscribedStore: AtomBytesStore | null = null;
+  /**
+   * The pending pulse's motion hold ([D7]). `pendingAtomTheme` loops on
+   * every `img[data-pending]`, so the hold is out exactly while at least one
+   * widget is pending, and goes with the plugin.
+   */
+  private release: (() => void) | null = null;
 
   constructor(private readonly view: EditorView) {
     this.syncSubscription();
@@ -649,13 +656,18 @@ class PendingAtomSyncPlugin implements PluginValue {
     // dropped images would pulse forever, since their bytes land in
     // the new store whose notifications we never hear.
     this.syncSubscription();
-    // The widget's own toDOM() handles initial state on mount;
-    // bytes-arriving subscriptions handle the rest.
-    void update;
+    // The widget's own toDOM() handles initial state on mount and
+    // bytes-arriving subscriptions handle the rest — but a widget that
+    // mounted pending took no hold, so a document change re-reads the
+    // pending population to keep the hold truthful.
+    if (update.docChanged && this.subscribedStore !== null) {
+      this.sync(this.subscribedStore);
+    }
   }
 
   destroy(): void {
     this.unsubscribeCurrent();
+    this.hold(false);
   }
 
   /**
@@ -671,12 +683,24 @@ class PendingAtomSyncPlugin implements PluginValue {
     if (store === this.subscribedStore) return;
     this.unsubscribeCurrent();
     if (store === null) return;
-    const view = this.view;
     this.subscribedStore = store;
     this.unsubscribe = store.subscribe(() => {
-      syncPendingAttributes(view, store);
+      this.sync(store);
     });
-    syncPendingAttributes(view, store);
+    this.sync(store);
+  }
+
+  private sync(store: AtomBytesStore): void {
+    this.hold(syncPendingAttributes(this.view, store) > 0);
+  }
+
+  private hold(on: boolean): void {
+    if (on && this.release === null) {
+      this.release = acquireMotionHold();
+    } else if (!on && this.release !== null) {
+      this.release();
+      this.release = null;
+    }
   }
 
   private unsubscribeCurrent(): void {
@@ -696,15 +720,18 @@ class PendingAtomSyncPlugin implements PluginValue {
  *
  * Exported for the rare consumer that wants to force a manual sync
  * (e.g., after restoring from a snapshot); the ViewPlugin's
- * subscribe path handles the common case automatically.
+ * subscribe path handles the common case automatically. Returns how
+ * many widgets are pending after the walk, which is what the plugin's
+ * motion hold follows.
  */
 export function syncPendingAttributes(
   view: EditorView,
   store: AtomBytesStore,
-): void {
+): number {
   const imgs = view.contentDOM.querySelectorAll<HTMLImageElement>(
     "img[data-atom-id]",
   );
+  let pending = 0;
   for (const img of imgs) {
     const id = img.dataset.atomId;
     if (id === undefined) continue;
@@ -714,11 +741,13 @@ export function syncPendingAttributes(
         delete img.dataset.pending;
       }
     } else {
+      pending += 1;
       if (img.dataset.pending !== "true") {
         img.dataset.pending = "true";
       }
     }
   }
+  return pending;
 }
 
 /**
@@ -959,6 +988,7 @@ export const sessionVerdictRegenPlugin = ViewPlugin.fromClass(
  *
  * [L06] — appearance via CSS only; no React, no state.
  */
+// @tug-motion-hold ./atom-decoration.ts
 export const pendingAtomTheme: Extension = EditorView.baseTheme({
   "img[data-pending]": {
     animation:

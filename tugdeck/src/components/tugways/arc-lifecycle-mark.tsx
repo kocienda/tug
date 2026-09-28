@@ -37,6 +37,8 @@ import "./arc-lifecycle-mark.css";
 
 import React from "react";
 
+import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
+
 import { ArcPhaseMark, arcPhaseWord } from "./arc-phase-mark";
 import { TugStepFraction } from "./tug-step-fraction";
 import { TugTooltip } from "./tug-tooltip";
@@ -84,6 +86,14 @@ export function ArcLifecycleMark({
   const fraction =
     fractionOverride !== undefined ? fractionOverride : arcMarkFraction(model);
   const word = arcPhaseWord(model);
+  // The pill breathes for as long as the arc is not stopped
+  // (`arc-lifecycle-mark.css`), and the motion registry hears it so the
+  // render-cost probe reads while it does ([D7]).
+  useMotionHold(model.stopped === null);
+  // And it is stilled while its row is out of the Arcs card's view
+  // (`lib/motion-guard/offscreen.ts`).
+  const rootRef = React.useRef<HTMLSpanElement | null>(null);
+  useOffscreenPause(rootRef, model.stopped === null);
   // `Executing step 3 of 6` — the fraction reads as the verb's object, the
   // same order the line puts it in ([B02]). A stop's clause already ends in a
   // reason, so the number that follows it needs its own separator or the two
@@ -102,6 +112,7 @@ export function ArcLifecycleMark({
     // `asChild` tooltips is a thing this codebase has been bitten by.
     <TugTooltip content={sentence}>
       <span
+        ref={rootRef}
         className="tug-arc-lifecycle-mark"
         data-slot="tug-arc-lifecycle-mark"
         data-size={size}

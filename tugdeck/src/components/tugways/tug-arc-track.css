@@ -162,6 +162,7 @@
    `data-stopped` is the gate: a stopped arc holds still. So is the reader's
    own preference, which is why the animation is declared inside the query
    rather than switched off by one. */
+/* @tug-motion-hold ./tug-arc-track.tsx */
 @media (prefers-reduced-motion: no-preference) {
   .tug-arc-track:not([data-stopped]) .tug-arc-track-cell[data-state="active"]:not([data-steps]),
   .tug-arc-track:not([data-stopped]) .tug-arc-track-tick[data-state="active"] {

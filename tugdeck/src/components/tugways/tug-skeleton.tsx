@@ -12,6 +12,8 @@ import "./tug-skeleton.css";
 
 import React from "react";
 import { cn } from "@/lib/utils";
+import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
+import { composeRefs } from "@/components/tugways/compose-refs";
 
 // ---- Types ----
 
@@ -57,9 +59,19 @@ export const TugSkeleton = React.forwardRef<HTMLDivElement, TugSkeletonProps>(
       ...style,
     };
 
+    // The shimmer runs for as long as the skeleton is mounted
+    // (`tug-skeleton.css`), so the hold spans the mount ([D7]).
+    useMotionHold(true);
+    // Out of its scroller's view the shimmer is stilled
+    // (`lib/motion-guard/offscreen.ts`); a skeleton in a scrolled-away row
+    // is the same defect as a dot there.
+    const offscreenRef = React.useRef<HTMLDivElement | null>(null);
+    useOffscreenPause(offscreenRef);
+    const rootRef = React.useMemo(() => composeRefs(ref, offscreenRef), [ref]);
+
     return (
       <div
-        ref={ref}
+        ref={rootRef}
         data-slot="tug-skeleton"
         className={cn("tug-skeleton", className)}
         style={mergedStyle}

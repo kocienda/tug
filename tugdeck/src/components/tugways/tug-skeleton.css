@@ -51,6 +51,7 @@ body {
   position: relative;
 }
 
+/* @tug-motion-hold ./tug-skeleton.tsx */
 .tug-skeleton::after {
   content: "";
   position: absolute;

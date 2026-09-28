@@ -18,6 +18,7 @@ import { useResponderChain } from "../responder-chain-provider";
 import type { TugAction } from "../action-vocabulary";
 import { useTugBoxDisabled } from "./tug-box-context";
 import { useControlDispatch } from "../use-control-dispatch";
+import { useMotionHold } from "@/lib/motion-guard";
 import { ResponderParentContext } from "../responder-chain";
 import { useFocusable, useFocusManager } from "../use-focusable";
 import type { FocusPolicy } from "../focus-manager";
@@ -575,6 +576,10 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
   onKeyDown: onKeyDownProp,
   ...rest
 }: TugButtonProps, ref) {
+  // The petals spin while the button loads and the sparks twinkle under an
+  // activity (`tug-button.css`, `tug-icons.css`); the motion registry hears
+  // both ([D7]).
+  useMotionHold(loading || activity !== undefined);
   // `role` is overloaded. For 99% of call sites it's a semantic theming
   // value from [D02]'s emphasis × role matrix (`action`, `data`, etc.)
   // and maps into a classname like `tug-button-ghost-action`. But when

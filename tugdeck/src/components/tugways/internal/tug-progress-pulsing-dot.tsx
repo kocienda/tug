@@ -170,6 +170,7 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 import { acquireMotionHold } from "@/lib/motion-guard/registry";
+import { observeOffscreen } from "@/lib/motion-guard/offscreen";
 import type {
   TugProgressIndicatorShape,
   TugProgressIndicatorState,
@@ -739,6 +740,52 @@ function breathClock(el: HTMLElement): { phase: number; period: number } | null 
 }
 
 /**
+ * The weld itself: every `CSSAnimation` under `root` is given one identical
+ * `startTime` — `document.timeline.currentTime - phase × period` — so all of
+ * them read the same clock at the same offset ([P04]), whichever frame each
+ * was created on.
+ *
+ * `getAnimations()` is both halves of the job: the call resolves style, which
+ * is what CREATES the animations the gates (or the stylesheet) just declared,
+ * and it hands back the objects to weld. So there is no flush here separate
+ * from the read, and no forced layout anywhere in it ([P03]).
+ *
+ * `period` is read from the effect rather than assumed, so
+ * `--tugx-progress-pulsing-dot-drift` and any `--tug-timing` scaling are
+ * honoured without this function knowing either exists. Computed timing, not
+ * specified: `getTiming().duration` is `number | "auto" | undefined` and would
+ * need a cast at every read.
+ *
+ * Under the breaker's demotion, or off screen, there is nothing to weld. Zero
+ * iterations give each effect no active duration and no fill, so the
+ * animations are not relevant and `getAnimations()` does not return them at
+ * all — the early return is the contract exactly as it stands.
+ *
+ * Two callers: `startLoops`, which sets the gates and then welds; and the
+ * off-screen return, which welds a figure whose loops the stylesheet just
+ * re-declared, so a dot scrolled back into view resumes through the same
+ * weld it started with rather than at whatever phase each loop happened to be
+ * created on.
+ */
+function weldLoops(root: HTMLElement, phase: number): void {
+  const loops = root
+    .getAnimations({ subtree: true })
+    .filter((a): a is CSSAnimation => a instanceof CSSAnimation);
+  let period = 0;
+  for (const loop of loops) {
+    const duration = loop.effect?.getComputedTiming().duration;
+    if (typeof duration === "number" && duration > 0) {
+      period = duration;
+      break;
+    }
+  }
+  if (period <= 0) return;
+  const now = document.timeline.currentTime;
+  const shared = (typeof now === "number" ? now : 0) - phase * period;
+  for (const loop of loops) loop.startTime = shared;
+}
+
+/**
  * Where on the breath's RISE leg the dot would be standing at `scale` —
  * the inverse of {@link breathAt}, restricted to the leg that has one.
  *
@@ -1069,6 +1116,12 @@ export const TugProgressPulsingDot = React.forwardRef<
   // is what lets the two paths that must carry it — the static-mode demotion
   // and the unmount cleanup — each call it without knowing about the other.
   const motionHoldRef = React.useRef<(() => void) | null>(null);
+  // The off-screen watch rides the same span as the hold: a live figure is
+  // watched, a static one is not, and the release is carried by the same two
+  // paths. Off screen the stylesheet stills the loops; back on screen the
+  // figure re-welds them itself (`weldLoops`), so the return is the dot's own
+  // start-time weld rather than three loops created on three frames.
+  const offscreenRef = React.useRef<(() => void) | null>(null);
 
   const setRootRef = React.useCallback(
     (node: HTMLSpanElement | null) => {
@@ -1137,6 +1190,8 @@ export const TugProgressPulsingDot = React.forwardRef<
       // disarms the probe in the same commit that stills it.
       motionHoldRef.current?.();
       motionHoldRef.current = null;
+      offscreenRef.current?.();
+      offscreenRef.current = null;
       // Static mode has no script: the render IS the settled pose. What
       // happens here is arrival bookkeeping and the exit.
       if (well.style.transform !== "") {
@@ -1166,17 +1221,23 @@ export const TugProgressPulsingDot = React.forwardRef<
     if (motionHoldRef.current === null) {
       motionHoldRef.current = acquireMotionHold();
     }
+    if (offscreenRef.current === null) {
+      offscreenRef.current = observeOffscreen(root, (visible) => {
+        // Only a breathing figure has loops to weld; a crossing in flight
+        // has its own choreography and is left to it.
+        if (visible && root.dataset.breathing !== undefined) weldLoops(root, 0);
+      });
+    }
 
     /**
      * Start the breath and the emitter, and WELD them — which is a thing done
      * to the animations, not a thing hoped for from the order of two writes.
      *
-     * The gates go on, and then every `CSSAnimation` under the root is given
-     * one identical `startTime` — `document.timeline.currentTime - phase ×
-     * period`. That is the lock, expressed as data: whatever frame each loop
-     * happened to be created on, and whichever of them was already running,
-     * all three are afterwards reading the same clock at the same offset
-     * ([P04]).
+     * The gates go on, and then `weldLoops` gives every `CSSAnimation` under
+     * the root one identical `startTime`. That is the lock, expressed as
+     * data: whatever frame each loop happened to be created on, and whichever
+     * of them was already running, all three are afterwards reading the same
+     * clock at the same offset ([P04]).
      *
      * Writing a gate that is already set still starts nothing, and that is now
      * harmless rather than the file's one unrecoverable bug: the weld is
@@ -1184,23 +1245,6 @@ export const TugProgressPulsingDot = React.forwardRef<
      * re-welded exactly like one that just began. The old dance — delete both
      * gates, force a reflow, re-open them in the same flush — existed only to
      * make the two starts coincide, and goes with the reason for it.
-     *
-     * `getAnimations()` is both halves of the job: the call resolves style,
-     * which is what CREATES the animations the gates just declared, and it
-     * hands back the objects to weld. So there is no flush here separate from
-     * the read, and no forced layout anywhere in it ([P03]).
-     *
-     * `period` is read from the effect rather than assumed, so
-     * `--tugx-progress-pulsing-dot-drift` and any `--tug-timing` scaling are
-     * honoured without this function knowing either exists. Computed timing,
-     * not specified: `getTiming().duration` is `number | "auto" | undefined`
-     * and would need a cast at every read.
-     *
-     * Under the breaker's demotion there is nothing to weld. Zero iterations
-     * give each effect no active duration and no fill, so the animations are
-     * not relevant and `getAnimations()` does not return them at all — the
-     * early return leaves both gates set, which is the demotion's contract
-     * exactly as it stands today.
      */
     const startLoops = (phase: number): void => {
       if (emitTimerRef.current !== null) {
@@ -1209,21 +1253,7 @@ export const TugProgressPulsingDot = React.forwardRef<
       }
       root.dataset.breathing = "";
       root.dataset.emitting = "";
-      const loops = root
-        .getAnimations({ subtree: true })
-        .filter((a): a is CSSAnimation => a instanceof CSSAnimation);
-      let period = 0;
-      for (const loop of loops) {
-        const duration = loop.effect?.getComputedTiming().duration;
-        if (typeof duration === "number" && duration > 0) {
-          period = duration;
-          break;
-        }
-      }
-      if (period <= 0) return;
-      const now = document.timeline.currentTime;
-      const shared = (typeof now === "number" ? now : 0) - phase * period;
-      for (const loop of loops) loop.startTime = shared;
+      weldLoops(root, phase);
     };
 
 
@@ -1410,6 +1440,8 @@ export const TugProgressPulsingDot = React.forwardRef<
       demotionRef.current?.cancel();
       motionHoldRef.current?.();
       motionHoldRef.current = null;
+      offscreenRef.current?.();
+      offscreenRef.current = null;
     },
     [],
   );

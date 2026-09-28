@@ -18,8 +18,9 @@
  * no timer and schedules no rendering update.
  *
  *   - `breaker.ts` — the one piece that acts: three consecutive over-budget
- *     samples with nothing in flight and every long-running loop on the deck
- *     is stilled through one CSS variable ([B07], [P06], [P07]).
+ *     samples, or three reading updates at rest with nothing in flight and
+ *     no gesture running, and every long-running loop on the deck is stilled
+ *     through one CSS variable ([B07], [P06], [P07]).
  *
  * @module lib/motion-guard
  */
@@ -41,12 +42,18 @@ export {
 export {
   burst,
   renderCostProbe,
+  restFromGaps,
   sampleFrame,
+  sampleRest,
   summarize,
   RENDER_COST_BUDGET_MS,
+  REST_STALL_FLOOR_MS,
+  REST_UPDATES_BUDGET_PER_S,
+  REST_WINDOW_MS,
   SAMPLE_INTERVAL_MS,
   type RenderCostSample,
   type RenderCostSummary,
+  type RestReading,
 } from "./render-cost-probe";
 export {
   inputLatency,
@@ -55,9 +62,27 @@ export {
 } from "./input-latency";
 export { tugMotion, type TugMotionDiagnostics } from "./diagnostics";
 export {
+  observeOffscreen,
+  offscreenPaused,
+  offscreenPauseEnabled,
+  offscreenWatched,
+  setOffscreenPause,
+  useOffscreenPause,
+  OFFSCREEN_ATTRIBUTE,
+} from "./offscreen";
+export {
+  liveMarks,
+  observeOneLiveMark,
+  useOneLiveMark,
+  UNDERSTUDY_ATTRIBUTE,
+  type LiveMarksReading,
+} from "./one-live-mark";
+export {
   motionBreaker,
   nothingInFlight,
   shouldTrip,
+  shouldTripAtRest,
+  type BreakerTripReason,
   BREAKER_LATCH_TRIPS,
   BREAKER_TRIP_SAMPLES,
   DEMOTED_ATTRIBUTE,
@@ -89,6 +114,14 @@ export function installMotionGuard(): void {
     });
     return !nothingInFlight(phases);
   });
+
+  // A gesture is a settle: the canvas marks itself `data-imposer-settling`
+  // for the settle's length, and the occlusion controller reads the same
+  // mark. A sample taken under it is a deck with a reason to update every
+  // frame, and the at-rest trip does not count it.
+  renderCostProbe.setGestureSource(
+    () => document.querySelector("[data-imposer-settling]") !== null,
+  );
 
   motionBreaker.install();
   installInputLatency();

@@ -14,6 +14,31 @@
   padding: var(--tug-space-4, 16px);
 }
 
+/* The list host: the same population, one glyph to a row, inside the list
+   primitive's own scroller. The host fills the card so the scroller has a
+   bounded height to clip against — `.tug-list-view` is the scroll container
+   and needs a parent that stops growing. Rows are tall enough that a card of
+   ordinary height shows a dozen or so of the three hundred, which is the
+   proportion the Overview card was found in. */
+.gmb-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.gmb-list > .tug-list-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.gmb-row {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding-inline: var(--tug-space-4, 16px);
+}
+
 /* The diagnostic layer — the same population, parented to `<body>` instead of
    to a card, so nothing in its ancestor chain carries a rounded clip. Fixed and
    on top so the window still paints it: an occluded surface throttles to a flat

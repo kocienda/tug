@@ -24,6 +24,21 @@
  * WebKit is blending on the main thread; if the glyph's motion were
  * compositor-resident they would not move when {@link BENCH_COUNT} does.
  * The window must be raised — an occluded window throttles to a flat 0%.
+ *
+ * ## Two hosts
+ *
+ * The population can be laid out two ways, and the difference is the whole
+ * subject of the off-screen rule. The **flow** host is the original: a
+ * wrapping flex row inside the card, clipped by the pane's own `overflow`.
+ * The **list** host stands the same population one glyph to a row inside a
+ * `TugListView` scroller — the primitive every transcript and picker in the
+ * deck scrolls in — so nearly all of it is out of the scroller's view at
+ * rest. That is the placement the Overview card's session marks were found in
+ * (hundreds of dots under a scroller's fold, each dirtying style every frame),
+ * and it is the placement the mechanism bench reads. The list host can
+ * additionally ask the primitive for `offscreenSkip` (`content-visibility:
+ * auto` on every measured row), which is the declarative candidate for the
+ * same rule, so the two mechanisms can be read against one population.
  */
 
 import "./gallery-motion-bench.css";
@@ -35,6 +50,12 @@ import {
   TugProgressIndicator,
   type TugProgressIndicatorVariant,
 } from "@/components/tugways/tug-progress-indicator";
+import {
+  TugListView,
+  type TugListViewCellProps,
+  type TugListViewCellRenderer,
+  type TugListViewDataSource,
+} from "@/components/tugways/tug-list-view";
 
 /**
  * Render the population OUTSIDE the card, in a fixed layer parented to
@@ -78,16 +99,89 @@ const BENCH_SIZE = 28;
  */
 const BENCH_VARIANT: TugProgressIndicatorVariant = "bar";
 
+/** How the population is laid out. See the file header. */
+export type GalleryMotionBenchHost = "flow" | "list";
+
 export interface GalleryMotionBenchProps {
   /** @default {@link BENCH_VARIANT} */
   variant?: TugProgressIndicatorVariant;
+  /** @default "flow" */
+  host?: GalleryMotionBenchHost;
+  /**
+   * Under the `list` host, ask the primitive to skip rows out of view with
+   * `content-visibility: auto` (`TugListView.offscreenSkip`). Ignored by the
+   * `flow` host.
+   *
+   * @default false
+   */
+  offscreenSkip?: boolean;
 }
 
 const CELLS = Array.from({ length: BENCH_COUNT }, (_, i) => i);
 
+/**
+ * The list host's rows: one glyph each, nothing that changes. A static data
+ * source — the version never moves, so the list never re-windows.
+ */
+class BenchDataSource implements TugListViewDataSource {
+  numberOfItems(): number {
+    return BENCH_COUNT;
+  }
+  idForIndex(index: number): string {
+    return `dot-${index}`;
+  }
+  kindForIndex(): string {
+    return "dot";
+  }
+  subscribe(): () => void {
+    return () => {};
+  }
+  getVersion(): unknown {
+    return BENCH_COUNT;
+  }
+}
+
+const BENCH_DATA_SOURCE = new BenchDataSource();
+
+function makeCell(
+  variant: TugProgressIndicatorVariant,
+): TugListViewCellRenderer<BenchDataSource> {
+  return function BenchCell(_props: TugListViewCellProps<BenchDataSource>) {
+    return (
+      <div className="gmb-row">
+        <TugProgressIndicator
+          variant={variant}
+          size={BENCH_SIZE}
+          state="running"
+        />
+      </div>
+    );
+  };
+}
+
 export function GalleryMotionBench({
   variant = BENCH_VARIANT,
+  host = "flow",
+  offscreenSkip = false,
 }: GalleryMotionBenchProps = {}): React.ReactElement {
+  const cellRenderers = React.useMemo(
+    () => ({ dot: makeCell(variant) }),
+    [variant],
+  );
+  if (host === "list") {
+    return (
+      <div className="gmb-list" data-offscreen-skip={offscreenSkip || undefined}>
+        <TugListView<BenchDataSource>
+          dataSource={BENCH_DATA_SOURCE}
+          cellRenderers={cellRenderers}
+          scrollKey="gallery-motion-bench"
+          inline
+          offscreenSkip={offscreenSkip}
+          interactive={false}
+        />
+      </div>
+    );
+  }
   const dots = (
     <div className={ESCAPE_THE_CARD ? "gmb-content gmb-escaped" : "gmb-content"}>
       {CELLS.map((i) => (

@@ -21,17 +21,33 @@ import {
   motionHolds,
   onMotionEdge,
 } from "@/lib/motion-guard/registry";
-import { burst, summarize } from "@/lib/motion-guard/render-cost-probe";
+import {
+  burst,
+  restFromGaps,
+  summarize,
+  REST_STALL_FLOOR_MS,
+} from "@/lib/motion-guard/render-cost-probe";
 import {
   nothingInFlight,
   shouldTrip,
+  shouldTripAtRest,
   BREAKER_TRIP_SAMPLES,
 } from "@/lib/motion-guard/breaker";
 import type { RenderCostSample } from "@/lib/motion-guard/render-cost-probe";
 
-/** A sample, named by the two things the breaker reads off it. */
-function sample(costMs: number, inFlight = false): RenderCostSample {
-  return { t: 0, costMs, inFlight };
+/** A sample, named by the things the breaker reads off it. */
+function sample(
+  costMs: number,
+  inFlight = false,
+  updatesPerSecond = 0,
+  gesture = false,
+): RenderCostSample {
+  return { t: 0, costMs, inFlight, gesture, updatesPerSecond };
+}
+
+/** A sample at rest with a given updates-per-second reading. */
+function resting(updatesPerSecond: number): RenderCostSample {
+  return sample(1, false, updatesPerSecond);
 }
 
 describe("summarize", () => {
@@ -70,6 +86,78 @@ describe("summarize", () => {
     });
     // Thicken the tail to two frames in twenty and p95 moves with it.
     expect(summarize([...Array(18).fill(1), 40, 40]).p95).toBe(40);
+  });
+});
+
+describe("restFromGaps", () => {
+  test("an empty chain reads as zeros, not NaN", () => {
+    expect(restFromGaps([], 1000)).toEqual({
+      updatesPerSecond: 0,
+      busyMsPerSecond: 0,
+      windowMs: 1000,
+      ticks: 0,
+      medianGapMs: 0,
+      maxGapMs: 0,
+      floorMs: REST_STALL_FLOOR_MS,
+    });
+  });
+
+  test("a chain with nothing between its fires reads zero updates", () => {
+    // Six hundred one-millisecond gaps with the ordinary jitter of a
+    // coarsened clock: the deck's own loops are resident and nothing held
+    // the thread.
+    const gaps = Array.from({ length: 600 }, (_, i) => (i % 7 === 0 ? 2 : 1));
+    const reading = restFromGaps(gaps, 1000);
+    expect(reading.updatesPerSecond).toBe(0);
+    expect(reading.busyMsPerSecond).toBe(0);
+    expect(reading.medianGapMs).toBe(1);
+    expect(reading.maxGapMs).toBe(2);
+    expect(reading.ticks).toBe(600);
+  });
+
+  test("a stall is a gap more than the floor past the median, and each one counts once", () => {
+    // Sixty rendering updates of 7 ms a second, on a chain that otherwise
+    // fires every millisecond: the disease the gauge exists to read.
+    const gaps: number[] = [];
+    for (let i = 0; i < 60; i += 1) {
+      gaps.push(8);
+      for (let j = 0; j < 9; j += 1) gaps.push(1);
+    }
+    const reading = restFromGaps(gaps, 1000);
+    expect(reading.updatesPerSecond).toBe(60);
+    // Seven milliseconds past the median, sixty times.
+    expect(reading.busyMsPerSecond).toBe(420);
+    expect(reading.maxGapMs).toBe(8);
+  });
+
+  test("a gap at the floor is jitter, one past it is an update", () => {
+    const at = Array.from({ length: 100 }, () => 1);
+    at[50] = 1 + REST_STALL_FLOOR_MS;
+    expect(restFromGaps(at, 1000).updatesPerSecond).toBe(0);
+    const past = Array.from({ length: 100 }, () => 1);
+    past[50] = 1 + REST_STALL_FLOOR_MS + 1;
+    expect(restFromGaps(past, 1000).updatesPerSecond).toBe(1);
+  });
+
+  test("the count is normalized to a second, whatever the window", () => {
+    // Thirty stalls over half a second is sixty a second; the window a
+    // caller asked for is not the unit the reading is in.
+    const gaps: number[] = [];
+    for (let i = 0; i < 30; i += 1) gaps.push(1, 1, 1, 9);
+    expect(restFromGaps(gaps, 500).updatesPerSecond).toBe(60);
+    expect(restFromGaps(gaps, 500).windowMs).toBe(500);
+  });
+
+  test("the floor is the caller's when it says so", () => {
+    const gaps = [1, 1, 1, 4, 1, 1, 1, 4];
+    expect(restFromGaps(gaps, 1000, 2).updatesPerSecond).toBe(2);
+    expect(restFromGaps(gaps, 1000, 3).updatesPerSecond).toBe(0);
+  });
+
+  test("the input is never reordered", () => {
+    const gaps = [3, 1, 2];
+    restFromGaps(gaps, 1000);
+    expect(gaps).toEqual([3, 1, 2]);
   });
 });
 
@@ -275,5 +363,73 @@ describe("shouldTrip", () => {
     // `every` over an empty slice is vacuously true, which would make a
     // misconfigured breaker demote a deck that has never sampled anything.
     expect(shouldTrip([sample(1)], 6, 0)).toBe(false);
+  });
+});
+
+/**
+ * The second condition, and the one that keeps its gates.
+ *
+ * Cost lost its in-flight vote because the loops' bill arrives whether or
+ * not the deck is busy. Updates at rest are the opposite reading: a busy
+ * deck schedules an update every frame for a reason, so the only reading
+ * that convicts is one taken with nothing in flight and no gesture running,
+ * three samples in a row.
+ */
+describe("shouldTripAtRest", () => {
+  test("fewer samples than the run needs is never a trip", () => {
+    expect(shouldTripAtRest([resting(60), resting(60)], 10)).toBe(false);
+    expect(shouldTripAtRest([], 10)).toBe(false);
+  });
+
+  test("three samples reading a loop at rest trip", () => {
+    expect(shouldTripAtRest([resting(60), resting(58), resting(61)], 10)).toBe(true);
+  });
+
+  test("a resident deck's noise does not", () => {
+    // A store sweep and a telemetry commit are stalls the chain sees, and a
+    // handful a second is the reading of a deck whose loops are resident.
+    expect(shouldTripAtRest([resting(3), resting(0), resting(5)], 10)).toBe(false);
+  });
+
+  test("a sample taken in flight breaks the run", () => {
+    expect(
+      shouldTripAtRest([resting(60), sample(1, true, 60), resting(60)], 10),
+    ).toBe(false);
+  });
+
+  test("a sample taken under a gesture breaks the run", () => {
+    expect(
+      shouldTripAtRest(
+        [resting(60), sample(1, false, 60, true), resting(60)],
+        10,
+      ),
+    ).toBe(false);
+  });
+
+  test("only the last `needed` samples are read", () => {
+    expect(
+      shouldTripAtRest(
+        [sample(1, true, 60), resting(60), resting(60), resting(60)],
+        10,
+      ),
+    ).toBe(true);
+  });
+
+  test("a sample exactly at the budget is not over it", () => {
+    expect(shouldTripAtRest([resting(10), resting(10), resting(10)], 10)).toBe(false);
+    expect(shouldTripAtRest([resting(11), resting(11), resting(11)], 10)).toBe(true);
+  });
+
+  test("the cost of the frame has no vote here", () => {
+    // An expensive frame is the other condition's business; a cheap update
+    // sixty times a second is still a loop on the main thread.
+    expect(
+      shouldTripAtRest([sample(30, false, 60), sample(0, false, 60), sample(1, false, 60)], 10),
+    ).toBe(true);
+  });
+
+  test("a run length of zero is not a trip on an empty reading", () => {
+    // The same vacuous-`every` guard as the cost condition's.
+    expect(shouldTripAtRest([resting(60)], 10, 0)).toBe(false);
   });
 });

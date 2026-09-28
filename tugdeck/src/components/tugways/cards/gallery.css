@@ -309,6 +309,7 @@
  *   </div>
  */
 
+/* @tug-motion-hold ./gallery-scale-timing.tsx */
 .tug-pole {
   --tug-pole-height: 12px;
   height: var(--tug-pole-height);

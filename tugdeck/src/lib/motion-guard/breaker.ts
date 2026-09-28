@@ -57,6 +57,19 @@
  * The flag lost its vote, not its job: it is how a reader of the trace tells
  * a bill that arrived on a busy deck from one that arrived on a still one.
  *
+ * ## The second condition: updates at rest
+ *
+ * The cost condition above cannot see the deck that pays a 7 ms update
+ * every frame with nothing streaming — under budget on every sample, and
+ * the exact deck that starves a fold. So a sample also carries the probe's
+ * at-rest reading, `updatesPerSecond`, and the breaker trips when
+ * {@link BREAKER_TRIP_SAMPLES} consecutive samples read over
+ * {@link REST_UPDATES_BUDGET_PER_S} with **nothing in flight and no
+ * gesture running**. Those two gates are the whole of what "at rest" means:
+ * a streaming transcript and a settle both schedule updates every frame for
+ * a reason, and the reading this exists to catch is the one with no reason.
+ * The `motion-demoted` trace row says which condition tripped.
+ *
  * ## The latch
  *
  * Motion resumes on the registry's next 0→1 edge — the deck goes still, the
@@ -76,6 +89,7 @@ import { onMotionEdge } from "./registry";
 import {
   renderCostProbe,
   RENDER_COST_BUDGET_MS,
+  REST_UPDATES_BUDGET_PER_S,
   type RenderCostSample,
 } from "./render-cost-probe";
 
@@ -87,6 +101,9 @@ export const BREAKER_LATCH_TRIPS = 3;
 
 /** The root attribute `tug.css` resolves `--tug-loop-iterations: 0` from. */
 export const DEMOTED_ATTRIBUTE = "data-tug-motion-demoted";
+
+/** Which reading tripped the breaker; rides the `motion-demoted` row. */
+export type BreakerTripReason = "cost" | "rest";
 
 /**
  * The phases in which the deck legitimately lays out every frame.
@@ -136,6 +153,31 @@ export function shouldTrip(
   return samples.slice(-needed).every((sample) => sample.costMs > budgetMs);
 }
 
+/**
+ * Whether the last `needed` samples all read updates at rest.
+ *
+ * Every one of them has to be over the rest budget AND taken with nothing
+ * in flight and no gesture running: a single busy sample in the window is
+ * a deck that had a reason, and the window starts over. The same
+ * fewer-than-`needed` guard as {@link shouldTrip}, for the same reason.
+ */
+export function shouldTripAtRest(
+  samples: readonly RenderCostSample[],
+  restBudgetPerSecond: number,
+  needed: number = BREAKER_TRIP_SAMPLES,
+): boolean {
+  if (needed <= 0) return false;
+  if (samples.length < needed) return false;
+  return samples
+    .slice(-needed)
+    .every(
+      (sample) =>
+        !sample.inFlight &&
+        !sample.gesture &&
+        sample.updatesPerSecond > restBudgetPerSecond,
+    );
+}
+
 /** A census summary small enough to ride a trace row. */
 function censusSummary(): {
   longRunning: number;
@@ -159,6 +201,8 @@ function censusSummary(): {
 export interface MotionBreaker {
   /** The budget a sample is over when it exceeds it, in milliseconds. */
   readonly budgetMs: number;
+  /** How many updates per second a sample at rest may read before it counts. */
+  readonly restBudgetPerSecond: number;
   /** How many times the breaker has tripped this page lifetime. */
   readonly trips: number;
   /** Whether the demotion is latched until `reset()` or a reload. */
@@ -169,6 +213,8 @@ export interface MotionBreaker {
   demote(on: boolean): void;
   /** Move the budget. Takes effect on the next sample. */
   setBudget(ms: number): void;
+  /** Move the at-rest budget. Takes effect on the next sample. */
+  setRestBudget(perSecond: number): void;
   /** Back to how the page started: un-demoted, un-latched, budget restored. */
   reset(): void;
   /** Subscribe to the probe and the registry. Idempotent. */
@@ -177,12 +223,17 @@ export interface MotionBreaker {
 
 class MotionBreakerImpl implements MotionBreaker {
   #budgetMs = RENDER_COST_BUDGET_MS;
+  #restBudgetPerSecond = REST_UPDATES_BUDGET_PER_S;
   #trips = 0;
   #latched = false;
   #installed = false;
 
   get budgetMs(): number {
     return this.#budgetMs;
+  }
+
+  get restBudgetPerSecond(): number {
+    return this.#restBudgetPerSecond;
   }
 
   get trips(): number {
@@ -208,6 +259,10 @@ class MotionBreakerImpl implements MotionBreaker {
     this.#budgetMs = ms;
   }
 
+  setRestBudget(perSecond: number): void {
+    this.#restBudgetPerSecond = perSecond;
+  }
+
   reset(): void {
     this.#trips = 0;
     this.#latched = false;
@@ -215,6 +270,7 @@ class MotionBreakerImpl implements MotionBreaker {
     // leave the deck one sample away from demoting itself again, which is the
     // opposite of what the one verb called `reset` is for.
     this.#budgetMs = RENDER_COST_BUDGET_MS;
+    this.#restBudgetPerSecond = REST_UPDATES_BUDGET_PER_S;
     this.demote(false);
   }
 
@@ -227,8 +283,12 @@ class MotionBreakerImpl implements MotionBreaker {
       // demoted deck, and re-reading it as a fresh diagnosis would trip the
       // breaker again on its own success.
       if (this.demoted) return;
-      if (!shouldTrip(renderCostProbe.samples(), this.#budgetMs)) return;
-      this.#trip();
+      const samples = renderCostProbe.samples();
+      if (shouldTrip(samples, this.#budgetMs)) {
+        this.#trip("cost");
+      } else if (shouldTripAtRest(samples, this.#restBudgetPerSecond)) {
+        this.#trip("rest");
+      }
     });
 
     // The deck went still and something started moving again: a fair chance,
@@ -239,11 +299,10 @@ class MotionBreakerImpl implements MotionBreaker {
     });
   }
 
-  #trip(): void {
-    const tail = renderCostProbe
-      .samples()
-      .slice(-BREAKER_TRIP_SAMPLES)
-      .map((sample) => sample.costMs);
+  #trip(reason: BreakerTripReason): void {
+    const window = renderCostProbe.samples().slice(-BREAKER_TRIP_SAMPLES);
+    const tail = window.map((sample) => sample.costMs);
+    const updates = window.map((sample) => sample.updatesPerSecond);
 
     // Read the census BEFORE demoting. `document.getAnimations()` forces a
     // style update, and an iteration count of zero ends the loops — so a
@@ -257,15 +316,21 @@ class MotionBreakerImpl implements MotionBreaker {
 
     deckTrace.record({
       kind: "motion-demoted",
+      reason,
       costMs: tail,
       budgetMs: this.#budgetMs,
+      updatesPerSecond: updates,
+      restBudgetPerSecond: this.#restBudgetPerSecond,
       trips: this.#trips,
       latched: this.#latched,
       census,
     });
     tugDevLogStore.warn("perf", "motion demoted", {
+      reason,
       costMs: tail,
       budgetMs: this.#budgetMs,
+      updatesPerSecond: updates,
+      restBudgetPerSecond: this.#restBudgetPerSecond,
       trips: this.#trips,
       latched: this.#latched,
       longRunning: census.longRunning,

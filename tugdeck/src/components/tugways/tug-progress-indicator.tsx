@@ -99,6 +99,8 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 import { useMotionHold } from "@/lib/motion-guard/registry";
+import { useOffscreenPause } from "@/lib/motion-guard/offscreen";
+import { composeRefs } from "@/components/tugways/compose-refs";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugLabel, type TugLabelEmphasis } from "@/components/tugways/tug-label";
 import { useTugBoxDisabled } from "./internal/tug-box-context";
@@ -574,6 +576,16 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
     // its own hold, spanning live mode rather than the `running` prop, because
     // its emitter and its settle crossing both outlast `state === "running"`.
     useMotionHold(effectiveState === "running" && variant !== "pulsing-dot");
+    // And the off-screen rule rides the same span: a running glyph out of its
+    // scroller's view is stilled by `lib/motion-guard/offscreen.ts`, which
+    // marks the root and lets the stylesheet turn the loop off. The pulsing
+    // dot watches itself, for the same reason it holds itself.
+    const offscreenRef = React.useRef<HTMLSpanElement | null>(null);
+    useOffscreenPause(
+      offscreenRef,
+      effectiveState === "running" && variant !== "pulsing-dot",
+    );
+    const rootRef = React.useMemo(() => composeRefs(ref, offscreenRef), [ref]);
 
     // No period jitter is applied here. The pulsing dot runs the nominal
     // period unless a caller pins one — see `dotDriftFor`, which only the
@@ -689,7 +701,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
 
     const root = (
       <span
-        ref={ref}
+        ref={rootRef}
         data-slot="tug-progress-indicator"
         data-variant={variant}
         data-role={effectiveRole}

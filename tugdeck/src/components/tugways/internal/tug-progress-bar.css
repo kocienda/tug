@@ -93,6 +93,7 @@
     transparent 10px
   );
   background-size: 28.28px 100%;
+  /* @tug-motion-hold ../tug-progress-indicator.tsx */
   animation: tug-progress-bar-scroll calc(600ms * var(--tug-timing, 1)) linear
     var(--tug-loop-iterations, infinite);
   will-change: transform;

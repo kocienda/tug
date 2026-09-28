@@ -292,6 +292,7 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* @tug-motion-hold ./session-changes-arc-join.tsx */
 .session-changes-arc-join-spin {
   flex: none;
   animation: session-changes-arc-join-spin 1s linear
