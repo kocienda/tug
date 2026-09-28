@@ -37,6 +37,16 @@ pub const EVAL_GATED_REMEDY: &str = "eval is gated on this instance — run 'tug
 /// "not allowed to ask" from "asked and it went wrong".
 const EXIT_GATED: i32 = 2;
 
+/// How long an armed gesture chain runs before it stops itself, in ms.
+///
+/// It has to span an arm, a gesture somebody sends AFTERWARDS, and that
+/// gesture's land — arming first is the whole point, so the window is sized for
+/// a human or a second `tugtool` invocation in between rather than for the
+/// ~270ms motion. Mirrors `GESTURE_WINDOW_DEFAULT_MS` in
+/// `gesture-frame-probe.ts`; the shell supplies it explicitly so the generated
+/// call always carries the cap.
+const GESTURE_WINDOW_DEFAULT_MS: u32 = 8000;
+
 /// The `window.__tugMotion` call each reading subcommand posts.
 ///
 /// Pure, and unit-tested against the plan's subcommand table. The selector is
@@ -91,6 +101,15 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         DeckMotionCommands::Chains { mode, .. } => {
             format!("window.__tugMotion.chains({})", json(mode))
         }
+        // The window rides EVERY mode, not just `arm`. A call that carried the
+        // mode alone would be indistinguishable from one that silently dropped
+        // the cap, and the cap is what keeps a forgotten `read` from leaving a
+        // loop running at rest.
+        DeckMotionCommands::Gesture { mode, window, .. } => format!(
+            "window.__tugMotion.gesture({}, {})",
+            json(mode),
+            window.unwrap_or(GESTURE_WINDOW_DEFAULT_MS)
+        ),
         DeckMotionCommands::Enable { .. } | DeckMotionCommands::Disable { .. } => return None,
     })
 }
@@ -109,6 +128,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Probe { target }
         | DeckMotionCommands::Demote { target, .. }
         | DeckMotionCommands::Chains { target, .. }
+        | DeckMotionCommands::Gesture { target, .. }
         | DeckMotionCommands::Enable { target }
         | DeckMotionCommands::Disable { target } => target,
     }
@@ -236,6 +256,7 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Probe { .. } => render_probe(value),
         DeckMotionCommands::Demote { .. } => fallback(value),
         DeckMotionCommands::Chains { mode, .. } => render_chains(mode, value),
+        DeckMotionCommands::Gesture { mode, .. } => render_gesture(mode, value),
         DeckMotionCommands::Enable { .. } | DeckMotionCommands::Disable { .. } => fallback(value),
     }
 }
@@ -455,6 +476,103 @@ fn render_chains(mode: &str, value: &serde_json::Value) {
     }
 }
 
+/// The gesture recorder's reading.
+///
+/// A `read` prints the GAP SERIES IN FULL, and that is the point rather than a
+/// courtesy: the shape `120 59 11 12 14 17 …` is the evidence, and a summary
+/// that reported only the worst number would leave a reader unable to tell one
+/// long freeze from a run of small ones. The gesture's own gap is marked in
+/// place, so the number under study is readable without counting.
+///
+/// A reading with no stamp says so rather than printing a `-1` nobody can
+/// interpret: the recorder is armed before the gesture, so "no gesture was
+/// recorded" means the fold never happened inside the window, which is a fact
+/// about the procedure rather than about the deck.
+fn render_gesture(mode: &str, value: &serde_json::Value) {
+    if mode != "read" {
+        match value.get("armed").and_then(|v| v.as_bool()) {
+            Some(armed) => println!(
+                "gesture {}: window {}ms",
+                if armed { "armed" } else { "disarmed" },
+                num_at(value, "windowMs") as i64
+            ),
+            None => fallback(value),
+        }
+        return;
+    }
+    let Some(gaps) = value.get("gaps").and_then(|g| g.as_array()) else {
+        fallback(value);
+        return;
+    };
+    let ticks = num_at(value, "ticks") as i64;
+    let period = num_at(value, "framePeriodMs");
+    // The mode goes above every other number. A gesture is read at one display
+    // mode and compared against the same gesture at another, and a series
+    // labelled with the wrong mode is worse than no reading at all.
+    if let Some(display) = value.get("display") {
+        println!(
+            "display {}x{} @{}x",
+            num_at(display, "widthPx") as i64,
+            num_at(display, "heightPx") as i64,
+            num_at(display, "devicePixelRatio")
+        );
+    }
+    if value
+        .get("suspended")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false)
+    {
+        println!(
+            "gesture SUSPENDED: {ticks} ticks — the window was not being served, \
+             and the numbers below say nothing about the deck"
+        );
+    }
+    let index = value
+        .get("gestureGapIndex")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(-1);
+    let gesture_gap = num_at(value, "gestureGapMs");
+    if index < 0 {
+        println!(
+            "gesture NOT RECORDED: no gesture stamp landed inside the series — \
+             {ticks} ticks at {period:.1}ms. Arm, then gesture, then read"
+        );
+    } else {
+        println!(
+            "gesture gap {gesture_gap:.0}ms ({:.2} frames) at index {index} of {ticks} ticks \
+             at {period:.1}ms",
+            if period > 0.0 { gesture_gap / period } else { 0.0 }
+        );
+    }
+    println!(
+        "  worst {:.0}ms, {} gap(s) over one frame{}",
+        num_at(value, "longestGapMs"),
+        num_at(value, "gapsOverOneFrame") as i64,
+        if value
+            .get("running")
+            .and_then(|r| r.as_bool())
+            .unwrap_or(false)
+        {
+            " (chain still running — the series is not final)"
+        } else {
+            ""
+        }
+    );
+    let series: Vec<String> = gaps
+        .iter()
+        .enumerate()
+        .map(|(i, gap)| {
+            let ms = gap.as_f64().unwrap_or(0.0);
+            if i as i64 == index {
+                format!("[{ms:.0}]")
+            } else {
+                format!("{ms:.0}")
+            }
+        })
+        .collect();
+    println!("  {}", series.join(" "));
+}
+
 fn render_count(value: &serde_json::Value, key: &str) {
     match value.get(key).and_then(|v| v.as_i64()) {
         Some(count) => println!("{count} animation(s) {key}"),
@@ -649,6 +767,47 @@ mod tests {
                 Some(format!(r#"window.__tugMotion.chains("{mode}")"#).as_str())
             );
         }
+    }
+
+    /// One case per mode, and each asserts the TWO-argument form.
+    ///
+    /// The cap is what keeps a forgotten `read` from leaving a rAF chain
+    /// running at rest, and a call that carried the mode alone would pass an
+    /// assertion written against a prefix while silently dropping it.
+    #[test]
+    fn gesture_carries_its_mode_and_its_window() {
+        for mode in ["arm", "read", "disarm"] {
+            let cmd = DeckMotionCommands::Gesture {
+                mode: mode.to_string(),
+                window: None,
+                target: target(),
+            };
+            assert_eq!(
+                eval_code_for(&cmd).as_deref(),
+                Some(
+                    format!(
+                        r#"window.__tugMotion.gesture("{mode}", {GESTURE_WINDOW_DEFAULT_MS})"#
+                    )
+                    .as_str()
+                )
+            );
+        }
+    }
+
+    /// An explicit `--window` reaches the page rather than being dropped in
+    /// favour of the default — the flag exists for a gesture somebody needs
+    /// longer to go and perform.
+    #[test]
+    fn gesture_window_overrides_the_default() {
+        let cmd = DeckMotionCommands::Gesture {
+            mode: "arm".to_string(),
+            window: Some(20_000),
+            target: target(),
+        };
+        assert_eq!(
+            eval_code_for(&cmd).as_deref(),
+            Some(r#"window.__tugMotion.gesture("arm", 20000)"#)
+        );
     }
 
     /// The case the JSON encoding exists for. An attribute selector is the

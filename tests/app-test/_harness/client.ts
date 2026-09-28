@@ -598,7 +598,21 @@ export interface SettleFrameReading {
   longestGapMs: number;
   longestGapFrames: number;
   gapsOverOneFrame: number;
+  /**
+   * The GESTURE to the first recorded tick, and the lead also enters the gap
+   * series. `-1` only when no tick arrived at all — never for want of a
+   * transform-bearing effect, which is what it used to report on any settle
+   * whose whole term was a paint property.
+   */
   firstPaintDelayMs: number;
+  /** The part of that lead spent before the sampler was armed. */
+  commitDelayMs: number;
+  /**
+   * A move animation's birth to the tick its clock advanced; `-1` when no move
+   * animation ever existed. The old `firstPaintDelayMs`, which is the reading
+   * that separates a tween that started late from one that painted late.
+   */
+  moveFirstPaintDelayMs: number;
   minOpacity: number;
   minOpacityPaneId: string;
   rectsChangedAfterLanding: string[];

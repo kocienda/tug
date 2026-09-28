@@ -1084,6 +1084,12 @@ export class DeckManager implements IDeckManagerStore {
 
   public getSpaceSwitchStartedAt = (): number | null => this.spaceSwitchStartedAt;
 
+  /** When the last committing {@link setPaneFolded} began — see the store
+   *  interface. */
+  private impositionGestureAt: number | null = null;
+
+  public getImpositionGestureAt = (): number | null => this.impositionGestureAt;
+
   /**
    * The workspaces React is holding mounted ([P01], [B06]).
    *
@@ -7662,6 +7668,13 @@ export class DeckManager implements IDeckManagerStore {
    * folded in it is not a wall and is left alone.
    */
   setPaneFolded(paneId: string, folded: boolean): void {
+    // The gesture origin the settle's frame record measures from ([P02]).
+    // Taken HERE so the number contains the mutator's own preamble — the
+    // `_placeRunHeight`, the `deckColumnsOf` and the wall fold below are all
+    // time the user waited through — and published only at the commit, so
+    // none of the three refusals between here and there leaves a stamp behind
+    // for the next settle to read as its own.
+    const gestureAt = performance.now();
     const pane = this.deckState.panes.find((p) => p.id === paneId);
     if (!pane) return;
     if (this._sidebarComponentIdOfPane(paneId) !== undefined) {
@@ -7701,6 +7714,7 @@ export class DeckManager implements IDeckManagerStore {
     // because this path builds its pane array inline and hands it to
     // `_commitImposition`, bypassing `movePane`.
     this._clearBullseyeFor(paneId);
+    this.impositionGestureAt = gestureAt;
     this._commitImposition(this.deckState.imposition, panes, {
       retuneRails: false,
       revealPaneId: paneId,

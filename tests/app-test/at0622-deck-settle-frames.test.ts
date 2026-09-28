@@ -75,6 +75,30 @@
  * settling those. The second leg runs eight of them, which is the whole
  * question of whether the cost grows with the card count.
  *
+ * ## The fold leg
+ *
+ * A session card's fold is the same question asked of a gesture with no
+ * transform in it at all: its term is a real `height`, so the move animation
+ * every clause above reads simply does not exist, and the instrument reported
+ * `-1` — "there was no move to be late" — about a fold that froze for 86–130ms
+ * in front of the user. The record now measures from the GESTURE and carries
+ * the lead as a gap, so a fold is readable at all; the fold leg holds it to
+ * ONE display frame across the whole motion, in both directions, on the
+ * four-up flow fixture. Flow and not the shared-column one: a flow column
+ * never divides, so the folding pane's own `height` is the only height term in
+ * the window, where on the column fixture the fold's row and the division's
+ * standing row are the same row.
+ *
+ * `deck-manager.ts` is deliberately NOT named, and the absence is the
+ * selection budget's answer rather than an oversight: that file already fans
+ * out to the 22 tests `ACCEPTED_FANOUT` records, and a 23rd would turn a
+ * one-line edit there into a sweep. What the fold leg needs covered is the
+ * gesture stamp's CONTRACT — when it may be published and when it may not —
+ * and that is `deck-manager-store.ts`'s doc comment, which is named below.
+ *
+ * @covers tugdeck/src/deck-manager-store.ts
+ * @covers tugdeck/src/lib/fold-crossing.ts
+ * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugdeck/src/lib/settle-frame-probe.ts
  * @covers tugdeck/scripts/audit-motion.ts
  * @covers tuglaws/animation-doctrine.md
@@ -440,6 +464,15 @@ function expectBar(leg: string, r: BarLeg): void {
   ).toBe(false);
 
   // ---- The beat's own two, off the canvas's record. ---------------------
+  // **This clause's WINDOW widened under [P01] and its number did not.** The
+  // lead from the gesture to the first rendered frame is now a gap in the same
+  // series, so `longestGapFrames` is a fact about the whole motion rather than
+  // about the inter-tick stretch of it. Two frames stays, and the reason is
+  // that this leg is standing red on the activation's own lead (81ms at the
+  // arc's start, which IS the worst gap) — moving the bar to admit a number
+  // the instrument was just changed to see would be calibrating against the
+  // defect. The fold's bar is set separately, at one frame, over the same
+  // widened window; see `FOLD_GAP_FRAMES_BAR`.
   expect(
     row.longestGapFrames,
     `${leg}: no gap longer than ${GAP_FRAMES_BAR} display frames across the ` +
@@ -447,13 +480,39 @@ function expectBar(leg: string, r: BarLeg): void {
       `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
       `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
   ).toBeLessThanOrEqual(GAP_FRAMES_BAR);
+  // The late-START clause, which now reads off `moveFirstPaintDelayMs`. Under
+  // [P01] the row's `firstPaintDelayMs` became the lead from the GESTURE, and
+  // the move animation's own birth-to-first-advance — the one reading that
+  // separates a tween that started late from one that ran and painted late —
+  // kept the old definition under the new name. The clause moved with the
+  // definition rather than staying on the name.
   expect(
-    row.firstPaintDelayMs,
+    row.moveFirstPaintDelayMs,
     `${leg}: the move's first painted frame lands within one display frame ` +
-      `of its start — ${row.firstPaintDelayMs}ms against a derived period of ` +
-      `${probe.framePeriodMs.toFixed(2)}ms. A late START and a late PAINT ` +
+      `of its start — ${row.moveFirstPaintDelayMs}ms against a derived period ` +
+      `of ${probe.framePeriodMs.toFixed(2)}ms. A late START and a late PAINT ` +
       `look identical from outside; this is the field that separates them`,
   ).toBeLessThanOrEqual(probe.framePeriodMs);
+  expect(
+    row.moveFirstPaintDelayMs,
+    `${leg}: and there WAS a move to be late — the activation is a translate, ` +
+      `so a -1 here would mean the clause above passed by having nothing to ` +
+      `measure`,
+  ).toBeGreaterThanOrEqual(0);
+  // The lead's own clause, with its own bar. `firstPaintDelayMs` is now the
+  // dead time between the gesture and the first frame the deck managed to
+  // render, and under [P01] that lead also enters the gap series — so its bar
+  // is the bar every other gap in the run answers to, and stating it here is
+  // what makes the number readable as "how long the reader waited" rather
+  // than as a component of a maximum.
+  expect(
+    row.firstPaintDelayMs,
+    `${leg}: the lead from the gesture to the first rendered frame is held to ` +
+      `the same ${GAP_FRAMES_BAR} display frames as any other gap — ` +
+      `${row.firstPaintDelayMs}ms of which ${row.commitDelayMs}ms was spent ` +
+      `before the canvas armed, against a derived period of ` +
+      `${probe.framePeriodMs.toFixed(2)}ms`,
+  ).toBeLessThanOrEqual(probe.framePeriodMs * GAP_FRAMES_BAR);
 
   // ---- The pose clause, off the canvas's record (Spec S02). -------------
   // The third failure, and the one the two clauses above are both blind to:
@@ -715,6 +774,263 @@ describe.skipIf(!SHOULD_RUN)(
         }
       },
       TEST_TIMEOUT_MS,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// The session card's fold ([B01], [F02], [F05])
+// ---------------------------------------------------------------------------
+
+/**
+ * The fold's gap bar: ONE display frame, across the whole motion.
+ *
+ * Not `GAP_FRAMES_BAR`'s two, and the difference is [B01]'s. Two frames was
+ * chosen for the activation's move beat, where the bar covers a window that
+ * opens at the canvas's arm and the first frame is the expensive one. The fold
+ * is judged on the whole motion from the gesture — under [P01] the lead is a
+ * gap in the same series — and the claim the user's report is about is that
+ * nothing stalls at all, in either direction. A bar of two frames over a
+ * window that now contains the lead would be a weaker claim than the one this
+ * file already makes about a slide.
+ */
+const FOLD_GAP_FRAMES_BAR = 1;
+
+/** The card, and the pane that holds it, that every fold leg gestures on. */
+const FOLD_CARD_ID = "at0622-c1";
+const FOLD_PANE_ID = "at0622-p1";
+
+/**
+ * One shown pane's laid-out height, rounded.
+ *
+ * The fold's equivalent of `flowOffset`: the reading that says the gesture did
+ * something. A settle that folded nothing satisfies every smoothness claim
+ * below by having no motion in it, which is the shape of unfalsifiable green
+ * this file's forcing leg exists to refuse.
+ */
+const paneHeightOf = (app: App, paneId: string): Promise<number> =>
+  app.evalJS<number>(
+    `(function () {
+       var el = document.querySelector(
+         '[data-space-layer][data-space-shown] .tug-pane[data-pane-id="${paneId}"]');
+       return el === null ? -1 : Math.round(el.getBoundingClientRect().height);
+     })()`,
+  );
+
+interface FoldLeg {
+  readonly probe: SettleFrameReading;
+  readonly row: SettleFramesRow;
+  readonly before: number;
+  readonly after: number;
+}
+
+/**
+ * One session-card fold, read by both instruments at once.
+ *
+ * Same shape as {@link sampleBarActivation} and for the same reasons: a quiet
+ * head so the classifier can derive the display's period, the gesture through
+ * a raw dispatch rather than a click, the stall planted after the dispatch so
+ * it burns between two of the canvas's own samples, and a wait on the release
+ * row rather than on a duration.
+ *
+ * The gesture is `set-card-folded`, which is the one door every fold reaches —
+ * the Z2 control, Session ▸ Fold Session, ⌃⌘Y and `tugtool host tell` alike —
+ * so the stamp [P02] puts on `setPaneFolded`'s committing path is the origin
+ * the row measures from, and `commitDelayMs` says how much of the lead was
+ * spent before the canvas armed at all.
+ */
+async function sampleFold(
+  app: App,
+  folded: boolean,
+  stallMs: number,
+): Promise<FoldLeg> {
+  const before = await paneHeightOf(app, FOLD_PANE_ID);
+  const mark = await traceMark(app);
+  await app.armSettleFrameProbe();
+  await wait(120);
+  await app.evalJS<null>(
+    `(window.__tug.dispatchControlAction("set-card-folded", ` +
+      `{ cardId: "${FOLD_CARD_ID}", folded: ${folded} }), null)`,
+  );
+  if (stallMs > 0) {
+    await wait(STALL_PLANTED_AT_MS);
+    await app.forceSettleStall(stallMs);
+  }
+  await wait(AFTER_LAND_MS);
+  await app.waitForCondition<boolean>(
+    `window.__deckTrace.since(${mark}).some(function (e) {
+       return e.kind === "settle-frames";
+     })`,
+    { timeoutMs: 20_000 },
+  );
+  const probe = await app.takeSettleFrameReading();
+  await app.disarmSettleFrameProbe();
+  const rows = await settleFrameRows(app, mark);
+  const after = await paneHeightOf(app, FOLD_PANE_ID);
+  return {
+    probe,
+    row: rows[rows.length - 1] as SettleFramesRow,
+    before,
+    after,
+  };
+}
+
+/**
+ * [B01]'s bar on a fold: the reader waits under a frame, and then every frame
+ * arrives.
+ *
+ * Both clauses are read off the canvas's own record, because under [P01] that
+ * record now opens at the GESTURE — it is the only instrument whose window is
+ * the motion the user actually watched. The bench probe's window opens at a
+ * harness round trip before the gesture and closes after the land, so its
+ * numbers are about the window; they are noted, not asserted.
+ */
+function expectFoldBar(leg: string, r: FoldLeg): void {
+  const { probe, row } = r;
+
+  expect(
+    probe.suspended,
+    `${leg}: the window was served across the gesture — ${probe.ticks} ` +
+      `ticks at ${probe.framePeriodMs.toFixed(2)}ms`,
+  ).toBe(false);
+  expect(
+    r.before === r.after,
+    `${leg}: the pane's height actually changed — ${r.before} -> ${r.after}px. ` +
+      `A gesture that folded nothing satisfies every clause below by having ` +
+      `no motion in it`,
+  ).toBe(false);
+
+  expect(
+    row.firstPaintDelayMs,
+    `${leg}: a fold's first rendered frame lands within one display frame of ` +
+      `the gesture — ${row.firstPaintDelayMs}ms, of which ` +
+      `${row.commitDelayMs}ms was spent before the canvas armed, against a ` +
+      `derived period of ${probe.framePeriodMs.toFixed(2)}ms. This is the ` +
+      `dead time the user reported and the instrument could not see: with a ` +
+      `\`height\` term and no transform-bearing effect the old field read -1 ` +
+      `and called three folds healthy`,
+  ).toBeLessThanOrEqual(probe.framePeriodMs);
+  expect(
+    row.moveFirstPaintDelayMs,
+    `${leg}: and the move clock says what it always said about a fold — -1, ` +
+      `there is no transform-bearing effect here at all, which is exactly ` +
+      `why the clause above had to stop reading it`,
+  ).toBe(-1);
+  expect(
+    row.longestGapFrames,
+    `${leg}: no gap over ${FOLD_GAP_FRAMES_BAR} display frame across the ` +
+      `whole motion, lead included — ${row.longestGapMs.toFixed(0)}ms / ` +
+      `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+      `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
+  ).toBeLessThanOrEqual(FOLD_GAP_FRAMES_BAR);
+}
+
+function reportFold(leg: string, r: FoldLeg): void {
+  note(`at0622 ${leg} row: ${JSON.stringify(r.row)}`);
+  note(`at0622 ${leg} probe: ${JSON.stringify(r.probe)}`);
+  note(`at0622 ${leg} height: ${r.before} -> ${r.after}px`);
+}
+
+describe.skipIf(!SHOULD_RUN)(
+  "at0622 — a session card's fold, across the whole motion",
+  () => {
+    test(
+      "folding and unfolding a session card delivers every frame from the gesture, and a planted stall fails it",
+      async () => {
+        // `flowDeck` and not `columnDeck`, and the choice is load-bearing. A
+        // flow column holds one card, so it never divides, so the only
+        // `height` term anywhere in this window is the folding pane's own.
+        // The eight-card shared-column fixture gives every member of a
+        // dividing column a `height` tween — the standing [D9] hit
+        // `tuglaws/animation-doctrine.md` records by name and the test above
+        // asserts PRESENT — and on it the fold's row and the division's row
+        // are the same row, so nothing read there could ever say whether the
+        // FOLD still carries height.
+        const { app, tugbankPath } = await launch(4);
+        try {
+          await app.enableDeckTrace(true);
+          await home(app);
+          await wait(AFTER_LAND_MS);
+
+          const fold = await sampleFold(app, true, 0);
+          reportFold("fold", fold);
+          expectFoldBar("fold", fold);
+
+          const unfold = await sampleFold(app, false, 0);
+          reportFold("unfold", unfold);
+          expectFoldBar("unfold", unfold);
+
+          // ---- The forcing leg ([D5]). ----------------------------------
+          // Both readings have to be shown noticing a defect planted on
+          // purpose, or the two greens above are unfalsifiable in exactly the
+          // way [F05] records: a sampler that stopped observing and a fold
+          // that stopped stalling produce the same numbers.
+          const forced = await sampleFold(app, true, FORCED_STALL_MS);
+          reportFold("fold forced", forced);
+          expect(
+            forced.probe.longestGapMs,
+            `fold forced: a ${FORCED_STALL_MS}ms task planted inside the ` +
+              `settle window must show up as a gap at least that wide — the ` +
+              `plain fold's bench-probe worst was ` +
+              `${fold.probe.longestGapMs.toFixed(0)}ms. Forced: ` +
+              `${forced.probe.longestGapMs.toFixed(0)}ms / ` +
+              `${forced.probe.longestGapFrames.toFixed(2)} frames at ` +
+              `${forced.probe.framePeriodMs.toFixed(2)}ms`,
+          ).toBeGreaterThanOrEqual(FORCED_STALL_MS);
+          expect(
+            forced.row.longestGapFrames,
+            `fold forced: and the CANVAS's own record fails the bar — plain ` +
+              `read ${fold.row.longestGapMs.toFixed(0)}ms / ` +
+              `${fold.row.longestGapFrames.toFixed(2)} frames; forced reads ` +
+              `${forced.row.longestGapMs.toFixed(0)}ms / ` +
+              `${forced.row.longestGapFrames.toFixed(2)} frames`,
+          ).toBeGreaterThan(FOLD_GAP_FRAMES_BAR);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      BAR_TIMEOUT_MS,
+    );
+
+    test(
+      "the fold's gesture stamp is spent once — the next settle measures from its own arm",
+      async () => {
+        // The stamp `setPaneFolded` publishes is never retired: nothing in the
+        // store knows when it has been read. So the settle that FOLLOWS a fold
+        // by a second or two finds a stamp that is fresh — well inside the
+        // reader's five-second staleness guard — and belongs to somebody else.
+        // Unguarded, this activation would report the whole distance back to
+        // the fold as dead lead, in the row [D9]'s guard and the bar above both
+        // read.
+        const { app, tugbankPath } = await launch(4);
+        try {
+          await app.enableDeckTrace(true);
+          await home(app);
+          await wait(AFTER_LAND_MS);
+
+          const fold = await sampleFold(app, true, 0);
+          note(`at0622 spend-once fold row: ${JSON.stringify(fold.row)}`);
+          expect(
+            fold.row.commitDelayMs,
+            `the fold itself DID measure from its stamp — a zero here would ` +
+              `mean the clause below passed by there being no stamp to spend`,
+          ).toBeGreaterThan(0);
+
+          const after = await sampleBarActivation(app, 4, 0);
+          note(`at0622 spend-once next row: ${JSON.stringify(after.row)}`);
+          expect(
+            after.row.commitDelayMs,
+            `the activation is a gesture of its own and leaves no stamp, so ` +
+              `its record measures from its own arm — ${after.row.commitDelayMs}ms ` +
+              `here is the fold's stamp being spent a second time`,
+          ).toBe(0);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      BAR_TIMEOUT_MS,
     );
   },
 );
@@ -1193,7 +1509,12 @@ interface SettleFramesRow {
   readonly longestGapMs: number;
   readonly longestGapFrames: number;
   readonly gapsOverOneFrame: number;
+  /** The GESTURE to the first rendered frame, with the lead also in the gaps. */
   readonly firstPaintDelayMs: number;
+  /** The part of that lead spent before the canvas armed. */
+  readonly commitDelayMs: number;
+  /** A move animation's birth to the tick its clock advanced; `-1` with no move. */
+  readonly moveFirstPaintDelayMs: number;
   // The pose half of Spec S01, mirrored off the trace variant. `offCurveTicks`
   // is the one the bar reads; the rest size the defect and say where in the
   // settle it sat, which is what separates the pending window from a seam.
@@ -1327,12 +1648,38 @@ describe.skipIf(!SHOULD_RUN)(
             `and it sampled the window rather than reporting an empty array — ` +
               `the probe saw ${probe.ticks} ticks over the same gesture`,
           ).toBeGreaterThan(10);
+          // One classifier over one gesture, read against each window's own
+          // origin. `firstPaintDelayMs` no longer agrees and must not be
+          // asserted to: under [P01] the row measures from the gesture — the
+          // canvas's arm here, since an activation leaves no fold stamp — and
+          // the bench probe measures from its own arm, which opened 120ms and
+          // a harness round trip earlier. Two different questions about two
+          // different windows, both correct.
+          //
+          // `moveFirstPaintDelayMs` is the field that still has to agree, and
+          // it is the same assertion this clause always made: the move
+          // animation's own birth-to-first-advance is a fact about the deck,
+          // not about either sampler's window, so a record written off an
+          // empty array or a pump that never ran cannot reproduce it.
+          note(
+            `at0622 leads: row=${row.firstPaintDelayMs}ms ` +
+              `(commit ${row.commitDelayMs}ms) vs probe ` +
+              `${probe.firstPaintDelayMs}ms — different origins by design`,
+          );
           expect(
             row.firstPaintDelayMs,
-            `one classifier over one gesture, so the field this arc moves has ` +
-              `to agree: row ${row.firstPaintDelayMs}ms vs probe ` +
-              `${probe.firstPaintDelayMs}ms`,
-          ).toBe(probe.firstPaintDelayMs);
+            `the row's lead is a real measurement from its own origin`,
+          ).toBeGreaterThanOrEqual(0);
+          expect(
+            probe.firstPaintDelayMs,
+            `and so is the probe's, from its`,
+          ).toBeGreaterThanOrEqual(0);
+          expect(
+            row.moveFirstPaintDelayMs,
+            `one classifier over one gesture, so the move's own clock has to ` +
+              `agree: row ${row.moveFirstPaintDelayMs}ms vs probe ` +
+              `${probe.moveFirstPaintDelayMs}ms`,
+          ).toBe(probe.moveFirstPaintDelayMs);
 
           // ---- [D9]'s runtime guard. -----------------------------------
           const violations = await motionViolationRows(app, mark);

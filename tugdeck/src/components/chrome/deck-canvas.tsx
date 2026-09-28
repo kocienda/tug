@@ -3658,7 +3658,31 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const settleFramesRef = useRef<{
     samples: SettleFrameSample[];
     raf: number | null;
-  }>({ samples: [], raf: null });
+    /** When the pump started, and when the user asked — the record's two
+     *  origins, held on the RECORD because they belong to the window rather
+     *  than to whichever arm happened last ([P01], [P02]). */
+    armedAt: number | null;
+    gestureAt: number | null;
+    /**
+     * The stamp this record has already spent, so no second settle can spend
+     * it again.
+     *
+     * The store's stamp is written by a committing fold and never retired —
+     * nothing knows when it has been read. The staleness guard below cannot
+     * stand in for that: it rejects a stamp older than five seconds, and the
+     * settle that follows a fold by a second or two carries one that is
+     * fresh and belongs to somebody else. Left unguarded, a pane drag a
+     * second after a fold reports a second of dead lead it never had, in the
+     * one row [D9]'s guard and `at0622` both read.
+     */
+    consumedGestureAt: number | null;
+  }>({
+    samples: [],
+    raf: null,
+    armedAt: null,
+    gestureAt: null,
+    consumedGestureAt: null,
+  });
   /**
    * Which launch the running choreography belongs to. A beat's completion
    * launches the next beat, and a retarget that landed in between has already
@@ -4114,16 +4138,38 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // which would silently drop the gaps before the retarget.
       if (record.raf !== null) return;
       record.samples = [];
+      // The record's origins, captured AFTER the retarget guard and not
+      // before it. The window belongs to the arm that started the pump, so a
+      // retarget arming inside a running window must not overwrite them —
+      // doing so would hand the window the LAST gesture's stamp and report a
+      // lead shorter than the one the reader waited through, which is the one
+      // number this record was changed to see ([P01]).
+      record.armedAt = performance.now();
+      // The fold's own stamp ([P02]), read with the staleness guard the switch
+      // sampler already uses: a stamp older than a few seconds belongs to some
+      // earlier gesture — an imposition that never passes through
+      // `setPaneFolded` leaves none — and the arm is the honest origin then.
+      const stampedAt = store.getImpositionGestureAt();
+      // …and spent once. A stamp this record has already measured a window
+      // from belongs to a gesture that is over; the settle in hand is some
+      // other imposition, and its honest origin is its own arm.
+      const fresh =
+        stampedAt !== null &&
+        stampedAt !== record.consumedGestureAt &&
+        record.armedAt - stampedAt < 5000;
+      record.gestureAt = fresh ? stampedAt : record.armedAt;
+      if (fresh) record.consumedGestureAt = stampedAt;
       const tick = (): void => {
         // The plain reading, which is the one that costs a bounded amount:
-        // a rect and a computed opacity per shown frame, and that frame's own
-        // effects. NOT the fixed-descendant sweep, which walks every element
-        // under every frame asking each for its computed style — R01's
-        // runtime half, which the bench probe asks for by name and Spec S03's
-        // row carries no field for. Sampling it here would put a cost
-        // proportional to how much transcript a card holds inside the one
-        // window [D9] forbids main-thread work in, to compute a number
-        // nothing reads.
+        // a computed style per shown frame and that frame's own effects,
+        // which is everything the row below carries. NOT the
+        // fixed-descendant sweep, which walks every element under every
+        // frame asking each for its computed style — R01's runtime half,
+        // which the bench probe asks for by name and Spec S03's row carries
+        // no field for — and NOT the frames' rects, a forced layout per tick
+        // feeding `rectsChangedAfterLanding`, which the row has no field for
+        // either. Either would put a cost inside the one window [D9] forbids
+        // main-thread work in, to compute a number nothing here reads.
         record.samples.push(sampleSettleFrame(el));
         record.raf = requestAnimationFrame(tick);
       };
@@ -4137,7 +4183,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         record.raf = null;
       }
       if (record.samples.length === 0) return;
-      const reading = classifySettleFrames(record.samples);
+      const reading = classifySettleFrames(
+        record.samples,
+        record.armedAt ?? undefined,
+        record.gestureAt ?? record.armedAt ?? undefined,
+      );
       const panes = record.samples[0]?.frames.length ?? 0;
       record.samples = [];
       deckTrace.record({
@@ -4148,6 +4198,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         longestGapFrames: reading.longestGapFrames,
         gapsOverOneFrame: reading.gapsOverOneFrame,
         firstPaintDelayMs: reading.firstPaintDelayMs,
+        commitDelayMs: reading.commitDelayMs,
+        moveFirstPaintDelayMs: reading.moveFirstPaintDelayMs,
         pendingTicks: reading.pendingTicks,
         offCurveTicks: reading.offCurveTicks,
         offCurvePaneIds: reading.offCurvePaneIds,

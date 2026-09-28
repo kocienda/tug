@@ -93,6 +93,7 @@ import {
 } from "./lib/perf-monitor";
 import { initMotionObserver } from "./components/tugways/scale-timing";
 import { installMotionGuard } from "./lib/motion-guard";
+import { setGestureOriginSource } from "./lib/motion-guard/gesture-frame-probe";
 import { initThemeTokens } from "./theme-tokens";
 import { FONT_STACKS } from "./lib/editor-settings-store";
 import { deserialize } from "./serialization";
@@ -531,6 +532,13 @@ async function withBootHorizon<T>(
 
   // Initialize action dispatch (no SessionNotificationRef in Phase 0).
   initActionDispatch(connection, deck);
+
+  // The gesture recorder's origin ([P03], [P02]). Installed HERE rather than
+  // imported by the probe, because `installMotionGuard()` runs before this
+  // deck exists — deliberately, so the motion attribute is on the document
+  // before the deck reads it. A recorder with no source reports no gesture
+  // rather than guessing at one.
+  setGestureOriginSource(() => deck.getImpositionGestureAt());
 
   // Initial Claude-auth probe. Sent HERE — after initActionDispatch has
   // registered the `claude_auth_result` handler and the wire is already open

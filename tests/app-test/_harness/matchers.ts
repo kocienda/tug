@@ -255,7 +255,13 @@ export type DeckTraceEventShape = {
       longestGapMs: number;
       longestGapFrames: number;
       gapsOverOneFrame: number;
+      /** The GESTURE to the first recorded tick. */
       firstPaintDelayMs: number;
+      /** The part of the lead spent before the sampler was armed. */
+      commitDelayMs: number;
+      /** A move animation's birth to the tick its clock advanced; `-1` when the
+       *  settle carried no transform-bearing effect at all. */
+      moveFirstPaintDelayMs: number;
       violations: readonly string[];
     }
   | {
@@ -636,6 +642,7 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
         `settle-frames panes=${e.panes} ticks=${e.ticks} ` +
         `gap=${e.longestGapMs}ms/${e.longestGapFrames.toFixed(2)}f ` +
         `over1=${e.gapsOverOneFrame} firstPaint=${e.firstPaintDelayMs}ms ` +
+        `commit=${e.commitDelayMs}ms movePaint=${e.moveFirstPaintDelayMs}ms ` +
         `violations=[${e.violations.join(", ")}]`
       );
     case "settle-motion-violation":

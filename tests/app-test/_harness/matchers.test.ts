@@ -524,6 +524,8 @@ const EVENT_FIXTURES: Record<
     longestGapFrames: 1.94,
     gapsOverOneFrame: 1,
     firstPaintDelayMs: 0,
+    commitDelayMs: 0,
+    moveFirstPaintDelayMs: 0,
     violations: [],
   },
   "settle-motion-violation": {

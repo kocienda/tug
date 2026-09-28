@@ -118,13 +118,31 @@ export const OFF_CURVE_TOLERANCE_PX = 0.5;
 /** A 2D translate in CSS pixels. Every settle transform is strictly 2D. */
 export type Translate = readonly [x: number, y: number];
 
-/** One shown frame's geometry and motion state at one sampling instant. */
-export interface SettleFramePaneSample {
-  readonly paneId: string;
+/** A frame's border box in CSS px, as `getBoundingClientRect()` reports it. */
+export interface PaneRect {
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
+}
+
+/** One shown frame's geometry and motion state at one sampling instant. */
+export interface SettleFramePaneSample {
+  readonly paneId: string;
+  /**
+   * The frame's border box at this instant, or `null` when the sampler was
+   * asked not to read it.
+   *
+   * `getBoundingClientRect()` is a forced LAYOUT, and the only reader of the
+   * box is {@link SettleFrameReading.rectsChangedAfterLanding}, which the
+   * product's own `settle-frames` row does not carry. So the bench probe asks
+   * for it and the in-product record does not: on a fold whose `height` tween
+   * lays the page out every frame anyway the read is free, and on the
+   * compositor-only settle [D9] asks for it would be the one thing still
+   * forcing a layout per tick. A `null` here is a sampler that declined the
+   * read, never a frame with no box.
+   */
+  readonly rect: PaneRect | null;
   /** The frame's computed opacity at this instant. */
   readonly opacity: number;
   /** How many animations were running on the frame element at this instant. */
@@ -201,8 +219,42 @@ export interface SettleFrameReading {
   /** {@link SettleFrameReading.longestGapMs} in display frames. */
   readonly longestGapFrames: number;
   readonly gapsOverOneFrame: number;
-  /** Move start → the first tick at which its `currentTime` had advanced. */
+  /**
+   * The GESTURE → the first tick the run recorded. `-1` only when no tick ever
+   * arrived.
+   *
+   * **This is the settle's lead, and it used to be a fact about an
+   * animation.** The shipped definition was "the move animation's birth → the
+   * first tick its `currentTime` had advanced", which reports `-1` on any
+   * settle carrying no transform-bearing effect — and a session card's fold is
+   * exactly that, a real `height` term with no move to be late. The instrument
+   * called three folds healthy that way. The old definition is not lost; it
+   * lives under {@link SettleFrameReading.moveFirstPaintDelayMs}, which is
+   * where the late-START-versus-late-PAINT discrimination now reads from.
+   *
+   * `SpaceSwitchFrameReading.firstPaintDelayMs` is the SAME quantity from the
+   * same origin, and the two are now comparable — which they were not before,
+   * and the difference was written down in both modules as a warning.
+   */
   readonly firstPaintDelayMs: number;
+  /**
+   * The gesture → the arm: the mutator's own preamble and the store's notify,
+   * which is the part of {@link SettleFrameReading.firstPaintDelayMs} the
+   * sampler's own arming could not see. `0` for a caller with no gesture
+   * stamp, which is every settle but a fold's today.
+   */
+  readonly commitDelayMs: number;
+  /**
+   * Move start → the first tick at which its `currentTime` had advanced; `-1`
+   * when no move animation ever existed.
+   *
+   * The old `firstPaintDelayMs`, under its own name. It answers a question the
+   * gesture-origin field cannot: whether the tween STARTED late or RAN and
+   * PAINTED late. Only the animation's own clock separates those, and a `-1`
+   * here beside a real lead above is the signature of a settle whose whole
+   * term is a paint property.
+   */
+  readonly moveFirstPaintDelayMs: number;
   readonly minOpacity: number;
   readonly minOpacityPaneId: string;
   readonly rectsChangedAfterLanding: readonly string[];
@@ -245,6 +297,8 @@ const EMPTY_READING: SettleFrameReading = {
   longestGapFrames: 0,
   gapsOverOneFrame: 0,
   firstPaintDelayMs: -1,
+  commitDelayMs: 0,
+  moveFirstPaintDelayMs: -1,
   minOpacity: 1,
   minOpacityPaneId: "-",
   rectsChangedAfterLanding: [],
@@ -335,17 +389,44 @@ export interface FrameCadenceReading {
   readonly suspended: boolean;
 }
 
+/**
+ * `originAt` is the instant the run was ASKED FOR, on the ticks' own clock —
+ * the gesture, for a caller that has one. Given it, `ticks[0] - originAt`
+ * enters the series as a LEADING GAP, counted by `longestGapMs` and
+ * `gapsOverOneFrame` like any other.
+ *
+ * **It is a gap and not a tick, and the distinction is the whole of the
+ * parameter.** The dead time before the first tick has no `ticks[i] -
+ * ticks[i-1]` entry, so a freeze between the gesture and the first rendering
+ * opportunity is invisible to this function by construction — 86–130 ms of
+ * nothing, on a run the summary then calls smooth. Prepending the origin as a
+ * synthetic `ticks[0]` would fix that and break something worse: the lead is
+ * the single most contended stretch of the run, and
+ * {@link deriveFramePeriodMs} would read it as the display's rate and then
+ * report every real gap as comfortably inside a frame. So the lead reaches the
+ * counters and never the period, which is the same treatment a pending tick
+ * already gets and for the same reason.
+ *
+ * It lives HERE rather than in the caller because this function is the module's
+ * one definition of "which gaps were longer than one frame". A settle that
+ * prepended its own lead outside it would make `SettleFrameReading.longestGapMs`
+ * and `SpaceSwitchFrameReading.longestGapMs` mean different things under one
+ * name — the drift this function exists to prevent, on a new field.
+ */
 export function classifyFrameCadence(
   ticks: readonly number[],
   quiet?: readonly boolean[],
+  originAt?: number,
 ): FrameCadenceReading {
   const framePeriodMs = deriveFramePeriodMs(ticks, quiet);
   const gaps: number[] = [];
+  if (originAt !== undefined && ticks.length > 0) gaps.push(ticks[0] - originAt);
+  for (let i = 1; i < ticks.length; i += 1) {
+    gaps.push(ticks[i] - ticks[i - 1]);
+  }
   let longestGapMs = 0;
   let gapsOverOneFrame = 0;
-  for (let i = 1; i < ticks.length; i += 1) {
-    const gap = ticks[i] - ticks[i - 1];
-    gaps.push(gap);
+  for (const gap of gaps) {
     if (gap > longestGapMs) longestGapMs = gap;
     if (gap > framePeriodMs * GAP_TOLERANCE) gapsOverOneFrame += 1;
   }
@@ -358,15 +439,30 @@ export function classifyFrameCadence(
   };
 }
 
-function rectKey(frame: SettleFramePaneSample): string {
-  return `${Math.round(frame.x)},${Math.round(frame.y)},${Math.round(frame.width)},${Math.round(frame.height)}`;
+function rectKey(rect: PaneRect): string {
+  return `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)}`;
 }
 
 /**
  * Classify a run of ticks into the reading Spec S01 names.
  *
- * `firstPaintDelayMs` is the distance from the tick at which the move animation
- * first EXISTED to the tick at which its `currentTime` had advanced past zero.
+ * `armedAt` is when the sampler's pump started and `gestureAt` is when the user
+ * asked for the settle, both on the ticks' own clock. A caller with no gesture
+ * stamp passes its arm for both and gets `commitDelayMs: 0` — the same fallback
+ * `classifySpaceSwitchFrames` already offers one. A caller with neither has no
+ * origin at all, and the first tick stands in for one: a lead of zero is the
+ * honest answer to "how long before the first frame" when nothing recorded the
+ * question being asked.
+ *
+ * `firstPaintDelayMs` is `ticks[0] - gestureAt`, and the lead it names is also
+ * prepended to the gap series ({@link classifyFrameCadence}) so `longestGapMs`
+ * and `gapsOverOneFrame` contain it. A freeze before the first rendering
+ * opportunity is the whole defect on a session card's fold, and every counter
+ * here used to start after it.
+ *
+ * `moveFirstPaintDelayMs` is the distance from the tick at which the move
+ * animation first EXISTED to the tick at which its `currentTime` had advanced
+ * past zero.
  * An animation that is born and advances in the same tick reports zero; one
  * whose first three ticks all read `currentTime: 0` reports the wall-clock cost
  * of those three ticks, which is the "the tween started late" half of
@@ -407,8 +503,15 @@ function rectKey(frame: SettleFramePaneSample): string {
  */
 export function classifySettleFrames(
   samples: readonly SettleFrameSample[],
+  armedAt?: number,
+  gestureAt: number = armedAt ?? Number.NaN,
 ): SettleFrameReading {
   if (samples.length === 0) return EMPTY_READING;
+
+  // With no arm and no stamp the run has no origin but its own first tick, so
+  // the lead is zero rather than a number measured from a clock nobody set.
+  const originAt = Number.isFinite(gestureAt) ? gestureAt : samples[0].t;
+  const commitDelayMs = armedAt === undefined ? 0 : armedAt - originAt;
 
   // The cadence half is {@link classifyFrameCadence}'s, shared with the switch
   // record so the two instruments cannot drift ([P02]). A settle's ticks carry
@@ -419,6 +522,7 @@ export function classifySettleFrames(
     samples.map(
       (sample) => sample.moveCurrentTime === null && !sample.movePending,
     ),
+    originAt,
   );
   const { framePeriodMs, longestGapMs, gapsOverOneFrame } = cadence;
 
@@ -601,7 +705,8 @@ export function classifySettleFrames(
 
   // The landing is the last tick at which anything on the deck was animating.
   // Everything after it is the deck at rest, and a rect that changes there
-  // changed with nothing carrying it.
+  // changed with nothing carrying it. A sample taken without rects — the
+  // in-product record — has nothing to say here and says nothing.
   let landingIndex = -1;
   for (let i = samples.length - 1; i >= 0; i -= 1) {
     if (samples[i].frames.some((frame) => frame.animations > 0)) {
@@ -614,7 +719,8 @@ export function classifySettleFrames(
     const resting = new Map<string, string>();
     for (let i = landingIndex + 1; i < samples.length; i += 1) {
       for (const frame of samples[i].frames) {
-        const key = rectKey(frame);
+        if (frame.rect === null) continue;
+        const key = rectKey(frame.rect);
         const seen = resting.get(frame.paneId);
         if (seen === undefined) resting.set(frame.paneId, key);
         else if (seen !== key) {
@@ -631,7 +737,9 @@ export function classifySettleFrames(
     longestGapMs,
     longestGapFrames: longestGapMs / framePeriodMs,
     gapsOverOneFrame,
-    firstPaintDelayMs:
+    firstPaintDelayMs: samples[0].t - originAt,
+    commitDelayMs,
+    moveFirstPaintDelayMs:
       moveBornAt === null
         ? -1
         : moveAdvancedAt === null
@@ -890,12 +998,28 @@ function movePendingOf(effects: readonly ResolvedEffect[]): boolean {
  * SettleFrameReading} via `deck-canvas.tsx`) reads none of it — Spec S03's
  * row carries no `fixedDescendants` field — so it asks for the reading
  * without it, and the probe the app-test drives asks for it by name.
+ *
+ * **The rect read is off by default for the same reason, with a measurement
+ * behind it.** Timed on a release deck of 19.6k elements and ten panes during
+ * a session fold (`briefs/session-fold-frames-readings.md`), each of this
+ * tick's three reads — the rect, the frame's own effects, the computed style
+ * — costs the same 4–5 ms when it goes FIRST and nothing when it goes second
+ * or third: the price is the style flush the first read forces, not any one
+ * read's own work, and the subtree walk in {@link ownEffectsOf} is not the
+ * expensive call this module's older comments assumed. The rect is the one
+ * read that also forces LAYOUT, and the row it feeds nothing on the product
+ * path, so it is the one that goes.
  */
 export function sampleSettleFrame(
   root: ParentNode,
-  options?: { readonly countFixedDescendants?: boolean },
+  options?: {
+    readonly countFixedDescendants?: boolean;
+    /** Read each frame's border box — a forced layout the row has no field for. */
+    readonly readRects?: boolean;
+  },
 ): SettleFrameSample {
   const countFixed = options?.countFixedDescendants === true;
+  const readRects = options?.readRects === true;
   const frames: SettleFramePaneSample[] = [];
   let moveCurrentTime: number | null = null;
   let movePending = false;
@@ -903,24 +1027,24 @@ export function sampleSettleFrame(
   for (const frame of root.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
     const paneId = frame.getAttribute("data-pane-id");
     if (paneId === null) continue;
-    const rect = frame.getBoundingClientRect();
+    const rect = readRects ? frame.getBoundingClientRect() : null;
     const effects = ownEffectsOf(frame);
     if (movePendingOf(effects)) movePending = true;
     if (moveCurrentTime === null) {
       moveCurrentTime = moveCurrentTimeOf(effects);
     }
-    // One computed-style declaration per frame, read twice. `getComputedStyle`
-    // is the expensive half of this tick — it flushes pending style — and
-    // asking for the same element's declaration a second time to read
-    // `transform` beside `opacity` would double that cost on the in-product
-    // path for nothing.
+    // One computed-style declaration per frame, read twice. Whichever read
+    // goes first in this tick pays the pending style flush and the rest are
+    // free (measured — see the docblock), so asking for the same element's
+    // declaration a second time to read `transform` beside `opacity` would
+    // still be a second lookup for nothing.
     const computed = getComputedStyle(frame);
     frames.push({
       paneId,
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
+      rect:
+        rect === null
+          ? null
+          : { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       opacity: Number.parseFloat(computed.opacity),
       animations: effects.length,
       offendingProperties: offendingPropertiesOf(effects),
@@ -955,6 +1079,15 @@ class SettleFrameProbe {
   private samples: SettleFrameSample[] = [];
   private root: ParentNode | null = null;
   private stallMs = 0;
+  /**
+   * When {@link SettleFrameProbe.arm} started the pump, on the ticks' clock.
+   *
+   * The bench probe is armed by the harness and has no gesture stamp to read,
+   * so its arm is the only origin it can offer — and it is an honest one: the
+   * window it records opens there. It gets `commitDelayMs: 0` for the same
+   * reason.
+   */
+  private armedAt: number | null = null;
 
   get armed(): boolean {
     return this.handle !== null;
@@ -964,6 +1097,7 @@ class SettleFrameProbe {
     if (this.handle !== null) return;
     this.root = root ?? document;
     this.samples = [];
+    this.armedAt = performance.now();
     const tick = (): void => {
       const scope = this.root;
       if (scope === null) return;
@@ -981,9 +1115,13 @@ class SettleFrameProbe {
       }
       // The bench probe is the reading that wants the fixed-descendant sweep:
       // it is R01's runtime half and the app-test asserts it is zero. The
-      // in-product record does not ask for it.
+      // in-product record does not ask for it — nor for the rects, which feed
+      // `rectsChangedAfterLanding` and are a forced layout per tick.
       this.samples.push(
-        sampleSettleFrame(scope, { countFixedDescendants: true }),
+        sampleSettleFrame(scope, {
+          countFixedDescendants: true,
+          readRects: true,
+        }),
       );
       this.handle = requestAnimationFrame(tick);
     };
@@ -997,6 +1135,7 @@ class SettleFrameProbe {
     }
     this.root = null;
     this.stallMs = 0;
+    this.armedAt = null;
     // The samples go with the loop, which is what this module's header
     // promises: disarming drops every sample it was keeping. `take()` is
     // called before `disarm()`, never after it.
@@ -1017,7 +1156,7 @@ class SettleFrameProbe {
 
   /** Classify everything recorded so far. The samples are kept. */
   take(): SettleFrameReading {
-    return classifySettleFrames(this.samples);
+    return classifySettleFrames(this.samples, this.armedAt ?? undefined);
   }
 
   /** Hand back the raw samples — for a caller that wants the run, not the verdict. */

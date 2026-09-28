@@ -87,6 +87,13 @@ import {
   type ChainArmReading,
   type GeometryChainReading,
 } from "./geometry-chain-probe";
+import {
+  armGestureFrames,
+  disarmGestureFrames,
+  readGestureFrames,
+  type GestureFrameArmReading,
+  type GestureFrameReading,
+} from "./gesture-frame-probe";
 
 /** Frames per reading in {@link TugMotionDiagnostics.cost}. */
 export const COST_FRAMES_DEFAULT = 30;
@@ -227,6 +234,23 @@ export interface TugMotionDiagnostics {
    * armed around the gesture under study and disarmed after.
    */
   chains(mode: "arm" | "read" | "disarm"): ChainArmReading | GeometryChainReading;
+  /**
+   * The frames a gesture actually delivered, recorded from OUTSIDE it
+   * ([P03], Spec S02).
+   *
+   * Armed from the shell before the gesture, so the chain is already ticking
+   * when the gesture lands and the dead time is a gap inside the series rather
+   * than in front of it — which is the one thing the in-product `settle-frames`
+   * record cannot be: it opens when the canvas arms, already past the
+   * gesture's own preamble.
+   *
+   * It reads no DOM. A chain left armed is a loop at rest, which [D1] forbids,
+   * so it stops itself after `ms` whether or not anybody reads it.
+   */
+  gesture(
+    mode: "arm" | "read" | "disarm",
+    ms?: number,
+  ): GestureFrameArmReading | GestureFrameReading;
   /** Clear the probe's samples and the input ring, and un-latch the breaker. */
   reset(): void;
   /** Test-mode only: the driver that lights the walk ([D5], #forcing-probe). */
@@ -616,6 +640,12 @@ export const tugMotion: TugMotionDiagnostics = {
     if (mode === "arm") return armGeometryChains();
     if (mode === "disarm") return disarmGeometryChains();
     return readGeometryChains();
+  },
+
+  gesture(mode, ms) {
+    if (mode === "arm") return armGestureFrames(ms);
+    if (mode === "disarm") return disarmGestureFrames();
+    return readGestureFrames();
   },
 
   reset() {

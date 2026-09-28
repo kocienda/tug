@@ -82,6 +82,37 @@ describe("classifyFrameCadence", () => {
     expect(reading.gapsOverOneFrame).toBe(6);
   });
 
+  /**
+   * The origin's whole purpose. The dead time before `ticks[0]` has no
+   * `ticks[i] - ticks[i-1]` entry, so a freeze between the gesture and the
+   * first rendering opportunity was invisible here by construction — and it is
+   * the one number a fold's record exists to carry.
+   */
+  test("an origin enters the series as a leading gap", () => {
+    const series = ticks(20);
+    const reading = classifyFrameCadence(series, undefined, -90);
+    expect(reading.gaps[0], "the lead leads the series").toBe(90);
+    expect(reading.gaps.length, "one gap more than the ticks have between them").toBe(20);
+    expect(reading.longestGapMs).toBe(90);
+    expect(reading.gapsOverOneFrame).toBe(1);
+  });
+
+  test("the leading gap never becomes the display's period", () => {
+    const series = ticks(20);
+    const reading = classifyFrameCadence(series, undefined, -90);
+    expect(
+      reading.framePeriodMs,
+      "the lead is the most contended stretch of the run, so it says nothing about the display",
+    ).toBe(PERIOD);
+  });
+
+  test("no origin leaves the series exactly as it was", () => {
+    const series = ticks(20);
+    expect(classifyFrameCadence(series).gaps).toEqual(
+      classifyFrameCadence(series, undefined, undefined).gaps,
+    );
+  });
+
   test("a run with no quiet gap at all falls back to all of them", () => {
     const series = ticks(20);
     const reading = classifyFrameCadence(series, series.map(() => false));

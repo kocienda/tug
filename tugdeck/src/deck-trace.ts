@@ -721,7 +721,20 @@ export type DeckTraceEvent = {
       longestGapMs: number;
       longestGapFrames: number;
       gapsOverOneFrame: number;
+      // The lead, and the two numbers that decompose it. `firstPaintDelayMs`
+      // is the GESTURE to the first recorded tick — the dead time a reader
+      // watches before anything moves, which every counter on this row used to
+      // start after. `commitDelayMs` is the part of it spent before the
+      // sampler was even armed (the mutator's own preamble and the store's
+      // notify), so the row separates "the deck was slow to ask" from "the
+      // deck asked and nothing painted". `moveFirstPaintDelayMs` is the old
+      // `firstPaintDelayMs` — a move animation's birth to the tick its clock
+      // advanced — and a `-1` there beside a real lead above is the signature
+      // of a settle whose whole term is a paint property, which is what a
+      // session card's fold is.
       firstPaintDelayMs: number;
+      commitDelayMs: number;
+      moveFirstPaintDelayMs: number;
       // The pose half of the reading. A settle can arrive every frame on time
       // and still show none of its travel, by painting a pose its own curve
       // does not pass through — most often the destination, through the window

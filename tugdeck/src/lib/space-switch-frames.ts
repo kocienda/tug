@@ -81,13 +81,16 @@ export interface SpaceSwitchFrameReading {
    * far behind it the commit landed. A caller with no stamp passes the armed
    * timestamp and gets the old reading, with `commitDelayMs` at zero.
    *
-   * **This is not `SettleFrameReading.firstPaintDelayMs`**, which measures a
-   * move animation's birth to the first tick whose `currentTime` had advanced.
-   * Same name, same module family, different origin, and the two are never
-   * comparable. The one-definition discipline that put the cadence arithmetic
-   * in one place is undone as surely by a coincidence of naming as by a second
-   * classifier, so the difference is written here rather than left to be
-   * discovered.
+   * **`SettleFrameReading.firstPaintDelayMs` is now the same quantity, and the
+   * two ARE comparable.** They were not: this one measured from the gesture
+   * and that one measured a move animation's birth to the first tick whose
+   * `currentTime` had advanced — same name, same module family, different
+   * origin — and this comment used to warn about exactly that. The settle's
+   * field took this one's origin for the same reason this one took it: an
+   * instrument whose clock starts after the freeze cannot contain the freeze.
+   * The old settle definition lives on beside it as
+   * `SettleFrameReading.moveFirstPaintDelayMs`, which is the field to compare
+   * against if a move animation's own lateness is the question.
    *
    * `-1` when no tick ever arrived.
    */

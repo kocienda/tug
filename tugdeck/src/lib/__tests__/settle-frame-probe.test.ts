@@ -30,10 +30,7 @@ function pane(
 ): SettleFramePaneSample {
   return {
     paneId,
-    x: 0,
-    y: 0,
-    width: 100,
-    height: 100,
+    rect: { x: 0, y: 0, width: 100, height: 100 },
     opacity: 1,
     animations: 0,
     offendingProperties: [],
@@ -124,7 +121,7 @@ describe("classifySettleFrames", () => {
       reading.longestGapFrames,
       "the longest gap is one frame",
     ).toBeCloseTo(1, 5);
-    expect(reading.firstPaintDelayMs, "the tween advanced at birth").toBe(0);
+    expect(reading.moveFirstPaintDelayMs, "the tween advanced at birth").toBe(0);
     expect(reading.minOpacity, "nothing faded").toBe(1);
     expect(reading.violations, "nothing animated a paint property").toEqual([]);
     expect(reading.rectsChangedAfterLanding, "nothing moved at rest").toEqual(
@@ -159,7 +156,7 @@ describe("classifySettleFrames", () => {
     );
 
     expect(
-      reading.firstPaintDelayMs,
+      reading.moveFirstPaintDelayMs,
       "three quiet periods between the move's birth and its first advance",
     ).toBe(PERIOD * 3);
     expect(
@@ -172,7 +169,7 @@ describe("classifySettleFrames", () => {
     const reading = classifySettleFrames(run({ ticks: 40, quiet: 40 }));
 
     expect(
-      reading.firstPaintDelayMs,
+      reading.moveFirstPaintDelayMs,
       "there was no move to be late; zero would read as a perfect one",
     ).toBe(-1);
   });
@@ -194,6 +191,94 @@ describe("classifySettleFrames", () => {
     expect(reading.ticks).toBe(0);
     expect(reading.suspended).toBe(true);
     expect(reading.framePeriodMs).toBe(FALLBACK_FRAME_PERIOD_MS);
+  });
+
+  // ---- The gesture origin ([P01], [P02], Spec S01) ----
+  //
+  // `run()` puts its first tick at t = 0, so a gesture 90ms before it is
+  // `gestureAt: -90`. The lead these read is the dead time a user watches
+  // after the gesture and before anything moves — the whole of [F02], and
+  // invisible to every counter on this reading until it became a gap.
+
+  test("the lead from the gesture to the first tick is the first paint delay", () => {
+    const reading = classifySettleFrames(
+      run({ ticks: 40, quiet: 10 }),
+      -10,
+      -90,
+    );
+
+    expect(
+      reading.firstPaintDelayMs,
+      "90ms passed between the gesture and the first rendering opportunity",
+    ).toBe(90);
+    expect(
+      reading.commitDelayMs,
+      "80 of which were spent before the sampler was even armed",
+    ).toBe(80);
+    expect(
+      reading.longestGapMs,
+      "the lead is the longest gap in the run, because it IS a gap",
+    ).toBe(90);
+    expect(
+      reading.gapsOverOneFrame,
+      "and it is counted as a missed frame like any other gap",
+    ).toBe(1);
+  });
+
+  test("the lead is counted as a gap and never as the display's period", () => {
+    const reading = classifySettleFrames(
+      run({ ticks: 40, quiet: 10 }),
+      -10,
+      -90,
+    );
+
+    expect(
+      reading.framePeriodMs,
+      "the freeze is the most contended stretch of the run; reading it as the display's rate would report every real gap as comfortably inside a frame",
+    ).toBe(PERIOD);
+  });
+
+  test("a caller with no gesture stamp passes its arm for both and gets the arm's lead", () => {
+    const reading = classifySettleFrames(run({ ticks: 40, quiet: 10 }), -12);
+
+    expect(
+      reading.firstPaintDelayMs,
+      "no stamp, so the arm is the honest origin",
+    ).toBe(12);
+    expect(
+      reading.commitDelayMs,
+      "nothing happened before the arm that this caller can account for",
+    ).toBe(0);
+  });
+
+  test("a settle with no transform-bearing effect still reports a real lead", () => {
+    // [F05] as a unit test. A session card's fold animates `height` and
+    // nothing else, so `moveCurrentTime` is null at every tick — and the
+    // shipped reading said "-1: there was no move to be late" about a fold
+    // that froze for 90ms in front of the user.
+    const reading = classifySettleFrames(
+      run({ ticks: 40, quiet: 40 }),
+      -10,
+      -90,
+    );
+
+    expect(
+      reading.firstPaintDelayMs,
+      "the height tween's lead is measurable even though no move exists",
+    ).toBe(90);
+    expect(
+      reading.moveFirstPaintDelayMs,
+      "and the move clock still says, correctly, that there was no move",
+    ).toBe(-1);
+  });
+
+  test("a run with no ticks reports -1 for the lead however early the gesture was", () => {
+    const reading = classifySettleFrames([], -10, -90);
+
+    expect(
+      reading.firstPaintDelayMs,
+      "nothing painted at all, which is not a lead of any length",
+    ).toBe(-1);
   });
 
   test("an offending property is reported as paneId:property, once", () => {
@@ -258,7 +343,9 @@ describe("classifySettleFrames", () => {
           // Animating through tick 29, at rest afterwards.
           pane("p1", { animations: tick >= 10 && tick < 30 ? 1 : 0 }),
           // And p2 jumps 40px at tick 35, with nothing carrying it.
-          pane("p2", { x: tick >= 35 ? 40 : 0 }),
+          pane("p2", {
+            rect: { x: tick >= 35 ? 40 : 0, y: 0, width: 100, height: 100 },
+          }),
         ],
       }),
     );
@@ -267,6 +354,43 @@ describe("classifySettleFrames", () => {
       reading.rectsChangedAfterLanding,
       "a rect that changes once the deck is at rest changed uncarried",
     ).toEqual(["p2"]);
+  });
+
+  test("a sample taken without rects — the in-product record — still carries every row field", () => {
+    // The product's own `settle-frames` row has no field for
+    // `rectsChangedAfterLanding`, so its sampler declines the rect read (a
+    // forced layout per tick) and hands the classifier `rect: null`. Nothing
+    // the row DOES carry may go quiet for it.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => [
+          pane("p1", {
+            rect: null,
+            animations: tick >= 10 && tick < 30 ? 1 : 0,
+            offendingProperties: tick >= 10 && tick < 30 ? ["height"] : [],
+          }),
+          pane("p2", { rect: null }),
+        ],
+      }),
+      -12,
+      -90,
+    );
+
+    expect(
+      reading.rectsChangedAfterLanding,
+      "no rects were read, so no rect can be reported as moved",
+    ).toEqual([]);
+    expect(reading.ticks, "the cadence half is untouched").toBe(40);
+    expect(
+      reading.firstPaintDelayMs,
+      "and so is the lead, measured from the gesture",
+    ).toBe(90);
+    expect(
+      reading.violations,
+      "[D9]'s guard still sees the offending property",
+    ).toEqual(["p1:height"]);
   });
 
   test("the lowest opacity is reported with where it was seen", () => {
@@ -521,7 +645,7 @@ describe("classifySettleFrames", () => {
     ).toBe(-1);
   });
 
-  test("firstPaintDelayMs measures the pending window rather than skipping it", () => {
+  test("moveFirstPaintDelayMs measures the pending window rather than skipping it", () => {
     // Three ticks with a move that exists and has not started — `movePending`
     // with a `currentTime` of 0 — before the clock advances. The shipped read
     // opened its window on `moveCurrentTime !== null` alone and so started
@@ -532,16 +656,16 @@ describe("classifySettleFrames", () => {
     );
 
     expect(
-      reading.firstPaintDelayMs,
+      reading.moveFirstPaintDelayMs,
       "the wall-clock span of the three pending ticks",
     ).toBe(PERIOD * 3);
     expect(reading.pendingTicks, "and the window is counted separately").toBe(3);
   });
 
-  test("firstPaintDelayMs is -1 when no transform-bearing effect ever appeared", () => {
+  test("moveFirstPaintDelayMs is -1 when no transform-bearing effect ever appeared", () => {
     const reading = classifySettleFrames(run({ ticks: 40, quiet: 40 }));
 
-    expect(reading.firstPaintDelayMs).toBe(-1);
+    expect(reading.moveFirstPaintDelayMs).toBe(-1);
     expect(reading.pendingTicks).toBe(0);
   });
 

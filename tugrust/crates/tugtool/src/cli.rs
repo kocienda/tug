@@ -1108,6 +1108,23 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// The frames a gesture actually delivered, recorded from outside it.
+    ///
+    /// `arm` BEFORE the gesture — that is the whole point, and what separates
+    /// this from the deck's own `settle-frames` record, which opens when the
+    /// canvas arms and so cannot contain the gesture's own preamble. Then
+    /// perform the gesture, `read`, and `disarm`. The chain stops itself after
+    /// `--window` so a forgotten `read` cannot leave a loop running at rest.
+    Gesture {
+        /// `arm`, `read` or `disarm`.
+        #[arg(long, value_parser = ["arm", "read", "disarm"])]
+        mode: String,
+        /// How long an armed chain runs before stopping itself, in ms.
+        #[arg(long)]
+        window: Option<u32>,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// Open the `diag/eval` door on this instance (loopback only).
     Enable {
         #[command(flatten)]

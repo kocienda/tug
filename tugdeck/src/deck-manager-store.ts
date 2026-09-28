@@ -121,6 +121,36 @@ export interface IDeckManagerStore {
   getSpaceSwitchStartedAt: () => number | null;
 
   /**
+   * The `performance.now()` at which the most recent COMMITTING imposition
+   * gesture was entered, or `null` before any. It is the origin the settle's
+   * frame record measures its first paint from: the GESTURE, not the arm.
+   * The settle arms on the store's notify, before React's render, so the arm
+   * is already earlier than the commit — and the lead that remains is the
+   * mutator's own preamble plus the notify, which is what the user waited
+   * through and what a record armed at the arm cannot contain.
+   *
+   * **Only a gesture that reaches the commit stamps.** `setPaneFolded` has
+   * three returns before it commits — pane not found, sidebar refusal, and
+   * `panesWithFolded` returning identity — and none of them arms a settle. A
+   * stamp left behind by one of those would be read as the origin by whatever
+   * settle came next, and the reader's staleness guard cannot catch it: that
+   * stamp is fresh, and wrong. So the mutator takes the time into a local at
+   * its entry and publishes it only on the committing path.
+   *
+   * **And a published stamp is spent once.** This field is never retired —
+   * nothing here knows when it has been read — so the same reasoning covers
+   * the settle that FOLLOWS a fold by a second or two: its stamp is fresh
+   * and belongs to the fold. The settle's frame record remembers the stamp it
+   * last measured a window from and falls back to its own arm rather than
+   * measuring a second window from it.
+   *
+   * Folds the user did not gesture carry no stamp, and that is correct: a card
+   * arriving into a wall folds the sitters inside the arrival commit without
+   * passing through `setPaneFolded`, and that settle falls back to the arm.
+   */
+  getImpositionGestureAt: () => number | null;
+
+  /**
    * Commit where a drag left a scrolled strip — an overflowing column's
    * ([P12]), an overflowing rail's, and the flow strip's. One write at the end
    * of the gesture, because the strip moved imperatively while the hand was
