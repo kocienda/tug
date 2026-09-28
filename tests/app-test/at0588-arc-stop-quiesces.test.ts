@@ -45,7 +45,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { realpathSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -57,6 +57,7 @@ import {
 import {
   createArc,
   arcBriefPath,
+  arcLogPath,
   arcTasksPath,
   discardArc,
   disarmAutoreplay,
@@ -85,10 +86,34 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000588";
 const CARD = '[data-card-id="A"]';
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 const AI_CHIP = `${CARD} [data-slot="ai-chip-value"]`;
+/** The chip itself — what a person clicks to open the AI sheet. */
+const AI_CHIP_BUTTON = `${CARD} [data-slot="ai-chip"]`;
+const SHEET = '[data-slot="ai-config-sheet"]';
+const MODEL_ROW = (value: string): string =>
+  `${SHEET} [data-testid="ai-config-model"] [data-model="${value}"]`;
+const SHEET_OK = `${SHEET} [data-slot="ai-config-ok"]`;
 const SECTION = ".arcs-section";
 
 const ARC_NAME = "at0588-stop";
+
+/**
+ * The model the implement stage is declared to run on — deliberately *not*
+ * the account default the deck's card carries, so the chip reads one string
+ * while the stage works and another once the card is the deck's again.
+ */
+const STAGE_MODEL = "haiku";
 const ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
+/**
+ * The same arc **before the wheel makes its seat**, where it is paperwork
+ * rather than a branch.
+ *
+ * The card draws the two kinds under two slots — `arcs-row` for an arc with a
+ * branch, `arc-document-row` for one that is still only documents — and this
+ * fixture skips `arc create` on purpose, so at the open its arc is the second
+ * kind and `ROW` cannot match it. It becomes `ROW` at the implement dispatch,
+ * which is where every assertion below reads it.
+ */
+const ANY_ROW = `${SECTION} [data-arc="${ARC_NAME}"]`;
 const TRANSPORT = `${ROW} [data-slot="arc-transport"]`;
 const transportWith = (verb: string): string =>
   `${TRANSPORT}[data-verb="${verb}"]`;
@@ -164,7 +189,18 @@ beforeAll(() => {
     );
   }
   if (!SHOULD_RUN) return;
-  scratch = makeArcScratchRepo({ prefix: "at0588", checkout: CHECKOUT });
+  scratch = makeArcScratchRepo({
+    prefix: "at0588",
+    checkout: CHECKOUT,
+    // **The stage runs on a model of its own, and that is what makes the
+    // hand-back observable.** Every effect the stop performs is addressed to
+    // the *card*, and the card's own chip is where a wrong address shows: a
+    // stage sharing the deck's model leaves the chip reading the same string
+    // either way, so the fixture would pass with the address broken. Declared
+    // as a stage model rather than pressed through the picker because that is
+    // how a real arc gets one ([P13]).
+    files: { ".tugtool/config.toml": `[tugtool.arc]\nimplement_model = "${STAGE_MODEL}"\n` },
+  });
   // No `arc create`: the implement dispatch makes the seat before it composes
   // the `where` line, which is what a door leaves behind. `disarmAutoreplay`
   // keeps the branch out of the replay machinery.
@@ -209,6 +245,90 @@ function deckShape() {
   };
 }
 
+/**
+ * Pick a model on the card the way a person does — chip, row, OK — and return
+ * the chip's reading afterwards.
+ *
+ * **Not a convenience.** The model a stop hands the card back to is
+ * `LedgerEntry::deck_model`, and the wheel writes that from a *client's own*
+ * `model_change` and nothing else (`tugrust/crates/tugcast/src/wheel/mod.rs`).
+ * A fixture that never picks one leaves the field `None`, where the hand-back
+ * falls back to `"default"` and the claim "the card is the deck's again" has
+ * no selection to be about. So the deck picks first, and the assertion after
+ * the stop is about that pick.
+ */
+/**
+ * Run one real turn on the card, so the session reports its capabilities.
+ *
+ * The sheet's model rows are `knownModelRows(models, catalog)` — the session's
+ * own reported models, falling back to the tugbank catalog — and a card no
+ * turn has run on has neither, so the list is empty and the chip reads `?`.
+ * A person who picks a model has always used the card first; this is that,
+ * spelled out.
+ */
+async function warmTheCard(app: App): Promise<void> {
+  const editor = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
+  await app.nativeClickAtElement(editor);
+  await app.nativeType("Reply with the single word ok and nothing else.");
+  await new Promise((r) => setTimeout(r, 150));
+  await app.nativeKey("Enter", ["cmd"]);
+  // The chip is `disabled={!canSubmit}` — dead for the whole of a turn, so a
+  // model can never race one. So the wait is for the turn to *end*, not for
+  // the chip to have text: a reading with the model resolved arrives while
+  // the turn is still running, and a press then lands on a dead button.
+  await app.waitForCondition<boolean>(
+    `(() => {
+       const chip = document.querySelector(${JSON.stringify(AI_CHIP_BUTTON)});
+       if (chip === null || chip.hasAttribute("disabled")) return false;
+       return (chip.textContent ?? "").indexOf("?") === -1;
+     })()`,
+    { timeoutMs: 180_000 },
+  );
+}
+
+async function pickDeckModel(app: App): Promise<string> {
+  // `click`, not `nativeClickAtElement`: the sheet is a deck gesture rather
+  // than a hit-test, and the chip sits in chrome a native press at this
+  // window's geometry does not reliably land on — `at0372` drives the same
+  // sheet the same way.
+  await app.click(AI_CHIP_BUTTON);
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
+    { timeoutMs: 15_000 },
+  );
+  // Whatever this account offers, minus the stage's own model and the row
+  // that only names the default — the pick has to be a selection the card
+  // could not have arrived at by itself.
+  const choice = await app.evalJS<string>(
+    `(() => {
+       const rows = Array.from(document.querySelectorAll(${JSON.stringify(`${SHEET} [data-testid="ai-config-model"] [data-model]`)}));
+       const values = rows.map((el) => el.getAttribute("data-model") ?? "");
+       return values.find((v) => v.indexOf("sonnet") !== -1)
+         ?? values.find((v) => v !== "default" && v.indexOf(${JSON.stringify(STAGE_MODEL)}) === -1)
+         ?? "";
+     })()`,
+  );
+  expect(choice, "the sheet offered a model to pick").not.toBe("");
+  await app.click(MODEL_ROW(choice));
+  await app.click(SHEET_OK);
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(SHEET)}) === null`,
+    { timeoutMs: 15_000 },
+  );
+  await app.waitForCondition<boolean>(
+    `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").indexOf("?") === -1`,
+    { timeoutMs: 30_000 },
+  );
+  return chipText(app);
+}
+
+/** The card's AI chip, as one trimmed string. */
+async function chipText(app: App): Promise<string> {
+  return app.evalJS<string>(
+    `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim()`,
+  );
+}
+
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
   const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
@@ -221,6 +341,8 @@ async function shell(app: App, command: string): Promise<void> {
 interface ArcStageLine {
   stage: string;
   session_id: string;
+  /** The model the rotation seated the stage on; `null` is the account's. */
+  model: string | null;
 }
 
 interface ArcReading {
@@ -242,6 +364,14 @@ function arcReport(): ArcReading {
   return (
     out.data.arc ?? { stages: [], stopped: null, stopping: null, done: false }
   );
+}
+
+/** Whether any process still carries the sentinel. */
+function arcLogEvents(): string[] {
+  return readFileSync(arcLogPath(scratch?.dataRoot ?? ""), "utf8")
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/)[2] ?? "")
+    .filter((event) => event !== "");
 }
 
 /** Whether any process still carries the sentinel. */
@@ -297,17 +427,19 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         });
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
 
-        // The deck's model, read before the arc touches it. The stop hands the
-        // card back to it, and the only honest way to say "the deck's" is to
-        // have read it from the deck's own card first.
-        const deckModel = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim()`,
-        );
+        // The deck's model, picked through the sheet before the arc touches
+        // the card. Read after the pick rather than before it: a card no turn
+        // has run on has had no model reported at all, so the chip's reading
+        // then is the `?` placeholder and not a model the stop could return
+        // anything to.
+        await warmTheCard(app);
+        const deckModel = await pickDeckModel(app);
+        note("at0588 the model the deck picked", deckModel);
         note("at0588 the deck's model before the arc runs", deckModel);
 
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
+          `document.querySelector(${JSON.stringify(ANY_ROW)}) !== null`,
           { timeoutMs: 30_000 },
         );
 
@@ -316,6 +448,10 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         const rotated = await waitForRotation();
         note("at0588 the arc after its rotation", JSON.stringify(rotated));
         const segment = rotated.stages[0]!.session_id;
+        expect(
+          rotated.stages[0]!.model,
+          "the rotation seated the stage on the model the project declared",
+        ).toBe(STAGE_MODEL);
 
         // ── The fixture's whole point, asserted before the press ──────────
         //
@@ -345,6 +481,17 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         ).toBe(true);
         note("at0588 the stage at work", (await app.screenshot()).path);
 
+        // The card's chip while the stage holds it. The rotation seated the
+        // stage's own model on the card, so this is a string the deck never
+        // chose — and the one the card must not still be wearing once the
+        // stop has handed it back.
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim() !== ${JSON.stringify(deckModel)}`,
+          { timeoutMs: 60_000 },
+        );
+        const stageChip = await chipText(app);
+        note("at0588 the card's model while the stage holds it", stageChip);
+
         const controlBefore = await app.evalJS<string>(
           `(() => {
              const button = document.querySelector(${JSON.stringify(TRANSPORT)});
@@ -364,8 +511,15 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
              window.__at0588 = { receiptAt: null, resumeAt: null };
              const rows = ${JSON.stringify(SHELL_ROWS)};
              const resume = ${JSON.stringify(transportWith("resume"))};
-             const id = setInterval(() => {
-               const seen = window.__at0588;
+             // A MutationObserver, never a timer. The harness's window spends
+             // the run occluded, and WebKit throttles timers in one hard: a
+             // 20ms interval was measured firing **14 times** across the whole
+             // watch, which is a sampler that steps clean over the ~250ms
+             // between these two events and reports the second as never
+             // happening. An observer is driven by the DOM change itself, so
+             // the stamp is the mutation's rather than the next tick's.
+             const seen = window.__at0588;
+             const look = () => {
                if (seen.receiptAt === null &&
                    Array.from(document.querySelectorAll(rows))
                      .some((el) => (el.textContent || "").indexOf("you stopped it") !== -1)) {
@@ -374,8 +528,19 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
                if (seen.resumeAt === null && document.querySelector(resume) !== null) {
                  seen.resumeAt = performance.now();
                }
-               if (seen.receiptAt !== null && seen.resumeAt !== null) clearInterval(id);
-             }, 20);
+               if (seen.receiptAt !== null && seen.resumeAt !== null) observer.disconnect();
+             };
+             const observer = new MutationObserver(look);
+             observer.observe(document.body, {
+               subtree: true,
+               childList: true,
+               attributes: true,
+               characterData: true,
+             });
+             // The press has not happened yet, so neither is expected — but a
+             // watch that only ever looks *after* a mutation cannot see a
+             // state that was already there.
+             look();
              return true;
            })()`,
         );
@@ -388,21 +553,30 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
 
         // ── The mark stands while the protocol is in flight ───────────────
         //
-        // [P06]: the record is the last thing a stop writes, so a reading with
-        // the mark up and no `stopped` is what the middle of the protocol
-        // looks like. Read through the verb rather than by parsing the log.
-        let sawTheMark = false;
+        // [P06]: `arc-stopping` is the first thing a stop writes and the
+        // record is the last, so the **log** is where that order is readable.
+        // The reading `arc record` gives is the live one, where the mark is up
+        // only between those two lines — and a loop sampling it through a CLI
+        // spawn every 100ms can miss a fast teardown entirely, failing a stop
+        // that was correct. The log cannot be missed, and it still fails if
+        // the mark was never written or was written after the record.
         let settled = arcReport();
         const stopDeadline = Date.now() + 120_000;
         while (settled.stopped === null && Date.now() < stopDeadline) {
-          if (settled.stopping !== null) sawTheMark = true;
           await new Promise((r) => setTimeout(r, 100));
           settled = arcReport();
         }
         note("at0588 the arc after the press", JSON.stringify(settled));
-        expect(sawTheMark, "the mark went up before the record was written").toBe(
-          true,
-        );
+        const events = arcLogEvents();
+        note("at0588 the stop in the arc log", events.join(" · "));
+        const markAt = events.indexOf("arc-stopping");
+        const recordAt = events.indexOf("arc-stop");
+        expect(markAt, "the mark went up").toBeGreaterThanOrEqual(0);
+        expect(recordAt, "and the record was written").toBeGreaterThanOrEqual(0);
+        expect(
+          markAt,
+          "the mark went up before the record was written",
+        ).toBeLessThan(recordAt);
         expect(settled.stopped?.[1]).toBe("stopped by user");
         expect(settled.stopping, "and the mark came down with it").toBeNull();
         expect(settled.done).toBe(false);
@@ -453,18 +627,29 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
 
         // ── And the card is the deck's again ──────────────────────────────
         //
-        // The stage's rotation set a model on the card; the stop hands it back,
-        // addressed to the card rather than to the segment the stage was on —
-        // which is the identity claim wearing its most visible face.
+        // The rotation put the stage's declared model on the card; the stop
+        // hands the card back on the deck's own, addressed to the card rather
+        // than to the segment the stage was on — the identity claim wearing
+        // its most visible face.
+        //
+        // The deck picked a model before the arc ran, so this is exact: the
+        // card comes back to that pick. A hand-back addressed to the dead
+        // segment instead of the card leaves it wearing `stageChip`, which is
+        // what the second assertion names.
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim() === ${JSON.stringify(deckModel)}`,
           { timeoutMs: 60_000 },
         );
-        const handedBack = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim()`,
+        const handedBack = await chipText(app);
+        note(
+          "at0588 the card's model after the stop",
+          JSON.stringify({ beforeTheArc: deckModel, stage: stageChip, handedBack }),
         );
-        note("at0588 the card's model after the stop", handedBack);
         expect(handedBack, "the card is the deck's again").toBe(deckModel);
+        expect(
+          handedBack,
+          "the card no longer wears the stage's model",
+        ).not.toBe(stageChip);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
