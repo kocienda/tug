@@ -1,0 +1,32 @@
+/**
+ * tug-dictation-button.css — the refused face, and nothing else.
+ *
+ * There is deliberately no rule for `live`. `TugButton` mounts the mic glyph
+ * and the wave as two nodes and the cascade picks between them off
+ * `data-tug-activity`, so while dictation is live the mic is already hidden — a
+ * rule tinting `.tug-button-rest-icon` under `[data-mode="live"]` would style a
+ * node nobody can see. The live face IS the wave, which the component supplies
+ * as `activityIcon` and the progress indicator already animates.
+ *
+ * Nothing here animates. A mic at rest carries no animation object (the
+ * animation doctrine's rule about cost at rest), and the only motion in this
+ * control is the wave's own, for as long as a session is live.
+ *
+ * No token pairings: this file changes opacity and the cursor, and takes every
+ * colour from the ghost button's own treatment.
+ */
+
+/* A refused mic is dimmed with the same opacity a disabled control carries,
+   but it keeps its pointer events. `aria-disabled` rather than `disabled` is
+   the whole point ([L31], [P07]): the tooltip still opens and says which
+   permission is missing, and a press still retries — the user may have just
+   granted it in System Settings, and a mic that had to be reloaded to be tried
+   again would send them out of the app to find out. */
+.tug-dictation-button[data-mode="refused"] {
+  opacity: var(--tugx-control-disabled-opacity);
+}
+
+/* Not `not-allowed`: the press does something. */
+.tug-dictation-button[data-mode="refused"]:hover {
+  cursor: pointer;
+}

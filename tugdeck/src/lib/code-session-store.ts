@@ -30,6 +30,7 @@ import {
   type ContentBlock,
   type FeedIdValue,
 } from "@/protocol";
+import type { EditorView } from "@codemirror/view";
 import type { PermissionMode } from "@tugproto/inbound";
 import type { TugConnection } from "@/connection";
 import type { ConnectionLifecycle } from "@/lib/connection-lifecycle";
@@ -541,6 +542,8 @@ export class CodeSessionStore {
    */
   private _lastSentUserMessage: unknown = null;
   private _disposed = false;
+  /** Set by `bindEditorView`; outside `state`, so it notifies nobody. */
+  private _editorView: (() => EditorView | null) | null = null;
   private _feedStoreUnsub: (() => void) | null = null;
   /**
    * Aggregated unsubscribe callbacks for every `ConnectionLifecycle`
@@ -1744,6 +1747,30 @@ export class CodeSessionStore {
   consumePendingFileInsert(): void {
     if (this._disposed) return;
     this.dispatch({ type: "consume_file_insert" });
+  }
+
+  /**
+   * Register a thunk reading the prompt entry's live `EditorView`, or `null`
+   * on unmount. Called from the entry's editor ref callback ([L03] — a
+   * registration an event depends on, made before any paint that could fire
+   * one).
+   *
+   * **A thunk rather than the view.** The entry's view is replaced on remount
+   * and is `null` between passes, so a stored view would be detached the first
+   * time anything reached for it; a thunk is read at use time and answers
+   * honestly.
+   *
+   * **Outside `state`, and it emits nothing.** Nothing renders from the view's
+   * identity, so putting it in the snapshot would re-render every subscriber of
+   * this store on a remount that changed nothing anybody draws ([L02]).
+   */
+  bindEditorView(getter: (() => EditorView | null) | null): void {
+    this._editorView = getter;
+  }
+
+  /** The prompt entry's live `EditorView`, or `null` when there is none. */
+  editorView(): EditorView | null {
+    return this._editorView?.() ?? null;
   }
 
   /**

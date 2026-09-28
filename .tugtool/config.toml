@@ -109,5 +109,5 @@ check = []
 name  = "project"
 # `.claude/` is this project's own skills — `/spike-card` — which are Tug's
 # alone and never plugin material. Nothing builds them.
-paths = ["Justfile", "scripts/", ".github/", ".gitattributes", ".gitignore", ".tugtool/", ".claude/", "capabilities/", "diag/", "products/", "resources/", "tests/build-info/", "tests/model-eval/"]
+paths = ["Justfile", "scripts/", ".github/", ".gitattributes", ".gitignore", ".tugtool/", ".claude/", "capabilities/", "diag/", "products/", "resources/", "tests/build-info/", "tests/dictation/", "tests/model-eval/"]
 check = []

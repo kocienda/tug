@@ -112,6 +112,7 @@ import {
 import { TugAttachmentPreview } from "./cards/tug-attachment-preview";
 import { TugChoiceGroup } from "./tug-choice-group";
 import { TugProgressIndicator } from "./tug-progress-indicator";
+import { TugDictationButton } from "./tug-dictation-button";
 // Tug-authored, not lucide's: the sparkles have to be addressable to twinkle.
 import { PencilSparkles } from "./tug-icons";
 import { TugPushButton } from "./tug-push-button";
@@ -170,6 +171,7 @@ import type { FindSession } from "@/lib/find-session";
 import type { LandingKind, LandingMode } from "@/lib/landing-mode";
 import { useComposerDrop } from "./use-composer-drop";
 import { useSessionPromptInsertTarget } from "./use-prompt-insert-target";
+import { dictationStore, useDictationFace } from "@/lib/dictation-store";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
@@ -988,6 +990,14 @@ export interface TugPromptEntryProps {
   /** Order of the submit within {@link submitFocusGroup}. Defaults to 0. */
   submitFocusOrder?: number;
   /**
+   * Order of the Z5 mic within {@link submitFocusGroup}. Its own prop rather
+   * than `submitFocusOrder - 1`, because {@link submitFocusOrder} is optional
+   * and documented as defaulting to 0 — so the arithmetic would be `NaN` when
+   * the host omits it and `-1` when the host supplies 0. The Session card names
+   * every stop in one block of constants and supplies this from there.
+   */
+  dictateFocusOrder?: number;
+  /**
    * Order of the FIRST of commit mode's three Z5 buttons — Cancel ✕,
    * Auto-Message ✎, Commit ↑ — within {@link submitFocusGroup}; the three take
    * consecutive orders from here. Commit mode replaces the single submit
@@ -1149,6 +1159,7 @@ export const TugPromptEntry = React.forwardRef<
     disabled = false,
     submitFocusGroup,
     submitFocusOrder,
+    dictateFocusOrder,
     commitFocusOrderBase,
     routeFocusGroup,
     routeFocusOrder,
@@ -1319,6 +1330,19 @@ export const TugPromptEntry = React.forwardRef<
   // composer's too. What stays here is the file half: images become atoms,
   // other files their basename, through the substrate's own pipeline.
   const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
+  // The editor's ref callback, not a bare ref object: binding the view into
+  // the store has to happen with the same timing React sets `current`, which
+  // is before any layout effect could fire an event that reads it ([L03]).
+  // A thunk rather than the view, because `view()` is `null` between passes.
+  const bindTextEditor = useCallback(
+    (delegate: TugTextEditorDelegate | null): void => {
+      textEditorRef.current = delegate;
+      codeSessionStore.bindEditorView(
+        delegate === null ? null : () => delegate.view(),
+      );
+    },
+    [codeSessionStore],
+  );
   const dropView = useCallback(
     (): EditorView | null => textEditorRef.current?.view() ?? null,
     [],
@@ -2179,6 +2203,33 @@ export const TugPromptEntry = React.forwardRef<
   const cardIdForTrace = useCardId();
   const cardIdForTraceRef = useRef(cardIdForTrace);
   cardIdForTraceRef.current = cardIdForTrace;
+  // The composer id the dictation store arbitrates by, which is the card id and
+  // not a name of its own: the store's modal-hold release is keyed on card id,
+  // so a composer that cannot name its card cannot be released that way and
+  // gets no mic (the gallery entry is one — it mounts outside any `CardHost`).
+  const composerCardId = cardIdForTrace;
+  const dictationFace = useDictationFace(composerCardId ?? "");
+  const dictationOwned =
+    composerCardId !== null &&
+    dictationFace.mode !== "idle" &&
+    dictationFace.mode !== "refused";
+  // Mirrored for the CANCEL_DIALOG handler, which is rebuilt each render but
+  // reads refs so it never acts on a stale flag — the same reason
+  // `landingActiveRef` exists.
+  const dictationOwnedRef = useRef(dictationOwned);
+  dictationOwnedRef.current = dictationOwned;
+  const composerCardIdRef = useRef(composerCardId);
+  composerCardIdRef.current = composerCardId;
+  // Table T03's "card dismissed or session goes away": the composer going away
+  // is the one release nothing else can see, and `endIfOwnedBy` is what keeps
+  // an entry that already lost the mic to another composer from ending the new
+  // owner's session on its way out.
+  useLayoutEffect(() => {
+    if (composerCardId === null) return;
+    return () => {
+      dictationStore.endIfOwnedBy(composerCardId, "dismissed");
+    };
+  }, [composerCardId]);
 
   // Dirty-pipeline participation. `useCardDirtyState` only marks the card
   // dirty on host-level `scroll` / `selectionchange`; the editor must mark
@@ -2616,6 +2667,13 @@ export const TugPromptEntry = React.forwardRef<
   // async function body runs synchronously up to its first `await`, so every
   // other path through this callback settles in the same tick it always did.
   const performSubmit = useCallback(async (): Promise<void> => {
+    // Before anything reads the draft. A submit carries the settled text and
+    // must not carry the provisional tail, so the release — which drops the
+    // tail — happens first (Table T03).
+    const dictationCardId = composerCardIdRef.current;
+    if (dictationCardId !== null) {
+      dictationStore.endIfOwnedBy(dictationCardId, "submitted");
+    }
     const editor = textEditorRef.current;
     const view = editor?.view() ?? null;
     const snap = snapRef.current;
@@ -3273,9 +3331,22 @@ export const TugPromptEntry = React.forwardRef<
       // why the condition is a union rather than the interrupt gate alone —
       // in commit mode with no turn running, Escape still has to drop the
       // shade rather than fall through to the engine's ladder.
-      ...(landingActive || (snap.canInterrupt && !snap.interruptInFlight)
+      // A live mic is the most recent thing the user opened, so Escape closes it
+      // first ([P09]) — and it joins the union for the same reason commit mode
+      // did: with no turn running, Escape still has something to do.
+      ...(landingActive ||
+      dictationOwned ||
+      (snap.canInterrupt && !snap.interruptInFlight)
         ? {
             [TUG_ACTIONS.CANCEL_DIALOG]: (_event: ActionEvent) => {
+              // Dictation first, and before the drafting check: it is the most
+              // recently opened thing, and an Escape that stopped a running turn
+              // while leaving the mic live would be the worst of both.
+              const dictationCardId = composerCardIdRef.current;
+              if (dictationOwnedRef.current && dictationCardId !== null) {
+                dictationStore.endIfOwnedBy(dictationCardId, "escape");
+                return;
+              }
               // While the Auto-Message scribe streams ([P06]), Escape / ⌘.
               // cancel the DRAFT — never the running turn. Intercepting
               // drafting before everything below is what keeps the cancel
@@ -3630,6 +3701,11 @@ export const TugPromptEntry = React.forwardRef<
         view?.contentDOM.blur();
       },
       clear() {
+        // A cleared draft has nowhere for a live session to write (Table T03).
+        const dictationCardId = composerCardIdRef.current;
+        if (dictationCardId !== null) {
+          dictationStore.endIfOwnedBy(dictationCardId, "cleared");
+        }
         textEditorRef.current?.clear();
       },
       isEmpty() {
@@ -3797,6 +3873,23 @@ export const TugPromptEntry = React.forwardRef<
 
   const entryToolbarTrailing = (
     <>
+            {/*
+              Z5 mic, before the queue and submit buttons so the row reads mic,
+              queue, submit. It renders nothing without a card id, without the
+              host's `dictation` handler, or without a `dictation` handle on the
+              target — each of those is a mic whose press could not do what it
+              depicts (Spec S06).
+            */}
+            {composerCardId !== null && (
+              <TugDictationButton
+                composerId={composerCardId}
+                cardId={composerCardId}
+                target={insertTarget}
+                size="lg"
+                focusGroup={submitFocusGroup}
+                focusOrder={dictateFocusOrder}
+              />
+            )}
             {/*
               Z5 `+` queue button — mounted alongside the primary Stop
               button while a turn runs (mode `stop`). CSS-gated on the
@@ -4073,7 +4166,7 @@ export const TugPromptEntry = React.forwardRef<
           toolbarTrailing={landingActive ? commitToolbarTrailing : entryToolbarTrailing}
         >
             <TugTextEditor
-              ref={textEditorRef}
+              ref={bindTextEditor}
               borderless
               // Auto-height: opens at the host's `--tug-text-editor-min-height`
               // (the Session card sets 200px), grows with content up to its

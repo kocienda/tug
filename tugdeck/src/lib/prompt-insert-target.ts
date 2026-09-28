@@ -34,6 +34,7 @@
 
 import type { AtomSegment } from "@/lib/tug-text-types";
 import type { CodeSessionStore } from "@/lib/code-session-store";
+import { dictationHandleFor } from "@/components/tugways/tug-text-editor/dictation-span";
 
 /** A point in client coordinates — a drop's, resolved to a document offset. */
 export interface PromptInsertPoint {
@@ -87,6 +88,59 @@ export interface PromptInsertTarget {
    * accepting a payload it cannot deliver.
    */
   insertFiles?(files: readonly File[]): void;
+  /**
+   * Take dictated speech, as it is being recognised.
+   *
+   * Optional on the same seam and for the same reason as `insertCommand` /
+   * `runCommand` / `insertFiles`: a composer without a live editor behind it
+   * has nowhere to put provisional text, and the mic button renders nothing
+   * when this is absent rather than offering a microphone whose output has
+   * nowhere to land.
+   *
+   * It is a **handle** and not a method, because dictation is the one
+   * operation here that is a *session* rather than an act. Every other member
+   * of this interface happens once and is over; this one opens, receives a
+   * stream of revisions, and closes — and the tail it has most recently shown
+   * has to be replaceable, which means the composer keeps state for the
+   * duration and the store needs one object to talk to about it.
+   */
+  dictation?: DictationHandle;
+}
+
+/**
+ * The composer's end of a dictation session: a span it owns, and four things
+ * the store can tell it.
+ *
+ * Every call goes straight into the editor and none of them goes through React
+ * ([L06]) — a recogniser revises its reading several times a second, and a
+ * render per revision would repaint the composer under the user's hands. The
+ * per-event work belongs inside CodeMirror, which is the whole argument for
+ * putting it behind a handle ([P05]).
+ */
+export interface DictationHandle {
+  /**
+   * Open the span. Called before the host is asked to start, so the caret is
+   * already parked where the text will land by the time any arrives.
+   */
+  begin(): void;
+  /**
+   * Show `text` as the provisional tail, replacing whatever the last call
+   * showed. Provisional text is visibly unsettled and is not part of the
+   * draft the composer would submit.
+   */
+  volatile(text: string): void;
+  /**
+   * Settle `text` into the draft, replacing the provisional tail. Settled
+   * text is ordinary draft content from here on — the user can edit it, and a
+   * submit carries it.
+   */
+  final(text: string): void;
+  /**
+   * Close the span. The provisional tail is **dropped**, not promoted: the
+   * recogniser never called it settled, so it is not text the user asked to
+   * keep. Everything already settled stays.
+   */
+  end(): void;
 }
 
 /**
@@ -106,5 +160,9 @@ export function sessionPromptInsertTarget(
     insertCommand: (name, args) => store.insertCommandDraft(name, args),
     runCommand: (name, args) => store.runCommandDraft(name, args),
     insertFiles: (files) => store.insertFiles(files),
+    // The store's `editorView` is the entry's own view, bound in its editor
+    // ref callback. Read per call, so a session that outlives a remount
+    // writes into the live editor rather than a detached one.
+    dictation: dictationHandleFor(() => store.editorView()),
   };
 }

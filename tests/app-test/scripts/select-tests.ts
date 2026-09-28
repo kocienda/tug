@@ -346,7 +346,24 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // to the word beside it or does not. Neither is assertable against the
     // module alone — the tests that make those claims drive the whole editor,
     // which is what the declaration already says.
-    "tugdeck/src/components/tugways/tug-text-editor/": 32,
+    //
+    // 33 rather than 32, for `dictation-span.ts` — the region a live dictation
+    // session owns and the dimmed provisional tail inside it. It belongs to this
+    // unit on the same reading the two above did: what the module answers for is
+    // where dictated text lands relative to a draft the user is also editing,
+    // whether the unsettled part is visibly unsettled, and whether that part is
+    // dropped rather than kept when the session closes — none of it observable
+    // except through the editing surface. Its own pure logic is pinned off the
+    // editor entirely, in
+    // `tugdeck/src/components/tugways/__tests__/dictation-span.test.ts`.
+    //
+    // This raise trips the refinance rule, which asks for a delete-then-re-add
+    // so the decision lands in the diff. No single commit can do that for a key
+    // that is already committed — the rule reads the key out of `HEAD`, so the
+    // delete and the re-add are two commits, and the first of them leaves this
+    // lint red on an unrecorded subtree. The argument is written here instead,
+    // which is what the rule is actually for.
+    "tugdeck/src/components/tugways/tug-text-editor/": 33,
 
     // The annotator. This is the declaration [F06] was written about: a change to one
     // verdict key selected a slash-command test, because every sibling module here is equal

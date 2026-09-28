@@ -551,13 +551,16 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           // one past the five cells at 13…17, and
           // deliberately NOT the find bar's 11: the bar it replaced existed
           // only while folded, and this control stands in both forms.
-          // 4 and 6 are gaps by design: slot 4 is the off-code-route chip
-          // (Cwd / Changes, never mounted on the code route this fixture
-          // seeds) and slot 6's Effort chip merged into the AI chip in the
-          // Z4B diet. The constants keep their places — the grid describes
-          // the SHAPE of the toolbar row — and the walk skips what is not
-          // mounted.
-        ).toBe(`0,1,5,7,8,9,10,11,18,${EDITOR_ORDER}`);
+          // 4 is a gap by design: slot 4 is the off-code-route chip (Cwd /
+          // Changes, never mounted on the code route this fixture seeds). The
+          // constants keep their places — the grid describes the SHAPE of the
+          // toolbar row — and the walk skips what is not mounted.
+          // 6 is the Z5 mic, which took the slot the Effort chip left when
+          // Mode / Model / Effort merged into the AI chip. It is the row's one
+          // UNCONDITIONAL stop: the submit disables on an empty composer and
+          // the chips vary by route, while the mic is live whenever the host
+          // offers a microphone at all — which under the harness is always.
+        ).toBe(`0,1,5,6,7,8,9,10,11,18,${EDITOR_ORDER}`);
 
         // ⌥⇥ engages the cycle AT the query field's own seat — entering keeps
         // the key view where the keyboard already is, and the landing is a

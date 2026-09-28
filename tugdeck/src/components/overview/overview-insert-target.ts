@@ -33,6 +33,7 @@
 import { applyAppendInsertion } from "@/components/tugways/tug-prompt-entry";
 import { getFocusManager } from "@/components/tugways/focus-manager";
 import type { TugTextEditorDelegate } from "@/components/tugways/tug-text-editor";
+import { dictationHandleFor } from "@/components/tugways/tug-text-editor/dictation-span";
 import {
   dropOffsetAtCoords,
   insertSubstrateAt,
@@ -41,6 +42,7 @@ import { getDeckStore } from "@/lib/deck-store-registry";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import type { AtomSegment } from "@/lib/tug-text-types";
 import type {
+  DictationHandle,
   PromptInsertPoint,
   PromptInsertTarget,
 } from "@/lib/prompt-insert-target";
@@ -78,6 +80,21 @@ const MAX_PARKED = 16;
 class OverviewInsertTarget implements PromptInsertTarget {
   private delegate: TugTextEditorDelegate | null = null;
   private parked: Array<(delegate: TugTextEditorDelegate) => void> = [];
+
+  /**
+   * The composer's end of a dictation session.
+   *
+   * Built once, over a thunk reading whichever delegate is bound now, rather
+   * than rebuilt per `bind` — the store holds this object for the length of a
+   * session, and a handle replaced underneath it would keep writing into the
+   * composer that went away. It does **not** park: a session against an
+   * unmounted composer has nothing listening and no caret to open at, and
+   * replaying a recogniser's revisions minutes later would drop a stale
+   * sentence into a draft the user has since written.
+   */
+  readonly dictation: DictationHandle = dictationHandleFor(
+    () => this.delegate?.view() ?? null,
+  );
 
   /** Called by the composer's editor ref callback, with `null` on unmount. */
   bind(delegate: TugTextEditorDelegate | null): void {

@@ -346,6 +346,11 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     private var suppressedFirstFrontendReady = false
     #endif
     private var contentController: WKUserContentController!
+    /// The one microphone. Constructed once the web view exists, because its
+    /// `emit` closure pushes across the bridge; it holds no audio resources
+    /// until a `start` arrives, so a window that never dictates never touches
+    /// the input node.
+    private var dictationEngine: DictationEngine!
     private var devInfoOverlay: DevInfoOverlayView?
     private var devInfoLabel: NSTextField?
     weak var bridgeDelegate: BridgeDelegate?
@@ -499,6 +504,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.add(self, name: "thumbnailPath")
         contentController.add(self, name: "exportSession")
         contentController.add(self, name: "updateAction")
+        contentController.add(self, name: "dictation")
 
         // Configure WKWebView
         // No Web Inspector, in any build. `developerExtrasEnabled` stays off
@@ -532,6 +538,15 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = false
+
+        // The microphone, wired to the bridge. `audioDisabled` under the
+        // app-test harness: no automated run engages the mic ([P06]), and the
+        // no-audio branch still answers `ready`, `ended { stopped }` and
+        // `ended { superseded }`, so the ordering rules stay testable ([P01]).
+        dictationEngine = DictationEngine(
+            audioDisabled: ProcessInfo.processInfo.environment["TUGAPP_TEST_SOCKET"] != nil,
+            emit: { [weak self] event in self?.bridgeDictationEvent(event) }
+        )
 
         // Suppress WKWebView's default white background. The webView starts
         // hidden and is revealed by frontendReady after JS applies the theme.
@@ -1242,6 +1257,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.removeScriptMessageHandler(forName: "thumbnailPath")
         contentController.removeScriptMessageHandler(forName: "exportSession")
         contentController.removeScriptMessageHandler(forName: "updateAction")
+        contentController.removeScriptMessageHandler(forName: "dictation")
+        // Give the microphone back before the deck it was reporting to is
+        // gone. `shutdown` emits nothing: there is nobody left to tell.
+        dictationEngine?.shutdown()
         bridgeCleaned = true
     }
 
@@ -1283,6 +1302,39 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             if let error = error {
                 NSLog(
                     "MainWindow: evaluateJavaScript failed for onUpdateState: %@",
+                    error.localizedDescription
+                )
+            }
+        }
+    }
+
+    /// Push one dictation event to the deck.
+    ///
+    /// Unlike `bridgeUpdateState`, what crosses here is an **event** and not
+    /// state, so there is nothing to replay: a deck that reloads mid-session
+    /// has thrown away the claim the events were for, and the next thing it
+    /// does is claim the mic again with a fresh id. Spec S03's ordering is the
+    /// engine's to keep; this is only the wire.
+    ///
+    /// Serialized through JSON rather than interpolated, because the payload
+    /// carries recognised speech — arbitrary text, quotes and all.
+    func bridgeDictationEvent(_ event: DictationEvent) {
+        guard
+            let jsonData = try? JSONSerialization.data(withJSONObject: event.jsonObject),
+            let jsonString = String(data: jsonData, encoding: .utf8),
+            let quotedData = try? JSONSerialization.data(
+                withJSONObject: jsonString, options: [.fragmentsAllowed]),
+            let quotedString = String(data: quotedData, encoding: .utf8)
+        else {
+            NSLog("MainWindow: JSON serialization failed for onDictation")
+            return
+        }
+        webView.evaluateJavaScript(
+            "window.__tugBridge?.onDictation?.(JSON.parse(\(quotedString)))"
+        ) { _, error in
+            if let error = error {
+                NSLog(
+                    "MainWindow: evaluateJavaScript failed for onDictation: %@",
                     error.localizedDescription
                 )
             }
@@ -1949,6 +2001,22 @@ extension MainWindow: WKScriptMessageHandler {
             if let appDelegate = NSApp.delegate as? AppDelegate {
                 appDelegate.performUpdateAction(action)
             }
+
+        case "dictation":
+            // Spec S01: `{ id, verb }`, and the engine owns everything after
+            // that — which session is live, whether a second start supersedes
+            // the first, and every refusal the machine can hand back. The host
+            // is where "one composer holds the mic" is enforced, so a deck
+            // that lost track cannot leave two taps on the input node.
+            guard let body = message.body as? [String: Any],
+                  let id = body["id"] as? String,
+                  let verb = body["verb"] as? String else {
+                TugLog.warn("dictation", "dictation with an unreadable body; ignoring", [
+                    TugLog.field("body", String(describing: message.body)),
+                ])
+                return
+            }
+            dictationEngine.handle(verb: verb, id: id)
 
         case "exportSession":
             // `/export` ([#step-13c]) — save the session transcript to a

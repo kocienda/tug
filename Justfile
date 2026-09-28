@@ -85,15 +85,16 @@ test-ts:
 
 # Run the Swift unit tests.
 #
-# Neither needs an XCTest bundle in the Xcode project: each script
+# None of them needs an XCTest bundle in the Xcode project: each script
 # concatenates the canonical source with its driver and runs the pair
 # through `swift -`, so the test exercises the file the app builds against
 # rather than a copy of its logic. That idiom only works for a source with
-# no app-type dependencies, which is why both of them are Foundation-only.
+# no app-type dependencies, which is why every one of them is Foundation-only.
 test-swift:
     bash tests/build-info/test-branch-slug.sh
     bash tests/shell-path/test-shell-path-timeout.sh
     bash tests/update/test-update-state.sh
+    bash tests/dictation/test-dictation-state.sh
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #

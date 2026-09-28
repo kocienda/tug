@@ -36,6 +36,14 @@
 	<integer>7200</integer>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Dictation. Both strings are declared whether or not the recogniser on
+	     a given machine asks for the second one: the prompt quotes them
+	     verbatim, and a missing string is a crash rather than a silent
+	     refusal. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Tug uses the microphone to dictate prompts into a composer.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Tug turns what you say into prompt text, on this Mac.</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

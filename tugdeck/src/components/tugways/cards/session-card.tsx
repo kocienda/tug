@@ -421,6 +421,16 @@ const SESSION_CYCLE_ORDER_CHANGES = 4;
 // row and the engine skips unmounted stops, so closing the gaps would churn
 // every constant beneath them to no effect.
 const SESSION_CYCLE_ORDER_AI = 5;
+// The Z5 mic, in the one free slot below Submit. Its own constant rather than
+// arithmetic off the submit's, for the reason every other stop here is named:
+// the grid describes the shape of the toolbar row, and a derived stop is a
+// number nobody can find when the row changes.
+const SESSION_CYCLE_ORDER_DICTATE = 6;
+// It is a member of `cycleSpatialOrder`'s toolbar row below as well as a Tab
+// stop, because it is visually in that row: Left/Right ring the row the eye
+// sees, and a live control the ring stepped over would be a hole in it. It is
+// also the row's one UNCONDITIONAL stop — the submit disables on an empty
+// composer and the chips vary by route, while the mic is always live.
 const SESSION_CYCLE_ORDER_SUBMIT = 7;
 // Commit mode replaces the single Z5 submit with a three-button rail — Cancel
 // ✕, Auto-Message ✎, Commit ↑ — so it takes 5…7, landing Commit on the submit's
@@ -2293,6 +2303,7 @@ export function SessionCardBody({
         // settings chip along with slots 5 and 6's Model and Effort).
         k(SESSION_CYCLE_ORDER_CWD),
         k(SESSION_CYCLE_ORDER_AI),
+        k(SESSION_CYCLE_ORDER_DICTATE),
         k(SESSION_CYCLE_ORDER_SUBMIT),
       ],
       // The find bar's row, present exactly while the bar is (rowGridOrder
@@ -5017,6 +5028,7 @@ export function SessionCardBody({
                 disabled={replayHoldActive}
                 submitFocusGroup={SESSION_CYCLE_GROUP}
                 submitFocusOrder={SESSION_CYCLE_ORDER_SUBMIT}
+                dictateFocusOrder={SESSION_CYCLE_ORDER_DICTATE}
                 commitFocusOrderBase={SESSION_CYCLE_ORDER_COMMIT_BASE}
                 routeFocusGroup={SESSION_CYCLE_GROUP}
                 routeFocusOrder={SESSION_CYCLE_ORDER_ROUTE}

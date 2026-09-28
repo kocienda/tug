@@ -138,6 +138,7 @@ import {
   selectedAtomSyncPlugin,
   sessionVerdictRegenPlugin,
 } from "./tug-text-editor/atom-decoration";
+import { dictationSpanExtension } from "./tug-text-editor/dictation-span";
 import {
   SessionDotPortals,
   sessionDotLayer,
@@ -1299,6 +1300,11 @@ function buildExtensions(
     // registered (facet default thunk returns `null`).
     pendingAtomSyncPlugin,
     pendingAtomTheme,
+    // The region a live dictation session owns, with its provisional tail
+    // dimmed. Unconditional: an editor nobody dictates into pays one null
+    // field, and deciding per editor would mean a composer knowing whether it
+    // is dictatable before anything has been dictated.
+    dictationSpanExtension,
     // Swaps each atom chip between its resting and selected-variant
     // bake to match the text selection — a chip the selection covers
     // paints with the `-selected-rest` tokens so it reads forward of

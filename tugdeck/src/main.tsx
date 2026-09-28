@@ -27,6 +27,7 @@ import { initRecentDocuments } from "./lib/recent-documents";
 import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installNetworkPathBridge } from "./lib/network-path-store";
 import { installUpdateBridge } from "./lib/update-store";
+import { installDictationBridge } from "./lib/dictation-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { attachLiveTurnsDeck } from "./lib/live-turns-store";
 import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
@@ -600,6 +601,13 @@ async function withBootHorizon<T>(
   // the current snapshot on frontend-ready, and there is no queue on either
   // side. See `lib/update-store.ts`.
   installUpdateBridge();
+
+  // Receive the host's dictation events. Unlike the update bridge there is
+  // nothing to replay: what crosses is an event, and a reloaded deck has
+  // thrown away the claim those events were for. Installed here so the
+  // receiver is in place before any composer can claim the mic. See
+  // `lib/dictation-bridge.ts`.
+  installDictationBridge();
 
   // Receive the host's network-path reports. A hint, and asymmetric: the
   // store believes `unsatisfied` and treats `satisfied` as nothing but a

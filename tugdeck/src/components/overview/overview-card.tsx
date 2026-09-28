@@ -113,6 +113,9 @@ import {
 import { TugJumpToBottomButton } from "@/components/tugways/tug-jump-to-bottom-button";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponder } from "@/components/tugways/use-responder";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
+import { TugDictationButton } from "@/components/tugways/tug-dictation-button";
+import { dictationStore, useDictationFace } from "@/lib/dictation-store";
 import { computePageNavigation } from "@/components/tugways/internal/list-view-page-navigation";
 import {
   getAtomsInState,
@@ -1486,6 +1489,27 @@ function OverviewComposer({
   const submitChord = returnAction === "newline" ? "shift" : undefined;
 
   const bytesStore = overviewComposerBytesStore();
+  // The live card id, and not `OVERVIEW_CARD_ID`: that is the card's
+  // *componentId*, while the dictation store's modal-hold release is keyed on
+  // the card id the deck mints each time the rail is shown. Handing over the
+  // componentId would name a key nothing registers under, so the release would
+  // silently never fire. `null` is the rail put away, and then there is no
+  // composer to dictate into.
+  const composerCardId = useCardId();
+  const dictationFace = useDictationFace(composerCardId ?? "");
+  const dictationOwned =
+    composerCardId !== null &&
+    dictationFace.mode !== "idle" &&
+    dictationFace.mode !== "refused";
+  // Table T03's "card dismissed": the rail being put away is this composer's
+  // unmount, and `endIfOwnedBy` keeps it from ending a session the Session
+  // composer has since taken.
+  useLayoutEffect(() => {
+    if (composerCardId === null) return;
+    return () => {
+      dictationStore.endIfOwnedBy(composerCardId, "dismissed");
+    };
+  }, [composerCardId]);
   // The image atoms currently in the document — external state (CodeMirror's
   // atom field) crossing into React so the strip below the field reflects
   // every drop, paste and delete ([L02]: the update listener is the bridge,
@@ -1592,6 +1616,17 @@ function OverviewComposer({
         if (typeof event.value !== "string") return;
         removeAttachment(event.value);
       },
+      // Escape closes a live mic first ([P09]). Spread in conditionally,
+      // because the chain marks an action handled iff the key is present — an
+      // unconditional handler would swallow the Escape the editor's own
+      // completion dismiss needs when there is no mic to close.
+      ...(dictationOwned && composerCardId !== null
+        ? {
+            [TUG_ACTIONS.CANCEL_DIALOG]: (): void => {
+              dictationStore.endIfOwnedBy(composerCardId, "escape");
+            },
+          }
+        : {}),
     },
   });
 
@@ -1826,6 +1861,11 @@ function OverviewComposer({
 
   const submit = (): void => {
     if (pending) return;
+    // Before the draft is read: a submit carries the settled text and never the
+    // provisional tail, which the release drops (Table T03).
+    if (composerCardId !== null) {
+      dictationStore.endIfOwnedBy(composerCardId, "submitted");
+    }
     const store = getOverviewStore();
     if (store === null) return;
     const state = editorRef.current?.captureState();
@@ -1947,9 +1987,9 @@ function OverviewComposer({
                 density="compact"
                 data-testid="overview-composer-attachment-strip"
                 focusGroup={OVERVIEW_FOCUS_GROUP}
-                // After the field and the send button, which are the two
+                // After the field, the mic and the send button — the three
                 // stops a question is asked with.
-                focusOrderBase={2}
+                focusOrderBase={3}
               />
             ) : null}
             {attachmentError !== null ? (
@@ -1967,25 +2007,40 @@ function OverviewComposer({
         ) : undefined
       }
       toolbarTrailing={
-        <TugPushButton
-          subtype="icon"
-          // `sm` — the Find bar's size, not the Session composer's `lg`. Both
-          // are one line of entry in a narrow rail, and a 36px button beside a
-          // single-line field reads as a button rail with a field above it.
-          size="sm"
-          emphasis="filled"
-          role="action"
-          className="overview-composer-send"
-          data-testid="overview-composer-send"
-          data-tug-entry-default=""
-          data-default-chord={submitChord}
-          aria-label="Ask the Operator"
-          focusGroup={OVERVIEW_FOCUS_GROUP}
-          focusOrder={1}
-          disabled={pending}
-          onClick={submit}
-          icon={<ArrowUp size={16} strokeWidth={2.5} />}
-        />
+        <>
+          {/* The mic, before the send button — so the walk runs field, mic,
+              send, tiles (Spec S06). Renders nothing when the rail has no card
+              id, which is the rail put away. */}
+          {composerCardId !== null && (
+            <TugDictationButton
+              composerId={composerCardId}
+              cardId={composerCardId}
+              target={overviewInsertTarget()}
+              size="sm"
+              focusGroup={OVERVIEW_FOCUS_GROUP}
+              focusOrder={1}
+            />
+          )}
+          <TugPushButton
+            subtype="icon"
+            // `sm` — the Find bar's size, not the Session composer's `lg`. Both
+            // are one line of entry in a narrow rail, and a 36px button beside a
+            // single-line field reads as a button rail with a field above it.
+            size="sm"
+            emphasis="filled"
+            role="action"
+            className="overview-composer-send"
+            data-testid="overview-composer-send"
+            data-tug-entry-default=""
+            data-default-chord={submitChord}
+            aria-label="Ask the Operator"
+            focusGroup={OVERVIEW_FOCUS_GROUP}
+            focusOrder={2}
+            disabled={pending}
+            onClick={submit}
+            icon={<ArrowUp size={16} strokeWidth={2.5} />}
+          />
+        </>
       }
     >
       <TugTextEditor
