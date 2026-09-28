@@ -732,11 +732,16 @@ pub struct ArcRunState {
     /// sentence, or absent when the wheel is not waiting.
     ///
     /// The wheel judges an arc only at a settled idle edge, so an arc whose
-    /// session is busy is one it is deliberately not judging. That is correct
-    /// and it is also indistinguishable, from any face, from a wheel that has
-    /// stopped working — which is what every report of a hung arc has actually
-    /// been. The sentence is composed server-side, in one place, so the card
-    /// and `tugtool arc status` cannot word the same fact two ways.
+    /// step boundary held open by a background job is an edge it cannot
+    /// reach. That is correct and it is also indistinguishable, from any face,
+    /// from a wheel that has stopped working — which is what every report of a
+    /// hung arc has actually been. The sentence is composed server-side, in
+    /// one place, so the card and `tugtool arc status` cannot word the same
+    /// fact two ways.
+    ///
+    /// **Never present for a turn in flight**: a stage working is not a wheel
+    /// waiting, and a line saying so on every tick of ordinary work is where
+    /// the one real wait would go unread.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting: Option<String>,
 }

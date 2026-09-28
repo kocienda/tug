@@ -341,15 +341,24 @@ pub(crate) struct WaitJob {
 /// rotation performed over work still running advances the arc past it. But a
 /// wait that says nothing is indistinguishable from a wheel that has stopped
 /// working, and that is what every report of a hung arc has actually been. So
-/// every tick that reads a busy session and decides nothing publishes *why*,
-/// and both surfaces that could answer the question — the card, and
+/// the tick that reads a boundary it cannot act on publishes *why*, and both
+/// surfaces that could answer the question — the card, and
 /// `tugtool arc status` — read the one fact rather than each deriving its own.
+///
+/// **A turn in flight is not a wait**, and this fact is never written for one.
+/// Mid-turn the wheel may only wait or stop (`tuglaws/wheel.md`), so there is
+/// no edge it is declining to take: the stage is working, and a sentence
+/// saying so on every tick of ordinary work is noise the one real wait would
+/// then hide inside. A turn that never ends is the stall clock's, and it has
+/// its own receipt. So the fact carries no `turn_active`: every one of them is
+/// a boundary the jobs below are holding, and `jobs` is never empty.
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct WaitFact {
     /// When the runner first read this wait, ISO-8601 UTC for the wire.
     pub since: String,
-    pub turn_active: bool,
     pub step_just_done: bool,
+    /// The open background jobs holding the boundary — never empty, because
+    /// `compose_wait` is the only author and it composes nothing without one.
     pub jobs: Vec<WaitJob>,
     /// The boundary horizon in seconds, or `None` when it is off — which the
     /// sentence says, because a wait with no horizon is a wait with no end and
@@ -367,27 +376,6 @@ impl WaitFact {
             .map(|job| job.kind.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        // A turn in flight is the stall clock's business rather than the
-        // boundary horizon's, so the sentence says what is open and stops —
-        // naming a horizon that does not apply here would be worse than
-        // naming none.
-        if self.turn_active {
-            let age = self
-                .jobs
-                .iter()
-                .map(|job| job.open_for_secs)
-                .max()
-                .unwrap_or(0);
-            if self.jobs.is_empty() {
-                return format!("a turn has been open for {}", render_age(age));
-            }
-            let count = self.jobs.len();
-            let plural = if count == 1 { "job" } else { "jobs" };
-            return format!(
-                "a turn has been open for {} with {count} background {plural} ({kinds})",
-                render_age(age),
-            );
-        }
         let count = self.jobs.len();
         let noun = if count == 1 {
             "1 background job open".to_string()
@@ -400,11 +388,7 @@ impl WaitFact {
             .map(|job| job.open_for_secs)
             .max()
             .unwrap_or(0);
-        let mut sentence = if self.jobs.is_empty() {
-            noun
-        } else {
-            format!("{noun} ({kinds}, {})", render_age(age))
-        };
+        let mut sentence = format!("{noun} ({kinds}, {})", render_age(age));
         if self.step_just_done {
             sentence.push_str(" since a step closed");
         }
@@ -489,23 +473,32 @@ pub(crate) fn clear_wait(seat: &str) {
 /// Compose the wait fact for one tick's reading — `None` when the wheel is not
 /// waiting on anything.
 ///
-/// The wheel is waiting exactly when it read a session that is **not idle** and
-/// decided **nothing**. Both halves are load-bearing: an idle session is one
-/// the predicate has already judged, and a tick that decided something is about
-/// to act, so a board entry written for either would say the wheel is stuck at
-/// the moment it is moving. The `action` read here is the post-gate one for
-/// that reason.
+/// The wheel is waiting exactly when it read a session that is **not idle**,
+/// decided **nothing**, and the thing holding the reading busy is a background
+/// job rather than a turn. The first two are load-bearing at the call: an idle
+/// session is one the predicate has already judged, and a tick that decided
+/// something is about to act, so a board entry written for either would say
+/// the wheel is stuck at the moment it is moving. The `action` read there is
+/// the post-gate one for that reason.
+///
+/// The third is load-bearing here, and it is what makes the sentence worth
+/// reading: a turn in flight is a stage *working*, not a wheel waiting, and
+/// `!idle` is `turn_active || jobs` — so publishing on the turn put a line
+/// under the arc for the whole of ordinary execution. What is left is the one
+/// shape the board was built for, and its `jobs` can never be empty.
 fn compose_wait(
     session: &SessionSnapshot,
     step_just_done: bool,
     boundary_horizon_secs: Option<u64>,
     now: Instant,
-) -> WaitFact {
-    WaitFact {
+) -> Option<WaitFact> {
+    if session.turn_active || session.open_job_facts.is_empty() {
+        return None;
+    }
+    Some(WaitFact {
         // Overwritten by `publish_wait` when an entry already stands, so a wait
         // keeps the instant it was first read at.
         since: iso_now(),
-        turn_active: session.turn_active,
         step_just_done,
         jobs: session
             .open_job_facts
@@ -517,7 +510,7 @@ fn compose_wait(
             })
             .collect(),
         boundary_horizon_secs,
-    }
+    })
 }
 
 /// Now, as ISO-8601 UTC — the one time format the wire carries.
@@ -1245,21 +1238,25 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // divergence from the predicate can only be found by guessing.
     //
     // **And a tick that decided nothing over a busy session says what it is
-    // waiting for**, on the board both the card and `arc status` read. Written
-    // from the same values the line below logs, and from the **post-gate**
-    // action, so a tick about to act publishes nothing: the wheel is waiting
-    // only when it read a session that is not finished and chose to do nothing
-    // about it ([P02]).
+    // waiting for** — when there is anything to say — on the board both the
+    // card and `arc status` read. Written from the same values the line below
+    // logs, and from the **post-gate** action, so a tick about to act
+    // publishes nothing: the wheel is waiting only when it read a session that
+    // is not finished and chose to do nothing about it ([P02]). A turn in
+    // flight is `compose_wait`'s own refusal — that is a stage working, not a
+    // wheel waiting — so the `then` can yield `None` and retract.
     publish_wait(
         &arc.seat,
-        (!reading.facts.session_idle && action.is_none()).then(|| {
-            compose_wait(
-                &session,
-                reading.facts.ledger.step_just_done,
-                reading.config.boundary_horizon().map(|d| d.as_secs()),
-                Instant::now(),
-            )
-        }),
+        (!reading.facts.session_idle && action.is_none())
+            .then(|| {
+                compose_wait(
+                    &session,
+                    reading.facts.ledger.step_just_done,
+                    reading.config.boundary_horizon().map(|d| d.as_secs()),
+                    Instant::now(),
+                )
+            })
+            .flatten(),
     );
     info!(
         target: "dev::session-lifecycle",
@@ -6441,7 +6438,6 @@ Some context.
         sweep(&ctx, &state).await;
 
         let fact = waiting_for("claude-1").expect("the tick said what it is waiting for");
-        assert!(!fact.turn_active);
         assert_eq!(fact.jobs.len(), 1);
         assert_eq!(fact.jobs[0].kind, "bash");
         assert!(
@@ -6478,6 +6474,50 @@ Some context.
             waiting_for("claude-1").map(|f| f.sentence()),
             None,
             "the job reported; there is nothing left to wait for",
+        );
+    }
+
+    /// **A turn in flight is not a wait, and the board says nothing about
+    /// one.** `!idle` is `turn_active || jobs`, so a tick that published on
+    /// every busy reading put a line under the arc for the whole of ordinary
+    /// execution — and, with no job to read an age off, one that said `0s`
+    /// forever. A stage working is not a wheel stuck: mid-turn there is no
+    /// edge the wheel is declining to take, and a turn that never ends is the
+    /// stall clock's with a receipt of its own.
+    #[tokio::test]
+    async fn a_turn_in_flight_is_not_a_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = settling_state(root);
+        entry.lock().await.turn_active = true;
+
+        sweep(&ctx, &state).await;
+        assert!(
+            waiting_for("claude-1").is_none(),
+            "the session is busy because the stage is working, which is not a wait",
+        );
+
+        // And a turn opening over a boundary that *was* being waited on
+        // retracts it: the job may have reported, and either way the wheel is
+        // no longer holding anything.
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard
+                .open_jobs
+                .insert("t1".to_owned(), bash_job(Instant::now()));
+        }
+        sweep(&ctx, &state).await;
+        assert!(waiting_for("claude-1").is_some());
+
+        entry.lock().await.turn_active = true;
+        sweep(&ctx, &state).await;
+        assert!(
+            waiting_for("claude-1").is_none(),
+            "a wait outliving the boundary it was about is the thing the retract exists for",
         );
     }
 
@@ -6761,46 +6801,28 @@ Some context.
             kind: kind.to_string(),
             open_for_secs: secs,
         };
-        let fact = |jobs: Vec<WaitJob>, turn_active, step_just_done, horizon| WaitFact {
+        let fact = |jobs: Vec<WaitJob>, step_just_done, horizon| WaitFact {
             since: "2026-09-26T00:00:00Z".to_string(),
-            turn_active,
             step_just_done,
             jobs,
             boundary_horizon_secs: horizon,
         };
 
         assert_eq!(
-            fact(vec![job("bash", 1_380)], false, true, Some(120)).sentence(),
+            fact(vec![job("bash", 1_380)], true, Some(120)).sentence(),
             "1 background job open (bash, 23 min) since a step closed — the \
              wheel prompts past it at 2 min",
         );
         assert_eq!(
-            fact(
-                vec![job("bash", 30), job("agent", 5)],
-                false,
-                false,
-                Some(120)
-            )
-            .sentence(),
+            fact(vec![job("bash", 30), job("agent", 5)], false, Some(120)).sentence(),
             "2 background jobs open (bash, agent, 30s) — the wheel prompts past it at 2 min",
         );
         // The horizon off is said rather than left out: a wait with no end is a
         // different thing from one with a bounded one.
         assert_eq!(
-            fact(vec![job("monitor", 90)], false, true, None).sentence(),
+            fact(vec![job("monitor", 90)], true, None).sentence(),
             "1 background job open (monitor, 1 min) since a step closed — the \
              boundary horizon is off",
-        );
-        // Mid-turn is the stall clock's business, so no horizon is named.
-        assert_eq!(
-            fact(
-                vec![job("bash", 600), job("agent", 60)],
-                true,
-                true,
-                Some(120)
-            )
-            .sentence(),
-            "a turn has been open for 10 min with 2 background jobs (bash, agent)",
         );
     }
 
@@ -6811,9 +6833,12 @@ Some context.
     fn a_second_publish_keeps_the_waits_first_stamp() {
         let fact = |since: &str| WaitFact {
             since: since.to_string(),
-            turn_active: false,
             step_just_done: true,
-            jobs: Vec::new(),
+            jobs: vec![WaitJob {
+                key: "t1".to_string(),
+                kind: "bash".to_string(),
+                open_for_secs: 30,
+            }],
             boundary_horizon_secs: None,
         };
         publish_wait("seat-stamp", Some(fact("2026-09-26T00:00:00Z")));

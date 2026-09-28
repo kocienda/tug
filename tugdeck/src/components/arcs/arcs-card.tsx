@@ -422,9 +422,8 @@ class CockpitRowsDataSource implements TugListViewDataSource {
  * Pure, and shared by both row kinds on purpose: a branch row and a
  * paperwork row read the same field off the same record, and a helper that
  * served one of them would be the second face this line exists to avoid. A
- * planned arc has no branch for the whole of devise and review, which is
- * where a seated tick most often decides nothing — so the paperwork row is
- * the one that shows this most.
+ * planned arc has no branch for the whole of devise and review, so a wait
+ * read there lands on the paperwork row and nowhere else.
  *
  * An empty sentence reads as no wait: the server sends the field only when it
  * has something to say, and a blank line of row height says nothing.

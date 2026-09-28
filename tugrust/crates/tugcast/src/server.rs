@@ -2178,7 +2178,6 @@ mod tests {
             "seg-busy",
             Some(crate::feeds::arc_runner::WaitFact {
                 since: "2026-09-26T00:00:00Z".to_string(),
-                turn_active: false,
                 step_just_done: true,
                 jobs: vec![crate::feeds::arc_runner::WaitJob {
                     key: "t1".to_string(),

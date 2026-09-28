@@ -191,10 +191,11 @@ export interface ArcRunState {
    *  sentence, absent when it is not waiting.
    *
    *  The wheel judges an arc only at a settled idle edge, so an arc whose
-   *  session is busy is one it is deliberately not judging — which is correct
-   *  and also indistinguishable, from any face, from a wheel that has stopped
-   *  working. Composed server-side, in one place, so no face words the same
-   *  fact a second way. */
+   *  step boundary is held open by a background job is one it cannot reach —
+   *  which is correct and also indistinguishable, from any face, from a wheel
+   *  that has stopped working. Never present for a turn in flight: a stage
+   *  working is not a wheel waiting. Composed server-side, in one place, so
+   *  no face words the same fact a second way. */
   waiting?: string;
 }
 
