@@ -141,7 +141,6 @@ import {
 } from "@/lib/settle-frame-probe";
 import {
   dispatchImposerSettleEnd,
-  dispatchImposerSettleStart,
   IMPOSER_SETTLE_END,
 } from "@/lib/settle-notice";
 import {
@@ -4831,10 +4830,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         `${IMPOSITION_SETTLE_MS}ms`,
       );
       putSettlingMarkOn(el);
-      // The start notice, on the outgoing DOM: what a listener writes now is
-      // in place for the settle's first frame. Paired with the end notice
-      // every release path dispatches.
-      dispatchImposerSettleStart(el);
       const settleMs = readSettleMs(el);
       settleDurationRef.current = settleMs;
       const windowMs = settleMs * getTugTiming();
@@ -5394,12 +5389,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // handler below, which is also where the crossing's end is announced
         // — the imposer's spring is the crossing's only clock ([B03], [B05]).
         const firstFold = firstFolds.get(paneId);
+        // The far side's content height, read ONCE for both marks below. The
+        // fold's mark writes the held height onto the content box's children
+        // and the mark onto the frame, so a second `contentBoxHeight` after it
+        // is a forced layout of the card at its far-side height — 3–4ms on a
+        // 1630px session card, paid in the frame that launches the motion.
+        const lastContentHeight = heightTweens ? contentBoxHeight(frame) : null;
         if (
           heightTweens &&
           firstFold !== undefined &&
           firstFold.folded !== frame.hasAttribute("data-folded")
         ) {
-          const lastContentHeight = contentBoxHeight(frame);
           const heldHeight = Math.max(
             firstFold.contentHeight ?? 0,
             lastContentHeight ?? 0,
@@ -5434,7 +5434,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (heightTweens) {
           const stillHeight = Math.max(
             firstFold?.contentHeight ?? 0,
-            contentBoxHeight(frame) ?? 0,
+            lastContentHeight ?? 0,
           );
           stillCrossingId =
             stillHeight > 0

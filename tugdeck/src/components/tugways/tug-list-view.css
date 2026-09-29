@@ -390,17 +390,20 @@ body {
    the tail cell's opt-out below lands on, since the tail is never skippable
    and therefore never marked.
 
-   THE PIN IS WRITTEN INLINE, NOT HERE. It stood here as two rules keyed on the
+   THE PIN IS RETIRED, AND THE PARAGRAPHS ABOVE ARE ITS ARGUMENT, KEPT SO THE
+   NEXT READER DOES NOT REBUILD IT. It stood here as two rules keyed on the
    canvas's `data-imposer-settling` — `[data-imposer-settling] .tug-list-view
-   … .tug-list-view-cell[data-cv-ready]` — and a rule that restyles descendants
-   on an ancestor's attribute makes the engine walk every descendant of that
-   ancestor to find them, on every toggle. The canvas is the whole deck, so the
-   walk was 25ms each way on a six-session deck, paid inside the gesture's own
-   task at the arm and again in the frame that lands the settle. The list view
-   now writes `content-visibility: visible` or `hidden` on each ready cell when
-   the canvas dispatches its settle-start notice and takes it off at the end
-   notice (`tug-list-view.tsx`, the relevance-pin effect), which invalidates
-   the cell alone. */
+   … .tug-list-view-cell[data-cv-ready]` — and was measured on a six-session
+   deck of 23,000 elements: toggling that attribute cost ~25ms of style each
+   way with these rules present and 0ms with them deleted, paid inside the
+   gesture's own task at the arm and again in the frame that lands the settle.
+   Rewritten as inline writes on the cells from a settle-start notice it cost
+   the same at the arm (~40ms) and stalled 130–500ms of frames at the land,
+   with the `visible` arm the worst of it — it drops the containment `auto`
+   carries, a layout change on every rendered cell at once — and the `hidden`
+   arm alone still 45ms. With no pin the same fold's first geometry read after
+   the arm cost 1ms. The mark it read, `data-cv-skipped`, stays: it is free,
+   and the `at0622` budget census reads it. */
 
 /* The tail cell opts out. It is the auto-follow target — always on
    screen, so skipping it saves nothing — and it is the cell whose
