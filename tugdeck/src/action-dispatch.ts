@@ -1039,6 +1039,9 @@ export function initActionDispatch(
     }
     raiseCard(deckManager, cardId);
     flashPaneBorderOnSettle(pane.id);
+    performance.mark("tug:action-end");
+    queueMicrotask(() => performance.mark("tug:action-microtask"));
+    window.setTimeout(() => performance.mark("tug:action-next-task"), 0);
   });
 
   // resume-session: open a fresh session card and restore a session into it.

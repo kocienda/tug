@@ -841,10 +841,12 @@ export function transferFocusForActivation(
   // `flushSync` — but wrapping unconditionally is harmless and
   // keeps the contract uniform.
   if (commitMutation !== undefined) {
+    performance.mark("tug:flushSync-start");
     flushSync(() => {
       commitMutation();
     });
   }
+  performance.mark("tug:flushSync-end");
 
   // Step 3 — Ask the engine whether this claim is permitted (Spec S03).
   //
@@ -871,6 +873,7 @@ export function transferFocusForActivation(
     site: "focus-transfer",
     ...(modality !== undefined ? { modality } : {}),
   });
+  performance.mark("tug:applyBagFocus-end");
 
   // Step 5 — Post-dispatch follow-ups (selection / form-control).
   //

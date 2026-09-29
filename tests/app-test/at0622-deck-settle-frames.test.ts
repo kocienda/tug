@@ -658,6 +658,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
         const plain = await sampleBarActivation(four.app, 4, 0);
         report("four-up plain probe", plain.probe);
         note(`at0622 four-up plain row: ${JSON.stringify(plain.row)}`);
+        note(`at0622 four-up click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
         expectBar("four-up", plain);
         fourFrames = plain.row.longestGapFrames;
         fourGapMs = plain.row.longestGapMs;
@@ -1526,6 +1527,28 @@ interface SettleFramesRow {
   readonly violations: readonly string[];
 }
 
+/** PROBE: the click task's marks, milliseconds after the last `tug:arm-end`, every entry from 60ms before it on. */
+const clickTaskMarks = (app: App): Promise<Record<string, number[]>> =>
+  app.evalJS<Record<string, number[]>>(
+    `(function () {
+       var names = ["tug:arm-end", "tug:flushSync-start", "tug:flushSync-end", "tug:applyBagFocus-end",
+                    "tug:action-end", "tug:action-microtask", "tug:action-next-task",
+                    "tug:first-tick", "tug:react-notify",
+                    "tug:react-notify-end", "tug:last-pass", "tug:canvas-render",
+                    "tug:flip-will-end", "tug:flip-commit-end", "tug:flip-chain-key-end",
+                    "tug:flip-did-deactivate-end", "tug:flip-did-activate-end"];
+       var out = {};
+       var arm = performance.getEntriesByName("tug:arm-end");
+       var origin = arm.length ? arm[arm.length - 1].startTime : 0;
+       names.forEach(function (n) {
+         out[n] = performance.getEntriesByName(n)
+           .map(function (e) { return Math.round((e.startTime - origin) * 10) / 10; })
+           .filter(function (t) { return t > -60; });
+       });
+       return out;
+     })()`,
+  );
+
 const traceMark = (app: App): Promise<number> =>
   app.evalJS<number>(`window.__deckTrace.since(0).length`);
 
@@ -1734,6 +1757,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           const violations = await motionViolationRows(app, mark);
           note(`at0622 column violations: ${JSON.stringify(violations)}`);
+          note(`at0622 column rows: ${JSON.stringify(await settleFrameRows(app, mark))}`);
+          note(`at0622 column arms: ${JSON.stringify(await app.evalJS<unknown>(`window.__deckTrace.since(${mark}).filter(function (e) { return e.kind === "settle-arm" || e.kind === "settle-release" || e.kind === "store-notify"; }).map(function (e) { return e.kind + ":" + (e.outcome || e.source || e.caller || "") + ":" + (e.panes === undefined ? "" : e.panes); })`))}`);
 
           // This is a FINDING, not a fixture. A column that divides gives
           // each member a share of the height, and the settle carries that as

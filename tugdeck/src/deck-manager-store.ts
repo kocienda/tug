@@ -61,6 +61,13 @@ export interface IDeckManagerStore {
   subscribe: (callback: (landing: CommitLanding) => void) => () => void;
 
   /**
+   * PROBE (motion-before-React, step 1): subscribe on the commit's OWN task.
+   * `subscribe` above is told one painted frame later while the probe runs;
+   * a DOM writer that must see the commit before React does takes this door.
+   */
+  subscribeSync?: (callback: (landing: CommitLanding) => void) => () => void;
+
+  /**
    * Return the current DeckState snapshot.
    * Must be an arrow property (stable identity, auto-bound this).
    */

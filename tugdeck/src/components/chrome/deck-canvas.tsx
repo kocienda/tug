@@ -602,6 +602,8 @@ interface ArrangementSignature {
   readonly full: string;
   /** Every term except the flow offset and each pane's slot. */
   readonly size: string;
+  /** PROBE: every term except the flow offset. Equal across a pure flow slide. */
+  readonly sansOffset: string;
 }
 
 /**
@@ -783,6 +785,7 @@ function arrangementSignature(
     // of the gate: an episode raised where none was needed costs what today
     // costs, where one skipped costs the reader their place.
     size: `${kind}|${flowSize}|${bullseye}|${rails}|${columns}|${panesSize.join(",")}`,
+    sansOffset: `${kind}|${layout}|${bullseye}|${rails}|${columns}|${panes.join(",")}`,
   };
 }
 
@@ -895,6 +898,14 @@ interface SettleTween {
  * this is generous over that and still short beside the bound it guards.
  */
 const SPACE_EPOCH_DEADLINE_MARGIN_MS = 120;
+
+/**
+ * PROBE (motion-before-React, step 1). A commit that changes ONLY the flow
+ * offset has its move beat launched from `arm` — inside the gesture's task,
+ * from the store's own delta, before React renders — and the Last pass adopts
+ * it rather than planning one. Read with `at0622`'s `settle-frames` row.
+ */
+const PROBE_PRELAUNCH_FLOW = true;
 
 /**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
@@ -2510,6 +2521,7 @@ const LayerPanes = memo(function LayerPanes({
  * Those are the deck's, not any one workspace's ((#canvas-shape)).
  */
 export function DeckCanvas(_props: DeckCanvasProps) {
+  performance.mark("tug:canvas-render");
   // ---- Store subscription ([D04]) ----
   // Named `store` (not `manager`) to avoid collision with the ResponderChainManager
   // variable below.
@@ -3690,6 +3702,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * raises no episode.
    */
   const sizeSignatureRef = useRef(arrangementSig.size);
+  /** PROBE: the offset-less signature as `arm` last saw it. */
+  const sansOffsetRef = useRef(arrangementSig.sansOffset);
+  /** PROBE: the flow offset as `arm` last saw it, rounded as it is written. */
+  const flowOffsetRef = useRef(Math.round(store.getSnapshot().flowOffset ?? 0));
+  /** PROBE: the move beat `arm` launched ahead of React, if one is up. */
+  const prelaunchRef = useRef<{ token: object } | null>(null);
   const settleTimerRef = useRef<number | null>(null);
   /**
    * Re-arms the settle's window sweep — the timer that takes the settling
@@ -4237,6 +4255,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // feeding `rectsChangedAfterLanding`, which the row has no field for
         // either. Either would put a cost inside the one window [D9] forbids
         // main-thread work in, to compute a number nothing here reads.
+        if (record.samples.length === 0) performance.mark("tug:first-tick");
         record.samples.push(sampleSettleFrame(el));
         record.raf = requestAnimationFrame(tick);
       };
@@ -4408,6 +4427,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // and not a translate.
       const sizeChanged = next.size !== sizeSignatureRef.current;
       sizeSignatureRef.current = next.size;
+      // PROBE: is this commit a pure flow slide, and by how much?
+      const flowOnly = next.sansOffset === sansOffsetRef.current && !sizeChanged;
+      sansOffsetRef.current = next.sansOffset;
+      const prevFlowOffset = flowOffsetRef.current;
+      const nextFlowOffset = Math.round(state.flowOffset ?? 0);
+      flowOffsetRef.current = nextFlowOffset;
 
       // The commit said the frames are already drawn where it puts them — a
       // per-frame writer catching the store up after the fact ([B01]). There
@@ -4462,6 +4487,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // fade IS in flight keeps it: its landing is unconditional, and cutting
       // it would take the departure off the screen mid-fade.
       removeDepartureGhostsRef.current("unlaunched");
+      // PROBE: every arm supersedes the Last pass before it. Under the
+      // deferral there is a painted frame between this arm and its own Last
+      // pass, and a beat this arm cancels lands its completion in that
+      // frame — with the generation unbumped it read as the settle's own
+      // completion and released the window early (the eight-card column leg
+      // read one tick and no height rows).
+      settleGenerationRef.current += 1;
 
       // First: where every frame the imposer may move is right now. A running
       // tween's transform is included in the rect, which is the point — a
@@ -4482,6 +4514,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // be seen to. So the episodes are still raised, the imposer's settle-end
       // notice still goes out, and only the tweens are refused.
       const motion = isTugMotionEnabled() && !switching;
+      // PROBE: launch the move from here when nothing else is in flight and
+      // the whole change is the strip's offset. Measuring is skipped for a
+      // pre-launched settle: the Last pass finds no First rects and leaves the
+      // marks and the hold to this beat's own landing.
+      const prelaunch =
+        PROBE_PRELAUNCH_FLOW &&
+        motion &&
+        flowOnly &&
+        prevFlowOffset !== nextFlowOffset &&
+        settleTweensRef.current.size === 0 &&
+        pendingArrivalsRef.current.size === 0;
+      if (!prelaunch) prelaunchRef.current = null;
+      const measure = motion && !prelaunch;
       const firstRects = settleFirstRectsRef.current;
       firstRects.clear();
       const firstFolds = settleFirstFoldsRef.current;
@@ -4629,13 +4674,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           });
           for (const anim of running.anims) anim.cancel("hold-at-current");
         }
-        if (motion) firstRects.set(paneId, frame.getBoundingClientRect());
+        if (measure) firstRects.set(paneId, frame.getBoundingClientRect());
         // The fold's near side. Read for every frame rather than only the
         // ones that turn out to cross, because which frames those are is not
         // knowable until the Last pass has the other side: `data-folded` is an
         // attribute read, and the content rect costs nothing extra in a loop
         // that has already flushed layout for the frame's own rect above.
-        if (motion) {
+        if (measure) {
           firstFolds.set(paneId, {
             folded: frame.hasAttribute("data-folded"),
             contentHeight: contentBoxHeight(frame),
@@ -4644,7 +4689,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // The edge, for the ghost this frame may leave behind. Read for every
         // frame for `firstFolds`' reason — which ones depart is not knowable
         // until the Last pass — and it is one attribute read.
-        if (motion) {
+        if (measure) {
           const side = frame.getAttribute("data-rail-side");
           if (side === "left" || side === "right") {
             firstRailSides.set(paneId, side);
@@ -4674,7 +4719,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (!key.startsWith(RAIL_SHADOW_TWEEN_PREFIX)) continue;
         if (!entry.el.isConnected) settleTweensRef.current.delete(key);
       }
-      if (motion) {
+      if (measure) {
         for (const strip of el.querySelectorAll<HTMLElement>(
           "[data-rail-shadow]",
         )) {
@@ -4832,6 +4877,66 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       putSettlingMarkOn(el);
       const settleMs = readSettleMs(el);
       settleDurationRef.current = settleMs;
+      if (prelaunch) {
+        // The strip's new place, written now so every pane's `left` is at its
+        // destination in the frame the tween's inverse holds it at its origin.
+        // The layer's own effect writes the same value after React commits.
+        const layer = el.querySelector<HTMLElement>(
+          `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
+        );
+        layer?.style.setProperty(FLOW_OFFSET_PROPERTY, `${nextFlowOffset}px`);
+        // `left = C - offset`, so First - Last = next - prev.
+        const dx = nextFlowOffset - prevFlowOffset;
+        const curve = motionKeyframes(BEAT_RECIPE.move, { nominalMs: settleMs });
+        const keyframes = springSettleKeyframes({ dx, dy: 0 }, curve.progress);
+        const token = {};
+        const launched: Array<{
+          paneId: string;
+          frame: HTMLElement;
+          anims: TugAnimation[];
+        }> = [];
+        for (const { paneId, frame } of armed) {
+          frame.style.transformOrigin = "0 0";
+          const anim = animate(frame, keyframes, {
+            duration: curve.durationMs,
+            fill: "backwards",
+            composite: "replace",
+            slotCancelMode: "hold-at-current",
+            easing: "linear",
+            key: "imposer-flip-move",
+          });
+          const anims = [anim];
+          settleTweensRef.current.set(paneId, { el: frame, anims, restores: [] });
+          launched.push({ paneId, frame, anims });
+        }
+        const allAnims = launched.map((entry) => entry.anims[0] as TugAnimation);
+        const land = (): void => {
+          if (prelaunchRef.current?.token !== token) return;
+          prelaunchRef.current = null;
+          for (const { paneId, frame, anims } of launched) {
+            clearFlip(paneId, frame, anims);
+          }
+          settleBeatRef.current = null;
+          endSettleMarks(el);
+          dispatchImposerSettleEnd(el);
+          settleReleaseRef.current?.("completion");
+          drainArrivalsRef.current();
+        };
+        prelaunchRef.current = { token };
+        settleBeatRef.current = {
+          kind: "move",
+          launchedAt: performance.now(),
+          initialVelocity: 0,
+          anims: allAnims,
+          land,
+        };
+        el.setAttribute("data-imposer-beat", "move");
+        tugDevLogStore.debug("arrival", "settle PRELAUNCH", {
+          panes: launched.length,
+          dx,
+        });
+        void Promise.allSettled(allAnims.map((anim) => anim.finished)).then(land);
+      }
       const windowMs = settleMs * getTugTiming();
 
       // The cap is generous against the window it guards — it is a
@@ -4850,8 +4955,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // armed at exactly the crossing's duration would win the race with the
       // last tween's `finished` by a frame and release from the wrong clock.
       scheduleSweep(Math.max(2 * windowMs, 1000));
+      performance.mark("tug:arm-end");
     };
-    const unsubscribe = store.subscribe(arm);
+    const unsubscribe = (store.subscribeSync ?? store.subscribe)(arm);
     return () => {
       unsubscribe();
       settleSweepRef.current = null;
@@ -4924,6 +5030,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // frame's `left` calc resolves against. Measuring Last before the fresh
   // insets land would tween every rail side flip from a stale delta.
   useLayoutEffect(() => {
+    performance.mark("tug:last-pass");
     const el = containerRef.current;
     const firstRects = settleFirstRectsRef.current;
     const firstFolds = settleFirstFoldsRef.current;

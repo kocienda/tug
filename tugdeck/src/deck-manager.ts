@@ -250,6 +250,17 @@ import {
 const SAVE_DEBOUNCE_MS = 500;
 
 /**
+ * PROBE (motion-before-React, step 1). When true, `notify()` tells the
+ * `subscribeSync` subscribers inside the commit's task and every other
+ * subscriber — React's `useSyncExternalStore` hooks among them — on the task
+ * after the next painted frame, so the deck's React commit leaves the gesture's
+ * task and lands under a settle the canvas has already launched.
+ */
+const PROBE_DEFER_REACT_NOTIFY = true;
+/** The deadline behind the deferral: an occluded window never fires rAF. */
+const PROBE_DEFER_DEADLINE_MS = 50;
+
+/**
  * The registered `componentId` of a Session card.
  *
  * Spelled here rather than imported from `lib/session-restore.ts`, which holds
@@ -1121,6 +1132,12 @@ export class DeckManager implements IDeckManagerStore {
 
   private subscribers: Set<(landing: CommitLanding) => void> = new Set();
 
+  /** PROBE: subscribers told inside the commit's own task. */
+  private syncSubscribers: Set<(landing: CommitLanding) => void> = new Set();
+
+  /** PROBE: the one deferred notification in flight, coalescing every commit until it flushes. */
+  private deferredNotify: { landing: CommitLanding } | null = null;
+
   private stateVersion: number = 0;
 
   // ---- Stable bound callbacks ----
@@ -1172,6 +1189,44 @@ export class DeckManager implements IDeckManagerStore {
   };
 
   public getSnapshot = (): DeckState => this.deckState;
+
+  /** PROBE: {@link subscribe}'s synchronous door. See `PROBE_DEFER_REACT_NOTIFY`. */
+  public subscribeSync = (callback: (landing: CommitLanding) => void): (() => void) => {
+    this.syncSubscribers.add(callback);
+    return () => {
+      this.syncSubscribers.delete(callback);
+    };
+  };
+
+  /**
+   * PROBE: tell the deferred subscribers after the next painted frame. rAF
+   * runs before that frame's rendering update and a zero timer queued inside
+   * it runs after, so the flush lands on the far side of one paint. A deadline
+   * timer stands behind it for a window whose rAF is suspended ([L32]).
+   */
+  private _scheduleDeferredNotify(landing: CommitLanding): void {
+    if (this.deferredNotify !== null) {
+      if (landing === "cross") this.deferredNotify.landing = "cross";
+      return;
+    }
+    const pending = { landing };
+    this.deferredNotify = pending;
+    const flush = (): void => {
+      if (this.deferredNotify !== pending) return;
+      this.deferredNotify = null;
+      performance.mark("tug:react-notify");
+      this.subscribers.forEach((cb) => cb(pending.landing));
+      performance.mark("tug:react-notify-end");
+    };
+    if (typeof requestAnimationFrame !== "function") {
+      flush();
+      return;
+    }
+    requestAnimationFrame(() => {
+      window.setTimeout(flush, 0);
+    });
+    window.setTimeout(flush, PROBE_DEFER_DEADLINE_MS);
+  }
 
   // ---- Spaces store (a second useSyncExternalStore contract, [P03], [L02]) ----
 
@@ -2458,7 +2513,12 @@ export class DeckManager implements IDeckManagerStore {
     // `host-menu-state` aggregator subscribes at boot (main.tsx) and
     // projects each notification into the `menuState` push the Swift
     // host validates its menus from.
-    this.subscribers.forEach((cb) => cb(landing));
+    this.syncSubscribers.forEach((cb) => cb(landing));
+    if (!PROBE_DEFER_REACT_NOTIFY) {
+      this.subscribers.forEach((cb) => cb(landing));
+      return;
+    }
+    this._scheduleDeferredNotify(landing);
   }
 
   refresh(): void {
@@ -4363,10 +4423,15 @@ export class DeckManager implements IDeckManagerStore {
     if (oldFR !== null) this.cardLifecycle.notifyCardWillDeactivate(oldFR);
     if (newFR !== null) this.cardLifecycle.notifyCardWillActivate(newFR);
     this._clearBullseyeOnFocusFlip(newFR);
+    performance.mark("tug:flip-will-end");
     commit();
+    performance.mark("tug:flip-commit-end");
     if (newFR !== null) this.cardLifecycle.setResponderChainKey(newFR);
+    performance.mark("tug:flip-chain-key-end");
     if (oldFR !== null) this.cardLifecycle.notifyCardDidDeactivate(oldFR);
+    performance.mark("tug:flip-did-deactivate-end");
     if (newFR !== null) this.cardLifecycle.notifyCardDidActivate(newFR);
+    performance.mark("tug:flip-did-activate-end");
     // Record after the composite bit has changed — matches Spec
     // `deck-trace` ordering ("fr-flip after the composite
     // bit changes"). See list [#l01-recording-sites].
