@@ -453,9 +453,8 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         // here, and it always rotates — a `Continue` would ask the implement
         // session to audit its own work. The `arc-stage audit` line the
         // rotation writes clears this `resume`, as every stage line does.
-        let seam_audit = resumed == ArcStage::Implement
-            && facts.ledger.run_complete
-            && !facts.audit_declared;
+        let seam_audit =
+            resumed == ArcStage::Implement && facts.ledger.run_complete && !facts.audit_declared;
         let stage = if seam_audit { ArcStage::Audit } else { resumed };
         let steps = (stage == ArcStage::Implement)
             .then(|| facts.ledger.first_pending.zip(facts.ledger.run_through))

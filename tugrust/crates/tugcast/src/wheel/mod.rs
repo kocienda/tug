@@ -909,7 +909,8 @@ mod tests {
         .await;
         let forwarded = input_rx.recv().await.expect("the frame reaches tugcode");
         assert_eq!(
-            body(&forwarded)["type"], "permission_mode",
+            body(&forwarded)["type"],
+            "permission_mode",
             "the stamp reads the frame on the way past and never eats it",
         );
 

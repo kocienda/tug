@@ -7828,7 +7828,10 @@ Some context.
             "a wheel that broke before the audit is an arc nothing audited, and is not ready"
         );
         let cli = status_in(&root, "audit-stop-arc").unwrap();
-        assert_eq!(cli.stage, feed.stage, "the CLI reads the same arc the same way");
+        assert_eq!(
+            cli.stage, feed.stage,
+            "the CLI reads the same arc the same way"
+        );
         assert_ne!(cli.stage, "ready");
 
         mark("audit-stop-arc", MarkStage::Audited, None).unwrap();

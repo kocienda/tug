@@ -1544,7 +1544,10 @@ mod tests {
         append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
         append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::StoppedByUser).unwrap();
         append_arc_resume(root, "d", ArcStage::Implement).unwrap();
-        assert_eq!(read_arc(root, "d").unwrap().resume, Some(ArcStage::Implement));
+        assert_eq!(
+            read_arc(root, "d").unwrap().resume,
+            Some(ArcStage::Implement)
+        );
 
         append_arc_stage(root, "d", ArcStage::Audit, "s2", None).unwrap();
         let record = read_arc(root, "d").unwrap();
