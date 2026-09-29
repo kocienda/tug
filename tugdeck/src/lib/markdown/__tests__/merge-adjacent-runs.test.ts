@@ -24,7 +24,8 @@ import { TUG_ATOM_CHAR, type AtomSegment } from "@/lib/tug-atom-img";
 
 /** A block the runs can share by identity. The element is never dereferenced. */
 function block(): BlockInfo {
-  return { el: {} as Element, kind: "p", level: 0, inQuote: false };
+  const el = {} as Element;
+  return { el, chain: [{ kind: "paragraph", el }] };
 }
 
 function run(text: string, b: BlockInfo, marks: Marks = {}): Run {

@@ -10,15 +10,22 @@
  * clipping the first/last to the selection's offsets, so the text is
  * exactly what's selected. For each run, read its inline styling from its
  * ancestors (`<strong>`→`**`, `<em>`→`*`, `<del>`→`~~`, `<code>`→`` ` ``,
- * `<a>`→`[…](href)`) and its block context (heading level, list item,
- * code fence, blockquote), and emit markdown that wraps **only** the
- * selected text. A partial bold selection → `**old**`; a heading → `## …`;
- * an unstyled run → plain. Markers aren't text, so the rendered result
- * equals the selection exactly.
+ * `<a>`→`[…](href)`) and its **ancestor chain** — every container between
+ * the `.tugx-md-block` wrapper and the leaf the text sits in: a blockquote,
+ * a list with its type, `start` and tightness, an item with its index, a
+ * table with its rows and cells, down to the paragraph, heading, code block
+ * or cell. The chains are assembled into a tree and the tree is emitted
+ * recursively by CommonMark's container rules, so markdown wraps **only**
+ * the selected text: a partial bold selection → `**old**`; a heading →
+ * `## …`; a range that starts at the fourth item → `4.`. Markers aren't
+ * text, so the rendered result equals the selection exactly.
  *
  * Because only text nodes and atom chips produce output, structural/empty
  * nodes the selection merely grazed — a bare `<hr>`, an empty heading clone at
  * a boundary — contribute nothing: overshoot is impossible by construction.
+ * The block chrome the enhancers draw — a fence's language label, a table's
+ * row count — is text too, but it is the wrapper's and never the prose's,
+ * so the walk skips it.
  *
  * **Atoms are characters, not text.** A chip is one indivisible thing the user
  * put there, so a selection that crosses one yields a `U+FFFC` and the atom
@@ -47,15 +54,32 @@ export interface Marks {
   href?: string;
 }
 
+/** A column's alignment, as the header row declares it. */
+export type Align = "none" | "left" | "center" | "right";
+
+/**
+ * One container or leaf on a run's path from the `.tugx-md-block` wrapper
+ * down to the element its text sits in. `el` is the DOM element the node
+ * stands for; two runs whose chains share an `el` at the same depth sit in
+ * the same node of the tree the emitter walks.
+ */
+export type ChainNode =
+  | { kind: "quote"; el: Element }
+  | { kind: "list"; el: Element; ordered: boolean; start: number; tight: boolean }
+  | { kind: "item"; el: Element; index: number; task: "checked" | "unchecked" | null }
+  | { kind: "table"; el: Element; aligns: readonly Align[] }
+  | { kind: "row"; el: Element; header: boolean }
+  | { kind: "cell"; el: Element; index: number }
+  | { kind: "footnote"; el: Element; label: string }
+  | { kind: "paragraph"; el: Element }
+  | { kind: "heading"; el: Element; level: number }
+  | { kind: "code"; el: Element; lang: string | null };
+
 export interface BlockInfo {
-  /** The block element — runs sharing it group into one block. */
+  /** The leaf element — runs sharing it group into one leaf. */
   el: Element;
-  /** "heading" | "li" | "pre" | "p" (default). */
-  kind: string;
-  /** Heading level (1..6) when kind === "heading"; 0 otherwise. */
-  level: number;
-  /** Inside a `<blockquote>` (prefix lines with `> `). */
-  inQuote: boolean;
+  /** Wrapper-to-leaf ancestor chain; the last node is the leaf. */
+  chain: readonly ChainNode[];
 }
 
 export interface Run {
@@ -98,6 +122,14 @@ const BLOCK_TAGS = new Set([
 
 function isBlockBoundary(el: Element): boolean {
   return BLOCK_TAGS.has(el.tagName) || el.classList.contains("tugx-md-block");
+}
+
+/** The enhancers' chrome — a label, a button — whose text is never prose. */
+function inChrome(el: Element | null): boolean {
+  return el !== null && (
+    el.closest(".tugx-md-chrome-header") !== null
+    || el.closest(".footnote-definition-label") !== null
+  );
 }
 
 /**
@@ -170,34 +202,172 @@ function serializeKatex(el: Element): string {
   return display ? `$$${tex}$$` : `$${tex}$`;
 }
 
-/** The block context of a text node: nearest block ancestor + flags. */
-function blockInfoOf(node: Node): BlockInfo {
-  let el = node.parentElement;
-  let block: Element | null = null;
-  let inPre = false;
-  let inQuote = false;
-  while (el !== null) {
-    const tag = el.tagName;
-    if (tag === "PRE") inPre = true;
-    if (tag === "BLOCKQUOTE") inQuote = true;
-    if (block === null && BLOCK_TAGS.has(tag)) block = el;
-    if (el.classList.contains("tugx-md-block")) {
-      if (block === null) block = el;
-      break;
+/** Whether the leaf a run sits in is a paragraph, heading, cell or code. */
+function isLeaf(node: ChainNode): boolean {
+  return (
+    node.kind === "paragraph"
+    || node.kind === "heading"
+    || node.kind === "cell"
+    || node.kind === "code"
+  );
+}
+
+function elementIndex(el: Element): number {
+  const parent = el.parentElement;
+  if (parent === null) return 0;
+  let i = 0;
+  for (const sibling of parent.children) {
+    if (sibling === el) return i;
+    if (sibling.tagName === el.tagName) i += 1;
+  }
+  return i;
+}
+
+/** A list is tight when no item wraps its text in a `<p>` (CommonMark 5.3). */
+function listIsTight(list: Element): boolean {
+  for (const item of list.children) {
+    if (item.tagName !== "LI") continue;
+    for (const child of item.children) {
+      if (child.tagName === "P") return false;
     }
+  }
+  return true;
+}
+
+/** The item's checkbox: directly under a tight item, inside the `<p>` of a loose one. */
+function taskStateOf(item: Element): "checked" | "unchecked" | null {
+  const box = item.querySelector(
+    ':scope > input[type="checkbox"], :scope > p:first-of-type > input[type="checkbox"]',
+  );
+  if (box === null) return null;
+  return box.hasAttribute("checked") ? "checked" : "unchecked";
+}
+
+function alignOf(cell: Element): Align {
+  const declared = (
+    (cell as HTMLElement).style?.textAlign
+    || cell.getAttribute("align")
+    || ""
+  ).toLowerCase();
+  return declared === "left" || declared === "center" || declared === "right"
+    ? declared
+    : "none";
+}
+
+function tableAligns(table: Element): Align[] {
+  const header = table.querySelector("thead tr") ?? table.querySelector("tr");
+  if (header === null) return [];
+  return Array.from(header.children).map(alignOf);
+}
+
+/** The fence's language: the enhancer's `data-lang`, else the `<code>` class. */
+function langOf(pre: Element): string | null {
+  const wrapper = pre.closest(".tugx-md-fenced-code") as HTMLElement | null;
+  const fromWrapper = wrapper?.dataset.lang;
+  if (fromWrapper !== undefined && fromWrapper !== "") return fromWrapper;
+  const code = pre.querySelector(":scope > code");
+  if (code !== null) {
+    for (const cls of code.classList) {
+      if (cls.startsWith("language-")) {
+        const lang = cls.slice("language-".length).trim();
+        if (lang !== "") return lang;
+      }
+    }
+  }
+  return null;
+}
+
+/** The chain node one ancestor stands for, or `null` for a transparent one. */
+function chainNodeOf(el: Element): ChainNode | null {
+  const tag = el.tagName;
+  if (tag === "BLOCKQUOTE") return { kind: "quote", el };
+  if (tag === "UL" || tag === "OL") {
+    const start = Number(el.getAttribute("start") ?? "1");
+    return {
+      kind: "list",
+      el,
+      ordered: tag === "OL",
+      start: Number.isFinite(start) ? start : 1,
+      tight: listIsTight(el),
+    };
+  }
+  if (tag === "LI") {
+    return { kind: "item", el, index: elementIndex(el), task: taskStateOf(el) };
+  }
+  if (tag === "TABLE") return { kind: "table", el, aligns: tableAligns(el) };
+  if (tag === "TR") return { kind: "row", el, header: el.closest("thead") !== null };
+  if (tag === "TD" || tag === "TH") return { kind: "cell", el, index: elementIndex(el) };
+  if (tag === "P") return { kind: "paragraph", el };
+  if (/^H[1-6]$/.test(tag)) return { kind: "heading", el, level: Number(tag[1]) };
+  if (tag === "PRE") return { kind: "code", el, lang: langOf(el) };
+  if (tag === "DIV" && el.classList.contains("footnote-definition")) {
+    return { kind: "footnote", el, label: el.getAttribute("id") ?? "" };
+  }
+  return null;
+}
+
+/**
+ * The block context of a node: its ancestor chain from the `.tugx-md-block`
+ * wrapper down to the leaf its text sits in. Text with no leaf element of
+ * its own — a tight item's, or a bare wrapper's — gets a paragraph leaf
+ * standing on the innermost *container* it sits in — the item, the quote, or
+ * the wrapper itself.
+ *
+ * The container, never the nearest ancestor element: an inline ancestor is
+ * transparent to the chain, so a tight item's `<strong>` would otherwise give
+ * its text a leaf of its own and the item would come apart into one line per
+ * styled span.
+ */
+function blockInfoOf(node: Node): BlockInfo {
+  const ancestors: Element[] = [];
+  let el = node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element).parentElement
+    : node.parentElement;
+  while (el !== null && !el.classList.contains("tugx-md-block")) {
+    ancestors.push(el);
     el = el.parentElement;
   }
-  if (block === null) block = node.parentElement ?? (node as Element);
-  const tag = block.tagName;
-  const kind = inPre
-    ? "pre"
-    : /^H[1-6]$/.test(tag)
-      ? "heading"
-      : tag === "LI"
-        ? "li"
-        : "p";
-  const level = /^H[1-6]$/.test(tag) ? Number(tag[1]) : 0;
-  return { el: block, kind, level, inQuote };
+  const chain: ChainNode[] = [];
+  for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+    const cn = chainNodeOf(ancestors[i]!);
+    if (cn !== null) chain.push(cn);
+  }
+  const last = chain[chain.length - 1];
+  if (last === undefined || !isLeaf(last)) {
+    const container = last?.el ?? el ?? node.parentElement ?? (node as Element);
+    chain.push({ kind: "paragraph", el: container });
+  }
+  return { el: chain[chain.length - 1]!.el, chain };
+}
+
+function isCodeLeaf(block: BlockInfo): boolean {
+  return block.chain[block.chain.length - 1]?.kind === "code";
+}
+
+/** `![alt](src "title")` for a rendered image. */
+function imageMarkdown(img: Element): string {
+  const alt = img.getAttribute("alt") ?? "";
+  const src = img.getAttribute("src") ?? "";
+  const title = img.getAttribute("title");
+  const dest = title !== null && title !== "" ? `${src} "${title.replace(/"/g, '\\"')}"` : src;
+  return `![${alt}](${dest})`;
+}
+
+/** Whether `range` holds the whole of `el`, not merely a boundary on it. */
+function rangeContains(range: Range, el: Element): boolean {
+  const doc = el.ownerDocument;
+  if (doc === null) return false;
+  const own = doc.createRange();
+  own.selectNode(el);
+  // START_TO_START = 0, END_TO_END = 2.
+  return range.compareBoundaryPoints(0, own) <= 0 && range.compareBoundaryPoints(2, own) >= 0;
+}
+
+/** The `[^label]` of a footnote reference, from the link it back-references. */
+function footnoteLabel(ref: Element): string {
+  const href = ref.querySelector("a")?.getAttribute("href") ?? "";
+  const fromHref = href.replace(/^#/, "");
+  return fromHref !== "" ? fromHref : (ref.textContent ?? "").trim();
 }
 
 /** Inline styling of a text node, from its ancestors up to the block. */
@@ -264,12 +434,27 @@ function collectRuns(range: Range): Run[] {
   const runs: Run[] = [];
   const seenKatex = new Set<Element>();
   const seenAtoms = new Set<Element>();
+  const seenFootnotes = new Set<Element>();
 
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
     if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as Element;
       const atom = atomOf(el);
-      if (atom === null) continue;
+      if (atom === null) {
+        // Elements with no text of their own that still stand for something
+        // in the markdown. An image is inline, so it keeps its marks (a
+        // linked image is `[![…](src)](href)`); a rule is a block, emitted
+        // only when the range holds all of it AND selected text on both
+        // sides of it — `trimRules` below drops one at either edge, because
+        // a drag that ends at the start of the next block's text holds the
+        // rule between without the reader having selected anything of it.
+        if (el.tagName === "IMG" && closestAtomChip(el) === null && range.intersectsNode(el)) {
+          runs.push({ text: imageMarkdown(el), block: blockInfoOf(el), marks: marksOf(el), raw: false });
+        } else if (el.tagName === "HR" && rangeContains(range, el)) {
+          runs.push({ text: "---", block: blockInfoOf(el), marks: {}, raw: true });
+        }
+        continue;
+      }
       if (seenAtoms.has(el) || !range.intersectsNode(el)) continue;
       seenAtoms.add(el);
       // The chip is one character in the substrate — the same U+FFFC the
@@ -290,6 +475,27 @@ function collectRuns(range: Range): Run[] {
     // `<title>`, a citation's title) — already accounted for by the atom run
     // above, and never prose.
     if (closestAtomChip(textNode) !== null) continue;
+
+    // Chrome the enhancers drew around a block — a fence's language label, a
+    // table's row count, a footnote's number — is the wrapper's, not the
+    // prose's. A range spanning the block contains it all the same.
+    if (inChrome(textNode.parentElement)) continue;
+
+    // A footnote reference's number is a link to its definition; the
+    // markdown for it is `[^label]`, once per reference.
+    const footnote = textNode.parentElement?.closest("sup.footnote-reference") ?? null;
+    if (footnote !== null) {
+      if (!seenFootnotes.has(footnote)) {
+        seenFootnotes.add(footnote);
+        runs.push({
+          text: `[^${footnoteLabel(footnote)}]`,
+          block: blockInfoOf(footnote),
+          marks: {},
+          raw: true,
+        });
+      }
+      continue;
+    }
 
     // KaTeX: emit the TeX once for the whole `.katex`, skip its text.
     const katex = closestKatex(textNode);
@@ -313,14 +519,37 @@ function collectRuns(range: Range): Run[] {
     if (text === "") continue;
 
     const block = blockInfoOf(textNode);
+    const code = isCodeLeaf(block);
     runs.push({
       text,
       block,
-      marks: block.kind === "pre" ? {} : marksOf(textNode),
-      raw: block.kind === "pre",
+      marks: code ? {} : marksOf(textNode),
+      raw: code,
     });
   }
-  return runs;
+  return trimRules(runs);
+}
+
+/** A run the reader actually selected: text that is not only whitespace, or a chip. */
+function isSubstantive(run: Run): boolean {
+  return run.atom !== undefined || run.text.trim() !== "";
+}
+
+function isRule(run: Run): boolean {
+  return run.raw && run.text === "---" && run.atom === undefined;
+}
+
+/**
+ * Drop a rule that has no selected content on one side of it. Only text and
+ * chips are what the reader chose; a rule is carried between them, never
+ * as the first or last thing a selection says.
+ */
+function trimRules(runs: Run[]): Run[] {
+  const first = runs.findIndex((r) => isSubstantive(r) && !isRule(r));
+  if (first === -1) return runs.filter((r) => !isRule(r));
+  let last = runs.length - 1;
+  while (last > first && !(isSubstantive(runs[last]!) && !isRule(runs[last]!))) last -= 1;
+  return runs.filter((r, i) => !isRule(r) || (i > first && i < last));
 }
 
 /** Whether two runs carry the same inline marks, field for field. */
@@ -395,22 +624,193 @@ function applyMarks(text: string, marks: Marks): string {
   return lead + core + trail;
 }
 
-/** Emit one grouped block's markdown. */
-function emitBlock(kind: string, level: number, inQuote: boolean, body: string): string {
-  if (kind === "pre") {
-    return "```\n" + body.replace(/\n+$/, "") + "\n```";
+// ---------------------------------------------------------------------------
+// The tree — chains assembled, then emitted by CommonMark's container rules
+// ---------------------------------------------------------------------------
+
+interface TreeNode {
+  node: ChainNode;
+  children: TreeNode[];
+  /** The runs of a leaf, in document order. Empty on a container. */
+  runs: Run[];
+}
+
+/**
+ * Consecutive runs sharing a leaf join into one leaf; leaves sharing a
+ * container nest under it. Siblings are matched by element identity at
+ * their own depth and only against the *last* sibling, so text that
+ * returns to an item after its nested list starts a new leaf rather than
+ * folding into the one before the list.
+ */
+function buildTree(runs: readonly Run[]): TreeNode[] {
+  const root: TreeNode[] = [];
+  for (const run of runs) {
+    let siblings = root;
+    let node: TreeNode | undefined;
+    for (const cn of run.block.chain) {
+      const last = siblings[siblings.length - 1];
+      if (last !== undefined && last.node.el === cn.el && last.node.kind === cn.kind) {
+        node = last;
+      } else {
+        node = { node: cn, children: [], runs: [] };
+        siblings.push(node);
+      }
+      siblings = node.children;
+    }
+    node?.runs.push(run);
+  }
+  return root;
+}
+
+/**
+ * A leaf's inline text: each run in its marks, joined, trimmed at the ends.
+ * The leaf's atoms ride out only when its text does — a leaf that trims
+ * away to nothing takes its chips with it, so the atoms stay paired with
+ * the U+FFFC characters that actually survived.
+ */
+function emitInline(runs: readonly Run[], atoms: AtomSegment[]): string {
+  let body = "";
+  const own: AtomSegment[] = [];
+  for (const run of runs) {
+    body += run.raw ? run.text : applyMarks(run.text, run.marks);
+    if (run.atom !== undefined) own.push(run.atom);
   }
   const text = body.replace(/^\s+/, "").replace(/\s+$/, "");
   if (text === "") return "";
-  if (kind === "heading") return "#".repeat(level) + " " + text;
-  if (kind === "li") return "- " + text;
-  if (inQuote) {
-    return text
-      .split("\n")
-      .map((l) => (l === "" ? ">" : "> " + l))
-      .join("\n");
-  }
+  atoms.push(...own);
   return text;
+}
+
+function emitCode(node: TreeNode, atoms: AtomSegment[]): string {
+  let body = "";
+  for (const run of node.runs) {
+    body += run.text;
+    if (run.atom !== undefined) atoms.push(run.atom);
+  }
+  const lang = node.node.kind === "code" ? node.node.lang ?? "" : "";
+  return "```" + lang + "\n" + body.replace(/\n+$/, "") + "\n```";
+}
+
+/** Every line prefixed, the way a container's content is carried. */
+function prefixLines(text: string, first: string, rest: string): string {
+  return text
+    .split("\n")
+    .map((line, i) => {
+      const prefix = i === 0 ? first : rest;
+      return line === "" ? prefix.replace(/\s+$/, "") : prefix + line;
+    })
+    .join("\n");
+}
+
+function emitQuote(node: TreeNode, atoms: AtomSegment[]): string {
+  const inner = emitBlocks(node.children, atoms).join("\n\n");
+  return inner === "" ? "" : prefixLines(inner, "> ", "> ");
+}
+
+function emitList(node: TreeNode, atoms: AtomSegment[]): string {
+  if (node.node.kind !== "list") return "";
+  const { ordered, start, tight } = node.node;
+  const between = tight ? "\n" : "\n\n";
+  const items: string[] = [];
+  for (const child of node.children) {
+    if (child.node.kind !== "item") continue;
+    const marker = ordered ? `${start + child.node.index}.` : "-";
+    const task =
+      child.node.task === null ? "" : child.node.task === "checked" ? "[x] " : "[ ] ";
+    const content = emitBlocks(child.children, atoms).join(between);
+    if (content === "") continue;
+    items.push(
+      prefixLines(content, marker + " " + task, " ".repeat(marker.length + 1)),
+    );
+  }
+  return items.join(between);
+}
+
+function emitCell(node: TreeNode, atoms: AtomSegment[]): string {
+  return emitInline(node.runs, atoms).replace(/\n/g, " ").replace(/\|/g, "\\|");
+}
+
+const ALIGN_ROW: Record<Align, string> = {
+  none: "---",
+  left: ":--",
+  center: ":-:",
+  right: "--:",
+};
+
+/**
+ * Only the rows the selection touched, with the first of them as the header
+ * — the header row when it is among them, else the first body row, which is
+ * what makes a single copied row render as a table rather than as prose.
+ */
+function emitTable(node: TreeNode, atoms: AtomSegment[]): string {
+  if (node.node.kind !== "table") return "";
+  const aligns = node.node.aligns;
+  const lines: string[] = [];
+  for (const row of node.children) {
+    if (row.node.kind !== "row") continue;
+    const cells: string[] = [];
+    const indexes: number[] = [];
+    for (const cell of row.children) {
+      if (cell.node.kind !== "cell") continue;
+      cells.push(emitCell(cell, atoms));
+      indexes.push(cell.node.index);
+    }
+    if (cells.length === 0) continue;
+    lines.push("| " + cells.join(" | ") + " |");
+    if (lines.length === 1) {
+      const rule = indexes.map((i) => ALIGN_ROW[aligns[i] ?? "none"]);
+      lines.push("| " + rule.join(" | ") + " |");
+    }
+  }
+  return lines.join("\n");
+}
+
+function emitFootnote(node: TreeNode, atoms: AtomSegment[]): string {
+  if (node.node.kind !== "footnote") return "";
+  const inner = emitBlocks(node.children, atoms).join("\n\n");
+  if (inner === "") return "";
+  return prefixLines(inner, `[^${node.node.label}]: `, "    ");
+}
+
+/** One node's markdown, or `""` when it carries nothing selected. */
+function emitNode(node: TreeNode, atoms: AtomSegment[]): string {
+  switch (node.node.kind) {
+    case "quote":
+      return emitQuote(node, atoms);
+    case "list":
+      return emitList(node, atoms);
+    case "table":
+      return emitTable(node, atoms);
+    case "footnote":
+      return emitFootnote(node, atoms);
+    case "code":
+      return emitCode(node, atoms);
+    case "heading": {
+      const text = emitInline(node.runs, atoms);
+      return text === "" ? "" : "#".repeat(node.node.level) + " " + text;
+    }
+    case "cell":
+      return emitCell(node, atoms);
+    case "paragraph":
+      return emitInline(node.runs, atoms);
+    case "item":
+    case "row":
+      // Only reached for an item outside a list or a row outside a table —
+      // a shape the chain never produces. Carry the content plainly.
+      return emitBlocks(node.children, atoms).join("\n\n");
+    default:
+      return "";
+  }
+}
+
+/** The blocks of a sibling list, empties dropped. */
+function emitBlocks(nodes: readonly TreeNode[], atoms: AtomSegment[]): string[] {
+  const out: string[] = [];
+  for (const node of nodes) {
+    const block = emitNode(node, atoms);
+    if (block !== "") out.push(block);
+  }
+  return out;
 }
 
 /**
@@ -433,42 +833,8 @@ export function selectionToTranscriptSubstrate(
   const runs = mergeAdjacentRuns(collectRuns(selection.getRangeAt(0)));
   if (runs.length === 0) return null;
 
-  // Group consecutive runs by their block element.
-  const out: string[] = [];
   const atoms: AtomSegment[] = [];
-  let curEl: Element | null = null;
-  let curKind = "p";
-  let curLevel = 0;
-  let curQuote = false;
-  let body = "";
-  // The atoms of the block being built, held back until the block is emitted:
-  // a block that trims away to nothing takes its chips with it, so the atoms
-  // stay paired with the U+FFFC characters that actually survived.
-  let bodyAtoms: AtomSegment[] = [];
-  const flush = (): void => {
-    if (curEl === null) return;
-    const block = emitBlock(curKind, curLevel, curQuote, body);
-    if (block.trim() !== "") {
-      out.push(block);
-      atoms.push(...bodyAtoms);
-    }
-    body = "";
-    bodyAtoms = [];
-  };
-  for (const run of runs) {
-    if (run.block.el !== curEl) {
-      flush();
-      curEl = run.block.el;
-      curKind = run.block.kind;
-      curLevel = run.block.level;
-      curQuote = run.block.inQuote;
-    }
-    body += run.raw ? run.text : applyMarks(run.text, run.marks);
-    if (run.atom !== undefined) bodyAtoms.push(run.atom);
-  }
-  flush();
-
-  const md = out.join("\n\n").trim();
+  const md = emitBlocks(buildTree(runs), atoms).join("\n\n").trim();
   return md.length > 0 ? { text: md, atoms } : null;
 }
 

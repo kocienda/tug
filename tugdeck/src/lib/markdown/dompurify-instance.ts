@@ -36,13 +36,41 @@ export const SANITIZE_CONFIG = {
     // id="N">` wrapper can keep its `id` for fragment back-references from
     // the matching `<sup class="footnote-reference"><a href="#N">…</a></sup>`.
     "div",
+    // `input` survives only as the task-list checkbox pulldown-cmark emits
+    // (`<input disabled type="checkbox" checked>`); `restrictInputs` below
+    // drops every other input and pins the survivor disabled, so the item's
+    // done/undone state is in the DOM without a control that can be typed in.
+    "input",
   ],
-  ALLOWED_ATTR: ["href", "src", "alt", "title", "class", "id"],
+  // `start` survives so an ordered list that begins above one renders — and
+  // copies — with the ordinal its author gave it.
+  ALLOWED_ATTR: ["href", "src", "alt", "title", "class", "id", "start", "type", "checked", "disabled"],
   FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "style", "link", "meta", "base", "svg", "math"],
   FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur"],
 };
 
 let _dompurify: ReturnType<typeof DOMPurifyModule> | null = null;
+
+/**
+ * Confine `<input>` to the task-list checkbox: any other input is removed,
+ * and the checkbox is always disabled. Hooks are per-instance, so this runs
+ * for every config the instance sanitizes; a config that does not allow
+ * `input` at all never reaches it.
+ */
+function restrictInputs(instance: ReturnType<typeof DOMPurifyModule>): void {
+  instance.addHook("uponSanitizeElement", (node, data) => {
+    if (data.tagName !== "input") return;
+    const el = node as Element;
+    if (el.getAttribute("type") !== "checkbox") {
+      el.parentNode?.removeChild(el);
+    }
+  });
+  instance.addHook("afterSanitizeAttributes", (node) => {
+    if (node.nodeName === "INPUT") {
+      (node as Element).setAttribute("disabled", "");
+    }
+  });
+}
 
 /**
  * Return a DOMPurify instance bound to a standards-compliant DOM.
@@ -69,6 +97,7 @@ export function getDOMPurify(): ReturnType<typeof DOMPurifyModule> {
       const dom = new JSDOM("<!DOCTYPE html>");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       _dompurify = DOMPurifyModule(dom.window as any);
+      restrictInputs(_dompurify);
       if (_dompurify.isSupported) return _dompurify;
     } catch {
       // jsdom not available — fall through to window fallback.
@@ -78,5 +107,6 @@ export function getDOMPurify(): ReturnType<typeof DOMPurifyModule> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const win: any = typeof window !== "undefined" ? window : (global as any).window;
   _dompurify = DOMPurifyModule(win);
+  restrictInputs(_dompurify);
   return _dompurify;
 }

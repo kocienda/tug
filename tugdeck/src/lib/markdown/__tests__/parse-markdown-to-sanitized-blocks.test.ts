@@ -93,6 +93,27 @@ describe("parseMarkdownToSanitizedBlocks", () => {
     }
   });
 
+  test("a task-list checkbox survives, disabled", () => {
+    const blocks = parseMarkdownToSanitizedBlocks("- [x] done\n- [ ] todo");
+    expect(blocks.length).toBe(1);
+    const html = blocks[0].html;
+    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*checked/);
+    expect((html.match(/<input/g) ?? []).length).toBe(2);
+    for (const tag of html.match(/<input[^>]*>/g) ?? []) {
+      expect(tag).toContain("disabled");
+    }
+  });
+
+  test("an input that is not a checkbox is removed, and a live checkbox is pinned disabled", () => {
+    const blocks = parseMarkdownToSanitizedBlocks(
+      'Type <input type="text" name="q"> here, tick <input type="checkbox"> there.',
+    );
+    const html = blocks.map((b) => b.html).join("\n");
+    expect(html).not.toMatch(/type="text"/);
+    expect(html).not.toContain('name="q"');
+    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*disabled/);
+  });
+
   test("forbidden inline event handler is stripped", () => {
     // pulldown-cmark passes raw HTML through to the renderer; DOMPurify
     // is the line of defense for things like `onerror`.

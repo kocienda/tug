@@ -75,9 +75,10 @@ const SOURCE_MULTI =
   "Alpha paragraph one only.\n\n---\n\n## Beta Heading\n\nGamma paragraph two.";
 // Rich-content message for the source-faithful regression cases
 // ([#step-12]): a heading, a list, inline + display math (the KaTeX
-// TeX-extraction path), and a fenced code block. Selecting each must
-// copy its markdown source — `### …`, `- …`, `$…$` / `$$…$$`, ``` ``` ``` —
-// never the rendered glyph/highlight text.
+// TeX-extraction path), a fenced code block, and a tight numbered list.
+// Selecting each must copy its markdown source — `### …`, `- …`, `$…$` /
+// `$$…$$`, ``` ``` ```, `1.` — never the rendered glyph/highlight text, and
+// the numbered list must keep its ordinals with no blank line between items.
 const SOURCE_RICH = [
   "### Rich Heading",
   "",
@@ -91,6 +92,10 @@ const SOURCE_RICH = [
   "```ts",
   "const y = 1;",
   "```",
+  "",
+  "1. Numbered one",
+  "2. Numbered two",
+  "3. Numbered three",
 ].join("\n");
 // Command-bearing message: inline `<code>` spans the annotator marks as
 // clickable commands — two project shell commands (`just` / `tugtool`) and

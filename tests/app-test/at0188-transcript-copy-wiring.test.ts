@@ -50,6 +50,7 @@
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.css
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.tsx
  * @covers tugdeck/src/fixtures/fixture-transcript-copy.tsx
+ * @covers tugdeck/src/lib/markdown/serialize-selection.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -444,6 +445,19 @@ describe.skipIf(!SHOULD_RUN)(
           const dispSel = await app.evalJS<string>(SELECT_DISPLAY_MATH);
           expect(dispSel).not.toBe("__NO_KATEX__");
           expect(await app.evalJS<string>(probe)).toBe("$$x = a + b$$");
+
+          // ---- numbered list via the real ⌘C path: the text/plain flavor
+          // keeps each item's ordinal and puts one newline between tight
+          // items — never bullets, never a blank line per item. ----
+          const numberedSel = await app.evalJS<string>(selectRichBlockScript("Numbered one"));
+          expect(numberedSel).toContain("Numbered three");
+          const numberedMd = await copyAndRead(app);
+          expect(numberedMd).toBe("1. Numbered one\n2. Numbered two\n3. Numbered three");
+          const numberedFlavors = await app.evalJS<{ plain: string; html: string } | null>(
+            `window.__copyEvent`,
+          );
+          expect(numberedFlavors?.plain).toBe(numberedMd);
+          expect(numberedFlavors?.html).toContain("<ol>");
         } catch (err) {
           const tail = app.tailLog(200);
           if (tail !== "") process.stderr.write(`\n[at0188-transcript-copy-wiring] log tail:\n${tail}\n`);
