@@ -141,6 +141,7 @@ import {
 } from "@/lib/settle-frame-probe";
 import {
   dispatchImposerSettleEnd,
+  dispatchImposerSettleStart,
   IMPOSER_SETTLE_END,
 } from "@/lib/settle-notice";
 import {
@@ -813,13 +814,14 @@ function inlineRestorer(
 }
 
 /**
- * Take the settle's marks off the container — after ONE forced style flush.
+ * Take the settle's marks off the container and its frames — after ONE forced
+ * style flush.
  *
  * The flush is the whole of this function, and it is not a tidiness: the
  * settle's LAST write is the inline residue coming off its frames, and that
  * write lands in the same task as these marks. `chrome.css` stands the frame's
  * window-shade `transition: height` down for exactly the length of this window
- * (`[data-imposer-settling] .tug-pane`) so no second clock runs on a height
+ * (`.tug-pane[data-imposer-settling]`) so no second clock runs on a height
  * the settle is tweening — but a style recalc that sees the hand-back also
  * sees the marks gone, so the transition it resolves against is the LIVE one
  * and it arms on the hand-back itself.
@@ -839,8 +841,42 @@ function inlineRestorer(
  */
 function endSettleMarks(el: HTMLElement): void {
   void el.offsetHeight;
-  el.removeAttribute("data-imposer-settling");
+  takeSettlingMarkOff(el);
   el.removeAttribute("data-imposer-beat");
+}
+
+/**
+ * The settle's mark goes on the container, for every reader that asks "is a
+ * settle in flight", AND on each shown frame, for the one stylesheet rule that
+ * keys on it (`chrome.css`, `.tug-pane[data-imposer-settling]`: the height
+ * shade standing down).
+ *
+ * The frame carries its own copy because of what the rule used to cost. Keyed
+ * on the CONTAINER's attribute — `[data-imposer-settling] .tug-pane` — a rule
+ * that restyles descendants on an ancestor's attribute makes the engine walk
+ * every descendant of that ancestor to find the ones to invalidate, on every
+ * toggle. On a six-session deck of 23,000 elements that walk read 25ms each
+ * way, paid inside the gesture's own task at the arm and again in the frame
+ * that lands the settle — the two frames a fold could least afford. A rule
+ * whose attribute is on the element it styles invalidates that element alone,
+ * and toggling the container's copy, which no stylesheet reads any more,
+ * costs nothing.
+ */
+function putSettlingMarkOn(el: HTMLElement): void {
+  el.setAttribute("data-imposer-settling", "");
+  for (const frame of el.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
+    frame.setAttribute("data-imposer-settling", "");
+  }
+}
+
+/** {@link putSettlingMarkOn}'s inverse: the container's mark and every frame's. */
+function takeSettlingMarkOff(el: HTMLElement): void {
+  el.removeAttribute("data-imposer-settling");
+  for (const frame of el.querySelectorAll<HTMLElement>(
+    ".tug-pane[data-imposer-settling]",
+  )) {
+    frame.removeAttribute("data-imposer-settling");
+  }
 }
 
 /** One pane's in-flight settle: its tweens and the inline residue they owe back. */
@@ -2183,6 +2219,21 @@ function SpaceLayerWrapper({
 }
 
 /**
+ * The callbacks `LayerPanes` hands each `TugPane`, made once per stack and
+ * kept: a memoized pane compares its props, and a closure minted per render
+ * never compares equal.
+ */
+interface StackCallbacks {
+  readonly onClose: () => void;
+  readonly onMoveToSpace: (spaceId: string) => void;
+  readonly onCardMerged: (
+    sourceStackId: string,
+    targetStackId: string,
+    insertIndex: number,
+  ) => void;
+}
+
+/**
  * One workspace's panes and card hosts, from its own deck and its own
  * arrangement — the whole of what a layer renders under its wrapper.
  *
@@ -2243,6 +2294,54 @@ const LayerPanes = memo(function LayerPanes({
     if (!deckTrace.isKindEnabled("layer-render")) return;
     deckTrace.record({ kind: "layer-render", spaceId, shown });
   });
+  // One callback set per stack, made once and kept for the store's life.
+  // `TugPane` is memoized on its props, and a closure minted per render is a
+  // prop that never compares equal — so with these inline, every pane
+  // re-rendered on every deck commit, and a fold of one card paid the render
+  // of eleven frames and six session cards before its first frame could
+  // paint. Each closure closes over `store` and the stack's id, both fixed
+  // for as long as the pane is keyed by that id; what varies — the stack's
+  // active card — is read off the snapshot when the callback runs.
+  const stackCallbacks = useMemo(
+    () => new Map<string, StackCallbacks>(),
+    [store],
+  );
+  const callbacksFor = (stackId: string): StackCallbacks => {
+    let entry = stackCallbacks.get(stackId);
+    if (entry === undefined) {
+      entry = {
+        onClose: () => {
+          store.handlePaneClosed(stackId);
+        },
+        // The pane's ACTIVE card is what moves — the one the title bar is
+        // naming. [B04]: the move does not follow the card, so nothing here
+        // touches the active workspace.
+        onMoveToSpace: (spaceId) => {
+          const stack = store
+            .getSnapshot()
+            .panes.find((s) => s.id === stackId);
+          if (stack === undefined) return;
+          store.moveCardToSpace(stack.activeCardId, spaceId);
+        },
+        onCardMerged: (sourceStackId, targetStackId, insertIndex) => {
+          // Resolve the active card id from the source stack at commit time.
+          const snapshot = store.getSnapshot();
+          const sourceStack = snapshot.panes.find(
+            (s) => s.id === sourceStackId,
+          );
+          if (!sourceStack) return;
+          store.moveCardToPane(
+            sourceStackId,
+            sourceStack.activeCardId,
+            targetStackId,
+            insertIndex,
+          );
+        },
+      };
+      stackCallbacks.set(stackId, entry);
+    }
+    return entry;
+  };
   return (
     <>
       {/* TugPanes: one per pane in this workspace's deck.
@@ -2270,15 +2369,7 @@ const LayerPanes = memo(function LayerPanes({
           return null;
         }
 
-        /**
-         * onClose wrapper: when the closed stack matches
-         * Close-button handler: delegates to store. No gallery-stack bookkeeping
-         * needed — show-component-gallery re-derives the gallery stack from
-         * the live snapshot on every dispatch.
-         */
-        const handleClose = () => {
-          store.handlePaneClosed(stackState.id);
-        };
+        const callbacks = callbacksFor(stackState.id);
 
         const stackCards = stackState.cardIds
           .map((cid) => arr.cardsById.get(cid))
@@ -2357,36 +2448,13 @@ const LayerPanes = memo(function LayerPanes({
             // width on show. A hidden pane cannot reach it — no pointer,
             // no focus ([B02], `at0641`) — so the handler is inert there.
             //
-            // The pane's ACTIVE card is what moves — the one the title
-            // bar is naming. [B04]: the move does not follow the card,
-            // so nothing here touches the active workspace.
-            onMoveToSpace={(spaceId) => {
-              store.moveCardToSpace(stackState.activeCardId, spaceId);
-            }}
+            onMoveToSpace={callbacks.onMoveToSpace}
             sidebarStack={arr.stackByPaneId.get(stackState.id)}
             isSidebarPane={arr.sidebarPaneIds.has(stackState.id)}
             onCardMoved={store.handlePaneMoved}
-            onClose={shown ? handleClose : undefined}
+            onClose={shown ? callbacks.onClose : undefined}
             dropZones={shown ? dropZones : undefined}
-            onCardMerged={
-              shown
-                ? (sourceStackId, targetStackId, insertIndex) => {
-                    // Resolve the active card id from the source stack at
-                    // commit time.
-                    const snapshot = store.getSnapshot();
-                    const sourceStack = snapshot.panes.find(
-                      (s) => s.id === sourceStackId,
-                    );
-                    if (!sourceStack) return;
-                    store.moveCardToPane(
-                      sourceStackId,
-                      sourceStack.activeCardId,
-                      targetStackId,
-                      insertIndex,
-                    );
-                  }
-                : undefined
-            }
+            onCardMerged={shown ? callbacks.onCardMerged : undefined}
             activeCardId={stackState.activeCardId}
             cards={hasMultipleCards ? stackCards : undefined}
             cardTitle={hasMultipleCards ? stackState.title : undefined}
@@ -4762,7 +4830,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         "--tugx-imposer-settle-duration",
         `${IMPOSITION_SETTLE_MS}ms`,
       );
-      el.setAttribute("data-imposer-settling", "");
+      putSettlingMarkOn(el);
+      // The start notice, on the outgoing DOM: what a listener writes now is
+      // in place for the settle's first frame. Paired with the end notice
+      // every release path dispatches.
+      dispatchImposerSettleStart(el);
       const settleMs = readSettleMs(el);
       settleDurationRef.current = settleMs;
       const windowMs = settleMs * getTugTiming();
@@ -4817,7 +4889,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // Nothing is left to run an arrive beat, so nothing is left to clear a
       // mark. A caller still waiting would wait past the canvas itself.
       drainArrivalsRef.current();
-      containerRef.current?.removeAttribute("data-imposer-settling");
+      if (containerRef.current !== null) {
+        takeSettlingMarkOff(containerRef.current);
+      }
       containerRef.current?.removeAttribute("data-imposer-beat");
       // No settle-end notice here, and that is the one place the pairing does
       // not hold. This is the arm effect's teardown: the canvas is coming
@@ -4887,7 +4961,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // running, in which case the marks and the hold are its own and this
       // pass has nothing to end.
       if (settleTweensRef.current.size === 0) {
-        el?.removeAttribute("data-imposer-settling");
+        if (el !== null) takeSettlingMarkOff(el);
         el?.removeAttribute("data-imposer-beat");
         if (el !== null) dispatchImposerSettleEnd(el);
         settleReleaseRef.current?.("completion");
@@ -4919,7 +4993,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       firstRailShadows.clear();
       endAllEpisodes();
       if (settleTweensRef.current.size === 0) {
-        el.removeAttribute("data-imposer-settling");
+        takeSettlingMarkOff(el);
         el.removeAttribute("data-imposer-beat");
         dispatchImposerSettleEnd(el);
         settleReleaseRef.current?.("completion");

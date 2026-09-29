@@ -100,6 +100,10 @@ import {
 } from "@/lib/resize-episode";
 import { SmartScroll } from "@/lib/smart-scroll";
 import {
+  IMPOSER_SETTLE_END,
+  IMPOSER_SETTLE_START,
+} from "@/lib/settle-notice";
+import {
   anchorDepthFromEnd,
   anchorRowIndexInWindow,
 } from "@/lib/session-restore-window";
@@ -1916,10 +1920,11 @@ function resolveSelectionIndex(
  *
  * The engine tells us. `contentvisibilityautostatechange` fires on the skipped
  * subtree's own element every time the engine changes its mind, so the mark is
- * always current and the settle pays nothing to read it: the CSS pins
- * `[data-cv-skipped]` cells to `hidden` and every other `[data-cv-ready]` cell
- * to `visible` while `data-imposer-settling` is on, and the frozen set is
- * whatever the engine had already decided when the settle armed.
+ * always current and the settle pays nothing to read it: on the canvas's
+ * settle-start notice the relevance-pin effect writes `hidden` inline on every
+ * `[data-cv-skipped]` cell and `visible` on every other `[data-cv-ready]` cell,
+ * the end notice takes the writes off, and the frozen set is whatever the
+ * engine had already decided when the settle armed.
  *
  * ONE handler for every cell of every list view, on purpose. It reads
  * everything it needs off the event, so there is nothing to close over — and
@@ -1939,6 +1944,30 @@ function onCellContentVisibilityChange(event: Event): void {
   const skipped = (event as Event & { skipped?: boolean }).skipped;
   if (skipped === true) cell.setAttribute(CV_SKIPPED_ATTRIBUTE, "");
   else cell.removeAttribute(CV_SKIPPED_ATTRIBUTE);
+}
+
+/**
+ * Pin one ready cell's relevance for the length of a settle: `hidden` for a
+ * cell the engine had skipped, `visible` for one it was rendering.
+ *
+ * Inline on the cell, not a stylesheet rule keyed on the canvas's
+ * `data-imposer-settling`. A rule that restyles descendants on an ancestor's
+ * attribute makes the engine walk every descendant of that ancestor to find
+ * them when the attribute toggles, and the canvas is the whole deck: 25ms each
+ * way on a six-session deck, paid inside the gesture's own task at the arm and
+ * again in the frame that lands the settle. An inline write invalidates the
+ * cell alone.
+ */
+function pinCellRelevance(cell: HTMLElement): void {
+  cell.style.setProperty(
+    "content-visibility",
+    cell.hasAttribute(CV_SKIPPED_ATTRIBUTE) ? "hidden" : "visible",
+  );
+}
+
+/** The canvas a cell or a list stands in, or `null` outside a deck. */
+function canvasOf(el: HTMLElement): HTMLElement | null {
+  return el.closest<HTMLElement>("[data-deck-canvas-background]");
 }
 
 /**
@@ -3188,6 +3217,12 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
             );
             if (!target.hasAttribute("data-cv-ready")) {
               target.setAttribute("data-cv-ready", "");
+              // A cell becoming ready inside a settle already armed takes
+              // the pin with the mark, as the rule keyed on the canvas did.
+              const canvas = canvasOf(target);
+              if (canvas?.hasAttribute("data-imposer-settling") === true) {
+                pinCellRelevance(target);
+              }
             }
             // The relevance mark rides with the readiness mark ([B07]). The
             // listener is idempotent by function identity, so this runs on
@@ -3295,6 +3330,41 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // installs a fresh observer that sees the new bound. This is
       // rare (dataSource is usually stable for a card's lifetime).
     }, [dataSource, releaseSettleIfArmed]);
+
+    // The settle's relevance pin ([B07], [P07]). For the length of an imposer
+    // settle every ready cell keeps the relevance the engine had decided when
+    // the settle armed — a skipped cell stays `hidden`, a rendered one stays
+    // `visible` — so a frame carrying its cells across the viewport boundary
+    // mid-tween styles, lays out and paints nothing on the way. Written
+    // inline on the canvas's start and end notices; `pinCellRelevance` says
+    // why inline rather than a rule keyed on the canvas's mark.
+    React.useLayoutEffect(() => {
+      if (!(inline === true && offscreenSkip)) return;
+      const scroller = scrollContainerRef.current;
+      if (scroller === null) return;
+      const canvas = canvasOf(scroller);
+      if (canvas === null) return;
+      const pin = (): void => {
+        for (const el of cellElementMapRef.current.values()) {
+          if (el.hasAttribute("data-cv-ready")) pinCellRelevance(el);
+        }
+      };
+      const release = (): void => {
+        for (const el of cellElementMapRef.current.values()) {
+          el.style.removeProperty("content-visibility");
+        }
+      };
+      canvas.addEventListener(IMPOSER_SETTLE_START, pin);
+      canvas.addEventListener(IMPOSER_SETTLE_END, release);
+      // A settle already in flight when this list mounts holds this list
+      // too, the way a card arriving into one is held by the settle's mark.
+      if (canvas.hasAttribute("data-imposer-settling")) pin();
+      return () => {
+        canvas.removeEventListener(IMPOSER_SETTLE_START, pin);
+        canvas.removeEventListener(IMPOSER_SETTLE_END, release);
+        release();
+      };
+    }, [inline, offscreenSkip]);
 
     // Offscreen-skip width invalidation: a remembered
     // `contain-intrinsic-size` is exact only for the width it was

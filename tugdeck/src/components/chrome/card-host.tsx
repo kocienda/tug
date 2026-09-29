@@ -631,7 +631,17 @@ function useHostStackFrameElement(hostStackId: string): HTMLDivElement | null {
  * through. The layer boundary above holds for parked workspaces, whose
  * cards get those commits again the moment the layer is shown.
  */
-export function CardHost({ cardId, hostStackId, componentId, isActive = true }: CardHostProps): React.ReactElement | null {
+/**
+ * Memoized on its four props, all primitives. The layer renders one of these
+ * per card on every deck commit, and a `CardHost` that re-rendered re-rendered
+ * the card under it — every transcript on the deck, for a fold of one card.
+ * A card reads the deck facts it needs through its own selector-scoped
+ * subscriptions (`useIsCardFolded` and the like), so bailing out here costs
+ * it nothing it would otherwise have seen.
+ */
+export const CardHost = React.memo(CardHostImpl);
+
+function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: CardHostProps): React.ReactElement | null {
   const store = useDeckManager();
   const registration = getRegistration(componentId);
   const hostContentEl = useHostContentElement(hostStackId);

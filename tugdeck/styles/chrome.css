@@ -201,8 +201,16 @@
    The animation would win the cascade for its own duration either way, so this
    is not a correctness patch on the paint — it is the second clock not being
    started at all, which is what keeps the frame's first moving sample and its
-   last belonging to one motion. */
-[data-imposer-settling] .tug-pane {
+   last belonging to one motion.
+
+   The mark is read off the FRAME, which the imposer stamps beside the
+   container's copy. Keyed on the container — `[data-imposer-settling]
+   .tug-pane` — this rule made the engine walk every descendant of the canvas
+   to find the frames to invalidate, on every toggle of that attribute: 25ms
+   each way on a six-session deck, inside the gesture's task at the arm and
+   again in the frame that lands the settle. A rule whose attribute is on the
+   element it styles invalidates that element alone. */
+.tug-pane[data-imposer-settling] {
   transition: none;
 }
 
