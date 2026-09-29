@@ -18,6 +18,7 @@ import {
   isFocusDestination,
   isUnboundMember,
   paneFoldedOf,
+  cardArrivingOf,
   cardFoldedOf,
   placeMembers,
   slotStackOf,
@@ -161,6 +162,25 @@ describe("slotStackOf", () => {
     const stack = slotStackOf(slottedState(), 0);
     expect(stack.some((p) => p.id === "pane-2")).toBe(false);
     expect(stack.some((p) => p.id === "pane-free")).toBe(false);
+  });
+});
+
+describe("cardArrivingOf", () => {
+  test("no mark reads false for every card", () => {
+    expect(cardArrivingOf(baseState(), "card-a")).toBe(false);
+    expect(cardArrivingOf(baseState(), "card-c")).toBe(false);
+  });
+
+  test("a pane carrying the mark reads true for every tab it hosts, and its sibling reads false", () => {
+    const s: DeckState = { ...baseState(), arriving: { "pane-1": true } };
+    expect(cardArrivingOf(s, "card-a")).toBe(true);
+    expect(cardArrivingOf(s, "card-b")).toBe(true);
+    expect(cardArrivingOf(s, "card-c")).toBe(false);
+  });
+
+  test("a card in no pane reads false even under a mark", () => {
+    const s: DeckState = { ...baseState(), arriving: { "pane-1": true } };
+    expect(cardArrivingOf(s, "card-gone")).toBe(false);
   });
 });
 

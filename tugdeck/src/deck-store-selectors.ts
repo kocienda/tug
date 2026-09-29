@@ -175,6 +175,18 @@ export function cardFoldedOf(state: DeckState, cardId: string): boolean {
   );
 }
 
+/**
+ * `cardArrivingOf(state, cardId)` — whether the pane HOSTING that card is
+ * still ARRIVING: opened by the deck and held hidden until its reveal commit
+ * ([B04]). The mark is the pane's, keyed by pane id in `state.arriving`, so it
+ * is read the way the fold is; a card in no pane reads false, and so does
+ * every card once the reveal has cleared the mark.
+ */
+export function cardArrivingOf(state: DeckState, cardId: string): boolean {
+  const pane = state.panes.find((p) => p.cardIds.includes(cardId));
+  return pane !== undefined && state.arriving?.[pane.id] === true;
+}
+
 // A pane's display name is NOT derived here. It is the string that pane's own
 // title bar renders — registry title, multi-tab group prefix, and the live
 // `cardTitleStore` override composed together — and it lives in exactly one

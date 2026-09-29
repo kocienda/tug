@@ -269,7 +269,8 @@ import {
 } from "@/lib/card-services-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
-import { cardFoldedOf } from "@/deck-store-selectors";
+import { scheduleAfterPaint } from "@/lib/after-paint";
+import { cardArrivingOf, cardFoldedOf } from "@/deck-store-selectors";
 import {
   isCardFolded,
   unfoldCardForBiddenSurface,
@@ -1103,6 +1104,15 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // re-present so a rejection that arrives while the sheet is already open
   // (the startup-restore path) doesn't double-present.
   const sheetOpenRef = useRef(false);
+  // Whether this host is still mounted, for a present that was handed to the
+  // after-paint door and comes back to a card that may have closed meanwhile.
+  const pickerHostLiveRef = useRef(true);
+  useLayoutEffect(
+    () => () => {
+      pickerHostLiveRef.current = false;
+    },
+    [],
+  );
 
   // Whether the sheet has ever been presented for this picker. State, not a
   // ref, because the standing notice below is rendered from it — and unlike
@@ -1344,7 +1354,31 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     // mounting the picker BEFORE the frame is shown is what lets it report,
     // and then ride the arrive beat in, so the card and the thing inside it
     // are one motion instead of two.
-    return cardLifecycle.observeCardDidActivate(cardId, () => presentSheet());
+    //
+    // WHEN it presents is the settle's question ([D204]). `showSheet` is a
+    // React state write, and an activation by click runs inside
+    // `transferFocusForActivation`'s `flushSync`, so a picker presented on the
+    // observer's own stack mounts its whole panel inside the click task — on
+    // the four-up bench that was the flush's 44 ms, the whole of the lead
+    // between the gesture and the slide's first frame. So the mount takes the
+    // after-paint door. Two cases stay on the stack: a card the deck opened
+    // HIDDEN, whose reveal waits on this very panel's first report ([B01]) and
+    // whose frame nobody can see yet; and reduced motion, where there is no
+    // tween to protect. `presentSheet` re-reads the fold and its own latch at
+    // the door, so a card that folded or presented in between is left alone;
+    // a card unmounted in between has no host to present on.
+    return cardLifecycle.observeCardDidActivate(cardId, () => {
+      const store = getDeckStore();
+      const arriving =
+        store !== null && cardArrivingOf(store.getSnapshot(), cardId);
+      if (arriving || !isTugMotionEnabled()) {
+        presentSheet();
+        return;
+      }
+      scheduleAfterPaint(() => {
+        if (pickerHostLiveRef.current) presentSheet();
+      });
+    });
   }, [cardLifecycle, cardId, presentSheet]);
 
   // A card that goes away takes its reservation with it ([B05]). The sheet

@@ -389,8 +389,9 @@ async function sampleBarActivation(
   app: App,
   count: number,
   stallMs: number,
+  from: "home" | "here" = "home",
 ): Promise<BarLeg> {
-  await home(app);
+  if (from === "home") await home(app);
   const before = await flowOffset(app);
   const mark = await traceMark(app);
   await app.armSettleFrameProbe();
@@ -659,6 +660,26 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
         note(`at0622 four-up plain row: ${JSON.stringify(plain.row)}`);
         note(`at0622 four-up click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
         note(`at0622 four-up commits: ${JSON.stringify(await reactCommits(four.app))}`);
+
+        // ---- The warm flip: a READING, not a claim. ----------------------
+        // The plain leg is the first activation of a card whose picker has
+        // never been presented, so its window carries the picker's whole mount
+        // cascade — a cost a real deck pays once per unbound card, at launch.
+        // The flip a user makes all day is between two cards that already
+        // stand complete. Card 1's picker presented at launch (it is the
+        // active pane) and card 4's on the plain leg, so from where that leg
+        // left the strip, activating card 1 is a flip the other way across the
+        // same band with both pickers warm. From HERE, not from home: at home
+        // card 1 already stands in the band and the activation would move
+        // nothing, so no settle row would ever be written. Taken BEFORE the
+        // plain leg's bar so the reading exists on a red run too; the forcing
+        // leg's own home-and-activate then reads a warm flip back to card 4.
+        const warm = await sampleBarActivation(four.app, 1, 0, "here");
+        report("four-up warm-flip probe", warm.probe);
+        note(`at0622 four-up warm-flip row: ${JSON.stringify(warm.row)}`);
+        note(`at0622 four-up warm-flip click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
+        note(`at0622 four-up warm-flip commits: ${JSON.stringify(await reactCommits(four.app))}`);
+
         expectBar("four-up", plain);
         fourFrames = plain.row.longestGapFrames;
         fourGapMs = plain.row.longestGapMs;
