@@ -115,7 +115,12 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { TugDictationButton } from "@/components/tugways/tug-dictation-button";
-import { dictationStore, useDictationFace } from "@/lib/dictation-store";
+import {
+  dictationStore,
+  useDictationFace,
+  useDictationFocusRelease,
+} from "@/lib/dictation-store";
+import { isDictationAvailable } from "@/lib/dictation-bridge";
 import { computePageNavigation } from "@/components/tugways/internal/list-view-page-navigation";
 import {
   getAtomsInState,
@@ -1501,6 +1506,9 @@ function OverviewComposer({
     composerCardId !== null &&
     dictationFace.mode !== "idle" &&
     dictationFace.mode !== "refused";
+  // Table T03's "focus leaves the composer", on the entry shell root rather
+  // than the field, so the Z5 mic tap does not read as leaving ([F05]).
+  useDictationFocusRelease(composerCardId, dictationOwned, shellRef);
   // Table T03's "card dismissed": the rail being put away is this composer's
   // unmount, and `endIfOwnedBy` keeps it from ending a session the Session
   // composer has since taken.
@@ -1616,6 +1624,22 @@ function OverviewComposer({
         if (typeof event.value !== "string") return;
         removeAttachment(event.value);
       },
+      // ⌘D — the mic on a key ([B01]), under exactly the three conditions
+      // that mount the Z5 button: a card id, a `dictation` handle on the
+      // insert target, and the host's own handler. The rail put away has no
+      // card id and so claims no chord, which is the same gate the button
+      // renders under.
+      ...(composerCardId !== null &&
+      overviewInsertTarget().dictation !== undefined &&
+      isDictationAvailable()
+        ? {
+            [TUG_ACTIONS.TOGGLE_DICTATION]: (): void => {
+              const handle = overviewInsertTarget().dictation;
+              if (handle === undefined) return;
+              dictationStore.toggle(composerCardId, composerCardId, handle);
+            },
+          }
+        : {}),
       // Escape closes a live mic first ([P09]). Spread in conditionally,
       // because the chain marks an action handled iff the key is present — an
       // unconditional handler would swallow the Escape the editor's own

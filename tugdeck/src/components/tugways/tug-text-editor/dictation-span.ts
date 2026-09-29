@@ -14,8 +14,10 @@
  * **Two regions, one field.** `[from, committedTo)` is text the recogniser
  * called settled — ordinary draft content, which the user may edit and a
  * submit carries. `[committedTo, to)` is the provisional tail, replaced
- * wholesale on every reading and dropped, never promoted, when the session
- * ends. Only the tail is decorated, because only the tail is unsettled.
+ * wholesale on every reading. How it ends is the caller's to say: an end that
+ * **drops** deletes it, and an end that **promotes** leaves it in the
+ * document as ordinary text. Only the tail is decorated, because only the
+ * tail is unsettled — and either way the decoration goes with the span.
  *
  * **Nothing here goes through React** ([L22], [L06], [P05]). A recogniser
  * revises several times a second; a render per revision would repaint the
@@ -76,7 +78,12 @@ export type DictationSpanAction =
   | { readonly kind: "begin" }
   | { readonly kind: "volatile"; readonly text: string }
   | { readonly kind: "final"; readonly text: string }
-  | { readonly kind: "end" };
+  /**
+   * Close the span. `promote` decides what becomes of a tail the recogniser
+   * never settled: `false` deletes it, `true` leaves it in the document as
+   * ordinary text.
+   */
+  | { readonly kind: "end"; readonly promote: boolean };
 
 // ---------------------------------------------------------------------------
 // Effects
@@ -101,7 +108,7 @@ export const setVolatileEffect = StateEffect.define<DictationSpanValue>();
 /** Settle the tail into the draft. Value is the span after settling. */
 export const commitFinalEffect = StateEffect.define<DictationSpanValue>();
 
-/** Close the session. The tail's deletion rides the same transaction. */
+/** Close the session. A dropped tail's deletion rides the same transaction. */
 export const endDictationEffect = StateEffect.define<null>();
 
 // ---------------------------------------------------------------------------
@@ -237,10 +244,14 @@ export function dictationSpanTransaction(
   if (span === null) return null;
 
   if (action.kind === "end") {
+    // A promoted tail is already the right bytes in the right place — the
+    // whole of promoting it is closing the span and letting the decoration
+    // go with it, so the transaction carries no change at all. A dropped one
+    // is deleted here, in the transaction that closes the span, because the
+    // recogniser never called it settled.
+    const drop = !action.promote && span.to > span.committedTo;
     return {
-      // The provisional tail is dropped, not promoted: the recogniser never
-      // called it settled, so it is not text the user asked to keep.
-      ...(span.to > span.committedTo
+      ...(drop
         ? { changes: { from: span.committedTo, to: span.to, insert: "" } }
         : {}),
       effects: [endDictationEffect.of(null)],
@@ -316,6 +327,6 @@ export function dictationHandleFor(getView: () => EditorView | null): DictationH
     begin: () => run({ kind: "begin" }),
     volatile: (text: string) => run({ kind: "volatile", text }),
     final: (text: string) => run({ kind: "final", text }),
-    end: () => run({ kind: "end" }),
+    end: (promote: boolean) => run({ kind: "end", promote }),
   };
 }

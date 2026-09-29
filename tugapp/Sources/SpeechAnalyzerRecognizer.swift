@@ -150,7 +150,30 @@ final class SpeechAnalyzerRecognizer: DictationRecognizer {
         continuation.yield(AnalyzerInput(buffer: converted))
     }
 
-    func finish() {
+    /// Finalize and read what comes back.
+    ///
+    /// `finalizeAndFinishThroughEndOfInput()` is what makes the transcriber
+    /// emit its settled reading of everything still in flight, and finishing
+    /// the analyzer is what ends `transcriber.results` — so awaiting the
+    /// reader task is awaiting the last `final` rather than racing it. The
+    /// old shape cancelled that task in the same breath as asking, which is
+    /// the discard [F04] recorded.
+    func finish(completion: @escaping () -> Void) {
+        continuation?.finish()
+        continuation = nil
+        let analyzer = self.analyzer
+        let resultsTask = self.resultsTask
+        self.resultsTask = nil
+        Task {
+            try? await analyzer?.finalizeAndFinishThroughEndOfInput()
+            await resultsTask?.value
+            completion()
+        }
+    }
+
+    /// Stop now and keep nothing. The engine's `stop`, supersede, refusal and
+    /// shutdown paths, which all drop the tail by design ([B05], [B07]).
+    func cancel() {
         continuation?.finish()
         continuation = nil
         let analyzer = self.analyzer

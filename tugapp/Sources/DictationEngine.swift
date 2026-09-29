@@ -21,8 +21,16 @@ protocol DictationRecognizer: AnyObject {
     func prepare(progress: @escaping (Bool) -> Void, completion: @escaping (Result<Void, Error>) -> Void)
     /// One buffer off the input tap.
     func append(_ buffer: AVAudioPCMBuffer)
-    /// No more audio is coming. Late results are the engine's to drop.
-    func finish()
+    /// No more audio is coming, and the recogniser's settled reading of what
+    /// it already heard is wanted. `onTranscript` keeps firing until
+    /// `completion` runs, which is the whole point: the SDKs produce their
+    /// last finals *on* finalization, and cancelling the reader in the same
+    /// breath as asking for them is what threw them away ([F04], [F06]).
+    /// `completion` arrives on whatever queue the recogniser feels like.
+    func finish(completion: @escaping () -> Void)
+    /// No more audio is coming and nothing more is wanted. Late results are
+    /// the engine's to drop.
+    func cancel()
     /// The whole current reading, and whether it is settled. Called on
     /// whatever queue the recogniser feels like; the engine hops.
     var onTranscript: ((_ cumulativeText: String, _ isFinal: Bool) -> Void)? { get set }
@@ -81,12 +89,21 @@ final class DictationEngine {
     /// The route-change observation, alive only while a session is.
     private var configObserver: NSObjectProtocol?
 
+    /// The session a `finish` is waiting on, from the moment the request is
+    /// accepted until its `ended` goes out. Non-nil is what makes a second
+    /// `finish` a no-op, which is what the deck's `finishing` phase leans on.
+    private var finishingId: String?
+
+    /// The bounded wait armed by a `finish` ([B04]), cancelled by whichever
+    /// of the recogniser and the clock gets there first.
+    private var finishDeadline: DispatchWorkItem?
+
     init(audioDisabled: Bool, emit: @escaping (DictationEvent) -> Void) {
         self.audioDisabled = audioDisabled
         self.emit = emit
     }
 
-    // MARK: - The deck's two verbs
+    // MARK: - The deck's three verbs
 
     /// Spec S01's message, arrived. An unreadable verb is logged and dropped
     /// rather than guessed at.
@@ -96,6 +113,8 @@ final class DictationEngine {
             start(id)
         case "stop":
             stop(id)
+        case "finish":
+            finish(id)
         default:
             TugLog.warn("dictation", "unknown verb; ignoring", [
                 TugLog.field("verb", verb),
@@ -107,7 +126,7 @@ final class DictationEngine {
     /// Tear everything down without emitting. For `MainWindow`'s teardown,
     /// where the deck is going away and has nobody left to tell.
     func shutdown() {
-        recognizer?.finish()
+        recognizer?.cancel()
         teardown()
         liveId = nil
     }
@@ -119,7 +138,7 @@ final class DictationEngine {
         // on the wire before anything of B's, so the deck never sees two
         // sessions overlap even by one event.
         if let previous = liveId {
-            recognizer?.finish()
+            recognizer?.cancel()
             teardown()
             liveId = nil
             send(.ended(previous, .superseded))
@@ -222,7 +241,7 @@ final class DictationEngine {
             queue: .main
         ) { [weak self] _ in
             guard let self, self.liveId == id else { return }
-            self.recognizer?.finish()
+            self.recognizer?.cancel()
             self.teardown()
             self.liveId = nil
             self.send(.ended(id, .deviceLost))
@@ -254,7 +273,7 @@ final class DictationEngine {
     private func stop(_ id: String) {
         guard liveId == id else { return }
 
-        recognizer?.finish()
+        recognizer?.cancel()
         _ = reducer.finish()
         teardown()
         liveId = nil
@@ -266,8 +285,66 @@ final class DictationEngine {
         // and nothing may follow `ended` on the wire either way.
     }
 
+    // MARK: - Finishing
+
+    /// How long a finish waits for the recogniser's settled reading before
+    /// ending the session anyway ([B04]). A recogniser that never finalizes
+    /// must not leave a composer waving forever.
+    private static let finishDeadlineSeconds: TimeInterval = 2
+
+    /// A `finish` for the live id: the user is done talking and wants the
+    /// words. Unlike `stop`, the session stays live — `liveId` is kept and
+    /// every `final` the recogniser produces on its way out is still
+    /// forwarded — until the recogniser settles or the deadline expires
+    /// ([B03], [B04]). A `finish` for any other id is ignored for the same
+    /// reason a stale `stop` is, and a second one for this id is ignored
+    /// because the deck is meant to be able to press through `finishing`.
+    private func finish(_ id: String) {
+        guard liveId == id, finishingId == nil else { return }
+        finishingId = id
+
+        // The microphone goes back now rather than at `ended`: the user
+        // stopped talking when they asked to finish, and buffers recorded
+        // after that are not part of what they said.
+        releaseAudio()
+
+        guard let recognizer else {
+            // Nothing to finalize — the no-audio harness ([P01]), or a
+            // session still preparing. The finish is its own completion,
+            // which is what lets an app-test drive this path.
+            completeFinish(id)
+            return
+        }
+
+        let deadline = DispatchWorkItem { [weak self] in self?.completeFinish(id) }
+        finishDeadline = deadline
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.finishDeadlineSeconds,
+            execute: deadline
+        )
+
+        recognizer.finish { [weak self] in
+            DispatchQueue.main.async { self?.completeFinish(id) }
+        }
+    }
+
+    /// The end of a finish, from whichever got there first — the recogniser
+    /// settling or the deadline. The guard is what makes the loser a no-op,
+    /// and what makes this safe to call from a session that has already been
+    /// stopped or superseded out from under the wait.
+    private func completeFinish(_ id: String) {
+        guard finishingId == id, liveId == id else { return }
+
+        // A tail the recogniser still never settled is dropped here, as on
+        // every other end; promoting it is the deck's answer ([B04]).
+        _ = reducer.finish()
+        teardown()
+        liveId = nil
+        send(.ended(id, .stopped))
+    }
+
     private func refuse(_ id: String, _ refusal: DictationRefusal, message: String? = nil) {
-        recognizer?.finish()
+        recognizer?.cancel()
         teardown()
         liveId = nil
         send(.refused(id, refusal, message: message))
@@ -275,6 +352,17 @@ final class DictationEngine {
 
     /// Give the microphone back. Safe to call with nothing running.
     private func teardown() {
+        releaseAudio()
+        recognizer?.onTranscript = nil
+        recognizer = nil
+        finishingId = nil
+        finishDeadline?.cancel()
+        finishDeadline = nil
+    }
+
+    /// The tap, the route observation and the audio engine — everything but
+    /// the recogniser, which a finish keeps alive past the last buffer.
+    private func releaseAudio() {
         if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)
             self.configObserver = nil
@@ -286,8 +374,6 @@ final class DictationEngine {
             }
             if audioEngine.isRunning { audioEngine.stop() }
         }
-        recognizer?.onTranscript = nil
-        recognizer = nil
     }
 
     // MARK: - Plumbing

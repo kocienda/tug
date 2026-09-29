@@ -20,6 +20,7 @@ import {
   isDictationAvailable,
   mintDictationId,
   startDictation,
+  finishDictation,
   stopDictation,
   setDictationListener,
   installDictationBridge,
@@ -202,14 +203,16 @@ describe("the host handler", () => {
     expect(isDictationAvailable()).toBe(true);
   });
 
-  it("posts start and stop in the shape the host parses", () => {
+  it("posts start, stop and finish in the shape the host parses", () => {
     const posted: unknown[] = [];
     w.webkit = { messageHandlers: { dictation: { postMessage: (v: unknown) => posted.push(v) } } };
     startDictation("dict-4");
     stopDictation("dict-4");
+    finishDictation("dict-4");
     expect(posted).toEqual([
       { id: "dict-4", verb: "start" },
       { id: "dict-4", verb: "stop" },
+      { id: "dict-4", verb: "finish" },
     ]);
   });
 
@@ -217,6 +220,7 @@ describe("the host handler", () => {
     expect(() => {
       startDictation("dict-4");
       stopDictation("dict-4");
+      finishDictation("dict-4");
     }).not.toThrow();
   });
 

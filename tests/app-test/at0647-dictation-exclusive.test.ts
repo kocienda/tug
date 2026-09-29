@@ -25,8 +25,9 @@
  *    Overview's mic: the Session's reads `idle`, the Overview's reads `live`, and
  *    the two ids differ. Then a `final` for the Overview's id lands in the
  *    Overview's field — the handle followed the claim.
- * 2. **App resign ends it, and keeps what was settled.** The text the recogniser
- *    committed is the user's draft and stays; the session is over.
+ * 2. **App resign ends it, and keeps the words.** Resign cannot wait for the
+ *    host, so the tail is promoted to plain text in the same transaction that
+ *    closes the span; the draft the user comes back to is everything they said.
  * 3. **Escape ends dictation and interrupts nothing** ([P09]). With a live mic
  *    and no running turn, Escape closes the mic, drops the provisional tail, and
  *    leaves the transcript alone — an Escape that stopped a turn while leaving
@@ -225,9 +226,10 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         });
         const afterResign = await app.evalJS<string>(textOf(OVERVIEW_TEXT));
         note("overview text after resign", afterResign);
-        // The unsettled tail goes with the session; the settled words are the
-        // user's draft and are still there when they come back to the app.
-        expect(afterResign).toBe("what changed today");
+        // Resign is an ordinary end that cannot round-trip to the recogniser, so
+        // the tail is promoted rather than dropped — the words are there when
+        // the user comes back to the app.
+        expect(afterResign).toBe("what changed today and yesterday");
 
         // ── 3. Escape ends dictation and interrupts nothing ([P09]). ──────
         // Back in the Session composer, with no turn running — so the only

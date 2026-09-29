@@ -46,7 +46,7 @@ function recordingHandle(): DictationHandle & { calls: string[] } {
     begin: () => calls.push("begin"),
     volatile: (text: string) => calls.push(`volatile:${text}`),
     final: (text: string) => calls.push(`final:${text}`),
-    end: () => calls.push("end"),
+    end: (promote: boolean) => calls.push(promote ? "end:promote" : "end:drop"),
   };
 }
 
@@ -57,6 +57,7 @@ function scriptedTransport(): DictationTransport & { posts: string[] } {
     posts,
     start: (id: string) => posts.push(`start:${id}`),
     stop: (id: string) => posts.push(`stop:${id}`),
+    finish: (id: string) => posts.push(`finish:${id}`),
   };
 }
 
@@ -173,7 +174,7 @@ describe("text on the wire", () => {
 });
 
 describe("the button's toggle", () => {
-  it("ends the owner's session and clears the claim", () => {
+  it("finishes the owner's session rather than truncating it", () => {
     const transport = scriptedTransport();
     const store = freshStore(transport);
     const handle = recordingHandle();
@@ -182,8 +183,16 @@ describe("the button's toggle", () => {
 
     store.toggle("composer-a", "card-a", handle);
 
-    expect(handle.calls).toEqual(["begin", "end"]);
-    expect(transport.posts).toEqual(["start:s1", "stop:s1"]);
+    // The claim is still live — the span stays open until the host answers.
+    expect(handle.calls).toEqual(["begin"]);
+    expect(transport.posts).toEqual(["start:s1", "finish:s1"]);
+    expect(store.getSnapshot().claim?.phase).toBe("finishing");
+    expect(store.faceFor("composer-a").mode).toBe("finishing");
+
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
+
+    expect(handle.calls).toEqual(["begin", "end:promote"]);
+    expect(transport.posts).toEqual(["start:s1", "finish:s1"]);
     expect(store.getSnapshot().claim).toBeNull();
     expect(store.faceFor("composer-a").mode).toBe("idle");
   });
@@ -202,6 +211,137 @@ describe("the button's toggle", () => {
   });
 });
 
+describe("finishing", () => {
+  it("keeps feeding the span while it waits for the host", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    const handle = recordingHandle();
+    store.claim("composer-a", "card-a", handle);
+    store.onEvent({ id: "s1", kind: "ready" });
+    store.onEvent({ id: "s1", kind: "volatile", text: "hello wor" });
+
+    store.end("stopped");
+
+    // The recogniser's settled reading arrives *after* the finish request.
+    // That is the whole point of the phase: it is still the live claim's
+    // session, so the final lands in the span rather than nowhere.
+    store.onEvent({ id: "s1", kind: "final", text: "hello world" });
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
+
+    expect(handle.calls).toEqual([
+      "begin",
+      "volatile:hello wor",
+      "final:hello world",
+      "end:promote",
+    ]);
+    expect(transport.posts).toEqual(["start:s1", "finish:s1"]);
+  });
+
+  it("ignores a second press while it waits", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    const handle = recordingHandle();
+    store.claim("composer-a", "card-a", handle);
+    store.onEvent({ id: "s1", kind: "ready" });
+
+    store.toggle("composer-a", "card-a", handle);
+    store.toggle("composer-a", "card-a", handle);
+    store.toggle("composer-a", "card-a", handle);
+
+    expect(transport.posts).toEqual(["start:s1", "finish:s1"]);
+    expect(store.getSnapshot().claim?.phase).toBe("finishing");
+  });
+
+  it("does not go back to live on a ready the host had already sent", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    const handle = recordingHandle();
+    store.claim("composer-a", "card-a", handle);
+
+    // Pressed during `starting`, so the host's `ready` is still in flight.
+    store.end("stopped");
+    store.onEvent({ id: "s1", kind: "ready" });
+
+    expect(store.getSnapshot().claim?.phase).toBe("finishing");
+
+    // And the `ended` that follows is still read as the answer to the finish.
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
+    expect(handle.calls).toEqual(["begin", "end:promote"]);
+  });
+
+  it("promotes the tail when the host's deadline ends it with nothing settled", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    const handle = recordingHandle();
+    store.claim("composer-a", "card-a", handle);
+    store.onEvent({ id: "s1", kind: "ready" });
+    store.onEvent({ id: "s1", kind: "volatile", text: "half a sentence" });
+
+    store.end("stopped");
+    // No `final` — the recogniser never answered and the host's bounded wait
+    // expired ([B04]). The tail is still the user's words.
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
+
+    expect(handle.calls).toEqual([
+      "begin",
+      "volatile:half a sentence",
+      "end:promote",
+    ]);
+  });
+
+  it("lets a supersede through the wait, and that one drops", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    const a = recordingHandle();
+    const b = recordingHandle();
+    store.claim("composer-a", "card-a", a);
+    store.onEvent({ id: "s1", kind: "ready" });
+    store.end("stopped");
+
+    store.claim("composer-b", "card-b", b);
+
+    expect(a.calls).toEqual(["begin", "end:drop"]);
+    expect(transport.posts).toEqual(["start:s1", "finish:s1", "stop:s1", "start:s2"]);
+    expect(store.getSnapshot().claim?.composerId).toBe("composer-b");
+  });
+});
+
+describe("the three end shapes", () => {
+  function endWith(reason: string): { calls: string[]; posts: string[] } {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    const handle = recordingHandle();
+    store.claim("composer-a", "card-a", handle);
+    store.onEvent({ id: "s1", kind: "ready" });
+    store.end(reason);
+    return { calls: handle.calls, posts: transport.posts };
+  }
+
+  it("finishes for the mic's own gesture and for focus leaving the composer", () => {
+    for (const reason of ["stopped", "blurred"]) {
+      const { calls, posts } = endWith(reason);
+      expect(calls, reason).toEqual(["begin"]);
+      expect(posts, reason).toEqual(["start:s1", "finish:s1"]);
+    }
+  });
+
+  it("promotes for every end that cannot wait for the host", () => {
+    for (const reason of ["submitted", "cleared", "dismissed", "held", "resigned"]) {
+      const { calls, posts } = endWith(reason);
+      expect(calls, reason).toEqual(["begin", "end:promote"]);
+      expect(posts, reason).toEqual(["start:s1", "stop:s1"]);
+    }
+  });
+
+  it("drops for escape, and for an end nothing has a row for", () => {
+    for (const reason of ["escape", "superseded", "a reason nobody wrote down"]) {
+      const { calls, posts } = endWith(reason);
+      expect(calls, reason).toEqual(["begin", "end:drop"]);
+      expect(posts, reason).toEqual(["start:s1", "stop:s1"]);
+    }
+  });
+});
+
 describe("a second composer claiming", () => {
   it("ends the first, then starts its own", () => {
     const transport = scriptedTransport();
@@ -213,7 +353,7 @@ describe("a second composer claiming", () => {
     store.onEvent({ id: "s1", kind: "ready" });
     store.claim("composer-b", "card-b", b);
 
-    expect(a.calls).toEqual(["begin", "end"]);
+    expect(a.calls).toEqual(["begin", "end:drop"]);
     expect(b.calls).toEqual(["begin"]);
     expect(transport.posts).toEqual(["start:s1", "stop:s1", "start:s2"]);
     expect(store.getSnapshot().claim?.composerId).toBe("composer-b");
@@ -246,7 +386,7 @@ describe("the host ending it", () => {
 
     store.onEvent({ id: "s1", kind: "ended", reason: "device-lost" });
 
-    expect(handle.calls).toEqual(["begin", "end"]);
+    expect(handle.calls).toEqual(["begin", "end:drop"]);
     expect(transport.posts).toEqual(["start:s1"]);
     expect(store.getSnapshot().claim).toBeNull();
   });
@@ -318,13 +458,13 @@ describe("the releases only the store can see", () => {
     store.onEvent({ id: "s1", kind: "ready" });
     lifecycle.notifyApplicationDidResignActive();
 
-    expect(handle.calls).toEqual(["begin", "end"]);
+    expect(handle.calls).toEqual(["begin", "end:promote"]);
     expect(transport.posts).toEqual(["start:s1", "stop:s1"]);
     expect(store.getSnapshot().claim).toBeNull();
 
     // A second resign with nothing claimed must reach nothing.
     lifecycle.notifyApplicationDidResignActive();
-    expect(handle.calls).toEqual(["begin", "end"]);
+    expect(handle.calls).toEqual(["begin", "end:promote"]);
     expect(transport.posts).toEqual(["start:s1", "stop:s1"]);
   });
 
@@ -341,7 +481,7 @@ describe("the releases only the store can see", () => {
       refuse: () => {},
     });
 
-    expect(handle.calls).toEqual(["begin", "end"]);
+    expect(handle.calls).toEqual(["begin", "end:promote"]);
     expect(transport.posts).toEqual(["start:s1", "stop:s1"]);
     expect(store.getSnapshot().claim).toBeNull();
   });
@@ -376,6 +516,12 @@ describe("the releases only the store can see", () => {
     expect(countResignListeners(lifecycle)).toBe(resignBefore + 1);
 
     store.end("stopped");
+    // A finish does not release: the claim is still live through the wait,
+    // and a resign or a modal hold landing during it must still reach it.
+    expect(countHoldListeners()).toBe(holdsBefore + 1);
+    expect(countResignListeners(lifecycle)).toBe(resignBefore + 1);
+
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
     expect(countHoldListeners()).toBe(holdsBefore);
     expect(countResignListeners(lifecycle)).toBe(resignBefore);
   });

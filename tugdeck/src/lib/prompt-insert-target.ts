@@ -136,11 +136,15 @@ export interface DictationHandle {
    */
   final(text: string): void;
   /**
-   * Close the span. The provisional tail is **dropped**, not promoted: the
-   * recogniser never called it settled, so it is not text the user asked to
-   * keep. Everything already settled stays.
+   * Close the span. Everything already settled stays either way; `promote`
+   * decides what becomes of a tail the recogniser never called settled.
+   *
+   * `false` **drops** it — the truncating ends, which are Escape and the
+   * involuntary ones. `true` **promotes** it to ordinary draft text — the
+   * ends where the user said they were done and the recogniser's settled
+   * reading could not be waited for.
    */
-  end(): void;
+  end(promote: boolean): void;
 }
 
 /**

@@ -230,6 +230,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌘= | `zoom-in` | Zoom In | JS, global |
 | ⌘A | `select-all` | Select All | menu bar (AppKit's own) |
 | ⌘C | `copy` | Copy | menu bar (AppKit's own) |
+| ⌘D | `toggle-dictation` | Dictate | JS, global |
 | ⌘E | `find-selection` | Use Selection for Find | JS, global |
 | ⌘F | `find` | Find… | JS, global |
 | ⌘G | `find-next` | Find Next | JS, global |

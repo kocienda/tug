@@ -1791,6 +1791,29 @@ export const COMMANDS: readonly CommandEntry[] = [
         : "Show Session Changes",
   },
   {
+    // ⌘D — the Z5 mic on a key, and nothing more than the mic ([B01] of the
+    // dictation-finish brief). The semantics are the button's: idle starts,
+    // the owner finishes, another composer holding it moves the mic.
+    //
+    // `first-responder`, not `key-card`: the target is whichever composer
+    // holds the keyboard, which is exactly what the first-responder walk
+    // answers and what a card-level dispatch could not — the Overview rail
+    // and a Session composer are two composers, and the one being typed into
+    // is the one that should hear this. Each registers the handler under the
+    // three conditions that mount its button, so a surface with no mic claims
+    // nothing and the press does nothing.
+    //
+    // `preventDefault` because WebKit's own ⌘D (add bookmark) must never
+    // fire, whether or not a composer is there to handle the action. Not
+    // menu-eligible: a menu item's key equivalent is resolved by AppKit
+    // before the web view sees the keydown, which would take the chord out of
+    // the JS funnel the per-composer gate lives in.
+    id: TUG_ACTIONS.TOGGLE_DICTATION,
+    title: "Dictate",
+    routing: "first-responder",
+    bindings: [chord({ key: "KeyD", meta: true, label: "d" }, { preventDefault: true })],
+  },
+  {
     id: TUG_ACTIONS.TOGGLE_HISTORY_VIEW,
     title: "Show Commit History",
     routing: "key-card",

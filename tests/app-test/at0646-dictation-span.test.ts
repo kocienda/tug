@@ -29,11 +29,12 @@
  *    `.tug-dictation-volatile` element over it; a `final` leaves the same words
  *    with no mark. That element is the only thing telling the user the machine
  *    has not committed to what it heard.
- * 4. **Closing keeps the settled text, drops the tail, and submits nothing.**
- *    The unsettled tail goes because the recogniser never called it settled; the
- *    settled text stays because it is the user's draft now; and no user turn
- *    appears in the transcript, because dictation writes text and nothing acts
- *    on its own ([B03]).
+ * 4. **Closing keeps every word and submits nothing.** A tap on the mic is the
+ *    user saying they are done talking, so the deck asks the host to finish and
+ *    keeps what comes back — including a tail the recogniser never settled,
+ *    which the harness's no-audio finish returns as-is. And no user turn appears
+ *    in the transcript, because dictation writes text and nothing acts on its
+ *    own ([B03] of `briefs/dictation-finish-brief.md`).
  *
  * Then [P08], in the app: with a draft already in the field and the caret at its
  * end, the next session opens on a new line rather than running into the word
@@ -183,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)("AT0646: dictation lands in the Session composer", 
         // are still provisional.
         expect(await app.evalJS<boolean>(exists(VOLATILE))).toBe(false);
 
-        // ── 4. Closing keeps the settled text and drops the tail. ──────────
+        // ── 4. Closing keeps every word. ──────────────────────────────────
         await push(app, { id: sessionId, kind: "volatile", text: " again" });
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)}).textContent || "") === "hello world again"`,
@@ -196,9 +197,10 @@ describe.skipIf(!SHOULD_RUN)("AT0646: dictation lands in the Session composer", 
         );
         const afterClose = await docText(app);
         note("after closing", afterClose);
-        // " again" goes because the recogniser never called it settled; "hello
-        // world" stays because it is the user's draft now.
-        expect(afterClose).toBe("hello world");
+        // " again" stays: the tap asked the host to finish rather than to stop,
+        // and a finish keeps the recogniser's reading of what it already heard.
+        // Escape is the one gesture that would have dropped it.
+        expect(afterClose).toBe("hello world again");
         expect(await app.evalJS<boolean>(exists(VOLATILE))).toBe(false);
         // And nothing was sent. This is the claim that makes the feature safe
         // to use mid-thought ([B03]).

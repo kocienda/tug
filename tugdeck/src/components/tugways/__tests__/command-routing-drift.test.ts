@@ -515,6 +515,11 @@ const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set([
  */
 const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: string]> = [
   ["⌘J", TUG_ACTIONS.NEW_JOT],
+  // ⌘D — the Z5 mic on a key. Plain ⌘ because it is a composer verb the
+  // hand reaches for mid-sentence, and the letter was free on every layer it
+  // crosses: no registry chord, no AppKit key equivalent, and `@codemirror/search`'s
+  // own Mod-d is installed in the code view alone, never in a composer.
+  ["⌘D", TUG_ACTIONS.TOGGLE_DICTATION],
   ["⌃⌘R", TUG_ACTIONS.TOGGLE_ARCS],
   ["⌃⌘W", TUG_ACTIONS.TOGGLE_CARDS],
   ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],

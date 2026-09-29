@@ -2,8 +2,8 @@
  * dictation-bridge.ts — the wire between the deck and the host's microphone.
  *
  * The Tug.app host exposes a `dictation` `WKScriptMessageHandler`. We post
- * `{ id, verb }` where `verb` is `"start"` or `"stop"` and `id` is a session
- * id this module mints; the host calls back
+ * `{ id, verb }` where `verb` is `"start"`, `"stop"` or `"finish"` and `id` is
+ * a session id this module mints; the host calls back
  * `window.__tugBridge.onDictation(event)` with one of the events in
  * {@link DictationEvent}. One session is live at a time — a `start` for a
  * second id supersedes the first — and the host is where that is enforced, so
@@ -20,8 +20,9 @@
  *
  * Graceful degradation: outside the host (dev browser, or before the app is
  * rebuilt with the handler) {@link isDictationAvailable} is `false`,
- * {@link startDictation} and {@link stopDictation} are no-ops, and the button
- * renders nothing, so nothing offers a microphone that cannot exist.
+ * {@link startDictation}, {@link stopDictation} and {@link finishDictation}
+ * are no-ops, and the button renders nothing, so nothing offers a microphone
+ * that cannot exist.
  *
  * @module lib/dictation-bridge
  */
@@ -159,9 +160,28 @@ export function startDictation(id: string): void {
 /**
  * Ask the host to stop `id`. A no-op outside the host, and the host ignores
  * one naming a session that is not live — so a stale stop costs nothing.
+ *
+ * Stop **truncates**: whatever the recogniser had not yet settled is thrown
+ * away on both sides. Escape and the involuntary ends are what this is for;
+ * the user saying they are done talking is {@link finishDictation}.
  */
 export function stopDictation(id: string): void {
   dictationHandler()?.postMessage({ id, verb: "stop" });
+}
+
+/**
+ * Ask the host to *finish* `id`: stop listening, but ask the recogniser for
+ * its settled reading of what it already heard and keep forwarding `final`
+ * events until it answers.
+ *
+ * The session stays live until the host's `ended` arrives, which is what the
+ * store's `finishing` phase waits on — so unlike {@link stopDictation} this
+ * is not a synchronous end and cannot be used where the caller needs the
+ * draft in the same tick. A no-op outside the host, and ignored by the host
+ * for a session that is not live, on the same terms as a stale stop.
+ */
+export function finishDictation(id: string): void {
+  dictationHandler()?.postMessage({ id, verb: "finish" });
 }
 
 /** Register the one listener, or clear it with `null`. */

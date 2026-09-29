@@ -39,6 +39,8 @@ import { isDictationAvailable } from "@/lib/dictation-bridge";
 import { dictationStore, useDictationFace } from "@/lib/dictation-store";
 import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
 
+import { TUG_ACTIONS } from "./action-vocabulary";
+import { commandShortcut } from "./keymap-registry";
 import { TugProgressIndicator } from "./tug-progress-indicator";
 import { TugPushButton } from "./tug-push-button";
 import { TugTooltip } from "./tug-tooltip";
@@ -69,6 +71,7 @@ const PHASE_TOOLTIP: Readonly<Record<string, string>> = {
   starting: "Preparing dictation…",
   preparing: "Preparing dictation…",
   live: "Stop dictating",
+  finishing: "Finishing dictation…",
 };
 
 export function TugDictationButton({
@@ -88,12 +91,18 @@ export function TugDictationButton({
   if (handle === undefined || !isDictationAvailable()) return null;
 
   const live = face.mode === "live";
-  const busy = live || face.mode === "preparing" || face.mode === "starting";
+  const finishing = face.mode === "finishing";
+  const busy =
+    live || finishing || face.mode === "preparing" || face.mode === "starting";
   const refused = face.mode === "refused";
   const label = refused ? (face.refusalText ?? "Dictate") : PHASE_TOOLTIP[face.mode];
 
   return (
-    <TugTooltip content={label}>
+    // The chord rides the tooltip the way Submit's does, read off the command
+    // rather than spelled again here ([B01]) — a rebind moves both doors at
+    // once. A refusal's tooltip carries it too: the chord is still what would
+    // press this button.
+    <TugTooltip content={label} shortcut={commandShortcut(TUG_ACTIONS.TOGGLE_DICTATION)}>
       <TugPushButton
         className="tug-dictation-button"
         data-testid="tug-dictation-button"
@@ -113,16 +122,19 @@ export function TugDictationButton({
         focusGroup={focusGroup}
         focusOrder={focusOrder}
         aria-label={label}
-        aria-pressed={live}
+        // `finishing` counts as pressed: the session has not ended, the wave
+        // is still showing, and a press during it is ignored ([B03]).
+        aria-pressed={live || finishing}
         // Not `disabled`: a refused mic must still be pressable ([L31], [P07]).
         aria-disabled={refused || undefined}
         onClick={() => {
           dictationStore.toggle(composerId, cardId, handle);
         }}
         icon={<Mic size={size === "lg" ? 16 : 14} strokeWidth={2.5} />}
-        // `busy` for all three live-ish phases, because the button says "the
-        // system is listening or getting ready to" with one glyph. A phase edge
-        // happens at most four times in a session, so a render per edge is
+        // `busy` for every live-ish phase — starting, preparing, live and
+        // finishing — because the button says "the system is listening, getting
+        // ready to, or settling what it heard" with one glyph. A phase edge
+        // happens a handful of times in a session, so a render per edge is
         // cheaper than the hand-written attribute the Submit button needs.
         activity={busy ? "busy" : undefined}
         activityIcon={

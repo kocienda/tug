@@ -135,7 +135,7 @@ describe("a session over an empty document", () => {
     let state = apply(makeState(""), { kind: "begin" });
     state = apply(state, { kind: "volatile", text: "hello" });
     state = apply(state, { kind: "final", text: "hello world" });
-    state = apply(state, { kind: "end" });
+    state = apply(state, { kind: "end", promote: false });
     expect(state.doc.toString()).toBe("hello world");
     expect(span(state)).toBeNull();
   });
@@ -185,23 +185,23 @@ describe("the first write onto a non-empty draft ([P08])", () => {
   test("the padding survives end, and only the tail goes", () => {
     let state = apply(makeState("draft", 5), { kind: "begin" });
     state = apply(state, { kind: "final", text: "more" });
-    state = apply(state, { kind: "end" });
+    state = apply(state, { kind: "end", promote: false });
     expect(state.doc.toString()).toBe("draft\nmore");
   });
 });
 
 // ---------------------------------------------------------------------------
-// The tail is dropped, never promoted
+// The tail is dropped or promoted, as the end says
 // ---------------------------------------------------------------------------
 
-describe("end drops the provisional tail", () => {
+describe("an end that drops the provisional tail", () => {
   test("a pending volatile goes and the settled text stays", () => {
     let state = apply(makeState(""), { kind: "begin" });
     state = apply(state, { kind: "final", text: "a" });
     state = apply(state, { kind: "volatile", text: "b" });
     expect(state.doc.toString()).toBe("ab");
 
-    state = apply(state, { kind: "end" });
+    state = apply(state, { kind: "end", promote: false });
     expect(state.doc.toString()).toBe("a");
     expect(span(state)).toBeNull();
   });
@@ -209,7 +209,49 @@ describe("end drops the provisional tail", () => {
   test("end with no tail writes no change at all", () => {
     let state = apply(makeState(""), { kind: "begin" });
     state = apply(state, { kind: "final", text: "a" });
-    const spec = dictationSpanTransaction(state, { kind: "end" });
+    const spec = dictationSpanTransaction(state, { kind: "end", promote: false });
+    expect(spec).not.toBeNull();
+    expect((spec as TransactionSpec).changes).toBeUndefined();
+  });
+});
+
+describe("an end that promotes the provisional tail", () => {
+  test("the tail stays in the document as ordinary text", () => {
+    let state = apply(makeState(""), { kind: "begin" });
+    state = apply(state, { kind: "final", text: "a" });
+    state = apply(state, { kind: "volatile", text: "b" });
+    expect(state.doc.toString()).toBe("ab");
+
+    state = apply(state, { kind: "end", promote: true });
+    expect(state.doc.toString()).toBe("ab");
+    expect(span(state)).toBeNull();
+  });
+
+  test("promoting writes no change at all — the bytes are already right", () => {
+    let state = apply(makeState(""), { kind: "begin" });
+    state = apply(state, { kind: "final", text: "a" });
+    state = apply(state, { kind: "volatile", text: "b" });
+    const spec = dictationSpanTransaction(state, { kind: "end", promote: true });
+    expect(spec).not.toBeNull();
+    expect((spec as TransactionSpec).changes).toBeUndefined();
+  });
+
+  test("the promoted tail loses its dimming with the span", () => {
+    let state = apply(makeState(""), { kind: "begin" });
+    state = apply(state, { kind: "volatile", text: "hello" });
+    expect(span(state)).not.toBeNull();
+
+    state = apply(state, { kind: "end", promote: true });
+    // The dimming is provided from the field, so a null field is a document
+    // with no `tug-dictation-volatile` mark left anywhere in it.
+    expect(span(state)).toBeNull();
+    expect(state.doc.toString()).toBe("hello");
+  });
+
+  test("promoting with no tail is the same no-change close as dropping", () => {
+    let state = apply(makeState(""), { kind: "begin" });
+    state = apply(state, { kind: "final", text: "a" });
+    const spec = dictationSpanTransaction(state, { kind: "end", promote: true });
     expect(spec).not.toBeNull();
     expect((spec as TransactionSpec).changes).toBeUndefined();
   });
@@ -259,7 +301,7 @@ describe("an action outside a session", () => {
     const state = makeState("draft");
     expect(dictationSpanTransaction(state, { kind: "volatile", text: "x" })).toBeNull();
     expect(dictationSpanTransaction(state, { kind: "final", text: "x" })).toBeNull();
-    expect(dictationSpanTransaction(state, { kind: "end" })).toBeNull();
+    expect(dictationSpanTransaction(state, { kind: "end", promote: false })).toBeNull();
   });
 
   test("a handle with no view is a no-op rather than a throw", () => {
@@ -268,7 +310,7 @@ describe("an action outside a session", () => {
       handle.begin();
       handle.volatile("x");
       handle.final("x");
-      handle.end();
+      handle.end(false);
     }).not.toThrow();
   });
 });
@@ -287,7 +329,8 @@ describe("every transaction carries the [P10] stamp", () => {
       ["begin", dictationSpanTransaction(makeState("draft", 2), { kind: "begin" })!],
       ["volatile", dictationSpanTransaction(state, { kind: "volatile", text: "m" })!],
       ["final", dictationSpanTransaction(state, { kind: "final", text: "m" })!],
-      ["end", dictationSpanTransaction(state, { kind: "end" })!],
+      ["end drop", dictationSpanTransaction(state, { kind: "end", promote: false })!],
+      ["end promote", dictationSpanTransaction(state, { kind: "end", promote: true })!],
     ];
 
     for (const [name, spec] of cases) {

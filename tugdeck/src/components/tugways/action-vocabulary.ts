@@ -603,6 +603,19 @@ export const TUG_ACTIONS = {
   OPEN_COMMAND_PICKER: "open-command-picker",
   INSERT_FILE:    "insert-file",
   TOGGLE_CHANGES_VIEW: "toggle-changes-view",
+  // TOGGLE_DICTATION: payload — none. The Z5 mic on a key ([B01] of the
+  //                 dictation-finish brief): idle starts, the owner finishes,
+  //                 another composer holding it moves the mic — the button's
+  //                 own call, `dictationStore.toggle`, and nothing more.
+  //                 Bound ⌘D, routed `first-responder` so it reaches whichever
+  //                 composer holds the keyboard and only it. Each composer
+  //                 registers the handler under exactly the three conditions
+  //                 that mount the button — a card id, a `dictation` handle on
+  //                 the insert target, and the host's own handler — so a
+  //                 composer that could not mount a mic claims no chord
+  //                 either, and the press is a silent no-op
+  //                 (`preventDefault` suppresses WebKit's own ⌘D).
+  TOGGLE_DICTATION: "toggle-dictation",
   // REVEAL_CHANGES: payload — none. Open this card's Changes shade, sent by a
   //                 surface that shows the card's arc after fronting the
   //                 card. Not a toggle and not a chord: an explicit reveal

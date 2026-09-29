@@ -33,9 +33,11 @@
  * @module lib/dictation-store
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useLayoutEffect, useSyncExternalStore } from "react";
+import type { RefObject } from "react";
 
 import {
+  finishDictation,
   mintDictationId,
   setDictationListener,
   startDictation,
@@ -65,11 +67,65 @@ export const REFUSAL_TEXT: Readonly<Record<DictationRefusalReason, string>> = {
   error: "Dictation stopped",
 };
 
-/** How far along a claim is. The button's face follows this. */
-export type DictationPhase = "starting" | "preparing" | "live";
+/**
+ * How far along a claim is. The button's face follows this.
+ *
+ * `finishing` is the wait between asking the host to finish and its `ended`
+ * arriving ([B03]). The mic is no longer listening, but the recogniser's
+ * settled reading is still on its way in as `final` events, so the claim is
+ * still live, the wave is still showing, and a second press is ignored.
+ */
+export type DictationPhase = "starting" | "preparing" | "live" | "finishing";
 
 /** What the button draws. `idle` and `refused` belong to no claim. */
-export type DictationMode = "idle" | "starting" | "preparing" | "live" | "refused";
+export type DictationMode =
+  | "idle"
+  | "starting"
+  | "preparing"
+  | "live"
+  | "finishing"
+  | "refused";
+
+/**
+ * What an end does about a tail the recogniser never called settled, keyed by
+ * the reason the release names (Table T03).
+ *
+ * Three shapes, and the split is [B03]–[B07]:
+ *
+ * - **finish** — the user said they were done talking. The host is asked to
+ *   finalize and the claim waits in `finishing` for its `ended`, so the words
+ *   are the recogniser's settled reading rather than its last guess.
+ * - **promote** — the same intent, from a caller that cannot wait: a submit
+ *   reads the draft in the same tick, and so do a clear, an unmount, a modal
+ *   hold and the app resigning ([F07]). The tail becomes ordinary text and
+ *   the host is sent `stop`.
+ * - **drop** — Escape, the one cancel, and the involuntary ends. None of them
+ *   is the user saying they are done, and a tail the machine cut off
+ *   mid-word is not a transcription of anything.
+ *
+ * An unlisted reason drops, which is the conservative direction: the failure
+ * of a missing row is a lost provisional phrase, never text nobody dictated.
+ */
+type DictationEndShape = "finish" | "promote" | "drop";
+
+const END_SHAPE: Readonly<Record<string, DictationEndShape>> = {
+  // The mic's own gesture — the Z5 tap and ⌘D — and focus leaving the
+  // composer, which reads as the same thing ([B02]).
+  stopped: "finish",
+  blurred: "finish",
+
+  submitted: "promote",
+  cleared: "promote",
+  dismissed: "promote",
+  held: "promote",
+  resigned: "promote",
+
+  escape: "drop",
+  superseded: "drop",
+  refused: "drop",
+  "device-lost": "drop",
+  error: "drop",
+};
 
 /** The live claim, or the shape of one. */
 export interface DictationClaim {
@@ -124,12 +180,19 @@ const DICTATION_LOG: boolean = Boolean(import.meta.env?.DEV);
 /** The transport the store talks to the host over. Replaced in tests. */
 export interface DictationTransport {
   start(id: string): void;
+  /** Stop now and keep nothing the recogniser had not settled. */
   stop(id: string): void;
+  /**
+   * Stop listening but ask the recogniser to finalize, keeping the session
+   * live until its `ended` arrives. The `finishing` phase is this wait.
+   */
+  finish(id: string): void;
 }
 
 const HOST_TRANSPORT: DictationTransport = {
   start: startDictation,
   stop: stopDictation,
+  finish: finishDictation,
 };
 
 export class DictationStore {
@@ -206,10 +269,14 @@ export class DictationStore {
 
     switch (event.kind) {
       case "preparing":
-        this.setPhase(claim, "preparing");
+        // A claim that has already asked to finish never goes back to a
+        // listening phase. The host's `ready` can still be in flight behind
+        // a finish the user pressed during `starting`, and letting it land
+        // would make the `ended` that follows read as an involuntary one.
+        if (claim.phase !== "finishing") this.setPhase(claim, "preparing");
         return;
       case "ready":
-        this.setPhase(claim, "live");
+        if (claim.phase !== "finishing") this.setPhase(claim, "live");
         return;
       case "volatile":
         // No notify. A recogniser revises several times a second and the text
@@ -221,10 +288,24 @@ export class DictationStore {
         claim.handle.final(event.text);
         return;
       case "ended":
-        this.end(event.reason, true);
+        // The host's terminal event. A claim in `finishing` asked for this
+        // one, and every `final` the recogniser produced on its way out has
+        // already landed — so a tail still volatile here is the deadline's
+        // ([B04]), and it is promoted rather than dropped. Every other
+        // `ended` is involuntary and drops ([B07]).
+        this.close(
+          claim,
+          event.reason,
+          claim.phase === "finishing" && event.reason === "stopped",
+          true,
+          null,
+        );
         return;
       case "refused":
-        this.end("refused", true, { reason: event.reason, message: event.message });
+        this.close(claim, "refused", false, true, {
+          reason: event.reason,
+          message: event.message,
+        });
         return;
       case "level":
         // Reserved and never sent ([P03]). Ignored rather than treated as an
@@ -236,20 +317,61 @@ export class DictationStore {
   /**
    * Give the mic up. Every release runs through here (Table T03).
    *
+   * What `reason` buys is the shape: {@link END_SHAPE} says whether this
+   * release finishes, promotes or drops. A finish does not end the claim at
+   * all — it asks the host to finalize and leaves the claim in `finishing`
+   * until the `ended` that answers arrives, which is the one release here
+   * that does not resolve in this call.
+   */
+  end(reason: string): void {
+    const claim = this.state.claim;
+    if (claim === null) return;
+
+    const shape = END_SHAPE[reason] ?? "drop";
+
+    if (shape === "finish") {
+      // A claim already finishing is waiting on the host, and a press during
+      // that wait is ignored ([B03]). Only the finish-shaped ends are
+      // swallowed: a submit or a supersede during a finish still gets
+      // through, on its own terms, below.
+      if (claim.phase === "finishing") return;
+      this.beginFinish(claim, reason);
+      return;
+    }
+
+    this.close(claim, reason, shape === "promote", false, null);
+  }
+
+  /**
+   * Ask the host to finalize and wait. The claim stays live through the
+   * wait, so `final` events arriving behind the request still reach the span.
+   */
+  private beginFinish(claim: DictationClaim, reason: string): void {
+    this.transport.finish(claim.sessionId);
+    this.setPhase(claim, "finishing");
+    if (DICTATION_LOG) {
+      console.log(`[dictation] ${claim.sessionId} finishing: ${reason}`);
+    }
+  }
+
+  /**
+   * Drop the claim, for good.
+   *
    * `hostAlreadyEnded` is what keeps the deck from posting a `stop` for a
    * session the host has already closed. The host ignores a stop for a session
    * that is not live, so the post would be harmless — but the flag says which
    * side ended it, and a `stop` in the log for a session that ended itself is
    * a line that reads as a second event on a closed id.
    */
-  end(reason: string, hostAlreadyEnded = false, refusal: DictationRefusal | null = null): void {
-    const claim = this.state.claim;
-    // Nothing to release. Every caller that could pass a refusal reaches here
-    // from `onEvent`, which has already checked there is a claim to refuse.
-    if (claim === null) return;
-
+  private close(
+    claim: DictationClaim,
+    reason: string,
+    promote: boolean,
+    hostAlreadyEnded: boolean,
+    refusal: DictationRefusal | null,
+  ): void {
     this.release();
-    claim.handle.end();
+    claim.handle.end(promote);
     if (!hostAlreadyEnded) this.transport.stop(claim.sessionId);
     this.state = { claim: null, refusal };
     this.emit();
@@ -370,4 +492,45 @@ export function useDictationFace(composerId: string): DictationFace {
     useCallback(() => dictationStore.faceFor(composerId), [composerId]),
     SERVER_FACE,
   );
+}
+
+/**
+ * End this composer's session when the keyboard leaves its entry shell.
+ *
+ * Focus going somewhere else is an ordinary end, so it is finish-shaped: the
+ * store asks the recogniser to finalize and keeps what it says ([B02]).
+ *
+ * **The listener goes on the entry shell root, never on the editor's
+ * `contentDOM`.** Tapping the Z5 mic is a focus-out of the field and a
+ * focus-in of a button that sits inside the same shell — a listener on the
+ * field alone would read that tap as the user leaving and end the session the
+ * tap was meant to start ([F05]). `focusout` bubbles, so the shell sees every
+ * departure from anything it contains, and `relatedTarget` says where focus
+ * went: inside the shell is not leaving, and `null` — focus going nowhere at
+ * all, which is the window losing key or the element being removed — is.
+ *
+ * Registered only while this composer owns the mic, and through
+ * `useLayoutEffect` because the registration must be live before the events it
+ * answers ([L03]). `endIfOwnedBy` keeps a composer that has since lost the mic
+ * from ending the new owner's session.
+ */
+export function useDictationFocusRelease(
+  composerId: string | null,
+  owned: boolean,
+  rootRef: RefObject<HTMLElement | null>,
+): void {
+  useLayoutEffect(() => {
+    if (!owned || composerId === null) return;
+    const root = rootRef.current;
+    if (root === null) return;
+    const onFocusOut = (event: FocusEvent): void => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && root.contains(next)) return;
+      dictationStore.endIfOwnedBy(composerId, "blurred");
+    };
+    root.addEventListener("focusout", onFocusOut);
+    return () => {
+      root.removeEventListener("focusout", onFocusOut);
+    };
+  }, [composerId, owned, rootRef]);
 }

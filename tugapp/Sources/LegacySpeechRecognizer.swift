@@ -34,6 +34,11 @@ final class LegacySpeechRecognizer: DictationRecognizer {
     /// never worked, and one after it is a session that ended.
     private var sawResult = false
 
+    /// A pending finish's completion. Non-nil only between `finish` and the
+    /// task's last callback, which is what keeps `settle` from firing on the
+    /// finals that arrive mid-session.
+    private var finishCompletion: (() -> Void)?
+
     func prepare(
         progress: @escaping (Bool) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
@@ -76,6 +81,7 @@ final class LegacySpeechRecognizer: DictationRecognizer {
             if let result {
                 self.sawResult = true
                 self.onTranscript?(result.bestTranscription.formattedString, result.isFinal)
+                if result.isFinal { self.settle() }
                 return
             }
             if let error, !self.sawResult {
@@ -87,6 +93,9 @@ final class LegacySpeechRecognizer: DictationRecognizer {
                     TugLog.field("error", error.localizedDescription),
                 ])
             }
+            // A callback with no result is the task ending, one way or the
+            // other, and a finish waiting on it has nothing further coming.
+            self.settle()
         }
 
         completion(.success(()))
@@ -96,10 +105,36 @@ final class LegacySpeechRecognizer: DictationRecognizer {
         request?.append(buffer)
     }
 
-    func finish() {
+    /// End the audio and wait for the final result it produces.
+    ///
+    /// `endAudio()` is what makes the task deliver a result with `isFinal`
+    /// set; cancelling the task in the same breath — which is what this used
+    /// to do — threw that result away ([F06]).
+    func finish(completion: @escaping () -> Void) {
+        guard task != nil else {
+            completion()
+            return
+        }
+        finishCompletion = completion
+        request?.endAudio()
+        request = nil
+    }
+
+    /// Stop now and keep nothing ([B05], [B07]).
+    func cancel() {
+        finishCompletion = nil
         request?.endAudio()
         task?.cancel()
         task = nil
         request = nil
+    }
+
+    /// The pending finish's completion, run once. A session with no finish
+    /// waiting passes through, which is every ordinary final.
+    private func settle() {
+        guard let completion = finishCompletion else { return }
+        finishCompletion = nil
+        task = nil
+        completion()
     }
 }

@@ -171,7 +171,12 @@ import type { FindSession } from "@/lib/find-session";
 import type { LandingKind, LandingMode } from "@/lib/landing-mode";
 import { useComposerDrop } from "./use-composer-drop";
 import { useSessionPromptInsertTarget } from "./use-prompt-insert-target";
-import { dictationStore, useDictationFace } from "@/lib/dictation-store";
+import {
+  dictationStore,
+  useDictationFace,
+  useDictationFocusRelease,
+} from "@/lib/dictation-store";
+import { isDictationAvailable } from "@/lib/dictation-bridge";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
@@ -2220,6 +2225,10 @@ export const TugPromptEntry = React.forwardRef<
   dictationOwnedRef.current = dictationOwned;
   const composerCardIdRef = useRef(composerCardId);
   composerCardIdRef.current = composerCardId;
+  // Table T03's "focus leaves the composer". The listener goes on the entry
+  // shell root — `rootRef` — so the Z5 mic tap, which moves focus from the
+  // field to a button inside the same shell, is not read as leaving ([F05]).
+  useDictationFocusRelease(composerCardId, dictationOwned, rootRef);
   // Table T03's "card dismissed or session goes away": the composer going away
   // is the one release nothing else can see, and `endIfOwnedBy` is what keeps
   // an entry that already lost the mic to another composer from ending the new
@@ -3322,6 +3331,29 @@ export const TugPromptEntry = React.forwardRef<
         if (commitDraftingRef.current) return;
         handleCommitAutoMessage();
       },
+      // ⌘D — the mic on a key ([B01]). Spread in under exactly the three
+      // conditions that mount the Z5 button, so the chord and the button are
+      // one control rather than two that agree most of the time: a card id to
+      // arbitrate the claim by, a `dictation` handle to write into, and the
+      // host's own handler. Missing any of them, the key is absent, the chain
+      // leaves the action unhandled, and the press does nothing — which is
+      // what [B01] asks for and what an unconditional handler would break, by
+      // claiming a chord this composer could not act on.
+      ...(composerCardId !== null &&
+      insertTarget.dictation !== undefined &&
+      isDictationAvailable()
+        ? {
+            [TUG_ACTIONS.TOGGLE_DICTATION]: (_event: ActionEvent) => {
+              // Read live, not closed over: the handler object is rebuilt each
+              // render but the card id is held in a ref for the same reason
+              // the Escape ladder below reads one ([L07]).
+              const cardId = composerCardIdRef.current;
+              const handle = insertTarget.dictation;
+              if (cardId === null || handle === undefined) return;
+              dictationStore.toggle(cardId, cardId, handle);
+            },
+          }
+        : {}),
       // Escape / ⌘. — one ladder, in one place.
       //
       // It used to be two: this handler when a turn was in flight, and a raw
