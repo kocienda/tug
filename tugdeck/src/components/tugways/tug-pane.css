@@ -1783,8 +1783,8 @@ body {
 /* ----------------------------------------------------------------------------
    The recede — the two blend layers here, and the frame dim in `chrome.css`.
 
-   Three facts about these layers, all three established by measurement on a
-   real deck (`briefs/deck-animation-pipeline-findings.md`):
+   Two facts about these layers, both established by measurement on a real
+   deck (`briefs/deck-animation-pipeline-findings.md`):
 
    **They exist on every frame, focused and receded alike.** Keyed on
    `:not([data-focused="true"])`, they came into existence on the outgoing
@@ -1800,15 +1800,11 @@ body {
    are the two former alphas' ratio — and a compositor property rather than a
    paint one ([B03]).
 
-   **They change at the settle's landing, not during it.** These rules do not
-   read `data-focused` at all. They read `data-receded`, which `deck-canvas.tsx`
-   writes on each frame and which a running settle defers to its own
-   completion, so the frames are already still when the recede paints. The
-   transition does not stand either: `[data-recede-armed]` on the frames
-   container arms it for the length of the fade and comes off when the fade
-   lands, so a settled deck retains no finished `CSSTransition` on any frame
-   ([D6], [D1]) — which matters precisely because these layers are now on every
-   frame rather than on the unfocused ones.
+   **And they cut.** The value is keyed on `data-focused`, which
+   `pane-focus-controller.ts` writes, and it changes with no transition: an
+   opacity step on a layer that already stands is one compositor frame, and
+   the fade that used to ride it was motion nobody asked for ([D203]). No
+   transition means no `CSSTransition` ever retained on a frame ([D6], [D1]).
    -------------------------------------------------------------------------- */
 
 /* Layer 1: partial saturation reduction — desaturates colored content.
@@ -1840,25 +1836,21 @@ body {
   z-index: 11;
 }
 
-.tug-pane[data-receded] .tug-pane-chrome::before {
+.tug-pane:not([data-focused="true"]) .tug-pane-chrome::before {
   opacity: var(--tugx-pane-content-dim-desat-amount);
 }
 
-.tug-pane[data-receded] .tug-pane-chrome::after {
+.tug-pane:not([data-focused="true"]) .tug-pane-chrome::after {
   opacity: var(--tugx-pane-content-dim-wash-amount);
 }
 
 /* ----------------------------------------------------------------------------
    The recede, while one pane stands in bullseye.
 
-   The dim is these same two layers at deeper values. The depth is carried by
-   the frame's own `data-receded="deep"` rather than by a `[data-bullseye]`
-   ancestor selector, and that is not a refactor: the mark is what the canvas
-   defers, so entering and leaving bullseye fades on the settle's landing for
-   the same reason a focus change does, instead of cutting while the frames
-   are still travelling. The canvas resolves the depth from the posture, which
-   is derived from the first responder, so nothing here can disagree with the
-   geometry.
+   The dim is these same two layers at deeper values, under the canvas's
+   `[data-bullseye]` mark. The bullseyed pane is always the focused pane — the
+   posture is derived from the first responder — so nothing here can disagree
+   with the geometry.
 
    Only the two values change; the recede is these two pseudo-elements, and
    nothing here needs to reach the frame itself.
@@ -1881,24 +1873,12 @@ body {
    because following the pane through every move is its contract, and an
    absolutely positioned descendant follows a transformed ancestor correctly.
    -------------------------------------------------------------------------- */
-.tug-pane[data-receded="deep"] .tug-pane-chrome::before {
+[data-bullseye] .tug-pane:not([data-focused="true"]) .tug-pane-chrome::before {
   opacity: var(--tugx-pane-content-dim-desat-amount-bullseye);
 }
 
-.tug-pane[data-receded="deep"] .tug-pane-chrome::after {
+[data-bullseye] .tug-pane:not([data-focused="true"]) .tug-pane-chrome::after {
   opacity: var(--tugx-pane-content-dim-wash-amount-bullseye);
-}
-
-/* The fade itself, armed for its own length and no longer.
-
-   One knob times it: the duration is the same `--tugx-imposer-settle-duration`
-   `deck-canvas.tsx` writes onto the frames container, with the default riding
-   as a `var()` fallback here at the point of use — the container carries no
-   value until the first arrangement gesture. `deck-canvas.tsx` reads the same
-   property to size the backstop that guarantees the disarm. */
-[data-recede-armed] .tug-pane .tug-pane-chrome::before,
-[data-recede-armed] .tug-pane .tug-pane-chrome::after {
-  transition: opacity var(--tugx-imposer-settle-duration, 300ms) ease-out;
 }
 
 /* ============================================================================

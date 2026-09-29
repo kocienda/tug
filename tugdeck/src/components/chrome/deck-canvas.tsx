@@ -133,7 +133,6 @@ import {
   type InterruptedBeat,
   type SettleBeat,
 } from "@/lib/pane-flip";
-import { installPaneRecede } from "@/lib/pane-recede";
 import {
   classifySettleFrames,
   sampleSettleFrame,
@@ -5009,20 +5008,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       dropPendingFlash();
     };
   }, [store, holdSessions, releaseSessions]);
-
-  // The recede's two marks — which frames wear it, and the one window in which
-  // it may move ([B04], [P05]). `pane-recede.ts` owns both and states why;
-  // what belongs here is the ORDER. This effect is declared before the tween
-  // below because the tween's early returns dispatch `IMPOSER_SETTLE_END`
-  // synchronously, inside the same layout-effect pass — a listener registered
-  // after them would miss the first settle of the canvas's life. The
-  // registration is a layout effect for the reason [L03] gives, and both marks
-  // are DOM writes rather than React state ([L06]).
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (el === null) return;
-    return installPaneRecede(el);
-  }, []);
 
   // Last, and the tween. Declared AFTER the inset effect above, and that order
   // is load-bearing: React runs layout effects in declaration order, and the

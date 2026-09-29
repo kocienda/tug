@@ -102,7 +102,6 @@
  * @covers tugdeck/src/lib/settle-frame-probe.ts
  * @covers tugdeck/scripts/audit-motion.ts
  * @covers tuglaws/animation-doctrine.md
- * @covers tugdeck/src/lib/pane-recede.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/flash-pane-border.ts
  * @covers tugdeck/src/action-dispatch.ts
@@ -1053,167 +1052,11 @@ describe.skipIf(!SHOULD_RUN)(
 );
 
 // ---------------------------------------------------------------------------
-// The recede ([B04], [P05])
-// ---------------------------------------------------------------------------
-
-/**
- * The settle's own length (`IMPOSER_SETTLE_MS`), so the mid-fade census can be
- * taken just after the landing rather than at a guess.
- */
-const SETTLE_MS = 400;
-
-/**
- * What the recede looks like from outside, in one round trip.
- *
- * Every field here answers one clause of `[P05]`: `layerless` counts frames
- * MISSING a wash pseudo (the existence claim), `reading`/`receded` are the two
- * opacity values the mark selects between, `retained` is the `getAnimations()`
- * census `[D6]` turns on, and `armed` says whether the fade's window is still
- * standing.
- *
- * `retained` counts only opacity transitions on a PSEUDO-element under a pane
- * frame, which is exactly the three recede layers and nothing a card happens
- * to be running on its own boxes.
- */
-interface RecedeCensus {
-  readonly frames: number;
-  readonly reading: number;
-  readonly layerless: number;
-  readonly armed: boolean;
-  readonly retained: number;
-  readonly readingWash: number;
-  readonly recededWash: number;
-}
-
-const recedeCensus = (app: App): Promise<RecedeCensus> =>
-  app.evalJS<RecedeCensus>(
-    `(function () {
-       var frames = Array.prototype.slice.call(
-         document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}));
-       var washOf = function (frame) {
-         var chrome = frame.querySelector(".tug-pane-chrome");
-         if (chrome === null) return -1;
-         return Number.parseFloat(
-           getComputedStyle(chrome, "::after").opacity || "0");
-       };
-       var reading = frames.filter(function (f) {
-         return !f.hasAttribute("data-receded");
-       });
-       var receded = frames.filter(function (f) {
-         return f.hasAttribute("data-receded");
-       });
-       var layerless = frames.filter(function (f) {
-         var chrome = f.querySelector(".tug-pane-chrome");
-         return chrome === null ||
-           getComputedStyle(chrome, "::after").content === "none";
-       });
-       var retained = frames.reduce(function (n, f) {
-         return n + f.getAnimations({ subtree: true }).filter(function (a) {
-           return a.transitionProperty === "opacity" &&
-             a.effect !== null &&
-             typeof a.effect.pseudoElement === "string" &&
-             a.effect.pseudoElement !== null;
-         }).length;
-       }, 0);
-       return {
-         frames: frames.length,
-         reading: reading.length,
-         layerless: layerless.length,
-         armed: document.querySelector("[data-recede-armed]") !== null,
-         retained: retained,
-         readingWash: reading.length > 0 ? washOf(reading[0]) : -1,
-         recededWash: receded.length > 0 ? washOf(receded[0]) : -1,
-       };
-     })()`,
-  );
-
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — the recede exists at rest, fades after the landing, and is dropped",
-  () => {
-    test(
-      "eight session cards: the layers stand on every frame and no transition survives the fade",
-      async () => {
-        const { app, tugbankPath } = await launch(8);
-        try {
-          await home(app);
-          await wait(AFTER_LAND_MS);
-
-          // ---- At rest. ------------------------------------------------
-          const rest = await recedeCensus(app);
-          note(`at0622 recede at rest: ${JSON.stringify(rest)}`);
-          expect(
-            rest.layerless,
-            `the wash exists on EVERY frame, focused and receded alike — that ` +
-              `is the whole of [B04]'s "no layer is created by the gesture", ` +
-              `and ${rest.layerless} of ${rest.frames} frames carry no wash ` +
-              `pseudo at all`,
-          ).toBe(0);
-          expect(
-            rest.readingWash,
-            `the frame the reader is in carries the wash at zero rather than ` +
-              `not carrying it`,
-          ).toBe(0);
-          expect(
-            rest.recededWash,
-            `and a receded frame carries it at a real value — ` +
-              `${rest.recededWash}`,
-          ).toBeGreaterThan(0);
-          expect(
-            rest.retained,
-            `[D6]: a settled deck retains no finished recede transition. ` +
-              `These layers are on every frame now, so a standing transition ` +
-              `would be three retained effects per pane, growing with card ` +
-              `count. Retained: ${rest.retained} across ${rest.frames} frames`,
-          ).toBe(0);
-          expect(
-            rest.armed,
-            `and the fade's window is not standing open at rest`,
-          ).toBe(false);
-
-          // ---- The falsifying leg ([D5]). ------------------------------
-          // A census of zero over a recede that never runs proves nothing.
-          // Catch the deck mid-fade and show the same census counting.
-          await activateLast(app, 8);
-          await wait(SETTLE_MS + 60);
-          const during = await recedeCensus(app);
-          note(`at0622 recede mid-fade: ${JSON.stringify(during)}`);
-          expect(
-            during.armed || during.retained > 0,
-            `the census can count: caught just after the landing the fade is ` +
-              `either armed or has effects to find — armed=${during.armed}, ` +
-              `retained=${during.retained}. A zero at rest is only evidence ` +
-              `if a non-zero was reachable`,
-          ).toBe(true);
-
-          // ---- And back to rest, with the reader in the new frame. -----
-          await wait(AFTER_LAND_MS);
-          const after = await recedeCensus(app);
-          note(`at0622 recede after the landing: ${JSON.stringify(after)}`);
-          expect(
-            after.reading,
-            `exactly one frame is the one the reader is in`,
-          ).toBe(1);
-          expect(
-            after.retained,
-            `and the fade dropped itself — retained ${after.retained}`,
-          ).toBe(0);
-          expect(
-            after.armed,
-            `and took its window with it`,
-          ).toBe(false);
-        } finally {
-          await app.close();
-          rmTempTugbank(tugbankPath);
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
-  },
-);
-
-// ---------------------------------------------------------------------------
 // The flash ([B05], [P06])
 // ---------------------------------------------------------------------------
+
+/** The settle's own length (`IMPOSER_SETTLE_MS`), so a post-landing read can be taken just after it. */
+const SETTLE_MS = 400;
 
 /**
  * The flash, read from outside: whether a ring is lit, and on what terms.

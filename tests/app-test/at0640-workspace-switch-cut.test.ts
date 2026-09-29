@@ -67,7 +67,7 @@
  * write that swaps two frames' `z-index` — the parked arrangement and the live
  * re-solve disagree about stacking order, though never about a box. On the
  * first switch, which MOUNTS the arriving workspace, the frames' DOM-effect
- * attributes (`data-focused`, `data-receded`, `data-masthead`) are written
+ * attributes (`data-focused`, `data-masthead`) are written
  * after insertion and observed too. None of those is the arriving workspace
  * moving. Every one of them is counted and reported by attribute name, so the
  * report says what a switch writes on a frame; only the geometry is asserted,

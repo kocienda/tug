@@ -84,7 +84,7 @@ Two constraints, then. The slide must be smooth on an idle deck of four session 
 
 - **Longer or slower tweens, or a delayed start to hide the spike.** They trade a cut for a pause and leave the cost in place; the cost is what has to go.
 
-- **Removing the recede or the flash.** Both are product decisions about how a deck reads. They are rebuilt as compositor-only motion ([B04], [B05]), not taken away.
+- **Removing the recede or the flash.** Both are product decisions about how a deck reads. They are rebuilt as compositor-only motion ([B04], [B05]), not taken away. *Amended 2026-09-29 by [D203]: the recede's FADE is deleted. The recede's value — the dim on every pane the reader is not in — stays, keyed on `data-focused` and cut with no transition; `pane-recede.ts`, `data-receded` and `data-recede-armed` are gone. The flash stands as [B05] built it.*
 
 - **A `contain`/`content-visibility` treatment of the frame itself as the promotion mechanism.** `contain: paint` or `content-visibility` on `.tug-pane` would also make it a containing block and would clip the sheet's slide-in and every popover; [B01] promotes with `transform`/`will-change` and [B02] moves what that breaks.
 

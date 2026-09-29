@@ -246,14 +246,10 @@
   position: absolute; /* already absolute via inline style, repeated for ::after stacking */
 }
 
-/* The frame dim — the third recede layer, and the same three rules as the two
-   in `tug-pane.css`: it exists on EVERY frame rather than appearing on the
+/* The frame dim — the third recede layer, and the same rules as the two in
+   `tug-pane.css`: it exists on EVERY frame rather than appearing on the
    outgoing one mid-tween, `opacity` is the only property that moves, and the
-   value is keyed on `data-receded`, which the canvas defers to the settle's
-   landing. It used to carry no transition at all, so it was a hard cut on a
-   paint property; it is now the same mechanism as the other two rather than a
-   third one ([B04]). The transition is armed by `[data-recede-armed]` on the
-   frames container for the fade's length and no longer ([D6]). */
+   value is keyed on `data-focused` and cuts with no transition ([D203]). */
 .tug-pane::after {
   content: "";
   position: absolute;
@@ -265,12 +261,8 @@
   z-index: 2;
 }
 
-.tug-pane[data-receded]::after {
+.tug-pane:not([data-focused="true"])::after {
   opacity: 1;
-}
-
-[data-recede-armed] .tug-pane::after {
-  transition: opacity var(--tugx-imposer-settle-duration, 300ms) ease-out;
 }
 
 /* ---- Snap guide lines ----
