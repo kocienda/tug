@@ -659,6 +659,22 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
         report("four-up plain probe", plain.probe);
         note(`at0622 four-up plain row: ${JSON.stringify(plain.row)}`);
         note(`at0622 four-up click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
+        note(`at0622 four-up commits: ${JSON.stringify(await reactCommits(four.app))}`);
+        // PROBE: the same activation with the responder chain's React fan-out
+        // deferred past the next paint, read before the bar so a red bar
+        // cannot hide the reading.
+        await four.app.evalJS<null>(`(window.__tugProbe = { deferChain: true }, null)`);
+        // Hand the first responder back to card 1 first, so the activation
+        // below flips it the way the plain leg's did.
+        await four.app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("focus-session-card", { cardId: "at0622-c1" }), null)`,
+        );
+        await wait(AFTER_LAND_MS);
+        const deferred = await sampleBarActivation(four.app, 4, 0);
+        note(`at0622 four-up deferChain row: ${JSON.stringify(deferred.row)}`);
+        note(`at0622 four-up deferChain click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
+        note(`at0622 four-up deferChain commits: ${JSON.stringify(await reactCommits(four.app))}`);
+        await four.app.evalJS<null>(`(window.__tugProbe = { deferChain: false }, null)`);
         expectBar("four-up", plain);
         fourFrames = plain.row.longestGapFrames;
         fourGapMs = plain.row.longestGapMs;
@@ -1527,25 +1543,42 @@ interface SettleFramesRow {
   readonly violations: readonly string[];
 }
 
-/** PROBE: the click task's marks, milliseconds after the last `tug:arm-end`, every entry from 60ms before it on. */
-const clickTaskMarks = (app: App): Promise<Record<string, number[]>> =>
-  app.evalJS<Record<string, number[]>>(
+/** PROBE: the click task's marks, milliseconds after the last `tug:arm-end`: count, first and last, from 60ms before it to 200ms after. */
+const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
+  app.evalJS<Record<string, unknown>>(
     `(function () {
        var names = ["tug:arm-end", "tug:flushSync-start", "tug:flushSync-end", "tug:applyBagFocus-end",
                     "tug:action-end", "tug:action-microtask", "tug:action-next-task",
                     "tug:first-tick", "tug:react-notify",
                     "tug:react-notify-end", "tug:last-pass", "tug:canvas-render",
                     "tug:flip-will-end", "tug:flip-commit-end", "tug:flip-chain-key-end",
-                    "tug:flip-did-deactivate-end", "tug:flip-did-activate-end"];
+                    "tug:flip-did-deactivate-end", "tug:flip-did-activate-end",
+                    "tug:button-render", "tug:pane-render", "tug:card-host-render", "tug:session-render",
+                    "tug:chain-notify"];
        var out = {};
        var arm = performance.getEntriesByName("tug:arm-end");
        var origin = arm.length ? arm[arm.length - 1].startTime : 0;
        names.forEach(function (n) {
-         out[n] = performance.getEntriesByName(n)
+         var ts = performance.getEntriesByName(n)
            .map(function (e) { return Math.round((e.startTime - origin) * 10) / 10; })
-           .filter(function (t) { return t > -60; });
+           .filter(function (t) { return t > -60 && t < 200; });
+         out[n] = ts.length <= 3 ? ts : { n: ts.length, first: ts[0], last: ts[ts.length - 1],
+           inFlush: ts.filter(function (t) { return t >= 0 && t <= 22; }).length };
        });
        return out;
+     })()`,
+  );
+
+/** PROBE: every React commit from 60ms before the last `tug:arm-end` to 200ms after, times relative to it. */
+const reactCommits = (app: App): Promise<unknown> =>
+  app.evalJS<unknown>(
+    `(function () {
+       var arm = performance.getEntriesByName("tug:arm-end");
+       var origin = arm.length ? arm[arm.length - 1].startTime : 0;
+       var api = window.__tugCommits;
+       if (!api) return "no census";
+       return api.since(origin - 60).filter(function (c) { return c.t < origin + 200; })
+         .map(function (c) { return { t: Math.round((c.t - origin) * 10) / 10, fibers: c.fibers, performed: c.performed, top: c.top.slice(0, 6), labels: c.labels }; });
      })()`,
   );
 

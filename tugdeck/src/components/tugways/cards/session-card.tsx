@@ -647,6 +647,7 @@ export function SessionCardContent({
   renderTurnTrailing,
   footerContent,
 }: SessionCardContentProps) {
+  performance.mark("tug:session-render");
   const services = useSessionCardServices(cardId);
   // Subscribe to the restore registry so `SessionRestoring` mounts as
   // soon as `restoreSessions` fires a `spawn_session(resume)` for

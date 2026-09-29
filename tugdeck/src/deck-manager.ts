@@ -1198,6 +1198,16 @@ export class DeckManager implements IDeckManagerStore {
     };
   };
 
+  /** PROBE: {@link IDeckManagerStore.flushPendingNotify}. */
+  public flushPendingNotify = (): void => {
+    const pending = this.deferredNotify;
+    if (pending === null) return;
+    this.deferredNotify = null;
+    performance.mark("tug:react-notify");
+    this.subscribers.forEach((cb) => cb(pending.landing));
+    performance.mark("tug:react-notify-end");
+  };
+
   /**
    * PROBE: tell the deferred subscribers after the next painted frame. rAF
    * runs before that frame's rendering update and a zero timer queued inside

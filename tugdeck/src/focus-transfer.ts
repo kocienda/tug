@@ -778,6 +778,13 @@ export interface TransferFocusForActivationOptions {
    * with. See {@link ApplyBagFocusOptions.modality}.
    */
   modality?: FocusModality;
+  /**
+   * PROBE: leave the deck store's React commit to land after the next
+   * painted frame rather than flushing it inside step 2. Only for a caller
+   * whose incoming card is already mounted and displayed — a plain
+   * activation — so nothing in steps 3–5 reads DOM the commit produces.
+   */
+  deferCommit?: boolean;
 }
 
 /**
@@ -800,6 +807,7 @@ export function transferFocusForActivation(
     commitMutation,
     outgoingWillBeDestroyed,
     modality,
+    deferCommit,
   } = options;
 
   // Step 1 — Save outgoing + hand its selection over to the
@@ -844,6 +852,12 @@ export function transferFocusForActivation(
     performance.mark("tug:flushSync-start");
     flushSync(() => {
       commitMutation();
+      // The deck store tells React on the task after the next paint (see
+      // `PROBE_DEFER_REACT_NOTIFY`), which would leave step 5's `.focus()`
+      // landing on a still-`display: none` element on a tab switch or a
+      // pane that has not mounted. Flush it here, inside the sandwich, so
+      // this contract holds — unless the caller has said it need not.
+      if (deferCommit !== true) store.flushPendingNotify?.();
     });
   }
   performance.mark("tug:flushSync-end");
@@ -1168,5 +1182,6 @@ export function raiseCard(
       store.activateCard(cardId);
     },
     modality,
+    deferCommit: true,
   });
 }

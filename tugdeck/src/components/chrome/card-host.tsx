@@ -642,6 +642,7 @@ function useHostStackFrameElement(hostStackId: string): HTMLDivElement | null {
 export const CardHost = React.memo(CardHostImpl);
 
 function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: CardHostProps): React.ReactElement | null {
+  performance.mark("tug:card-host-render");
   const store = useDeckManager();
   const registration = getRegistration(componentId);
   const hostContentEl = useHostContentElement(hostStackId);

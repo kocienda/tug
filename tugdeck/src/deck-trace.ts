@@ -1506,7 +1506,7 @@ function installDestinationFlipObserver(): void {
   const store = getDeckStore();
   if (!store) return;
   const prevReadings = snapshotDestinations();
-  const unsubscribe = store.subscribe(() => {
+  const unsubscribe = (store.subscribeSync ?? store.subscribe)(() => {
     const state = store.getSnapshot();
     // Include every card currently in the deck, plus any card we had
     // been tracking that has since been removed (so a removed card's

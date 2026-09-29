@@ -2407,6 +2407,7 @@ function TugPaneImpl({
   arriving,
   folded = false,
 }: TugPaneProps) {
+  performance.mark("tug:pane-render");
   const sidebarSide = sidebarStack?.side;
   // A split rail's member takes its share of the run instead of the whole of
   // it. Passed to the imposer rather than resolved here — the pins are its

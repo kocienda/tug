@@ -1663,11 +1663,38 @@ export class ResponderChainManager {
 
   private incrementAndNotify(): void {
     this.validationVersion += 1;
-    for (const cb of this.subscribers) {
-      cb();
+    // PROBE: `window.__tugProbe.deferChain` tells the generic subscribers —
+    // every chain-action `TugButton`'s `useSyncExternalStore` among them — on
+    // the task after the next painted frame, so the buttons' re-render leaves
+    // the gesture's task. Key-responder observers stay synchronous.
+    const probe =
+      typeof window === "undefined"
+        ? undefined
+        : (window as unknown as { __tugProbe?: { deferChain?: boolean } }).__tugProbe;
+    if (probe?.deferChain === true && typeof requestAnimationFrame === "function") {
+      if (!this.deferredNotifyPending) {
+        this.deferredNotifyPending = true;
+        const flush = (): void => {
+          if (!this.deferredNotifyPending) return;
+          this.deferredNotifyPending = false;
+          performance.mark("tug:chain-notify");
+          for (const cb of this.subscribers) cb();
+        };
+        requestAnimationFrame(() => {
+          window.setTimeout(flush, 0);
+        });
+        window.setTimeout(flush, 50);
+      }
+    } else {
+      for (const cb of this.subscribers) {
+        cb();
+      }
     }
     this.notifyKeyResponderObservers();
   }
+
+  /** PROBE: one deferred generic notification in flight. */
+  private deferredNotifyPending = false;
 
   /**
    * Recompute the derived key-responder-of-kind value for every

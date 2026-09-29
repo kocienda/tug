@@ -68,6 +68,14 @@ export interface IDeckManagerStore {
   subscribeSync?: (callback: (landing: CommitLanding) => void) => () => void;
 
   /**
+   * PROBE: deliver the deferred notification NOW, synchronously. A caller
+   * whose next line reads DOM that only React's commit produces — a tab
+   * switch's `display: contents`, a new pane's host — calls this inside its
+   * `flushSync` so the contract "DOM consistent after the commit" holds.
+   */
+  flushPendingNotify?: () => void;
+
+  /**
    * Return the current DeckState snapshot.
    * Must be an arrow property (stable identity, auto-bound this).
    */

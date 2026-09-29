@@ -20,6 +20,80 @@
 </head>
 <body style="margin:0;padding:0;overflow:hidden">
   <div id="deck-container"></div>
+  <!-- PROBE: React commit census. The devtools-shaped hook must exist before
+       react-dom evaluates, and a module import cannot promise that once the
+       bundler hoists the vendor chunk, so it is installed here. Every commit
+       is walked once for the fibers that performed work and recorded with a
+       timestamp; read it with window.__tugCommits.since(t). -->
+  <script>
+    (function () {
+      if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
+      var commits = [];
+      function nameOf(type) {
+        if (typeof type === "string") return type;
+        if (typeof type === "function") return type.displayName || type.name || "fn";
+        if (type && typeof type === "object") {
+          return type.displayName || (type.render && type.render.name) ||
+            (type.type && (type.type.displayName || type.type.name)) ||
+            String(type.$$typeof && type.$$typeof.description || "obj");
+        }
+        return type === null ? "root" : String(type);
+      }
+      function census(root) {
+        var t = performance.now();
+        var counts = new Map();
+        var labels = [];
+        var fibers = 0, performed = 0;
+        // A subtree React did not visit is the SAME object in both trees, and
+        // its fibers keep the flags of whatever commit last rendered them —
+        // so the walk carries the old tree beside the new one and stops where
+        // the two are one object. Children are matched by index.
+        var stack = [[root.current, root.current.alternate]];
+        while (stack.length) {
+          var pair = stack.pop();
+          var f = pair[0], o = pair[1];
+          if (f === o) continue;
+          fibers += 1;
+          if (o === null || (f.flags & 1)) {
+            performed += 1;
+            var n = nameOf(f.type);
+            counts.set(n, (counts.get(n) || 0) + 1);
+            if (/^(TugButton|TugPushButton|TugConfirmPopover|TugPopover|TugTooltip|ResponderScope)/.test(n) && f.memoizedProps) {
+              var p = f.memoizedProps;
+              labels.push(n + "(" + (p.action || p["aria-label"] || p.title || p.label || p["data-slot"] || p.id || "") + ")");
+            }
+          }
+          var c = f.child, oc = o ? o.child : null;
+          while (c) {
+            stack.push([c, oc]);
+            c = c.sibling;
+            oc = oc ? oc.sibling : null;
+          }
+        }
+        var top = Array.from(counts.entries()).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12);
+        return { t: t, fibers: fibers, performed: performed, top: top, labels: labels.slice(0, 24) };
+      }
+      var nextId = 1;
+      var renderers = new Map();
+      window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+        isDisabled: false, supportsFiber: true, supportsFlight: false, renderers: renderers,
+        inject: function (r) { var id = nextId++; renderers.set(id, r); return id; },
+        on: function () {}, off: function () {}, emit: function () {},
+        sub: function () { return function () {}; },
+        checkDCE: function () {}, setStrictMode: function () {},
+        onCommitFiberUnmount: function () {}, onPostCommitRoot: function () {},
+        onCommitFiberRoot: function (_id, root) {
+          commits.push(census(root));
+          if (commits.length > 400) commits.splice(0, commits.length - 400);
+        }
+      };
+      window.__tugCommits = {
+        since: function (t) { return commits.filter(function (c) { return c.t >= t; }); },
+        all: function () { return commits.slice(); },
+        renderers: function () { return renderers.size; }
+      };
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

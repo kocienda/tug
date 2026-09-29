@@ -372,7 +372,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       focusManager.setKeyCard(next);
     };
     syncKeyCard();
-    const unsubscribeKeyCard = deckStore?.subscribe(syncKeyCard) ?? (() => {});
+    const unsubscribeKeyCard = (deckStore?.subscribeSync ?? deckStore?.subscribe)?.(syncKeyCard) ?? (() => {});
 
     // ---- SelectionGuard lifecycle ----
     // Install SelectionGuard event listeners alongside the key pipeline.

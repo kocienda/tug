@@ -774,7 +774,7 @@ class SelectionGuard {
     // installed — the click's caret-placement proceeds normally.
     const deckStore = getDeckStore();
     if (deckStore !== null) {
-      this.deckStoreUnsubscribe = deckStore.subscribe(() => {
+      this.deckStoreUnsubscribe = (deckStore.subscribeSync ?? deckStore.subscribe)(() => {
         const newFocused = this.getFocusedCardId();
         if (newFocused !== this.lastPaintFocusedCardId) {
           if (
