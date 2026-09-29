@@ -38,7 +38,8 @@ use tracing::{debug, error, warn};
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
 use super::agent_bridge::{
-    ChildSpawner, CrashBudget, DEFAULT_RETRY_DELAY, SessionMode, TugcodeSpawner, run_session_bridge,
+    AuthProbe, ChildSpawner, CrashBudget, DEFAULT_RETRY_DELAY, SessionMode, TugcodeSpawner,
+    run_session_bridge,
 };
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
@@ -12990,6 +12991,7 @@ impl AgentSupervisor {
                 changeset_bumper_for_bridge,
                 cancel_for_bridge,
                 DEFAULT_RETRY_DELAY,
+                AuthProbe::Claude,
             );
             // The handle to this task is dropped, so an unwind out of the
             // bridge would end the session in silence. The relay — where a
@@ -27821,7 +27823,8 @@ mod tests {
 
 #[cfg(test)]
 mod bridge_panic_tests {
-    use super::super::agent_bridge::{CrashBudget, SessionChild, SpawnFuture};
+    use super::super::agent_bridge::{AuthProbe, CrashBudget, SessionChild, SpawnFuture};
+    use super::super::claude_auth::{AccountInfo, AuthState};
     use super::*;
     use std::collections::VecDeque;
     use std::pin::Pin;
@@ -27949,6 +27952,10 @@ mod bridge_panic_tests {
             crate::feeds::changeset::ChangesetBumper::disconnected(),
             CancellationToken::new(),
             Duration::from_millis(1),
+            // The host fact this test is not about, stated instead of
+            // inherited: the respawn auth gate shells out to the real `claude`,
+            // so a machine without one ends the bridge before the retry spawns.
+            AuthProbe::Fixed(AuthState::LoggedIn(AccountInfo::default())),
         )
         .await;
 
@@ -28060,9 +28067,10 @@ mod bridge_panic_tests {
 #[cfg(test)]
 mod replay_bracket_close_tests {
     use super::super::agent_bridge::{
-        CrashBudget, REPLAY_BRACKET_DEADLINE, RelayOutcome, SessionChild, SpawnFuture,
+        AuthProbe, CrashBudget, REPLAY_BRACKET_DEADLINE, RelayOutcome, SessionChild, SpawnFuture,
         relay_session_io,
     };
+    use super::super::claude_auth::{AccountInfo, AuthState};
     use super::*;
     use std::collections::VecDeque;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -28210,6 +28218,7 @@ mod replay_bracket_close_tests {
             crate::feeds::changeset::ChangesetBumper::disconnected(),
             CancellationToken::new(),
             Duration::from_millis(1),
+            AuthProbe::Fixed(AuthState::LoggedIn(AccountInfo::default())),
         )
         .await;
 
@@ -28330,6 +28339,10 @@ mod replay_bracket_close_tests {
             crate::feeds::changeset::ChangesetBumper::disconnected(),
             CancellationToken::new(),
             Duration::from_millis(1),
+            // The gate this test used to fall through by luck. Its budget is 2,
+            // so the second pass is a real respawn and the probe really runs —
+            // which is why this is the one crash test CI could fail.
+            AuthProbe::Fixed(AuthState::LoggedIn(AccountInfo::default())),
         )
         .await;
 

@@ -522,6 +522,45 @@ pub enum RelayOutcome {
 /// Default retry backoff between crash-loop iterations.
 pub const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(1);
 
+/// How the bridge learns whether `claude` is logged in.
+///
+/// The respawn auth gate below shells out to the real `claude` binary, which
+/// makes its verdict a fact about the HOST rather than about the session: a
+/// machine with no `claude` on `PATH` answers
+/// [`AuthState::ClaudeMissing`](crate::feeds::claude_auth::AuthState::ClaudeMissing)
+/// and the gate ends the bridge before the retry spawns. That is exactly right
+/// in production, and it silently decides the outcome of any test about what a
+/// retry spawns — which is how `a_crash_loop_respawn_carries_the_mode_the_session_is_in`
+/// came to pass on a developer's Mac and fail on CI, where no `claude` exists.
+///
+/// So the probe is injected, for the reason [`run_session_bridge`]'s
+/// `retry_delay` is: a test states the host fact it is not testing instead of
+/// inheriting it. Every sibling crash test avoids the gate only by spending its
+/// budget on the first crash, which is luck rather than a decision.
+#[derive(Debug, Clone)]
+pub enum AuthProbe {
+    /// Run `claude auth status --json`. What production passes.
+    Claude,
+    /// Answer without a subprocess. What a test passes to say which host it
+    /// means — including a logged-out one, which no test could reach before.
+    ///
+    /// `cfg(test)` rather than `allow(dead_code)`: production has no honest use
+    /// for a fixed verdict, and the arm existing only where it is constructed is
+    /// what keeps the dead-code lint meaning something on this enum.
+    #[cfg(test)]
+    Fixed(crate::feeds::claude_auth::AuthState),
+}
+
+impl AuthProbe {
+    async fn resolve(&self) -> crate::feeds::claude_auth::AuthState {
+        match self {
+            Self::Claude => crate::feeds::claude_auth::probe().await,
+            #[cfg(test)]
+            Self::Fixed(state) => state.clone(),
+        }
+    }
+}
+
 /// Per-session bridge task. Spawns and supervises the tugcode subprocess
 /// for a single `TugSessionId`. On crash, re-spawns until the per-session
 /// `CrashBudget` (lives inside the ledger entry) is exhausted, at which point
@@ -565,6 +604,10 @@ pub async fn run_session_bridge(
     changeset_bumper: crate::feeds::changeset::ChangesetBumper,
     cancel: CancellationToken,
     retry_delay: Duration,
+    // How the respawn auth gate decides whether `claude` is logged in.
+    // Production passes `AuthProbe::Claude`; a test passes the verdict it means
+    // rather than inheriting the build machine's.
+    auth_probe: AuthProbe,
 ) {
     // `tug_session_id` is also the session id we pass to tugcode via
     // `--session-id` — the single identifier for this session.
@@ -604,7 +647,7 @@ pub async fn run_session_bridge(
         let probe_auth = is_respawn && !ledger_entry.lock().await.crash_budget.is_exhausted();
         is_respawn = true;
         let auth_detail = if probe_auth {
-            match crate::feeds::claude_auth::probe().await {
+            match auth_probe.resolve().await {
                 crate::feeds::claude_auth::AuthState::LoggedIn(_) => None,
                 crate::feeds::claude_auth::AuthState::ClaudeMissing => Some("claude_missing"),
                 crate::feeds::claude_auth::AuthState::LoggedOut => Some("auth_required"),
