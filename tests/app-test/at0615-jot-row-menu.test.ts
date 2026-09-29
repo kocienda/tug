@@ -191,10 +191,17 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           note("at0615 menu", JSON.stringify(rows));
           expect(rows.map((r) => r.action)).toEqual([
             "edit-jot",
-            "cut",
-            "copy",
-            "copy-as-plain-text",
-            "paste",
+            // The row's OWN clipboard verbs, not the table's `cut` / `copy` /
+            // `paste`. Those four are `routing: "native"` and AppKit performs
+            // them against the document selection, which a `user-select: none`
+            // display row can never be — so registering them here would have
+            // bought no chord and reported Copy as enabled over a surface with
+            // nothing to give it (`native-verb-claims`). The LABELS below are
+            // unchanged, because the acts are the same acts.
+            "cut-jot",
+            "copy-jot",
+            "copy-jot-as-plain-text",
+            "paste-into-jot",
             "new-jot-below",
             "delete-jot",
           ]);
@@ -214,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
 
           // ---- Copy carries the WHOLE jot, not the row's incipit. ---------
           setPasteboard(SENTINEL);
-          await app.nativeClickAtElement(`${MENU} [data-item-action="copy"]`);
+          await app.nativeClickAtElement(`${MENU} [data-item-action="copy-jot"]`);
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) === null`,
             { timeoutMs: 8_000 },
@@ -231,7 +238,7 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           // ---- Paste REPLACES the jot it landed on. ----------------------
           setPasteboard(PASTED);
           await openRowMenu(app, WRITTEN);
-          await app.nativeClickAtElement(`${MENU} [data-item-action="paste"]`);
+          await app.nativeClickAtElement(`${MENU} [data-item-action="paste-into-jot"]`);
           await app.waitForCondition<boolean>(
             `(() => {
                const row = document.querySelector('${rowOf(WRITTEN)}');
@@ -298,12 +305,12 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           note("at0615b menu", JSON.stringify(rows));
           const off = new Map(rows.map((r) => [r.action, r.disabled]));
           // Dim, not gone: the menu is the same height over every row.
-          expect(off.get("cut")).toBe(true);
-          expect(off.get("copy")).toBe(true);
-          expect(off.get("copy-as-plain-text")).toBe(true);
+          expect(off.get("cut-jot")).toBe(true);
+          expect(off.get("copy-jot")).toBe(true);
+          expect(off.get("copy-jot-as-plain-text")).toBe(true);
           // Everything that puts something INTO the jot stays live — an empty
           // jot is the one most worth filling.
-          expect(off.get("paste")).toBe(false);
+          expect(off.get("paste-into-jot")).toBe(false);
           expect(off.get("edit-jot")).toBe(false);
           expect(off.get("new-jot-below")).toBe(false);
           expect(off.get("delete-jot")).toBe(false);

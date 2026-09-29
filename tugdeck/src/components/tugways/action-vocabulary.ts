@@ -827,6 +827,22 @@ export const TUG_ACTIONS = {
   //                         right-click landed on — the same confirm the row's
   //                         ✕ raises, never a delete performed outright. A
   //                         "request", for the reason REQUEST_DISCARD_ARC is.
+  // CUT_JOT:                payload — none. Copy the pointed-at jot whole and
+  // COPY_JOT:               delete it; copy it; copy it with the markdown
+  // COPY_JOT_AS_PLAIN_TEXT: stripped; replace its text with the clipboard's.
+  // PASTE_INTO_JOT:         Four verbs of the row's own rather than the
+  //                         table's Cut / Copy / Copy as Plain Text / Paste,
+  //                         for the reason COPY_COPYABLE is not COPY: a jot
+  //                         row is `user-select: none` display text and can
+  //                         never BE the document selection, and the table's
+  //                         four are `routing: "native"` — AppKit performs
+  //                         them against that selection without entering this
+  //                         chain. Registering them here would buy no chord
+  //                         and would terminate the Edit menu's validation
+  //                         walk, reporting Copy as enabled over a surface
+  //                         with nothing to give it (`native-verb-claims`).
+  //                         Each means "the jot this row is", so each is
+  //                         menu-only on the same terms as its neighbours.
   // RESET_LAYOUT:           payload — none. Reset card positions.
   // ADD_CARD_TO_ACTIVE_PANE: payload — none. Add a new card to the active pane
   //                         via the global menu / ⌘T (canvas targets the first responder).
@@ -1029,6 +1045,10 @@ export const TUG_ACTIONS = {
   EDIT_JOT:               "edit-jot",
   NEW_JOT_BELOW:          "new-jot-below",
   DELETE_JOT:             "delete-jot",
+  CUT_JOT:                "cut-jot",
+  COPY_JOT:               "copy-jot",
+  COPY_JOT_AS_PLAIN_TEXT: "copy-jot-as-plain-text",
+  PASTE_INTO_JOT:         "paste-into-jot",
   // SET_CARD_WIDTH: payload — `{ paneId, preset }`. Set one content pane's
   //                 width to a named preset (slim / comfy / wide), clamped up
   //                 to the pane's stack floor and stamped so a picker can show

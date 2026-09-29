@@ -53,17 +53,23 @@
  *
  * And a declaration that STANDS DOWN for the settle is not a violation of a
  * law about the settle window. `.tug-pane` carries the [D07] window-shade
- * `transition: height`, which is correct, and which `[data-imposer-settling]
- * .tug-pane { transition: none }` turns off for exactly this window — two
- * clocks on one height being the fold bug that stand-down was written for. So
- * the scan collects the selectors stood down under the settling mark and
- * excuses them, and a hit is a property that really is live while frames move.
+ * `transition: height`, which is correct, and which
+ * `.tug-pane[data-imposer-settling] { transition: none }` turns off for
+ * exactly this window — two clocks on one height being the fold bug that
+ * stand-down was written for. So the scan collects the selectors stood down
+ * under the settling mark and excuses them, and a hit is a property that
+ * really is live while frames move.
  *
- * The excuse is by EXACT selector, deliberately. `[data-imposer-settling]
- * .tug-pane` excuses `.tug-pane` and nothing else — not `.tug-pane-chrome`,
- * not `.tug-pane .x`. A near-miss stand-down that would not actually win the
- * cascade against the offending rule would otherwise excuse it anyway, which
- * is a guard reporting success over a stylesheet that still animates `height`.
+ * The mark reads BOTH ways round: `.tug-pane[data-imposer-settling]` and
+ * `[data-imposer-settling] .tug-pane` both excuse `.tug-pane`, because both
+ * win the cascade over the bare selector, and the compound form is the one to
+ * prefer for the invalidation reason `settleStandDownSubject` gives.
+ *
+ * Either way the excuse is by EXACT selector, deliberately: it excuses
+ * `.tug-pane` and nothing else — not `.tug-pane-chrome`, not `.tug-pane .x`.
+ * A near-miss stand-down that would not actually win the cascade against the
+ * offending rule would otherwise excuse it anyway, which is a guard reporting
+ * success over a stylesheet that still animates `height`.
  *
  * **Rule 3 — a long-running loop stays resident on the compositor.**
  *
@@ -242,6 +248,27 @@ const EASING_KEYWORDS = new Set([
 ]);
 
 const SETTLING_MARK = "[data-imposer-settling]";
+
+/**
+ * The selector a settle stand-down excuses, or `null` if the rule is not one.
+ *
+ * Both placements of the mark count. `.tug-pane[data-imposer-settling]` is the
+ * compound form and the one to prefer — an attribute on the element it styles
+ * invalidates that element alone — and `[data-imposer-settling] .tug-pane` is
+ * the descendant form, which makes the engine walk the canvas on every toggle
+ * of the attribute. Either wins the cascade over the bare selector, so either
+ * is a real stand-down.
+ */
+function settleStandDownSubject(selector: string): string | null {
+  if (selector.startsWith(`${SETTLING_MARK} `)) {
+    return selector.slice(SETTLING_MARK.length + 1).trim();
+  }
+  if (selector.endsWith(SETTLING_MARK)) {
+    const subject = selector.slice(0, -SETTLING_MARK.length).trim();
+    return subject === "" ? null : subject;
+  }
+  return null;
+}
 
 /** The breaker's one variable ([P06]); the contract form every loop writes. */
 const LOOP_ITERATIONS_VAR = "--tug-loop-iterations";
@@ -804,8 +831,8 @@ export function collectMotionContext(
         valueOf(body, "animation") === "none"
       ) {
         for (const selector of selectors) {
-          if (!selector.startsWith(`${SETTLING_MARK} `)) continue;
-          stoodDown.add(selector.slice(SETTLING_MARK.length + 1).trim());
+          const subject = settleStandDownSubject(selector);
+          if (subject !== null) stoodDown.add(subject);
         }
       }
     }
@@ -1254,7 +1281,7 @@ function main(): void {
         `should travel with the pane.\n` +
         `  rule 2: [D9] — the settle window is compositor-only. Animate \`transform\` or ` +
         `\`opacity\`, or stand the declaration down with ` +
-        `\`${SETTLING_MARK} <the same selector> { transition: none }\`.\n` +
+        `\`<the same selector>${SETTLING_MARK} { transition: none }\`.\n` +
         `  rule 3: \`tuglaws/animation-doctrine.md\` — a loop that runs for as long as the ` +
         `deck is up must be one Core Animation can hold. Animate only \`transform\`, ` +
         `\`opacity\`, \`translate\`, \`rotate\` or \`scale\`; keep every transition off the ` +

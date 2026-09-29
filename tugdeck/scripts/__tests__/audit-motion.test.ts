@@ -740,6 +740,27 @@ describe("rule 2 — nothing but transform and opacity animates on a frame", () 
     ).toEqual([]);
   });
 
+  test("the compound form of the stand-down is excused too", () => {
+    // The form the stylesheet actually carries: an attribute on the element it
+    // styles invalidates that element alone, where the descendant form makes
+    // the engine walk the canvas on every toggle of the mark.
+    expect(
+      scan(`
+        .tug-pane { transition: height 200ms ease; }
+        .tug-pane[data-imposer-settling] { transition: none; }
+      `),
+    ).toEqual([]);
+  });
+
+  test("a near-miss stand-down excuses nothing", () => {
+    const hits = scan(`
+      .tug-pane { transition: height 200ms ease; }
+      .tug-pane-chrome[data-imposer-settling] { transition: none; }
+    `);
+    expect(rules(hits)).toEqual([2]);
+    expect(hits[0].selector).toBe(".tug-pane");
+  });
+
   test("an animation is resolved through its `@keyframes`", () => {
     // The hole [F05] fell into, and the one the single-level block regex kept
     // open by never reading a `@keyframes` wrapper's name.

@@ -21,10 +21,21 @@
  * here and no {@link buildTextEditingMenuItems}: that builder's items mean
  * "the selection", and four of them (Look Up in Dictionary, Paste as Quote,
  * Paste as Plain Text, Select All) name acts a row cannot perform. The four
- * that survive keep their standard labels, their standard order, and their
- * live chords read off the binding ([P11]), so the words mean here what they
- * mean everywhere else — they simply name the jot rather than a range inside
- * it.
+ * that survive keep their standard labels and their standard order, so the
+ * words mean here what they mean everywhere else — they simply name the jot
+ * rather than a range inside it.
+ *
+ * They are the row's OWN verbs, though, not the table's Cut / Copy / Paste,
+ * for the reason a copyable keeps `COPY_COPYABLE` rather than `COPY`: the
+ * table's four are `routing: "native"` and AppKit performs them against the
+ * document selection without entering this chain, and a display row of
+ * `user-select: none` markdown can never BE that selection. Registering them
+ * here would buy no chord and would terminate the Edit menu's validation walk,
+ * reporting Copy as enabled over a surface with nothing to give it — the
+ * loophole `native-verb-claims` exists to keep shut. So the items name no
+ * chord either: ⌘C over a jots list is AppKit's Copy over a selection that
+ * is not there, and printing it beside an item it cannot reach would say
+ * otherwise.
  *
  * What each one does to the jot:
  *  - **Copy** is the accessory's copy exactly — text, atoms, and the jot's own
@@ -61,7 +72,6 @@
 import React from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { commandShortcut } from "@/components/tugways/keymap-registry";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import {
   TugEditorContextMenu,
@@ -214,7 +224,7 @@ export function useJotRowMenu({
         if (jot === null) return;
         return () => onRequestDelete(jot);
       },
-      [TUG_ACTIONS.COPY]: () => {
+      [TUG_ACTIONS.COPY_JOT]: () => {
         const jot = targetRef.current;
         if (jot === null || jot.text === "") return;
         void copyAtomTextWithOrigins(
@@ -224,7 +234,7 @@ export function useJotRowMenu({
           jot.origins ?? [],
         );
       },
-      [TUG_ACTIONS.COPY_AS_PLAIN_TEXT]: () => {
+      [TUG_ACTIONS.COPY_JOT_AS_PLAIN_TEXT]: () => {
         const jot = targetRef.current;
         if (jot === null || jot.text === "") return;
         // No atoms on the write — the plain variant carries none, by the
@@ -234,7 +244,7 @@ export function useJotRowMenu({
         const plain = stripMarkdown(jotPlainText(jot));
         void copyAtomTextWithOrigins(plain, [], plain, jot.origins ?? []);
       },
-      [TUG_ACTIONS.CUT]: () => {
+      [TUG_ACTIONS.CUT_JOT]: () => {
         const jot = targetRef.current;
         if (jot === null || jot.text === "") return;
         // Write inside the gesture, delete after the blink — the shape every
@@ -248,7 +258,7 @@ export function useJotRowMenu({
         );
         return () => onDelete(jot);
       },
-      [TUG_ACTIONS.PASTE]: () => {
+      [TUG_ACTIONS.PASTE_INTO_JOT]: () => {
         const jot = targetRef.current;
         if (jot === null) return;
         // Started in the gesture, resolved after it: a read begun later has no
@@ -270,30 +280,28 @@ export function useJotRowMenu({
     // stays and dims rather than vanishing, so the menu is the same height over
     // every row and the reader learns the verb exists.
     const blank = jot.text === "";
+    // No item on this menu names a chord. The row verbs have none to name —
+    // ⏎, Space and ⌫ are the list's key-view keys, which the keymap does not
+    // hold and the user cannot rebind — and the clipboard verbs are the row's
+    // own, menu-only by construction, so there is no binding for
+    // `commandShortcut` to read and nothing an authored string could honestly
+    // claim ([P11]).
     const row = (
       action: (typeof TUG_ACTIONS)[keyof typeof TUG_ACTIONS],
       label: string,
       disabled = false,
-    ): TugEditorContextMenuEntry => {
-      // The chord the command is actually bound to, never an authored string
-      // ([P11]) — the row verbs below name no chord because none is a binding:
-      // ⏎, Space and ⌫ are the list's key-view keys, which the keymap does not
-      // hold and the user cannot rebind.
-      const shortcut = commandShortcut(action);
-      return {
-        action,
-        label,
-        ...(shortcut !== undefined ? { shortcut } : {}),
-        ...(disabled ? { disabled: true } : {}),
-      };
-    };
+    ): TugEditorContextMenuEntry => ({
+      action,
+      label,
+      ...(disabled ? { disabled: true } : {}),
+    });
     return [
       { action: TUG_ACTIONS.EDIT_JOT, label: "Edit Jot" },
       { type: "separator" },
-      row(TUG_ACTIONS.CUT, "Cut", blank),
-      row(TUG_ACTIONS.COPY, "Copy", blank),
-      row(TUG_ACTIONS.COPY_AS_PLAIN_TEXT, "Copy as Plain Text", blank),
-      row(TUG_ACTIONS.PASTE, "Paste"),
+      row(TUG_ACTIONS.CUT_JOT, "Cut", blank),
+      row(TUG_ACTIONS.COPY_JOT, "Copy", blank),
+      row(TUG_ACTIONS.COPY_JOT_AS_PLAIN_TEXT, "Copy as Plain Text", blank),
+      row(TUG_ACTIONS.PASTE_INTO_JOT, "Paste"),
       { type: "separator" },
       { action: TUG_ACTIONS.NEW_JOT_BELOW, label: "New Jot" },
       { action: TUG_ACTIONS.DELETE_JOT, label: "Delete Jot" },

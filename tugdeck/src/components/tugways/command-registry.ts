@@ -3243,11 +3243,19 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   // The jot row's verbs, on the same terms as the arc row's: each means "the
   // jot this row is", which no chord and no menu-bar item can name — and the
   // delete is a "request", raising the card's confirm rather than performing
-  // anything. The row's CLIPBOARD verbs are the table's own Cut / Copy /
-  // Paste, which is the point: they mean here what they mean everywhere.
+  // anything. The row's four CLIPBOARD verbs are here for a second reason on
+  // top of that one: the table's Cut / Copy / Copy as Plain Text / Paste are
+  // `routing: "native"`, performed by AppKit against the document selection,
+  // and a jot row can never BE that selection — so the row keeps verbs of its
+  // own, exactly as a copyable keeps COPY_COPYABLE rather than COPY. The
+  // labels are still the table's words, because the acts are the same acts.
   TUG_ACTIONS.EDIT_JOT,
   TUG_ACTIONS.NEW_JOT_BELOW,
   TUG_ACTIONS.DELETE_JOT,
+  TUG_ACTIONS.CUT_JOT,
+  TUG_ACTIONS.COPY_JOT,
+  TUG_ACTIONS.COPY_JOT_AS_PLAIN_TEXT,
+  TUG_ACTIONS.PASTE_INTO_JOT,
   // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.

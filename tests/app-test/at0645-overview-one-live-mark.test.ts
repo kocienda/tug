@@ -45,6 +45,9 @@
  * @covers tugdeck/src/components/tugways/session-phase-dot.tsx
  * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/styles/tug.css
+ *
+ * @foreground — the election needs a viewport to elect against, so the launch
+ * takes the screen (`foreground: true` below).
  */
 
 import { describe, expect, test } from "bun:test";

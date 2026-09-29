@@ -142,6 +142,9 @@
  * @covers tugdeck/src/components/tugways/cards/gallery-motion-bench.css
  * @covers tugdeck/src/components/tugways/tug-text-editor/session-dot-layer.tsx
  * @covers tugdeck/src/lib/perf-monitor.ts
+ *
+ * @foreground — the probe measures a deck that is actually rendering, so the
+ * launch takes the screen (`foreground: true` below).
  */
 
 import { describe, expect, test } from "bun:test";

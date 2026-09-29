@@ -330,7 +330,11 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // Cards and editors, where the directory genuinely IS the unit — the card is what the
     // test drives, and naming one module inside it would be the narrower fiction.
     "tugdeck/src/components/cards/cards-store/": 3,
-    "tugdeck/src/components/jots/": 4,
+    // `tugdeck/src/components/jots/` was here at 4 and is gone: the directory
+    // grew to 5 with `jot-row-menu.tsx`, and the one declaration claiming it —
+    // `at0247`'s — was narrowed to the three modules that test actually drives
+    // rather than refinanced upward. Debt paid down, which is the remedy this
+    // ratchet asks for first.
     "tugdeck/src/components/tugways/hooks/": 11,
     "tugdeck/src/components/tugways/internal/": 36,
     "tugdeck/src/components/tugways/tug-text-card-editor/": 5,

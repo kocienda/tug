@@ -541,7 +541,11 @@ fn render_gesture(mode: &str, value: &serde_json::Value) {
         println!(
             "gesture gap {gesture_gap:.0}ms ({:.2} frames) at index {index} of {ticks} ticks \
              at {period:.1}ms",
-            if period > 0.0 { gesture_gap / period } else { 0.0 }
+            if period > 0.0 {
+                gesture_gap / period
+            } else {
+                0.0
+            }
         );
     }
     println!(
@@ -784,10 +788,8 @@ mod tests {
             assert_eq!(
                 eval_code_for(&cmd).as_deref(),
                 Some(
-                    format!(
-                        r#"window.__tugMotion.gesture("{mode}", {GESTURE_WINDOW_DEFAULT_MS})"#
-                    )
-                    .as_str()
+                    format!(r#"window.__tugMotion.gesture("{mode}", {GESTURE_WINDOW_DEFAULT_MS})"#)
+                        .as_str()
                 )
             );
         }

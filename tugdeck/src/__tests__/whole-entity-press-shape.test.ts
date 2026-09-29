@@ -60,6 +60,10 @@ const EXEMPT: ReadonlyMap<string, string> = new Map([
     "opens from a right-click on a list row naming a workspace — there is no run of text under the press to select whole",
   ],
   [
+    "components/jots/jot-row-menu.tsx",
+    "opens from a right-click on a jot row, whose incipit is `user-select: none` display markdown — every item acts on the whole jot, and there is no selectable run under the press to paint",
+  ],
+  [
     "components/tugways/tug-editor-context-menu.tsx",
     "is the menu component itself, and opens nothing",
   ],

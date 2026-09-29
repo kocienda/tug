@@ -52,7 +52,15 @@
  * start: it guards the cold-boot restore channel through the
  * keyboard-as-engine-state rework rather than reproducing its trigger.
  *
- * @covers tugdeck/src/components/jots/
+ * The Jots lines name modules rather than the directory: this test drives the
+ * card's LIST across a relaunch — the ring on it, the focus key it saves, the
+ * jots the data source reads out of `TUG_JOTS_PATH` — and nothing of the row
+ * menu or the card's paint. The subtree form claimed both and widened with the
+ * directory every time one grew.
+ *
+ * @covers tugdeck/src/components/jots/jots-card.tsx
+ * @covers tugdeck/src/components/jots/jots-card-registration.tsx
+ * @covers tugdeck/src/components/jots/jots-data-source.ts
  * @covers tugdeck/src/components/cards/cards-store/
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/components/tugways/focus-manager.ts
