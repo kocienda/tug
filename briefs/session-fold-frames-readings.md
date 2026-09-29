@@ -398,3 +398,189 @@ The single `violations` entry is the second thing worth keeping. On the flow fix
 ### What else the same run said
 
 The file's four-up activation leg is red too, and it was red before this arc: `apptest_results` records 7 of 8 tests passing at `8e2acd79c` and in every run since, and 7 of 9 now — the same seven, plus the new fold leg. Its row reads `firstPaintDelayMs: 81`, `commitDelayMs: 0`, `longestGapMs: 81` over 23 ticks: the activation's own lead is its worst gap, on a gesture that leaves no stamp, so the 81 ms is arm-to-first-tick. Under [P01] that lead entered the gap series, which is why the number is the shape it is; the clause's bar was left at two frames rather than raised to admit it.
+
+---
+
+## Fix 1 — the resize episode stops reading geometry it just dirtied
+
+`tugarc/session-fold-commit-frame`, at `686ffdab6`. The brief's first open question — *which write dirties the tree ahead of `discoverScrollers`'s first read* — settled by re-arming `tugtool deck motion chains` across one fold before anything was touched, exactly as [B06] asks.
+
+### Before — the user's deck, `release-main`, folding `3dd62fc2` (1630 px)
+
+```
+$ tugtool deck motion chains --mode arm  --instance release-main
+$ tugtool host tell set-card-folded -p cardId=3dd62fc2-… -p folded=true --instance release-main
+$ tugtool deck motion chains --mode read --instance release-main
+25 chains over 240 entries in 32 tasks
+      9 chains  [clientHeight]
+      read  eDe@…index-AO9eviac.js:2:93200            ← discoverScrollers
+      read  QP@…index-AO9eviac.js:2:94785             ← beginResizeEpisode
+      read  @…index-AO9eviac.js:324:46731             ← the canvas's store subscriber
+      read  forEach / notify / _commitImposition
+      write QP@…index-AO9eviac.js:2:95062             ← beginResizeEpisode, 277 bytes on
+```
+
+Nine chains, one per pane frame, and the top group of the whole fold — which is [F03] reproduced at this branch point, on the same card.
+
+**The write is `beginResizeEpisode`'s own stamp, not the arm's.** [F03] attributed it to "the arm's own container property writes" and said so as an attribution rather than a reading; the reading says otherwise. The read and the write are in the *same function*, 277 bytes apart in the minified bundle, and the only write in `beginResizeEpisode` is its last line — `frame.setAttribute(RESIZE_EPISODE_ATTR, String(id))`. The geometry-chain probe counts `setAttribute` as a style-dirtying write on purpose (`geometry-chain-probe.ts`: "`setAttribute` covers the attribute-keyed rules the deck uses"), so the chain is: frame *n* reads → frame *n* stamps → frame *n+1* reads, nine deep, inside `_commitImposition`'s notify.
+
+That matters for the shape of the fix. [B02] offered two roads — begin from the Last-pass layout effect, or discover without asking `scrollHeight` — and both were aimed at a write outside the episode. Neither would have helped: the write is inside, and moving the read anywhere leaves it interleaved with its own stamp.
+
+### The fix
+
+Two halves, and the second is the one the reading names.
+
+- **The begins leave the write pass.** `deck-canvas.tsx`'s arm already splits measuring from writing, and says why in its own comment: a restored width "is a relayout, and a relayout between two frames' measurements is a First rect nobody saw". `beginResizeEpisode` had been sitting in the *write* pass, one frame at a time, interleaved with those restores. It now has a pass of its own between the two, with the measurements.
+- **The stamp leaves the read.** `beginResizeEpisode` takes `{ deferStamp: true }` and returns a handle carrying `stamp()`; the canvas holds all nine stamps back and applies them together in the write pass. `tug-pane.tsx`'s two single-frame callers do not defer and are unchanged — one episode has nothing to interleave with.
+
+The anchor contract is kept and slightly better kept: every episode now anchors against the same outgoing geometry — the pose the eye has, held by the cancel above — rather than against however many frames beside it had already been handed back, which the interleaved order could only get right for the first frame.
+
+### After — `release-tugarc-session-fold-commit-frame`, nine pane frames, `set-imposition two-up`
+
+```
+38 chains over 821 entries in 122 tasks
+     16 chains  [scrollTop]  applyRestoreTarget@…          ← the list view ([B03], fix 2)
+     15 chains  [scrollTop]  applyRestoreTarget@…          ← the same
+      3 chains  [scrollTop]  React commit
+      1 chains  [clientHeight]
+      1 chains  [offsetWidth]
+```
+
+**No chain rooted in `beginResizeEpisode`.** The group that was the fold's largest is absent from the report entirely — [B02]'s chain bar, met.
+
+And met non-vacuously: watched through a `MutationObserver` on `data-resize-episode` across the same nine frames, the next arrangement change stamped **9 of 9**. The episodes are still raised, still bracket the gesture, and still wear the mark every test reads them by; only the moment the mark is written moved.
+
+### What is still owed on this fix
+
+Two things, and neither is a number this arc can take for itself.
+
+- **The sampled half of [B02]'s bar** — "no `resolveStyle` under `discoverScrollers` in a lead-scoped sample" — is not recorded here. `/usr/bin/sample` against the arc build's WebContent process never returned a file; the previous arc's profiles were all of `release-main`, and whatever lets it attach there does not hold for a freshly signed per-worktree bundle. The chains reading is the instrument [B02] names first and it is decisive on the same claim; the sample is not reported as taken.
+- **A series on the user's own deck.** The fix is a source reordering, so unlike the previous arc's shapes it cannot be switched on in a running `release-main` through the eval door — the user's deck reads it only after it is joined and relaunched. The before series above *is* from their deck; the after is theirs to confirm, which is what [B07] says acceptance is anyway. The card was unfolded and the probe disarmed when the before reading was over, so their deck was left as it was found.
+
+---
+
+## Fix 3 — the occlusion sweep stops forcing layout inside the commit
+
+`tugarc/session-fold-commit-frame`, fix 1 already landed. [B04], at `pane-occlusion-controller.ts`.
+
+### What the sweep was doing in the commit
+
+The controller's synchronous `apply` pass runs in a `useLayoutEffect` keyed on the store snapshot, so it runs in **every** commit — including the one that arms a settle. It called `computeOccludedSet`, which reads `offsetLeft` / `offsetTop` / `offsetWidth` / `offsetHeight` on every shown pane frame, behind the writes React had just made. That is a forced whole-page layout, and [F05] measured it at ~120 ms on the shared-column card.
+
+The pass exists for one guarantee: **a reveal is synchronous**, so the compositor never presents a frame with an exposed-but-hidden pane. That guarantee is what made the pass look unmovable.
+
+### The fix
+
+It is movable, because a reveal does not need to know *which* pane was exposed. Mid-motion — a gesture, or a settle — `apply` now reveals every stamped frame outright and arms the lazy pass, reading no geometry at all. Revealing a pane that is in fact still covered paints nothing: the coverer is opaque and above it. So the blanket answer sits on the conservative side of the one asymmetry the module guarantees — *a missed hide, never a hidden exposed pane* — and costs nothing to compute. The deck at rest still computes exactly as before.
+
+What makes the branch reachable at the moment it is worth taking is that `data-imposer-settling` goes on in the canvas's **arm**, a store subscriber that runs ahead of React's render. It is already on the container when this effect runs in the very commit that launched the motion.
+
+### The reading — `release-tugarc-session-fold-commit-frame`, nine pane frames, `set-imposition two-up`
+
+The same instance, the same population and the same gesture as fix 1's after-reading, so the two are comparable line for line.
+
+| | chains | entries | tasks | the occlusion group |
+|---|---|---|---|---|
+| fix 1 only | 38 | 821 | 122 | `1 chains [offsetWidth] read ide@…248:12285` |
+| fix 1 + fix 3 | **12** | **217** | **5** | **absent** |
+
+`ide` is `computeOccludedSet`: the bundle is built with `keepNames`, and it carries `a(ide,"computeOccludedSet")` verbatim, so the identity is read out of the shipped file rather than inferred from the stack's shape. [B04]'s bar in the form the chains verb can state it — no `offsetLeft`/`offsetWidth` chain rooted in the sweep — is met.
+
+The sampled half of the bar is unrecorded for fix 1's reason: `/usr/bin/sample` does not attach to the per-worktree release build's WebContent process.
+
+### What the reading cost to take, which is worth writing down
+
+The first checkpoint run of this fix reported 0 of 4 files green and read as a disaster. It was not: `just app-release` **launches** its instance, and a Tug window standing in front of the app-test harness windows suspends their `requestAnimationFrame`. Re-run with the instance quit, `at0622`'s fold leg came back to 32 ms — its exact pre-arc baseline — and the four-up gap from 82 ms to 81. Live readings and app-tests do not share a machine.
+
+`at0454-flow-mode.test.ts` survived that correction as the one red whose recorded history did not exonerate it, because it had not been run since 2026-09-26 and so pointed at this arc's own first commit. `tugtool file probe` answered it twice: with fix 3 reverted, and again with fix 1 and fix 3 both reverted, it failed identically — same three assertions, same numbers, same `flow: strip 2120px over a 2120px band`. The root failure is that the fixture's strip no longer overflows its band, which is a width fact, and neither fix touches a width.
+
+---
+
+## Fix 2 — the list view's attribute writes stop interleaving with its reads
+
+[B03], at `tug-list-view.tsx`. Fixes 1 and 3 already landed.
+
+### The write [F04] named is not the write the instrument names
+
+[F04] attributed the interleave to the `data-evict-active` / `data-evict-fallbacks` pair, 15 + 13 chains. The chains verb disagrees, and the bundle settles it: in the reading taken after fixes 1 and 3, the single write site under every `applyRestoreTarget` chain is `235:45442`, and reading that offset out of the served bundle gives
+
+```
+…K.setAttribute("data-tug-scroll-state",JSON.stringify(ct))}),w.useLayoutEffect(()=>{se.current?.applyRestoreTarget()}),…
+```
+
+— the **anchor-state** writer, with the `applyRestoreTarget` effect declared immediately after it. The attribute lands between the anchor effect's own `scrollTop` / `scrollHeight` reads and the next effect's, which is the chain, and it is the largest group the list view contributes. The evict pair is real but smaller: it sits ahead of the pin effect, whose `clientHeight` read appeared as one chain at `235:40880`.
+
+This is the same correction fix 1 made to [F03]: the brief named the write it believed was there, and the instrument names a different one. [B03]'s *decision* — the list view's attribute writes and its geometry reads do not interleave within a commit — is what was carried out, against the writes the probe actually reports: the anchor state, the evict pair, and the displacement counter.
+
+### Two shapes, and why the second one is the fix
+
+**First attempt: one flush effect per component, declared after the last geometry-reading effect.** It works within an instance — the `applyRestoreTarget` group disappeared entirely. But the pin-effect chains went from 1 to 6, and resolving the new write site gave the flush's own `setAttribute`. React runs every mounted component's layout effects in one pass, so on a deck showing seven lists, instance A's flush lands ahead of instance B's first read. A per-instance flush moves the chain rather than removing it.
+
+**The fix is a module-level queue drained in a microtask.** One queue for the module; a microtask still runs inside the commit's own task, before the browser can paint, so the attributes land in the commit that computed them — and every list's writes land after every list's reads. Each queued closure captures its value where the effect that owed it ran, so what lands is that effect's answer.
+
+### The readings — `release-tugarc-session-fold-commit-frame`, `set-imposition`
+
+Population is stated with each, because it is what the entry counts scale with.
+
+| build | population | gesture | chains | entries | tasks | the list view's own writes |
+|---|---|---|---|---|---|---|
+| fixes 1 + 3 | 9 frames | two-up | 12 | 217 | 5 | `applyRestoreTarget` ×5, from `data-tug-scroll-state` |
+| + per-instance flush | 14 frames, 7 lists | two-up | 8 | 240 | 5 | pin ×6, from the flush itself |
+| + module-level queue | 14 frames, 7 lists | two-up | **0** | **4** | **1** | **none** |
+| + module-level queue | 14 frames, 7 lists | three-up | 15 | 1864 | 5 | **none** |
+
+The last row is the honest one to read, because the two-up gesture arrived on a deck already in two-up and moved little. On the three-up commit — 1864 entries, the largest reading this arc has taken — chains are still rooted in the list view (the pin effect, and a render-phase `scrollTop` read), but **no chain's dirtying write comes from the list view any more.** Those writes are now React's own DOM mutations and, at `78:631076`, the focus system's `data-tug-focusable` / `data-tug-focus-key`. [B03]'s decision is met; what remains at that read site belongs to other writers.
+
+### The bench
+
+`at0622`'s session-fold leg moved for the first time in this arc: `firstPaintDelayMs` **32 ms → 22 ms** with the per-instance flush and **25 ms** with the module-level queue, against the 32 ms the same leg read at the branch point and on both earlier steps. `commitDelayMs` went 11–12 ms → 8 ms. The leg is still over its one-frame bar, and the two figures bracket the noise on this sub-case rather than distinguishing the two shapes.
+
+Nine of ten files green in the checkpoint, and the nine include every test that reads a deferred attribute — `at0061` (the save bag's capture), `at0330` and `at0335` and `at0387` and `at0494` (the eviction and displacement probes), `at0189`, `at0333`, `at0632`, `at0083`. Holding the writes to a microtask changes nothing any reader sees.
+
+`at0626-sash-drag-sampler.test.ts` came up red and is not this arc's: its render-cost gauge takes 3 samples inside the hold where the test asks for more than 8, because `cost()` now ends with `await sampleRest()` and that window is a fixed 1000 ms. At the file's last green, `cost()` was a bare two-frame burst; `sampleRest` was added to it afterwards, and `git diff` over `tugdeck/src/lib/motion-guard/` from this arc's base is empty.
+
+---
+
+## Fix 4 — the unfold's view slot, read three ways, and the code left where it stands
+
+[B05], at `session-card.tsx` and `session-card.css`. Fixes 1, 3 and 2 already landed. Every reading here is on the user's own deck — `release-main`, `display 3200x1800 @2x` — folding and unfolding `3dd62fc2` at 1630 px, the same card [F06] was taken on. The at-rest shape was switched by injecting one stylesheet through the eval door rather than by rebuilding, so all three readings are the same build, the same deck and the same card, minutes apart.
+
+### The state [B05] asks for is the state the code is already in
+
+[F06] reads `session-card.tsx:2577` as removing `data-fold` on the unfold's land, and puts the list view's style, render tree and layout in the completion's frame on the strength of it. The effect does remove the attribute at the land — but the unfold's **first** frame has already written `data-fold="moving"` over the `"settled"` that was there, and the slot's `display: none` is keyed on `"settled"` alone. A `MutationObserver` on the card root and the frame, with a rAF chain reading the slot's computed `display` and box on every tick, says it directly:
+
+| rAF | t | `data-fold` | slot `display` | slot height | pane height |
+|---|---|---|---|---|---|
+| 2 | 5 ms | `settled` | `none` | 0 | 145 |
+| — | 95 ms | `moving`, with `data-folded` and `data-fold-crossing` in the same commit | — | — | — |
+| 3 | 105 ms | `moving` | `flex` | 1271 | 173 |
+| 16 | 324 ms | `moving` | `flex` | 1271 | 1625 |
+| 17 | 367 ms | absent — the crossing ends | `flex` | 1271 | 1630 |
+
+The slot is back in layout at its full open height in the first frame the reader sees the card move. That is what [B05] asks for, and it is the third time in this arc that a brief named a write the instrument disagrees with ([F03], [F04], now [F06]).
+
+### The three shapes, measured
+
+`gesture gap` is the bracketed number the procedure's `read` prints: the gap the fold's own stamp landed in. The land's gap is the later one in the same series, at the tick where `data-fold-crossing` comes off.
+
+| at-rest shape | the slot re-enters layout | unfold lead (gesture gap) | the land's own gap |
+|---|---|---|---|
+| `display: none` — shipped | the motion's first frame | 111, 122, 222 ms | 66 ms |
+| `content-visibility: hidden` at rest — [B05]'s fallback | the motion's first frame | 121, 131, 132, 137 ms | 66 ms, and a second gap of 86 ms |
+| `display: none` held through `data-fold="moving"` | the land | 98, 100, 104 ms | 76, 77, 78 ms |
+
+The fallback's at-rest geometry is byte-for-byte the shipped one — folded pane 145 px, card 54 px, slot 0 px, Z2's top at 95 px, measured under both shapes while folded — so `contain-intrinsic-size: auto 0px` under a `flex: 0 0 auto` column really does collapse the way `display: none` does. What it does not do is read better: four samples from 121 to 137 ms against a shipped 111/122, with the shipped shape's one 222 ms sample the only reading on either side that looks like an outlier.
+
+The third row is the isolating probe, and it is what settles [B05]'s open question. Holding the slot out of layout for the whole crossing moves its return to the land: the lead drops to ~100 ms and the land's gap rises from 66 to ~77 ms. So the slot's return is worth **15–20 ms of a frame**, wherever it is paid — not the ~100 ms [F06] put on it, which was the whole land frame — and the two placements are a wash within the lead's own spread.
+
+### The verdict: no change at `session-card.tsx` or `session-card.css`
+
+[B05]'s primary change is the code's existing behavior, confirmed live rather than inferred. Its fallback is not taken, because the reading it was conditioned on says the fallback costs 10–20 ms of lead and buys nothing at rest. And the alternative the probe measured — the late return — trades 15–20 ms of lead for 10 ms of land and is not worth a change either.
+
+What the same readings say about where the unfold's frames actually are, which is worth more than the fix that was not needed: **90 ms passes between the last quiet rAF and the commit that writes `data-folded`, `data-fold="moving"` and `data-fold-crossing` together** — the commit frame fixes 1, 2 and 3 attack, still 90 ms on this card with all three landed — and 40 to 66 ms goes at the land, in the frame where the crossing ends and the still crossing's held height is released. Neither of those is the view slot, and the second belongs to the imposer rather than to the card.
+
+---
+
+## What the four fixes cost, and what the bench still says
+
+The four fixes cost four source files, one `@covers` line and no new machinery: a deferred `data-resize-episode` stamp with the episode arm split into a reads pass and a writes pass (`resize-episode.ts`, `deck-canvas.tsx`), a mid-settle short circuit ahead of the occlusion sweep's first geometry read (`pane-occlusion-controller.ts`), one module-level queue draining the list view's instrumentation attributes in a microtask (`tug-list-view.tsx`), and for fix 4 nothing at all, because the state [B05] asked for turned out to be the state the code was already in. Each fix's own bar is met, and the `chains` verb is what says so: no group rooted in `beginResizeEpisode` on a fold, no `offsetWidth` group after the occlusion branch, and on the largest reading this arc took — 1864 entries over a three-up commit with fourteen frames and seven lists — no chain whose dirtying write the list view authored. What the same readings do not show is the frames coming back. `at0622`'s fold leg read 31–34 ms of lead at the branch point, 22–25 ms in the checkpoint after fix 2, and **34 ms again on a lone re-run of the finished tree** — 13 ms of it spent before the canvas arms at all — against a bar of one display frame; so the leg is still red, the four-up leg with it, and the 22–25 ms pair has to be read as this sub-case's spread rather than as movement. The live deck agrees and locates what is left: on the user's own 1630 px card the unfold shows 90 ms between the last quiet frame and the commit that marks the crossing, and 40–66 ms at the land, neither of which is script-forced style work of the kind the three fixes removed. The thing worth carrying past this arc is not a fix at all: the brief named the *write* that dirties the tree three times ([F03], [F04], [F06]) and was wrong all three times, and every correction came from resolving the probe's own `line:col` out of the served bundle rather than from reading the source the brief cited. What remains for the user is the acceptance [B07] names and nothing this paper can stand in for — ⌃⌘Y on a session card, watching for a cut — and what remains on the bench is a lead nobody has yet opened up frame by frame, starting with the 13 ms that passes before the settle arms.

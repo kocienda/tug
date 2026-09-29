@@ -18,6 +18,16 @@
  *    pane. Raise, close of a covering pane, deck restore, resize, and
  *    imposition changes all reach this path through the store snapshot.
  *
+ *    A reveal does not need to know WHICH pane was exposed, though, and
+ *    mid-motion it does not ask. Inside a settle the apply pass reveals every
+ *    stamped frame outright and arms the lazy pass, reading no geometry at
+ *    all: revealing a pane that is still covered paints nothing, so the
+ *    conservative answer is free, while computing the right one costs a
+ *    forced whole-page layout inside the commit that launched the motion
+ *    (~120 ms on a column-changing session fold). The occlusion the deck
+ *    settles into is computed once it has settled, which is the only moment
+ *    the answer is worth anything anyway.
+ *
  *  - HIDES are lazy. Newly-covered panes are stamped only after a settle
  *    delay, and only while no pane frame carries a running animation or
  *    transition (the imposition FLIP tween, the collapse height transition
@@ -314,17 +324,55 @@ export function usePaneOcclusionController(
   });
 
   passesRef.current = {
-    // The synchronous pass: reveal every pane that is no longer provably
-    // covered, then (re)arm the settle timer for panes that newly are.
+    // The synchronous pass, and it reveals at two grains. On a deck at rest
+    // it computes and reveals every pane that is no longer provably covered,
+    // then (re)arms the settle timer for panes that newly are. On a deck in
+    // motion — a gesture or a settle — it reveals every stamped pane without
+    // computing anything, and leaves the whole question to the lazy pass.
     // Runs post-commit in the layout effect below, so reveals share the
     // paint with the z-order / geometry change that exposed the pane.
     apply: () => {
       const root = deckRootRef.current;
       if (root === null) return;
+      const shown = paneFrames(root);
       if (gestureDepth > 0) {
         // Mid-gesture: geometry is live in the appearance zone; keep
         // everything visible and let end() re-arm.
-        for (const el of paneFrames(root)) delete el.dataset.occluded;
+        for (const el of shown) delete el.dataset.occluded;
+        return;
+      }
+      // Mid-settle: the same answer, for the same reason, without paying for
+      // it. `computeOccludedSet` reads `offsetLeft` on every shown frame, and
+      // in the commit that ARMS a settle — a fold, an imposition change, a
+      // column split — every one of those reads is a forced whole-page layout
+      // behind the writes React just made, measured at ~120 ms on a
+      // column-changing session fold, inside the frame the motion is trying
+      // to launch in (`briefs/session-fold-frames-readings.md`).
+      //
+      // Nothing is lost by not asking. Revealing a pane that is in fact still
+      // covered paints nothing — the coverer is opaque and above it — so the
+      // blanket reveal is the conservative side of the one asymmetry this
+      // module guarantees: a missed hide, never a hidden exposed pane. The
+      // timer below is unconditional here because a moving arrangement is
+      // precisely the case where the previous answer cannot be trusted; the
+      // lazy pass recomputes from the settled geometry, which is the only
+      // geometry the answer was ever about.
+      //
+      // The mark goes on in the canvas's ARM — a store subscriber, ahead of
+      // React's render — so it is already there when this effect runs in the
+      // very commit that launched the motion. That is what makes the branch
+      // reachable at the one moment it is worth taking.
+      if (anyFrameAnimating(shown, root)) {
+        for (const el of shown) {
+          if (el.dataset.occluded === "true") delete el.dataset.occluded;
+        }
+        if (hideTimerRef.current !== null) {
+          window.clearTimeout(hideTimerRef.current);
+        }
+        hideTimerRef.current = window.setTimeout(() => {
+          hideTimerRef.current = null;
+          passesRef.current.verifyHides();
+        }, HIDE_SETTLE_MS);
         return;
       }
       const { frames, occluded } = computeOccludedSet(root, activePaneId);

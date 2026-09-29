@@ -221,6 +221,35 @@ export function trackElementAnchor(el: HTMLElement): (() => number | null) | nul
 export interface ResizeEpisodeHandle {
   readonly id: number;
   end(): void;
+  /**
+   * Put the episode's stamp on the frame.
+   *
+   * Called for you unless the caller asked to defer it, and idempotent either
+   * way — a deferred caller that forgets loses only the stamp, never the
+   * episode.
+   */
+  stamp(): void;
+}
+
+/** How `beginResizeEpisode` should place the stamp. */
+export interface ResizeEpisodeOptions {
+  /**
+   * Leave `data-resize-episode` off the frame until the handle's `stamp()` is
+   * called.
+   *
+   * `setAttribute` is a style-dirtying write, and the whole of `begin` around
+   * it is geometry reads. A caller that begins ONE episode never notices;
+   * a caller that begins one per pane frame in a loop pays a forced style
+   * resolution per frame after the first, because each frame's stamp lands
+   * between the frame before it reading and the frame after it reading. That
+   * is what the geometry-chain probe attributes to `beginResizeEpisode` on a
+   * session-card fold, nine chains deep.
+   *
+   * So a looping caller defers, reads every frame with nothing written in
+   * between, and stamps them together in whatever pass it already reserves
+   * for writes.
+   */
+  readonly deferStamp?: boolean;
 }
 
 /** Per-scroller state for a scroller the module is anchoring itself. */
@@ -404,6 +433,7 @@ function watchGeneric(el: HTMLElement): GenericWatch {
 export function beginResizeEpisode(
   frame: HTMLElement,
   durationMs: number,
+  options?: ResizeEpisodeOptions,
 ): ResizeEpisodeHandle {
   const previous = openEpisodes.get(frame);
   if (previous !== undefined) closeEpisode(previous);
@@ -436,10 +466,22 @@ export function beginResizeEpisode(
   }, durationMs + RESIZE_EPISODE_SLACK_MS);
 
   openEpisodes.set(frame, episode);
-  frame.setAttribute(RESIZE_EPISODE_ATTR, String(id));
+
+  // The stamp is the one WRITE in a function that is otherwise all reads, so
+  // it is the last thing done and a looping caller can hold it back until its
+  // own write pass (`deferStamp`). A frame the episode no longer owns is not
+  // stamped: a late `stamp()` on a closed episode would leave an attribute
+  // nothing takes off again.
+  const stamp = (): void => {
+    if (episode.ended) return;
+    if (openEpisodes.get(frame) !== episode) return;
+    frame.setAttribute(RESIZE_EPISODE_ATTR, String(id));
+  };
+  if (options?.deferStamp !== true) stamp();
 
   return {
     id,
+    stamp,
     end: () => {
       closeEpisode(episode);
     },

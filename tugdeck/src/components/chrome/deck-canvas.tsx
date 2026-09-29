@@ -4630,16 +4630,51 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
       }
 
-      // Second pass: the episodes, and the frames caught mid-settle. Every
-      // write below — a restored width, a cleared transform, an episode's
-      // begin event — happens after the last measurement above. The residue
-      // still goes back on the SAME tick as the cancel that earned it, which
-      // is what the registry's own doc asks for; it goes back a few lines
-      // later in that tick, and nothing paints in between.
-      for (const { paneId, frame, running } of armed) {
-        if (sizeChanged) {
-          episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
+      // Second pass: the episodes. A begin is a READ — `discoverScrollers`
+      // asks `scrollHeight`, and every unclaimed scroller it finds is then
+      // measured down to twelve boxes deep — so it belongs with the
+      // measurements, not with the hand-backs, and this pass is where the
+      // measuring half of the arm ends.
+      //
+      // It used to share the write pass below, one frame at a time: begin,
+      // restore, begin, restore. The restore in the middle is the relayout
+      // the write pass exists to isolate, so every frame after the first read
+      // a tree the frame before it had just dirtied — nine forced style
+      // resolutions on a fold, one per pane, and about eighty milliseconds of
+      // the lead. Hoisted here they all read the tree the First pass already
+      // flushed, and nothing writes between them.
+      //
+      // Every episode now anchors against the same outgoing geometry — the
+      // pose the eye has, held by the cancel above — rather than against
+      // whatever the frames beside it had been handed back so far, which is
+      // the anchor contract `resize-episode.ts` states and the interleaved
+      // order could only keep for the first frame.
+      //
+      // `deferStamp` is the other half, and the half the chain probe actually
+      // named. A begin's own `data-resize-episode` write is the style-dirtying
+      // write in all nine chains — read (frame 1) → stamp (frame 2) → read
+      // (frame 2) — so hoisting the loop alone would have moved the chains
+      // rather than removed them. Held back to the write pass, the reads here
+      // run with nothing written between them at all.
+      const stamps: Array<() => void> = [];
+      if (sizeChanged) {
+        for (const { paneId, frame } of armed) {
+          const handle = beginResizeEpisode(frame, episodeWindowMs, {
+            deferStamp: true,
+          });
+          episodes.set(paneId, handle);
+          stamps.push(() => handle.stamp());
         }
+      }
+
+      // Third pass: the frames caught mid-settle. Every write below — a
+      // restored width, a cleared transform, an episode's stamp — happens
+      // after the last measurement above. The residue still goes back on the
+      // SAME tick as the cancel that earned it, which is what the registry's
+      // own doc asks for; it goes back a few lines later in that tick, and
+      // nothing paints in between.
+      for (const apply of stamps) apply();
+      for (const { paneId, frame, running } of armed) {
         if (running !== undefined) {
           // The `snap-to-end` the hold above replaces committed the tween's
           // FINAL value into inline style instead, and the microtask that took

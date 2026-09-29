@@ -156,6 +156,49 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { deckTrace } from "@/deck-trace";
 import { KEY_CURSOR_ATTRIBUTE } from "./use-focus-cursor";
 
+/**
+ * Attribute writes the current commit owes the DOM, drained once the whole
+ * commit's layout effects are done.
+ *
+ * `setAttribute` dirties style, and a commit that writes one between two of
+ * its own geometry reads pays a forced style resolution for the second. This
+ * component's layout effects are a long alternation of exactly that — the
+ * anchor writer ends on `data-tug-scroll-state` and the very next effect
+ * reads `scrollTop`; the eviction writer lands ahead of the pin effect's
+ * `clientHeight`. Folding a session card was paying about thirty chains that
+ * way.
+ *
+ * The queue is MODULE-level, not per-instance, and that is the whole of why
+ * it works. React runs every mounted component's layout effects in one pass,
+ * so a per-instance flush only holds its own writes back to its own last
+ * effect — and a deck showing several lists still has instance A's flush
+ * landing ahead of instance B's first read. One queue for the module, drained
+ * in a microtask, puts every list's writes after every list's reads.
+ *
+ * A microtask still runs inside the commit's own task, before the browser can
+ * paint, so the attributes land in the commit that computed them. Every one
+ * of them is written FOR a reader outside that task — the save bag's capture,
+ * the eviction lab, an `/api/eval` probe, a `MutationObserver` that schedules
+ * a frame — so none is read back before the drain. Values are captured where
+ * the effect that owed them ran, so what lands is that effect's answer.
+ *
+ * A write whose element has since left the document is a no-op on a detached
+ * node, which is the correct outcome for a list that unmounted mid-commit.
+ */
+const pendingDomWrites: Array<() => void> = [];
+let domWriteFlushScheduled = false;
+
+function queueDomWrite(write: () => void): void {
+  pendingDomWrites.push(write);
+  if (domWriteFlushScheduled) return;
+  domWriteFlushScheduled = true;
+  queueMicrotask(() => {
+    domWriteFlushScheduled = false;
+    const queued = pendingDomWrites.splice(0, pendingDomWrites.length);
+    for (const pending of queued) pending();
+  });
+}
+
 // Re-export the `rowSeparator` prop types so consumers import them
 // alongside `TugListView` rather than reaching into the internal path.
 export type {
@@ -4498,10 +4541,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         following,
         evicting: evictingThisCommit,
       });
-      el.setAttribute(
-        "data-scroll-displacements",
-        String(displacementCountRef.current),
-      );
+      const displacements = String(displacementCountRef.current);
+      queueDomWrite(() => {
+        el.setAttribute("data-scroll-displacements", displacements);
+      });
       snapshot(scrollTop);
     });
 
@@ -4530,19 +4573,22 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       const el = scrollContainerRef.current;
       if (el === null) return;
       if (!evictModeEnabled) {
-        el.removeAttribute("data-evict-active");
-        el.removeAttribute("data-evict-fallbacks");
+        queueDomWrite(() => {
+          el.removeAttribute("data-evict-active");
+          el.removeAttribute("data-evict-fallbacks");
+        });
         return;
       }
-      if (evictingThisCommit) {
-        el.setAttribute("data-evict-active", "");
-      } else {
-        el.removeAttribute("data-evict-active");
-      }
-      el.setAttribute(
-        "data-evict-fallbacks",
-        String(evictFallbackCountRef.current),
-      );
+      const active = evictingThisCommit;
+      const fallbacks = String(evictFallbackCountRef.current);
+      queueDomWrite(() => {
+        if (active) {
+          el.setAttribute("data-evict-active", "");
+        } else {
+          el.removeAttribute("data-evict-active");
+        }
+        el.setAttribute("data-evict-fallbacks", fallbacks);
+      });
     });
 
     // Prime the height-index Fenwick cache so the post-commit
@@ -4686,7 +4732,9 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       if (el.clientHeight === 0) return;
       const total = dataSource.numberOfItems();
       if (total <= 0) {
-        el.removeAttribute("data-tug-scroll-state");
+        queueDomWrite(() => {
+          el.removeAttribute("data-tug-scroll-state");
+        });
         return;
       }
       const live = deriveLiveAnchor();
@@ -4730,7 +4778,15 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // clean; a non-follow-bottom list never sets it.
       const ss = smartScrollRef.current;
       if (ss !== null && ss.isFollowingBottom) meta.atBottom = true;
-      el.setAttribute("data-tug-scroll-state", JSON.stringify(meta));
+      // Serialized here, written at the flush. This was the commit's
+      // costliest write: the very next effect calls `applyRestoreTarget`,
+      // which reads `scrollTop`, so the attribute landed squarely between
+      // this effect's reads and that one's — the chain the geometry probe
+      // attributed to `applyRestoreTarget` on every session fold.
+      const serialized = JSON.stringify(meta);
+      queueDomWrite(() => {
+        el.setAttribute("data-tug-scroll-state", serialized);
+      });
     });
 
     // Restore-target heartbeat. `SmartScroll` owns the cold-boot

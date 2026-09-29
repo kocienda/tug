@@ -54,6 +54,7 @@
  *
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/pane-occlusion-controller.ts
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/lib/pane-title.ts
  * @covers tugdeck/src/lib/card-title-store.ts
