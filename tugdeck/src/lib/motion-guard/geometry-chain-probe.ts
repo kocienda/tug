@@ -12,8 +12,8 @@
  * the one already computed.
  *
  * It is a BENCH PROBE behind the loopback eval door. `arm` replaces platform
- * property descriptors, so it MUTATES — the same standing as `pause`, `demote`
- * and `setBudget`, whose only caller on a release build is `POST /api/eval`,
+ * property descriptors, so it MUTATES — the same standing as `pause` and
+ * `demote`, whose only caller on a release build is `POST /api/eval`,
  * loopback-only and gated on dev mode or the per-instance `diag/eval` opt-in.
  * Nothing arms it on load, and `disarm` puts every descriptor back.
  *

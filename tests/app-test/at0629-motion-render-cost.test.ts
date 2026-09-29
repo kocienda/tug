@@ -83,24 +83,17 @@
  * weld, applied on return — while the ones that crossed out carry the mark
  * and no animation.
  *
- * ## The breaker
+ * ## The switch
  *
- * The last legs are the circuit breaker's. By hand, `demote(true)` must
+ * The last leg before the list bench is the motion switch's: `demote(true)` must
  * still every loop through one CSS variable and change nothing else: each dot
  * still carries `data-breathing`, because the demotion is a CSS answer to a CSS
- * contract and React never hears about it ([L06], [P09]). On its own, a budget
- * of zero drives the real trip path — three consecutive over-budget samples
- * with nothing in flight — and the `motion-demoted` trace row is the only
- * record a silent demotion leaves. Its census must say what the deck was paying
- * for, which is why it is read before the demotion lands rather than after.
- * The at-rest condition is driven the same way — a rest budget of zero — and
- * its row must say `rest` and carry the three readings that tripped it.
- *
- * The at-rest budget is parked out of reach for exactly the legs that run a
- * population with the off-screen rule switched off — an off-screen dot is
- * not compositor-resident on this WebKit, and three hundred of them read as
- * a loop at rest that the breaker would still under the reading. The park
- * comes off with `reset()` before the breaker's own legs.
+ * contract and React never hears about it ([L06]). The switch used to be a
+ * circuit breaker that threw itself on the probe's readings, and this test
+ * used to drive that path with budgets of zero; the breaker demoted the
+ * release deck on 1–3 ms frames and the authority was taken away
+ * (`breaker.ts`). The two budgets are still read off `probe()` as the
+ * calibrated reference the readings below are judged against.
  *
  * ## What is derived and what is asserted
  *
@@ -153,41 +146,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App, type DeckTraceEvent } from "./_harness";
-
-/**
- * The `motion-demoted` row, as this test reads it.
- *
- * The harness's own `DeckTraceEvent` is the open `{ kind: string; [k: string]:
- * unknown }` superset rather than the deck's discriminated union — the two are
- * kept apart on purpose, so a test does not have to track every trace kind to
- * compile. Which means `Extract<…, { kind: "motion-demoted" }>` over it
- * resolves to `never` and silently un-types every assertion under it. The
- * row's shape is declared here instead, mirroring `deck-trace.ts`; the
- * exhaustive fixture map in `_harness/matchers.test.ts` is what pins the same
- * shape on the harness's own side.
- */
-interface MotionDemotedRow {
-  kind: "motion-demoted";
-  reason: "cost" | "rest";
-  costMs: number[];
-  budgetMs: number;
-  updatesPerSecond: number[];
-  restBudgetPerSecond: number;
-  trips: number;
-  latched: boolean;
-  census: {
-    longRunning: number;
-    byName: Record<string, number>;
-    violations: string[];
-  };
-}
-
-function isMotionDemoted(
-  event: DeckTraceEvent,
-): event is DeckTraceEvent & MotionDemotedRow {
-  return event.kind === "motion-demoted";
-}
+import { launchTugApp, note, type App } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -600,9 +559,6 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         note("at0629 off-screen rule parked for the flow bench", ruleOff);
         expect(ruleOff.enabled).toBe(false);
         expect(ruleOff.paused).toBe(0);
-        // Park the at-rest trip for the legs that read the bench running
-        // with the rule off; see the header. `reset()` puts it back.
-        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(1e9)`);
 
         // ---- The quiet reading: the claim. -------------------------------
         const quiet = await cost(app, "__at0629quiet", 60);
@@ -1219,123 +1175,6 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(undemoted.attribute).toBe(false);
         expect(undemoted.longRunning).toBeGreaterThan(0);
 
-        // ---- The breaker, on its own: a budget nothing can meet. ---------
-        //
-        // A budget of zero makes every sample over budget, which is the one
-        // way to drive the real trip path inside a test's patience: the probe
-        // samples every 3 s and the run is three samples long.
-        const mark = await app.markDeckTrace();
-        await app.evalJS<unknown>(`window.__tugMotion.setBudget(0)`);
-        // Three samples, each a frame reading plus a one-second rest window,
-        // three seconds apart.
-        await app.waitForCondition<boolean>(
-          `window.__tugMotion.probe().demoted === true`,
-          { timeoutMs: 25_000 },
-        );
-        const trace = await app.getDeckTrace({ since: mark });
-        const trips = trace.filter(isMotionDemoted);
-        note(
-          "at0629 motion-demoted rows",
-          trips.map((event) => ({
-            reason: event.reason,
-            costMs: event.costMs,
-            budgetMs: event.budgetMs,
-            updatesPerSecond: event.updatesPerSecond,
-            restBudgetPerSecond: event.restBudgetPerSecond,
-            trips: event.trips,
-            latched: event.latched,
-            longRunning: event.census.longRunning,
-            byName: event.census.byName,
-          })),
-        );
-        expect(trips.length).toBe(1);
-        const trip = trips[0];
-        expect(trip.reason).toBe("cost");
-        expect(trip.costMs.length).toBe(3);
-        expect(trip.updatesPerSecond.length).toBe(3);
-        expect(trip.budgetMs).toBe(0);
-        expect(trip.latched).toBe(false);
-        // The census is read BEFORE the demotion lands, so the row says what
-        // the deck was paying for rather than what survived the answer.
-        expect(trip.census.longRunning).toBeGreaterThan(0);
-        expect(trip.census.violations).toEqual([]);
-
-        const afterReset = await app.evalJS<{
-          demoted: boolean;
-          trips: number;
-          latched: boolean;
-          budgetMs: number;
-          restBudgetPerSecond: number;
-          longRunning: number;
-        }>(`(function(){
-          window.__tugMotion.reset();
-          var p = window.__tugMotion.probe();
-          return {
-            demoted: p.demoted, trips: p.trips, latched: p.latched,
-            budgetMs: p.budgetMs, restBudgetPerSecond: p.restBudgetPerSecond,
-            longRunning: window.__tugMotion.list().longRunning,
-          };
-        })()`);
-        note("at0629 after reset", afterReset);
-        expect(afterReset.demoted).toBe(false);
-        expect(afterReset.trips).toBe(0);
-        expect(afterReset.latched).toBe(false);
-        // The budgets go back with everything else: a `setBudget(0)` that
-        // survived would leave the deck one sample from demoting again, and
-        // a parked rest budget that survived would leave it unable to.
-        expect(afterReset.budgetMs).toBe(budgetMs);
-        expect(afterReset.restBudgetPerSecond).toBe(restBudget);
-        expect(afterReset.longRunning).toBeGreaterThan(0);
-
-        // ---- The breaker, on updates at rest. ----------------------------
-        //
-        // A rest budget of zero makes any reading over it, and the forcing
-        // probe makes sure there is one; the bound session is idle and no
-        // settle is running, so every sample is at rest. The row has to say
-        // which condition tripped, because the two readings mean different
-        // things to whoever reads the trace days later.
-        const restMark = await app.markDeckTrace();
-        await app.evalJS<unknown>(`window.__tugMotion.__force(true)`);
-        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(0)`);
-        await app.waitForCondition<boolean>(
-          `window.__tugMotion.probe().demoted === true`,
-          { timeoutMs: 25_000 },
-        );
-        await app.evalJS<unknown>(`window.__tugMotion.__force(false)`);
-        const restTrips = (await app.getDeckTrace({ since: restMark })).filter(
-          isMotionDemoted,
-        );
-        note(
-          "at0629 motion-demoted rows, at rest",
-          restTrips.map((event) => ({
-            reason: event.reason,
-            costMs: event.costMs,
-            updatesPerSecond: event.updatesPerSecond,
-            restBudgetPerSecond: event.restBudgetPerSecond,
-            trips: event.trips,
-          })),
-        );
-        expect(restTrips.length).toBe(1);
-        const restTrip = restTrips[0];
-        expect(restTrip.reason).toBe("rest");
-        expect(restTrip.restBudgetPerSecond).toBe(0);
-        expect(restTrip.updatesPerSecond.length).toBe(3);
-        for (const reading of restTrip.updatesPerSecond) {
-          expect(reading).toBeGreaterThan(0);
-        }
-        expect(restTrip.census.longRunning).toBeGreaterThan(0);
-
-        const afterRestReset = await app.evalJS<{
-          demoted: boolean;
-          restBudgetPerSecond: number;
-        }>(`(function(){
-          window.__tugMotion.reset();
-          var p = window.__tugMotion.probe();
-          return { demoted: p.demoted, restBudgetPerSecond: p.restBudgetPerSecond };
-        })()`);
-        expect(afterRestReset.demoted).toBe(false);
-        expect(afterRestReset.restBudgetPerSecond).toBe(restBudget);
-
         // ---- Off-screen content costs zero. ------------------------------
         //
         // The same population, one glyph to a row inside a list scroller,
@@ -1382,10 +1221,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
 
         // The untreated list: the rule off, every dot running, the disease
         // the rule exists for. Noted rather than asserted, because the
-        // number is a property of this WebKit on this machine; the rest
-        // budget is parked while it runs so the breaker does not still the
-        // bench under the reading.
-        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(1e9)`);
+        // number is a property of this WebKit on this machine.
         const ruleOffList = await app.evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen(false)`,
         );
@@ -1433,7 +1269,6 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(figuresSkip.skipped).toBeGreaterThan(BENCH_COUNT / 2);
         expect(figuresSkip.animated).toBe(BENCH_COUNT);
         expect(figuresSkip.running).toBe(BENCH_COUNT * 3);
-        await app.evalJS<unknown>(`window.__tugMotion.setRestBudget(${restBudget})`);
 
         // ---- Resuming on scroll-in goes through the dot's own weld. ------
         //

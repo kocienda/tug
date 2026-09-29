@@ -35,14 +35,14 @@
  * began.
  *
  * **Resume touches only what this module paused**, kept in a `WeakSet` so a
- * loop whose element is gone is forgotten with it. A loop the motion breaker
+ * loop whose element is gone is forgotten with it. A loop the motion switch
  * demoted (`data-tug-motion-demoted` on `<html>`, resolved by the stylesheet
  * to `animation-play-state: paused`) reads `paused` off its computed style,
- * and a resume that would override that is declined — the breaker's hold
+ * and a resume that would override that is declined — the switch's hold
  * outranks the layer's. **A declined resume keeps its record**, because this
  * module is the only thing that can ever hand the loop back: the pause was
  * taken through the API, so the stylesheet returning to `running` when the
- * breaker recovers does not resume it, and a loop dropped from the set on the
+ * switch is thrown back does not resume it, and a loop dropped from the set on the
  * one pass that declined it is one no later pass will look at again.
  *
  * Nothing here is React state ([L06]): it is the Web Animations API on
@@ -98,14 +98,14 @@ export function layerStateOf(target: Element): LayerState {
  * Bring one animation into line with where its element stands.
  *
  * `cssPaused` is whether the element's computed `animation-play-state` says
- * paused — the breaker's demotion, or a component's own rule — and it is only
+ * paused — the switch's demotion, or a component's own rule — and it is only
  * consulted on the resume side: a hidden loop is paused whatever CSS says, and
  * a shown one is resumed only if CSS is not holding it.
  *
  * A declined resume LEAVES THE RECORD STANDING, so the next pass over a shown
  * layer tries again. Dropping it there would be final: the loop is paused
  * through the Web Animations API, which outranks `animation-play-state`, so
- * the breaker recovering does not resume it and nothing else ever would.
+ * the switch being thrown back does not resume it and nothing else ever would.
  */
 export function reconcileLoop(
   animation: LoopLike,

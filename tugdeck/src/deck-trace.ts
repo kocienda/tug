@@ -802,39 +802,6 @@ export type DeckTraceEvent = {
       fields: Record<string, unknown>;
     }
   | {
-      // The motion circuit breaker stilled every long-running loop on the
-      // deck: three consecutive render-cost samples over budget with nothing
-      // in flight to justify them ([P07]). `costMs` is those three samples.
-      //
-      // Always recorded, for the family's reason. The demotion is silent by
-      // decision — the user is not the person who can act on it — so this row
-      // is the only record that it happened, in exactly the sessions nobody
-      // was watching. The census rides along because the question the row has
-      // to answer, days later, is WHICH loops the deck was paying for.
-      kind: "motion-demoted";
-      /**
-       * Which reading tripped it: `cost`, three samples over the render
-       * budget; or `rest`, three samples reading updates per second over
-       * the at-rest budget with nothing in flight and no gesture running.
-       */
-      reason: "cost" | "rest";
-      /** The three samples' render costs, whichever condition tripped. */
-      costMs: number[];
-      budgetMs: number;
-      /** The same three samples' at-rest readings. */
-      updatesPerSecond: number[];
-      restBudgetPerSecond: number;
-      /** How many times the breaker has tripped this page lifetime. */
-      trips: number;
-      /** Whether the demotion is now latched until `reset()` or a reload. */
-      latched: boolean;
-      census: {
-        longRunning: number;
-        byName: Record<string, number>;
-        violations: string[];
-      };
-    }
-  | {
       // One completed `DeckManager.activateSpace`, with its numbered phases
       // separated so a slow switch names the phase that was slow rather than
       // the switch as a whole. Recorded once per switch, from inside the
@@ -989,7 +956,6 @@ export type DeckTraceEventInput =
       StampedFields
     >
   | Omit<Extract<DeckTraceEvent, { kind: "session-lifecycle" }>, StampedFields>
-  | Omit<Extract<DeckTraceEvent, { kind: "motion-demoted" }>, StampedFields>
   | Omit<
       Extract<DeckTraceEvent, { kind: "space-switch-timing" }>,
       StampedFields
@@ -1211,7 +1177,6 @@ const ALWAYS_RECORDED_KINDS: ReadonlySet<DeckTraceEvent["kind"]> = new Set([
   "extent-rebase",
   "session-lifecycle",
   "opening-bid-mismatch",
-  "motion-demoted",
 ]);
 
 function appendEvent(

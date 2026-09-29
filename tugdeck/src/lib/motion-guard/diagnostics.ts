@@ -14,7 +14,7 @@
  *
  * ## It adds no capability to a release build
  *
- * `pause`, `demote` and `setBudget` mutate. The only door to them on a release
+ * `pause` and `demote` mutate. The only door to them on a release
  * build is `POST /api/eval`, which is loopback-only and gated on dev mode or
  * the per-instance `diag/eval` opt-in; with the inspector off there is no
  * other caller. `tugtool deck motion` is the shell end of that door ([P05]).
@@ -166,17 +166,15 @@ export interface ProbeReading {
   armed: boolean;
   holds: number;
   demoted: boolean;
-  /** Whether the demotion has latched until `reset()` or a reload. */
-  latched: boolean;
-  trips: number;
   /**
-   * The per-frame render-cost budget, in milliseconds.
+   * The calibrated per-frame render-cost reference, in milliseconds. Nothing
+   * acts on it: a reading over it is a fact for whoever is reading.
    *
    * Read rather than hard-coded by anything that asserts against it, so the
    * calibrated number lands in one place.
    */
   budgetMs: number;
-  /** The at-rest budget, in updates per second; read for the same reason. */
+  /** The at-rest reference, in updates per second; read for the same reason. */
   restBudgetPerSecond: number;
   samples: RenderCostSample[];
 }
@@ -209,12 +207,8 @@ export interface TugMotionDiagnostics {
   input(): InputLatencyReading;
   /** What the probe is doing right now. */
   probe(): ProbeReading;
-  /** Still every long-running loop, or let them run again ([P06], [P07]). */
+  /** Still every long-running loop, or let them run again ([P06]). The only writer. */
   demote(on: boolean): ProbeReading;
-  /** Move the breaker's budget. Takes effect on the next sample. */
-  setBudget(ms: number): ProbeReading;
-  /** Move the breaker's at-rest budget. Takes effect on the next sample. */
-  setRestBudget(perSecond: number): ProbeReading;
   /**
    * The off-screen rule: how many figures are watched and how many are out of
    * view and stilled. With an argument, turn the rule off or on — diagnostics
@@ -227,7 +221,7 @@ export interface TugMotionDiagnostics {
    * The read→write→read chains under a gesture ([P03], Spec S04).
    *
    * `arm` and `disarm` MUTATE — they replace platform property descriptors —
-   * so this member has the same standing as `pause`, `demote` and `setBudget`:
+   * so this member has the same standing as `pause` and `demote`:
    * the only door to it on a release build is the loopback eval endpoint, gated
    * on dev mode or the per-instance `diag/eval` opt-in. Nothing arms it on load,
    * and an armed probe is paying a stack capture per geometry read, so it is
@@ -251,7 +245,7 @@ export interface TugMotionDiagnostics {
     mode: "arm" | "read" | "disarm",
     ms?: number,
   ): GestureFrameArmReading | GestureFrameReading;
-  /** Clear the probe's samples and the input ring, and un-latch the breaker. */
+  /** Clear the probe's samples and the input ring, and throw the switch back. */
   reset(): void;
   /** Test-mode only: the driver that lights the walk ([D5], #forcing-probe). */
   __force?(on: boolean): { forcing: boolean };
@@ -600,8 +594,6 @@ export const tugMotion: TugMotionDiagnostics = {
       armed: renderCostProbe.armed,
       holds: motionHolds(),
       demoted: motionBreaker.demoted,
-      latched: motionBreaker.latched,
-      trips: motionBreaker.trips,
       budgetMs: motionBreaker.budgetMs,
       restBudgetPerSecond: motionBreaker.restBudgetPerSecond,
       samples: renderCostProbe.samples(),
@@ -610,16 +602,6 @@ export const tugMotion: TugMotionDiagnostics = {
 
   demote(on) {
     motionBreaker.demote(on);
-    return tugMotion.probe();
-  },
-
-  setBudget(ms) {
-    motionBreaker.setBudget(ms);
-    return tugMotion.probe();
-  },
-
-  setRestBudget(perSecond) {
-    motionBreaker.setRestBudget(perSecond);
     return tugMotion.probe();
   },
 

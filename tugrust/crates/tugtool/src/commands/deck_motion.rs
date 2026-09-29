@@ -643,10 +643,9 @@ fn render_probe(value: &serde_json::Value) {
         .and_then(|d| d.as_bool())
         .unwrap_or(false);
     println!(
-        "probe {}, {} motion hold(s), {} trip(s), demoted {}",
+        "probe {}, {} motion hold(s), demoted {}",
         if armed { "armed" } else { "disarmed" },
         num_at(value, "holds") as i64,
-        num_at(value, "trips") as i64,
         if demoted { "yes" } else { "no" }
     );
     if let Some(samples) = value.get("samples").and_then(|s| s.as_array()) {

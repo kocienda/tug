@@ -17,10 +17,11 @@
  * with no motion anywhere the probe is disarmed, and a disarmed probe holds
  * no timer and schedules no rendering update.
  *
- *   - `breaker.ts` — the one piece that acts: three consecutive over-budget
- *     samples, or three reading updates at rest with nothing in flight and
- *     no gesture running, and every long-running loop on the deck is stilled
- *     through one CSS variable ([B07], [P06], [P07]).
+ *   - `breaker.ts` — the hand switch: `demote(true)` stills every
+ *     long-running loop on the deck through one CSS variable ([P06]). It
+ *     used to throw itself on the probe's readings; it no longer does, and
+ *     its docblock says why. Nothing in the guard turns the user's motion
+ *     off on its own.
  *
  * @module lib/motion-guard
  */
@@ -80,11 +81,6 @@ export {
 export {
   motionBreaker,
   nothingInFlight,
-  shouldTrip,
-  shouldTripAtRest,
-  type BreakerTripReason,
-  BREAKER_LATCH_TRIPS,
-  BREAKER_TRIP_SAMPLES,
   DEMOTED_ATTRIBUTE,
   IN_FLIGHT_PHASES,
   type MotionBreaker,
@@ -104,9 +100,10 @@ export function installMotionGuard(): void {
     else renderCostProbe.disarm();
   });
 
-  // Every sample records what the deck was doing when it was taken, so the
-  // breaker can tell a walk nobody asked for from a turn legitimately laying
-  // out every frame. The store walk is the adapter; the condition is pure.
+  // Every sample records what the deck was doing when it was taken, so a
+  // reader of the ring can tell a walk nobody asked for from a turn
+  // legitimately laying out every frame. The store walk is the adapter; the
+  // condition is pure.
   renderCostProbe.setInFlightSource(() => {
     const phases: string[] = [];
     cardServicesStore.forEachCodeSessionStore((store) => {
@@ -118,12 +115,11 @@ export function installMotionGuard(): void {
   // A gesture is a settle: the canvas marks itself `data-imposer-settling`
   // for the settle's length, and the occlusion controller reads the same
   // mark. A sample taken under it is a deck with a reason to update every
-  // frame, and the at-rest trip does not count it.
+  // frame, and the sample says so.
   renderCostProbe.setGestureSource(
     () => document.querySelector("[data-imposer-settling]") !== null,
   );
 
-  motionBreaker.install();
   installInputLatency();
   installMotionDiagnostics();
 }
