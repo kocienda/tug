@@ -151,7 +151,7 @@ function rectOf(app: App, selector: string): Promise<Rect | null> {
 function flowOffsetDrawn(app: App): Promise<number> {
   return app.evalJS<number>(
     `parseFloat(getComputedStyle(
-       document.querySelector("[data-deck-canvas-background]")
+       document.querySelector("[data-space-layer][data-space-shown] .tug-pane[data-imposed]")
      ).getPropertyValue("--tug-imposer-flow-offset")) || 0`,
   );
 }

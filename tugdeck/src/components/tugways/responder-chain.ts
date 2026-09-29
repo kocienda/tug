@@ -67,6 +67,8 @@ import { createContext } from "react";
 import type { TugAction } from "./action-vocabulary";
 import type { KeyBinding } from "./keybinding-map";
 import { chordMatchesEvent } from "./chord-format";
+import { scheduleAfterPaint } from "@/lib/after-paint";
+import { isTugMotionEnabled } from "./scale-timing";
 
 export type { TugAction, GalleryAction } from "./action-vocabulary";
 
@@ -496,6 +498,17 @@ export class ResponderChainManager {
   private firstResponderId: string | null = null;
   private validationVersion = 0;
   private subscribers: Set<() => void> = new Set();
+
+  /**
+   * When the generic subscribers are told — see {@link incrementAndNotify}.
+   * Production defers past the next painted frame; a test wanting the
+   * synchronous shape passes `(flush) => flush()`.
+   */
+  private readonly schedule: (flush: () => void) => void;
+
+  constructor(schedule: (flush: () => void) => void = scheduleAfterPaint) {
+    this.schedule = schedule;
+  }
   private dispatchObservers: Set<DispatchObserver> = new Set();
   private keyResponderSubscriptions: Set<KeyResponderSubscription> = new Set();
   private defaultButtonStack: HTMLButtonElement[] = [];
@@ -1663,37 +1676,35 @@ export class ResponderChainManager {
 
   private incrementAndNotify(): void {
     this.validationVersion += 1;
-    // PROBE: `window.__tugProbe.deferChain` tells the generic subscribers —
-    // every chain-action `TugButton`'s `useSyncExternalStore` among them — on
-    // the task after the next painted frame, so the buttons' re-render leaves
-    // the gesture's task. Key-responder observers stay synchronous.
-    const probe =
-      typeof window === "undefined"
-        ? undefined
-        : (window as unknown as { __tugProbe?: { deferChain?: boolean } }).__tugProbe;
-    if (probe?.deferChain === true && typeof requestAnimationFrame === "function") {
+    // The generic subscribers — every chain-action `TugButton`'s
+    // `useSyncExternalStore` among them — are told on the task after the next
+    // painted frame, so their re-render leaves the gesture's task ([D204]).
+    // A first-responder flip re-renders every chain button on the deck, and
+    // measured inside the click task that render was the difference between
+    // a 70 ms and a 15 ms lead on a four-card flow activation. Under reduced
+    // motion there is no tween whose first frame the deferral protects, so
+    // the buttons are told at once; so are they anywhere without a document
+    // to paint. Key-responder observers stay synchronous in every case: they
+    // answer "who is the key card", which a gesture's next line may need.
+    const defer = typeof document !== "undefined" && isTugMotionEnabled();
+    if (defer) {
       if (!this.deferredNotifyPending) {
         this.deferredNotifyPending = true;
-        const flush = (): void => {
+        this.schedule(() => {
           if (!this.deferredNotifyPending) return;
           this.deferredNotifyPending = false;
           performance.mark("tug:chain-notify");
           for (const cb of this.subscribers) cb();
-        };
-        requestAnimationFrame(() => {
-          window.setTimeout(flush, 0);
         });
-        window.setTimeout(flush, 50);
       }
     } else {
-      for (const cb of this.subscribers) {
-        cb();
-      }
+      for (const cb of this.subscribers) cb();
     }
     this.notifyKeyResponderObservers();
   }
 
-  /** PROBE: one deferred generic notification in flight. */
+  /** One deferred generic notification in flight; every commit until it
+   *  flushes coalesces into it. */
   private deferredNotifyPending = false;
 
   /**

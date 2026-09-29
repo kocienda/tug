@@ -58,6 +58,7 @@
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/flow-offset.ts
  * @covers tugdeck/src/components/chrome/margin-cap.css
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/deck-manager.ts
@@ -490,11 +491,17 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         // end" means and what the clamp is actually pinning.
         const clamped = await app.evalJS<{ right: number; band: number }>(
           `(function () {
-            var host = document.querySelector("[data-deck-canvas-background]");
             var strip = parseFloat(
-              getComputedStyle(host).getPropertyValue("--tug-imposer-flow-strip"),
+              getComputedStyle(document.querySelector("[data-deck-canvas-background]"))
+                .getPropertyValue("--tug-imposer-flow-strip"),
             ) || 0;
-            host.style.setProperty("--tug-imposer-flow-offset", (strip + 4000) + "px");
+            // The offset does not inherit: it is written on each reader, so
+            // the test writes where the deck writes.
+            document
+              .querySelectorAll('.tug-pane[data-imposed], .tug-slot-vacancy[data-vacant-slot]')
+              .forEach(function (el) {
+                el.style.setProperty("--tug-imposer-flow-offset", (strip + 4000) + "px");
+              });
             var right = -Infinity;
             document
               .querySelectorAll('.tug-pane[data-imposed], .tug-slot-vacancy[data-vacant-slot]')
@@ -543,12 +550,12 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
             // the strip on a boundary, where nothing crosses the gutter and
             // the assertion would prove nothing.
             //
-            // A cap carries the canvas-background marker too, so this selector
-            // can match more than one element — but document order puts the
-            // container first, and the container is the one the frames inherit
-            // the offset from.
-            var host = document.querySelector("[data-deck-canvas-background]");
-            host.style.setProperty("--tug-imposer-flow-offset", "0px");
+            // The offset does not inherit: it is written on each reader.
+            document
+              .querySelectorAll('.tug-pane[data-imposed], .tug-slot-vacancy[data-vacant-slot]')
+              .forEach(function (el) {
+                el.style.setProperty("--tug-imposer-flow-offset", "0px");
+              });
             function paneAt(x, y) {
               var el = document.elementFromPoint(x, y);
               var pane = el && el.closest ? el.closest(".tug-pane") : null;

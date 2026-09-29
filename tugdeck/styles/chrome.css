@@ -246,6 +246,22 @@
   position: absolute; /* already absolute via inline style, repeated for ::after stacking */
 }
 
+/* The flow strip's offset is read by every imposed frame's `left`, by the
+   held-open vacancies and by the column seams — and by nothing under them.
+   Registered NON-inherited so that one slide invalidates the style of the
+   handful of elements that read it rather than every descendant of the
+   canvas: measured on a four-card flow deck the inherited form cost ~3 ms of
+   style recalc per write, most of it the rail's Layout card, which never
+   reads the offset, and on a deck of real transcripts it scales with the
+   whole tree. The layout half was nil either way. The value is written on
+   each reader by `components/chrome/flow-offset.ts`, the one door ([D204]);
+   the canvas's and the layers' own copies are gone. */
+@property --tug-imposer-flow-offset {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
 /* The frame dim — the third recede layer, and the same rules as the two in
    `tug-pane.css`: it exists on EVERY frame rather than appearing on the
    outgoing one mid-tween, `opacity` is the only property that moves, and the

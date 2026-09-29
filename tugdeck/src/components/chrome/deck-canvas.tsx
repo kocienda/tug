@@ -189,6 +189,7 @@ import {
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
+import { writeCanvasFlowOffset, writeLayerFlowOffset } from "./flow-offset";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_ATTRIBUTE,
@@ -231,7 +232,6 @@ import {
   readSettleMs,
   PANE_ENTER_RISE_PX,
   RESIZE_RETUNE_QUIET_MS,
-  FLOW_OFFSET_PROPERTY,
   FLOW_STRIP_PROPERTY,
   clampFlowOffset,
   flowCenterOffset,
@@ -2180,13 +2180,20 @@ function writeArrangementVariables(
       );
     }
   }
+  // The strip's LENGTH stays a property on `el`, inherited and read by every
+  // reader's clamp: it changes only on a commit that re-lays the strip out.
+  // The OFFSET does not inherit ([D204]); `flow-offset.ts` writes it on the
+  // readers alone — the canvas's own vacancies and seams plus the shown
+  // layer's frames when `el` is the canvas, this layer's frames when it is
+  // a layer, shown or not.
   if (a.flowStrip === null) {
-    el.style.removeProperty(FLOW_OFFSET_PROPERTY);
     el.style.removeProperty(FLOW_STRIP_PROPERTY);
   } else {
-    el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(a.flowOffset)}px`);
     el.style.setProperty(FLOW_STRIP_PROPERTY, `${a.flowStrip.width}px`);
   }
+  const offset = a.flowStrip === null ? null : Math.round(a.flowOffset);
+  if (publish) writeCanvasFlowOffset(el, offset);
+  else writeLayerFlowOffset(el, offset);
 }
 
 /**
@@ -4741,6 +4748,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
       }
 
+      performance.mark("tug:arm-measured");
       // Second pass: the episodes. A begin is a READ — `discoverScrollers`
       // asks `scrollHeight`, and every unclaimed scroller it finds is then
       // measured down to twelve boxes deep — so it belongs with the
@@ -4777,6 +4785,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           stamps.push(() => handle.stamp());
         }
       }
+      performance.mark("tug:arm-episodes-end");
 
       // Third pass: the frames caught mid-settle. Every write below — a
       // restored width, a cleared transform, an episode's stamp — happens
@@ -4877,13 +4886,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const settleMs = readSettleMs(el);
       settleDurationRef.current = settleMs;
       if (prelaunch) {
-        // The strip's new place, written now so every pane's `left` is at its
-        // destination in the frame the tween's inverse holds it at its origin.
-        // The layer's own effect writes the same value after React commits.
-        const layer = el.querySelector<HTMLElement>(
-          `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
-        );
-        layer?.style.setProperty(FLOW_OFFSET_PROPERTY, `${nextFlowOffset}px`);
+        // The strip's new place, written now on every reader so every pane's
+        // `left` is at its destination in the frame the tween's inverse holds
+        // it at its origin. The layer's own effect writes the same value after
+        // React commits, which is a no-op by then.
+        writeCanvasFlowOffset(el, nextFlowOffset);
         // `left = C - offset`, so First - Last = next - prev.
         const dx = nextFlowOffset - prevFlowOffset;
         const curve = motionKeyframes(BEAT_RECIPE.move, { nominalMs: settleMs });
@@ -4943,6 +4950,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // reintroduce the very commit the hold is here to keep out. Sized
       // here against the crossing's nominal; the Last pass re-holds against
       // the choreography's total once it knows the beats.
+      performance.mark("tug:arm-planned");
       if (motion) {
         settleReleasedRef.current = false;
         holdSessions(Math.max(2 * windowMs, 1000));
@@ -6936,13 +6944,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       applyScroll(target, offset) {
         const el = containerRef.current;
         if (el === null) return;
-        const property =
-          target.kind === "column"
-            ? columnOffsetProperty(target.slot ?? 0)
-            : target.kind === "rail"
-              ? railOffsetProperty(target.side ?? "left")
-              : FLOW_OFFSET_PROPERTY;
-        el.style.setProperty(property, `${Math.round(offset)}px`);
+        if (target.kind === "flow") {
+          writeCanvasFlowOffset(el, Math.round(offset));
+        } else {
+          const property =
+            target.kind === "column"
+              ? columnOffsetProperty(target.slot ?? 0)
+              : railOffsetProperty(target.side ?? "left");
+          el.style.setProperty(property, `${Math.round(offset)}px`);
+        }
         // The same number, in the same frame, to every instrument listening
         // ([P08]). The band the strip slides under is the target's own, so the
         // fraction is exact rather than re-measured off the DOM.

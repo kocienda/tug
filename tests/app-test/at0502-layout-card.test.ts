@@ -23,6 +23,8 @@
  * suites that already drive those controls.
  *
  * @covers tugdeck/src/components/layout/layout-card.tsx
+ * @covers tugdeck/src/lib/use-store-derived.ts
+ * @covers tugdeck/src/lib/deep-equal.ts
  * @covers tugdeck/src/components/layout/layout-card-registration.tsx
  * @covers tugdeck/src/components/layout/layout-card.css
  * @covers tugdeck/src/lib/layout-card-id.ts

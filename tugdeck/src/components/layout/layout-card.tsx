@@ -113,7 +113,6 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
-  useSyncExternalStore,
 } from "react";
 
 import { LayoutMiniature } from "@/components/layout/layout-miniature";
@@ -132,6 +131,8 @@ import type { LayoutPlace } from "@/components/layout/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
 import { getAllRegistrations } from "@/card-registry";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { useStoreDerived } from "@/lib/use-store-derived";
+import type { IDeckManagerStore } from "@/deck-manager-store";
 import {
   CONTENT_WIDTH_LABELS,
   CONTENT_WIDTH_PRESETS,
@@ -391,33 +392,44 @@ function railsFor(
   return rails;
 }
 
-/** The deck's whole snapshot, or `null` before the store exists ([L02]). */
-function useDeck(): DeckState | null {
-  const deckStore = getDeckStore();
-  return useSyncExternalStore(
-    deckStore?.subscribe ?? (() => () => {}),
-    deckStore !== null ? deckStore.getSnapshot : () => null,
-    () => null,
-  );
+/**
+ * One derived fact of the deck, re-rendering its reader only when that fact
+ * changes ([L02]).
+ *
+ * The hooks below used to hand every reader the whole snapshot, and a whole
+ * snapshot changes on every commit — so a flow slide that moved the strip by
+ * one number re-rendered this card's eighty-four place marks, inside the
+ * settle window the slide was animating through ([D204]). `useStoreDerived`
+ * keeps the last reference while the rebuilt value is structurally equal, so
+ * an activation — a re-fronted pane and a moved strip — renders nothing here
+ * unless the arrangement itself moved. The two facts that DO move on every
+ * slide, the strip's offset and the marked slot, are read by the two small
+ * components that draw them ({@link CommittedMiniature},
+ * {@link CommittedFlowStrip}) and by nothing above them.
+ */
+function useDeckDerived<T>(
+  derive: (deck: DeckState | null, store: IDeckManagerStore | null) => T,
+): T {
+  const store = getDeckStore();
+  return useStoreDerived<DeckState, T>(store, (deck) => derive(deck, store));
 }
 
 /** The componentIds of the sidebar cards that are OPEN — presence is the open
  *  state ([P02]), so this is a read of the deck's card list ([L02]). */
 function useOpenSidebarIds(): ReadonlySet<string> {
-  const deck = useDeck();
-  return useMemo(
-    () => new Set((deck?.cards ?? []).map((card) => card.componentId)),
-    [deck],
+  const ids = useDeckDerived((deck) =>
+    (deck?.cards ?? []).map((card) => card.componentId).sort(),
   );
+  return useMemo(() => new Set(ids), [ids]);
 }
 
 /** The deck's imposition record — every axis — straight from the store ([L02]). */
 function useImposition(): DeckImposition {
-  const deck = useDeck();
-  return (
-    deck?.imposition ?? {
-      sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
-    }
+  return useDeckDerived(
+    (deck) =>
+      deck?.imposition ?? {
+        sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
+      },
   );
 }
 
@@ -440,14 +452,10 @@ function useImposition(): DeckImposition {
  * their rows on membership; the columns walked into it.
  */
 function useDeckColumns(): readonly DeckColumn[] {
-  const deck = useDeck();
-  const store = getDeckStore();
-  return useMemo(
-    () =>
-      deck === null
-        ? []
-        : deckColumnsOf(deck, store?.getColumnRunHeight() ?? null),
-    [deck, store],
+  return useDeckDerived((deck, store) =>
+    deck === null
+      ? []
+      : deckColumnsOf(deck, store?.getColumnRunHeight() ?? null),
   );
 }
 
@@ -463,29 +471,28 @@ function useCommittedAllocations(columns: readonly DeckColumn[]): {
   rails: Partial<Record<SidebarSide, PlaceAllocation | null>>;
   columns: Record<number, PlaceAllocation | null>;
 } {
-  const deck = useDeck();
-  const store = getDeckStore();
+  const rails = useDeckDerived(
+    (deck, store): Partial<Record<SidebarSide, PlaceAllocation | null>> => {
+      const railRun = store?.getRailRunHeight() ?? null;
+      return deck === null
+        ? {}
+        : {
+            left: railAllocationOf(deck, "left", railRun),
+            right: railAllocationOf(deck, "right", railRun),
+          };
+    },
+  );
   return useMemo(() => {
-    const railRun = store?.getRailRunHeight() ?? null;
     const bySlot: Record<number, PlaceAllocation | null> = {};
     for (const column of columns) bySlot[column.slot] = column.allocation;
-    return {
-      rails:
-        deck === null
-          ? {}
-          : {
-              left: railAllocationOf(deck, "left", railRun),
-              right: railAllocationOf(deck, "right", railRun),
-            },
-      columns: bySlot,
-    };
-  }, [deck, store, columns]);
+    return { rails, columns: bySlot };
+  }, [rails, columns]);
 }
 
-/** The deck's live flow truth, in the numbers the committed miniature draws
- *  from — see {@link useCommittedFlow}. */
+/** The deck's live flow SHAPE, in the numbers the committed miniature draws
+ *  from — see {@link useCommittedFlow}. The offset is deliberately not here:
+ *  it moves on every slide, and {@link useCommittedFlowOffset} is its door. */
 interface CommittedFlow {
-  offsetPx: number;
   bandPx: number;
   stripPx: number;
   slots: readonly MiniatureFlowSlot[];
@@ -493,24 +500,24 @@ interface CommittedFlow {
 
 /**
  * What the COMMITTED drawing needs to be an instrument rather than a readout:
- * how far the strip has slid, how wide the band it slid under is, and what each
- * occupied slot's extent is. `null` whenever the deck is not in flow — fit has
- * no strip and no window, and its cards tile the band whatever they are wide.
+ * how wide the band the strip slides under is, how long the strip is, and what
+ * each occupied slot's extent is. `null` whenever the deck is not in flow —
+ * fit has no strip and no window, and its cards tile the band whatever they
+ * are wide.
  *
- * The strip comes from `deckFlowStrip`, the deck's ONE resolution of it ([P09]),
+ * The strip comes from `deckSlotStrip`, the deck's ONE resolution of it ([P09]),
  * so the picture and the frames it pictures cannot part company. The band is
  * asked of the store because it is a measurement of the canvas rather than a
  * fact in the snapshot; the store owns that measurement, and a second one taken
  * off this card's own DOM would agree with the deck's only by luck.
  *
- * Recomputed with the snapshot ([L02]). A canvas resize re-imposes through the
- * settled-resize retune, which commits and re-renders everything subscribed —
- * so the band follows the window without anything watching it per frame.
+ * Recomputed with the snapshot ([L02]) and kept by reference while it is
+ * equal. A canvas resize re-imposes through the settled-resize retune, which
+ * commits — so the band follows the window without anything watching it per
+ * frame.
  */
 function useCommittedFlow(): CommittedFlow | null {
-  const deck = useDeck();
-  const store = getDeckStore();
-  return useMemo(() => {
+  return useDeckDerived((deck, store): CommittedFlow | null => {
     if (deck === null || store === null) return null;
     const bandPx = store.getBandWidth();
     if (bandPx === null) return null;
@@ -524,7 +531,6 @@ function useCommittedFlow(): CommittedFlow | null {
     // picture came to show a slot cut off that was fully on screen; assuming
     // the second is how the picture came to jump when the layout toggled.
     return {
-      offsetPx: deck.flowOffset ?? 0,
       bandPx,
       stripPx: strip.width,
       slots: [...strip.extents]
@@ -535,7 +541,35 @@ function useCommittedFlow(): CommittedFlow | null {
           widthPx: width,
         })),
     };
-  }, [deck, store]);
+  });
+}
+
+/** How far the strip has slid — the one fact of the committed picture that
+ *  moves on every slide, read by the component that draws the window and by
+ *  nothing above it. */
+function useCommittedFlowOffset(): number {
+  return useDeckDerived((deck) => deck?.flowOffset ?? 0);
+}
+
+/**
+ * The committed drawing, with the live offset read here rather than in the
+ * card: the window moves on every slide, and this is the only component that
+ * has to move with it.
+ */
+function CommittedMiniature(
+  props: Omit<
+    React.ComponentProps<typeof LayoutMiniature>,
+    "committed" | "flowOffsetPx"
+  >,
+): React.ReactElement {
+  const flowOffsetPx = useCommittedFlowOffset();
+  return (
+    <LayoutMiniature
+      {...props}
+      committed
+      flowOffsetPx={props.flowBandPx === undefined ? undefined : flowOffsetPx}
+    />
+  );
 }
 
 /**
@@ -551,9 +585,7 @@ function useCommittedFlow(): CommittedFlow | null {
 function useCommittedColumnOffsets(): Readonly<
   Record<number, number>
 > | null {
-  const deck = useDeck();
-  const store = getDeckStore();
-  return useMemo(() => {
+  return useDeckDerived((deck, store): Readonly<Record<number, number>> | null => {
     const offsets = deck?.columnOffsets;
     if (deck === null || store === null || offsets === undefined) return null;
     const run = store.getColumnRunHeight();
@@ -563,13 +595,18 @@ function useCommittedColumnOffsets(): Readonly<
       fractions[Number(slot)] = px / run;
     }
     return Object.keys(fractions).length === 0 ? null : fractions;
-  }, [deck, store]);
+  });
 }
 
 /**
- * Everything the {@link FlowStrip} under the plan needs, or `null` when the
- * deck has no numbered places at all — a free deck, whose plan draws one block
- * and has nothing to number.
+ * The numbered strip that stands under the plan — the deck's arrangement as
+ * something you can read a place off and press — or nothing when the deck has
+ * no numbered places at all: a free deck, whose plan draws one block and has
+ * nothing to number.
+ *
+ * A component rather than a hook in the card, because two of the facts it
+ * draws move on every activation — the marked slot, and the strip's offset —
+ * and reading them here keeps that render to the legend alone.
  *
  * The strip stands under fit as much as under flow; what the layout decides is
  * whether there is anywhere to TRAVEL, which is `travel` and nothing else. It
@@ -600,49 +637,73 @@ function useCommittedColumnOffsets(): Readonly<
  * A deck with no slotted pane at all marks nothing, which is the honest
  * picture: there is no card in the arrangement to be in.
  */
-function useStripInstrument(): {
-  count: number;
-  states: readonly TugSlotState[] | undefined;
-  travel: FlowStripTravel | null;
-} | null {
-  const deck = useDeck();
-  const store = getDeckStore();
-  return useMemo(() => {
-    if (deck === null || store === null) return null;
-    const kind = deck.imposition.kind;
-    if (kind === undefined) return null;
-    const count = slotCount(kind);
-    // Flow's half, and only flow's: `deckFlowStrip` is null under fit by
-    // construction ([P09]), and a fit deck's band is the whole of it. Absent
-    // here is what tells the strip there is nowhere to travel — it is not asked
-    // which layout is on, because "is there travel" is the fact the gestures
-    // actually turn on and the layout is only how it came to be true.
-    const strip = deckFlowStrip(deck);
-    const band = store.getBandWidth();
-    const travel =
-      strip === null || band === null || band <= 0
-        ? null
-        : { strip, band, offset: deck.flowOffset ?? 0 };
-    const active = deck.panes.find((p) => p.id === deck.activePaneId);
-    const standing =
-      active?.slot !== undefined
-        ? active
-        : [...deck.panes].reverse().find((p) => p.slot !== undefined);
-    const marked =
-      standing?.slot === undefined
-        ? undefined
-        : clampSlot(kind, standing.slot);
-    return {
-      count,
-      travel,
-      states:
-        marked === undefined
+function CommittedFlowStrip({
+  spans,
+  rails,
+  onPreview,
+  onGoTo,
+}: Pick<
+  React.ComponentProps<typeof FlowStrip>,
+  "spans" | "rails" | "onPreview" | "onGoTo"
+>): React.ReactElement | null {
+  const instrument = useDeckDerived(
+    (
+      deck,
+      store,
+    ): {
+      count: number;
+      states: readonly TugSlotState[] | undefined;
+      travel: FlowStripTravel | null;
+    } | null => {
+      if (deck === null || store === null) return null;
+      const kind = deck.imposition.kind;
+      if (kind === undefined) return null;
+      const count = slotCount(kind);
+      // Flow's half, and only flow's: `deckFlowStrip` is null under fit by
+      // construction ([P09]), and a fit deck's band is the whole of it. Absent
+      // here is what tells the strip there is nowhere to travel — it is not
+      // asked which layout is on, because "is there travel" is the fact the
+      // gestures actually turn on and the layout is only how it came to be
+      // true.
+      const strip = deckFlowStrip(deck);
+      const band = store.getBandWidth();
+      const travel =
+        strip === null || band === null || band <= 0
+          ? null
+          : { strip, band, offset: deck.flowOffset ?? 0 };
+      const active = deck.panes.find((p) => p.id === deck.activePaneId);
+      const standing =
+        active?.slot !== undefined
+          ? active
+          : [...deck.panes].reverse().find((p) => p.slot !== undefined);
+      const marked =
+        standing?.slot === undefined
           ? undefined
-          : Array.from({ length: count }, (_, slot) =>
-              slot === marked ? "filled" : "rest",
-            ),
-    };
-  }, [deck, store]);
+          : clampSlot(kind, standing.slot);
+      return {
+        count,
+        travel,
+        states:
+          marked === undefined
+            ? undefined
+            : Array.from({ length: count }, (_, slot) =>
+                slot === marked ? "filled" : "rest",
+              ),
+      };
+    },
+  );
+  if (instrument === null) return null;
+  return (
+    <FlowStrip
+      count={instrument.count}
+      spans={spans}
+      rails={rails}
+      states={instrument.states}
+      travel={instrument.travel}
+      onPreview={onPreview}
+      onGoTo={onGoTo}
+    />
+  );
 }
 
 /**
@@ -815,9 +876,6 @@ export function LayoutContent(
   // The committed drawing alone gets the live strip; every preview layer below
   // draws at rest ([P06]).
   const committedFlow = useCommittedFlow();
-  // The numbered strip that stands under the plan — the deck's arrangement as
-  // something you can read a place off and press.
-  const stripInstrument = useStripInstrument();
   // The plan's own geometry, handed to the strip whole: the room the rails
   // take, and where every block stands in what is left. The strip replicates
   // the drawing's flex row and places its segments at the drawing's own rects,
@@ -1303,14 +1361,12 @@ export function LayoutContent(
                 {planNote(kind, contentWidth, layout, flowingRails)}
               </span>
             </div>
-            <LayoutMiniature
+            <CommittedMiniature
               kind={kind}
               rails={rails}
               width={contentWidth}
               layout={layout}
               columnSplits={columnSplits}
-              committed
-              flowOffsetPx={committedFlow?.offsetPx}
               flowBandPx={committedFlow?.bandPx}
               flowStripPx={committedFlow?.stripPx}
               flowSlots={committedFlow?.slots}
@@ -1402,17 +1458,12 @@ export function LayoutContent(
           as much as under flow, so the panel does not reflow under the very
           control that was pressed to change the layout. What the layout
           changes is what a press DOES, which is `travel`. */}
-      {stripInstrument !== null ? (
-        <FlowStrip
-          count={stripInstrument.count}
-          spans={stripGeometry.spans}
-          rails={stripGeometry.basis}
-          states={stripInstrument.states}
-          travel={stripInstrument.travel}
-          onPreview={previewFlow}
-          onGoTo={goToSlot}
-        />
-      ) : null}
+      <CommittedFlowStrip
+        spans={stripGeometry.spans}
+        rails={stripGeometry.basis}
+        onPreview={previewFlow}
+        onGoTo={goToSlot}
+      />
       </div>
 
         {/* The mixer's header: the door to the rows, and the only part of them

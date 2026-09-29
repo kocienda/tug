@@ -1026,6 +1026,18 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
     // events (unlike HTML disabled). Return early without dispatching.
     if (isChainDisabled) return;
 
+    // The enablement this render drew is at most one frame old: the chain
+    // tells its subscribers after the next paint ([D204]), so a press landing
+    // in that frame can find a button wearing an answer the chain has since
+    // changed. Ask the chain now rather than trusting the render.
+    if (
+      chainActive &&
+      effectiveValidationTarget !== null &&
+      !manager!.validateActionAtNode(effectiveValidationTarget, action)
+    ) {
+      return;
+    }
+
     // Confirmation guard: button is non-interactive during its confirmation
     // window. The ref check beats the React render cycle so a click that
     // arrives mid-confirmation doesn't sneak through a stale closure.

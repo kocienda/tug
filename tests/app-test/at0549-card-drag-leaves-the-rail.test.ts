@@ -205,7 +205,7 @@ function flowDeckShape() {
 function flowOffsetDrawn(app: App): Promise<number> {
   return app.evalJS<number>(
     `parseFloat(getComputedStyle(
-       document.querySelector("[data-deck-canvas-background]")
+       document.querySelector("[data-space-layer][data-space-shown] .tug-pane[data-imposed]")
      ).getPropertyValue("--tug-imposer-flow-offset")) || 0`,
   );
 }
@@ -257,12 +257,13 @@ const startFlowSampler = (app: App): Promise<null> =>
       window.__flow = { samples: [] };
       window.__flow.timer = setInterval(function () {
         var bg = document.querySelector("[data-deck-canvas-background]");
+        var reader = document.querySelector("[data-space-layer][data-space-shown] .tug-pane[data-imposed]");
         var rail = document.querySelector('.tug-pane[data-pane-id="pRail"]');
-        if (bg === null || rail === null) return;
+        if (bg === null || rail === null || reader === null) return;
         var ind = document.querySelector(".tug-drop-zone-indicator");
         window.__flow.samples.push({
           t: performance.now(),
-          offset: parseFloat(getComputedStyle(bg).getPropertyValue("--tug-imposer-flow-offset")) || 0,
+          offset: parseFloat(getComputedStyle(reader).getPropertyValue("--tug-imposer-flow-offset")) || 0,
           indRight: ind === null ? null : ind.getBoundingClientRect().right,
           railLeft: rail.getBoundingClientRect().left,
           indZ: ind === null ? null : parseInt(getComputedStyle(ind).zIndex, 10),

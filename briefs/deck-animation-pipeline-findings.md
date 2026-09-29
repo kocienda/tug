@@ -511,3 +511,61 @@ The wider window is the other half of the honest account. Something in the activ
 The cause is the record's own shape. A gap is the distance between two samples, and the canvas opens its record when the settle arms — so a stall that burns before that record has taken its first sample leaves no gap behind it, however long it is. The record is not wrong; it starts on the far side of the burn and reports the window it actually saw.
 
 Planted 60ms after the dispatch, with at least one sample in front of it, the same task reads **215ms / 12.65 frames**, **215ms / 13.44 frames** and **216ms / 12.71 frames** across the three runs — six times the bar the same record had just passed at 1.7 frames. That is what makes the bar a measurement rather than a formality, and it is worth keeping beside the lesson from Step 8's column leg: twice now, this arc has read a clean number off a record that was not looking where it was assumed to be looking, and both times the number was indistinguishable from a real green.
+
+## Step 4 readings, 2026-09-29: the two probes, and what they retired
+
+Taken on `866e1dfd9` with the chain fan-out deferred (`window.__tugProbe.deferChain`), on the four-up flow fixture of `at0622`. Every number is the bench's; the user's deck is bigger in every dimension and is read separately.
+
+### The flow offset is not a layout cost, and a transform would buy nothing
+
+A census in the live page priced one write of `--tug-imposer-flow-offset` on the shown space layer against the alternatives, seven samples per variant, three rounds, style flushed first and layout on top of it:
+
+| write | style | layout |
+|---|---|---|
+| the offset, on the layer (1556 descendant nodes) | 3 ms | 0 |
+| an unused inherited custom property, on the layer | 2 ms | 0 |
+| an unused **non-inherited** registered property, on the layer | 0 | 0 |
+| `left` moved 1 px on each of the four flow frames | 0 | 0 |
+| `translate` on each of the four frames | 0 | 0 |
+| a non-inherited registered property on each frame | 0 | 0 |
+
+The layout half is nil: a moved `left` on an absolutely positioned frame is a positioned-movement-only layout. The whole cost is the inherited custom property invalidating the computed style of every descendant of the layer, most of which is the rail's Layout card (1260 of the 1556 nodes) that never reads the offset. Step 2's "15 ms for the offset write" was the arm's whole dirt flushed at once, mis-attributed to the one write between two forced reads. **The transform-on-the-layer idea is retired**: the shown layer is `display: contents` and has no box, and there is no layout to remove. What stands instead is cheaper and smaller: register the property `inherits: false` and write it on the elements that read it, so a slide invalidates four frames and nothing else.
+
+### The keyframe shape is not the lead
+
+A 1 ms native sample of the page's WebContent process across three slides put 40 of its main-thread samples in `RenderLayerCompositor::computeExtent` → `KeyframeEffect::computeExtentOfTransformAnimation`, which evaluates every keyframe of every running transform animation on every compositing update. Two patches tested it: two keyframes with the spring carried by a `linear()` easing, and two keyframes with a cubic-bezier. Eight slides each, chain deferred:
+
+| shape | activate lead (median) | home lead (median) | worst gap |
+|---|---|---|---|
+| 24 sampled keyframes (shipped) | 18 ms | 14 ms | 24–41 ms |
+| 2 keyframes + `linear()` | 16 ms | 15 ms | 23–37 ms |
+| 2 keyframes + cubic-bezier | 16 ms | 14 ms | 26–38 ms |
+
+No difference the instrument can resolve. The lead with the task ending at 1–2 ms is the wait for the next rendering opportunity; the 8–15 ms first-tick readings are where a display-aligned update lands.
+
+### Where the frames actually go now: the deferred commit, inside the window
+
+Every slide and every fold shows the same shape in its marks. The task ends at 1–3 ms and the first tick lands at 8–15 ms. Then the deferred work arrives as one unbroken main-thread stretch of 25–40 ms in the middle of the settle: the host menu flush, the React commit (`canvas-render`, two `pane-render`s, and the Layout card's 84 place marks and 86 stack glyphs, because `useDeck()` hands it the whole snapshot on every commit), the Last pass, the chain's 23 button renders, and a second menu flush. That stretch is the `longestGapMs` on every row — 24–41 ms on slides, 18–47 ms on folds — and it is the reason the four-up leg reads 1.4–2.4 frames against a two-frame bar. With the chain NOT deferred the same work runs inside the click task and the lead reads 70 ms (`firstPaintDelayMs`), the plain leg's 4.1 frames.
+
+### The fold: the height tween delivers, the lead is the cold arm
+
+Six folds and unfolds on the flow fixture: the first fold led by 13 ms, all 12 of them inside the canvas arm itself (`tug:sync:canvas-arm` 0 → `tug:arm-end` 11); every later fold and unfold led by 1–3 ms with a 0–2 ms arm. `gapsOverOneFrame` was 0 on four of six; the two that read 1–2 were the deferred-commit stretch above (28 and 47 ms), not the tween. `at0622`'s fold leg measures the first fold after launch, which is the cold arm. **Height by occlusion is retired on these numbers**: there is no per-frame cost in the height tween to remove on the bench, and the readings paper already showed the user's deck delivers its fold frames between first and last. What a fold pays is the cold arm on its first run and the commit stretch inside the window, both of which the flow slide pays too.
+
+### What step 5 carries
+
+1. The chain fan-out leaves the click task for good (`deferChain` shipped and hardened), since it alone is the difference between a 70 ms and a 15 ms lead.
+2. The commit inside the window is made small rather than deferred further: the Layout card subscribes to what it draws, not to the snapshot; a slide that changes only `flowOffset` and `data-focused` renders nothing there.
+3. The flow offset becomes a non-inherited registered property written on its readers.
+4. The cold arm on the first fold is read once more with the episode discovery isolated before anything is changed there.
+
+## Step 5, 2026-09-29: what shipped, what the bench says, and the next lever
+
+**Shipped** ([D204]): the responder chain's generic subscribers are told after the next paint through `lib/after-paint.ts`, with a scheduler seam for tests and a stand-down under reduced motion; `TugButton` re-validates at the press so the one-frame-stale enablement cannot dispatch; the deck store's own deferral stands down under reduced motion too; the Layout card's hooks are `useStoreDerived` selectors, with the strip offset and the marked slot read by two small components; `--tug-imposer-flow-offset` is registered `inherits: false` and written on its readers through `components/chrome/flow-offset.ts`; three arm-phase marks (`tug:arm-measured`, `tug:arm-episodes-end`, `tug:arm-planned`).
+
+**The bench.** Unit suite 9772 green. Thirty-one app-tests named across the changed surfaces: 21 green. The ten reds were run again on the committed tree behind a reverse-diff probe, and nine of them read the same numbers there — `at0454` (a flow fixture whose strip no longer overflows its band, red since `7b01ac1e0`), `at0549-card`, `at0597`, `at0566`, `at0594`, `at0605`, `at0626`, `at0632`, and `at0622`'s two inherited legs — so none is this step's. `at0643` alone flipped: one 26 ms gap against a 20 ms budget on a six-card streamed switch, green at the committed tree on one run and red on two runs here; it is a cadence budget inside the jitter its own message names, and it is recorded, not explained.
+
+**`at0622`'s four-up leg** now reads 41–57 ms lead / 2.4–3.4 frames against 70 ms / 4.1 frames before this step. Its marks say where the rest is, and it is a new fact: the leg is the FIRST activation after launch, with a first-responder flip, and the flip runs inside `transferFocusForActivation`'s `flushSync`. `raiseCard` passes `deferCommit: true`, so the deck store's notify is not flushed — but `flushSync` flushes every React update already pending, and the flip has just made several synchronously: the canvas re-renders because `cardsSelectionStore`'s "a selection stands" bit flips on the first activation (`canvas-render` at 0 ms, four `pane-render`s, `last-pass` at 6 ms), and every session card re-renders its chrome off the focus manager's and the card lifecycle's synchronous activation notices (the commits at 17 ms carrying `Move all sessions to Trash…`, `Clear filter`, `Browse for a directory`). The flush ends at 17 ms, the task at 18, the first tick lands at 40. The warm slides the earlier sampler measured had no flip in them — card 4 stayed the first responder — which is why they led by 15 ms: the flip's in-task React work is the whole difference.
+
+**The cold arm** did not reproduce under the phase marks: six folds in a fresh launch read `canvas-arm` → `arm-end` at 1–2 ms on every one, first included, with each phase under a millisecond. `at0622`'s fold leg still reads 11 ms before the arm on its first fold after two activation legs; whatever is cold there is not the episode discovery, and the marks are in place to read it the next time it shows.
+
+**The next lever, then, is the flip's own React work inside the click task**: the focus manager's and the card lifecycle's activation notices reach React synchronously and `flushSync` collects them. The same door the chain now takes — tell React after the next paint, keep the non-React observers synchronous — applied to those two channels would take the session cards' chrome renders out of the task; the canvas's selection bit is a once-per-launch flip and can stay. That is step 6's first item, ahead of the Beat primitive.

@@ -103,6 +103,7 @@ import { flushSync } from "react-dom";
 import { DeckCanvas } from "./components/chrome/deck-canvas";
 import { ConfigureTug } from "./components/tugways/configure-tug";
 import { TugLogout } from "./components/tugways/tug-logout";
+import { writeCanvasFlowOffset } from "./components/chrome/flow-offset";
 import { ConfigureTugRequest } from "./components/tugways/configure-tug-request";
 import { TugVersionGate } from "./components/tugways/tug-version-gate";
 import { ErrorBoundary } from "./components/chrome/error-boundary";
@@ -148,7 +149,6 @@ import {
   type FlowBandEdges,
   wallRevealOffset,
   impositionLayout,
-  FLOW_OFFSET_PROPERTY,
   impositionGapBottomPx,
   IMPOSITION_GAP_PX,
   RAIL_EDGE_INSET_PX,
@@ -2520,7 +2520,9 @@ export class DeckManager implements IDeckManagerStore {
       cb(landing);
       performance.mark(`tug:sync:${label}-end`);
     });
-    if (!PROBE_DEFER_REACT_NOTIFY) {
+    // Under reduced motion there is no tween to keep the commit out of, and a
+    // deferral would only put the snapped layout one frame behind the gesture.
+    if (!PROBE_DEFER_REACT_NOTIFY || !isTugMotionEnabled()) {
       this.subscribers.forEach((cb) => cb(landing));
       return;
     }
@@ -5340,10 +5342,7 @@ export class DeckManager implements IDeckManagerStore {
     if (deckFlowStrip(this.deckState) === null) return;
     const band = this.getBandWidth();
     if (band === null) return;
-    this.container.style.setProperty(
-      FLOW_OFFSET_PROPERTY,
-      `${Math.round(offset)}px`,
-    );
+    writeCanvasFlowOffset(this.container, Math.round(offset));
     publishFlowOffset(offset / band);
   }
 

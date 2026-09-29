@@ -659,21 +659,6 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
         note(`at0622 four-up plain row: ${JSON.stringify(plain.row)}`);
         note(`at0622 four-up click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
         note(`at0622 four-up commits: ${JSON.stringify(await reactCommits(four.app))}`);
-        // PROBE: the same activation with the responder chain's React fan-out
-        // deferred past the next paint, read before the bar so a red bar
-        // cannot hide the reading.
-        await four.app.evalJS<null>(`(window.__tugProbe = { deferChain: true }, null)`);
-        // Hand the first responder back to card 1 first, so the activation
-        // below flips it the way the plain leg's did.
-        await four.app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("focus-session-card", { cardId: "at0622-c1" }), null)`,
-        );
-        await wait(AFTER_LAND_MS);
-        const deferred = await sampleBarActivation(four.app, 4, 0);
-        note(`at0622 four-up deferChain row: ${JSON.stringify(deferred.row)}`);
-        note(`at0622 four-up deferChain click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
-        note(`at0622 four-up deferChain commits: ${JSON.stringify(await reactCommits(four.app))}`);
-        await four.app.evalJS<null>(`(window.__tugProbe = { deferChain: false }, null)`);
         expectBar("four-up", plain);
         fourFrames = plain.row.longestGapFrames;
         fourGapMs = plain.row.longestGapMs;
