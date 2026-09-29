@@ -247,6 +247,7 @@ function measureFocusClaim(
   // delegate uses.
   if (typeof setTimeout === "function") {
     setTimeout(() => {
+      performance.mark("tug:focus-measure");
       deckTrace.record({
         kind: "focus-measurement",
         phase: "post-gesture",
@@ -254,6 +255,7 @@ function measureFocusClaim(
         cardId,
         activeElement: formatElement(doc.activeElement),
       });
+      performance.mark("tug:focus-measure-end");
     }, 0);
   }
 }

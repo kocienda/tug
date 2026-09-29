@@ -1554,7 +1554,17 @@ const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
                     "tug:flip-will-end", "tug:flip-commit-end", "tug:flip-chain-key-end",
                     "tug:flip-did-deactivate-end", "tug:flip-did-activate-end",
                     "tug:button-render", "tug:pane-render", "tug:card-host-render", "tug:session-render",
-                    "tug:chain-notify"];
+                    "tug:chain-notify",
+                    "tug:sync:canvas-arm", "tug:sync:canvas-arm-end",
+                    "tug:sync:destination-flip", "tug:sync:destination-flip-end",
+                    "tug:sync:selection-guard", "tug:sync:selection-guard-end",
+                    "tug:sync:cards-selection", "tug:sync:cards-selection-end",
+                    "tug:sync:key-card", "tug:sync:key-card-end",
+                    "tug:sync:test-surface", "tug:sync:test-surface-end",
+                    "tug:sync:anon", "tug:sync:anon-end",
+                    "tug:menu-flush", "tug:menu-facts", "tug:menu-commands", "tug:menu-serialized",
+                    "tug:menu-flush-end", "tug:menu-caps", "tug:menu-caps-end",
+                    "tug:focus-invariant", "tug:focus-invariant-end", "tug:focus-measure", "tug:focus-measure-end"];
        var out = {};
        var arm = performance.getEntriesByName("tug:arm-end");
        var origin = arm.length ? arm[arm.length - 1].startTime : 0;

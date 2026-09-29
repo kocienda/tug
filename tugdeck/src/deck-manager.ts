@@ -40,6 +40,7 @@ import {
   sweptArriving,
 } from "./layout-tree";
 import { buildDefaultLayout, serialize, deserialize } from "./serialization";
+import { scheduleAfterPaint } from "./lib/after-paint";
 import {
   MAIN_SPACE_NAME,
   duplicatedDeck,
@@ -257,8 +258,6 @@ const SAVE_DEBOUNCE_MS = 500;
  * task and lands under a settle the canvas has already launched.
  */
 const PROBE_DEFER_REACT_NOTIFY = true;
-/** The deadline behind the deferral: an occluded window never fires rAF. */
-const PROBE_DEFER_DEADLINE_MS = 50;
 
 /**
  * The registered `componentId` of a Session card.
@@ -1133,7 +1132,7 @@ export class DeckManager implements IDeckManagerStore {
   private subscribers: Set<(landing: CommitLanding) => void> = new Set();
 
   /** PROBE: subscribers told inside the commit's own task. */
-  private syncSubscribers: Set<(landing: CommitLanding) => void> = new Set();
+  private syncSubscribers: Map<(landing: CommitLanding) => void, string> = new Map();
 
   /** PROBE: the one deferred notification in flight, coalescing every commit until it flushes. */
   private deferredNotify: { landing: CommitLanding } | null = null;
@@ -1191,8 +1190,8 @@ export class DeckManager implements IDeckManagerStore {
   public getSnapshot = (): DeckState => this.deckState;
 
   /** PROBE: {@link subscribe}'s synchronous door. See `PROBE_DEFER_REACT_NOTIFY`. */
-  public subscribeSync = (callback: (landing: CommitLanding) => void): (() => void) => {
-    this.syncSubscribers.add(callback);
+  public subscribeSync = (callback: (landing: CommitLanding) => void, label = "anon"): (() => void) => {
+    this.syncSubscribers.set(callback, label);
     return () => {
       this.syncSubscribers.delete(callback);
     };
@@ -1228,14 +1227,7 @@ export class DeckManager implements IDeckManagerStore {
       this.subscribers.forEach((cb) => cb(pending.landing));
       performance.mark("tug:react-notify-end");
     };
-    if (typeof requestAnimationFrame !== "function") {
-      flush();
-      return;
-    }
-    requestAnimationFrame(() => {
-      window.setTimeout(flush, 0);
-    });
-    window.setTimeout(flush, PROBE_DEFER_DEADLINE_MS);
+    scheduleAfterPaint(flush);
   }
 
   // ---- Spaces store (a second useSyncExternalStore contract, [P03], [L02]) ----
@@ -2523,7 +2515,11 @@ export class DeckManager implements IDeckManagerStore {
     // `host-menu-state` aggregator subscribes at boot (main.tsx) and
     // projects each notification into the `menuState` push the Swift
     // host validates its menus from.
-    this.syncSubscribers.forEach((cb) => cb(landing));
+    this.syncSubscribers.forEach((label, cb) => {
+      performance.mark(`tug:sync:${label}`);
+      cb(landing);
+      performance.mark(`tug:sync:${label}-end`);
+    });
     if (!PROBE_DEFER_REACT_NOTIFY) {
       this.subscribers.forEach((cb) => cb(landing));
       return;

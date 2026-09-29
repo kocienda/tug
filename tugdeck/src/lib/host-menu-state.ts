@@ -32,6 +32,7 @@ import type { SpacesSnapshot } from "../spaces";
 import { bullseyePaneIdOf, slotStackOf } from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
+import { scheduleAfterPaint } from "./after-paint";
 import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
@@ -891,6 +892,12 @@ export function projectDeckState(
  */
 export class HostMenuStatePublisher {
   private readonly post: (payload: MenuStatePayload) => void;
+  /**
+   * When a scheduled flush runs. Production hands in {@link scheduleAfterPaint}
+   * so the projection, the validation walk and the host post leave the
+   * gesture's task; the default microtask is the unit tests' clock.
+   */
+  private readonly schedule: (flush: () => void) => void;
   private deckProjection: MenuStateDeckProjection = {
     panes: [],
     spaces: [],
@@ -974,8 +981,12 @@ export class HostMenuStatePublisher {
   private lastSent: string | null = null;
   private flushScheduled = false;
 
-  constructor(post: (payload: MenuStatePayload) => void) {
+  constructor(
+    post: (payload: MenuStatePayload) => void,
+    schedule: (flush: () => void) => void = queueMicrotask,
+  ) {
     this.post = post;
+    this.schedule = schedule;
   }
 
   /** Register the closure the flush asks for {@link CommandMenuFacts.column}. */
@@ -1117,9 +1128,11 @@ export class HostMenuStatePublisher {
   private scheduleFlush(): void {
     if (this.flushScheduled) return;
     this.flushScheduled = true;
-    queueMicrotask(() => {
+    this.schedule(() => {
       this.flushScheduled = false;
+      performance.mark("tug:menu-flush");
       this.flush();
+      performance.mark("tug:menu-flush-end");
     });
   }
 
@@ -1203,7 +1216,9 @@ export class HostMenuStatePublisher {
       updateTugOpen: this.updateTugOpen,
     };
     this.lastFacts = facts;
+    performance.mark("tug:menu-facts");
     const commands = computeCommandCapabilities(this.validationSource(facts));
+    performance.mark("tug:menu-commands");
     this.lastGates = commands;
     const payload: MenuStatePayload = {
       panes,
@@ -1223,6 +1238,7 @@ export class HostMenuStatePublisher {
       appModalOpen: this.appModalOpen,
     };
     const serialized = JSON.stringify(payload);
+    performance.mark("tug:menu-serialized");
     if (serialized === this.lastSent) return;
     this.lastSent = serialized;
     this.post(payload);
@@ -1270,7 +1286,7 @@ export function commandValidationSource(): CommandValidationSource {
  * runs against a stale cache.
  */
 export function initHostMenuState(deck: IDeckManagerStore): void {
-  const publisher = new HostMenuStatePublisher(postToHost);
+  const publisher = new HostMenuStatePublisher(postToHost, scheduleAfterPaint);
   activePublisher = publisher;
   const push = (): void => {
     publisher.setDeckProjection(

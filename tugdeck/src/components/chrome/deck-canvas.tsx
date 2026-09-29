@@ -4957,7 +4957,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       scheduleSweep(Math.max(2 * windowMs, 1000));
       performance.mark("tug:arm-end");
     };
-    const unsubscribe = (store.subscribeSync ?? store.subscribe)(arm);
+    const unsubscribe = store.subscribeSync?.(arm, "canvas-arm") ?? store.subscribe(arm);
     return () => {
       unsubscribe();
       settleSweepRef.current = null;

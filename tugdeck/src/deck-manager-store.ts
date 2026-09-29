@@ -65,7 +65,7 @@ export interface IDeckManagerStore {
    * `subscribe` above is told one painted frame later while the probe runs;
    * a DOM writer that must see the commit before React does takes this door.
    */
-  subscribeSync?: (callback: (landing: CommitLanding) => void) => () => void;
+  subscribeSync?: (callback: (landing: CommitLanding) => void, label?: string) => () => void;
 
   /**
    * PROBE: deliver the deferred notification NOW, synchronously. A caller

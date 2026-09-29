@@ -264,6 +264,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
     registerMenuValidationChain(manager);
 
     const publishMenuCaps = (): void => {
+      performance.mark("tug:menu-caps");
       const caps = computeEditCapabilities(manager);
       // The chain first responder owns the edit menu. A deactivated card now
       // resigns first responder (a canvas-background click clears the active
@@ -303,6 +304,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
         redoLabel: labels.redo,
         nativeUndoToken: isNativeText ? nativeUndoCounter : 0,
       });
+      performance.mark("tug:menu-caps-end");
     };
     publishMenuCaps();
     const unsubscribeEditCaps = manager.subscribe(publishMenuCaps);
@@ -372,7 +374,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       focusManager.setKeyCard(next);
     };
     syncKeyCard();
-    const unsubscribeKeyCard = (deckStore?.subscribeSync ?? deckStore?.subscribe)?.(syncKeyCard) ?? (() => {});
+    const unsubscribeKeyCard = deckStore?.subscribeSync?.(syncKeyCard, "key-card") ?? deckStore?.subscribe(syncKeyCard) ?? (() => {});
 
     // ---- SelectionGuard lifecycle ----
     // Install SelectionGuard event listeners alongside the key pipeline.

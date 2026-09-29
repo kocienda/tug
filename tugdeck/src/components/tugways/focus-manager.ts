@@ -3250,7 +3250,9 @@ export class FocusManager {
     this.invariantCheckQueued = true;
     window.setTimeout(() => {
       this.invariantCheckQueued = false;
+      performance.mark("tug:focus-invariant");
       this.checkFocusInvariant(reason);
+      performance.mark("tug:focus-invariant-end");
     }, 0);
   }
 

@@ -774,7 +774,7 @@ class SelectionGuard {
     // installed — the click's caret-placement proceeds normally.
     const deckStore = getDeckStore();
     if (deckStore !== null) {
-      this.deckStoreUnsubscribe = (deckStore.subscribeSync ?? deckStore.subscribe)(() => {
+      const onCommit = (): void => {
         const newFocused = this.getFocusedCardId();
         if (newFocused !== this.lastPaintFocusedCardId) {
           if (
@@ -786,7 +786,8 @@ class SelectionGuard {
           this.lastPaintFocusedCardId = newFocused;
         }
         this.updatePaint();
-      });
+      };
+      this.deckStoreUnsubscribe = deckStore.subscribeSync?.(onCommit, "selection-guard") ?? deckStore.subscribe(onCommit);
       // Initial sync so the first paint reflects the store's current
       // active card, not the constructor-default (no focused card).
       this.lastPaintFocusedCardId = this.getFocusedCardId();

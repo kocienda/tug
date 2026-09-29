@@ -3145,9 +3145,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       const mutate = (): void => store.toggleBullseye(paneId);
 
       let notifies = 0;
-      const unsubscribe = (store.subscribeSync ?? store.subscribe)(() => {
+      const count = (): void => {
         notifies += 1;
-      });
+      };
+      const unsubscribe = store.subscribeSync?.(count, "test-surface") ?? store.subscribe(count);
       let threw = false;
       try {
         switch (shape) {

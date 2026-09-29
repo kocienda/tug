@@ -237,7 +237,7 @@ export function attachLayoutSelectionToDeck(
   selection: CardsSelectionStore = cardsSelectionStore,
 ): () => void {
   let lastFirstResponder = deck.getFirstResponderCardId();
-  return (deck.subscribeSync ?? deck.subscribe)(() => {
+  const handle = (): void => {
     const state = deck.getSnapshot();
     selection.pruneTo(state.cards.map((c) => c.id));
 
@@ -256,5 +256,6 @@ export function attachLayoutSelectionToDeck(
     if (selection.getSnapshot().ids.includes(fr)) return;
     if (suppressed) return;
     selection.pickOnly(fr);
-  });
+  };
+  return deck.subscribeSync?.(handle, "cards-selection") ?? deck.subscribe(handle);
 }
