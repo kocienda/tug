@@ -29,8 +29,10 @@ import {
 } from "@/lib/motion-guard/render-cost-probe";
 import {
   nothingInFlight,
+  shouldRecover,
   shouldTrip,
   shouldTripAtRest,
+  BREAKER_RECOVER_SAMPLES,
   BREAKER_TRIP_SAMPLES,
 } from "@/lib/motion-guard/breaker";
 import type { RenderCostSample } from "@/lib/motion-guard/render-cost-probe";
@@ -431,5 +433,79 @@ describe("shouldTripAtRest", () => {
   test("a run length of zero is not a trip on an empty reading", () => {
     // The same vacuous-`every` guard as the cost condition's.
     expect(shouldTripAtRest([resting(60)], 10, 0)).toBe(false);
+  });
+});
+
+describe("shouldRecover", () => {
+  // The defect this guards against: recovery that waited on the hold
+  // count's next 0→1 edge, on a deck whose loop owners never release their
+  // holds while demoted — one trip, and the dots were gone until reload.
+  test("fewer samples than the run needs is never a recovery", () => {
+    expect(shouldRecover([resting(0), resting(0)], 16, 10)).toBe(false);
+    expect(shouldRecover([], 16, 10)).toBe(false);
+  });
+
+  test("three clean samples at rest recover", () => {
+    expect(shouldRecover([resting(3), resting(0), resting(5)], 16, 10)).toBe(true);
+  });
+
+  test("a streaming deck recovers on cost alone", () => {
+    // In flight, the at-rest count has no vote — the same shape that keeps
+    // it from tripping on rest while a transcript legitimately lays out.
+    expect(
+      shouldRecover(
+        [sample(4, true, 40), sample(6, true, 55), sample(2, true, 30)],
+        16,
+        10,
+      ),
+    ).toBe(true);
+  });
+
+  test("a gesture is a reason for updates, the same as a turn", () => {
+    expect(
+      shouldRecover(
+        [sample(4, false, 40, true), resting(2), resting(1)],
+        16,
+        10,
+      ),
+    ).toBe(true);
+  });
+
+  test("an over-budget frame breaks the run, in flight or not", () => {
+    expect(
+      shouldRecover([resting(1), sample(17, true, 0), resting(1)], 16, 10),
+    ).toBe(false);
+  });
+
+  test("updates at rest over the budget break the run", () => {
+    expect(shouldRecover([resting(1), resting(11), resting(1)], 16, 10)).toBe(false);
+  });
+
+  test("a sample exactly at either budget is clean", () => {
+    expect(
+      shouldRecover([sample(16, false, 10), sample(16, false, 10), sample(16, false, 10)], 16, 10),
+    ).toBe(true);
+  });
+
+  test("only the last `needed` samples are read", () => {
+    // The three that tripped it are still in the ring behind the three that
+    // earn it back.
+    expect(
+      shouldRecover(
+        [resting(60), resting(60), resting(60), resting(0), resting(0), resting(0)],
+        16,
+        10,
+      ),
+    ).toBe(true);
+  });
+
+  test("the default run length is the breaker's", () => {
+    const clean = Array.from({ length: BREAKER_RECOVER_SAMPLES - 1 }, () => resting(0));
+    expect(shouldRecover(clean, 16, 10)).toBe(false);
+    expect(shouldRecover([...clean, resting(0)], 16, 10)).toBe(true);
+  });
+
+  test("a run length of zero is not a recovery on an empty reading", () => {
+    expect(shouldRecover([resting(0)], 16, 10, 0)).toBe(false);
   });
 });

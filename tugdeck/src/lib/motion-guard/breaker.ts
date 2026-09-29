@@ -70,13 +70,37 @@
  * a reason, and the reading this exists to catch is the one with no reason.
  * The `motion-demoted` trace row says which condition tripped.
  *
- * ## The latch
+ * ## Recovery, and the latch
  *
- * Motion resumes on the registry's next 0→1 edge — the deck goes still, the
- * next thing that moves gets a fair chance. After {@link BREAKER_LATCH_TRIPS}
- * trips in one page lifetime the demotion latches: three fair chances is
- * enough, and a deck that flaps between demoted and not is worse than one that
- * is quietly still. `reset()` and a reload are the two ways back.
+ * A demoted deck keeps being read. Every loop owner still holds its hold — a
+ * dot that should be breathing holds whether or not the stylesheet lets it —
+ * so the probe stays armed and the samples keep coming. Motion resumes when
+ * {@link BREAKER_RECOVER_SAMPLES} consecutive samples read clean under both
+ * budgets, which is the evidence the trip asked for, read the other way
+ * ({@link shouldRecover}).
+ *
+ * It used to resume only on the registry's next 0→1 edge, and on a deck with
+ * one live session that edge never comes: the owners whose loops were stilled
+ * never let go of their holds, the count never reaches zero, and a single
+ * trip was a page reload away from over. The edge still resumes motion when
+ * it does fire — a deck that went entirely still and started again has
+ * earned it — but nothing waits on it any more.
+ *
+ * After {@link BREAKER_LATCH_TRIPS} trips in one page lifetime the demotion
+ * latches: three fair chances is enough, and a deck that flaps between
+ * demoted and not is worse than one that is quietly still. `reset()` and a
+ * reload are the two ways back from a latch.
+ *
+ * ## A trip with nothing to still is not a trip
+ *
+ * The at-rest reading counts main-thread stalls over a floor, and a stall is
+ * any task — a feed batch, a store sweep — not only a rendering update. So
+ * the census is read before the `rest` condition is allowed to act, and when
+ * it finds no long-running loop resident the breaker refuses: the demotion
+ * turns one knob, the loops' iteration count, and with nothing running that
+ * knob is already at zero. The reading still goes to the dev log, once per
+ * streak, because a deck paying for something at rest is worth a look — it
+ * is just not the loops' bill.
  *
  * @module lib/motion-guard/breaker
  */
@@ -98,6 +122,9 @@ export const BREAKER_TRIP_SAMPLES = 3;
 
 /** How many trips in one page lifetime latch the demotion. */
 export const BREAKER_LATCH_TRIPS = 3;
+
+/** How many consecutive clean samples restore a demoted deck's motion. */
+export const BREAKER_RECOVER_SAMPLES = 3;
 
 /** The root attribute `tug.css` resolves `--tug-loop-iterations: 0` from. */
 export const DEMOTED_ATTRIBUTE = "data-tug-motion-demoted";
@@ -178,6 +205,34 @@ export function shouldTripAtRest(
     );
 }
 
+/**
+ * Whether the last `needed` samples all read clean — the demoted deck has
+ * earned its motion back.
+ *
+ * Clean is the negation of both trip conditions on the same sample: under
+ * the cost budget, and either busy for a reason (in flight, or a gesture
+ * running) or under the at-rest budget. A streaming deck therefore recovers
+ * on cost alone, exactly as it would never have tripped on rest. The same
+ * fewer-than-`needed` guard as the trip conditions, for the same reason: a
+ * ring with two samples in it has not said anything yet.
+ */
+export function shouldRecover(
+  samples: readonly RenderCostSample[],
+  budgetMs: number,
+  restBudgetPerSecond: number,
+  needed: number = BREAKER_RECOVER_SAMPLES,
+): boolean {
+  if (needed <= 0) return false;
+  if (samples.length < needed) return false;
+  return samples.slice(-needed).every(
+    (sample) =>
+      sample.costMs <= budgetMs &&
+      (sample.inFlight ||
+        sample.gesture ||
+        sample.updatesPerSecond <= restBudgetPerSecond),
+  );
+}
+
 /** A census summary small enough to ride a trace row. */
 function censusSummary(): {
   longRunning: number;
@@ -227,6 +282,8 @@ class MotionBreakerImpl implements MotionBreaker {
   #trips = 0;
   #latched = false;
   #installed = false;
+  /** A `rest` reading refused for want of loops; logged once per streak. */
+  #refusedRest = false;
 
   get budgetMs(): number {
     return this.#budgetMs;
@@ -279,20 +336,33 @@ class MotionBreakerImpl implements MotionBreaker {
     this.#installed = true;
 
     renderCostProbe.onSample(() => {
-      // Already still: the reading that follows a demotion is about the
-      // demoted deck, and re-reading it as a fresh diagnosis would trip the
-      // breaker again on its own success.
-      if (this.demoted) return;
       const samples = renderCostProbe.samples();
+      // Already still: the readings that follow a demotion are about the
+      // demoted deck, so they are never a fresh diagnosis — they are the
+      // deck's case for getting its motion back, and three clean ones in a
+      // row make it. A latched deck has no case left to make.
+      if (this.demoted) {
+        if (this.#latched) return;
+        if (
+          shouldRecover(samples, this.#budgetMs, this.#restBudgetPerSecond)
+        ) {
+          this.#restore();
+        }
+        return;
+      }
       if (shouldTrip(samples, this.#budgetMs)) {
         this.#trip("cost");
       } else if (shouldTripAtRest(samples, this.#restBudgetPerSecond)) {
         this.#trip("rest");
+      } else {
+        this.#refusedRest = false;
       }
     });
 
     // The deck went still and something started moving again: a fair chance,
-    // unless the breaker has already given out all of them.
+    // unless the breaker has already given out all of them. Recovery no
+    // longer waits on this edge (see the module docblock), but a deck that
+    // reached zero holds and moved again has earned it without three samples.
     onMotionEdge((holds) => {
       if (holds === 0 || this.#latched) return;
       if (this.demoted) this.demote(false);
@@ -309,6 +379,23 @@ class MotionBreakerImpl implements MotionBreaker {
     // census taken after the answer would report `longRunning: 0` and the row
     // would say nothing at all about what the deck was paying for.
     const census = censusSummary();
+
+    // Nothing running, nothing to still. The at-rest count is a count of
+    // main-thread stalls, and with no loop resident the stalls are somebody
+    // else's — worth a line in the dev log, not a demotion that would take
+    // the next thing to start breathing down with it.
+    if (reason === "rest" && census.longRunning === 0) {
+      if (!this.#refusedRest) {
+        this.#refusedRest = true;
+        tugDevLogStore.warn("perf", "updates at rest with no loops running", {
+          costMs: tail,
+          updatesPerSecond: updates,
+          restBudgetPerSecond: this.#restBudgetPerSecond,
+        });
+      }
+      return;
+    }
+    this.#refusedRest = false;
 
     this.demote(true);
     this.#trips += 1;
@@ -334,6 +421,16 @@ class MotionBreakerImpl implements MotionBreaker {
       trips: this.#trips,
       latched: this.#latched,
       longRunning: census.longRunning,
+    });
+  }
+
+  #restore(): void {
+    const window = renderCostProbe.samples().slice(-BREAKER_RECOVER_SAMPLES);
+    this.demote(false);
+    tugDevLogStore.info("perf", "motion restored", {
+      costMs: window.map((sample) => sample.costMs),
+      updatesPerSecond: window.map((sample) => sample.updatesPerSecond),
+      trips: this.#trips,
     });
   }
 }
