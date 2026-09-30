@@ -100,6 +100,7 @@ import { ReadToolBlock } from "@/components/tugways/cards/blocks/read-tool-block
 import { collapseDefaultForMessage } from "@/components/tugways/cards/blocks/tool-collapse-defaults";
 import { resolveCommandBlockSearchParts } from "@/components/tugways/cards/session-command-block-registry";
 import {
+  RELOCATION_BOUNDARY_EVENT,
   STAGE_BOUNDARY_EVENT,
   stageBoundaryParts,
 } from "@/lib/code-session-store/stages";
@@ -376,6 +377,11 @@ function messageSegments(
         // The arc quiet line renders its sentence verbatim in a marked
         // span — no markdown pass, so the projection is the text itself.
         return message.text === "" ? [] : [{ kind: "dom", text: message.text }];
+      }
+      if (message.source === "relocation") {
+        // The directory-change boundary projects its marked event, as a stage
+        // boundary does; the directories in its detail are not marked.
+        return [{ kind: "dom", text: RELOCATION_BOUNDARY_EVENT }];
       }
       if (message.source === "stage") {
         // The stage boundary's event is a marked container, so it projects —

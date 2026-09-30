@@ -186,6 +186,16 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Add a working directory to this session",
   },
   {
+    name: "cd",
+    description: "Move this card into another directory, carrying the conversation",
+    takesArgs: true,
+  },
+  {
+    name: "change-directory",
+    description: "Move this card into another directory, carrying the conversation",
+    takesArgs: true,
+  },
+  {
     name: "rename",
     description: "Name this session (shown in the chip and session chooser)",
     takesArgs: true,

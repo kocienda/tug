@@ -266,6 +266,10 @@ pub trait ChildSpawner: Send + Sync + 'static {
     /// `--permission-mode <mode>` so the spawned claude process starts in the
     /// right mode. `None` when tugdeck sent no mode (older client, or a card
     /// with no configured default).
+    ///
+    /// `relocate_from` names the conversation a directory change forks from,
+    /// forwarded as `--relocate-from` / `--relocate-from-dir`. `None` for
+    /// every session that did not move.
     fn spawn_child(
         &self,
         project_dir: &Path,
@@ -273,7 +277,20 @@ pub trait ChildSpawner: Send + Sync + 'static {
         session_mode: SessionMode,
         resume_claude_session_id: Option<&str>,
         permission_mode: Option<&str>,
+        relocate_from: Option<&RelocateOrigin>,
     ) -> SpawnFuture;
+}
+
+/// The conversation a directory change forks from: the parent's claude id and
+/// the directory its transcript lives under. Carried on a moved session's
+/// ledger entry for as long as the fork is unwritten, and forwarded to tugcode
+/// as `--relocate-from <id> --relocate-from-dir <dir>` on every spawn, so a
+/// respawn or relaunch before the first turn re-forks rather than starting
+/// empty ([P03]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelocateOrigin {
+    pub parent_session_id: String,
+    pub parent_project_dir: String,
 }
 
 /// Production spawner: launches `tugcode --dir <project_dir>` (or the bun
@@ -311,6 +328,7 @@ pub(crate) fn build_tugcode_command(
     session_mode: SessionMode,
     resume_claude_session_id: Option<&str>,
     permission_mode: Option<&str>,
+    relocate_from: Option<&RelocateOrigin>,
 ) -> (String, Vec<String>) {
     let (program, mut args): (String, Vec<String>) =
         if tugcode_path.extension().and_then(|s| s.to_str()) == Some("ts") {
@@ -333,6 +351,15 @@ pub(crate) fn build_tugcode_command(
     args.push(session_id.to_string());
     args.push("--session-mode".to_string());
     args.push(session_mode.as_flag_value().to_string());
+    // A directory change's origin rides beside `--session-mode new`: tugcode
+    // forks from it until the fork's JSONL exists. Absent, the argv is exactly
+    // what it was before directory changes existed.
+    if let Some(origin) = relocate_from {
+        args.push("--relocate-from".to_string());
+        args.push(origin.parent_session_id.clone());
+        args.push("--relocate-from-dir".to_string());
+        args.push(origin.parent_project_dir.clone());
+    }
     if let Some(id) = resume_claude_session_id {
         args.push("--resume-session".to_string());
         args.push(id.to_string());
@@ -359,12 +386,14 @@ impl ChildSpawner for TugcodeSpawner {
         session_mode: SessionMode,
         resume_claude_session_id: Option<&str>,
         permission_mode: Option<&str>,
+        relocate_from: Option<&RelocateOrigin>,
     ) -> SpawnFuture {
         let tugcode_path = self.tugcode_path.clone();
         let project_dir = project_dir.to_path_buf();
         let session_id = session_id.to_string();
         let resume_claude_session_id = resume_claude_session_id.map(|s| s.to_string());
         let permission_mode = permission_mode.map(|s| s.to_string());
+        let relocate_from = relocate_from.cloned();
         Box::pin(async move {
             let (cmd, args) = build_tugcode_command(
                 &tugcode_path,
@@ -373,6 +402,7 @@ impl ChildSpawner for TugcodeSpawner {
                 session_mode,
                 resume_claude_session_id.as_deref(),
                 permission_mode.as_deref(),
+                relocate_from.as_ref(),
             );
             tracing::info!(
                 target: "dev::session-lifecycle",
@@ -757,6 +787,14 @@ pub async fn run_session_bridge(
             entry.permission_mode.clone()
         };
 
+        // The directory change this session forks from, read fresh per
+        // iteration like the mode above: a crash respawn before the first
+        // turn must re-fork, and the entry is where the origin lives.
+        let relocate_from = {
+            let entry = ledger_entry.lock().await;
+            entry.relocate_from.clone()
+        };
+
         // Spawn subprocess — interruptible by cancel so
         // `close_session` can tear down a stalled spawner.
         tracing::info!(
@@ -774,6 +812,7 @@ pub async fn run_session_bridge(
                 session_mode,
                 resume_claude_session_id.as_deref(),
                 permission_mode.as_deref(),
+                relocate_from.as_ref(),
             ) => result,
             _ = cancel.cancelled() => return,
         };
@@ -2034,6 +2073,11 @@ async fn relay_session_io_tracked(
                                 // of the line the card already has, and joins
                                 // it by reference — the entry is asked, never
                                 // the ledger.
+                                // `relocate` — a directory change's fork —
+                                // deliberately joins too: the deck provisioned
+                                // a fresh line for it on the spawn payload, so
+                                // the entry's line is already the new one
+                                // ([P06]).
                                 let mut rebound = None;
                                 if segment.as_ref().is_some_and(|s| s.kind == "new") {
                                     if let Some(ledger) = session_ledger {
@@ -6323,6 +6367,7 @@ mod tests {
             SessionMode::New,
             None,
             None,
+            None,
         );
         assert_eq!(program, "/opt/tugtool/tugcode");
         assert_eq!(
@@ -6345,6 +6390,7 @@ mod tests {
             Path::new("/work/beta"),
             "sess-beta-uuid",
             SessionMode::New,
+            None,
             None,
             None,
         );
@@ -6377,12 +6423,14 @@ mod tests {
             SessionMode::New,
             None,
             None,
+            None,
         );
         let (_p2, args2) = build_tugcode_command(
             &spawner.tugcode_path,
             Path::new("/work/b"),
             "sess-b",
             SessionMode::New,
+            None,
             None,
             None,
         );
@@ -6401,6 +6449,7 @@ mod tests {
             Path::new("/work/x"),
             "sess-x",
             SessionMode::Resume,
+            None,
             None,
             None,
         );
@@ -6425,6 +6474,7 @@ mod tests {
             "sess-y-tug-uuid",
             SessionMode::Resume,
             Some("claude-internal-id-7"),
+            None,
             None,
         );
         let i = args
@@ -6453,6 +6503,7 @@ mod tests {
             SessionMode::Resume,
             None,
             None,
+            None,
         );
         assert!(
             !args.iter().any(|a| a == "--resume-session"),
@@ -6473,12 +6524,68 @@ mod tests {
             SessionMode::New,
             None,
             Some("plan"),
+            None,
         );
         let i = args
             .iter()
             .position(|a| a == "--permission-mode")
             .expect("--permission-mode must be present when mode is Some");
         assert_eq!(args.get(i + 1).map(String::as_str), Some("plan"));
+    }
+
+    /// A directory change's origin rides right after `--session-mode new`;
+    /// with none, the argv is byte-identical to the one without the parameter.
+    #[test]
+    fn test_build_tugcode_command_emits_relocation_after_session_mode() {
+        let origin = RelocateOrigin {
+            parent_session_id: "parent-claude-id".to_string(),
+            parent_project_dir: "/work/a".to_string(),
+        };
+        let (_, args) = build_tugcode_command(
+            Path::new("/opt/tugtool/tugcode"),
+            Path::new("/work/b"),
+            "sess-moved",
+            SessionMode::New,
+            None,
+            None,
+            Some(&origin),
+        );
+        let mode = args
+            .iter()
+            .position(|a| a == "--session-mode")
+            .expect("--session-mode");
+        assert_eq!(
+            &args[mode..mode + 6],
+            &[
+                "--session-mode",
+                "new",
+                "--relocate-from",
+                "parent-claude-id",
+                "--relocate-from-dir",
+                "/work/a",
+            ]
+        );
+
+        let (_, plain) = build_tugcode_command(
+            Path::new("/opt/tugtool/tugcode"),
+            Path::new("/work/b"),
+            "sess-moved",
+            SessionMode::New,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            plain,
+            vec![
+                "--dir",
+                "/work/b",
+                "--session-id",
+                "sess-moved",
+                "--session-mode",
+                "new"
+            ]
+        );
     }
 
     #[test]
@@ -6488,6 +6595,7 @@ mod tests {
             Path::new("/work/q"),
             "sess-q",
             SessionMode::New,
+            None,
             None,
             None,
         );
@@ -6693,7 +6801,14 @@ mod tests {
 
         let spawner = TugcodeSpawner::new(script);
         let mut child = spawner
-            .spawn_child(dir.path(), "tug-sess-xyz", SessionMode::New, None, None)
+            .spawn_child(
+                dir.path(),
+                "tug-sess-xyz",
+                SessionMode::New,
+                None,
+                None,
+                None,
+            )
             .await
             .expect("spawn stand-in tugcode");
 

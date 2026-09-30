@@ -888,6 +888,21 @@ export interface SessionStageEvent {
 }
 
 /**
+ * `session_relocation` — the card changed its project directory here. A
+ * directory change forks the conversation into a new session in the target
+ * directory, and tugcode's replay marks where: after the history carried from
+ * the old directory, before the first turn said in the new one. Display-only,
+ * like a replayed stage: the reducer asks for one divider and nothing moves.
+ */
+export interface SessionRelocationEvent {
+  type: "session_relocation";
+  /** The directory the card moved away from. */
+  fromDir: string;
+  /** The directory the card moved into. */
+  toDir: string;
+}
+
+/**
  * `compact_summary` — the compaction summary text, emitted right after
  * `compact_boundary` on both paths (live capture and JSONL replay). The
  * reducer folds it into `compactionSeed` so the carry-forward block restores;
@@ -1689,6 +1704,7 @@ export type CodeSessionEvent =
   | CompactBoundaryEvent
   | CompactSummaryEvent
   | SessionStageEvent
+  | SessionRelocationEvent
   | UnknownEventEvent
   | WireErrorEvent
   | SessionStateErroredEvent

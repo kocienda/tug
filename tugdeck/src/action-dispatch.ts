@@ -107,6 +107,11 @@ import {
 } from "./lib/session-restore";
 import { appInfoStore } from "./lib/app-info-store";
 import { logSessionLifecycle } from "./lib/session-lifecycle-log";
+import {
+  directoryChangeNotifier,
+  settleDirectoryChangeAck,
+  settleDirectoryChangeError,
+} from "./lib/directory-change";
 import { getAppLifecycle } from "./lib/app-lifecycle";
 import { keyboardAccessStore } from "./keyboard-access-store";
 import {
@@ -1455,6 +1460,12 @@ export function initActionDispatch(
           ? { id: ackArcId, name: ackArcName }
           : undefined,
     });
+    // A directory change's ack: the binding above is the move. tugcast has
+    // already closed the session the card moved away from.
+    const movedTo = settleDirectoryChangeAck(cardId, tugSessionId);
+    if (movedTo !== null) {
+      directoryChangeNotifier(cardId)?.success(`Moved to ${movedTo}`);
+    }
     // Seed the chip's name/tag caches straight off the bind ack so a bound
     // card shows its identity immediately — never stranded on the id-hash
     // waiting for a later frame. A mid-turn resume binds via this ack alone:
@@ -1840,6 +1851,17 @@ export function initActionDispatch(
       return;
     }
     const detail = payload.detail;
+    // A refused directory change leaves the card on its old session, still
+    // bound and still working — so it says why on the card and stops here,
+    // rather than dropping the card to the picker.
+    const refusedMove = settleDirectoryChangeError(
+      cardId,
+      typeof detail === "string" ? detail : "unknown",
+    );
+    if (refusedMove !== null) {
+      directoryChangeNotifier(cardId)?.danger(refusedMove);
+      return;
+    }
     sessionSpawnErrorStore.set(cardId, {
       reason: typeof detail === "string" ? detail : "unknown",
     });

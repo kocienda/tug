@@ -2895,6 +2895,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       name: string | null;
       title: string;
       citation: string;
+      projectDir: string;
     } {
       const binding = cardSessionBindingStore.getBinding(cardId);
       if (binding === undefined) {
@@ -2913,6 +2914,9 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         name: sessionNameStore.getName(lineId),
         title: sessionDisplayTitle(identity),
         citation: sessionCitation(identity),
+        // The directory the card's binding runs in — what a directory change
+        // moves.
+        projectDir: binding.projectDir,
       };
     },
 

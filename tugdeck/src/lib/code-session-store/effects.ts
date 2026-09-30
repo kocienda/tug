@@ -266,6 +266,18 @@ export interface AppendStageNoteEffect {
 }
 
 /**
+ * Seat a directory-change divider on the LAST committed turn — the
+ * counterpart of {@link AppendStageNoteEffect} for a `session_relocation`.
+ * The committed transcript lives in the store wrapper, so the reducer asks
+ * for the append. An empty transcript makes it a no-op.
+ */
+export interface AppendRelocationNoteEffect {
+  kind: "append-relocation-note";
+  fromDir: string;
+  toDir: string;
+}
+
+/**
  * Publish the latest live intra-turn token usage to the store's streaming
  * document (`telemetry.liveTurnUsage`) instead of reducer state. Usage
  * frames are pure display telemetry at high frequency; keeping them out of
@@ -320,6 +332,7 @@ export type Effect =
   | TruncateTranscriptEffect
   | AppendCompactNoteEffect
   | AppendStageNoteEffect
+  | AppendRelocationNoteEffect
   | ConfirmWrittenPathsEffect;
 
 export function isWriteInflight(e: Effect): e is WriteInflightEffect {

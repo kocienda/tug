@@ -22,6 +22,7 @@ import type {
   RequestReplay,
   ReplayWindow,
   ReplayLineageEntry,
+  ReplayRelocationOrigin,
   CancelReplay,
   RewindPreview,
   SessionRewind,
@@ -47,6 +48,7 @@ export type {
   RequestReplay,
   ReplayWindow,
   ReplayLineageEntry,
+  ReplayRelocationOrigin,
   CancelReplay,
   RewindPreview,
   SessionRewind,
@@ -532,9 +534,10 @@ export interface SessionSegment {
   newSessionId: string;
   /**
    * What made the id change. Only `new` births a line; every other kind
-   * joins the card's existing one.
+   * joins the card's existing one — including `relocate`, a directory
+   * change's fork, which joins the line the deck provisioned for it.
    */
-  kind: "rotation" | "rewind" | "fork" | "continue" | "respawn" | "new";
+  kind: "rotation" | "rewind" | "fork" | "continue" | "respawn" | "new" | "relocate";
   /** The rewound-to prompt uuid — the branch point. `rewind` only. */
   forkPoint?: string;
   /**
@@ -592,6 +595,22 @@ export interface ReplayStage {
   document: string;
   /** The name the arc is keyed by. */
   arc: string;
+  ipc_version: number;
+}
+
+/**
+ * A directory change *replayed* — the `Directory changed` divider. One per
+ * replay: after the parent's turns while the fork is unwritten, or before the
+ * first prompt the parent does not hold once it is. Like {@link ReplayStage},
+ * its own frame rather than a re-emitted `session_segment`, because the
+ * segment was recorded when the move happened and must not be recorded again.
+ */
+export interface ReplayRelocation {
+  type: "replay_relocation";
+  /** The directory the conversation came from. */
+  from_dir: string;
+  /** The directory it moved to — this session's own. */
+  to_dir: string;
   ipc_version: number;
 }
 
@@ -1663,6 +1682,7 @@ export type OutboundMessage =
   | SystemMetadata
   | SessionSegment
   | ReplayStage
+  | ReplayRelocation
   | SessionTitle
   | SessionCapabilities
   | CostUpdate

@@ -109,7 +109,7 @@ const TEST_TIMEOUT_MS = 180_000;
 const SPACE_ONE = "space-one";
 const SPACE_TWO = "space-two";
 
-/** Pixel tolerance for "landed on the same spot", as at0190 and at0578 use. */
+/** Pixel tolerance for "landed on the same spot", as at0578 uses. */
 const RESTORE_TOLERANCE_PX = 2;
 
 /** The stamp that makes step 5's assertion about one DOM node. */

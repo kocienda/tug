@@ -38,8 +38,8 @@ use tracing::{debug, error, warn};
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
 use super::agent_bridge::{
-    AuthProbe, ChildSpawner, CrashBudget, DEFAULT_RETRY_DELAY, SessionMode, TugcodeSpawner,
-    run_session_bridge,
+    AuthProbe, ChildSpawner, CrashBudget, DEFAULT_RETRY_DELAY, RelocateOrigin, SessionMode,
+    TugcodeSpawner, run_session_bridge,
 };
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
@@ -313,6 +313,12 @@ pub struct LedgerEntry {
     /// flip modes mid-life. `None` when tugdeck sent no mode — tugcode keeps
     /// its own default.
     pub permission_mode: Option<String>,
+    /// The conversation this session forks from when a card changed its
+    /// project directory ([P03], [P07]). Stamped on the fresh insert or while
+    /// `Idle`, and read by the bridge on every spawn so a respawn or relaunch
+    /// before the first turn re-forks. `None` for every session that did not
+    /// move.
+    pub relocate_from: Option<RelocateOrigin>,
     /// Provisional mnemonic tag tugdeck minted "from the drop" and sent on the
     /// first `spawn_session`. Set once on the fresh insert and preserved across
     /// reconnects (like `permission_mode`); the ledger's `record_spawn` claims
@@ -682,6 +688,7 @@ impl LedgerEntry {
             project_dir,
             session_mode,
             permission_mode: None,
+            relocate_from: None,
             tag: None,
             line_id: None,
             pending_segments: std::collections::VecDeque::new(),
@@ -1138,6 +1145,14 @@ pub trait SessionsRecorder: Send + Sync {
     /// the restore path takes a `&dyn SessionsRecorder`: a writer alone would
     /// leave the columns unreadable from the one place they exist to be read.
     fn stage_provenance(&self, session_id: &str) -> Option<(String, Option<String>)>;
+
+    /// The project directory a session's ledger row records, if the ledger
+    /// carries the row — what [`relocation_edge`] compares across a fork edge
+    /// to find a directory change ([P05]). The default answers `None`, so a
+    /// recorder with no rows finds no edge.
+    fn project_dir_of(&self, _session_id: &str) -> Option<String> {
+        None
+    }
 }
 
 /// Production implementation backed by a shared [`SessionLedger`].
@@ -1553,6 +1568,16 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         self.ledger.stage_provenance(session_id)
     }
 
+    fn project_dir_of(&self, session_id: &str) -> Option<String> {
+        match self.ledger.get(session_id) {
+            Ok(row) => row.map(|r| r.project_dir),
+            Err(err) => {
+                warn!(error = %err, session_id, "ledger get for the project dir failed");
+                None
+            }
+        }
+    }
+
     fn arc_name_for(&self, session_id: &str) -> Option<String> {
         match self.ledger.get(session_id) {
             Ok(row) => row.and_then(|r| r.arc_name),
@@ -1584,6 +1609,14 @@ fn replay_lineage(
     project_dir: &Path,
 ) -> Option<Vec<serde_json::Value>> {
     let chain = recorder.lineage_chain(claude_session_id);
+    // A directory change forks the conversation into another directory, and
+    // the fork's own JSONL already carries what it inherited ([P04]). So the
+    // lineage stops at the first cross-directory edge: only the same-directory
+    // ancestors below it are this card's to replay.
+    let chain = match directory_edge_index(recorder, &chain) {
+        Some(child) => chain[child..].to_vec(),
+        None => chain,
+    };
     if chain.len() < 2 {
         return None;
     }
@@ -1644,6 +1677,49 @@ fn replay_lineage(
         return None;
     }
     Some(entries)
+}
+
+/// The index of the child in the tip-most fork edge whose two rows record
+/// different project directories, if any.
+///
+/// Directories compare by canonical path, where one resolves, so a symlinked
+/// spelling of the same directory is not a move.
+fn directory_edge_index(recorder: &dyn SessionsRecorder, chain: &[String]) -> Option<usize> {
+    let canonical = |dir: String| {
+        std::fs::canonicalize(&dir)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or(dir)
+    };
+    let dirs: Vec<Option<String>> = chain
+        .iter()
+        .map(|id| recorder.project_dir_of(id).map(canonical))
+        .collect();
+    (1..chain.len())
+        .rev()
+        .find(|&child| match (&dirs[child - 1], &dirs[child]) {
+            (Some(parent), Some(child)) => parent != child,
+            _ => false,
+        })
+}
+
+/// The directory change a session's line of work passed through — its
+/// `(parent session, from dir, to dir)` — or `None` for a line that never
+/// left its directory ([P05]).
+///
+/// Walks the lineage from the tip parent-ward and answers the first fork
+/// edge whose two rows record different project directories. That edge is
+/// what a `request_replay` names as its `relocation`, so tugcode can draw the
+/// `Directory changed` divider on every replay after the first turn.
+fn relocation_edge(
+    recorder: &dyn SessionsRecorder,
+    session_id: &str,
+) -> Option<(String, String, String)> {
+    let chain = recorder.lineage_chain(session_id);
+    let child = directory_edge_index(recorder, &chain)?;
+    let parent = chain[child - 1].clone();
+    let from_dir = recorder.project_dir_of(&parent)?;
+    let to_dir = recorder.project_dir_of(&chain[child])?;
+    Some((parent, from_dir, to_dir))
 }
 
 /// Build the `session_updated` push payload for a row's current state.
@@ -2448,6 +2524,10 @@ struct OwnedControlPayload {
     /// resume it is the binding's, and absent it is read off the row being
     /// resumed.
     line_id: Option<String>,
+    /// The tug session a directory change moves the card away from ([P07]).
+    /// Sent with a `mode=new` spawn; tugcast resolves it to the parent's
+    /// claude id and directory. `None` on every other payload.
+    relocate_from: Option<String>,
 }
 
 fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, ControlError> {
@@ -2487,6 +2567,11 @@ fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, Co
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let relocate_from = value
+        .get("relocate_from")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     Ok(OwnedControlPayload {
         card_id,
         tug_session_id: TugSessionId::new(tug_session_id),
@@ -2495,6 +2580,7 @@ fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, Co
         permission_mode,
         tag,
         line_id,
+        relocate_from,
     })
 }
 
@@ -4531,6 +4617,7 @@ impl AgentSupervisor {
                     parsed.permission_mode,
                     parsed.tag,
                     parsed.line_id,
+                    parsed.relocate_from.map(TugSessionId::new),
                     client_id,
                 )
                 .await
@@ -5106,6 +5193,82 @@ impl AgentSupervisor {
         crate::external_sessions::stat_size_mtime(&jsonl).is_none()
     }
 
+    /// The origin a directory change forks from, resolved from the tug
+    /// session the card is moving away from ([P07]).
+    ///
+    /// The live entry is the authority for the claude id — a rotation or
+    /// rewind may have moved it off the tug id, and the deck's copy can lag.
+    /// `None` when there is no such entry, or when the parent has no JSONL on
+    /// disk: `--resume` on it would exit "No conversation found", and a card
+    /// that never held a conversation has no context to carry, so it simply
+    /// spawns fresh in the target directory.
+    ///
+    /// The one parent with no JSONL that still holds a conversation is a
+    /// session that itself moved and has not taken a turn since: its fork is
+    /// unwritten, so its whole context is still its own origin's. A second
+    /// move before that first turn forks from that origin instead.
+    async fn resolve_relocation(&self, relocate_from: &TugSessionId) -> Option<RelocateOrigin> {
+        let entry_arc = self.ledger.lock().await.get(relocate_from)?.clone();
+        let (parent_session_id, parent_project_dir, unwritten_origin) = {
+            let entry = entry_arc.lock().await;
+            (
+                entry
+                    .claude_session_id
+                    .clone()
+                    .unwrap_or_else(|| relocate_from.0.clone()),
+                entry.project_dir.to_str()?.to_owned(),
+                entry.relocate_from.clone(),
+            )
+        };
+        let root = self.session_ledger.as_ref()?.claude_projects_root();
+        let (dir, _canonical) =
+            crate::session_ledger::claude_project_dir(root, &parent_project_dir);
+        if crate::external_sessions::stat_size_mtime(&dir.join(format!("{parent_session_id}.jsonl")))
+            .is_none()
+        {
+            return unwritten_origin;
+        }
+        Some(RelocateOrigin {
+            parent_session_id,
+            parent_project_dir,
+        })
+    }
+
+    /// The origin of a directory change whose fork is still unwritten, read
+    /// back from the sessions ledger — how a relaunch, which has no spawn
+    /// payload naming the move, keeps forking ([P03]).
+    ///
+    /// Answers when this session's row was forked from a row in another
+    /// directory (the `relocate` edge, [P05]) and this session's own JSONL is
+    /// absent — the same file test `session_is_content_empty` makes. Once
+    /// claude writes the fork the session is an ordinary one, and this answers
+    /// `None`.
+    fn pending_relocation_from_ledger(
+        &self,
+        tug_session_id: &TugSessionId,
+        project_dir: &str,
+    ) -> Option<RelocateOrigin> {
+        let ledger = self.session_ledger.as_ref()?;
+        let chain = ledger.lineage_chain(&tug_session_id.0);
+        let parent = chain.len().checked_sub(2).map(|i| chain[i].clone())?;
+        let parent_row = ledger.get(&parent).ok().flatten()?;
+        let root = ledger.claude_projects_root();
+        let (own_dir, own_canonical) = crate::session_ledger::claude_project_dir(root, project_dir);
+        let (_, parent_canonical) =
+            crate::session_ledger::claude_project_dir(root, &parent_row.project_dir);
+        if own_canonical == parent_canonical {
+            return None;
+        }
+        let own_jsonl = own_dir.join(format!("{}.jsonl", tug_session_id.0));
+        if crate::external_sessions::stat_size_mtime(&own_jsonl).is_some() {
+            return None;
+        }
+        Some(RelocateOrigin {
+            parent_session_id: parent,
+            parent_project_dir: parent_row.project_dir,
+        })
+    }
+
     /// The bridge a spawn should attach to when the id the card asked for is
     /// not the one the supervisor keyed that bridge by ([B03]).
     ///
@@ -5191,6 +5354,7 @@ impl AgentSupervisor {
         permission_mode: Option<String>,
         tag: Option<String>,
         line_id: Option<String>,
+        relocate_from: Option<TugSessionId>,
         client_id: ClientId,
     ) -> Result<(), ControlError> {
         let project_dir = PathBuf::from(&project_dir_str);
@@ -5291,8 +5455,38 @@ impl AgentSupervisor {
         // `spawn_mode` is what the entry gets stamped with; `session_mode`
         // stays the mode the client asked for, so the ownership gates below
         // still read a resume request as a resume request.
+        //
+        // A directory change is answered first ([P03], [P07]). A `mode=new`
+        // spawn carrying `relocate_from` is the move itself; any spawn of a
+        // session whose `relocate` edge crosses directories and whose fork is
+        // still unwritten is a relaunch or reload of one. Either way it is a
+        // `New` spawn with the origin beside it — tugcode forks from the
+        // parent — and never a resume, because the id it would resume has no
+        // transcript yet. This is decided before the empty-session rule on
+        // purpose: the pending replay stamps the parent's turn count onto this
+        // session's row, so the row does not read empty.
+        let relocation = match (&relocate_from, session_mode) {
+            (Some(from), SessionMode::New) => match self.resolve_relocation(from).await {
+                Some(origin) => Some(origin),
+                None => self.pending_relocation_from_ledger(&tug_session_id, &project_dir_str),
+            },
+            _ => self.pending_relocation_from_ledger(&tug_session_id, &project_dir_str),
+        };
+        if let Some(origin) = relocation.as_ref() {
+            tracing::info!(
+                target: "dev::session-lifecycle",
+                event = "spawn.relocate",
+                card_id = card_id,
+                tug_session_id = %tug_session_id,
+                parent_session_id = %origin.parent_session_id,
+                from_dir = %origin.parent_project_dir,
+                to_dir = %project_dir_str,
+            );
+        }
         let content_empty = self.session_is_content_empty(&tug_session_id, &project_dir_str);
-        let spawn_mode = if content_empty && session_mode == SessionMode::Resume {
+        let spawn_mode = if relocation.is_some() {
+            SessionMode::New
+        } else if content_empty && session_mode == SessionMode::Resume {
             tracing::info!(
                 target: "dev::session-lifecycle",
                 event = "spawn.empty_session_spawned_fresh",
@@ -5436,7 +5630,11 @@ impl AgentSupervisor {
                 entry.session_mode = reconcile_idle_session_mode(
                     entry.session_mode,
                     spawn_mode,
-                    entry.claude_session_id.is_some() && !content_empty,
+                    // A pending relocation is by definition a session whose
+                    // own JSONL is absent, so there is no transcript for a
+                    // `New` spawn to collide with — and holding `Resume` would
+                    // run `--resume <id>` into "No conversation found".
+                    entry.claude_session_id.is_some() && !content_empty && relocation.is_none(),
                 );
             }
             // Stamp the resolved permission mode onto the entry the same way:
@@ -5451,6 +5649,9 @@ impl AgentSupervisor {
             // session is in rather than the one it was born in.
             if inserted || entry.spawn_state == SpawnState::Idle {
                 entry.permission_mode = permission_mode;
+                // The directory change's origin, stamped on the same path: the
+                // bridge reads it on every spawn while the fork is unwritten.
+                entry.relocate_from = relocation;
                 // The provisional tag is stamped on the same fresh/Idle path and
                 // preserved across reconnects; `record_spawn` claims it
                 // authoritatively when the bridge promotes the session.
@@ -5928,6 +6129,36 @@ impl AgentSupervisor {
             serde_json::to_vec(&ack).expect("spawn_session_ok serializes"),
         ));
 
+        // **The swap's second half ([P01]).** A directory change leaves the
+        // session it moved away from, and closes it here, after the new one is
+        // acknowledged and its origin resolved from the old entry — never
+        // before, so a refused target leaves the card on its old session, and
+        // never from the deck, whose `close_session` sweeps every bridge the
+        // card holds and would take the new session with it. Only a session
+        // this card holds is closed: the payload names it, and a name is not
+        // authority over another card's conversation. A session already gone
+        // (a reconnect re-sending the move) closes nothing.
+        if let Some(from) = relocate_from.filter(|from| *from != tug_session_id) {
+            let entry_arc = self.ledger.lock().await.get(&from).cloned();
+            let held_by = match entry_arc {
+                Some(entry_arc) => Some(entry_arc.lock().await.card_id.clone()),
+                None => None,
+            };
+            if let Some(held_by) = held_by {
+                if held_by.as_deref().is_none_or(|held| held == card_id) {
+                    self.close_card_session_keeping(card_id, &from, Some(&tug_session_id))
+                        .await;
+                } else {
+                    warn!(
+                        card_id,
+                        relocate_from = %from,
+                        held_by = %held_by.as_deref().unwrap_or(""),
+                        "spawn_session: relocate_from names another card's session; leaving it open"
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -6120,6 +6351,21 @@ impl AgentSupervisor {
     /// conversation somebody is sitting inside. Those are left alone; an
     /// entry holding no card yet is the card's own, pre-binding.
     async fn close_card_session(&self, card_id: &str, tug_session_id: &TugSessionId) {
+        self.close_card_session_keeping(card_id, tug_session_id, None)
+            .await;
+    }
+
+    /// [`Self::close_card_session`], sparing `keep` — the session the card
+    /// has just been moved onto. A directory change is the one close whose
+    /// card is not going away: it leaves the old line for a new one, and the
+    /// card-wide sweep would otherwise take the session it moved to along
+    /// with the one it left.
+    async fn close_card_session_keeping(
+        &self,
+        card_id: &str,
+        tug_session_id: &TugSessionId,
+        keep: Option<&TugSessionId>,
+    ) {
         // The snapshot. Every decision below reads it rather than the live
         // map, so a close landing halfway through cannot change who is swept.
         let entries: Vec<(TugSessionId, Option<String>, Option<String>)> = {
@@ -6155,7 +6401,7 @@ impl AgentSupervisor {
         // then every entry on the line no other card has taken over.
         let mut targets: Vec<TugSessionId> = vec![tug_session_id.clone()];
         for (id, held_by, entry_line) in &entries {
-            if id == tug_session_id || targets.contains(id) {
+            if id == tug_session_id || targets.contains(id) || Some(id) == keep {
                 continue;
             }
             let held_by_this_card = held_by.as_deref() == Some(card_id);
@@ -10453,7 +10699,7 @@ impl AgentSupervisor {
         // middle. Walk the fork edges parent-ward and hand tugcode the chain
         // ([P10]). `None` for every card that is not an arc — which is nearly
         // all of them, and their request stays byte-identical.
-        let lineage = {
+        let (lineage, relocation) = {
             let (claude_session_id, project_dir) = {
                 let entry = entry_arc.lock().await;
                 (entry.claude_session_id.clone(), entry.project_dir.clone())
@@ -10467,10 +10713,15 @@ impl AgentSupervisor {
             // for an un-forked session the two ids are equal, and a resume names
             // the segment it wants by its tug id. Ownership does not move — this
             // is a read, and `session_init` stays the one writer.
-            claude_session_id
-                .or_else(|| Some(tug_session_id.to_string()))
-                .as_deref()
-                .and_then(|id| replay_lineage(self.sessions_recorder.as_ref(), id, &project_dir))
+            let seed = claude_session_id.unwrap_or_else(|| tug_session_id.to_string());
+            let recorder = self.sessions_recorder.as_ref();
+            // A card that changed directory names the move, from the same
+            // seed, so every replay draws the divider — not only the first,
+            // which tugcode can answer from its own argv ([P04]).
+            (
+                replay_lineage(recorder, &seed, &project_dir),
+                relocation_edge(recorder, &seed),
+            )
         };
 
         // Remember what this request walked, so the `replay_complete` stamp
@@ -10498,9 +10749,9 @@ impl AgentSupervisor {
         // whether we forward immediately (Live) or queue (Spawning). The
         // optional recency `window` is forwarded verbatim — the supervisor
         // doesn't interpret it; tugcode validates the shape at its handler
-        // boundary. The no-window, no-lineage path stays byte-identical to
+        // boundary. The no-window, no-lineage, no-relocation path stays byte-identical to
         // the legacy full-replay request.
-        let body: Vec<u8> = if window.is_none() && lineage.is_none() {
+        let body: Vec<u8> = if window.is_none() && lineage.is_none() && relocation.is_none() {
             b"{\"type\":\"request_replay\"}".to_vec()
         } else {
             let mut payload = serde_json::Map::new();
@@ -10510,6 +10761,16 @@ impl AgentSupervisor {
             }
             if let Some(l) = &lineage {
                 payload.insert("lineage".into(), serde_json::json!(l));
+            }
+            if let Some((parent, from_dir, to_dir)) = &relocation {
+                payload.insert(
+                    "relocation".into(),
+                    serde_json::json!({
+                        "parentSessionId": parent,
+                        "fromDir": from_dir,
+                        "toDir": to_dir,
+                    }),
+                );
             }
             serde_json::to_vec(&serde_json::Value::Object(payload))
                 .expect("request_replay payload serializes")
@@ -13480,6 +13741,7 @@ pub(crate) fn test_minimal_supervisor_with_recorder_reading(
             _session_mode: SessionMode,
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
+            _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         ) -> super::agent_bridge::SpawnFuture {
             Box::pin(async {
                 std::future::pending::<std::io::Result<super::agent_bridge::SessionChild>>().await
@@ -15076,6 +15338,7 @@ mod tests {
             _session_mode: SessionMode,
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
+            _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         ) -> SpawnFuture {
             Box::pin(async { pending::<std::io::Result<SessionChild>>().await })
         }
@@ -18114,6 +18377,7 @@ mod tests {
             _session_mode: SessionMode,
             _resume_claude_session_id: Option<&str>,
             permission_mode: Option<&str>,
+            _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         ) -> SpawnFuture {
             let _ = self.modes.send(permission_mode.map(str::to_string));
             Box::pin(async { pending::<std::io::Result<SessionChild>>().await })
@@ -19658,6 +19922,7 @@ mod tests {
             std::path::Path::new("/workspace-B-from-per-call"),
             "sess-per-call",
             SessionMode::New,
+            None,
             None,
             None,
         );
@@ -24288,6 +24553,341 @@ mod tests {
         );
     }
 
+    // ---- directory change ([P01], [P03], [P07]) ----
+
+    /// A `mode=new` spawn that moves a card: the new session in `project_dir`,
+    /// on a fresh line, naming the tug session it moves away from.
+    fn relocate_payload(
+        card_id: &str,
+        tug_session_id: &str,
+        project_dir: &str,
+        relocate_from: &str,
+    ) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "action": "spawn_session",
+            "card_id": card_id,
+            "tug_session_id": tug_session_id,
+            "project_dir": project_dir,
+            "line_id": format!("line-{tug_session_id}"),
+            "relocate_from": relocate_from,
+        }))
+        .unwrap()
+    }
+
+    /// Write `<id>.jsonl` where claude would: under the claude-form folder of
+    /// `project_dir` in the ledger's claude root.
+    fn seed_transcript(ledger: &SessionLedger, project_dir: &str, id: &str) {
+        let (dir, _) =
+            crate::session_ledger::claude_project_dir(ledger.claude_projects_root(), project_dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{id}.jsonl")), "{}\n").unwrap();
+    }
+
+    fn ledger_in(tmp: &tempfile::TempDir) -> Arc<SessionLedger> {
+        Arc::new(
+            SessionLedger::open_with_claude_root(
+                tmp.path().join("sessions.db"),
+                tmp.path().join("projects"),
+            )
+            .unwrap(),
+        )
+    }
+
+    fn two_project_dirs(tmp: &tempfile::TempDir) -> (String, String) {
+        let a = tmp.path().join("dir-a");
+        let b = tmp.path().join("dir-b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        (a.display().to_string(), b.display().to_string())
+    }
+
+    async fn relocate_from_of(sup: &AgentSupervisor, id: &str) -> Option<RelocateOrigin> {
+        let live = sup.ledger.lock().await;
+        let entry = live
+            .get(&TugSessionId::new(id))
+            .expect("entry")
+            .lock()
+            .await;
+        entry.relocate_from.clone()
+    }
+
+    #[test]
+    fn parse_control_payload_owned_reads_relocate_from() {
+        let parsed =
+            parse_control_payload_owned(&relocate_payload("card-1", "m", "/proj/b", "p")).unwrap();
+        assert_eq!(parsed.relocate_from.as_deref(), Some("p"));
+
+        let empty =
+            parse_control_payload_owned(&relocate_payload("card-1", "m", "/proj/b", "")).unwrap();
+        assert_eq!(
+            empty.relocate_from, None,
+            "an empty relocate_from is absent"
+        );
+
+        let plain = parse_control_payload_owned(&spawn_payload("card-1", "m")).unwrap();
+        assert_eq!(plain.relocate_from, None);
+    }
+
+    /// `relocate_from` names the live session the card moves away from; the
+    /// entry is the authority for its claude id and directory, and a parent
+    /// with no transcript on disk carries nothing, so the move spawns plain.
+    #[tokio::test]
+    async fn spawn_session_relocate_from_resolves_the_live_parent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (sup, ledger, _rx) = make_supervisor_for_ledger(ledger_in(&tmp), None);
+        let (a, b) = two_project_dirs(&tmp);
+
+        for parent in ["p-full", "p-empty"] {
+            sup.handle_control("spawn_session", &spawn_payload_in("card-1", parent, &a), 10)
+                .await
+                .expect_handled();
+            let live = sup.ledger.lock().await;
+            live.get(&TugSessionId::new(parent))
+                .expect("parent entry")
+                .lock()
+                .await
+                .claude_session_id = Some(format!("{parent}-claude"));
+        }
+        seed_transcript(&ledger, &a, "p-full-claude");
+
+        sup.handle_control(
+            "spawn_session",
+            &relocate_payload("card-1", "m-full", &b, "p-full"),
+            10,
+        )
+        .await
+        .expect_handled();
+        sup.handle_control(
+            "spawn_session",
+            &relocate_payload("card-1", "m-empty", &b, "p-empty"),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        assert_eq!(
+            relocate_from_of(&sup, "m-full").await,
+            Some(RelocateOrigin {
+                parent_session_id: "p-full-claude".to_string(),
+                parent_project_dir: a.clone(),
+            }),
+            "the origin is the parent's claude id and its directory"
+        );
+        assert_eq!(
+            relocate_from_of(&sup, "m-empty").await,
+            None,
+            "a parent with no transcript has no context to carry"
+        );
+    }
+
+    /// Two moves before a turn: the first move's fork is unwritten, so the
+    /// session it made has no transcript of its own, and its whole context is
+    /// still the original parent's. The second move forks from that parent
+    /// rather than spawning empty.
+    #[tokio::test]
+    async fn a_second_move_before_a_turn_forks_from_the_first_moves_origin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (sup, ledger, _rx) = make_supervisor_for_ledger(ledger_in(&tmp), None);
+        let (a, b) = two_project_dirs(&tmp);
+        let c = tmp.path().join("dir-c");
+        std::fs::create_dir_all(&c).unwrap();
+        let c = c.display().to_string();
+
+        sup.handle_control("spawn_session", &spawn_payload_in("card-1", "p", &a), 10)
+            .await
+            .expect_handled();
+        seed_transcript(&ledger, &a, "p");
+        sup.handle_control(
+            "spawn_session",
+            &relocate_payload("card-1", "m1", &b, "p"),
+            10,
+        )
+        .await
+        .expect_handled();
+        sup.handle_control(
+            "spawn_session",
+            &relocate_payload("card-1", "m2", &c, "m1"),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        assert_eq!(
+            relocate_from_of(&sup, "m2").await,
+            Some(RelocateOrigin {
+                parent_session_id: "p".to_string(),
+                parent_project_dir: a.clone(),
+            }),
+            "the second move carries the conversation the first one carried"
+        );
+    }
+
+    /// The ledger's `relocate` edge answers a pending relocation only while
+    /// it crosses directories and the fork has not been written.
+    #[tokio::test]
+    async fn pending_relocation_from_ledger_needs_a_cross_directory_edge_and_no_fork() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (sup, ledger, _rx) = make_supervisor_for_ledger(ledger_in(&tmp), None);
+        let (a, b) = two_project_dirs(&tmp);
+
+        ledger
+            .record_spawn("parent", "ws-a", &a, "card-1", 1_000, "line-a", None)
+            .unwrap();
+        ledger
+            .record_spawn("moved", "ws-b", &b, "card-1", 2_000, "line-b", None)
+            .unwrap();
+        ledger.set_fork_provenance("moved", "parent", None).unwrap();
+        ledger
+            .record_spawn("sibling", "ws-a", &a, "card-2", 3_000, "line-c", None)
+            .unwrap();
+        ledger
+            .set_fork_provenance("sibling", "parent", None)
+            .unwrap();
+
+        assert_eq!(
+            sup.pending_relocation_from_ledger(&TugSessionId::new("moved"), &b),
+            Some(RelocateOrigin {
+                parent_session_id: "parent".to_string(),
+                parent_project_dir: a.clone(),
+            }),
+            "a fork in another directory with no transcript of its own is pending"
+        );
+        assert_eq!(
+            sup.pending_relocation_from_ledger(&TugSessionId::new("sibling"), &a),
+            None,
+            "a fork in the same directory is no move"
+        );
+        assert_eq!(
+            sup.pending_relocation_from_ledger(&TugSessionId::new("parent"), &a),
+            None,
+            "a root session has no edge"
+        );
+
+        seed_transcript(&ledger, &b, "moved");
+        assert_eq!(
+            sup.pending_relocation_from_ledger(&TugSessionId::new("moved"), &b),
+            None,
+            "once claude writes the fork the session is an ordinary one"
+        );
+    }
+
+    /// A relaunch before the moved session's first turn: the entry comes back
+    /// `Idle` from the ledger holding a claude id, the deck asks to resume it,
+    /// and the row's turn count — stamped from the pending replay of the
+    /// parent — makes it read non-empty. The spawn must still re-fork (`New`
+    /// with the origin), not `--resume` an id that has no transcript.
+    #[tokio::test]
+    async fn relaunch_of_a_pending_relocation_spawns_new_with_its_origin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (sup, ledger, _rx) = make_supervisor_for_ledger(ledger_in(&tmp), None);
+        let (a, b) = two_project_dirs(&tmp);
+
+        ledger
+            .record_spawn("parent", "ws-a", &a, "card-p", 1_000, "line-a", None)
+            .unwrap();
+        seed_transcript(&ledger, &a, "parent");
+        ledger
+            .record_spawn("moved", "ws-b", &b, "card-m", 2_000, "line-b", None)
+            .unwrap();
+        ledger.set_fork_provenance("moved", "parent", None).unwrap();
+        ledger.set_turn_count("moved", 2, 3_000).unwrap();
+
+        // What a relaunch leaves: an `Idle` `Resume` entry with its claude id.
+        let sid = TugSessionId::new("moved");
+        let mut entry = LedgerEntry::new(
+            sid.clone(),
+            WorkspaceKey::from_canonical(&b),
+            PathBuf::from(&b),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        entry.card_id = Some("card-m".to_string());
+        entry.claude_session_id = Some("moved".to_string());
+        sup.ledger
+            .lock()
+            .await
+            .insert(sid.clone(), Arc::new(Mutex::new(entry)));
+
+        sup.handle_control(
+            "spawn_session",
+            &resume_payload_in("card-m", "moved", &b),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        let (mode, origin) = {
+            let live = sup.ledger.lock().await;
+            let entry = live.get(&sid).expect("entry").lock().await;
+            (entry.session_mode, entry.relocate_from.clone())
+        };
+        assert_eq!(
+            mode,
+            SessionMode::New,
+            "a pending relocation re-forks rather than resuming"
+        );
+        assert_eq!(
+            origin,
+            Some(RelocateOrigin {
+                parent_session_id: "parent".to_string(),
+                parent_project_dir: a.clone(),
+            })
+        );
+    }
+
+    /// The swap ([P01], [B05]): the move closes the session it left — the
+    /// deck sends no `close_session`, whose card-wide sweep would take the new
+    /// session too — so the moved session holds the target's workspace and
+    /// the source's is released with its last card.
+    #[tokio::test]
+    async fn relocation_moves_the_workspace_refcount() {
+        use std::sync::atomic::Ordering;
+        let tmp = tempfile::tempdir().unwrap();
+        let (sup, ledger, _rx) = make_supervisor_for_ledger(ledger_in(&tmp), None);
+        let (a, b) = two_project_dirs(&tmp);
+
+        sup.handle_control("spawn_session", &spawn_payload_in("card-1", "old", &a), 10)
+            .await
+            .expect_handled();
+        seed_transcript(&ledger, &a, "old");
+        sup.handle_control(
+            "spawn_session",
+            &relocate_payload("card-1", "new", &b, "old"),
+            10,
+        )
+        .await
+        .expect_handled();
+        assert!(relocate_from_of(&sup, "new").await.is_some());
+
+        assert!(
+            !sup.ledger
+                .lock()
+                .await
+                .contains_key(&TugSessionId::new("old")),
+            "the session the card moved away from is closed"
+        );
+        let new_key = {
+            let live = sup.ledger.lock().await;
+            let entry = live
+                .get(&TugSessionId::new("new"))
+                .expect("entry")
+                .lock()
+                .await;
+            assert_eq!(entry.project_dir, PathBuf::from(&b));
+            entry.workspace_key.clone()
+        };
+        let map = sup.registry.inner_for_test();
+        assert_eq!(
+            map.len(),
+            1,
+            "the source workspace is released with its last card"
+        );
+        let ws = map
+            .get(&new_key)
+            .expect("the target workspace is the one left");
+        assert_eq!(ws.ref_count.load(Ordering::Relaxed), 1);
+    }
+
     /// A `resume` spawn for a session that holds nothing is spawned fresh
     /// under the same id — the card opens instead of failing into the
     /// picker's "couldn't resume the previous session" alert. A session with
@@ -26748,6 +27348,115 @@ mod tests {
         assert!(replay_lineage(&recorder, "solo", root).is_none());
     }
 
+    // ── the directory edge ([P04], [P05]) ────────────────────────────────────
+
+    /// A ledger holding `ids` spawned in the matching `dirs`, each forked from
+    /// the one before with no branch point — the `relocate` edge's shape.
+    fn seed_dir_chain(ids: &[&str], dirs: &[&str]) -> Arc<crate::session_ledger::SessionLedger> {
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        for (id, dir) in ids.iter().zip(dirs) {
+            ledger
+                .record_spawn(id, "ws", dir, "card-1", 0, id, None)
+                .expect("record_spawn");
+        }
+        for pair in ids.windows(2) {
+            ledger
+                .set_fork_provenance(pair[1], pair[0], None)
+                .expect("provenance");
+        }
+        ledger
+    }
+
+    #[test]
+    fn relocation_edge_names_the_first_cross_directory_fork_from_the_tip() {
+        let (a, b) = ("/nonexistent/relocation-A", "/nonexistent/relocation-B");
+        let ledger = seed_dir_chain(&["a", "b", "c"], &[a, b, b]);
+        let recorder = LedgerSessionsRecorder::new(ledger);
+        assert_eq!(
+            relocation_edge(&recorder, "c"),
+            Some(("a".to_string(), a.to_string(), b.to_string())),
+        );
+
+        let same = seed_dir_chain(&["x", "y", "z"], &[a, a, a]);
+        assert_eq!(
+            relocation_edge(&LedgerSessionsRecorder::new(same), "z"),
+            None
+        );
+    }
+
+    /// Stages that ran in `A`, then a move to `B`: the moved session's own
+    /// JSONL already carries what it inherited, so the lineage is cut at the
+    /// edge and `m` stands alone — no lineage to send.
+    #[test]
+    fn replay_lineage_stops_at_the_directory_edge() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let (a, b) = ("/nonexistent/relocation-A", "/nonexistent/relocation-B");
+        let ledger = seed_dir_chain(&["s1", "s2", "m"], &[a, a, b]);
+        for id in ["s1", "s2", "m"] {
+            ledger
+                .set_stage_provenance(id, "implement", Some("opus"))
+                .expect("stage provenance");
+        }
+        let recorder = LedgerSessionsRecorder::new(Arc::clone(&ledger));
+        assert!(replay_lineage(&recorder, "m", root).is_none());
+        // Without the move the same rows are a lineage of three.
+        let unmoved = seed_dir_chain(&["s1", "s2", "m"], &[a, a, a]);
+        for id in ["s1", "s2", "m"] {
+            unmoved
+                .set_stage_provenance(id, "implement", Some("opus"))
+                .expect("stage provenance");
+        }
+        let lineage =
+            replay_lineage(&LedgerSessionsRecorder::new(unmoved), "m", root).expect("a lineage");
+        assert_eq!(lineage.len(), 3);
+    }
+
+    /// A card that moved replays with the move named on the request, so
+    /// tugcode draws the divider on every replay, not only the first.
+    #[tokio::test]
+    async fn request_replay_names_the_relocation_of_a_moved_card() {
+        let dir_a = tempfile::tempdir().expect("tempdir");
+        let dir_b = tempfile::tempdir().expect("tempdir");
+        let a = dir_a.path().to_string_lossy().to_string();
+        let b = dir_b.path().to_string_lossy().to_string();
+        let (sup, _ledger, _rx) =
+            make_supervisor_for_ledger(seed_dir_chain(&["parent", "moved"], &[&a, &b]), None);
+
+        sup.handle_control(
+            "spawn_session",
+            &resume_payload_in("card-1", "moved", &b),
+            10,
+        )
+        .await
+        .expect_handled();
+        sup.handle_control("request_replay", &request_replay_payload("moved"), 10)
+            .await
+            .expect_handled();
+
+        let entry_arc = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("moved"))
+                .cloned()
+                .expect("the spawn inserted an entry")
+        };
+        let frame = entry_arc
+            .lock()
+            .await
+            .queue
+            .pop()
+            .expect("request_replay queued");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(body["type"], "request_replay");
+        assert_eq!(
+            body["relocation"],
+            serde_json::json!({ "parentSessionId": "parent", "fromDir": a, "toDir": b }),
+        );
+        assert!(body.get("lineage").is_none(), "the cut leaves no lineage");
+    }
+
     /// The line [F01] describes: a door that ran no stage, then implement,
     /// then audit, each forked from the last. Three segments, and only the
     /// door's row carries the arc binding — the stages are fresh spawns.
@@ -27868,6 +28577,7 @@ mod bridge_panic_tests {
             _session_mode: SessionMode,
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
+            _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         ) -> SpawnFuture {
             Box::pin(async {
                 let (bridge_stdin, child_stdin_read) = tokio::io::duplex(8192);
@@ -28172,6 +28882,7 @@ mod replay_bracket_close_tests {
             _session_mode: SessionMode,
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
+            _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         ) -> SpawnFuture {
             Box::pin(async {
                 let (bridge_stdin, child_stdin_read) = tokio::io::duplex(8192);
@@ -28264,6 +28975,7 @@ mod replay_bracket_close_tests {
             _session_mode: SessionMode,
             _resume_claude_session_id: Option<&str>,
             permission_mode: Option<&str>,
+            _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
         ) -> SpawnFuture {
             let _ = self.modes.send(permission_mode.map(str::to_string));
             let first = self

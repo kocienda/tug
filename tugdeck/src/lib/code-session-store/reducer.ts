@@ -41,6 +41,7 @@ import type {
   CompactBoundaryEvent,
   CompactSummaryEvent,
   SessionStageEvent,
+  SessionRelocationEvent,
   UnknownEventEvent,
   AssistantTextEvent,
   CancelQueuedSendActionEvent,
@@ -1052,6 +1053,7 @@ export const BRACKET_FRAME_TYPES: ReadonlySet<string> = new Set([
   "replay_batch",
   "replay_complete",
   "replay_stage",
+  "replay_relocation",
   // Turn openers the replay translator emits.
   "add_user_message",
   "assistant_opener",
@@ -4921,6 +4923,24 @@ function handleCompactBoundary(
 }
 
 /**
+ * `session_relocation` reducer handler — asks the wrapper for the
+ * directory-change divider and touches nothing else. It arrives only in a
+ * replay, between turns, so there is no open turn to seat it in: the note
+ * goes on the last committed turn, and no phase moves.
+ */
+function handleSessionRelocation(
+  state: CodeSessionState,
+  event: SessionRelocationEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  return {
+    state,
+    effects: [
+      { kind: "append-relocation-note", fromDir: event.fromDir, toDir: event.toDir },
+    ],
+  };
+}
+
+/**
  * `session_stage` reducer handler — appends the arc's stage divider
  * (`source: "stage"`) and touches nothing else. The rotation replaces the
  * card's claude session; the transcript deliberately survives it, so the
@@ -7751,6 +7771,8 @@ export function reduce(
       return handleCompactSummary(state, event);
     case "session_stage":
       return handleSessionStage(state, event);
+    case "session_relocation":
+      return handleSessionRelocation(state, event);
     case "unknown_event":
       return handleUnknownEvent(state, event);
     case "streaming_usage":

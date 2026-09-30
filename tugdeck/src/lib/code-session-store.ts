@@ -77,6 +77,7 @@ import {
   type CodeSessionState,
 } from "./code-session-store/reducer";
 import { logSessionLifecycle } from "./session-lifecycle-log";
+import { RELOCATION_BOUNDARY_EVENT } from "./code-session-store/stages";
 import { getDigestStore } from "./digest-store";
 import {
   networkPathStore,
@@ -361,6 +362,11 @@ export const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   // `session_segment` because a replayed rotation is only a divider — the
   // identity transfer it names already happened.
   "replay_stage",
+  // tugcode marks, in a replay, where the card changed its project
+  // directory: after the history it carried from the old directory and
+  // before the first turn said in the new one. Only a divider, like
+  // `replay_stage` — the move itself already happened.
+  "replay_relocation",
   // tugcode's forward-compat catch-all: claude streamed a top-level event
   // type this build doesn't translate. The reducer folds it into
   // `unknownEvent`, driving a soft warn banner; no phase change.
@@ -2273,6 +2279,14 @@ export class CodeSessionStore {
             : {}),
         } as unknown as CodeSessionEvent;
       }
+      if (ev.type === "replay_relocation") {
+        // Where a directory change sits in the replayed history.
+        return {
+          type: "session_relocation",
+          fromDir: typeof ev.from_dir === "string" ? ev.from_dir : "",
+          toDir: typeof ev.to_dir === "string" ? ev.to_dir : "",
+        } as unknown as CodeSessionEvent;
+      }
       if (ev.type === "compact_summary") {
         // The compaction summary string — folded into `compactionSeed` so
         // the carry-forward block restores (live and on reload).
@@ -2932,6 +2946,31 @@ export class CodeSessionStore {
               text: effect.text,
               source: "stage",
               stageFacts: effect.stageFacts,
+            };
+            const nextTranscript = [...this._transcript];
+            nextTranscript[lastIndex] = {
+              ...turn,
+              messages: [...turn.messages, note],
+            };
+            this._transcript = nextTranscript;
+          }
+          break;
+        }
+        case "append-relocation-note": {
+          // A directory change, seated like a stage divider: on the last
+          // committed turn, copy-on-write. Every replayed frame before it has
+          // committed, so it reads after the history the card carried and
+          // before the first turn in the new directory. Empty ⇒ no-op.
+          if (this._transcript.length > 0) {
+            const lastIndex = this._transcript.length - 1;
+            const turn = this._transcript[lastIndex];
+            const note: SystemNote = {
+              kind: "system_note",
+              messageKey: systemNoteKey(turn.turnKey, turn.messages.length),
+              createdAt: Date.now(),
+              text: RELOCATION_BOUNDARY_EVENT,
+              source: "relocation",
+              relocation: { fromDir: effect.fromDir, toDir: effect.toDir },
             };
             const nextTranscript = [...this._transcript];
             nextTranscript[lastIndex] = {

@@ -84,7 +84,7 @@ const TEST_TIMEOUT_MS = 180_000;
 const HOME_SPACE = "space-home";
 const AWAY_SPACE = "space-away";
 
-/** Pixel tolerance for "landed on the same spot", as at0190 and at0578 use. */
+/** Pixel tolerance for "landed on the same spot", as at0578 uses. */
 const RESTORE_TOLERANCE_PX = 2;
 
 /**

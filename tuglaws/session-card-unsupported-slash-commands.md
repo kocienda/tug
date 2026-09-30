@@ -88,9 +88,10 @@ Tug.app host, not the session card.
 ### Device / cross-app / teleport
 `/ide`, `/desktop` (alias `/app`), `/mobile` (aliases `/ios`, `/android`),
 `/remote-control` (alias `/rc`), `/remote-env`, `/background` (alias `/bg`),
-`/stop`, `/teleport` (alias `/tp`), `/cd` — cross-app, device, terminal-freeing,
-background-session, and working-directory commands that aren't the session card's
-concern.
+`/stop`, `/teleport` (alias `/tp`) — cross-app, device, terminal-freeing, and
+background-session commands that aren't the session card's concern. (`/cd` is
+the card's own: it moves the card into another directory, carrying the
+conversation.)
 
 ### Diagnostics / info / process control
 `/doctor`, `/release-notes`, `/heapdump`, `/version`, `/quit`, `/exit` — install

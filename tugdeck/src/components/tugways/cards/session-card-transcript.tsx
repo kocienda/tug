@@ -89,6 +89,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Cog,
+  FolderInput,
   Search,
   X,
 } from "lucide-react";
@@ -192,6 +193,7 @@ import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { SessionCompactionEntry } from "@/components/tugways/cards/session-compaction-entry";
 import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
 import {
+  RELOCATION_BOUNDARY_EVENT,
   STAGE_BOUNDARY_EVENT,
   stageBoundaryParts,
   type StageBoundaryFacts,
@@ -399,6 +401,41 @@ function StageDivider({
           : { kind: "text", text: parts.badge }
       }
       copyText={text}
+      inTurn={inTurn}
+    />
+  );
+}
+
+/**
+ * The directory-change boundary: the card moved into another project
+ * directory here, carrying the conversation. Above it the session ran in
+ * `fromDir`, below it in `toDir`. Seated like a stage divider — in a turn's
+ * body when one was open, below the footer of the turn it closes otherwise.
+ */
+function RelocationDivider({
+  relocation,
+  inTurn,
+}: {
+  relocation?: { fromDir: string; toDir: string };
+  inTurn?: boolean;
+}): React.ReactElement {
+  const detail =
+    relocation === undefined ? "" : `${relocation.fromDir} → ${relocation.toDir}`;
+  return (
+    <SessionBoundary
+      kind="relocation"
+      glyph={<FolderInput size={16} aria-hidden="true" />}
+      event={RELOCATION_BOUNDARY_EVENT}
+      detail={
+        detail === "" ? undefined : (
+          <span className="session-boundary-detail">
+            <code>{detail}</code>
+          </span>
+        )
+      }
+      copyText={
+        detail === "" ? RELOCATION_BOUNDARY_EVENT : `${RELOCATION_BOUNDARY_EVENT} · ${detail}`
+      }
       inTurn={inTurn}
     />
   );
@@ -1447,6 +1484,18 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         );
         continue;
       }
+      if (message.source === "relocation") {
+        // A directory change seated inside an open turn; one that closes a
+        // turn is hoisted by `AssistantTurnCell`, like a stage note.
+        elements.push(
+          <RelocationDivider
+            key={message.messageKey}
+            relocation={message.relocation}
+            inTurn
+          />,
+        );
+        continue;
+      }
       // Other system_note sources (`other`) have no renderer yet —
       // skip silently rather than crashing.
       continue;
@@ -1703,17 +1752,19 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   //
   // A note that is NOT last stays in the body: the rotation caught a turn
   // open, and the boundary really is inside that turn's content.
-  const closingStageNote = useMemo(() => {
+  // A directory-change note is the same kind of boundary and hoists the same
+  // way.
+  const closingBoundaryNote = useMemo(() => {
     const last = messages[messages.length - 1];
     return last !== undefined &&
       last.kind === "system_note" &&
-      last.source === "stage"
+      (last.source === "stage" || last.source === "relocation")
       ? last
       : null;
   }, [messages]);
   const bodyMessages = useMemo(
-    () => (closingStageNote === null ? messages : messages.slice(0, -1)),
-    [messages, closingStageNote],
+    () => (closingBoundaryNote === null ? messages : messages.slice(0, -1)),
+    [messages, closingBoundaryNote],
   );
   // The bracket's last assistant run is the per-turn end-state / badge /
   // live-indicator anchor ([P02]): committed end-state chrome (Z1B), the
@@ -2017,12 +2068,14 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
         </div>
         {/* Below the footer, so the boundary reads between the turns rather
             than inside the one it closes. */}
-        {closingStageNote !== null ? (
+        {closingBoundaryNote === null ? null : closingBoundaryNote.source === "relocation" ? (
+          <RelocationDivider relocation={closingBoundaryNote.relocation} />
+        ) : (
           <StageDivider
-            text={closingStageNote.text}
-            facts={closingStageNote.stageFacts}
+            text={closingBoundaryNote.text}
+            facts={closingBoundaryNote.stageFacts}
           />
-        ) : null}
+        )}
       </div>
       {menu}
       </AnnotationScope>

@@ -648,6 +648,11 @@ export type SpawnSessionMode = "new" | "resume";
  * exact id — which is what lets the callsign and the name minted alongside it
  * survive every later id change. A resume sends the line the binding already
  * names. The supervisor requires it for `mode=new`.
+ *
+ * `relocateFrom` names the card's current tug session when this spawn is a
+ * directory change: tugcast forks that session's conversation into
+ * `projectDir` and closes it once the new one is acknowledged. Omitted for
+ * every other spawn.
  */
 export function encodeSpawnSession(
   cardId: string,
@@ -657,6 +662,7 @@ export function encodeSpawnSession(
   permissionMode?: string,
   tag?: string,
   lineId?: string,
+  relocateFrom?: string,
 ): Frame {
   const payload: Record<string, string> = {
     card_id: cardId,
@@ -672,6 +678,9 @@ export function encodeSpawnSession(
   }
   if (lineId !== undefined) {
     payload.line_id = lineId;
+  }
+  if (relocateFrom !== undefined) {
+    payload.relocate_from = relocateFrom;
   }
   return controlFrame(CONTROL_ACTION_SPAWN_SESSION, payload);
 }

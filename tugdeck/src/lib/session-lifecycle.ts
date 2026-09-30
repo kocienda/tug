@@ -156,6 +156,7 @@ export function sendSpawnSession(
   sessionMode: SpawnSessionMode = "new",
   tag?: string,
   lineId?: string,
+  relocateFrom?: string,
 ): void {
   const permissionMode = resolveSpawnPermissionMode(cardId);
   const frame = encodeSpawnSession(
@@ -166,6 +167,7 @@ export function sendSpawnSession(
     permissionMode,
     tag,
     lineId,
+    relocateFrom,
   );
   logSessionLifecycle("spawn.frame_send", {
     card_id: cardId,
@@ -175,6 +177,7 @@ export function sendSpawnSession(
     permission_mode: permissionMode ?? "",
     tag: tag ?? "",
     line_id: lineId ?? "",
+    relocate_from: relocateFrom ?? "",
   });
   connection.send(frame.feedId, frame.payload);
 }

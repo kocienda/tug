@@ -259,6 +259,24 @@ describe("session CONTROL frame builders", () => {
     expect(payload.tag).toBe("azure-heron");
   });
 
+  test("encodeSpawnSession writes relocate_from only when a directory change names one", () => {
+    const plain = parsePayload(encodeSpawnSession("card-1", "sess-2", "/work/b"));
+    expect("relocate_from" in plain).toBe(false);
+    const moved = parsePayload(
+      encodeSpawnSession(
+        "card-1",
+        "sess-2",
+        "/work/b",
+        "new",
+        undefined,
+        "azure-heron",
+        "line-2",
+        "sess-1",
+      ),
+    );
+    expect(moved.relocate_from).toBe("sess-1");
+  });
+
   test("encodeSpawnSession omits tag when not provided", () => {
     const frame = encodeSpawnSession("card-1", "sess-1", "/work/alpha");
     const payload = parsePayload(frame);

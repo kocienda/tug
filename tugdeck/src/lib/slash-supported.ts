@@ -163,7 +163,6 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "stop", // stops a background session — none exist over the bridge.
   "teleport",
   "tp", // alias of /teleport.
-  "cd", // moves the session's working dir — a host/terminal concern.
 
   // Diagnostics / info / process control.
   "doctor",

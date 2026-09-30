@@ -54,6 +54,15 @@ describe("matchLocalSlashCommand", () => {
     expect(matchLocalSlashCommand("/permissions foo")).toBeNull();
   });
 
+  test("/cd and /change-directory are one command under two names, taking a path", () => {
+    expect(matchLocalSlashCommand("/cd /tmp/x")).toEqual({ name: "cd", args: "/tmp/x" });
+    expect(matchLocalSlashCommand("/change-directory /tmp/x")).toEqual({
+      name: "change-directory",
+      args: "/tmp/x",
+    });
+    expect(matchLocalSlashCommand("/cd")).toEqual({ name: "cd", args: "" });
+  });
+
   test("/resume takes a callsign, and still matches bare", () => {
     // Both forms are one command: bare opens the picker, an argument names the
     // session ([P12]). Without `takesArgs` the argument form would not match at

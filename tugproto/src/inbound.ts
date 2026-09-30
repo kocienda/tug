@@ -284,6 +284,18 @@ export interface ReplayLineageEntry {
   arc?: string;
 }
 
+/**
+ * Where a relocated session came from: the claude session it forked from and
+ * the directory that session lives in (`fromDir`), and the directory it moved
+ * to (`toDir`).
+ */
+export interface ReplayRelocationOrigin {
+  /** Claude's own id for the parent — the JSONL the fork carried. */
+  parentSessionId: string;
+  fromDir: string;
+  toDir: string;
+}
+
 /** Ask tugcode to replay the session JSONL ([D12]). */
 export interface RequestReplay {
   type: "request_replay";
@@ -308,6 +320,14 @@ export interface RequestReplay {
    * ignores the lineage there and emits the tip's older turns alone.
    */
   lineage?: ReplayLineageEntry[];
+  /**
+   * The directory change this session came from, if any — the parent it
+   * forked from and the two directories. tugcast derives it from the ledger's
+   * cross-directory fork edge, so tugcode can draw the `Directory changed`
+   * divider on a replay after the fork has been written. Absent ⇒ no move to
+   * mark, byte-identical to the behavior before directory changes existed.
+   */
+  relocation?: ReplayRelocationOrigin;
 }
 
 /**

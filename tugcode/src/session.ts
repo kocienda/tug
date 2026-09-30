@@ -55,6 +55,8 @@ import type {
   RewindResult,
   ReplayWindow,
   ReplayLineageEntry,
+  ReplayRelocationOrigin,
+  ReplayRelocation,
   SideQuestion,
   SideQuestionAnswer,
   InterruptNoop,
@@ -63,7 +65,7 @@ import type {
 } from "./types.ts";
 import { join, dirname, resolve } from "node:path";
 import { realpath, readdir } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { Database } from "bun:sqlite";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
@@ -808,6 +810,58 @@ function countNewlines(s: string): number {
   return n;
 }
 
+/**
+ * Every entry `uuid` in a JSONL — a relocation's parent, whose lines the fork
+ * carried with their uuids intact. Unparseable lines are skipped.
+ */
+function collectJsonlUuids(jsonl: string): Set<string> {
+  const uuids = new Set<string>();
+  for (const line of jsonl.split("\n")) {
+    if (line.trim().length === 0) continue;
+    try {
+      const entry = JSON.parse(line) as { uuid?: unknown };
+      if (typeof entry.uuid === "string" && entry.uuid.length > 0) uuids.add(entry.uuid);
+    } catch {
+      // A torn or foreign line carries no uuid worth knowing.
+    }
+  }
+  return uuids;
+}
+
+/**
+ * The uuid of the first user prompt a relocated session's own JSONL holds that
+ * its parent does not — the first thing said after the move. A prompt is a
+ * non-meta `user` entry carrying text or an image rather than only tool
+ * results. `null` when every prompt was carried.
+ */
+function firstUncarriedPromptUuid(jsonl: string, carried: Set<string>): string | null {
+  for (const line of jsonl.split("\n")) {
+    if (line.trim().length === 0) continue;
+    let entry: {
+      type?: unknown;
+      uuid?: unknown;
+      isMeta?: unknown;
+      message?: { content?: unknown };
+    };
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry.type !== "user" || entry.isMeta === true) continue;
+    if (typeof entry.uuid !== "string" || carried.has(entry.uuid)) continue;
+    const content = entry.message?.content;
+    const isPrompt =
+      typeof content === "string" ||
+      (Array.isArray(content) &&
+        content.some(
+          (block: { type?: unknown }) => block?.type === "text" || block?.type === "image",
+        ));
+    if (isPrompt) return entry.uuid;
+  }
+  return null;
+}
+
 function logReplay(event: string, fields: Record<string, unknown>): void {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(fields)) {
@@ -1051,7 +1105,15 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
     !!config.continue,
     !!config.sessionIdOverride,
   ].filter(Boolean).length;
-  if (sessionFlagCount > 1) {
+  // The one allowed pair is a fork that claims its id: `--resume <parent>
+  // --fork-session --session-id <new>` — how a directory change forks the
+  // conversation into the target directory under the deck-minted id.
+  const forkClaimsId =
+    !!config.sessionId &&
+    !!config.forkSession &&
+    !!config.sessionIdOverride &&
+    !config.continue;
+  if (sessionFlagCount > 1 && !forkClaimsId) {
     throw new Error("Only one of sessionId, continue, or sessionIdOverride may be set");
   }
 
@@ -3622,6 +3684,14 @@ export class SessionManager {
   private subagentTailers = new Map<string, SubagentTailer>();
   /** Configurable JSONL archive root; defaults to ~/.claude/projects. */
   private claudeProjectsRoot: string;
+  /**
+   * The conversation a directory change forks from — the parent's claude id
+   * and the directory its transcript lives under. Set from `--relocate-from`
+   * / `--relocate-from-dir`; `null` for every session that did not move.
+   * While the fork's own JSONL is absent ({@link relocationForkPending}),
+   * every spawn is the fork, because nothing else carries the context.
+   */
+  private relocation: { parentClaudeId: string; parentProjectDir: string } | null;
   /** Configurable JSONL reader; default uses `Bun.file`. */
   private jsonlReader: (path: string) => Promise<JsonlReadResult>;
   /** Configurable JSONL writer ([#step-7-2]); default uses `Bun.write`. */
@@ -3873,6 +3943,12 @@ export class SessionManager {
        * undefined → the manager keeps its `"default"` baseline.
        */
       initialPermissionMode?: PermissionMode;
+      /**
+       * The conversation this session forks from when a card changes its
+       * project directory — forwarded by tugcast as `--relocate-from` /
+       * `--relocate-from-dir` ([main.ts]). Omit for every other session.
+       */
+      relocation?: { parentClaudeId: string; parentProjectDir: string };
     },
   ) {
     if (!sessionId) {
@@ -3894,6 +3970,7 @@ export class SessionManager {
         : null;
     this.claudeProjectsRoot =
       options?.claudeProjectsRoot ?? DEFAULT_CLAUDE_PROJECTS_ROOT;
+    this.relocation = options?.relocation ?? null;
     this.jsonlReader = options?.jsonlReader ?? defaultJsonlReader;
     this.jsonlWriter = options?.jsonlWriter ?? defaultJsonlWriter;
     this.replayTimeoutMs = options?.replayTimeoutMs ?? REPLAY_HARD_TIMEOUT_MS;
@@ -3998,6 +4075,57 @@ export class SessionManager {
     };
   }
 
+  /**
+   * True while a directory change's fork has not been written yet: this
+   * session relocated from another directory, and claude has not created
+   * `<id>.jsonl` under this session's (canonical) project directory. Claude
+   * writes the fork only when the first user message arrives, so until then
+   * the carried context exists only in the parent's transcript.
+   *
+   * Synchronous because {@link spawnClaude} is — hence `realpathSync`, with
+   * the raw path as the fallback for a directory that does not resolve.
+   */
+  private relocationForkPending(): boolean {
+    if (this.relocation === null) return false;
+    let canonicalProjectDir = this.projectDir;
+    try {
+      canonicalProjectDir = realpathSync(this.projectDir);
+    } catch {
+      // Unresolvable (test fixture, deleted dir) — keep the raw path.
+    }
+    return !existsSync(
+      jsonlPathFor(this.claudeProjectsRoot, canonicalProjectDir, this.sessionId),
+    );
+  }
+
+  /**
+   * The session flags of a claude spawn — which conversation it opens.
+   *
+   * While a relocation fork is pending the answer is the fork whatever `mode`
+   * asked for: `--session-id <new>` would start empty and `--resume <new>`
+   * would exit "No conversation found", so `--resume <parent> --fork-session
+   * --session-id <new>` is the only spawn that carries the context. Deciding
+   * it here, in the one method every spawn reads, is what makes the initial
+   * spawn and every live-setting respawn take it without each caller knowing.
+   * A separate method because tests replace `spawnClaude` wholesale.
+   */
+  private claudeSessionFlags(
+    id: string | null,
+    mode: "session-id" | "resume",
+  ): Pick<ClaudeSpawnConfig, "sessionId" | "forkSession" | "sessionIdOverride"> {
+    if (this.relocation !== null && this.relocationForkPending()) {
+      return {
+        sessionId: this.relocation.parentClaudeId,
+        forkSession: true,
+        sessionIdOverride: this.sessionId,
+      };
+    }
+    return {
+      sessionId: mode === "resume" ? id : null,
+      sessionIdOverride: mode === "session-id" && id !== null ? id : undefined,
+    };
+  }
+
   private spawnClaude(
     id: string | null,
     mode: "session-id" | "resume",
@@ -4017,14 +4145,13 @@ export class SessionManager {
 
     const args = buildClaudeArgs({
       ...this.liveSpawnConfig(),
-      sessionId: mode === "resume" ? id : null,
-      sessionIdOverride: mode === "session-id" && id !== null ? id : undefined,
+      ...this.claudeSessionFlags(id, mode),
     });
 
     console.log(`Spawning claude with args: ${args.join(" ")}`);
     logSessionLifecycle("tugcode.claude_spawn", {
       session_id: this.sessionId,
-      mode,
+      mode: this.relocationForkPending() ? "relocate-fork" : mode,
       cwd: this.projectDir,
       args: args.join(" "),
     });
@@ -4976,6 +5103,20 @@ export class SessionManager {
       // matches the pre-R0d code; the only refactor here is the
       // helper extraction.
       await this.spawnClaudeAndWatch();
+      // A directory change's fork announces its parentage before the init,
+      // the order `applyConversationRewind` uses, so tugcast queues the
+      // `relocate` edge and records it when the matching init arrives. Once
+      // the fork's JSONL exists this is an ordinary new-mode respawn and
+      // announces nothing.
+      if (this.relocation !== null && this.relocationForkPending()) {
+        writeLine({
+          type: "session_segment",
+          kind: "relocate",
+          parentSessionId: this.relocation.parentClaudeId,
+          newSessionId: this.sessionId,
+          ipc_version: 2,
+        });
+      }
       this.writeSyntheticSessionInit(this.resolveClaudeId());
       // Emit the `context_breakdown` immediately — claude stays silent
       // (no `system:init`) until the first input, so the static
@@ -5330,6 +5471,7 @@ export class SessionManager {
   async runReplay(
     window?: ReplayWindow,
     lineage?: ReplayLineageEntry[],
+    relocation?: ReplayRelocationOrigin,
   ): Promise<void> {
     // Pre-Step-5 the early-return `if (this.sessionMode !== "resume") return;`
     // gated runReplay by the original spawn mode. That assumption (mode=new
@@ -5424,7 +5566,64 @@ export class SessionManager {
     });
 
     const startedAt = Date.now();
-    const rawInput = await this.jsonlReader(jsonlPath);
+    let rawInput = await this.jsonlReader(jsonlPath);
+
+    // A directory change ([P03], [P04]). The move is known from tugcast's
+    // request (derived from the ledger's cross-directory fork edge) or, on the
+    // session that did the moving, from its own argv. While the fork is
+    // unwritten — its own JSONL missing, the same file fact
+    // `relocationForkPending` reads — the carried context lives only in the
+    // parent's transcript, so that is what replays, followed by the divider.
+    // Once the fork is written, its own JSONL already holds the carried lines
+    // with their uuids intact, and the divider goes before the first prompt the
+    // parent does not hold. An unreadable parent draws no divider at all.
+    const reloc: ReplayRelocationOrigin | undefined =
+      relocation ??
+      (this.relocation !== null
+        ? {
+            parentSessionId: this.relocation.parentClaudeId,
+            fromDir: this.relocation.parentProjectDir,
+            toDir: this.projectDir,
+          }
+        : undefined);
+    let relocationDivider: ReplayRelocation | null = null;
+    let carriedUuids: Set<string> | null = null;
+    let firstUncarriedPrompt: string | null = null;
+    let transcriptDir = canonicalProjectDir;
+    let transcriptSessionId = claudeSessionId;
+    if (reloc !== undefined && rawInput.kind !== "unreadable") {
+      let parentDir = reloc.fromDir;
+      try {
+        parentDir = await realpath(reloc.fromDir);
+      } catch {
+        // Unresolvable — keep the raw path; the reader reports missing.
+      }
+      const parentRead = await this.jsonlReader(
+        jsonlPathFor(this.claudeProjectsRoot, parentDir, reloc.parentSessionId),
+      );
+      if (parentRead.kind === "ok") {
+        relocationDivider = {
+          type: "replay_relocation",
+          from_dir: reloc.fromDir,
+          to_dir: reloc.toDir,
+          ipc_version: 2,
+        };
+        if (rawInput.kind === "missing") {
+          rawInput = parentRead;
+          transcriptDir = parentDir;
+          transcriptSessionId = reloc.parentSessionId;
+        } else {
+          carriedUuids = collectJsonlUuids(parentRead.jsonl);
+          firstUncarriedPrompt = firstUncarriedPromptUuid(rawInput.jsonl, carriedUuids);
+        }
+      }
+      logReplay("relocation", {
+        session_id: this.sessionId,
+        parent_session_id: reloc.parentSessionId,
+        parent_read: parentRead.kind,
+        fork_pending: transcriptSessionId !== claudeSessionId,
+      });
+    }
     logSessionLifecycle("perf.replay_read", {
       tug_session_id: this.sessionId,
       ms: Date.now() - startedAt,
@@ -5433,8 +5632,10 @@ export class SessionManager {
     });
     // Thread the claude session id into the replay input so the
     // synthesized `system_metadata` IPC at the top of replay carries
-    // the right session_id field. Only the `ok` variant carries
-    // payload; missing/unreadable variants pass through unchanged.
+    // the right session_id field — this session's own id even when a
+    // pending relocation reads the parent's transcript, because the card is
+    // bound to this session. Only the `ok` variant carries payload;
+    // missing/unreadable variants pass through unchanged.
     let input: ReplayInput = rawInput.kind === "ok"
       ? { ...rawInput, claudeSessionId }
       : rawInput;
@@ -5448,8 +5649,8 @@ export class SessionManager {
     if (input.kind === "ok") {
       const subagentsDir = subagentsDirFor(
         this.claudeProjectsRoot,
-        canonicalProjectDir,
-        claudeSessionId,
+        transcriptDir,
+        transcriptSessionId,
       );
       const subagents = await readSubagentTranscripts(subagentsDir);
       if (subagents.length > 0) {
@@ -5624,6 +5825,10 @@ export class SessionManager {
     // `replay_started` it forwards and skips it on every subsequent
     // event.
     let pendingRowSyntheticsInjected = false;
+    // Whether this pass has forwarded a prompt the relocation's parent holds —
+    // the evidence that the move's boundary, if this pass reaches it, falls
+    // inside it rather than above its first turn.
+    let carriedPromptSeen = false;
 
     const translateStartedAt = Date.now();
     const iter = translateJsonlSession(input, {
@@ -5733,6 +5938,24 @@ export class SessionManager {
           // Committed-turn content: buffer and flush in batches. The
           // per-batch yield lets the write tail drain and keeps the
           // abort/timeout race responsive.
+          if (
+            carriedUuids !== null &&
+            msg.type === "add_user_message" &&
+            typeof msg.promptUuid === "string"
+          ) {
+            if (carriedUuids.has(msg.promptUuid)) {
+              carriedPromptSeen = true;
+            } else if (relocationDivider !== null) {
+              // The first uncarried prompt in this pass. It is the move's
+              // boundary when a carried prompt came before it, or when it is
+              // the first thing said after the move; otherwise the boundary
+              // lies above this page, which draws no divider.
+              if (carriedPromptSeen || msg.promptUuid === firstUncarriedPrompt) {
+                batch.push(relocationDivider);
+              }
+              relocationDivider = null;
+            }
+          }
           batch.push(msg);
           if (batch.length >= REPLAY_BATCH_SIZE) {
             flushBatch();
@@ -5742,6 +5965,14 @@ export class SessionManager {
           aborted = winner;
           break;
         }
+      }
+
+      // A divider still unplaced trails the content: after the parent's turns
+      // while the fork is unwritten, or after every turn when all of them were
+      // carried. Only on the pass that builds the transcript — the end of a
+      // backward page is not the end of the transcript.
+      if (aborted === null && relocationDivider !== null && !backwardPage) {
+        batch.push(relocationDivider);
       }
 
       // Flush any committed-turn content still in the buffer before the

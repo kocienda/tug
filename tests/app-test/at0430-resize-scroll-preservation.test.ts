@@ -108,9 +108,8 @@ const FRAME = '.tug-pane[data-pane-id="p1"]';
  *
  * The anchor resolves through measured row heights that the width change has
  * just invalidated and re-measured, so the arithmetic runs on sub-pixel box
- * heights rounded at two different widths. `at0190` allows the same 2px for the
- * same reason on the cold-boot path. The failure this guards against is not a
- * pixel — it is tens or hundreds of them.
+ * heights rounded at two different widths. The failure this guards against is
+ * not a pixel — it is tens or hundreds of them.
  */
 const ANCHOR_TOLERANCE_PX = 2;
 

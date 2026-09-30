@@ -241,6 +241,14 @@ import {
   transcriptToMarkdown,
 } from "@/lib/transcript-export";
 import { isPathPickerAvailable, pickPath } from "@/lib/native-path-picker";
+import {
+  beginDirectoryChange,
+  directoryChangeRefusal,
+  firstPathAtomValue,
+  registerDirectoryChangeNotifier,
+  resolveDirectoryTarget,
+} from "@/lib/directory-change";
+import { hostFactsStore } from "@/lib/host-facts-store";
 import { TugProgressIndicator } from "../tug-progress-indicator";
 import {
   sessionRestoreRegistry,
@@ -3434,6 +3442,18 @@ export function SessionCardBody({
     return false;
   };
 
+  // A `/cd` settles on its spawn ack, in action dispatch, which speaks
+  // through this card's pane bulletin by way of the notifier registered here
+  // ([L03]: the ack can land before any later effect would have run).
+  useLayoutEffect(
+    () =>
+      registerDirectoryChangeNotifier(cardId, {
+        success: (message) => paneBulletinRef.current?.success(message),
+        danger: (message) => paneBulletinRef.current?.danger(message),
+      }),
+    [cardId],
+  );
+
   // The Claude Code version the sheet footer reports: the live one once the
   // session has reported it, else the last version any session saw ([L02]).
   const lastKnownCcVersion = useTugbankValue<string | null>(
@@ -3535,6 +3555,61 @@ export function SessionCardBody({
       needles: parsed.needles,
       flags: parsed.flags,
       command: `/${kind} ${args.trim()}`,
+    });
+  };
+
+  // `/cd` and `/change-directory` share this body ([B03]). The move is a swap
+  // onto a new session forked into the target; see `lib/directory-change.ts`.
+  const changeDirectory = (args: string, draft?: SlashCommandDraft): void => {
+    const notify = paneBulletinRef.current;
+    const invoked = cardSessionBindingStore.getBinding(cardId);
+    if (invoked === undefined || getConnection() === null) return;
+    if (!guardTurnIdleForSetting("the directory")) return;
+    // The arc refusal needs no target, so a bare `/cd` says it before the
+    // picker opens rather than after the user has chosen.
+    const early = directoryChangeRefusal({
+      arcName: invoked.arc?.name ?? null,
+      currentDir: invoked.projectDir,
+      targetDir: null,
+    });
+    if (early !== null) {
+      notify?.caution(early);
+      return;
+    }
+    const move = (targetDir: string) => {
+      // Read again at the moment of the move: the picker is asynchronous, and
+      // a turn or a rebind can land while it is open ([L07]).
+      const binding = cardSessionBindingStore.getBinding(cardId);
+      const connection = getConnection();
+      if (binding === undefined || connection === null) return;
+      if (!guardTurnIdleForSetting("the directory")) return;
+      const refusal = directoryChangeRefusal({
+        arcName: binding.arc?.name ?? null,
+        currentDir: binding.projectDir,
+        targetDir,
+      });
+      if (refusal !== null) {
+        notify?.caution(refusal);
+        return;
+      }
+      beginDirectoryChange({ cardId, binding, targetDir, connection });
+    };
+    const target = resolveDirectoryTarget({
+      atomPath: firstPathAtomValue(draft?.atoms ?? []),
+      argText: args,
+      projectDir: invoked.projectDir,
+      home: hostFactsStore.getSnapshot()?.home ?? null,
+    });
+    if (target !== null) {
+      move(target);
+      return;
+    }
+    if (!isPathPickerAvailable()) {
+      notify?.caution("Directory picker needs the Tug app");
+      return;
+    }
+    void pickPath("directory").then((dir) => {
+      if (dir !== null) move(dir);
     });
   };
 
@@ -3821,6 +3896,13 @@ export function SessionCardBody({
         notify?.success("Working directory added");
       });
     },
+    // `/cd` and `/change-directory` — move this card into another directory,
+    // carrying the conversation. Refused mid-turn, on an arc-bound card, and
+    // for the directory the card is already in; the target is the draft's
+    // first path atom, else the argument, else the picker. Reads live
+    // ([L07]).
+    cd: (args, draft) => changeDirectory(args, draft),
+    "change-directory": (args, draft) => changeDirectory(args, draft),
     // `/rename <text>` names the session directly; bare `/rename` opens the
     // one-field dialog seeded with the current name ([#step-13d]). The
     // pane-bulletin confirmation belongs to the rename surface, which raises it

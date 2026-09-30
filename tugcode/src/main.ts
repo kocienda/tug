@@ -89,6 +89,13 @@ let resumeSessionId: string | undefined;
 // `permission_mode` frame racing the first turn. Validated against the known
 // modes below; an unknown / absent value leaves the manager at its baseline.
 let permissionMode: PermissionMode | undefined;
+// `--relocate-from <claude id>` and `--relocate-from-dir <dir>` name the
+// conversation a directory change forks from: tugcast passes both when a card
+// moved into this session's directory, and SessionManager forks
+// `--resume <id> --fork-session --session-id <sessionId>` until the fork's
+// JSONL exists. Honored only as a pair, and only in new mode.
+let relocateFrom: string | undefined;
+let relocateFromDir: string | undefined;
 // `--stub-transcript=<path>` (or `--stub-transcript <path>`) routes
 // the IPC loop through the deterministic replay engine in
 // `stub-replay.ts` instead of spawning claude. Test-only;
@@ -189,6 +196,12 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === "--resume-session" && i + 1 < args.length) {
     resumeSessionId = args[i + 1];
     i++;
+  } else if (args[i] === "--relocate-from" && i + 1 < args.length) {
+    relocateFrom = args[i + 1];
+    i++;
+  } else if (args[i] === "--relocate-from-dir" && i + 1 < args.length) {
+    relocateFromDir = args[i + 1];
+    i++;
   } else if (args[i] === "--permission-mode" && i + 1 < args.length) {
     const raw = args[i + 1];
     // Ignore an unknown value (future / corrupt client) rather than seed the
@@ -218,8 +231,19 @@ try {
   // Unresolvable (deleted dir, test fixture) — keep the raw path.
 }
 
+let relocation: { parentClaudeId: string; parentProjectDir: string } | undefined;
+if (relocateFrom !== undefined || relocateFromDir !== undefined) {
+  if (relocateFrom && relocateFromDir && sessionMode === "new") {
+    relocation = { parentClaudeId: relocateFrom, parentProjectDir: relocateFromDir };
+  } else {
+    console.warn(
+      `Ignoring relocation flags (relocateFrom: ${relocateFrom ?? "absent"}, relocateFromDir: ${relocateFromDir ?? "absent"}, sessionMode: ${sessionMode}): both are required, in new mode`,
+    );
+  }
+}
+
 console.log(
-  `Starting tugcode (projectDir: ${projectDir}, sessionId: ${sessionId}, sessionMode: ${sessionMode}${resumeSessionId ? `, resumeSessionId: ${resumeSessionId}` : ""}${permissionMode ? `, permissionMode: ${permissionMode}` : ""}${stubTranscriptPath ? `, stubTranscript: ${stubTranscriptPath}` : ""})`,
+  `Starting tugcode (projectDir: ${projectDir}, sessionId: ${sessionId}, sessionMode: ${sessionMode}${resumeSessionId ? `, resumeSessionId: ${resumeSessionId}` : ""}${relocation ? `, relocateFrom: ${relocation.parentClaudeId} in ${relocation.parentProjectDir}` : ""}${permissionMode ? `, permissionMode: ${permissionMode}` : ""}${stubTranscriptPath ? `, stubTranscript: ${stubTranscriptPath}` : ""})`,
 );
 
 // Session manager (initialized after protocol handshake). Only
@@ -418,7 +442,7 @@ async function main() {
         sessionId,
         sessionMode,
         resumeSessionId,
-        { contextBreakdownEmitter, initialPermissionMode: permissionMode },
+        { contextBreakdownEmitter, initialPermissionMode: permissionMode, relocation },
       );
 
       // Send protocol_ack first (with placeholder session_id)

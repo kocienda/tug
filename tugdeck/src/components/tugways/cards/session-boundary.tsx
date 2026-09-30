@@ -2,11 +2,12 @@
  * `SessionBoundary` — the one row the transcript draws whenever the ground
  * moves under it.
  *
- * Three events change what is UNDERNEATH the conversation rather than saying
+ * Four events change what is UNDERNEATH the conversation rather than saying
  * something in it: a compaction swaps the model's context, an arc's stage
  * rotation swaps the claude session (and usually the model), a join swaps the
- * base the card sits on. Above such a row the transcript ran in one world and
- * below it in another. That is a boundary, and all three wear this shape.
+ * base the card sits on, and a directory change moves the card into another
+ * project directory. Above such a row the transcript ran in one world and
+ * below it in another. That is a boundary, and all of them wear this shape.
  *
  * What is NOT a boundary: an arc-note ("Step 2/5 closed") or a Tug notice —
  * events that happened ON the ground, which keep their quiet-line seat and the
@@ -58,12 +59,12 @@ import { cn } from "@/lib/utils";
 import "./session-boundary.css";
 
 /** Which ground moved. Rides `data-boundary` for tests and per-kind CSS. */
-export type SessionBoundaryKind = "compaction" | "stage" | "join";
+export type SessionBoundaryKind = "compaction" | "stage" | "join" | "relocation";
 
 export interface SessionBoundaryProps {
-  /** Which of the three boundaries this is. */
+  /** Which boundary this is. */
   kind: SessionBoundaryKind;
-  /** The leading glyph — `Layers`, `Milestone`, `GitMerge`. */
+  /** The leading glyph — `Layers`, `Milestone`, `GitMerge`, `FolderInput`. */
   glyph: React.ReactNode;
   /**
    * The bold event at the head of the run — "Session compacted",

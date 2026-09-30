@@ -200,7 +200,7 @@ export interface AssistantThinking extends MessageBase {
 export interface SystemNote extends MessageBase {
   kind: "system_note";
   text: string;
-  source: "scheduled" | "compact" | "notice" | "stage" | "arc" | "other";
+  source: "scheduled" | "compact" | "notice" | "stage" | "arc" | "relocation" | "other";
   /**
    * On a `notice`, which subsystem spoke (e.g. `"base-motion"`) — the row's
    * attribution label. Tug started this turn, and the row says so rather than
@@ -216,6 +216,11 @@ export interface SystemNote extends MessageBase {
    * event, which reads the bare `Stage` floor.
    */
   stageFacts?: StageBoundaryFacts;
+  /**
+   * On a `relocation`, the two directories the card moved between — the
+   * boundary's detail reads `fromDir → toDir`.
+   */
+  relocation?: { fromDir: string; toDir: string };
   /**
    * On an `arc`, the gesture's synthetic record-rendered command (`arc step
    * <name> done`) — the marker the row's bold verb and its glyph are read

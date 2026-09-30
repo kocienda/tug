@@ -30,6 +30,12 @@
 export const STAGE_BOUNDARY_EVENT = "Stage";
 
 /**
+ * The event a directory-change boundary reads. Painted and projected, like
+ * {@link STAGE_BOUNDARY_EVENT}, so it has the same one home.
+ */
+export const RELOCATION_BOUNDARY_EVENT = "Directory changed";
+
+/**
  * What the `session_stage` event knew, carried through to the render site.
  *
  * The note's `text` is a display string and stays one — it is the row's copy

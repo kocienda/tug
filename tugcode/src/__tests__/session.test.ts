@@ -260,6 +260,32 @@ describe("buildClaudeArgs", () => {
     ).toThrow("Only one of sessionId, continue, or sessionIdOverride may be set");
   });
 
+  test("a fork that claims its id carries each session flag exactly once", () => {
+    const args = buildClaudeArgs({
+      ...defaultConfig,
+      sessionId: "parent-id",
+      forkSession: true,
+      sessionIdOverride: "new-id",
+    });
+    expect(args.filter((a) => a === "--resume")).toHaveLength(1);
+    expect(args.filter((a) => a === "--fork-session")).toHaveLength(1);
+    expect(args.filter((a) => a === "--session-id")).toHaveLength(1);
+    expect(args[args.indexOf("--resume") + 1]).toBe("parent-id");
+    expect(args[args.indexOf("--session-id") + 1]).toBe("new-id");
+  });
+
+  test("sessionId and sessionIdOverride without forkSession still throw", () => {
+    expect(() =>
+      buildClaudeArgs({ ...defaultConfig, sessionId: "a", forkSession: false, sessionIdOverride: "b" })
+    ).toThrow("Only one of sessionId, continue, or sessionIdOverride may be set");
+  });
+
+  test("continue and sessionIdOverride with forkSession still throw", () => {
+    expect(() =>
+      buildClaudeArgs({ ...defaultConfig, continue: true, forkSession: true, sessionIdOverride: "b" })
+    ).toThrow("Only one of sessionId, continue, or sessionIdOverride may be set");
+  });
+
   test("throws if forkSession without sessionId or continue", () => {
     expect(() =>
       buildClaudeArgs({ ...defaultConfig, forkSession: true })
