@@ -268,18 +268,17 @@ function useTurnNumberBase(codeSessionStore: CodeSessionStore): number {
   );
 }
 
-/**
- * Strip the `>` Code route prefix from a user-row body for display.
- * Shell (`$`) and command (`:`) prefixes pass through unchanged — only
- * `>` is suppressed because the row's icon and identifier already
- * convey "this is a user prompt to the assistant", and the `>` glyph
- * adds visual noise without information.
- */
-function stripUserBodyPrefix(text: string): string {
-  if (text.startsWith("> ")) return text.slice(2);
-  if (text.startsWith(">")) return text.slice(1);
-  return text;
-}
+// A user-row body is rendered verbatim. There was once a `>` Code route
+// prefix — the composer convention where `>` meant "route this line to the
+// assistant", alongside `$` for shell and `:` for command — and this row
+// stripped it for display. Nothing writes that prefix any more, and the
+// strip's only surviving effect was to eat the `>` off a Markdown
+// blockquote, which is the one construct that legitimately opens a
+// submission with that glyph: Paste as Quote (`quoteMarkdown` in
+// `paste-transforms.ts`) prefixes every line `> `, and the first of them
+// came back as plain prose. A multi-line quote fared worse — `> a\n> b`
+// stripped to `a\n> b`, which CommonMark splits into a paragraph followed
+// by a blockquote. So: no strip. Anything the user quotes, the row quotes.
 
 // ---------------------------------------------------------------------------
 // Cell renderer components
@@ -461,21 +460,18 @@ const UserMessageCell = React.memo(function UserMessageCell({
   // the user's own words the wheel's name.
   const wheel = userMessage?.origin === "wheel";
   const rawText = userMessage?.text ?? "";
-  const strippedTextWithContext = stripUserBodyPrefix(rawText);
   // Split any leading `<tug-context>` sentinel blocks (staged shell / `/btw`
   // context that rode this submission) off the prose. The blocks render as
   // attributed sub-rows above the body; the remaining prose keeps its
   // atom↔U+FFFC alignment because a context block carries no atom char, so the
   // N atoms still pair with the N object-replacement chars in `rest`. Runs on
   // the live echo and a JSONL restore alike — the sentinel is in both.
-  const { blocks: contextBlocks, rest: strippedText } = splitLeadingContext(
-    strippedTextWithContext,
-  );
+  const { blocks: contextBlocks, rest: strippedText } =
+    splitLeadingContext(rawText);
   // Parallel atoms array — N atoms in `attachments` pair with the
-  // N `U+FFFC` characters in `text`. `stripUserBodyPrefix` only
-  // strips the `>` route prefix; it never touches a `U+FFFC`, so
-  // index alignment between `strippedText` and `attachments` is
-  // preserved.
+  // N `U+FFFC` characters in `text`. `splitLeadingContext` only lifts
+  // off sentinel blocks, which carry no atom char, so index alignment
+  // between `strippedText` and `attachments` is preserved.
   const rawAtoms = userMessage?.attachments ?? [];
 
   // Atoms in the substrate render as chips verbatim — every U+FFFC
@@ -665,9 +661,7 @@ const GhostRowCell = React.memo(function GhostRowCell({
   // atom's bare `image-N` label. Hooks run unconditionally above the
   // defensive `queued === undefined` guard so the hook order is stable.
   const rawText = queued?.text ?? "";
-  const { blocks: contextBlocks, rest: text } = splitLeadingContext(
-    stripUserBodyPrefix(rawText),
-  );
+  const { blocks: contextBlocks, rest: text } = splitLeadingContext(rawText);
   const atoms = queued?.atoms ?? EMPTY_ATOMS;
   const turnKey = queued?.turnKey ?? "";
   const imageAtoms = React.useMemo(

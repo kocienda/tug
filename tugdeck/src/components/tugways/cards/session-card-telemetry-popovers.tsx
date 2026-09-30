@@ -173,10 +173,11 @@ export type ScrollToRowHandler = (rowIndex: number) => void;
 const REQUEST_PREVIEW_MAX_CHARS = 96;
 
 /**
- * One-line, end-truncated preview of a turn's user prompt. Drops the
- * `>` Code-route prefix (matching the transcript's user row) and
- * collapses internal whitespace so a multi-line prompt reads as one
- * tidy line.
+ * One-line, end-truncated preview of a turn's user prompt. Collapses
+ * internal whitespace so a multi-line prompt reads as one tidy line.
+ * The text is otherwise verbatim — a leading `>` is the user's own
+ * blockquote (Paste as Quote), not a route prefix, and the transcript's
+ * user row no longer strips one either.
  */
 function requestPreviewText(turn: TurnEntry): string {
   // Pull the user submission's text from the `user_message` Message
@@ -185,10 +186,7 @@ function requestPreviewText(turn: TurnEntry): string {
   // they return an empty preview.
   const head = turn.messages[0];
   const raw = head !== undefined && head.kind === "user_message" ? head.text : "";
-  let text = raw.trim();
-  if (text.startsWith("> ")) text = text.slice(2);
-  else if (text.startsWith(">")) text = text.slice(1);
-  text = text.replace(/\s+/g, " ").trim();
+  const text = raw.trim().replace(/\s+/g, " ").trim();
   if (text.length <= REQUEST_PREVIEW_MAX_CHARS) return text;
   return `${text.slice(0, REQUEST_PREVIEW_MAX_CHARS - 1)}…`;
 }

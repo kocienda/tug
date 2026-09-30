@@ -167,17 +167,6 @@ function markdownToText(
 }
 
 /**
- * Strip the `>` Code route prefix from a user body the way the user row's
- * renderer does (`stripUserBodyPrefix` in `session-card-transcript.tsx`) — the
- * projection must match the DISPLAYED text, not the wire text.
- */
-function stripUserBodyPrefix(text: string): string {
-  if (text.startsWith("> ")) return text.slice(2);
-  if (text.startsWith(">")) return text.slice(1);
-  return text;
-}
-
-/**
  * A blank terminal line, as the DOM holds it. `buildLineElement` renders an
  * empty line as `&nbsp;` so it keeps its line box instead of collapsing, and
  * that non-breaking space is a real text node the painter's walk reaches — so
@@ -433,14 +422,16 @@ function messageSegments(
   }
 }
 
-/** Project a user body (markdown-rendered, prefix-stripped, chips removed). */
+/** Project a user body (markdown-rendered, chips removed). */
 function userBodyParts(
   text: string,
   turnKey: string,
   messageKey: string,
   streamingStore: PropertyStore,
 ): string[] {
-  const displayed = stripUserBodyPrefix(text);
+  // The renderer paints the body verbatim, so the projection reads the wire
+  // text verbatim too — the two must agree or a hit's offsets miss.
+  const displayed = text;
   if (displayed === "") return [];
   // Index-owned cache identity — the user body renders via
   // `TugAtomMarkdownBody` → `TugMarkdownBlock` static mode, which does not
