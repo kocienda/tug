@@ -213,6 +213,7 @@ describe("what a session must know rides the system prompt, from the bundle alon
       "# The work grammar",
       "# Editing project files",
       "# Writing prose the Session card renders",
+      "# What a tool call reports",
       "# AskUserQuestion — shape and affordances",
     ].map((heading) => value.indexOf(heading));
     expect(at[0]).toBeGreaterThan(0);

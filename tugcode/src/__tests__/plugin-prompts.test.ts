@@ -29,6 +29,7 @@ describe("readPluginPrompts", () => {
       {
         "ask-user-question.md": "# AskUserQuestion\n",
         "transcript-prose.md": "\n# Writing prose\n",
+        "tool-calls.md": "# What a tool call reports\n",
         "file-editing.md": "\n# Editing project files\n",
         "work-grammar.md": "\n# The work grammar\n\nfour words\n",
         "session-references.md": "# Session references\n",
@@ -38,6 +39,7 @@ describe("readPluginPrompts", () => {
           "# The work grammar\n\nfour words",
           "# Editing project files",
           "# Writing prose",
+          "# What a tool call reports",
           "# AskUserQuestion",
           "# Session references",
         ]);
