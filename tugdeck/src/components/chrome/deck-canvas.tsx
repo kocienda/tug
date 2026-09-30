@@ -197,6 +197,7 @@ import {
   SPACE_SHOWN_ATTRIBUTE,
   SPACE_SWITCHING_ATTRIBUTE,
   SpaceLayerShownContext,
+  type SpaceLayerShownSource,
 } from "./space-layer";
 import {
   stillHiddenLayerLoops,
@@ -2303,6 +2304,25 @@ const LayerPanes = memo(function LayerPanes({
     if (!deckTrace.isKindEnabled("layer-render")) return;
     deckTrace.record({ kind: "layer-render", spaceId, shown });
   });
+  // Whether THIS layer is the shown one, as of the last commit, for the
+  // handlers below to ask at call time. Every pane takes the same handlers
+  // whether its layer is shown or not, and the hidden ones are made inert
+  // HERE rather than by withholding them: a handler handed over on show and
+  // taken back on hide is a prop that changes on every pane of both layers at
+  // every switch, and the swap commit re-rendered all of them — every frame,
+  // every title bar — to hand over four functions a hidden pane cannot reach
+  // anyway ([B02]: no pointer, no focus).
+  const shownRef = useRef(shown);
+  useLayoutEffect(() => {
+    shownRef.current = shown;
+  }, [shown]);
+  const onRevealPaneRef = useRef(onRevealPane);
+  useLayoutEffect(() => {
+    onRevealPaneRef.current = onRevealPane;
+  }, [onRevealPane]);
+  const revealIfShown = useCallback((entry: SlotStackEntry) => {
+    if (shownRef.current) onRevealPaneRef.current?.(entry);
+  }, []);
   // One callback set per stack, made once and kept for the store's life.
   // `TugPane` is memoized on its props, and a closure minted per render is a
   // prop that never compares equal — so with these inline, every pane
@@ -2320,6 +2340,7 @@ const LayerPanes = memo(function LayerPanes({
     if (entry === undefined) {
       entry = {
         onClose: () => {
+          if (!shownRef.current) return;
           store.handlePaneClosed(stackId);
         },
         // The pane's ACTIVE card is what moves — the one the title bar is
@@ -2333,6 +2354,7 @@ const LayerPanes = memo(function LayerPanes({
           store.moveCardToSpace(stack.activeCardId, spaceId);
         },
         onCardMerged: (sourceStackId, targetStackId, insertIndex) => {
+          if (!shownRef.current) return;
           // Resolve the active card id from the source stack at commit time.
           const snapshot = store.getSnapshot();
           const sourceStack = snapshot.panes.find(
@@ -2450,7 +2472,7 @@ const LayerPanes = memo(function LayerPanes({
             // the deck state: the selector exists for readers holding a state
             // and an id, and this one is already holding the pane.
             folded={stackState.folded === true}
-            onRevealPane={shown ? onRevealPane : undefined}
+            onRevealPane={revealIfShown}
             // Given to EVERY layer, shown or not, because the title bar
             // renders its move control on the handler's presence and a
             // bar that gains a control on show is a bar that changes
@@ -2461,9 +2483,9 @@ const LayerPanes = memo(function LayerPanes({
             sidebarStack={arr.stackByPaneId.get(stackState.id)}
             isSidebarPane={arr.sidebarPaneIds.has(stackState.id)}
             onCardMoved={store.handlePaneMoved}
-            onClose={shown ? callbacks.onClose : undefined}
-            dropZones={shown ? dropZones : undefined}
-            onCardMerged={shown ? callbacks.onCardMerged : undefined}
+            onClose={callbacks.onClose}
+            dropZones={dropZones}
+            onCardMerged={callbacks.onCardMerged}
             activeCardId={stackState.activeCardId}
             cards={hasMultipleCards ? stackCards : undefined}
             cardTitle={hasMultipleCards ? stackState.title : undefined}
@@ -2553,6 +2575,27 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     store.subscribeSpaces,
     store.getSpacesSnapshot,
   );
+  // One shown-ness source per workspace, made once and kept for the store's
+  // life, so the context value under a layer never changes and a switch
+  // re-renders only the readers that subscribed to the transition — see
+  // `SpaceLayerShownContext`. The answer is the same fact the layer list
+  // below is built on: a layer is shown when it is the active workspace.
+  const layerShownSources = useMemo(
+    () => new Map<string, SpaceLayerShownSource>(),
+    [store],
+  );
+  const layerShownSourceFor = (spaceId: string): SpaceLayerShownSource => {
+    let source = layerShownSources.get(spaceId);
+    if (source === undefined) {
+      source = {
+        spaceId,
+        get: () => store.getSpacesSnapshot().activeSpaceId === spaceId,
+        subscribe: store.subscribeSpaces,
+      };
+      layerShownSources.set(spaceId, source);
+    }
+    return source;
+  };
   // The mounted workspaces, in the list's order, each with the deck its
   // wrapper renders ([B06], (#canvas-shape)). The ACTIVE one's deck is the
   // live `deckState` — it is the deck every selector, effect and law in this
@@ -7817,7 +7860,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
 
           A hidden workspace's panes take no interaction: no drop zones, no
           close, no reveal, no move menu. They are mounted so their cards stay
-          alive, and nothing more. */}
+          alive, and nothing more. They are HANDED the same handlers as the
+          shown layer's, and `LayerPanes` makes each inert at call time while
+          its layer is hidden — withholding them changed a prop on every pane
+          at every switch. */}
       {spaceLayers.map((layer) => {
         // Each layer is arranged from its OWN deck ([B02]): the shown one
         // from the live `deckState`, a hidden one from its parked record. A
@@ -7838,7 +7884,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                 whether the workspace it is mounted in is on screen. Read by
                 anything that acts on a BROADCAST rather than on the responder
                 chain — see the context's own doc. */}
-            <SpaceLayerShownContext.Provider value={layer.shown}>
+            <SpaceLayerShownContext.Provider value={layerShownSourceFor(layer.spaceId)}>
             {/* The layer's panes and card hosts, behind the memo boundary
                 that keeps a parked workspace out of the switch's render. */}
             <LayerPanes
@@ -7847,8 +7893,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               deck={layer.deck}
               arr={arr}
               store={store}
-              onRevealPane={layer.shown ? handleRevealPane : undefined}
-              dropZones={layer.shown ? dropZoneHost : undefined}
+              onRevealPane={handleRevealPane}
+              dropZones={dropZoneHost}
             />
             </SpaceLayerShownContext.Provider>
           </SpaceLayerWrapper>

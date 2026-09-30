@@ -62,6 +62,9 @@
  */
 
 import { expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import type { SettleFrameReading } from "./_harness/client";
@@ -74,6 +77,31 @@ import {
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 300_000;
+
+/**
+ * An empty directory for every picker on the fixture's deck to list — made
+ * once per process, removed at exit.
+ *
+ * The fixture's cards are unbound Session cards, so each shows its picker, and
+ * a debug build seeds the picker's path with the repository's own source tree.
+ * That tree is where this machine's live sessions write their transcripts, so
+ * every picker re-rendered its whole form on each `session_updated` push the
+ * host sent about them — a 270–550-fibre commit every 8–15 ms, inside every
+ * gesture's window, at a rate set by whatever else was running on the machine
+ * (`at0654`'s commit census and hook record, 2026-09-30). A bar that reads the
+ * deck's settle cannot also be reading the neighbours' sessions. The picker's
+ * own cost on a live listing is real and is recorded as its own finding; it is
+ * not this fixture's subject.
+ */
+let quietProjectDir: string | null = null;
+function quietProject(): string {
+  if (quietProjectDir === null) {
+    const dir = mkdtempSync(join(tmpdir(), "tug-settle-quiet-project-"));
+    quietProjectDir = dir;
+    process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
+  }
+  return quietProjectDir;
+}
 
 export const SPACE_ID = "at0622-one";
 export const RAIL_WIDTH = 420;
@@ -618,6 +646,7 @@ export async function launch(
 ): Promise<{ app: App; tugbankPath: string }> {
   const tugbankPath = mkTempTugbank();
   seedTugbankForLaunch(tugbankPath);
+  tugbankWrite(tugbankPath, "dev.tugapp.app", "default-project-path", "string", quietProject());
   tugbankWrite(
     tugbankPath,
     "dev.tugapp.deck.layout",
@@ -745,7 +774,8 @@ export function expectColumnBar(leg: string, r: ColumnLeg): void {
 // ---------------------------------------------------------------------------
 
 /**
- * The fold's gap bar: ONE display frame, across the whole motion.
+ * The fold's gap bar: NO MISSED FRAME, across the whole motion — no gap over
+ * 1.5 display periods.
  *
  * Not `GAP_FRAMES_BAR`'s two, and the difference is [B01]'s. Two frames was
  * chosen for the activation's move beat, where the bar covers a window that
@@ -755,8 +785,21 @@ export function expectColumnBar(leg: string, r: ColumnLeg): void {
  * nothing stalls at all, in either direction. A bar of two frames over a
  * window that now contains the lead would be a weaker claim than the one this
  * file already makes about a slide.
+ *
+ * **Why 1.5 and not 1.0, and why that is the same claim.** "Nothing stalls"
+ * means no frame is missed, and the probe already says what a missed frame is:
+ * a gap longer than `GAP_TOLERANCE` (1.5) periods, because a live rAF loop's
+ * gaps jitter around the period by a few milliseconds and a strict
+ * `> framePeriodMs` test "would count most of a perfectly smooth run"
+ * (`settle-frame-probe.ts`). This bar was written as 1.0 against the
+ * continuous `longestGapFrames`, which is exactly that strict test, and it
+ * read red on runs the probe itself scored clean: 18 ms against a 16–17 ms
+ * period, 1.06–1.13 frames, with `gapsOverOneFrame` 0 on every one of them
+ * (`at0654`, 2026-09-30). One missed frame reads about 2.0 and is caught
+ * with the same margin as before; only the jitter the probe was built to
+ * forgive is forgiven.
  */
-export const FOLD_GAP_FRAMES_BAR = 1;
+export const FOLD_GAP_FRAMES_BAR = 1.5;
 
 /** The card, and the pane that holds it, that every fold leg gestures on. */
 export const FOLD_CARD_ID = "at0622-c1";
@@ -880,8 +923,9 @@ export function expectFoldBar(leg: string, r: FoldLeg): void {
   ).toBe(-1);
   expect(
     row.longestGapFrames,
-    `${leg}: no gap over ${FOLD_GAP_FRAMES_BAR} display frame across the ` +
-      `whole motion, lead included — ${row.longestGapMs.toFixed(0)}ms / ` +
+    `${leg}: no missed frame across the whole motion, lead included — no ` +
+      `gap over ${FOLD_GAP_FRAMES_BAR} display periods — ` +
+      `${row.longestGapMs.toFixed(0)}ms / ` +
       `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
       `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
   ).toBeLessThanOrEqual(FOLD_GAP_FRAMES_BAR);
@@ -1198,6 +1242,9 @@ export const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
            .filter(function (t) { return t > -60 && t < 200; });
          out[n] = ts;
        });
+       // The origin itself, on the page's clock, so a reading's
+       // longestGapEndsAt can be placed among the marks above.
+       out["origin"] = Math.round(origin * 10) / 10;
        return out;
      })()`,
   );
@@ -1317,6 +1364,68 @@ export function expectLastPassAfterNotify(
   ).toEqual([]);
 }
 
+/**
+ * DIAGNOSTIC: arm a recorder of every geometry or style read that takes over a
+ * millisecond, with the stack that asked for it. A slow read is a forced style
+ * or layout, and the stack names who forced it — the one thing a commit census
+ * cannot say, because a forced layout is paid by whichever script reads first
+ * and not by the commit that dirtied the tree. Take it with {@link slowReads},
+ * which also removes it.
+ */
+export const armSlowReads = (app: App): Promise<null> =>
+  app.evalJS<null>(
+    `(function () {
+       var slow = window.__tugSlowReads = [];
+       var undo = window.__tugSlowReadsUndo = [];
+       function record(key, s) {
+         var e = performance.now() - s;
+         if (e > 1) slow.push({ what: key, ms: Math.round(e * 10) / 10, at: s,
+           stack: String(new Error().stack).split("\\n").slice(2, 7).join(" | ") });
+       }
+       function wrap(owner, key) {
+         var d = Object.getOwnPropertyDescriptor(owner, key);
+         if (!d) return;
+         if (typeof d.value === "function") {
+           var f = d.value;
+           owner[key] = function () { var s = performance.now(); var r = f.apply(this, arguments); record(key, s); return r; };
+           undo.push(function () { owner[key] = f; });
+         } else if (d.get) {
+           var g = d.get;
+           Object.defineProperty(owner, key, { configurable: true, enumerable: d.enumerable, set: d.set,
+             get: function () { var s = performance.now(); var r = g.call(this); record(key, s); return r; } });
+           undo.push(function () { Object.defineProperty(owner, key, d); });
+         }
+       }
+       wrap(Element.prototype, "getBoundingClientRect");
+       wrap(Element.prototype, "getClientRects");
+       wrap(Element.prototype, "checkVisibility");
+       wrap(HTMLElement.prototype, "offsetWidth");
+       wrap(HTMLElement.prototype, "offsetHeight");
+       wrap(HTMLElement.prototype, "offsetTop");
+       wrap(HTMLElement.prototype, "offsetLeft");
+       wrap(Element.prototype, "scrollHeight");
+       wrap(Element.prototype, "scrollTop");
+       wrap(Element.prototype, "clientHeight");
+       wrap(Element.prototype, "clientWidth");
+       wrap(Object.getOwnPropertyDescriptor(window, "getComputedStyle") ? window : Window.prototype, "getComputedStyle");
+       return null;
+     })()`,
+  );
+
+/** Take and disarm {@link armSlowReads}' record, times relative to the last `tug:arm-end`. */
+export const slowReads = (app: App): Promise<unknown> =>
+  app.evalJS<unknown>(
+    `(function () {
+       (window.__tugSlowReadsUndo || []).forEach(function (u) { u(); });
+       window.__tugSlowReadsUndo = [];
+       var arm = performance.getEntriesByName("tug:arm-end");
+       var origin = arm.length ? arm[arm.length - 1].startTime : 0;
+       return (window.__tugSlowReads || []).map(function (r) {
+         return { what: r.what, ms: r.ms, at: Math.round(r.at - origin), stack: r.stack };
+       }).filter(function (r) { return r.at > -80 && r.at < 200; });
+     })()`,
+  );
+
 /** PROBE: every React commit from 60ms before the last `tug:arm-end` to 200ms after, times relative to it. */
 export const reactCommits = (app: App): Promise<unknown> =>
   app.evalJS<unknown>(
@@ -1326,7 +1435,7 @@ export const reactCommits = (app: App): Promise<unknown> =>
        var api = window.__tugCommits;
        if (!api) return "no census";
        return api.since(origin - 60).filter(function (c) { return c.t < origin + 200; })
-         .map(function (c) { return { t: Math.round((c.t - origin) * 10) / 10, fibers: c.fibers, performed: c.performed, top: c.top.slice(0, 6), labels: c.labels }; });
+         .map(function (c) { return { t: Math.round((c.t - origin) * 10) / 10, fibers: c.fibers, performed: c.performed, top: c.top.slice(0, 6), labels: c.labels, why: c.why, origins: c.origins, hooks: c.hooks }; });
      })()`,
   );
 

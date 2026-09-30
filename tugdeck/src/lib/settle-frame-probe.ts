@@ -218,6 +218,8 @@ export interface SettleFrameReading {
   readonly longestGapMs: number;
   /** {@link SettleFrameReading.longestGapMs} in display frames. */
   readonly longestGapFrames: number;
+  /** {@link FrameCadenceReading.longestGapEndsAt}: where in the run it was. */
+  readonly longestGapEndsAt: number;
   readonly gapsOverOneFrame: number;
   /**
    * The GESTURE → the first tick the run recorded. `-1` only when no tick ever
@@ -330,6 +332,7 @@ const EMPTY_READING: SettleFrameReading = {
   framePeriodMs: FALLBACK_FRAME_PERIOD_MS,
   longestGapMs: 0,
   longestGapFrames: 0,
+  longestGapEndsAt: -1,
   gapsOverOneFrame: 0,
   firstPaintDelayMs: -1,
   commitDelayMs: 0,
@@ -421,6 +424,12 @@ export interface FrameCadenceReading {
   readonly longestGapMs: number;
   /** Gaps over `framePeriodMs * GAP_TOLERANCE`. */
   readonly gapsOverOneFrame: number;
+  /**
+   * The tick that ENDED the longest gap, on the ticks' own clock — so a reader
+   * can line the gap up against the marks the work around it left, rather than
+   * knowing only that it happened somewhere in the window. `-1` for no gaps.
+   */
+  readonly longestGapEndsAt: number;
   /** The gap series itself, so a reader can see the shape and not only its summary. */
   readonly gaps: readonly number[];
   /** Tick count below {@link SUSPENSION_FLOOR_TICKS}; the whole reading is void. */
@@ -464,14 +473,22 @@ export function classifyFrameCadence(
   }
   let longestGapMs = 0;
   let gapsOverOneFrame = 0;
-  for (const gap of gaps) {
-    if (gap > longestGapMs) longestGapMs = gap;
+  let longestGapEndsAt = -1;
+  // With a leading gap, gap `i` ends at tick `i`; without one, at tick `i + 1`.
+  const endOffset = gaps.length === ticks.length ? 0 : 1;
+  for (let i = 0; i < gaps.length; i += 1) {
+    const gap = gaps[i];
+    if (gap > longestGapMs) {
+      longestGapMs = gap;
+      longestGapEndsAt = ticks[i + endOffset];
+    }
     if (gap > framePeriodMs * GAP_TOLERANCE) gapsOverOneFrame += 1;
   }
   return {
     framePeriodMs,
     longestGapMs,
     gapsOverOneFrame,
+    longestGapEndsAt,
     gaps,
     suspended: ticks.length < SUSPENSION_FLOOR_TICKS,
   };
@@ -562,7 +579,7 @@ export function classifySettleFrames(
     ),
     originAt,
   );
-  const { framePeriodMs, longestGapMs, gapsOverOneFrame } = cadence;
+  const { framePeriodMs, longestGapMs, gapsOverOneFrame, longestGapEndsAt } = cadence;
 
   let moveBornAt: number | null = null;
   let moveAdvancedAt: number | null = null;
@@ -887,6 +904,7 @@ export function classifySettleFrames(
     framePeriodMs,
     longestGapMs,
     longestGapFrames: longestGapMs / framePeriodMs,
+    longestGapEndsAt,
     gapsOverOneFrame,
     firstPaintDelayMs: samples[0].t - originAt,
     commitDelayMs,

@@ -891,3 +891,70 @@ A third 360° audit, run at `a8f723cb6`, found the two passes' mechanisms correc
 While this cleanup was in progress the user reported the in-flight wave in a Session card stuck. Read off the release deck (port 55348) through `/api/eval` before anything was touched: the card's Z1C wave root carried `data-state="running"`, no off-screen or understudy mark, `--tug-loop-iterations` unset, computed `animation-play-state: running` — and its three bar animations reported `playState: "paused"`, `startTime: null`, `currentTime` frozen at 102838 ms across three samples 300 ms apart, while a pulsing dot in the same card advanced normally. They were the only three paused animations on the document (44 in all). `Animation.play()` on the three restored motion at once, from the frozen offset.
 
 So the wave was paused through the Web Animations API, not stilled by any stylesheet knob. Two things on this deck call `pause()` on a loop: `space-layer-loops.ts`, which pauses every infinite loop under a hidden workspace layer and resumes only what it paused, and the `tugtool deck motion pause` / `bisect` verbs. The hidden workspace on this deck held zero animations, so the layer module could only have paused this wave if the card's own layer was hidden for a moment — a workspace switch away and back — and then declined or missed the resume. The resume declines when the bar's computed play-state reads paused (it did not at read time) and is skipped entirely for an animation the module did not pause. Which of those happened is not established; the deck trace was off and no switch is recorded. What is established: the failure shape is a WAAPI pause with no owner willing to resume it, and `at0652`'s wave leg cannot see it, because it stands the wave up in a fresh deck and never parks its layer. The reproduction to build is a wave in a workspace that is parked and shown again, read across the switch, and the guard to consider is a resume pass that does not depend on remembering who paused — a shown layer's loop that reads `paused` off the API with no stylesheet holding it is a defect whoever paused it.
+
+## Step 10, 2026-09-30: the reds, taken apart one commit at a time
+
+The four red files from step 9 were worked directly: `at0654`'s five standing legs, `at0622`'s rotating edge, and `at0643`'s lead. Every change below was made against a census reading, and every one was read again after it landed. Two that did not move their number were reverted, and are recorded as such.
+
+### The instruments, sharpened first
+
+The commit census could say how many fibres a commit performed and not why any of them did, so three readings were added to it, all test-mode only, in `tugdeck/index.html`:
+
+- **`why`**: for the pane chrome (`TugPaneImpl`, `CardTitleBar`, `CardSlotBadge`, `LayerPanes`, the mastheads, `SessionCardBody`, `CardHostImpl`), the prop keys that changed, bare when the value moved and `~` when only the identity did (which a by-value memo already forgives), plus the pane's card id.
+- **`origins`**: every component that rendered with the very props object it rendered with last time. Its own state, a store or a context asked. This is the top of each cascade, rather than a child carried along by it.
+- **`hooks`**: for the first dozen origins, which hook slots moved state, with a hint of what each holds, and which context reads moved.
+
+Beside the census:
+
+- **`longestGapEndsAt`** on the frame reading (`settle-frame-probe.ts`) places the longest gap on the page's clock. `clickTaskMarks` now reports its origin, so a gap can be read against the marks around it.
+- **A slow-read recorder** (`armSlowReads` / `slowReads` in the fixture, and an inline copy in `at0643`) wraps the geometry and style reads for one gesture. It records every call over a millisecond, with the stack that made it. A slow read is a forced style or layout, and it is paid by whichever script asks first, not by the commit that dirtied the tree. That is the one thing a census cannot say.
+- **`at0643`** now notes each switch's commit census, marks, `space-switch-timing` row and slow reads.
+
+### What each red was made of, and what came out of it
+
+**Every pane's slot badge re-rendered on every deck commit.** `CardSlotBadge` subscribed to the whole deck snapshot, and to the whole spaces snapshot, to draw two numbers. So its popover, tooltip and trigger re-rendered on every pane at every activation, close and slide. It now derives `{count, held}` through `useStoreDerived`, keyed on the card, and is memoized. A commit that moved no slot renders no badge.
+
+**Every pane's title bar re-rendered on geometry.** The frame's `placement` carries the flow strip's position, so a slide or a close hands every pane a new placement. The frame must take that, but the bar drew nothing from it and re-rendered whole anyway. `CardTitleBar` is now memoized by value with the frame's own comparator. `handleArrangePlace` is keyed on the slot rather than the placement, and it had been the one callback that broke the memo on every commit.
+
+| Commit | Before | After |
+|---|---|---|
+| Warm flip's deferred commit | 917 performed | 52 |
+| Departure's deferred commit | 1828 performed | 396, the two column-mates' bars, which really did change |
+
+**A workspace switch re-rendered every pane of both layers.** There were three causes:
+
+- `LayerPanes` handed `onClose`, `onRevealPane`, `dropZones` and `onCardMerged` only to the shown layer, so every pane's props flipped at every switch. They are now handed to every layer and made inert at call time while their layer is hidden.
+- `SpaceLayerShownContext` was a boolean, so every consumer re-rendered at a switch. The Session card body re-rendered for a fact it reads once, at mount. It is now a stable per-layer source: `useSpaceLayerShown()` subscribes, and `useSpaceLayerShownSource()` reads at a moment. The body reads the source.
+- Every title bar subscribed to the whole spaces snapshot for its move menu, whose `activeSpaceId` changes at every switch. The bar now derives the list's rows and leaves out its own layer's workspace, which is the same answer for a shown pane and one that never changes.
+
+The swap commit went from 4918 performed fibres to 1682, and the switch's lead from 62–74 ms to 42–54 ms.
+
+**The Layout card redrew twenty-six hidden pictures inside every arrangement change.** Its preview layers, each shown only while its row is hovered, all depend on the committed arrangement, and all re-rendered in the change's own commit. That was 1100–1600 performed fibres per column division, and a second commit on a close. `PlaceMark` is now memoized by value. The preview layers render through `useDeferredValue` into a value-memoized `PreviewLayers`, so the urgent commit keeps the old layers and React renders the new ones at transition priority, in slices, a few frames later. The committed miniature and the live places stay urgent.
+
+**The fixture's pickers were listening to this machine's live sessions.** The fixture's cards are unbound Session cards, so each shows its picker. A debug build seeds the picker's path with the repository's own source tree, which is where every live session on the machine writes its transcript. The `hooks` record named the cause: the ledger snapshot and the sessions data source's version, changing several times a window, from `session_updated` pushes. Every picker re-rendered its whole form on each one, a 270–550-fibre commit every 8–15 ms, at a rate set by whatever else was running. The fixture now points the pickers at an empty temporary project.
+
+This is recorded as a fixture defect, and the product cost stays real: **an open picker re-renders its whole form on every ledger row patch for its project**. That cost is its own finding, for the picker, and not this bar's subject.
+
+**The fold's gap clause asked for no jitter.** `FOLD_GAP_FRAMES_BAR` was 1.0 against the continuous `longestGapFrames`. That is exactly the strict `> framePeriodMs` test the probe's own `GAP_TOLERANCE` exists to refuse ("would count most of a perfectly smooth run"). The fold read red at 18 ms against a 16–17 ms period with `gapsOverOneFrame` 0. The bar is now the probe's own definition of a missed frame, 1.5 periods. One missed frame reads about 2.0 and is caught with the same margin as before.
+
+### Tried, measured, reverted
+
+**A cached container height.** `_placeRunHeight` reads the container's `clientHeight` from the canvas's layout effect, and the slow-read record showed it as a 5–7 ms forced layout in every settle commit. A `ResizeObserver` cache removed that read, and the next run showed the same 7 ms forced by the next reader, `_flowBandEdges`' `clientWidth`. **A forced layout is paid by whoever reads first.** Removing one reader pays for nothing unless every reader goes, and in a settle commit the canvas's Last pass must measure frames anyway. It was reverted.
+
+**A listing-only ledger hook.** It was built on the theory that the picker churn was scan-progress ticks. The next run showed the listing itself changing, from row patches. It was reverted, and the churn was traced to its real source above.
+
+**`checkVisibility()` for the focus engine's "is it rendered" check.** `isRecordRendered` asks `getClientRects().length > 0`, and `place()` asks it. A picker seeding its default focus from a layout effect as it mounts during the unfold therefore forced a 7 ms layout in the middle of the `height` tween. `checkVisibility()` answers the same question, and the slow read vanished from the record, **because the recorder did not wrap `checkVisibility`**. Wrapped, it read 5 ms at the same site, with the next reader paying 2 ms more: on this engine it forces the same work. It was reverted, and the recorder now wraps it, so a replacement read cannot hide a cost that way again.
+
+**A boxed shown wrapper, read under `file probe` and not kept.** Keeping the shown workspace layer boxed rather than `display: contents` avoids the renderer rebuild the switch paper traced. On `at0643` it took the lead from 46–54 ms to 37–45 ms and the forced read from 25 ms to 19 ms. That is real but partial, and the wrapper's shape is the switch arc's decision, tied to its own motion design, so it is recorded rather than adopted.
+
+### What still stands, and why each is not a patch
+
+| Red | Why it stands |
+|---|---|
+| **Show rail**, 39–53 ms | Unchanged in kind. Showing the rail mounts both rail cards' content inside the settle, about 4000 fibres. The deck's `arriving` mark exists precisely so an arrival's content can mount hidden and report its height, so deferring a content mount would break it, and rails are not slotted. Concept 3 (rail contents already standing when the rail is revealed) is the fix, and it is a model change. |
+| **Unfold**, 39–48 ms | At rest a folded Session card takes its view slot out with `display: none`, so its transcript costs nothing while folded. The unfold therefore rebuilds that whole subtree inside its own tween: it remounts the picker sheet, whose default-focus `place()` forces a 5–7 ms layout, and then its first frame lays out the rest. Keeping it standing would make every folded card pay layout for a streaming transcript, and that tradeoff belongs to the fold's design. |
+| **Departure**, 33–41 ms, and **column division**, 32–52 ms | Both now straddle their 34 ms bar and rotate between green and red run to run. What remains in each window is legitimate: the deferred commit with its Last pass, the column-mates' bars, the Layout card's committed miniature, and a sheet and form re-render as focus lands in the next card. |
+| **Warm flip**, move first-paint 22–28 ms | Its gap now holds (25–29 ms, 1.47–1.71 frames). What still lands inside the move's first frame is the activated card's picker sheet and form re-rendering as the focus trap engages. That is focus timing, not waste. |
+| **`at0643`**, lead 42–54 ms, and 62–74 ms on a machine at load average 10 with an unchanged 1682-fibre commit | A 6 ms render, then a 19–25 ms forced layout of the arriving layer (the list view's `clientHeight` guard is simply the first reader), then the commit. The rest is the renderer rebuild of the `display: contents` flip, and the inherited `visibility` restyle of both layers. |
+
+**The one-period lead clauses rotate on phase.** `at0622` read 7/8, 6/8 and **8/8** across three solo runs at this tree. The 8/8 is its first full green since the split. Every red was a lead clause at 18–21 ms against a 17 ms period with **0 ms before the arm**: walk home, appear, bullseye enter. That is the gesture's own task running across the next vsync, not work. A lead measured from a gesture at a random phase cannot be held to one period unless the task takes no time. The lead is prepended to the gap series for exactly this comparison, and the probe already forgives jitter there at 1.5 periods. Whether the lead clauses should say the same is the user's call, and it is left open here.

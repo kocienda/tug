@@ -102,6 +102,8 @@ import {
   launch,
   railBlob,
   reactCommits,
+  armSlowReads,
+  slowReads,
   report,
   reportB09,
   reportFold,
@@ -295,8 +297,12 @@ describe.skipIf(!SHOULD_RUN)(
           note(`at0654 fold click task: ${JSON.stringify(await clickTaskMarks(app))}`);
           expectFoldBar("fold", fold);
 
+          await armSlowReads(app);
           const unfold = await sampleFold(app, false, 0);
           reportFold("unfold", unfold);
+          note(`at0654 unfold slow reads: ${JSON.stringify(await slowReads(app))}`);
+          note(`at0654 unfold commits: ${JSON.stringify(await reactCommits(app))}`);
+          note(`at0654 unfold click task: ${JSON.stringify(await clickTaskMarks(app))}`);
           expectFoldBar("unfold", unfold);
 
           // ---- The forcing leg ([D5]). ----------------------------------
@@ -378,11 +384,13 @@ describe.skipIf(!SHOULD_RUN)(
             `appear (setup): exactly one frame arrived — ${JSON.stringify(newcomers)}`,
           ).toBe(1);
 
+          await armSlowReads(app);
           const disappear = await sampleB09Gesture(
             app,
             `window.__tug.closePane(${JSON.stringify(newcomers[0])})`,
           );
           reportB09("disappear", disappear);
+          note(`at0654 disappear slow reads: ${JSON.stringify(await slowReads(app))}`);
           note(`at0654 disappear commits: ${JSON.stringify(await reactCommits(app))}`);
           note(`at0654 disappear click task: ${JSON.stringify(await clickTaskMarks(app))}`);
           expectBeats("disappear", disappear, ["depart", "room"]);
@@ -428,11 +436,13 @@ describe.skipIf(!SHOULD_RUN)(
           );
           reportB09("sidebars hide (setup)", hide);
 
+          await armSlowReads(app);
           const show = await sampleB09Gesture(
             app,
             `window.__tug.dispatchControlAction("toggle-sidebars", {})`,
           );
           reportB09("sidebars show", show);
+          note(`at0654 sidebars show slow reads: ${JSON.stringify(await slowReads(app))}`);
           note(`at0654 sidebars show commits: ${JSON.stringify(await reactCommits(app))}`);
           note(`at0654 sidebars show click task: ${JSON.stringify(await clickTaskMarks(app))}`);
 
@@ -496,9 +506,13 @@ describe.skipIf(!SHOULD_RUN)(
             `column idle control: the window was served — ${idle.ticks} ticks`,
           ).toBe(false);
 
+          await armSlowReads(app);
           const split = await sampleColumnGesture(app, "split");
           report("column split (height-bearing)", split.probe);
+          note(`at0654 column split slow reads: ${JSON.stringify(await slowReads(app))}`);
           note(`at0654 column split rows: ${JSON.stringify(split.rows)}`);
+          note(`at0654 column split commits: ${JSON.stringify(await reactCommits(app))}`);
+          note(`at0654 column split click task: ${JSON.stringify(await clickTaskMarks(app))}`);
 
           const stack = await sampleColumnGesture(app, "stack");
           report("column stack (height-bearing)", stack.probe);

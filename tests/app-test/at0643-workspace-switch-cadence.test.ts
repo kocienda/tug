@@ -427,8 +427,53 @@ async function recordSwitch(
   toSpaceId: string,
 ): Promise<FrameRecord> {
   const mark = await app.evalJS<number>(`window.__deckTrace.mark()`);
+  // DIAGNOSTIC: every geometry or style read that took over a millisecond
+  // across the switch, with the stack that asked for it — a slow read is a
+  // forced style or layout, and the stack names who forced it. Installed per
+  // switch and removed after it.
   await app.evalJS<null>(
-    `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(toSpaceId)} }), null)`,
+    `(function () {
+       var slow = window.__at0643SlowReads = [];
+       var undo = window.__at0643Undo = [];
+       function wrap(owner, key, kind) {
+         var d = Object.getOwnPropertyDescriptor(owner, key);
+         if (!d) return;
+         if (typeof d.value === "function") {
+           var f = d.value;
+           owner[key] = function () {
+             var s = performance.now(); var r = f.apply(this, arguments); var e = performance.now() - s;
+             if (e > 1) slow.push({ what: key, ms: Math.round(e * 10) / 10, at: Math.round(s),
+               stack: String(new Error().stack).split("\\n").slice(1, 7).join(" | ") });
+             return r;
+           };
+           undo.push(function () { owner[key] = f; });
+         } else if (d.get) {
+           var g = d.get;
+           Object.defineProperty(owner, key, { configurable: true, enumerable: d.enumerable, get: function () {
+             var s = performance.now(); var r = g.call(this); var e = performance.now() - s;
+             if (e > 1) slow.push({ what: key, ms: Math.round(e * 10) / 10, at: Math.round(s),
+               stack: String(new Error().stack).split("\\n").slice(1, 7).join(" | ") });
+             return r;
+           } });
+           undo.push(function () { Object.defineProperty(owner, key, d); });
+         }
+       }
+       wrap(Element.prototype, "getBoundingClientRect");
+       wrap(Element.prototype, "getClientRects");
+       wrap(Element.prototype, "checkVisibility");
+       wrap(HTMLElement.prototype, "offsetWidth");
+       wrap(HTMLElement.prototype, "offsetHeight");
+       wrap(HTMLElement.prototype, "offsetTop");
+       wrap(Element.prototype, "scrollHeight");
+       wrap(Element.prototype, "clientHeight");
+       wrap(Object.getOwnPropertyDescriptor(window, "getComputedStyle") ? window : Window.prototype, "getComputedStyle");
+       return null;
+     })()`,
+  );
+  const origin = await app.evalJS<number>(
+    `(function () { var t = performance.now();
+       window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(toSpaceId)} });
+       return t; })()`,
   );
   await app.waitForCondition<boolean>(
     `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(toSpaceId)}`,
@@ -448,6 +493,61 @@ async function recordSwitch(
     throw new Error(`at0643 ${label}: no space-switch-frames record arrived`);
   }
   note(`at0643 ${label}: ${JSON.stringify(record)}`);
+  // The React commits the switch performed, relative to the dispatch: what
+  // `commitDelayMs` is made of. Read off the test-mode commit census.
+  note(
+    `at0643 ${label} commits: ${JSON.stringify(
+      await app.evalJS<unknown>(
+        `(function () {
+           var api = window.__tugCommits;
+           if (!api) return "no census";
+           return api.since(${origin}).filter(function (c) { return c.t < ${origin} + 150; })
+             .map(function (c) { return { t: Math.round((c.t - ${origin}) * 10) / 10,
+               fibers: c.fibers, performed: c.performed, top: c.top.slice(0, 8), why: c.why, origins: c.origins, hooks: c.hooks }; });
+         })()`,
+      ),
+    )}`,
+  );
+  note(
+    `at0643 ${label} slow reads: ${JSON.stringify(
+      await app.evalJS<unknown>(
+        `(function () {
+           (window.__at0643Undo || []).forEach(function (u) { u(); });
+           window.__at0643Undo = [];
+           return (window.__at0643SlowReads || []).map(function (r) {
+             return { what: r.what, ms: r.ms, at: Math.round(r.at - ${origin}), stack: r.stack };
+           }).filter(function (r) { return r.at < 200; });
+         })()`,
+      ),
+    )}`,
+  );
+  note(
+    `at0643 ${label} timing: ${JSON.stringify(
+      await app.evalJS<unknown>(
+        `window.__deckTrace.since(${mark}).filter(function (e) {
+           return e.kind === "space-switch-timing";
+         })`,
+      ),
+    )}`,
+  );
+  // And every `tug:` performance mark in the same window, so the stretch
+  // before the swap commit reads as named phases rather than one number.
+  note(
+    `at0643 ${label} marks: ${JSON.stringify(
+      await app.evalJS<unknown>(
+        `(function () {
+           var out = {};
+           performance.getEntriesByType("mark").forEach(function (e) {
+             if (e.name.indexOf("tug:") !== 0) return;
+             var t = e.startTime - ${origin};
+             if (t < -5 || t > 150) return;
+             (out[e.name] = out[e.name] || []).push(Math.round(t));
+           });
+           return out;
+         })()`,
+      ),
+    )}`,
+  );
   return record;
 }
 

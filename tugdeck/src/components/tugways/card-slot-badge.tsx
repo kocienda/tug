@@ -52,11 +52,13 @@
  * @module components/tugways/card-slot-badge
  */
 
-import React, { useSyncExternalStore } from "react";
+import React, { useMemo } from "react";
 
 import "./card-slot-badge.css";
 
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { useStoreDerived } from "@/lib/use-store-derived";
+import type { DeckState } from "@/layout-tree";
 import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
 import { dispatchCommand } from "@/command-dispatch";
@@ -88,12 +90,53 @@ export interface CardSlotBadgeProps {
  * The badge for the pane hosting `cardId`, or `null` when that pane stands in
  * no slot the reader can be told about.
  */
-export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElement | null {
+export const CardSlotBadge = React.memo(function CardSlotBadge({
+  cardId,
+}: CardSlotBadgeProps): React.ReactElement | null {
+  if (cardId === undefined) return null;
+  // Keyed on the card, because the derivations below are functions of the
+  // snapshot alone ([L02], `useStoreDerived`): a pane that fronts another card
+  // gets a fresh badge deriving for that card, rather than a cached answer
+  // about the last one.
+  return <CardSlotBadgeFor key={cardId} cardId={cardId} />;
+});
+
+/**
+ * What the badge draws, and nothing else: the arrangement's slot count and the
+ * slot the card's pane holds. `undefined` when the deck does not hold the card
+ * at all — the caller then asks the parked workspaces — and `null` when it does
+ * and there is no position to name.
+ */
+interface SlotFacts {
+  count: number;
+  held: number;
+}
+
+function slotFactsIn(deck: DeckState, cardId: string): SlotFacts | null | undefined {
+  const host = deck.panes.find((pane) => pane.cardIds.includes(cardId));
+  if (host === undefined) return undefined;
+  const kind = deck.imposition.kind;
+  // No imposition, or an imposition with one place in it: there is no position
+  // to report, so there is no chip.
+  if (kind === undefined || slotCount(kind) <= 1) return null;
+  if (host.slot === undefined) return null;
+  // A sidebar — the Cards card among them — is the imposition's fixed end rather
+  // than a member of the chain it bounds. The same guard `SlotPicker` applies.
+  if (findSidebarPanes(deck).some((entry) => entry.pane.id === host.id)) return null;
+  return { count: slotCount(kind), held: host.slot };
+}
+
+function CardSlotBadgeFor({ cardId }: { cardId: string }): React.ReactElement | null {
   const deckStore = getDeckStore();
-  const deck = useSyncExternalStore(
-    deckStore?.subscribe ?? (() => () => {}),
-    deckStore !== null ? deckStore.getSnapshot : () => null,
-    () => null,
+  // The two facts the chip draws, derived rather than read whole. The badge
+  // used to take the entire deck snapshot, and a whole snapshot changes on
+  // every commit — so every pane's badge re-rendered its popover, tooltip and
+  // trigger on every activation, close and slide, inside the settle window
+  // those gestures animate through ([D204]). Derived, a commit that moved no
+  // slot renders no badge.
+  const live = useStoreDerived<DeckState, SlotFacts | null | undefined>(
+    deckStore,
+    (deck) => (deck === null ? null : slotFactsIn(deck, cardId)),
   );
   // The level above the deck, for a card whose pane stands in a PARKED
   // workspace. A hidden layer is laid out from its parked record and its
@@ -103,11 +146,23 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
   // that changes width on show is a late write the switch was made cheap to
   // remove. `subscribe` fires for changes inside the live deck and never for
   // the parked records, so this is its own subscription ([L02]).
-  const spaces = useSyncExternalStore(
-    deckStore?.subscribeSpaces ?? (() => () => {}),
-    deckStore !== null ? deckStore.getSpacesSnapshot : () => null,
-    () => null,
+  const spacesStore = useMemo(
+    () =>
+      deckStore === null
+        ? null
+        : { subscribe: deckStore.subscribeSpaces, getSnapshot: deckStore.getSpacesSnapshot },
+    [deckStore],
   );
+  // A card id is unique across decks, so the first parked deck that holds it
+  // is the only one.
+  const parked = useStoreDerived(spacesStore, (spaces): SlotFacts | null => {
+    if (spaces === null) return null;
+    for (const deck of spaces.mountedDecks.values()) {
+      const facts = slotFactsIn(deck, cardId);
+      if (facts !== undefined) return facts;
+    }
+    return null;
+  });
   // Controlled, so selecting a slot can close the popup in the same act that
   // moves the card. Every dismissal path Radix offers — the trigger again,
   // Escape, a click outside — routes through the same setter.
@@ -118,39 +173,11 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
   // reach the trigger by walking up from itself.
   const badgeRef = React.useRef<HTMLSpanElement | null>(null);
 
-  if (deck === null || cardId === undefined) return null;
-
   // The deck whose pane hosts this card: the live one, or the parked record
-  // of whichever mounted workspace holds it. A card id is unique across
-  // decks, so the first deck that holds it is the only one.
-  const holds = (candidate: { panes: readonly { cardIds: readonly string[] }[] }): boolean =>
-    candidate.panes.some((pane) => pane.cardIds.includes(cardId));
-  let home: typeof deck | null = holds(deck) ? deck : null;
-  if (home === null && spaces !== null) {
-    for (const parked of spaces.mountedDecks.values()) {
-      if (holds(parked)) {
-        home = parked;
-        break;
-      }
-    }
-  }
-  if (home === null) return null;
-
-  const kind = home.imposition.kind;
-  // No imposition, or an imposition with one place in it: there is no position
-  // to report, so there is no chip.
-  if (kind === undefined || slotCount(kind) <= 1) return null;
-
-  const host = home.panes.find((pane) => pane.cardIds.includes(cardId));
-  if (host === undefined || host.slot === undefined) return null;
-
-  // A sidebar — the Cards card among them — is the imposition's fixed end rather
-  // than a member of the chain it bounds. The same guard `SlotPicker` applies.
-  const sidebar = findSidebarPanes(home).some((entry) => entry.pane.id === host.id);
-  if (sidebar) return null;
-
-  const count = slotCount(kind);
-  const held = host.slot;
+  // of whichever mounted workspace holds it.
+  const facts = live !== undefined ? live : parked;
+  if (facts === null) return null;
+  const { count, held } = facts;
 
   return (
     <span

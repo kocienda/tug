@@ -79,7 +79,7 @@ import { SessionTelemetryStatusRow } from "./session-card-telemetry-renderers";
 import { COMPACTION_CANCEL_FOCUS_KEY } from "./session-card-telemetry-renderers";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
 import { formatPathChipText } from "../chrome/path-chip-format";
-import { useSpaceLayerShown } from "@/components/chrome/space-layer";
+import { useSpaceLayerShownSource } from "@/components/chrome/space-layer";
 import {
   SessionRouteIndicatorBadge,
   CC_VERSION_DOMAIN,
@@ -2214,8 +2214,12 @@ export function SessionCardBody({
 
   // Whether this card's workspace layer is the shown one. `DeckCanvas`
   // provides it per layer; the fade effect below reads it at mount to
-  // decide whether there is an entrance to play at all ([L32]).
-  const layerShown = useSpaceLayerShown();
+  // decide whether there is an entrance to play at all ([L32]). The SOURCE,
+  // read in the effect, and not the subscribed value: the body asks once, at
+  // mount, and a subscription re-rendered every Session card body on the
+  // deck inside every workspace switch's swap commit for an answer it had
+  // already used.
+  const layerShownSource = useSpaceLayerShownSource();
 
   const codeSnap = useSyncExternalStore(
     codeSessionStore.subscribe,
@@ -2949,7 +2953,7 @@ export function SessionCardBody({
     // the beat would run out unpainted. It is declined because motion
     // for nobody is a cost with no reader, the same reason a card in a
     // hidden layer declines a broadcast.
-    if (!layerShown) return;
+    if (!layerShownSource.get()) return;
     // Set the start state inline so the first paint after commit
     // shows opacity:0 — WAAPI's pending-phase doesn't apply the
     // first keyframe with the default `fill: forwards`. Cleared by

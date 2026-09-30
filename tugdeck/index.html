@@ -47,10 +47,30 @@
         }
         return type === null ? "root" : String(type);
       }
+      function same(a, b) {
+        if (Object.is(a, b)) return true;
+        if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+        var pa = Object.getPrototypeOf(a), pb = Object.getPrototypeOf(b);
+        if (Array.isArray(a) !== Array.isArray(b)) return false;
+        if (!Array.isArray(a) && ((pa !== Object.prototype && pa !== null) || (pb !== Object.prototype && pb !== null))) return false;
+        var ka = Object.keys(a), kb = Object.keys(b);
+        if (ka.length !== kb.length) return false;
+        for (var i = 0; i < ka.length; i += 1) if (!same(a[ka[i]], b[ka[i]])) return false;
+        return true;
+      }
       function census(root) {
         var t = performance.now();
         var counts = new Map();
         var labels = [];
+        // WHY a watched component rendered: the prop keys whose identity
+        // changed since its last render, or `[state/ctx]` when the props
+        // object is the one it rendered with last time — a hook, not its
+        // parent, asked for the render. Scoped to the pane chrome, which is
+        // where a commit that moved one pane has repeatedly re-rendered all
+        // of them.
+        var why = [];
+        var origins = new Map();
+        var hookNotes = [];
         var fibers = 0, performed = 0;
         // A subtree React did not visit is the SAME object in both trees, and
         // its fibers keep the flags of whatever commit last rendered them —
@@ -70,6 +90,58 @@
               var p = f.memoizedProps;
               labels.push(n + "(" + (p.action || p["aria-label"] || p.title || p.label || p["data-slot"] || p.id || "") + ")");
             }
+            var alt = f.alternate;
+            // An ORIGIN: a component that rendered with the very props
+            // object it rendered with last time, so its own state, a store
+            // or a context asked — the top of a cascade rather than a
+            // child carried along by it.
+            if (alt && typeof f.type !== "string" && f.type !== null &&
+                alt.memoizedProps === f.memoizedProps && (f.tag === 0 || f.tag === 1 || f.tag === 11 || f.tag === 14 || f.tag === 15)) {
+              origins.set(n, (origins.get(n) || 0) + 1);
+              // WHICH hook asked: the indices of the hook slots whose state
+              // moved, each with a hint of what it holds, and any context
+              // whose value moved. Only for the first few origins of a
+              // commit, which is where a cascade starts.
+              if (hookNotes.length < 12) {
+                var h = f.memoizedState, ah = alt.memoizedState, i = 0, moved = [];
+                while (h && ah && i < 80) {
+                  if (!Object.is(h.memoizedState, ah.memoizedState)) {
+                    var v = h.memoizedState, hint;
+                    if (v === null || v === undefined) hint = String(v);
+                    else if (typeof v !== "object") hint = typeof v === "function" ? "fn" : JSON.stringify(v).slice(0, 24);
+                    else if (Array.isArray(v)) hint = "arr" + v.length;
+                    else hint = "{" + Object.keys(v).slice(0, 4).join(",") + "}";
+                    moved.push(i + ":" + hint);
+                  }
+                  h = h.next; ah = ah.next; i += 1;
+                }
+                var ctx = [];
+                // Against the ALTERNATE's recorded reads: at commit a
+                // context's current value has already popped back.
+                var dep = f.dependencies && f.dependencies.firstContext;
+                var adep = alt.dependencies && alt.dependencies.firstContext;
+                var ci = 0;
+                while (dep && ci < 40) {
+                  if (!adep || !Object.is(dep.memoizedValue, adep.memoizedValue)) {
+                    ctx.push(ci + ":" + (dep.context && dep.context.displayName || "ctx"));
+                  }
+                  dep = dep.next; adep = adep ? adep.next : null; ci += 1;
+                }
+                hookNotes.push(n + " hooks[" + moved.join(" ") + "]" + (ctx.length ? " ctx[" + ctx.join(",") + "]" : ""));
+              }
+            }
+            if (alt && /^(TugPaneImpl|CardTitleBar|CardSlotBadge|LayerPanes|SessionMasthead|CardMasthead|SessionCardBody|CardHostImpl)\d*$/.test(n)) {
+              var pp = alt.memoizedProps, np = f.memoizedProps, keys = [];
+              // A key is named bare when its VALUE moved and with a `~` when
+              // only its identity did — the second is what a by-value memo
+              // comparator already forgives, so it is never the cause.
+              if (pp && np && pp !== np) {
+                for (var k in np) if (np[k] !== pp[k]) keys.push(same(np[k], pp[k]) ? "~" + k : k);
+                for (var k2 in pp) if (!(k2 in np)) keys.push(k2);
+              }
+              var who = np && (np.activeCardId || (np.stackState && np.stackState.id) || np.cardId || np.spaceId) || "";
+              why.push(n + (who ? "@" + who : "") + (pp === np ? "[state/ctx]" : "{" + keys.join(",") + "}"));
+            }
           }
           var c = f.child, oc = o ? o.child : null;
           while (c) {
@@ -79,7 +151,9 @@
           }
         }
         var top = Array.from(counts.entries()).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12);
-        return { t: t, fibers: fibers, performed: performed, top: top, labels: labels.slice(0, 24) };
+        return { t: t, fibers: fibers, performed: performed, top: top, labels: labels.slice(0, 24), why: why.slice(0, 32),
+          origins: Array.from(origins.entries()).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12),
+          hooks: hookNotes };
       }
       var nextId = 1;
       var renderers = new Map();

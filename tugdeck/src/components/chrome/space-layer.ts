@@ -11,7 +11,7 @@
  * names those rules and the sweeps below agree on ([L06]).
  */
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
 
@@ -138,10 +138,54 @@ export const SHOWN_PANE_FRAMES =
  * an entrance for a watcher and plays for nobody in the dark; and the sheet's
  * two clamps, for the resize-while-parked case above.
  */
-export const SpaceLayerShownContext = createContext(true);
+export interface SpaceLayerShownSource {
+  /**
+   * The workspace this layer renders, or `null` in a host that renders no
+   * layers. Fixed for the source's life — a pane that changes workspace
+   * changes React parent, and so changes source.
+   */
+  spaceId: string | null;
+  /** Whether the layer is the shown one, now. */
+  get: () => boolean;
+  subscribe: (callback: () => void) => () => void;
+}
 
-/** Whether this card's workspace is the one being rendered. */
+/** Every host that renders no layers: one workspace, and it is on screen. */
+const ALWAYS_SHOWN: SpaceLayerShownSource = {
+  spaceId: null,
+  get: () => true,
+  subscribe: () => () => {},
+};
+
+/**
+ * The layer's shown-ness as a SOURCE, not a value.
+ *
+ * It was a boolean provided per layer, and a context value that changes
+ * re-renders every consumer under it: a switch flipped it on both layers at
+ * once, and every Session card body on the deck re-rendered inside the swap
+ * commit — for a fact the body reads once, at mount, to decide whether an
+ * entrance fade has a watcher. The source object is made once per layer and
+ * never changes, so the context itself never propagates; a reader that must
+ * follow the transition subscribes through {@link useSpaceLayerShown}, and a
+ * reader that only asks at a moment reads `get()` there.
+ */
+export const SpaceLayerShownContext = createContext<SpaceLayerShownSource>(ALWAYS_SHOWN);
+
+/**
+ * Whether this card's workspace is the one being rendered, re-rendering the
+ * caller when that turns ([L02]). For a reader that follows the transition —
+ * a guard or a re-arm keyed on it.
+ */
 export function useSpaceLayerShown(): boolean {
+  const source = useContext(SpaceLayerShownContext);
+  return useSyncExternalStore(source.subscribe, source.get, source.get);
+}
+
+/**
+ * The source itself, for a reader that asks at one moment — an effect at
+ * mount — and must not re-render every time the answer turns.
+ */
+export function useSpaceLayerShownSource(): SpaceLayerShownSource {
   return useContext(SpaceLayerShownContext);
 }
 

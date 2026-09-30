@@ -75,11 +75,14 @@
 import "./layout-places.css";
 
 import React, {
+  memo,
   useCallback,
   useId,
   useLayoutEffect,
   useRef,
 } from "react";
+
+import { deepEqual } from "@/lib/deep-equal";
 
 import {
   miniatureGeometry,
@@ -192,8 +195,16 @@ function describePlace(place: LayoutPlace): string {
  * enough for a two-valued fact: the press is always "make it the other thing",
  * so the same element goes each way and there is no segmented pair to keep in
  * sync with the glyph.
+ *
+ * It is memoized on its props BY VALUE. Every `LayoutPlaces` on
+ * the Layout card — the live instrument and each preview — rebuilds its
+ * `columns` whenever the arrangement moves, so a mark compared by identity
+ * re-rendered on every change to any column: dividing one column re-rendered
+ * all eighty-four marks, their glyphs and their buttons, three times over
+ * inside the settle the division was animating through. Compared by value, a
+ * mark renders when its own place changed.
  */
-function PlaceMark({
+const PlaceMark = memo(function PlaceMark({
   place,
   senderId,
   ghost = false,
@@ -235,7 +246,7 @@ function PlaceMark({
       )}
     </span>
   );
-}
+}, deepEqual);
 
 /**
  * LayoutPlaces — the deck's arrangeable places, drawn over the deck's picture.

@@ -155,6 +155,9 @@ import {
   transferFocusForActivation,
 } from "@/focus-transfer";
 import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
+import { useSpaceLayerShownSource } from "@/components/chrome/space-layer";
+import { useStoreDerived } from "@/lib/use-store-derived";
+import type { SpacesSnapshot } from "@/spaces";
 import {
   SHOWN_PANE_FRAMES,
   paneCanvasOf,
@@ -489,7 +492,23 @@ function sharedVerbRank(commandId: string): number {
 }
 const PLACE_VERB_EQUALIZE = "place:equalize";
 
-export const CardTitleBar = React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
+/**
+ * The pane's title bar, memoized on its props by value — the same comparator
+ * the frame uses ({@link plainEqual}).
+ *
+ * The frame re-renders on GEOMETRY: its `placement` carries the flow strip's
+ * position, so an activation that slides the strip, or a close that shortens
+ * it, hands every pane on the deck a new placement. The frame must take that —
+ * it writes where it stands. The bar draws nothing from it, and re-rendered
+ * whole anyway: every pane's tooltips, popovers and confirm popover, inside
+ * the settle window the gesture was animating through ([D204]). The commit
+ * census read 1758 performed fibres at +18 ms on a close, nearly all of them
+ * in bars that said exactly what they said before.
+ *
+ * Everything the bar draws that is not a prop it reads through its own
+ * subscriptions ([L02]), so a bar whose props are equal has nothing to render.
+ */
+export const CardTitleBar = memo(React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
 function CardTitleBar({
   title,
   icon,
@@ -638,17 +657,37 @@ function CardTitleBar({
   const deck = useContext(DeckManagerContext);
 
   // The workspace list, for the move control alone ([L02]). Off the same
-  // snapshot the canvas reads, through `useSyncExternalStore`, so the bar
-  // re-renders when a workspace is added, renamed or made active — and
-  // nothing above it does. With no deck behind the bar there are no
-  // workspaces, and no `onMoveToSpace` either, so the control is not drawn.
-  const spacesSnapshot = useSyncExternalStore(
-    deck?.subscribeSpaces ?? NO_SPACES_SUBSCRIBE,
-    deck !== null ? deck.getSpacesSnapshot : NO_SPACES_SNAPSHOT,
-    NO_SPACES_SNAPSHOT,
+  // snapshot the canvas reads, DERIVED to the two facts the control draws:
+  // the list's rows, and which one is this bar's own workspace — the one the
+  // menu leaves out. With no deck behind the bar there are no workspaces, and
+  // no `onMoveToSpace` either, so the control is not drawn.
+  //
+  // The workspace left out is the one this pane's LAYER renders, not the
+  // active one. For a shown pane they are the same; the difference is that
+  // the layer's never changes, and the active one changes at every switch —
+  // so reading it re-rendered every title bar of both layers inside the swap
+  // commit, for a menu no hidden pane can open. A host that renders no
+  // layers has no layer to ask, and falls back to the active workspace.
+  const ownSpaceId = useSpaceLayerShownSource().spaceId;
+  const spacesStore = useMemo(
+    () =>
+      deck === null
+        ? null
+        : { subscribe: deck.subscribeSpaces, getSnapshot: deck.getSpacesSnapshot },
+    [deck],
   );
-  const spaces = spacesSnapshot?.spaces ?? EMPTY_SPACES;
-  const activeSpaceId = spacesSnapshot?.activeSpaceId;
+  const spacesView = useStoreDerived<SpacesSnapshot, SpacesView>(
+    spacesStore,
+    (snapshot) =>
+      snapshot === null
+        ? NO_SPACES_VIEW
+        : {
+            spaces: snapshot.spaces.map((space) => ({ id: space.id, name: space.name })),
+            ownSpaceId: ownSpaceId ?? snapshot.activeSpaceId,
+          },
+  );
+  const spaces = spacesView.spaces;
+  const barSpaceId = spacesView.ownSpaceId;
 
   // Whether the pointer is inside the title bar — the fact the rollup's reveal
   // reads. Written to the DOM as `data-pointer-within`, never to React state
@@ -1332,7 +1371,7 @@ function CardTitleBar({
                   open={moveMenuOpen}
                   onOpenChange={setMoveMenuOpen}
                   items={spaces
-                    .filter((space) => space.id !== activeSpaceId)
+                    .filter((space) => space.id !== barSpaceId)
                     .map((space) => ({ id: space.id, label: space.name }))}
                   onSelect={(id) => onMoveToSpace(id)}
                   data-testid="tug-pane-title-bar-move-space-menu"
@@ -1769,7 +1808,7 @@ function CardTitleBar({
       </div>
     </div>
   );
-});
+}), (prev, next) => plainEqual(prev, next));
 
 // ===========================================================================
 // Portal + dirty contexts (card content consumes these)
@@ -2277,13 +2316,13 @@ function cssLength(value: CSSProperties["left"]): string {
 // `slotStack` prop does not hand the title bar a fresh identity per render.
 const EMPTY_SLOT_STACK: readonly SlotStackEntry[] = [];
 
-// The same trick for the workspace list: a title bar with no deck behind it
-// takes one frozen empty array rather than a new one each render, and the
-// two frozen functions beside it are what `useSyncExternalStore` is handed
-// in that case — a subscription that never fires and a snapshot of nothing.
-const EMPTY_SPACES: readonly { id: string; name: string }[] = [];
-const NO_SPACES_SUBSCRIBE = (): (() => void) => () => {};
-const NO_SPACES_SNAPSHOT = (): null => null;
+// What the title bar's move control reads off the workspace list, and the one
+// frozen answer for a bar with no deck behind it.
+interface SpacesView {
+  spaces: readonly { id: string; name: string }[];
+  ownSpaceId: string | undefined;
+}
+const NO_SPACES_VIEW: SpacesView = { spaces: [], ownSpaceId: undefined };
 
 type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
@@ -4699,9 +4738,13 @@ function TugPaneImpl({
   //
   // Only a COLUMN has them. A rail is always divided and its sashes are the
   // hand's ([B01], [B03]), so its badge offers its members and nothing else.
+  // The SLOT, not the placement: a placement is rebuilt on every commit that
+  // moves the flow strip, and a callback keyed on it was a new title bar prop
+  // on every pane at every activation and close.
+  const placementSlot = placement?.slot;
   const handleArrangePlace = useCallback(
     (verb: "split" | "stack" | "equalize") => {
-      const slot = placement?.slot;
+      const slot = placementSlot;
       if (slot === undefined) return;
       if (verb === "equalize") {
         dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
@@ -4709,7 +4752,7 @@ function TugPaneImpl({
       }
       dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: verb });
     },
-    [placement],
+    [placementSlot],
   );
 
   const closable = effectiveMeta.closable !== false;

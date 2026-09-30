@@ -108,12 +108,16 @@
 import "./layout-card.css";
 
 import React, {
+  memo,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
 } from "react";
+
+import { deepEqual } from "@/lib/deep-equal";
 
 import { LayoutMiniature } from "@/components/layout/layout-miniature";
 import type {
@@ -779,6 +783,81 @@ interface PlanLayer {
   };
 }
 
+/**
+ * The plan's preview layers — one drawing per row the reader can audition,
+ * each hidden until its row is hovered or cursored, which the plan answers by
+ * `display` rather than by React.
+ *
+ * Memoized on its props by value and handed DEFERRED values by its caller, and
+ * the pair is the point. Every one of these drawings depends on the committed
+ * arrangement, so any change to the deck re-rendered all twenty-six of them —
+ * their miniatures, their marks, every mark's glyph and button — in the same
+ * commit as the change, which is to say inside the settle the change was
+ * animating through: 1100–1600 performed fibres per column division, twice
+ * again on a close (`at0654`'s commit census, 2026-09-30). None of them is on
+ * screen while that happens. Behind `useDeferredValue` the urgent commit keeps
+ * the previous layers and this component bails; React then renders the new
+ * ones at transition priority, in slices it yields between, and a preview
+ * catches up a few frames after the deck does — before any hand can reach
+ * its row.
+ */
+const PreviewLayers = memo(function PreviewLayers({
+  layers,
+  bandPx,
+}: {
+  layers: readonly PlanLayer[];
+  bandPx: number | undefined;
+}): React.ReactElement {
+  return (
+    <>
+      {layers.map((layer) => (
+        <div
+          className="layouts-plan-layer"
+          data-plan-preview-id={layer.previewId}
+          key={layer.previewId}
+        >
+          <div className="layouts-plan-summary">
+            <PlanCaption values={layer.caption} />
+            <span className="layouts-plan-note">{layer.note}</span>
+          </div>
+          {/* A proposal carries no places — nobody has stood the deck
+              under it — but it carries the BAND, because the band is a
+              measurement of the window and a preview does not change the
+              window. Without it a proposal would be drawn against a
+              nominal band and the committed drawing against the real one,
+              and the picture would jump on hover for the same reason it
+              used to jump on a layout toggle.
+
+              A rail preview is the one layer that would really move the
+              band, and it is drawn against the committed one anyway: what
+              the allocator would answer for a rail set nobody has stood
+              under is not knowable without running it. */}
+          <LayoutMiniature
+            kind={layer.kind}
+            rails={layer.rails}
+            width={layer.width}
+            layout={layer.layout}
+            columnSplits={layer.columnSplits}
+            flowBandPx={bandPx}
+          />
+          {/* The layer's own marks, inert, at the layer's geometry — the
+              live overlay steps back while a preview shows, so the ghost
+              is the only legend on the auditioned drawing. */}
+          <LayoutPlaces
+            kind={layer.kind}
+            rails={layer.rails}
+            width={layer.width}
+            layout={layer.layout}
+            band={bandPx}
+            columns={layer.ghost.columns}
+            ghost
+          />
+        </div>
+      ))}
+    </>
+  );
+}, deepEqual);
+
 /** The caption's values, with a muted separator between them and the first
  *  carrying the weight — the AI mixer's readout, worn here. */
 function PlanCaption({
@@ -1259,6 +1338,10 @@ export function LayoutContent(
       };
     }),
   ].map((layer) => ({ ...layer, columnSplits }));
+  // The preview layers render a few frames behind the deck, off the settle —
+  // see `PreviewLayers`.
+  const deferredLayers = useDeferredValue(layers);
+  const deferredBandPx = useDeferredValue(committedFlow?.bandPx);
 
   // There is deliberately no layer per ARRANGEMENT proposal — no
   // `columnmode:<slot>:<mode>`, no `railmode:<side>:<mode>`. A layer exists to
@@ -1375,50 +1458,7 @@ export function LayoutContent(
               columnAllocations={committedAllocations.columns}
             />
           </div>
-          {layers.map((layer) => (
-            <div
-              className="layouts-plan-layer"
-              data-plan-preview-id={layer.previewId}
-              key={layer.previewId}
-            >
-              <div className="layouts-plan-summary">
-                <PlanCaption values={layer.caption} />
-                <span className="layouts-plan-note">{layer.note}</span>
-              </div>
-              {/* A proposal carries no places — nobody has stood the deck
-                  under it — but it carries the BAND, because the band is a
-                  measurement of the window and a preview does not change the
-                  window. Without it a proposal would be drawn against a
-                  nominal band and the committed drawing against the real one,
-                  and the picture would jump on hover for the same reason it
-                  used to jump on a layout toggle.
-
-                  A rail preview is the one layer that would really move the
-                  band, and it is drawn against the committed one anyway: what
-                  the allocator would answer for a rail set nobody has stood
-                  under is not knowable without running it. */}
-              <LayoutMiniature
-                kind={layer.kind}
-                rails={layer.rails}
-                width={layer.width}
-                layout={layer.layout}
-                columnSplits={layer.columnSplits}
-                flowBandPx={committedFlow?.bandPx}
-              />
-              {/* The layer's own marks, inert, at the layer's geometry — the
-                  live overlay steps back while a preview shows, so the ghost
-                  is the only legend on the auditioned drawing. */}
-              <LayoutPlaces
-                kind={layer.kind}
-                rails={layer.rails}
-                width={layer.width}
-                layout={layer.layout}
-                band={committedFlow?.bandPx}
-                columns={layer.ghost.columns}
-                ghost
-              />
-            </div>
-          ))}
+          <PreviewLayers layers={deferredLayers} bandPx={deferredBandPx} />
         </div>
 
         {/* The places, over whichever layer is showing — anchored to the figure
