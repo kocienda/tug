@@ -2718,6 +2718,9 @@ extension AppDelegate: BridgeDelegate {
         // selectable result. In file mode the user descends dirs to pick a file.
         panel.canChooseDirectories = !wantFile
         panel.allowsMultipleSelection = false
+        // Directory mode picks a destination, which may not exist yet — a
+        // fresh project root is a folder the user makes here or not at all.
+        panel.canCreateDirectories = !wantFile
         panel.message = wantFile ? "Choose a file" : "Choose a directory"
         panel.prompt = "Choose"
         // This chooser feeds text contexts only, so it stays restricted to
