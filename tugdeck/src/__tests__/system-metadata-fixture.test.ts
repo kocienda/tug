@@ -46,17 +46,17 @@ describe("createFixtureSessionMetadataStore", () => {
     // arc door and stage names; the capturing account's `anthropic-skills:*`
     // and `design` skills ride along too; the agent list is the built-in
     // Claude Code set:
-    //   slash_commands: 69  (34 upgrade to "skill", 35 stay "local")
+    //   slash_commands: 74  (39 upgrade to "skill", 35 stay "local")
     //   agents: 5
-    //   total after dedup: 74
-    expect(snapshot.slashCommands.length).toBe(74);
+    //   total after dedup: 79
+    expect(snapshot.slashCommands.length).toBe(79);
 
     const byCategory = new Map<string, number>();
     for (const cmd of snapshot.slashCommands) {
       byCategory.set(cmd.category, (byCategory.get(cmd.category) ?? 0) + 1);
     }
     expect(byCategory.get("local")).toBe(35);
-    expect(byCategory.get("skill")).toBe(34);
+    expect(byCategory.get("skill")).toBe(39);
     expect(byCategory.get("agent")).toBe(5);
   });
 
@@ -82,11 +82,20 @@ describe("createFixtureSessionMetadataStore", () => {
     // `autocompact` arrived in v2.1.222 and carries `com` as a substring,
     // so it is offered but ranks below the `compact` prefix match.
     // `anthropic-skills:import-memory` (c…o…m in order) arrived with the
-    // account skills at v2.1.276 and ranks last, as a subsequence hit.
+    // account skills at v2.1.276, alongside `anthropic-skills:computer-use`
+    // and `anthropic-skills:chrome-browser`. `computer-use` begins a word
+    // with `com`, so it outranks `autocompact`'s mid-word substring; the
+    // other two are subsequence hits and rank last.
     const store = createFixtureSessionMetadataStore(rawJsonl);
     const provider = store.getCommandCompletionProvider();
     const names = provider("com").map((h) => h.label);
-    expect(names).toEqual(["compact", "autocompact", "anthropic-skills:import-memory"]);
+    expect(names).toEqual([
+      "compact",
+      "anthropic-skills:computer-use",
+      "autocompact",
+      "anthropic-skills:chrome-browser",
+      "anthropic-skills:import-memory",
+    ]);
   });
 
   it("rejects empty JSONL", () => {
