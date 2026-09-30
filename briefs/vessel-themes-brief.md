@@ -62,19 +62,19 @@ Many more files mention `brio` in comments. Rust test fixtures in `tugrust/crate
 | Name | Mode | Was | Tint | Key |
 |---|---|---|---|---|
 | `ironclad` | dark, base | `brio` | indigo-violet | cobalt |
-| `trawler` | dark | `nocturne` | teal | seafoam |
+| `caravel` | dark | `nocturne` | teal | seafoam |
 | `barque` | dark | `bravura` | grape | purple |
 | `galleon` | dark | new | honey | cerulean |
 | `collier` | dark | new | azure | rose |
 | `sloop` | light | `harmony` | indigo | blue |
 | `ketch` | light | `aria` | orchid | iris |
 | `skiff` | light | `vivace` | cyan | seafoam |
-| `dory` | light | new | honey | sapphire |
-| `yawl` | light | new | pink | rose |
+| `kayak` | light | new | honey | sapphire |
+| `pinnace` | light | new | pink | rose |
 
-**[B03] The four new themes fill the two gaps [F02] names, as cross-mode pairs.** `galleon` and `dory` are the warm pair, sharing the honey tint so they read as siblings across modes. `collier` and `yawl` are the rose pair: a quiet tint with one hot Key. The user accepted this color plan as "good enough to try", so it is a starting point for the audit, not a final tuning.
+**[B03] The four new themes fill the two gaps [F02] names, as cross-mode pairs.** `galleon` and `kayak` are the warm pair, sharing the honey tint so they read as siblings across modes. `collier` and `pinnace` are the rose pair: a quiet tint with one hot Key. The user accepted this color plan as "good enough to try", so it is a starting point for the audit, not a final tuning.
 
-**[B04] Warm themes take a cool Key.** Per [F05], `galleon` takes cerulean and `dory` takes sapphire. The warmth lives in the tint; the Key stays clear of caution and of the Accent.
+**[B04] Warm themes take a cool Key.** Per [F05], `galleon` takes cerulean and `kayak` takes sapphire. The warmth lives in the tint; the Key stays clear of caution and of the Accent.
 
 **[B05] The Accent stays orange on all ten.** Per [F03] no theme has taken up a per-theme Accent yet, and doing so is a separate decision from adding themes. Revisit only if the audit shows orange sitting badly on the honey tints.
 
@@ -88,8 +88,8 @@ Many more files mention `brio` in comments. Rust test fixtures in `tugrust/crate
 
 ## Open Questions {#open-questions}
 
-- **Does rose hold apart from danger red under color-vision deficiency?** [F04] is arithmetic only. The contrast audit's CVD checks on `collier` and `yawl` settle it. If it fails, azure is the agreed fallback Key for `collier`; `yawl` has no agreed fallback yet.
-- **Is `yawl` the right word for the rose light theme?** It is the least literal fit of the ten. `lugger`, whose traditional sails were red-tan, is the recorded alternate. The user accepted the set as given, so this only reopens if they raise it.
+- **Does rose hold apart from danger red under color-vision deficiency?** [F04] is arithmetic only. The contrast audit's CVD checks on `collier` and `pinnace` settle it. If it fails, azure is the agreed fallback Key for `collier`; `pinnace` has no agreed fallback yet.
+- **Is `pinnace` the right word for the rose light theme?** It is the least literal fit of the ten. `lugger`, whose traditional sails were red-tan, is the recorded alternate. The user chose it over `yawl` and `corvette`, so this only reopens if they raise it.
 
 ---
 
@@ -97,10 +97,11 @@ Many more files mention `brio` in comments. Rust test fixtures in `tugrust/crate
 
 - **Sea-state and material names.** `abyss`, `grotto`, `gloaming`, `oakum`, `squall`, `spume`, `nacre`, `shallows`, `sailcloth`, `conch` were proposed and rejected by the user.
 - **Famous-ship proper names.** `endurance`, `beagle`, `calypso` and similar were offered as a second register and not taken; they carry no dark or light signal.
+- **`corvette` for the rose light theme.** Proposed and withdrawn: a corvette is a warship, which breaks the ships-dark, boats-light split in [B01], and the word belongs to the car far more than to the navy.
 - **Per-theme Accent hues.** See [B05].
 - **Retuning the six existing themes.** Their colors are untouched; this work renames them.
 - **A compatibility bridge for old names.** See [B07].
-- **Alternates held in reserve, not shipped.** Dark: `frigate`, `schooner`, `whaler`, `dreadnought`. Light: `cutter`, `clipper`, `dhow`, `lugger`, `wherry`, `coracle`.
+- **Alternates held in reserve, not shipped.** Dark: `frigate`, `schooner`, `whaler`, `dreadnought`, `trawler`. Light: `cutter`, `clipper`, `dhow`, `lugger`, `wherry`, `coracle`, `dory`, `yawl`, `canoe`.
 
 ---
 
@@ -109,6 +110,6 @@ Many more files mention `brio` in comments. Rust test fixtures in `tugrust/crate
 **An arc.** Its natural order:
 
 - Rename the six existing themes across the surface in [F07], with `ironclad` as the base, and get the existing tests and the contrast audit green under the new names before any new theme exists.
-- Derive `galleon` and `collier` from `ironclad`, and `dory` and `yawl` from `sloop`, per [F06]; remap each tint, set each host canvas hex, register all four in `SHIPPED_THEME_NAMES`, and extend the deriver's `FAMILY` table, fixing its Accent drift from [F03] on the way.
+- Derive `galleon` and `collier` from `ironclad`, and `kayak` and `pinnace` from `sloop`, per [F06]; remap each tint, set each host canvas hex, register all four in `SHIPPED_THEME_NAMES`, and extend the deriver's `FAMILY` table, fixing its Accent drift from [F03] on the way.
 - Run the contrast audit on all ten and resolve the rose question above.
 - Rewrite the theme table in `tuglaws/theme-engine.md` and the theme section of `CLAUDE.md`.
