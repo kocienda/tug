@@ -133,6 +133,9 @@ describe("deriveSessionCardBannerSpec — breakage only", () => {
       cause: "session_state_errored",
       message: "boom",
       at,
+      // A cause the bridge sent no verdict on is not recoverable: the banner
+      // must not offer a restart nobody promised.
+      recoverable: false,
     });
   });
 
@@ -207,6 +210,40 @@ describe("deriveSessionCardBannerSpec — breakage only", () => {
       { dismissedAt: null },
     );
     expect(spec.kind).toBe("none");
+  });
+
+  it("carries the bridge's recoverable verdict, which the copy branches on", () => {
+    // The banner tells the reader what Dismiss buys, and the two answers are
+    // different facts: a recoverable frame means tugcode still holds the
+    // session and the next submit restarts claude against it, while an
+    // unrecoverable one means there is nothing to send to. The spec is where
+    // that distinction has to survive, or the body copy is guessing.
+    const recoverable = deriveSessionCardBannerSpec(
+      baseSnap({
+        lastError: {
+          cause: "wire_error",
+          message: "Claude process stream ended unexpectedly",
+          at: 1_700_000_000_000,
+          recoverable: true,
+        },
+      }),
+      { dismissedAt: null },
+    );
+    expect(recoverable.kind === "error" && recoverable.recoverable).toBe(true);
+
+    // Absent is not recoverable either: an older tugcode sent no verdict, and
+    // the banner must not invent one.
+    const silent = deriveSessionCardBannerSpec(
+      baseSnap({
+        lastError: {
+          cause: "wire_error",
+          message: "Claude process stream ended unexpectedly",
+          at: 1_700_000_000_000,
+        },
+      }),
+      { dismissedAt: null },
+    );
+    expect(silent.kind === "error" && silent.recoverable).toBe(false);
   });
 
   it("the auth gate never surfaces a card banner (routes to ConfigureTug + picker)", () => {
@@ -341,6 +378,7 @@ describe("deriveSessionCardBannerSpec — replay-loading retired", () => {
       cause: "session_state_errored",
       message: "boom",
       at,
+      recoverable: false,
     });
   });
 });

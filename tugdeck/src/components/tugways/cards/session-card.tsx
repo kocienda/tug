@@ -1618,8 +1618,17 @@ function renderSessionCardBanner(
         }
       >
         <p>
-          This card lost its session. Dismiss to keep working here, or close and
-          reopen the card to start a fresh session.
+          {spec.recoverable
+            ? // True because the bridge says so and the bridge can act on it:
+              // a recoverable frame means tugcode is alive and still holding
+              // this session, and its next submit respawns claude against the
+              // same conversation. Promise the restart, not a fresh start.
+              "The connection to Claude dropped. Dismiss to keep working here — your next message restarts it and picks up this conversation."
+            : // And here the old copy's "Dismiss to keep working here" was
+              // simply false: the entry stays inert, because there is nothing
+              // left to send to. Say what Dismiss actually buys — the
+              // transcript, to read and copy — and where the way out is.
+              "This card lost its session and cannot restart it. Dismiss to read the transcript; close and reopen the card to start a fresh session."}
         </p>
         {spec.site ? (
           // The bridge's own name for the code path that wrote the frame.

@@ -61,6 +61,17 @@ export type SessionCardBannerSpec =
        * tugcode older than the field.
        */
       site?: string;
+      /**
+       * The bridge's verdict on whether the session can go on, normalized to
+       * a plain boolean (absent — an older tugcode with no opinion — reads as
+       * `false`). The banner's body copy branches on it, because the two
+       * cases are not the same event described twice: on a recoverable error
+       * tugcode is alive and holding the session and the next submit puts a
+       * claude back under it, and on an unrecoverable one the session really
+       * is gone. A banner that said one thing for both was telling half its
+       * readers something untrue.
+       */
+      recoverable: boolean;
     };
 
 /**
@@ -110,6 +121,7 @@ export function deriveSessionCardBannerSpec(
       cause: snap.lastError.cause as BannerErrorCause,
       message: snap.lastError.message,
       at: snap.lastError.at,
+      recoverable: snap.lastError.recoverable === true,
       ...(snap.lastError.site !== undefined
         ? { site: snap.lastError.site }
         : {}),
