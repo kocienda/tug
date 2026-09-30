@@ -58,7 +58,11 @@ export function marksEnabled(): boolean {
  *
  * Every `performance.mark("tug:…")` on this deck goes through here. A call
  * site that writes one directly is the defect this module exists to remove,
- * and `just app-test`'s step checkpoint greps for exactly that.
+ * and as of this writing there is no direct call site left. **Nothing
+ * enforces that.** A check was described here once — a grep in an app-test
+ * step checkpoint — and it was never built, so the invariant holds by
+ * convention and by review, which is what a reader should assume rather
+ * than trusting a guard that is not there.
  */
 export function mark(name: string): void {
   if (!marksOn()) return;
@@ -68,8 +72,19 @@ export function mark(name: string): void {
 /**
  * Drop every standing performance mark.
  *
- * Called by the settle's arm and by the bench probe's arm, so that a reading
- * taken after a gesture describes that gesture. It clears the WHOLE buffer
+ * Called by `armSettleFrameProbe` (`test-surface.ts` ~3104) and by nothing
+ * else, so that a reading taken after a gesture describes that gesture.
+ *
+ * **The settle's own `arm` deliberately does NOT call this, and must not.**
+ * `arm` runs in the same task as the gesture that caused the commit, and the
+ * marks written earlier in that task — `tug:set-pane-folded` lands ~3 ms
+ * before `tug:arm-end` — are precisely the ones a fold reading depends on. A
+ * clear at the arm's entry would destroy the reading one step after it was
+ * built. The rule: a mark-clearing point must sit OUTSIDE the gesture's task,
+ * and the settle's arm is inside it
+ * (`briefs/deck-animation-pipeline-findings.md`, step 7).
+ *
+ * It clears the WHOLE buffer
  * rather than the `tug:` names alone: the buffer is ours in test mode, the
  * trace's own rows live elsewhere, and a selective clear would mean keeping a
  * list of names in sync with thirty call sites.

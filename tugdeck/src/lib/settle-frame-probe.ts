@@ -272,8 +272,8 @@ export interface SettleFrameReading {
   readonly offCurvePaneIds: readonly string[];
   /**
    * Ticks at which at least one frame was STRANDED: travelling on the tick
-   * before, carrying no effect at all on this one, and travelling again
-   * later, while standing at its committed pose.
+   * before and CUT OFF mid-travel, carrying no effect at all on this one, and
+   * travelling again later, while standing at its committed pose.
    *
    * The double-hop [B01] closes, and the one failure `offCurveTicks` cannot
    * see by construction — a tick with no effect on it has no curve to compare
@@ -281,6 +281,14 @@ export interface SettleFrameReading {
    * is the frame at the interrupted settle's END pose for one painted frame
    * before the replacement tween takes it back: mid → old end → mid → new
    * end. The bar is zero.
+   *
+   * **Cut off, not finished.** A pane whose own beat reached its end time
+   * lands at the identity and carries no effect after it, which is the same
+   * three facts a cut reads — so the previous tick's own CURVE is what
+   * separates them: at its end pose the beat landed, mid-travel it vanished.
+   * Without that reading a survivor whose room beat lands inside a still-open
+   * recording and is then re-tweened by a close reports a strand on the tick
+   * after landing, which is a landed frame ([F01]).
    */
   readonly strandedTicks: number;
   /** Every pane stranded at any tick. */
@@ -676,6 +684,15 @@ export function classifySettleFrames(
         // Held to the identity rather than counted for any effect-less tick:
         // a pane parked at a non-identity inline pose is being held, and a
         // hold is not the hop.
+        //
+        // And travelled-before is not enough on its own: a beat that reached
+        // its end time also leaves a pane at the identity with no effect, and
+        // a retarget later in the same recording puts an effect after it. The
+        // discriminator is the PREVIOUS tick's curve — the pose the tween that
+        // is now gone said it should hold — which is the end pose when the
+        // beat landed and mid-travel when it was cancelled. A previous curve
+        // that cannot be read at all is treated as a cut, so the narrowing
+        // never hides a strand it cannot rule out.
         const held = frame.appliedTranslate;
         const atCommittedPose =
           held === null ||
@@ -683,7 +700,13 @@ export function classifySettleFrames(
             Math.abs(held[1]) <= OFF_CURVE_TOLERANCE_PX);
         const present = effectByPane.get(frame.paneId);
         const travelledBefore = tick > 0 && present?.[tick - 1] === true;
-        if (atCommittedPose && travelledBefore) {
+        const previousCurve =
+          tick > 0 ? (curveByPane.get(frame.paneId)?.[tick - 1] ?? null) : null;
+        const cutOffMidTravel =
+          previousCurve === null ||
+          Math.abs(previousCurve[0]) > OFF_CURVE_TOLERANCE_PX ||
+          Math.abs(previousCurve[1]) > OFF_CURVE_TOLERANCE_PX;
+        if (atCommittedPose && travelledBefore && cutOffMidTravel) {
           strandedHere = true;
           strandedPaneIds.add(frame.paneId);
         }

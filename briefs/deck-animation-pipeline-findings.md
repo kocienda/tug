@@ -702,7 +702,7 @@ The brief's non-goals forbid loosening a bar to go green, so a red that is still
 
 ### One reading contradicts a prior one, and it is recorded rather than resolved
 
-Every hand-written selector for a session's phase dot in `at0652` landed on one inside a `tug-list-view-cell` the list was skipping with `content-visibility: auto`: present, **zero** animations, marked `content-visibility:auto`, while nine dot loops ran elsewhere on the same deck at the same instant. That is the opposite of what `at0629` measured and of what `offscreen.ts`'s header records as the reason the observer exists at all — "with 287 of 300 rows skipped every one of the 900 loops was still resident and running," which is also the reading in this document's residency table. Both cannot describe the same engine behaviour. Either the WebKit under this build changed, or the two fixtures differ in a way neither docblock names. Nothing was changed on the strength of either: `at0652` reads the dot off the animation census rather than off a box, so it does not wait on the answer. **Whoever settles this owns the residency table above as well.**
+Every hand-written selector for a session's phase dot in `at0652` landed on one inside a `tug-list-view-cell` the list was skipping with `content-visibility: auto`: present, **zero** animations, marked `content-visibility:auto`, while nine dot loops ran elsewhere on the same deck at the same instant. That is the opposite of what `at0629` measured and of what `offscreen.ts`'s header records as the reason the observer exists at all — "with 287 of 300 rows skipped every one of the 900 loops was still resident and running," which is also the reading in the doctrine's own off-screen table (`tuglaws/animation-doctrine.md`, #offscreen-limit, ~249 — the `content-visibility: auto` row, 900 loops resident with 287 rows skipped). That table is in the doctrine, not in this document. Both cannot describe the same engine behaviour. Either the WebKit under this build changed, or the two fixtures differ in a way neither docblock names. Nothing was changed on the strength of either: `at0652` reads the dot off the animation census rather than off a box, so it does not wait on the answer. **Whoever settles this owns that table as well** — it is the doctrine's, at `tuglaws/animation-doctrine.md` #offscreen-limit, and nothing in this paper carries a residency table of its own.
 
 ### The user's wave report did not reproduce
 
@@ -717,3 +717,157 @@ Reported during step 1: the wave animation in Session cards is not animating. `a
 ### The question this pass hands to the Beat primitive
 
 **Whether [B01]'s flush is the right fix for a retarget in the long run, or whether a retarget should be planned from the store delta.** The flush restores the pre-[D204] behaviour for retargets and is correct today: `arm` calls `store.flushPendingNotify()` after its measurement when it cancelled anything, so the commit lands on the arm's own tick and the restores are followed by the Last pass before anything paints. The cost is that a retarget pays its commit in-task, which is the price a retarget always paid. A store-planned retarget would keep the commit out of the task, but it needs the arm to know Last without the DOM — which is the Beat's open design question, and the prelaunch is its one worked instance. The prelaunch's own predicate is the shape of the answer: a beat planned from the store delta is valid only when nothing is waiting on the DOM, which is why its last two clauses are *no First rect standing* and *no arrival pending*. The Beat primitive generalises the prelaunch rather than replacing it, and it inherits this question with it.
+
+### Where this leaves the program, and the ask's own ledger
+
+A reader arriving at Step 7 cold sees one mechanism and one open question, which understates both what is left to do and what was deliberately declined. This subsection is that ledger. It was added by the cleanup arc, after the pass it describes.
+
+**The program, in the order Step 6 set and this pass did not change.**
+
+1. **Pane chrome subscribes to what it draws** — `useStoreDerived` at the pane, so a commit that changed nothing a title bar draws renders no title bar. Bench: `react-notify` → `last-pass` under 4 ms on the warm flip, and the deck commit's `performed` in the low hundreds. Still the next lever, still unbuilt.
+2. **A bench with bound cards.** The plain leg's picker cascade is a fixture cost; a fixture binding real sessions reads the deck the user has. Whether `at0622` grows that fixture or a sibling carries it is the user's call, since `at0622` is the pinned bar.
+3. **The Beat primitive + lint** (`tug-animator.ts`).
+4. **A brief** superseding the fold and new-card first-frame briefs, retiring `workspace-switch-quiet` and `sidebar-height-is-measured`, with law extensions if the probes hold.
+
+**Which gestures are planned before React, and which still plan in the Last pass.** One gesture is planned before React: the **flow-only slide**, where `arm` writes the new offset on every reader and launches the move beat from the store's own delta inside the gesture's task, and the Last pass adopts the running beat rather than planning one. **Every other gesture still plans in the Last pass, after React's commit** — the arrival, the departure, the bullseye, the slot move, the fold (`markFoldCrossing`, `markStillCrossing` and the opening-pose writes alike), the sidebar rails, the resize retune. So concept 1 below is delivered for one gesture out of the set it names, and that is the honest reading of it.
+
+**The ask's five concepts and two cross-cutting rules, each marked.** `briefs/graphics-animations-asks.md` is the ask; the marks are **delivered**, **reversed** (declined, with the citation that says why), or **owed**.
+
+| # | The ask | Mark | Where it stands |
+|---|---|---|---|
+| 1 | Motion before React, as the rule for **every** gesture | **owed** | Delivered for the flow-only slide alone. [D204] took the deck's notify off the gesture's task, and the prelaunch is the one store-planned beat. `briefs/session-fold-first-frame-brief.md` `[B01]`–`[B03]` are unbuilt (`briefs/settle-fixup-pass-brief.md` `[F14]`), and that brief now carries a banner saying so. |
+| 2 | The Beat as the only motion primitive, plus a lint | **owed** | Not built. Item 3 of the program above. The retarget question this pass hands it is stated in the section immediately above. |
+| 3 | Nothing is created or destroyed inside a gesture | **owed** | The departure ghost and the rail shadow strips are still `document.createElement` inside the gesture (`deck-canvas.tsx` ~5878, ~5947). The `departing` mark on the real frame, symmetric with `arriving`, is still the named end state and still unbuilt. |
+| 4 | One hold, one quiet | **reversed** | Consciously not taken by this pass. The five gates — arrival quiet, the body's proposed quiet, the settle's notification hold, the workspace epoch, the fold end event — stand as five. Collapsing them is a Beat-primitive change: a hold opened by a beat when it plans needs the Beat to exist first, so this waits on item 3 of the program rather than being refused on its merits. |
+| 5 | Height crosses by translation and occlusion, never by a height keyframe | **owed** | `lib/pane-flip.ts` ~395 and ~410 still animate a real `height` pair for the shrink and grow beats, with `markStillCrossing` as the bandage. The ask called this a candidate to bench rather than a decision, and no bench was run. It remains the only route to a settle window that is compositor-only in fact rather than in name. |
+| R1 | One instrument, one bar, every beat | **split: bar delivered, always-on reversed** | The per-beat row and its fixed bar exist and every `[B09]` behaviour is now held to them, beats asserted rather than noted. The other half — "on by default in the product" — is **declined**: every instrument is gated, and the gate is the point. An instrument that arms itself on a shipping path has stopped being a probe ([D1]); `lib/perf-marks.ts` gates every `tug:` mark on test mode or a live trace, and the settle's own record is gated on `deckTrace.isKindEnabled("settle-frames")` (`deck-canvas.tsx` ~4256). `briefs/deck-animation-pipeline-brief.md` `[B10]`, which described an always-on product pump, is bannered to match. |
+| R2 | Remove, don't rebuild, the recede fade | **delivered, and the reversal is written down** | `lib/pane-recede.ts`, `data-receded` and `data-recede-armed` are deleted rather than disabled; the recede is keyed on `data-focused` and cut with no transition. It reverses the pipeline brief's decision to rebuild the fade as compositor-only motion, and that reversal is recorded at [D203], which retires `[P05]` of that brief. The flash (`lib/flash-pane-border.ts`) is untouched and is not motion of the kind this removed — it is a receipt. |
+
+**One thing the ask asked for that nobody has contradicted and nobody has built:** a lint refusing `animate(` or an entrance `@keyframes` in product code that is not a beat or a registered loop. It rides with item 3 and is the enforcement half of it; without it, every rule above holds by review.
+
+## Step 8, 2026-09-30: the bars the cleanup tightened, and what they found
+
+Readings taken on the `settle-audit-cleanup` worktree as each bar landed. The arc's rule is that a red from a tightened bar is a finding recorded here, never a bar moved back.
+
+### `at0643`'s first-paint bar, at one derived display period
+
+The bar stood at 150 ms — a margin set from the 52–67 ms this very fixture was reading, which is a bar that cannot find its own subject wanting. [B05] took it to one derived period, which is the criterion the arc wrote and the one `at0622` holds on every leg.
+
+**It is red on every switch, and the cause is named in the reading itself.** Four switches on six streamed session cards, at a derived 17 ms period:
+
+| Switch | First paint | Of which React's render phase before the swap commit | Longest gap |
+|---|---|---|---|
+| A→B #1 | 78 ms | 60 ms | 29 ms (1 over the 20 ms budget) |
+| B→A #1 | 79 ms | 63 ms | 20 ms |
+| A→B #2 | 74 ms | 58 ms | 18 ms |
+| B→A #2 | 76 ms | 59 ms | 17 ms |
+
+So **three quarters of the lead is `commitDelayMs`** — React rendering the incoming space before the swap commits — and the deck's own share after the commit is 14–18 ms, which is one period. The gap clauses pass throughout; only the lead is red. This is the same class as the fold's 11–19 ms lead and the departure's 24–33 ms: a React commit standing between the gesture and the first frame. Unlike those two it is *entirely* pre-commit, so nothing after the arm can move it — the lever is rendering less of the incoming space before the swap, which is the pane-chrome grain and the Beat primitive's question rather than this pass's.
+
+### `at0652`'s loops, priced one at a time
+
+[F05]: the cost clause was one aggregate `rest()` with the dot and the wave both up, and an aggregate under the floor says the pair costs nothing without saying either one does. Each family is now silenced in turn with the product's own `--tug-loop-iterations: 0` knob, the census proves the switch took, and the survivor is priced alone.
+
+**Separating them found a cost the aggregate had been hiding.** On one bound Session card with a turn in flight, against an idle floor that read **0 updates/second, 0.0 ms busy**:
+
+| Reading | Running loops | Updates/second over the floor | Busy |
+|---|---|---|---|
+| Card idle (the floor) | none | 0 | 0.0 ms |
+| The wave alone (14 dots stood down) | `tugx-progress-wave-0/1/2` | **2** | 6.0 ms |
+| The dot alone (2 waves stood down) | `tugx-progress-pulsing-dot-breathe`/`emit-expand`/`emit-fade`, 3 each | **1** | 3.0 ms |
+
+Both are red against a floor of zero, and the wave is the larger of the two. Two things are owed before either number is acted on. The floor read exactly zero on this run where past runs did not, so part of the margin may be the floor rather than the loops — the comparison wants a repeat. And the aggregate leg never ran on this run, the wave's red throwing above it, so there is no same-run aggregate to set the two against. What is certain is the shape: a per-loop reading is red where the aggregate was green, which is precisely what [F05] said an aggregate could hide.
+
+### The caret is owed, and says so where it counts
+
+`at0652`'s caret clause was a `note()` inside a passing test — read, not claimed. It is now a `test.todo` naming the fixture reason: no app-test card takes real keyboard focus, so `.cm-focused` never sets and the caret layer mounts with `animation-name: none`. What closes it is a fixture that can take real keyboard focus; building one is its own question.
+
+### An all-suspended `at0643` run is red
+
+It used to be a second `note()` inside a green test — a test reporting its own vacuity and passing anyway. A green nobody can tell from a green that measured something is worse than a red that says why. The cause is usually the harness window being occluded rather than the product, and the message says so; it is still not a pass.
+
+### The two style reads on the activation path, priced
+
+[B07] asked whether the two `getComputedStyle` calls in the activation path are worth their place, and set the bar at one millisecond. They are, and the reason is more interesting than the number.
+
+`hiddenClaimReason` (`tugdeck/src/focus-transfer.ts` ~227) is the only style read on the path, and two call sites reach it: `mayDeferCommit` (~1276), which runs **before** the commit, and the post-claim miss check (~953), which runs **after** `applyBagFocus`. Marks were placed around each, and read at full `performance.now()` precision rather than through `clickTaskMarks`, which rounds to a tenth of a millisecond — the right resolution for the ordering claims the rest of this file makes, and the wrong one for a cost claim about a span this small.
+
+Two legs: `at0622`'s four-up warm flip, which reaches `raiseCard` through the `focus-session-card` action; and a new temporary leg driving a **trusted CGEvent click** on an unfocused pane's title bar, which is the real pointer path. Synthetic `PointerEvent`s were written first and thrown away — the gesture interpreter reads a real press, and a leg that fakes one is measuring the fake.
+
+| Reading | Warm flip | Pointer path |
+|---|---|---|
+| `mayDefer` span | 0 ms | **never called** |
+| post-claim span | 0 ms | 0 ms |
+| post-claim read reached | **no** | **no** |
+| `applyBagFocus` result | `deferred` | `deferred` |
+| enclosing span (flush open → post-claim read) | 5 ms | 9–12 ms |
+| enclosing span, reads removed under `file probe` | 4 ms | 11 ms |
+| `performance.now()` floor on this host | 1 ms | 1 ms |
+
+Three findings, in order of how much they change the picture.
+
+**The post-claim read does not run on either path.** It is gated on `applyBagFocus` returning `"applied"`, and on a Session card the resolution is `"deferred"` — so the branch is skipped and the 0 ms span is not a cheap read, it is no read. This is the finding that matters, because [B07]'s own fallback said that if the reads were too dear the answer was to drop the pre-commit one and "keep only the post-claim read" — which would have kept the one that never fires and dropped the one that does. A span of zero has two readings, and the instrument had to be taught to tell them apart before either could be trusted; the `taken` counter is what does it.
+
+**The pointer path never calls `mayDeferCommit` at all.** `pane-focus-controller`'s `activate` calls `transferFocusForActivation` with no `deferCommit`, so the pre-commit read is reached only through `raiseCard` — the `focus-session-card` action, `test-surface`, and the Layout card. The "two style reads in the activation path" the task list names are, on the gesture a user actually makes, zero.
+
+**The one read that does run is under the clock floor, and the probe agrees.** `performance.now()` is coarsened to a full millisecond on this host, so a 0 ms span is a bound rather than a measurement — which is why the falsifier is the `file probe` run with both reads removed, comparing the whole enclosing span. It moved 5 → 4 on the warm flip and 9–12 → 11 on the pointer path, inside the variance the readings show with the reads in. The mechanism is unsurprising once stated: the pre-commit read runs before anything in the task has touched the DOM, so style is clean and `getComputedStyle` is a cache hit rather than a forced recalc.
+
+The reads stay, and [D204] carries the cost.
+
+**What this does not cover, stated so a later reader does not over-read it.** The expensive case is a read that finds style dirty, and that is exactly the post-claim site — after a React commit — which never ran here. A change that makes `applyBagFocus` return `"applied"` on the activation path would put a forced recalc there, and this pass has not priced it. The task list also named the post-claim span as `tug:applyBagFocus-end` to `tug:flushSync-end`, which cannot be it: `tug:flushSync-end` is written at ~914, *before* `tug:applyBagFocus-end` at ~941. The span that brackets the read is `applyBagFocus-end` → `hidden-read-end`, and that is what was measured.
+
+### The first readings at a landed sha, and what running alone changed
+
+Every reading in Step 7 was taken on a dirty arc worktree ([F11]). This is the correction: seven files run **each alone**, then **once as one batch of seven**, on a clean tree at `588780c5a` — eight `dirty=0` rows in `apptest_results`, which are the first ledger rows this work has ever had at a landed commit.
+
+| File | Alone | In the batch of 7 |
+|---|---|---|
+| `at0622-deck-settle-frames` | FAIL 11/16 | FAIL 12/16 |
+| `at0566-three-beat-settle` | FAIL 0/1 | FAIL 0/1 |
+| `at0605-still-crossing-deliveries` | FAIL 0/1 | FAIL 0/1 |
+| `at0643-workspace-switch-cadence` | FAIL 0/1 | FAIL 0/1 |
+| `at0652-loop-cost-and-life` | **PASS 1/1** | **FAIL 0/1** |
+| `at0649-focus-claim-visible` | PASS 1/1 | PASS 1/1 |
+| `at0650-picker-present-first-responder` | PASS 1/1 | PASS 1/1 |
+
+**`at0652` is green alone and red only in a batch, and the baseline that called it "red by design" was wrong.** Step 5 priced the dot and the wave separately and the arc recorded both as deliberate reds — the wave reading 2 updates/second and the dot 1 against an idle floor of 0. Run alone at a landed tree the file passes outright. The bar is not an absolute floor but a **delta against the same card's own idle control taken in the same run**, and alone both readings are 1: `rest, card idle` reads `updatesPerSecond: 1`, `rest, wave alone` reads 1, so the difference is 0 and the clause holds. In the batch the idle control reads 0 while the wave second reads 1, and the same clause fails on a difference of 1. What moved is the control, not the wave. This is the case the project's own rule names — green alone and red only in batches is contention — and the correct reading is that **step 5's two `at0652` reds were an artifact of a dirty tree and a shared machine, not a finding.** The `at0643` red beside it is not: it fails alone too, at 80 ms against a 17 ms period.
+
+**`at0605-still-crossing-deliveries` is red alone, and it is the doctrine's own gate.** Its join leg reads B's composer bottom 3.9 px off its frame's bottom edge against a 1.5 px bar — the `data-still-anchor="bottom"` behaviour that `tuglaws/animation-doctrine.md`'s still-crossing paragraph asserts one sentence before citing this test as the gate. Red for 18 recorded runs across batches of 1 to 46, last green 2026-09-26 at `350eaa76d`. The doctrine now says so at the citation rather than pointing at a green that is not there. Note what the failure order costs: once the join clause fails, the stack and split no-delivery clauses are not separately reported, so what that paragraph can claim as verified is narrower than the red alone suggests.
+
+**`at0566` fails alone on the same clause it fails on in the batch** — arrival, a top inside B moving 1.93 px relative to its frame during the move against a 1.5 px bar. Last green 2026-09-30 at `09d8f0e56`, which is mid-arc, so [F11]'s "was not re-run" is now answered: it is red at a landed tree, on one clause, by 0.43 px.
+
+**`at0643` fails alone at 80 ms and in the batch at 71 ms**, both against one derived display period of 17 ms, with 63 and 54 ms of it React's render phase before the swap commit. This is the tightened bar from step 5 doing its job, and it is a red to record rather than a bar to move.
+
+**`at0622`'s failing legs rotate between runs at one tree, and the count is not the reading.** Alone it read 11/16 and in the batch 12/16, and the two runs do not fail the same set: the warm flip failed alone on `moveFirstPaintDelayMs` (34 ms against 17) and in the batch on the gap (2.41 frames against 2); the fold failed alone on the gap (1.06 frames against 1) and in the batch on the lead (19 ms against 17); `go-to-slot home` failed alone (19 ms against 17) and passed in the batch. Only `disappear` (2.76 and 2.71 frames against 2) and `sidebars show` (3.18 and 3.41 against 2) failed the same way in both. Those last two are the reds Step 10 attributes; the rest are edges sitting within a millisecond or a frame of their bars, and a single run's pass count says less about this file than the leg-by-leg comparison does.
+
+**What this closes and what it does not.** [F11] is closed: the ledger now has rows at a landed sha, every red above carries a history line, and `at0566` and `at0605` have been read at a landed tree rather than assumed. What it does not close is any of the four genuine reds — `at0605`'s join, `at0566`'s arrival, `at0643`'s first paint, and `at0622`'s departure and show-rail gaps — and none of their bars was moved.
+
+### The departure and the show rail, attributed
+
+These two are the only legs of `at0622` that failed the same way alone and in a batch, so they are the file's standing reds rather than edges that rotate. Both are now named. The instrument is the commit census (`window.__tugCommits`) and the click-task marks, read on each leg and left on it — `reportB09` prints the bar, and the two censuses print beside it, so the next reader re-reads the same rows rather than rebuilding the probe. Every `t` below is milliseconds relative to `tug:arm-end`.
+
+**The departure: pane chrome re-rendering, inside the settle, because closing a pane renumbers every surviving pane.** The leg read `longestGapMs` 39 over 2.29 frames with one gap over a frame; `tug:first-tick` at +1 and `tug:last-pass` at +13. Two commits dominate the window and they account for it:
+
+| t | fibers | performed | what |
+|---|---|---|---|
+| +14 | 2947 | **1828** | `TugConfirmPopover2` / `TugPopover2` / `TugPopoverContent2` / `TugPopoverAnchor` / `TugTooltip`, and `TugButton2` labelled *Close card*, *Alone in this place*, *Stack of 2 cards*, *In position 4 — move this card*. Top: `Presence` 94, `PopperAnchor` 92, `Popper` 90, `PopperProvider` 90 |
+| +21 | 2551 | 903 | `PlaceMark` 84, `PlaceGlyph` 84, `StackGlyph` 63, `Rail` 30, `LayoutPlaces` 27 — the Layout card's place marks |
+
+**It is re-rendering, not mounting**, and the labels say why: closing a pane changes every surviving pane's *position* label — "In position 4 — move this card" becomes "In position 3" — and its stack label, so each remaining pane's whole rollup popover tree re-renders. 1828 of 2947 fibers performed work for a change that is two strings per pane. The +21 commit is the Layout card, and that one is **legitimate**: a close really does change the places, so `useStoreDerived` correctly finds the derivation unequal and re-renders it. Both land **inside** the settle window, in its first 25 ms, which is exactly where the gap sits; a tail of 500–1300-fibre commits runs out to +64. The chain is visible in the marks: `tug:react-notify` at [-10, 17, 43], each notify producing its deferred commit a few milliseconds later.
+
+**The show rail: the rail's contents mount inside the gesture.** The leg read 3.35 frames with one gap over a frame, `firstPaintDelayMs` 8, and 25 off-curve ticks; `tug:first-tick` at +1 and `tug:last-pass` at +29. Three heavy commits, not one:
+
+| t | fibers | performed | what |
+|---|---|---|---|
+| +33 | 4341 | **3898** | jots rows (`Delete jot` / `Copy jot`, twelve pairs) and the sessions list. Top: `span` 899, `polygon` 255, `react.context` 198, `div` 150, `svg` 123 |
+| +39 | 3135 | 1126 | `PlaceMark` 84, `PlaceGlyph` 84, `StackGlyph` 84, `Rail` 32 |
+| +49 | 2752 | 972 | the same place-mark tree again |
+
+**The +33 commit is a mount**, and the ratio is the tell: 3898 of 4341 fibers performed work — ninety per cent of the tree — and the top counts are host elements (`span`, `polygon`, `svg`) rather than components, which is what a subtree entering the document produces rather than one re-rendering. Showing a rail mounts its entire contents, and it does so **four milliseconds after the Last pass**, squarely inside the settle. The Layout card's place marks then re-render **twice more**, at +39 and +49, and the tail runs to +136.
+
+**Neither cause is one line, so the named cause is the deliverable and no fix was landed.** Each lands on work the program above already names, which is the useful part of the attribution:
+
+- The departure is **program item 1** — *pane chrome subscribes to what it draws*. A commit that changed nothing a title bar draws must render no title bar; here a commit that changed two labels per pane re-renders every pane's popover tree. This is the same `useStoreDerived` grain that took the Layout card's eighty-four place marks out of the activation window, applied one level down, and the census now gives it a number to beat: 1828 performed fibres at +14.
+- The show rail is **concept 3** — *nothing is created or destroyed inside a gesture*. The rail's contents should already stand when the rail is revealed, exactly as the doctrine's `departing`/`arriving` end state says for pane layers. A mount of 3898 fibres inside the settle window cannot be made cheap by deferring it; it has to not happen there.
+
+What this does **not** establish: that removing either commit would bring its leg under the bar. The census names where the time goes and rules out the alternatives the gap counter cannot distinguish — a late start, a compositor stall, a fixture cost — but the bars were not re-read against a tree with either change made, because neither change was made.

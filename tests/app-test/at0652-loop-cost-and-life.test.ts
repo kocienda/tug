@@ -68,8 +68,9 @@ const WAVE = `${CARD} [data-slot="tug-progress-wave"]`;
  * being out of view, and a leg pointed at it is asking the wrong question.
  */
 const DOT = `${CARD} [data-slot="session-card-top-column"] [data-slot="tug-progress-pulsing-dot"]`;
-const CARET = `${CARD} .tug-text-editor-caret-layer`;
-const COMPOSER = `${CARD} [data-slot="tug-prompt-entry"] .cm-content`;
+/** Every phase dot on the deck, and every wave — the two loops priced below. */
+const ANY_DOT = '[data-slot="tug-progress-pulsing-dot"]';
+const ANY_WAVE = '[data-slot="tug-progress-wave"]';
 
 /** Frames per cost reading — [B09]'s number. */
 const COST_FRAMES = 120;
@@ -296,6 +297,38 @@ async function cost(
   );
 }
 
+/**
+ * Turn one family of loops off, by hand, with the product's own knob.
+ *
+ * `--tug-loop-iterations: 0` is what the circuit breaker, the off-screen
+ * rule and the understudy election each resolve to, and it removes the
+ * declaration from the timeline entirely rather than freezing it mid-cycle.
+ * Written inline on each element rather than through `data-tug-offscreen`,
+ * because the off-screen observer owns that attribute and would take it back
+ * on its next pass — the knob is the contract, the attribute is one of three
+ * ways of turning it.
+ *
+ * This is what lets the dot and the wave be priced SEPARATELY ([B05]). Both
+ * run in the same state — a session with a turn in flight — so a reading
+ * taken with both up is one aggregate, and an aggregate cannot say which
+ * loop paid. The census after each switch is what proves the switch worked.
+ */
+async function silenceLoops(
+  app: App,
+  selector: string,
+  off: boolean,
+): Promise<number> {
+  const n = await app.evalJS<number>(`(function () {
+    var els = document.querySelectorAll(${JSON.stringify(selector)});
+    for (var i = 0; i < els.length; i += 1) {
+      ${off ? `els[i].style.setProperty("--tug-loop-iterations", "0");` : `els[i].style.removeProperty("--tug-loop-iterations");`}
+    }
+    return els.length;
+  })()`);
+  await wait(300);
+  return n;
+}
+
 /** Every animation the deck is running, by name and count. */
 const census = (app: App): Promise<Record<string, number>> =>
   app.evalJS<Record<string, number>>(
@@ -336,47 +369,34 @@ async function launch(): Promise<App> {
 describe.skipIf(!SHOULD_RUN)(
   "at0652 — each standing loop runs, and each costs nothing over the floor",
   () => {
+    // The caret's two clauses, owed and not claimed ([B05]).
+    //
+    // The blink is declared under `&.cm-focused`, so the leg needs the
+    // editor's own focus state — and this harness cannot give it one.
+    // `focus-prompt` through the real door, `focusElement` on `.cm-content`,
+    // and a synthetic click all leave `.cm-focused` unset for a full sixty
+    // seconds: the caret LAYER mounts and carries `animation-name: none`,
+    // because the editor never became focused. That is the same wall this
+    // arc recorded for `focus-claim-hidden` — an app-test fixture gives the
+    // focus resolver no framework destination, and `document.activeElement`
+    // stands on a DIV outside every card subtree even at rest.
+    //
+    // It was a `note()` inside a passing test, which is the shape [F05]
+    // objects to: a clause read and not claimed inside a green test reads as
+    // covered. A `todo` says the same thing where a reader counting the
+    // file's bars can see it. What closes it is a fixture that can take real
+    // keyboard focus; building one is its own question.
+    test.todo(
+      "the caret blinks in the composer — owed: no app-test card takes real " +
+        "keyboard focus, so `.cm-focused` never sets and the caret layer " +
+        "mounts with `animation-name: none`",
+    );
+
     test(
-      "the caret, the phase dot and the in-flight wave each run, and the deck's frame pays for none of them",
+      "the phase dot and the in-flight wave each run, and the deck's frame pays for neither of them",
       async () => {
         const app = await launch();
         try {
-
-          // ---- The caret: read, noted, and NOT claimed. -----------------
-          //
-          // The blink is declared under `&.cm-focused`, so the leg needs the
-          // editor's own focus state — and this harness cannot give it one.
-          // `focus-prompt` through the real door, `focusElement` on
-          // `.cm-content`, and a synthetic click all leave `.cm-focused`
-          // unset for a full sixty seconds: the caret LAYER mounts and
-          // carries `animation-name: none`, because the editor never became
-          // focused. That is the same wall this arc already recorded for
-          // `focus-claim-hidden` — an app-test fixture gives the focus
-          // resolver no framework destination, and `document.activeElement`
-          // stands on a DIV outside every card subtree even at rest.
-          //
-          // So the caret's two clauses are a reading here rather than a bar.
-          // Claiming one either way would be false: asserting the loop runs
-          // fails on a fixture that cannot focus, and asserting it is absent
-          // pins the fixture's limitation as though it were the product's.
-          // What would close it is a fixture that can take real keyboard
-          // focus. The cost clause below is unaffected — it is taken over
-          // whatever is actually running.
-          await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("focus-prompt", {}), null)`,
-          );
-          await wait(400);
-          const [caret1, caret2] = await twice(app, CARET);
-          const caretFocused = await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(`${CARD} .cm-focused`)}) !== null`,
-          );
-          note(
-            `at0652 caret (NOT claimed — this fixture cannot focus the ` +
-              `editor; cm-focused=${caretFocused}): ` +
-              `${JSON.stringify(caret1)} -> ` +
-              `${JSON.stringify(caret2.currentTimes)}`,
-          );
-
           // ---- The phase dot. -------------------------------------------
           //
           // The masthead's identity pill carries it, and it is MOUNTED at
@@ -471,7 +491,81 @@ describe.skipIf(!SHOULD_RUN)(
           const dotAtRestLive = await loopLife(app, DOT);
           note(`at0652 dot (selector) live: ${JSON.stringify(dotAtRestLive)}`);
 
-          // ---- The cost, with all three running and nothing else. -------
+          // ---- Each loop's own cost, against the idle floor ([B05]). ----
+          //
+          // [F05]: the reading below used to be ONE rest() with the dot and
+          // the wave both up. An aggregate under the floor says the pair
+          // costs nothing; it does not say either one does, and a loop that
+          // woke the thread while the other one stood the reading down would
+          // hide inside it. So each family is silenced in turn, with the
+          // census proving the switch took, and each survivor is priced on
+          // its own against the same idle floor.
+
+          // The wave, alone: every dot on the deck stood down.
+          const dotsSilenced = await silenceLoops(app, ANY_DOT, true);
+          const waveOnly = await census(app);
+          note(
+            `at0652 wave alone (${dotsSilenced} dot(s) stood down): ` +
+              `${JSON.stringify(waveOnly)}`,
+          );
+          expect(
+            waveOnly["tugx-progress-pulsing-dot-breathe"] ?? 0,
+            `wave alone: every dot loop actually stood down — running loops ` +
+              `${JSON.stringify(waveOnly)}. A reading taken with the dots ` +
+              `still up is the aggregate this leg exists to stop being`,
+          ).toBe(0);
+          expect(
+            waveOnly["tugx-progress-wave-0"] ?? 0,
+            `wave alone: and the wave is still the loop being priced — ` +
+              `${JSON.stringify(waveOnly)}`,
+          ).toBeGreaterThan(0);
+          const restWave = await rest(app, "__at0652RestWave");
+          note(`at0652 rest, wave alone: ${JSON.stringify(restWave)}`);
+          await silenceLoops(app, ANY_DOT, false);
+
+          // The dot, alone: the wave stood down.
+          const wavesSilenced = await silenceLoops(app, ANY_WAVE, true);
+          const dotOnly = await census(app);
+          note(
+            `at0652 dot alone (${wavesSilenced} wave(s) stood down): ` +
+              `${JSON.stringify(dotOnly)}`,
+          );
+          expect(
+            dotOnly["tugx-progress-wave-0"] ?? 0,
+            `dot alone: the wave actually stood down — running loops ` +
+              `${JSON.stringify(dotOnly)}`,
+          ).toBe(0);
+          expect(
+            dotOnly["tugx-progress-pulsing-dot-breathe"] ?? 0,
+            `dot alone: and a dot is still breathing — ` +
+              `${JSON.stringify(dotOnly)}`,
+          ).toBeGreaterThan(0);
+          const restDot = await rest(app, "__at0652RestDot");
+          note(`at0652 rest, dot alone: ${JSON.stringify(restDot)}`);
+          await silenceLoops(app, ANY_WAVE, false);
+
+          expect(
+            restWave.updatesPerSecond,
+            `the wave wakes the main thread for no rendering update the ` +
+              `deck was not already paying for — with every dot stood down ` +
+              `the second carried ${restWave.updatesPerSecond} update(s) ` +
+              `over the ${restWave.floorMs}ms floor, ` +
+              `${restWave.busyMsPerSecond.toFixed(1)}ms busy; the same card ` +
+              `idle carried ${restQuiet.updatesPerSecond}, ` +
+              `${restQuiet.busyMsPerSecond.toFixed(1)}ms busy`,
+          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond);
+          expect(
+            restDot.updatesPerSecond,
+            `the phase dot wakes the main thread for no rendering update ` +
+              `the deck was not already paying for — with the wave stood ` +
+              `down the second carried ${restDot.updatesPerSecond} ` +
+              `update(s) over the ${restDot.floorMs}ms floor, ` +
+              `${restDot.busyMsPerSecond.toFixed(1)}ms busy; the same card ` +
+              `idle carried ${restQuiet.updatesPerSecond}, ` +
+              `${restQuiet.busyMsPerSecond.toFixed(1)}ms busy`,
+          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond);
+
+          // ---- And the pair together, which is the deck as shipped. -----
           //
           // Both readings, because they answer different questions. `rest()`
           // is [B09]'s clause — how many rendering updates over the floor
@@ -479,7 +573,7 @@ describe.skipIf(!SHOULD_RUN)(
           // what an update cost when one ran, over the window the ask names.
           const restAll = await rest(app, "__at0652RestAll");
           const costAll = await cost(app, "__at0652Cost", COST_FRAMES);
-          note(`at0652 rest, all three: ${JSON.stringify(restAll)}`);
+          note(`at0652 rest, dot and wave: ${JSON.stringify(restAll)}`);
           note(`at0652 cost over ${COST_FRAMES} frames: ${JSON.stringify(costAll)}`);
 
           expect(

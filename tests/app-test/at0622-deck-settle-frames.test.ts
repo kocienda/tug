@@ -1615,12 +1615,19 @@ const readGhostCensus = (
 
 /**
  * The click task's marks, milliseconds after the last `tug:arm-end`: count,
- * first and last, from 60ms before it to 200ms after.
+ * every occurrence, from 60ms before it to 200ms after.
  *
  * The names are the ones that survive [B07]'s gate. The four per-render marks
  * and the per-subscriber `tug:sync:*` pair are gone from the product — they
  * were a mark per React render and six pairs per commit, on every instance,
  * for a census this reader only ever printed.
+ *
+ * **Every occurrence, and [B06] is why.** A mark seen more than three times
+ * used to fold to `{n, first, last, inFlush}`, and the fold is what the
+ * in-flush pin reads: a Last pass in the MIDDLE of a longer run — the one
+ * place the pin exists to look — was invisible to a filter that only ever
+ * saw the two ends. The window is bounded at 260ms, so the list it keeps
+ * instead is bounded too.
  */
 const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
   app.evalJS<Record<string, unknown>>(
@@ -1644,25 +1651,26 @@ const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
          var ts = performance.getEntriesByName(n)
            .map(function (e) { return Math.round((e.startTime - origin) * 10) / 10; })
            .filter(function (t) { return t > -60 && t < 200; });
-         out[n] = ts.length <= 3 ? ts : { n: ts.length, first: ts[0], last: ts[ts.length - 1],
-           inFlush: ts.filter(function (t) { return t >= 0 && t <= 22; }).length };
+         out[n] = ts;
        });
        return out;
      })()`,
   );
 
-/** Every recorded offset for one mark, whether the census folded it or not. */
+/**
+ * Every recorded offset for one mark.
+ *
+ * It used to reconstruct a list from the census's `{first, last}` fold, which
+ * is the half of [F07] that made a middle occurrence invisible. The census
+ * keeps every occurrence now ([B06]), so this is the read it always should
+ * have been.
+ */
 function markTimes(
   marks: Record<string, unknown>,
   name: string,
 ): readonly number[] {
   const v = marks[name];
-  if (Array.isArray(v)) return v as readonly number[];
-  if (v !== null && typeof v === "object") {
-    const o = v as { first?: number; last?: number };
-    return [o.first, o.last].filter((n): n is number => typeof n === "number");
-  }
-  return [];
+  return Array.isArray(v) ? (v as readonly number[]) : [];
 }
 
 /** The same three readings the pin makes, as a diagnostics line. */
@@ -1703,6 +1711,13 @@ function reportLastPassOrder(
  * +3: the Last pass is the layout effect of the commit the notify caused,
  * which is the shape the ordering is asserting and the reason the clause is
  * `>=` rather than `>`.
+ *
+ * **The flush marks are ASSERTED PRESENT, not read if present ([B06]).** The
+ * in-flush clause used to sit behind an `if` on both marks being there, so a
+ * change that stopped emitting them — a rename, a gate that swallowed them,
+ * a `flushSync` removed from the path — skipped the pin in silence and the
+ * leg stayed green having checked nothing. A missing mark is now the failure
+ * it always was: the pin cannot be read, so the pin is red.
  */
 function expectLastPassAfterNotify(
   leg: string,
@@ -1735,18 +1750,26 @@ function expectLastPassAfterNotify(
       `marks in the same millisecond`,
   ).toBeGreaterThanOrEqual(notify[0]);
 
-  if (flushStart.length > 0 && flushEnd.length > 0) {
-    const inFlush = lastPass.filter(
-      (t) => t >= flushStart[0] && t <= flushEnd[flushEnd.length - 1],
-    );
-    expect(
-      inFlush,
-      `${leg}: and no Last pass runs inside the activation's flushSync — ` +
-        `the flush spans ${flushStart[0]}..` +
-        `${flushEnd[flushEnd.length - 1]}ms and these landed in it: ` +
-        `[${inFlush.join(", ")}]`,
-    ).toEqual([]);
-  }
+  expect(
+    flushStart.length > 0 && flushEnd.length > 0,
+    `${leg}: the activation's flushSync left both of its marks in the ` +
+      `window — start ${JSON.stringify(flushStart)}, end ` +
+      `${JSON.stringify(flushEnd)}. Without them the clause below cannot be ` +
+      `read, and a pin that quietly skips itself is worse than one that ` +
+      `fails: every leg that carries it would stay green having checked ` +
+      `nothing ([B06])`,
+  ).toBe(true);
+
+  const inFlush = lastPass.filter(
+    (t) => t >= flushStart[0] && t <= flushEnd[flushEnd.length - 1],
+  );
+  expect(
+    inFlush,
+    `${leg}: and no Last pass runs inside the activation's flushSync — ` +
+      `the flush spans ${flushStart[0]}..` +
+      `${flushEnd[flushEnd.length - 1]}ms and these landed in it: ` +
+      `[${inFlush.join(", ")}]`,
+  ).toEqual([]);
 }
 
 /** PROBE: every React commit from 60ms before the last `tug:arm-end` to 200ms after, times relative to it. */
@@ -3101,6 +3124,32 @@ function reportB09(leg: string, r: B09Leg): void {
 }
 
 /**
+ * The beats this leg's settle actually ran, asserted rather than printed
+ * ([B04]).
+ *
+ * `expectB09Bar` judges lead, gap, pose and landing, and every one of those
+ * is satisfiable by a settle that ran the WRONG choreography — a regression
+ * that cuts one beat, or reorders two, leaves the frames arriving on time
+ * along a path nobody asked for. `row !== null` narrows the hole to "armed
+ * but ran the wrong beats" and no further, which is exactly the hole this
+ * closes.
+ *
+ * The list is ordered, because the census names beats in the order the
+ * imposer names them and the order IS the choreography: `["shrink","move"]`
+ * and `["move","shrink"]` are two different gestures. A leg whose beats stop
+ * matching is a finding to record, never a bar to loosen.
+ */
+function expectBeats(leg: string, r: B09Leg, expected: readonly string[]): void {
+  expect(
+    [...r.beats],
+    `${leg}: the settle ran the choreography this leg is named for, in order ` +
+      `— expected ${JSON.stringify(expected)}, saw ` +
+      `${JSON.stringify(r.beats)}. Every other clause of the bar passes on a ` +
+      `settle that arrived on time along the wrong path`,
+  ).toEqual([...expected]);
+}
+
+/**
  * The five clauses of the bar above, over one leg.
  *
  * `exempt` names panes the POSE clause does not judge, and it exists for
@@ -3306,6 +3355,11 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.closePane(${JSON.stringify(newcomers[0])})`,
           );
           reportB09("disappear", disappear);
+          // [B10] of the cleanup: the departure's gap is the one this file
+          // reports most reliably, so the census that names it rides the leg
+          // rather than a probe somebody has to rebuild.
+          note(`at0622 disappear commits: ${JSON.stringify(await reactCommits(app))}`);
+          note(`at0622 disappear click task: ${JSON.stringify(await clickTaskMarks(app))}`);
           expect(
             disappear.beats,
             `disappear: the departure really ran its beat — beats seen ` +
@@ -3350,6 +3404,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the walk across the band", () => {
           `window.__tug.dispatchControlAction("go-to-slot", { value: 4 })`,
         );
         reportB09("go-to-slot out", out);
+        expectBeats("go-to-slot out", out, ["move"]);
         expectB09Bar("go-to-slot out", out);
 
         const back = await sampleB09Gesture(
@@ -3357,6 +3412,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the walk across the band", () => {
           `window.__tug.dispatchControlAction("go-to-slot", { value: 1 })`,
         );
         reportB09("go-to-slot home", back);
+        expectBeats("go-to-slot home", back, ["move"]);
         expectB09Bar("go-to-slot home", back);
 
         // ---- The forcing leg ([D5]), for all three of [B09]'s bars. -----
@@ -3456,6 +3512,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — bullseye, and [F15]'s width", () => {
           `window.__tug.dispatchControlAction("toggle-bullseye", {})`,
         );
         reportB09("bullseye enter", enter);
+        expectBeats("bullseye enter", enter, ["shrink", "move"]);
         expect(
           enter.violations.length,
           `bullseye enter: the runtime [D9] guard reported something — an ` +
@@ -3480,6 +3537,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — bullseye, and [F15]'s width", () => {
           `window.__tug.dispatchControlAction("toggle-bullseye", {})`,
         );
         reportB09("bullseye exit", exit);
+        expectBeats("bullseye exit", exit, ["move", "grow"]);
         expect(
           [
             ...new Set(
@@ -3549,6 +3607,10 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.dispatchControlAction("toggle-sidebars", {})`,
           );
           reportB09("sidebars show", show);
+          // [B10] of the cleanup, the show rail's half. Read with the
+          // departure's above: the two are the file's standing reds.
+          note(`at0622 sidebars show commits: ${JSON.stringify(await reactCommits(app))}`);
+          note(`at0622 sidebars show click task: ${JSON.stringify(await clickTaskMarks(app))}`);
 
           // The retune wants a deck whose rails do NOT already fit, or it
           // commits nothing and the band guard is what catches it. Widening
@@ -3565,6 +3627,14 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.dispatchControlAction("resize-sidebars-to-fit", {})`,
           );
           reportB09("resize to fit", retune);
+
+          // The beats go with the bar, below the three samples, for the
+          // reason the comment above gives: a beat assertion is a judgement
+          // like any other, and one thrown between the gestures would cost
+          // the readings the legs after it were sampled for.
+          expectBeats("sidebars hide", hide, ["depart", "room"]);
+          expectBeats("sidebars show", show, ["room", "arrive"]);
+          expectBeats("resize to fit", retune, ["shrink", "move", "grow"]);
 
           expectB09Bar("sidebars hide", hide);
           // The rails ARRIVE on the way back, so the show leg carries the

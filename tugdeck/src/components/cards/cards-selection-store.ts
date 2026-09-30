@@ -252,6 +252,16 @@ export function getLayoutCursorCard(): string | null {
  * semantics are unchanged: a second transition inside the same frame
  * overwrites the pending id exactly as a second synchronous `pickOnly` would
  * have overwritten the first selection.
+ *
+ * **The prune takes the same door, for the same reason ([B02]).** `pruneTo`
+ * publishes whenever a selected id or a stale anchor drops, and a publish is
+ * a React-visible write like any other — so on the commit that closes a
+ * selected card it put the whole Last pass back inside the click task by the
+ * route the `pickOnly` deferral had just closed. It is the same one-slot
+ * coalescer and the same reduced-motion stand-down; what stays synchronous is
+ * the READ of the card list, because the live ids are the ones this commit
+ * published and pruning a frame later against a deck that has moved on would
+ * drop a card that came back.
  */
 export function attachLayoutSelectionToDeck(
   deck: IDeckManagerStore,
@@ -262,10 +272,28 @@ export function attachLayoutSelectionToDeck(
   // and has not run; a later transition replaces the id rather than queueing
   // a second pass, which is what makes N commits in one task cost one write.
   let pendingPick: string | null = null;
+  // The prune's own slot, on the same terms: the last commit's live ids win,
+  // because a prune against the newest card list is the one every earlier
+  // prune in the same frame would have agreed with.
+  let pendingPrune: readonly string[] | null = null;
   let detached = false;
   const handle = (): void => {
     const state = deck.getSnapshot();
-    selection.pruneTo(state.cards.map((c) => c.id));
+    const liveIds = state.cards.map((c) => c.id);
+    if (!isTugMotionEnabled()) {
+      selection.pruneTo(liveIds);
+    } else {
+      const pruneScheduled = pendingPrune !== null;
+      pendingPrune = liveIds;
+      if (!pruneScheduled) {
+        scheduleAfterPaint(() => {
+          const ids = pendingPrune;
+          pendingPrune = null;
+          if (detached || ids === null) return;
+          selection.pruneTo(ids);
+        });
+      }
+    }
 
     const fr = deck.getFirstResponderCardId();
     if (fr === lastFirstResponder) return;
@@ -302,6 +330,7 @@ export function attachLayoutSelectionToDeck(
   return () => {
     detached = true;
     pendingPick = null;
+    pendingPrune = null;
     unsubscribe();
   };
 }

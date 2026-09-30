@@ -1,5 +1,7 @@
 # The session fold starts moving from the keypress, not from React's commit
 
+> **Open — its decisions are not built, 2026-09-30.** `[B01]`–`[B03]` have not been implemented. What *was* built under `[D204]` is motion-before-React for **one gesture**: the flow-only slide, where `arm` writes the new offset and launches the move beat from the store's own delta inside the gesture's task. The fold is not that gesture. `markFoldCrossing`, `markStillCrossing` and the opening-pose writes all still run in the Last pass after React's commit, as do the arrival, the bullseye, the slot move and every other gesture — so this brief's premise, that the fold's first moving frame is gated behind a full React render, still stands and is still the defect (`briefs/settle-fixup-pass-brief.md` `[F14]`, verified by reading). Read the decisions below as the order they always were, not as a description of the deck.
+
 **Purpose:** A session card's fold and unfold still show a jump cut after two arcs — one that measured the fold and one that removed three forced style passes from inside its commit. The frames are not lost inside the commit; they are lost waiting for it. The fold's first moving frame is gated behind a full React render of the deck, which is the round trip L22 forbids for exactly this reason, and this brief is the order to move the first frame out from behind it.
 
 ---

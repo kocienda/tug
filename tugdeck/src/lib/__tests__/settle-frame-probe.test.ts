@@ -791,6 +791,39 @@ describe("classifySettleFrames", () => {
     expect([...reading.strandedPaneIds]).toEqual([]);
   });
 
+  test("a pane whose own beat LANDED and is then re-tweened in the same recording is not stranded", () => {
+    // [F01]'s false positive, as data ([B01]). A survivor's room beat reaches
+    // its end time inside a still-open recording: the land removes the
+    // transform, so the pane sits at the identity with no effect — and then a
+    // close retargets it and it travels again. Travelled-before, at the
+    // committed pose, and past neither end of its own effect history, which
+    // is every clause the shipped classifier read.
+    //
+    // What separates it from the drop above is the PREVIOUS tick's curve: the
+    // beat that is now gone said [0, 0] because it finished, where the drop's
+    // said mid-travel because it was cancelled.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => {
+          if (tick < 10 || tick > 34) return [pane("p1")];
+          // Ticks 10-19: the room beat travels to its end pose, landing at
+          // the identity on 19. Tick 20: landed — no effect, no transform.
+          // Ticks 21-34: the close's retarget carries it away again.
+          if (tick <= 19) return [onCurve("p1", [-180 + (tick - 10) * 20, 0])];
+          if (tick === 20) {
+            return [pane("p1", { appliedTranslate: null, animations: 0 })];
+          }
+          return [onCurve("p1", [-140 + (tick - 21) * 10, 0])];
+        },
+      }),
+    );
+
+    expect(reading.strandedTicks).toBe(0);
+    expect([...reading.strandedPaneIds]).toEqual([]);
+  });
+
   test("a clean run strands nothing", () => {
     // The bar has to be falsifiable in the other direction too: a settle that
     // never dropped its tween reads zero, so the one above is about the drop

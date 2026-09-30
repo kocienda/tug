@@ -77,7 +77,12 @@ export interface IDeckManagerStore {
    * The six subscribers, audited against that rule:
    *
    * - `canvas-arm` (`deck-canvas.tsx`) — measures and writes the DOM, and
-   *   keeps its own refs. No React write.
+   *   keeps its own refs. It makes no React write of its own, but on a
+   *   RETARGET it calls `flushPendingNotify` ([B01]), which votes the commit
+   *   it is being told about undeferred so React is told inline at the end of
+   *   this task — the one place a sync subscriber reaches React deliberately,
+   *   and the reason the Last pass can run after the restores and still land
+   *   before paint.
    * - `selection-guard` (`selection-guard.ts`) — installs a `mousedown`
    *   interceptor and repaints its overlay. DOM only.
    * - `destination-flip` (`deck-trace.ts`) — appends to the trace ring, which
@@ -85,15 +90,26 @@ export interface IDeckManagerStore {
    * - `test-surface` (`test-surface.ts`) — increments a local counter inside
    *   one probe.
    * - `cards-selection` (`cards-selection-store.ts`) — reads the
-   *   first-responder transition here and takes the after-paint door for its
-   *   `pickOnly`, which is the rule's one worked example.
+   *   first-responder transition here and takes the after-paint door for
+   *   BOTH its React-visible writes — the `pickOnly` on a collapse and the
+   *   `pruneTo` on every commit ([B02]) — which are the rule's two worked
+   *   examples. What stays on this task is the READ of the card list.
    * - `key-card` (`responder-chain-provider.tsx`) — the exception, and it is
-   *   deliberate. `focusManager.setKeyCard` notifies React subscribers, but
-   *   the activation's own focus claim runs later in the SAME task and reads
-   *   the key card this sets; deferring it would leave `applyBagFocus`
-   *   claiming focus for the card that was active before the commit. It is a
-   *   writer of structural focus state rather than of a deck view, and the
-   *   cost it can add to the flush is one focus-manager projection.
+   *   deliberate. `focusManager.setKeyCard` notifies React subscribers, so
+   *   the deferral rule would otherwise apply. What it cannot be deferred
+   *   for is the activation paths that DO NOT run the focus transfer:
+   *   `activateCard` (`deck-manager.ts` 1907) flips the first responder
+   *   directly, and its callers at 1538, 1867, 3031, 3087 and 7056 — plus
+   *   the cold-boot seed, where `syncKeyCard` is called once at mount — never
+   *   reach `transferFocusForActivation`. On those paths this subscriber is
+   *   the ONLY writer of the key card, and a deferral would leave the focus
+   *   manager naming the card that was active before the commit for a frame.
+   *   (It is NOT needed by `applyBagFocus`: that calls `adoptKeyCard` with
+   *   the incoming id, and `adoptKeyCard` (`focus-manager.ts` 2708) opens
+   *   with `this.setKeyCard(cardId)` — so the transfer writes the key card
+   *   itself and never reads what this subscriber wrote.) It is a writer of
+   *   structural focus state rather than of a deck view, and the cost it can
+   *   add to the flush is one focus-manager projection.
    */
   subscribeSync?: (callback: (landing: CommitLanding) => void, label?: string) => () => void;
 

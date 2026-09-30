@@ -49,11 +49,18 @@
  * product achieves is a test that reports the machine's load, and the corpus
  * already carries one of those.
  *
- * So the bars here are {@link FIRST_PAINT_BUDGET_MS} and
- * {@link LONGEST_GAP_FRAMES}, each set from the measured readings with the
- * margin at0622 lacks, and each stating its own measured number in its
+ * The GAP bar answers that with {@link LONGEST_GAP_FRAMES}, set from the
+ * measured readings with a margin, and stating its measured number in its
  * assertion message so a regression reads as a number that moved rather than as
  * a test that got stricter.
+ *
+ * **The FIRST-PAINT bar does not, and [B05] is why.** It stood at 150 ms — a
+ * margin derived from the 52–67 ms this very fixture was reading, which makes
+ * it a bar that cannot find its own subject wanting: whatever the gesture did,
+ * the number was set from it. It is now ONE DERIVED DISPLAY PERIOD, which is
+ * the criterion the arc actually wrote, the one `at0622` holds on every leg,
+ * and the one the live-deck readings are against. A red here is a finding to
+ * record rather than a bar to move back.
  *
  * The roughness bar is also RE-STATED rather than merely widened, and that is
  * the one substantive finding this file landed with. The arc's criterion says
@@ -86,18 +93,15 @@
  *
  * ## Two tiers: the bar says "did it break", the warning says "is it drifting"
  *
- * The hard bars above are held exactly where they were set, and a switch twice
- * as slow as the one that was measured would still pass them — that is the
- * margin a tripwire needs, and it is deliberate. What the margin costs is
- * warning: a first paint that slides from 60 ms to 120 ms is inside the bar
- * and invisible until it crosses 150 and goes red all at once. So above the
- * bars sits a second tier that asserts nothing. A first paint over
- * {@link FIRST_PAINT_WARN_MS}, or ANY gap over the 20 ms absolute budget
- * (`gapsOverBudget > 0`, which the record already carries), writes a `note()`
- * that names itself a DRIFT WARNING, so it shows in the `Diagnostics:` section
- * of every run that crosses it and in none that does not. A reader of the
- * report can tell the two apart: a red is a break, a drift line is a number
- * that has started to move.
+ * The GAP bar carries a margin, and what a margin costs is warning: a gap that
+ * slides toward the bar is invisible until it crosses and goes red all at once.
+ * So above it sits a second tier that asserts nothing. ANY gap over the 20 ms
+ * absolute budget (`gapsOverBudget > 0`, which the record already carries)
+ * writes a `note()` that names itself a DRIFT WARNING, so it shows in the
+ * `Diagnostics:` section of every run that crosses it and in none that does
+ * not. A reader of the report can tell the two apart: a red is a break, a drift
+ * line is a number that has started to move. The first-paint bar needs no such
+ * tier, having no margin left to drift inside.
  *
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/space-switch-frames.ts
@@ -143,30 +147,6 @@ const HIDDEN_TURNS = 60;
 const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
 const SHOWN_FRAMES =
   "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]";
-
-/**
- * The first-paint bar, in milliseconds from the GESTURE.
- *
- * Not one frame period — see the file header. Measured on this fixture over
- * four switches: 52, 62, 65 and 67 ms, of which 42–59 ms was React's render
- * phase before the swap commit. 150 is a little over twice the worst of those,
- * and it is still four to five times under the 350–640 ms the brief recorded
- * for the same gesture before this arc — so a regression that mattered would
- * clear it by a wide margin while ordinary machine load never touches it.
- */
-const FIRST_PAINT_BUDGET_MS = 150;
-
-/**
- * The drift-warning tier for first paint, in milliseconds from the gesture.
- *
- * Not a bar: crossing it writes a `note()` and fails nothing. Set from the same
- * measured 51–67 ms the hard bar was set from, with room for ordinary machine
- * load — a reading here is a switch half again slower than any that was
- * measured, which is worth a line in the report and is not yet a break. The
- * hard bar stays at {@link FIRST_PAINT_BUDGET_MS} for the reason the file
- * header gives; this constant is what keeps the margin from being silent.
- */
-const FIRST_PAINT_WARN_MS = 100;
 
 /**
  * The longest tolerated gap, in DISPLAY FRAMES rather than in milliseconds.
@@ -488,18 +468,12 @@ function assertCadence(label: string, r: FrameRecord): boolean {
   }
 
   // The warning tier, before the bars. It asserts nothing; it puts a line in
-  // the report when a reading has moved toward a bar without reaching it. Two
-  // triggers, each named: first paint over FIRST_PAINT_WARN_MS, and any gap
-  // over the 20 ms absolute budget (the arc's written criterion, which the
-  // relative bar below deliberately does not hold).
+  // the report when a reading has moved toward a bar without reaching it. One
+  // trigger, since [B05] took the first-paint bar down to one period and left
+  // it no margin to drift inside: any gap over the 20 ms absolute budget (the
+  // arc's written criterion, which the relative gap bar deliberately does not
+  // hold).
   const drift: string[] = [];
-  if (r.firstPaintDelayMs > FIRST_PAINT_WARN_MS) {
-    drift.push(
-      `first paint ${r.firstPaintDelayMs}ms is over the ${FIRST_PAINT_WARN_MS}ms ` +
-        `warning tier (measured 51–67ms when the bar was set; hard bar ` +
-        `${FIRST_PAINT_BUDGET_MS}ms)`,
-    );
-  }
   if (r.gapsOverBudget > 0) {
     drift.push(
       `${r.gapsOverBudget} gap(s) over the 20ms absolute budget, longest ` +
@@ -514,13 +488,16 @@ function assertCadence(label: string, r: FrameRecord): boolean {
   expect(
     r.firstPaintDelayMs,
     `${label}: the first frame after the GESTURE landed inside ` +
-      `${FIRST_PAINT_BUDGET_MS}ms — measured ${r.firstPaintDelayMs}ms, of ` +
-      `which ${r.commitDelayMs}ms was React's render phase before the swap ` +
-      `commit. The arc's absolute criterion is one frame period ` +
-      `(${r.framePeriodMs}ms) and is held on the live-deck readings in ` +
-      `briefs/workspace-switch-cheap-readings.md; this bar carries the margin ` +
-      `a tripwire needs and at0622 lacks`,
-  ).toBeLessThanOrEqual(FIRST_PAINT_BUDGET_MS);
+      `one display period — ${r.framePeriodMs}ms, derived from this run's ` +
+      `own ticks — measured ${r.firstPaintDelayMs}ms, of which ` +
+      `${r.commitDelayMs}ms was React's render phase before the swap ` +
+      `commit. [B05]: this bar was 150ms, a margin set from the readings it ` +
+      `was meant to judge, and a bar derived from its own subject cannot ` +
+      `find that subject wanting. One period is the criterion the arc ` +
+      `actually wrote, the one at0622 holds on every leg, and the one the ` +
+      `live-deck readings in briefs/workspace-switch-cheap-readings.md are ` +
+      `against. A red here is a finding to record, never a bar to move back`,
+  ).toBeLessThanOrEqual(r.framePeriodMs);
 
   // The one-frame count is REPORTED and not claimed, and that is [B09]'s
   // doing rather than a concession to a red. This file used to carry a
@@ -689,21 +666,27 @@ describe.skipIf(!SHOULD_RUN)(
             if (assertCadence(label, record)) asserted += 1;
           }
 
-          // [P10]: a suspended run voids rather than passes, and a run where
-          // EVERY reading voided is reported as having proved nothing. It is
-          // not a failure — the harness window being covered is the window
-          // manager rather than the product — but it must not read as a pass
-          // in the report either, so the count goes out through `note()`.
+          // [P10]: a suspended run voids rather than passes. A single voided
+          // switch is the window manager rather than the product, and the
+          // count goes out through `note()`.
           note(
             `at0643 cadence: ${asserted} of ${runs.length} switches carried ` +
               `the bar; the rest were voided by rAF suspension`,
           );
-          if (asserted === 0) {
-            note(
-              `at0643: EVERY reading was suspended — this run proved nothing ` +
-                `about cadence. Re-run with the harness window unoccluded.`,
-            );
-          }
+          // But a run where EVERY reading voided is RED ([B05]). It used to
+          // be a second `note()` inside a green test, which is a test that
+          // reports its own vacuity and passes anyway — and a green nobody
+          // can distinguish from a green that measured something is worse
+          // than a red that says why. The cause is usually the harness
+          // window being occluded rather than the product, and that is what
+          // the message says; it is still not a pass.
+          expect(
+            asserted,
+            `at0643: EVERY one of the ${runs.length} readings was voided by ` +
+              `rAF suspension, so this run proved nothing about cadence and ` +
+              `must not read as a pass. Re-run with the harness window ` +
+              `unoccluded`,
+          ).toBeGreaterThan(0);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);

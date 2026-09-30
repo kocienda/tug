@@ -4876,8 +4876,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // restored width, a cleared transform, an episode's stamp — happens
       // after the last measurement above. The residue still goes back on the
       // SAME tick as the cancel that earned it, which is what the registry's
-      // own doc asks for; it goes back a few lines later in that tick, and
-      // nothing paints in between.
+      // own doc asks for; it goes back a few lines later in that tick.
+      //
+      // "Nothing paints in between" is the claim that used to close this
+      // sentence, and under [D204] it is NOT true on its own: the deck's
+      // notify lands a painted frame later, so on a retarget the frame would
+      // paint once at the interrupted settle's end pose. What makes it true
+      // is the flush after the strips, which is why that flush is a rule
+      // rather than an optimization — see "A RETARGET IS NEVER DEFERRED"
+      // below, which is the whole of the argument.
       for (const apply of stamps) apply();
       // Did the arm cancel anything? Every branch below that hands residue
       // back is a retarget, and a retarget is never deferred — see the flush
@@ -5889,8 +5896,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // deferred, coalesced commit ([D204]) produces ONE Last pass for the
       // whole run: the ghosts are planted and their beat is launched in the
       // same pass, and no `arm` stands between the two. So the exit rides the
-      // `depart` beat like every other exit, and the deck has no animation
-      // left that is unconditional on the settle generation.
+      // `depart` beat like every other exit.
+      //
+      // ONE animation is still unconditional on the settle generation, and it
+      // is this one: the ghost's LANDING — the `depart` branch below that
+      // marks each ghost `launched` once its fade is running, whose own
+      // comment says so. A ghost stands for a pane
+      // that has already left the deck, so it is in neither `settleTweensRef`
+      // nor any future First measurement — `arm` never looks at it and no
+      // later pass will ever collect it. A generation check there would strand
+      // the tile in the document for the life of the canvas, one per close
+      // interrupted mid-fade. The exception is named at its own site; it is
+      // recorded here so this paragraph is not read as denying it.
       departureGhostsRef.current.set(paneId, { ghost, launched: false });
       const railSide = firstRailSides.get(paneId);
       departures.push({ paneId, ghost });

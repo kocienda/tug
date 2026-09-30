@@ -68,6 +68,8 @@ Two constraints, then. The slide must be smooth on an idle deck of four session 
 
 **[B10] The settle records its own frame gaps.** While a settle is running — and only then, on the same rAF pump that ends with it — the canvas records the longest inter-frame gap and the count of gaps over one frame into a `settle-frames` trace event beside `settle-arm` and `settle-release`. This is the product measuring itself so a regression is a number in the trace rather than a feeling at the keyboard, and it costs nothing when no settle is running.
 
+> **Amended, 2026-09-30: it is an instrument a reader arms, not a pump the product runs.** As built, the record is gated on the trace kind — `deck-canvas.tsx` ~4256 returns early unless `deckTrace.isKindEnabled("settle-frames")`, which requires the trace to be enabled *and* that kind explicitly armed (`deck-trace.ts` ~1421). So on a shipping instance nothing is recorded, and "the product measuring itself" above describes an always-on pump that does not exist. The gating is the correct shape and not a shortfall: an instrument that arms itself on a shipping path has stopped being a probe ([D1]), and the same rule gates every `tug:` mark (`lib/perf-marks.ts`). What the decision buys is unchanged for the audience it has — a regression is a number rather than a feeling for anyone who arms the kind, which is what `at0622-deck-settle-frames.test.ts` does.
+
 ---
 
 ## Open Questions {#open-questions}
