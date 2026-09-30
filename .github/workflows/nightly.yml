@@ -33,8 +33,16 @@ env:
 
 jobs:
   build-nightly:
-    runs-on: macos-15
+    # macos-26, not macos-15: the dictation host engine compiles against
+    # SpeechAnalyzer / SpeechTranscriber, which exist only in the macOS 26
+    # SDK. A macos-15 runner tops out at the 15.5 SDK, where those types
+    # are simply not in scope, whatever @available says about the runtime.
+    runs-on: macos-26
     timeout-minutes: 120
+    env:
+      # Pinned rather than left on the image default, so the SDK the nightly
+      # is built against is the one the source was written against.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
 
     steps:
       - name: Checkout code

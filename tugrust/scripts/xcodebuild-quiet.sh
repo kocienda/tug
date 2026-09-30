@@ -37,8 +37,12 @@ LOG="$(mktemp -t tugapp-xcode.XXXX.log)"
 trap 'rm -f "$LOG"' EXIT
 
 START=$SECONDS
-if ! xcodebuild "$@" > "$LOG" 2>&1; then
-    status=$?
+# The status is captured from xcodebuild itself, not from inside an `if !`
+# branch: `! cmd` *is* the negation, so `$?` there is the inverted 0 and the
+# failure exits 0 — which lets a BUILD FAILED sail on into signing.
+status=0
+xcodebuild "$@" > "$LOG" 2>&1 || status=$?
+if [ "$status" -ne 0 ]; then
     echo "==> xcodebuild failed for ${LABEL} (status ${status}) — full log:" >&2
     cat "$LOG" >&2
     exit "$status"
