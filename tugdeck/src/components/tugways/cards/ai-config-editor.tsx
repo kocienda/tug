@@ -124,18 +124,12 @@ const NO_DESCRIPTION = "";
 /** Focus orders within the host's focus group, relative to `focusOrderBase`. */
 export const AI_CONFIG_ROW_OFFSET: Record<AiConfigRow, number> = {
   model: 0,
-  effort: 2,
-  mode: 3,
+  effort: 1,
+  mode: 2,
 };
 
-/**
- * The "Show older models" toggle's focus order — between the model list and
- * the effort track, where it sits. Not a channel, so not an `AiConfigRow`.
- */
-const OLDER_MODELS_TOGGLE_OFFSET = 1;
-
 /** How many focus orders the editor consumes — the host numbers around it. */
-export const AI_CONFIG_ROW_COUNT = 4;
+export const AI_CONFIG_ROW_COUNT = 3;
 
 export interface AiConfigEditorProps {
   /** Options + capability lists, from {@link resolveAiConfigSources}. */
@@ -158,7 +152,7 @@ export interface AiConfigEditorProps {
    * every new one. It is host copy — the one thing a host says for itself.
    */
   scopeNote: string;
-  /** The host's focus group; the editor claims four consecutive orders. */
+  /** The host's focus group; the editor claims three consecutive orders. */
   focusGroup: string;
   /** The first of those orders. Defaults to 0. */
   focusOrderBase?: number;
@@ -435,6 +429,10 @@ export function AiConfigEditor({
               </ModelListContext.Provider>
             </div>
             {fold.older.length > 0 && (
+              // Deliberately outside the focus group, like the sheet's footer
+              // links: a push button holding the key view wears the default
+              // treatment, and a list's disclosure must never read as the
+              // sheet's Return action.
               <div className="ai-config-older-models">
                 <TugPushButton
                   size="sm"
@@ -443,8 +441,6 @@ export function AiConfigEditor({
                   data-slot="ai-config-older-models"
                   aria-expanded={showOlder}
                   onClick={() => setShowOlder((open) => !open)}
-                  focusGroup={focusGroup}
-                  focusOrder={focusOrderBase + OLDER_MODELS_TOGGLE_OFFSET}
                 >
                   {showOlder ? "Hide older models" : "Show older models"}
                 </TugPushButton>

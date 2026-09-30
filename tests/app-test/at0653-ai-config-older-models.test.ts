@@ -16,6 +16,9 @@
  *   2. **The pick is never folded away.** Choose an older version and collapse
  *      the list: that row stays, so the checkmark is always on something the
  *      reader can see.
+ *   3. **The toggle is a footnote, not an action.** It is not a Tab stop, so
+ *      it never holds the key view or wears the default treatment — OK keeps the
+ *      default ring — and it stands clear of the list's bottom border.
  *
  * Capabilities are injected through the `ingestSessionMetadata` surface seam,
  * shaped as 2.1.285 reports them; no live claude handshake is needed.
@@ -44,6 +47,8 @@ const MODEL_ROW = (value: string): string =>
   `${MODEL_LIST} [data-model="${value}"]`;
 const OLDER_TOGGLE = `${SHEET} [data-slot="ai-config-older-models"]`;
 const CANCEL = `${SHEET} [data-slot="ai-config-cancel"]`;
+const OK = `${SHEET} [data-slot="ai-config-ok"]`;
+const EFFORT_THUMB = `${SHEET} [data-testid="ai-config-effort"] .tug-slider-thumb`;
 
 const SHEET_OPEN = `document.querySelector(${JSON.stringify(SHEET)}) !== null`;
 const SHEET_CLOSED = `document.querySelector(${JSON.stringify(SHEET)}) === null`;
@@ -161,7 +166,7 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
         expect(await toggleText(app)).toBe("Show older models");
 
         // ---- 2. The toggle brings the older versions in -----------------
-        await app.click(OLDER_TOGGLE);
+        await app.nativeClickAtElement(OLDER_TOGGLE);
         await app.waitForCondition<boolean>(rowPresent("claude-opus-5"), { timeoutMs: 4000 });
         expect(await shownRows(app), "expanded, every row in catalog order").toEqual([
           "default",
@@ -174,7 +179,43 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
         ]);
         expect(await toggleText(app)).toBe("Hide older models");
 
-        // ---- 3. An older pick survives the collapse ---------------------
+        // ---- 3. The toggle is a footnote, not the sheet's action ---------
+        // Tab off the model list lands on the effort track, never on the
+        // toggle: a push button holding the key view would take the sheet's
+        // default treatment away from OK.
+        await app.nativeClickAtElement(MODEL_ROW("default"));
+        await app.nativeKey("Tab");
+        await app.waitForCondition<boolean>(
+          `(function(){
+            var el = document.querySelector(${JSON.stringify(EFFORT_THUMB)});
+            return el !== null && el.hasAttribute("data-key-view-kbd");
+          })()`,
+          { timeoutMs: 4000 },
+        );
+        const toggleState = await app.evalJS<{
+          ring: boolean;
+          keyView: boolean;
+          okRing: boolean;
+          gap: number;
+        }>(
+          `(function(){
+            var t = document.querySelector(${JSON.stringify(OLDER_TOGGLE)});
+            var ok = document.querySelector(${JSON.stringify(OK)});
+            var list = document.querySelector(${JSON.stringify(MODEL_LIST)});
+            return {
+              ring: t.hasAttribute("data-default-ring"),
+              keyView: t.hasAttribute("data-key-view"),
+              okRing: ok.hasAttribute("data-default-ring"),
+              gap: t.getBoundingClientRect().top - list.getBoundingClientRect().bottom,
+            };
+          })()`,
+        );
+        expect(toggleState.ring, "the toggle never wears the default ring").toBe(false);
+        expect(toggleState.keyView, "clicking the toggle does not take the key view").toBe(false);
+        expect(toggleState.okRing, "OK stays the sheet's default").toBe(true);
+        expect(toggleState.gap, "the toggle stands clear of the list").toBeGreaterThanOrEqual(8);
+
+        // ---- 4. An older pick survives the collapse ---------------------
         await app.click(MODEL_ROW("claude-opus-5"));
         await app.waitForCondition<boolean>(
           `(function(){
@@ -183,7 +224,7 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
           })()`,
           { timeoutMs: 4000 },
         );
-        await app.click(OLDER_TOGGLE);
+        await app.nativeClickAtElement(OLDER_TOGGLE);
         await app.waitForCondition<boolean>(rowAbsent("claude-opus-4-8"), { timeoutMs: 4000 });
         expect(
           await shownRows(app),

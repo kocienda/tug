@@ -269,6 +269,9 @@ describe("2.1.285 row shape", () => {
 
   test("the default row still takes the name its description leads with", () => {
     expect(modelRowTitle(ROWS_2_1_285[0])).toBe("Opus 5.5");
+    expect(
+      modelRowTitle({ value: "default", displayName: "Default (recommended)", description: "Fable 5.1" }),
+    ).toBe("Fable 5.1");
   });
 
   test("a resolved id finds its own version, not an older one it contains", () => {

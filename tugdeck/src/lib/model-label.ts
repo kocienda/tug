@@ -137,6 +137,12 @@ export function isContextAnnotation(segment: string): boolean {
 }
 
 /**
+ * A model name's shape: a family word, then a version (`Opus 5.5`,
+ * `Haiku 4.5 …`) — what tells a name-bearing description from a tagline.
+ */
+const MODEL_NAME_SHAPE = /^[a-z]+\s+\d+(?:\.\d+)*\b/i;
+
+/**
  * The "name with version" title for a capability/catalog row, from claude's
  * own wording.
  *
@@ -146,11 +152,11 @@ export function isContextAnnotation(segment: string): boolean {
  * the versioned name and `description` is only the tagline
  * (`displayName: "Opus 5.5"`, `description: "For complex work…"`) — except
  * the `default` row, which still leads its description with the name it
- * resolves to (`"Opus 5.5 · Best for everyday…"`). So a description carries
- * a name exactly when it has more than one `·`-separated segment: then the
- * leading segment is the title, plus the context-window annotation when
- * claude states one. A single-segment description is a tagline, and the
- * title is the display name.
+ * resolves to (`"Opus 5.5 · Best for everyday…"`, or the bare `"Fable 5.1"`).
+ * So the leading `·`-separated segment is the title when it has a name's
+ * shape — a family word then a version number ({@link MODEL_NAME_SHAPE}) —
+ * plus the context-window annotation when claude states one. Anything else
+ * is a tagline, and the title is the display name.
  *
  * Claude has spelled that annotation two ways, and both must survive as the
  * chip's ` · 1M`: inline in the name segment (`"Opus 4.8 with 1M context ·
@@ -167,7 +173,9 @@ export function modelRowTitle(row: CapabilityModel): string {
     // Isolate the leading name segment FIRST, then compress — compressing
     // first would introduce the very `·` the split keys on.
     const segments = row.description.split("·").map((s) => s.trim());
-    const name = segments.length > 1 ? compressContextPhrase(segments[0]) : "";
+    const name = MODEL_NAME_SHAPE.test(segments[0])
+      ? compressContextPhrase(segments[0])
+      : "";
     if (name.length > 0) {
       const annotation = segments[1];
       return annotation !== undefined && isContextAnnotation(annotation)
