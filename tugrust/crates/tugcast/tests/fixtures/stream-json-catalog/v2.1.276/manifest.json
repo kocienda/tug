@@ -9,7 +9,7 @@
       "status": "passed"
     },
     {
-      "event_count": 61,
+      "event_count": 66,
       "name": "test-02-longer-response-streaming",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -27,44 +27,43 @@
       "status": "passed"
     },
     {
-      "event_count": 34,
+      "event_count": 33,
       "name": "test-05-tool-use-read",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 16,
+      "event_count": 14,
       "name": "test-06-interrupt-mid-stream",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 37,
+      "event_count": 39,
       "name": "test-07-multiple-tool-calls",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 48,
+      "event_count": 45,
       "name": "test-08-tool-error-nonexistent",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 25,
+      "event_count": 23,
       "name": "test-09-bash-auto-approved",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 0,
+      "event_count": 115,
       "name": "test-10-long-streaming-300-words",
       "runtime_ms": "{{i64}}",
-      "skip_reason": "collect_code_output: collect_code_output: timed out — 22 event(s) before the stall, tail: [\"thinking_text\", \"thinking_text\", \"thinking_text\", \"thinking_text\", \"thinking_text\", \"thinking_text\", \"content_block_start\", \"tool_use\", \"content_block_start\", \"tool_use\", \"streaming_usage\", \"control_request_forward\"]",
-      "status": "failed"
+      "status": "passed"
     },
     {
-      "event_count": 59,
+      "event_count": 43,
       "name": "test-11-permission-deny-roundtrip",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -83,7 +82,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 122,
+      "event_count": 127,
       "name": "test-14-message-during-turn",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -95,7 +94,7 @@
       "status": "passed"
     },
     {
-      "event_count": 20,
+      "event_count": 18,
       "name": "test-16-model-change-roundtrip",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -108,7 +107,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 20,
+      "event_count": 19,
       "name": "test-18-message-during-turn-detailed",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -127,25 +126,25 @@
       "status": "skipped"
     },
     {
-      "event_count": 67,
+      "event_count": 82,
       "name": "test-21-glob-tool",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 125,
+      "event_count": 105,
       "name": "test-22-subagent-spawn",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 21,
+      "event_count": 22,
       "name": "test-23-image-attachment",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 20,
+      "event_count": 36,
       "name": "test-24-at-file-references",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -158,13 +157,13 @@
       "status": "skipped"
     },
     {
-      "event_count": 68,
+      "event_count": 70,
       "name": "test-26-slash-arc",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 33,
+      "event_count": 31,
       "name": "test-27-at-file-references-variant",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -176,13 +175,13 @@
       "status": "passed"
     },
     {
-      "event_count": 45,
+      "event_count": 48,
       "name": "test-29-tugplug-ping",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 63,
+      "event_count": 58,
       "name": "test-30-tugplug-arc-status",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -232,7 +231,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 28,
+      "event_count": 29,
       "name": "test-38-rewind-conversation-fork",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -251,7 +250,7 @@
       "status": "passed"
     },
     {
-      "event_count": 29,
+      "event_count": 30,
       "name": "test-41-bg-bash-clean",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -270,7 +269,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 41,
+      "event_count": 39,
       "name": "test-44-monitor-timeout",
       "runtime_ms": "{{i64}}",
       "status": "passed"

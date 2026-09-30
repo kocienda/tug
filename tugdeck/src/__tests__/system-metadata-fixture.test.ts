@@ -41,21 +41,21 @@ describe("createFixtureSessionMetadataStore", () => {
     const store = createFixtureSessionMetadataStore(rawJsonl);
     const snapshot = store.getSnapshot();
 
-    // Payload counts for the shipped v2.1.276 capture. The tugplug skills
+    // Payload counts for the shipped v2.1.285 capture. The tugplug skills
     // are the prefixed set the capture recorded — seven of them, under the
     // arc door and stage names; the capturing account's `anthropic-skills:*`
     // and `design` skills ride along too; the agent list is the built-in
-    // Claude Code set:
-    //   slash_commands: 74  (39 upgrade to "skill", 35 stay "local")
+    // Claude Code set. v2.1.285 added the local `/focus` command:
+    //   slash_commands: 75  (39 upgrade to "skill", 36 stay "local")
     //   agents: 5
-    //   total after dedup: 79
-    expect(snapshot.slashCommands.length).toBe(79);
+    //   total after dedup: 80
+    expect(snapshot.slashCommands.length).toBe(80);
 
     const byCategory = new Map<string, number>();
     for (const cmd of snapshot.slashCommands) {
       byCategory.set(cmd.category, (byCategory.get(cmd.category) ?? 0) + 1);
     }
-    expect(byCategory.get("local")).toBe(35);
+    expect(byCategory.get("local")).toBe(36);
     expect(byCategory.get("skill")).toBe(39);
     expect(byCategory.get("agent")).toBe(5);
   });
