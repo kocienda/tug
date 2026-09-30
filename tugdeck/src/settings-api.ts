@@ -11,7 +11,7 @@
  *   Deck state→ domain `dev.tugapp.deck.state`,     key `focusedCardId` (Value::String)
  *
  * The tagged-value wire format is `{"kind":"json","value":{...}}` for JSON
- * values and `{"kind":"string","value":"brio"}` for strings.
+ * values and `{"kind":"string","value":"ironclad"}` for strings.
  */
 
 import type { CardStateBag, RegionScrollSnapshot } from "./layout-tree";

@@ -134,7 +134,7 @@ body {
      blue stays where it belongs, on the popup menus' small transient highlight.
      The list row is the quiet ramp's SOLE consumer, so the rungs are authored
      per theme at the source rather than mixed here — a local `color-mix` cannot
-     be tuned per theme, and washed out over the light harmony surface when it
+     be tuned per theme, and washed out over the light sloop surface when it
      was tried.
 
      A wash rather than a fill because the row has to stay READABLE while it is

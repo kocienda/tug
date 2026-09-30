@@ -9,7 +9,7 @@
  * What this test guards:
  *  - Every `--tugx-md-*` token referenced by markdown CSS is declared
  *    in `tug-markdown-view.css`.
- *  - Theme files (`brio.css`, `harmony.css`) DO NOT declare any
+ *  - Theme files (`ironclad.css`, `sloop.css`) DO NOT declare any
  *    `--tugx-md-*` slot — that would be the original-sin pattern this
  *    migration cleaned up.
  *
@@ -28,8 +28,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dir = dirname(__filename);
 
 const TUGDECK = join(__dir, "../../../..");
-const BRIO = join(TUGDECK, "styles/themes/brio.css");
-const HARMONY = join(TUGDECK, "styles/themes/harmony.css");
+const IRONCLAD = join(TUGDECK, "styles/themes/ironclad.css");
+const SLOOP = join(TUGDECK, "styles/themes/sloop.css");
 const MARKDOWN_VIEW_CSS = join(
   TUGDECK,
   "src/components/tugways/tug-markdown-view.css",
@@ -76,11 +76,11 @@ function read(path: string): string {
 
 describe("markdown token coverage", () => {
   test("theme files declare zero --tugx-md-* slots (the component-local migration cleared them)", () => {
-    const brio = extractDeclared(read(BRIO));
-    const harmony = extractDeclared(read(HARMONY));
+    const ironclad = extractDeclared(read(IRONCLAD));
+    const sloop = extractDeclared(read(SLOOP));
 
-    expect(brio.size).toBe(0);
-    expect(harmony.size).toBe(0);
+    expect(ironclad.size).toBe(0);
+    expect(sloop.size).toBe(0);
   });
 
   test("every --tugx-md-* token referenced by markdown CSS is declared in tug-markdown-view.css", () => {

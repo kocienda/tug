@@ -164,7 +164,7 @@ export function hexToOkLabL(hex: string): number {
  * Scale factor converting OKLab ΔL to the contrast score range used by
  * CONTRAST_THRESHOLDS (content=75, control=60, display=60, informational=60, decorative=15).
  *
- * Calibrated against the Brio dark token set. The anchor pair fg-default/bg-app
+ * Calibrated against the Ironclad dark token set. The anchor pair fg-default/bg-app
  * has OKLab ΔL≈0.727 (fgL≈0.935, bgL≈0.208), yielding a score of ≈−92.7 with
  * POLARITY_FACTOR=0.85 — comfortably above the content threshold of 75.
  *
@@ -182,7 +182,7 @@ export const CONTRAST_SCALE = 150;
  * corresponding reduction: negative-polarity scores are multiplied by 0.85.
  *
  * Starting value: 0.85 (matching the published ~15% disadvantage figure).
- * Calibrated against Brio dark token set to preserve pass/fail boundaries.
+ * Calibrated against Ironclad dark token set to preserve pass/fail boundaries.
  *
  * References:
  *   Piepenbrock et al. (2013) — "Positive Display Polarity Is Particularly

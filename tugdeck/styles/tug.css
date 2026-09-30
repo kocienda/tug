@@ -36,7 +36,7 @@
   --tug-motion: 1;
 
   /* Semantic font-weight scale. Theme-invariant (weights don't change
-   * between brio/harmony), so it lives here in the always-loaded root
+   * between ironclad/sloop), so it lives here in the always-loaded root
    * rather than being triplicated across the theme files. Each step
    * maps 1:1 to a real bundled IBM Plex face (Sans + Mono ship the full
    * Thin..Bold range incl. Text/450, upright + italic) — so any

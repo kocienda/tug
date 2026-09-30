@@ -34,8 +34,8 @@ const TUGDECK = path.join(import.meta.dir, "../..");
 const THEMES_DIR = path.join(TUGDECK, "styles/themes");
 const TUGWAYS_DIR = path.join(TUGDECK, "src/components/tugways");
 
-const LIGHT_THEMES = ["harmony", "aria", "vivace"] as const;
-const DARK_THEMES = ["brio", "nocturne", "bravura"] as const;
+const LIGHT_THEMES = ["sloop", "ketch", "skiff", "kayak", "pinnace"] as const;
+const DARK_THEMES = ["ironclad", "caravel", "barque", "galleon", "collier"] as const;
 
 /** Each knob and the default its consumers must fall back to. */
 const KNOBS = [

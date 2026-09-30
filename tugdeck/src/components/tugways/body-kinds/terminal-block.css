@@ -37,7 +37,7 @@
  *    in-header Copy cannot conflict with scrollbars.
  *
  * The 16 ANSI color classes (`ansi-{black,red,…}-fg|bg`) are mapped
- * to `--tugx-term-ansi-*` tokens so brio and harmony can paint the
+ * to `--tugx-term-ansi-*` tokens so ironclad and sloop can paint the
  * terminal palette consistently with their broader theme.
  *
  * Token sources:
@@ -47,7 +47,7 @@
  *  - Terminal-specific slots (tighter 1.45 code line-height, body
  *    padding, exit-badge geometry, focus ring, ANSI palette) live in
  *    the body{} block below as `--tugx-term-*`.
- *  - ANSI palette is the known carve-out in `harmony.css` / `brio.css`
+ *  - ANSI palette is the known carve-out in `sloop.css` / `ironclad.css`
  *    because each theme picks its own ANSI hue/tone.
  *
  * Tuglaw cross-check:

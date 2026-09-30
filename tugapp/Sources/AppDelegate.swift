@@ -253,7 +253,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var activeThemeName: String?
 
     /// The name of the base theme — must match BASE_THEME_NAME in tugdeck/src/theme-constants.ts.
-    private let baseThemeName = "brio"
+    private let baseThemeName = "ironclad"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let t0 = CFAbsoluteTimeGetCurrent()
@@ -2921,7 +2921,7 @@ extension AppDelegate: NSMenuDelegate {
 
         // Read theme names directly from shipped CSS files on disk, plus each
         // theme's mode from its header comment. sourceTreePath is the tugtool
-        // repo root; themes are at tugdeck/styles/themes/*.css, base is "brio".
+        // repo root; themes are at tugdeck/styles/themes/*.css, base is "ironclad".
         // The header's first line carries "— dark theme" / "— light theme",
         // so the menu can group them without a separate manifest.
         var themeNames = Set<String>([baseThemeName])

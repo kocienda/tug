@@ -3,7 +3,7 @@
  * editor-internal selectors to the tug 7-element token system.
  *
  * The rules read CSS variables directly (`var(--tug7-…)`), so theme
- * switches at the application level (brio ↔ harmony) propagate to the
+ * switches at the application level (ironclad ↔ sloop) propagate to the
  * editor without remount and without explicit `subscribeThemeChange`
  * wiring [D06].
  *
@@ -267,7 +267,7 @@ export const tugTheme: Extension = EditorView.theme({
   // persist when the editor loses focus.
   //
   // `--tugx-text-editor-selection-bg-rest` is a tug-text-editor-specific token
-  // (defined in `brio.css` and `harmony.css`) that resolves to a
+  // (defined in `ironclad.css` and `sloop.css`) that resolves to a
   // higher-chroma blue than the shared
   // `--tug7-surface-selection-primary-normal-plain-rest`. The
   // shared token is tuned for native `::selection` rendering,

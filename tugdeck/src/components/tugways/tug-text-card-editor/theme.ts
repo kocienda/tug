@@ -6,7 +6,7 @@
  * sibling): code typography rides the shared `--tugx-block-*` family,
  * editor-local concerns (gutter, selection, caret, search-match tints)
  * ride `--tugx-textcard-*` slots declared in `tug-text-card-editor.css`.
- * All rules read CSS variables directly so brio ↔ harmony theme
+ * All rules read CSS variables directly so ironclad ↔ sloop theme
  * switches propagate without remount.
  *
  * Caret and selection are NATIVE — unlike `tug-text-editor`, which

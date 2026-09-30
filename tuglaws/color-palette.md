@@ -149,5 +149,5 @@ Components consume base and component tokens. The palette tier provides the raw 
 
 Theme runtime is CSS-first:
 
-- theme tokens are authored in `styles/themes/*.css` (brio, harmony, and others) as `--tug-color(...)` recipes
+- theme tokens are authored in `styles/themes/*.css` (ironclad, sloop, and others) as `--tug-color(...)` recipes
 - Vite/PostCSS expands `--tug-color(...)` to normal `oklch()` in dev/build

@@ -146,8 +146,8 @@ export async function activateProductionTheme(themeName: string): Promise<string
  * seeded at boot from a best-effort `tugbank read` in the Vite server's OWN
  * environment — which resolves a different per-instance db than this app
  * variant writes to. So the seeded theme can disagree with the theme this
- * client read from its own instance (e.g. the server boots brio while this
- * variant is nocturne). POST the client's theme to `/__themes/activate` so the
+ * client read from its own instance (e.g. the server boots ironclad while this
+ * variant is caravel). POST the client's theme to `/__themes/activate` so the
  * server re-renders the right one and records it as active — which is also what
  * makes a later theme-css edit re-render THIS theme instead of snapping back to
  * the stale boot seed.

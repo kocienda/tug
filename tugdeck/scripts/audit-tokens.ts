@@ -3,7 +3,7 @@
  * audit-tokens.ts — Mechanical token audit tooling for the tugways design system.
  *
  * Subcommands:
- *   tokens      Extract all --tug-* tokens from styles/themes/brio.css and
+ *   tokens      Extract all --tug-* tokens from styles/themes/ironclad.css and
  *               classify each as element / surface / non-color.
  *   pairings    Parse all component CSS files and extract every
  *               foreground-on-background pairing (color/fill on background-color).
@@ -35,7 +35,7 @@ import { SEED_RENAME_MAP } from "./seed-rename-map";
 // ---------------------------------------------------------------------------
 
 const TUGDECK = path.resolve(import.meta.dir, "..");
-const GENERATED_CSS = path.join(TUGDECK, "styles/themes/brio.css");
+const GENERATED_CSS = path.join(TUGDECK, "styles/themes/ironclad.css");
 const TUGWAYS = path.join(TUGDECK, "src/components/tugways");
 const PAIRING_MAP_PATH = path.join(TUGWAYS, "theme-pairings.ts");
 

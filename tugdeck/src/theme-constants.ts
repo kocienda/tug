@@ -11,4 +11,4 @@
  */
 
 /** The name of the base theme. Its tokens are the CSS foundation. */
-export const BASE_THEME_NAME = "brio";
+export const BASE_THEME_NAME = "ironclad";

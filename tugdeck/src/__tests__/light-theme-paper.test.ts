@@ -1,5 +1,5 @@
 /**
- * The paper invariants of the three light themes — harmony, aria and vivace.
+ * The paper invariants of the five light themes — sloop, ketch, skiff, kayak and pinnace.
  *
  * A light field carries its hue as a wash the whole screen shares, so the one
  * thing a light theme cannot afford is a tinted field: at the top of the
@@ -40,11 +40,13 @@ import { buildDefs, resolveToken } from "../../scripts/audit-theme-contrast";
 
 const THEMES_DIR = path.join(import.meta.dir, "../../styles/themes");
 
-/** The three light themes and the tint hue each one's fields are authored on. */
+/** The five light themes and the tint hue each one's fields are authored on. */
 const LIGHT_THEMES: ReadonlyArray<{ theme: string; tint: string }> = [
-  { theme: "harmony", tint: "indigo" },
-  { theme: "aria", tint: "orchid" },
-  { theme: "vivace", tint: "cyan" },
+  { theme: "sloop", tint: "indigo" },
+  { theme: "ketch", tint: "orchid" },
+  { theme: "skiff", tint: "cyan" },
+  { theme: "kayak", tint: "honey" },
+  { theme: "pinnace", tint: "pink" },
 ];
 
 /**

@@ -70,7 +70,7 @@ Posted by the aggregator; parsed by `AppDelegate`'s `MenuState` struct. **Keep b
     }
   },
   "recentDocuments": ["/abs/path", "…"],
-  "activeTheme": "brio",
+  "activeTheme": "ironclad",
   "openQuickly": true,
   "captureArmed": false,           // Keyboard pane recording a chord — host parks every key equivalent until disarm
   "appModalOpen": false            // ConfigureTug / UpdateTug / TugVersionGate is up — nothing may change the card count

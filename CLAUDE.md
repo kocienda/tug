@@ -107,7 +107,7 @@ The contract — the order of preference, the edit program, and the `edit`/`prob
 
 ## Tugdeck — Theme Token Files
 
-Theme tokens live in `tugdeck/styles/themes/*.css` — `brio`/`nocturne`/`bravura` (dark) and `harmony`/`aria`/`vivace` (light). These are hand-authored CSS files — there is no generation script. Edit them directly when adding or tuning tokens. Each theme is one tint hue over a shared tone skeleton; see `tuglaws/theme-engine.md` for the authoring doctrine. Validate contrast with `bun run audit:theme-contrast` (no theme may exceed the `brio` accessibility budget). Register new themes in `SHIPPED_THEME_NAMES` (`tugdeck/src/action-dispatch.ts`).
+Theme tokens live in `tugdeck/styles/themes/*.css` — `ironclad`/`caravel`/`barque`/`galleon`/`collier` (dark ships) and `sloop`/`ketch`/`skiff`/`kayak`/`pinnace` (light boats). These are hand-authored CSS files — there is no generation script. Edit them directly when adding or tuning tokens. Each theme is one tint hue over a shared tone skeleton; see `tuglaws/theme-engine.md` for the authoring doctrine. Validate contrast with `bun run audit:theme-contrast` (no theme may exceed the `ironclad` accessibility budget). Register new themes in `SHIPPED_THEME_NAMES` (`tugdeck/src/action-dispatch.ts`).
 
 ## AskUserQuestion — shape and affordances
 

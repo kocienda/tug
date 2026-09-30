@@ -3,7 +3,7 @@
  *
  * Two distinct jobs, kept in two separate regions so they never blur together:
  *
- *  1. SET A BASE (brio dark / harmony light). A base is hand-authored, not
+ *  1. SET A BASE (ironclad dark / sloop light). A base is hand-authored, not
  *     derived. Its identity is its Key color — the vivid chip / toggle fill. This
  *     region lets you set that color EXPLICITLY in the picker (hue + chroma +
  *     lightness); applying scales the whole Key ramp so its anchor token lands on
@@ -43,8 +43,8 @@ import { type TugColorSpec } from "@/components/tugways/tugcolor";
 import { HUE_FAMILIES, fracFromAuthored, chromaFromAuthored, resolveHueAngle } from "@/components/tugways/tugcolor";
 import { deriveTheme } from "../../../../theme-editor-core";
 import { TUG_ACTIONS } from "../action-vocabulary";
-import brioRaw from "../../../../styles/themes/brio.css?raw";
-import harmonyRaw from "../../../../styles/themes/harmony.css?raw";
+import ironcladRaw from "../../../../styles/themes/ironclad.css?raw";
+import sloopRaw from "../../../../styles/themes/sloop.css?raw";
 import "./gallery.css";
 import "./gallery-theme-editor.css";
 
@@ -52,13 +52,13 @@ import "./gallery-theme-editor.css";
 // Bases and the derived family.
 // ---------------------------------------------------------------------------
 
-type BaseName = "brio" | "harmony";
+type BaseName = "ironclad" | "sloop";
 
-const BASE_CSS: Record<BaseName, string> = { brio: brioRaw, harmony: harmonyRaw };
+const BASE_CSS: Record<BaseName, string> = { ironclad: ironcladRaw, sloop: sloopRaw };
 
 const BASE_ITEMS: Array<{ value: BaseName; label: string }> = [
-  { value: "brio", label: "Brio (dark)" },
-  { value: "harmony", label: "Harmony (light)" },
+  { value: "ironclad", label: "Ironclad (dark)" },
+  { value: "sloop", label: "Sloop (light)" },
 ];
 
 /** The token whose color IS the base's key color — the vivid filled-action fill
@@ -68,10 +68,14 @@ const ANCHOR_KEY_TOKEN = "--tug7-surface-control-primary-filled-action-rest";
 interface FamilyEntry { base: BaseName; mode: "dark" | "light"; key: string; accent: string; }
 
 const FAMILY: Record<string, FamilyEntry> = {
-  nocturne: { base: "brio", mode: "dark", key: "seafoam", accent: "orange" },
-  bravura: { base: "brio", mode: "dark", key: "purple", accent: "orange" },
-  aria: { base: "harmony", mode: "light", key: "iris", accent: "amber" },
-  vivace: { base: "harmony", mode: "light", key: "seafoam", accent: "gold" },
+  caravel: { base: "ironclad", mode: "dark", key: "seafoam", accent: "orange" },
+  barque: { base: "ironclad", mode: "dark", key: "purple", accent: "orange" },
+  galleon: { base: "ironclad", mode: "dark", key: "cerulean", accent: "orange" },
+  collier: { base: "ironclad", mode: "dark", key: "rose", accent: "orange" },
+  ketch: { base: "sloop", mode: "light", key: "iris", accent: "orange" },
+  skiff: { base: "sloop", mode: "light", key: "seafoam", accent: "orange" },
+  kayak: { base: "sloop", mode: "light", key: "sapphire", accent: "orange" },
+  pinnace: { base: "sloop", mode: "light", key: "rose", accent: "orange" },
 };
 
 const OUTPUT_ITEMS = Object.keys(FAMILY).map((name) => ({
@@ -129,15 +133,15 @@ function baseKeyColor(base: BaseName): TugColorSpec {
 
 export function GalleryThemeEditor(): React.ReactElement {
   // ---- Region 1: set a base ----
-  const [baseSel, setBaseSel] = useState<BaseName>("brio");
+  const [baseSel, setBaseSel] = useState<BaseName>("ironclad");
   // The well holds the base's key color directly; the picker edits hue + absolute
   // chroma/lightness, and applying anchors the whole Key ramp to it.
-  const [baseKey, setBaseKey] = useState<TugColorSpec>(() => baseKeyColor("brio"));
+  const [baseKey, setBaseKey] = useState<TugColorSpec>(() => baseKeyColor("ironclad"));
   const [baseBusy, setBaseBusy] = useState(false);
   const [baseMsg, setBaseMsg] = useState<string | null>(null);
 
   // ---- Region 2: derive a family member ----
-  const [output, setOutput] = useState<string>("nocturne");
+  const [output, setOutput] = useState<string>("caravel");
   const fam = FAMILY[output];
   // These wells only contribute their HUE — derivation rotates by hue and holds
   // each token's own perceived chroma + lightness.

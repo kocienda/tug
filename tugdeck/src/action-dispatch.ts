@@ -148,12 +148,16 @@ import {
  * darks before all lights instead of ping-ponging between modes.
  */
 export const SHIPPED_THEME_NAMES: readonly string[] = [
-  BASE_THEME_NAME, // brio (dark)
-  "nocturne", // dark
-  "bravura", // dark
-  "harmony", // light
-  "aria", // light
-  "vivace", // light
+  BASE_THEME_NAME, // ironclad (dark)
+  "caravel", // dark
+  "barque", // dark
+  "galleon", // dark
+  "collier", // dark
+  "sloop", // light
+  "ketch", // light
+  "skiff", // light
+  "kayak", // light
+  "pinnace", // light
 ];
 
 /** Handler function for an action */

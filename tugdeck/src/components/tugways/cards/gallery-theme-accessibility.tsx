@@ -131,7 +131,7 @@ function EmphasisRolePreview() {
 
 export function GalleryThemeAccessibility() {
   const themeCtx = useOptionalThemeContext();
-  const themeName = themeCtx?.theme ?? "brio";
+  const themeName = themeCtx?.theme ?? "ironclad";
 
   const requiredColorTokens = useMemo(() => {
     const set = new Set<string>();

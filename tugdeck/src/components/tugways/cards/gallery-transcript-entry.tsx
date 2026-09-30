@@ -41,7 +41,7 @@ Your branch is up to date with 'origin/main'.
 
 Changes not staged for commit:
   modified:   src/components/tugways/tug-transcript-entry.tsx
-  modified:   styles/themes/brio.css
+  modified:   styles/themes/ironclad.css
 
 no changes added to commit (use "git add")`;
 

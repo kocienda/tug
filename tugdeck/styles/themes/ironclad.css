@@ -1,6 +1,6 @@
-/* Brio — dark theme. */
+/* Ironclad — dark theme. */
 body {
-  --tugx-host-canvas-color: #18181d;
+  --tugx-host-canvas-color: #16181d;
   --tugx-theme-appearance: dark;
   /* Single accent knob — every accent affordance (drop/focus rings, list
      selection, cursors, spinners, tab underlines, color-well) resolves here. */
@@ -86,31 +86,31 @@ body {
   --tug-line-height-xs: 17px;
 
   /* Surface — Global */
-  --tug7-surface-global-primary-normal-canvas-rest: --tug-color(grape, l: 210, c: 20);
-  --tug7-surface-global-primary-normal-content-rest: --tug-color(grape, l: 310, c: 20);
+  --tug7-surface-global-primary-normal-canvas-rest: --tug-color(indigo-violet, l: 210, c: 20);
+  --tug7-surface-global-primary-normal-content-rest: --tug-color(indigo-violet, l: 310, c: 20);
   --tug7-surface-global-primary-normal-control-rest: var(--tug7-surface-control-primary-outlined-action-rest);
-  --tug7-surface-global-primary-normal-default-rest: --tug-color(grape, l: 290, c: 20);
-  --tug7-surface-global-primary-normal-grid-rest: --tug-color(grape, l: 360, c: 20);
-  --tug7-surface-global-primary-normal-overlay-rest: --tug-color(grape, l: 310, c: 20);
-  --tug7-surface-global-primary-normal-raised-rest: --tug-color(grape, l: 280, c: 20);
-  --tug7-surface-global-primary-normal-screen-rest: --tug-color(grape, l: 330, c: 40);
-  --tug7-surface-global-primary-normal-sunken-rest: --tug-color(plum, l: 270, c: 20);
+  --tug7-surface-global-primary-normal-default-rest: --tug-color(indigo-violet, l: 290, c: 20);
+  --tug7-surface-global-primary-normal-grid-rest: --tug-color(indigo-violet, l: 360, c: 20);
+  --tug7-surface-global-primary-normal-overlay-rest: --tug-color(indigo-violet, l: 310, c: 20);
+  --tug7-surface-global-primary-normal-raised-rest: --tug-color(indigo-violet, l: 280, c: 20);
+  --tug7-surface-global-primary-normal-screen-rest: --tug-color(indigo, l: 330, c: 40);
+  --tug7-surface-global-primary-normal-sunken-rest: --tug-color(violet, l: 270, c: 20);
 
   /* Element — Text */
-  --tug7-element-global-text-normal-default-rest: --tug-color(grape, l: 930, c: 20);
+  --tug7-element-global-text-normal-default-rest: --tug-color(indigo, l: 930, c: 20);
   /* Brighter than the default for block-header text (legibility on dark). */
-  --tugx-block-header-text: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-global-text-normal-inverse-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-element-global-text-normal-link-hover: --tug-color(purple, l: 900, c: 100);
-  --tug7-element-global-text-normal-link-rest: --tug-color(purple, l: 900, c: 100);
-  --tug7-element-global-text-normal-muted-rest: --tug-color(grape, l: 800, c: 20);
+  --tugx-block-header-text: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-global-text-normal-inverse-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-element-global-text-normal-link-hover: --tug-color(cobalt, l: 900, c: 100);
+  --tug7-element-global-text-normal-link-rest: --tug-color(cobalt, l: 900, c: 100);
+  --tug7-element-global-text-normal-muted-rest: --tug-color(indigo-violet, l: 800, c: 20);
   /* Block-header description text (command / path) — brighter than muted for legibility. */
-  --tugx-block-header-detail: --tug-color(grape, l: 880, c: 20);
-  --tug7-element-global-text-normal-onAccent-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-element-global-text-normal-onCaution-rest: --tug-color(grape, l: 230, c: 20);
-  --tug7-element-global-text-normal-onDanger-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-element-global-text-normal-onSuccess-rest: --tug-color(grape, l: 230, c: 20);
-  --tug7-element-global-text-normal-placeholder-rest: --tug-color(grape, l: 500, c: 40);
+  --tugx-block-header-detail: --tug-color(indigo-violet, l: 880, c: 20);
+  --tug7-element-global-text-normal-onAccent-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-element-global-text-normal-onCaution-rest: --tug-color(indigo-violet, l: 230, c: 20);
+  --tug7-element-global-text-normal-onDanger-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-element-global-text-normal-onSuccess-rest: --tug-color(indigo-violet, l: 230, c: 20);
+  --tug7-element-global-text-normal-placeholder-rest: --tug-color(indigo, l: 500, c: 40);
   /* Green and red on a dark surface trigger chromostereopsis: the saturated
      red recedes and reads "lower" than the green beside it. Reduced intensity
      (saturated edges drive the effect) calms it wherever the two tones still
@@ -120,28 +120,28 @@ body {
   --tug7-element-global-text-normal-success-rest: --tug-color(green, l: 890, c: 540);
   --tug7-element-global-text-normal-danger-rest: --tug-color(red, l: 810, c: 260);
   --tug7-element-global-text-normal-caution-rest: --tug-color(yellow, l: 940, c: 180);
-  --tug7-element-global-text-normal-plain-disabled: --tug-color(grape, l: 420, c: 40);
-  --tug7-element-global-text-normal-subtle-rest: --tug-color(grape, l: 790, c: 40);
+  --tug7-element-global-text-normal-plain-disabled: --tug-color(indigo-cobalt, l: 420, c: 40);
+  --tug7-element-global-text-normal-subtle-rest: --tug-color(indigo-violet, l: 790, c: 40);
 
   /* Element — Icon */
-  --tug7-element-global-icon-normal-active-rest: --tug-color(grape, l: 870, c: 140);
-  --tug7-element-global-icon-normal-default-rest: --tug-color(grape, l: 800, c: 20);
-  --tug7-element-global-icon-normal-muted-rest: --tug-color(grape, l: 790, c: 40);
-  --tug7-element-global-icon-normal-onAccent-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-element-global-icon-normal-plain-disabled: --tug-color(grape, l: 420, c: 40);
+  --tug7-element-global-icon-normal-active-rest: --tug-color(indigo, l: 870, c: 140);
+  --tug7-element-global-icon-normal-default-rest: --tug-color(indigo, l: 800, c: 20);
+  --tug7-element-global-icon-normal-muted-rest: --tug-color(indigo-violet, l: 790, c: 40);
+  --tug7-element-global-icon-normal-onAccent-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-element-global-icon-normal-plain-disabled: --tug-color(indigo-cobalt, l: 420, c: 40);
 
   /* Element — Border */
   --tug7-element-global-border-normal-accent-rest: var(--tugx-accent);
   --tug7-element-global-border-normal-danger-rest: --tug-color(red, l: 660, c: 440);
-  --tug7-element-global-border-normal-default-rest: --tug-color(grape, l: 500, c: 40);
-  --tug7-element-global-border-normal-inverse-rest: --tug-color(grape, l: 930, c: 20);
-  --tug7-element-global-border-normal-muted-rest: --tug-color(grape, l: 580, c: 40);
-  --tug7-element-global-border-normal-strong-rest: --tug-color(grape, l: 610, c: 40);
+  --tug7-element-global-border-normal-default-rest: --tug-color(indigo-violet, l: 500, c: 40);
+  --tug7-element-global-border-normal-inverse-rest: --tug-color(indigo, l: 930, c: 20);
+  --tug7-element-global-border-normal-muted-rest: --tug-color(indigo-violet, l: 580, c: 40);
+  --tug7-element-global-border-normal-strong-rest: --tug-color(indigo-cobalt, l: 610, c: 40);
 
   /* Element — Divider */
-  --tug7-element-global-divider-normal-default-rest: --tug-color(grape, l: 350, c: 40);
-  --tug7-element-global-divider-normal-muted-rest: --tug-color(plum, l: 320, c: 20);
-  --tug7-element-global-divider-normal-separator-rest: --tug-color(grape, l: 470, c: 40);
+  --tug7-element-global-divider-normal-default-rest: --tug-color(indigo-violet, l: 350, c: 40);
+  --tug7-element-global-divider-normal-muted-rest: --tug-color(violet, l: 320, c: 20);
+  --tug7-element-global-divider-normal-separator-rest: --tug-color(indigo-violet, l: 470, c: 40);
 
   /* Element — Shadow */
   --tug7-element-global-shadow-normal-lg-rest: --tug-color(black, a: 700);
@@ -167,21 +167,21 @@ body {
   --tug7-element-global-fill-normal-accentSubtle-rest: --tug-color(orange, l: 530, c: 300, a: 100);
 
   /* Movement cursor / row hover for item-groups ([P03]/[Q01]) — a clearly
-     visible neutral overlay, distinct from the selection accent. Brio overlays
+     visible neutral overlay, distinct from the selection accent. Ironclad overlays
      light on a dark surface. */
   --tugx-key-cursor-surface: --tug-color(white, a: 140);
 
   /* Tone */
   --tug7-element-tone-border-normal-accent-rest: var(--tugx-accent);
-  --tug7-element-tone-border-normal-active-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-element-tone-border-normal-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-element-tone-border-normal-active-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-element-tone-border-normal-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-element-tone-border-normal-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-element-tone-border-normal-danger-rest: --tug-color(red, l: 630, c: 440);
   --tug7-element-tone-border-normal-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-element-tone-border-normal-success-rest: --tug-color(green, l: 780, c: 440);
   --tug7-element-tone-fill-normal-accent-rest: --tug-color(orange, l: 780, c: 300);
-  --tug7-element-tone-fill-normal-active-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-element-tone-fill-normal-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-element-tone-fill-normal-active-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-element-tone-fill-normal-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-element-tone-fill-normal-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-element-tone-fill-normal-danger-rest: --tug-color(red, l: 910, c: 120);
   --tug7-element-tone-fill-normal-data-rest: --tug-color(teal, l: 760, c: 300);
@@ -189,33 +189,33 @@ body {
   --tug7-element-tone-icon-normal-accent-rest: --tug-color(orange, l: 780, c: 300);
   /* "You" / user participant icon — hard-coded per theme, NOT linked to Accent. */
   --tug7-element-tone-icon-normal-you-rest: --tug-color(orange, l: 780, c: 260);
-  --tug7-element-tone-icon-normal-active-rest: --tug-color(purple, l: 750, c: 240);
-  --tug7-element-tone-icon-normal-agent-rest: --tug-color(plum, l: 770, c: 240);
+  --tug7-element-tone-icon-normal-active-rest: --tug-color(cobalt, l: 750, c: 240);
+  --tug7-element-tone-icon-normal-agent-rest: --tug-color(violet, l: 770, c: 240);
   --tug7-element-tone-icon-normal-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-element-tone-icon-normal-danger-rest: --tug-color(red, l: 770, c: 340);
   --tug7-element-tone-icon-normal-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-element-tone-icon-normal-success-rest: --tug-color(green, l: 780, c: 440);
   --tug7-element-tone-text-normal-accent-rest: --tug-color(orange, l: 910, c: 120);
-  --tug7-element-tone-text-normal-active-rest: --tug-color(purple, l: 900, c: 100);
-  --tug7-element-tone-text-normal-agent-rest: --tug-color(plum, l: 890, c: 100);
+  --tug7-element-tone-text-normal-active-rest: --tug-color(cobalt, l: 900, c: 100);
+  --tug7-element-tone-text-normal-agent-rest: --tug-color(violet, l: 890, c: 100);
   --tug7-element-tone-text-normal-caution-rest: --tug-color(yellow, l: 860, c: 260);
-  --tug7-element-tone-text-normal-spot-rest: --tug-color(orchid, l: 800, c: 850);
+  --tug7-element-tone-text-normal-spot-rest: --tug-color(blue, l: 800, c: 850);
   --tug7-element-tone-text-normal-code-rest: color-mix(in srgb, var(--tug7-element-tone-text-normal-spot-rest) 30%, color-mix(in srgb, currentColor 78%, transparent));
   --tug7-element-tone-text-normal-danger-rest: --tug-color(red, l: 880, c: 160);
   --tug7-element-tone-text-normal-data-rest: --tug-color(teal, l: 920, c: 260);
   --tug7-element-tone-text-normal-success-rest: --tug-color(green, l: 930, c: 300);
   --tug7-surface-tone-primary-normal-accent-rest: --tug-color(orange, l: 740, c: 300, a: 150);
-  --tug7-surface-tone-primary-normal-active-rest: --tug-color(purple, l: 710, c: 240, a: 150);
-  --tug7-surface-tone-primary-normal-agent-rest: --tug-color(plum, l: 670, c: 300, a: 150);
+  --tug7-surface-tone-primary-normal-active-rest: --tug-color(cobalt, l: 710, c: 240, a: 150);
+  --tug7-surface-tone-primary-normal-agent-rest: --tug-color(violet, l: 670, c: 300, a: 150);
   --tug7-surface-tone-primary-normal-caution-rest: --tug-color(yellow, l: 600, c: 260, a: 80);
   --tug7-surface-tone-primary-normal-danger-rest: --tug-color(red, l: 630, c: 440, a: 150);
   --tug7-surface-tone-primary-normal-data-rest: --tug-color(teal, l: 760, c: 300, a: 150);
   --tug7-surface-tone-primary-normal-success-rest: --tug-color(green, l: 780, c: 440, a: 150);
 
   /* Selection */
-  --tug7-element-selection-text-normal-plain-rest: --tug-color(grape, l: 930, c: 20);
+  --tug7-element-selection-text-normal-plain-rest: --tug-color(indigo, l: 930, c: 20);
   --tug7-surface-selection-primary-normal-plain-inactive: --tug-color(gray, l: 600, a: 180);
-  --tug7-surface-selection-primary-normal-plain-rest: --tug-color(purple, l: 810, c: 200, a: 600);
+  --tug7-surface-selection-primary-normal-plain-rest: --tug-color(cobalt, l: 810, c: 200, a: 600);
   /* UI selection — the selection axis (blue): its OWN fixed color marking the
      chosen item, independent of the accent/action roles and of the focus axis
      (orange). The same blue carries the toggle `on` role (group / checkbox /
@@ -226,8 +226,8 @@ body {
      force the row to recolor its own text. Only `selected` carries near-white
      text; a washed row keeps its own. Text/character selection (`plain`,
      above) stays blue. */
-  --tug7-surface-selection-primary-normal-selected-rest: --tug-color(purple, l: 670, c: 380);
-  --tug7-surface-selection-primary-normal-selected-hover: --tug-color(purple, l: 760, c: 260);
+  --tug7-surface-selection-primary-normal-selected-rest: --tug-color(cobalt, l: 670, c: 380);
+  --tug7-surface-selection-primary-normal-selected-hover: --tug-color(cobalt, l: 760, c: 260);
   /* The row-selection WASH — the `selected` hue above at low alpha, three rungs:
      rest (selected) < hover (selected + mouse) < strong (the press preview).
      A committed row selection is a mark laid OVER the row, not a slab painted in
@@ -236,9 +236,9 @@ body {
      toned-down opaque cousin, because the wash has to composite over whatever
      the row sits on — a striping band, the container focus wash, the dialog
      surface — which an opaque fill cannot. Sole consumer is the list row. */
-  --tug7-surface-selection-primary-normal-quiet-rest: --tug-color(purple, l: 670, c: 380, a: 180);
-  --tug7-surface-selection-primary-normal-quiet-hover: --tug-color(purple, l: 670, c: 380, a: 240);
-  --tug7-surface-selection-primary-normal-quiet-strong: --tug-color(purple, l: 670, c: 380, a: 320);
+  --tug7-surface-selection-primary-normal-quiet-rest: --tug-color(cobalt, l: 670, c: 380, a: 180);
+  --tug7-surface-selection-primary-normal-quiet-hover: --tug-color(cobalt, l: 670, c: 380, a: 240);
+  --tug7-surface-selection-primary-normal-quiet-strong: --tug-color(cobalt, l: 670, c: 380, a: 320);
   /* Demoted selection — a selected list row whose descended trailing
      accessory holds the keyboard key view yields its fill to the live
      control: the row drops to a calmer wash TINGED BY THE ACCESSORY'S ROLE
@@ -248,12 +248,12 @@ body {
      role-hued; a demoted mark that outweighed the selection it demotes
      from would invert the very emphasis this exists to yield. One token per
      focus-ring-axis role; sole consumer is the list row's demotion rules. */
-  --tug7-surface-selection-primary-demoted-action-rest: --tug-color(purple, l: 480, c: 100, a: 130);
+  --tug7-surface-selection-primary-demoted-action-rest: --tug-color(cobalt, l: 480, c: 100, a: 130);
   --tug7-surface-selection-primary-demoted-danger-rest: --tug-color(red, l: 440, c: 200, a: 130);
   --tug7-surface-selection-primary-demoted-accent-rest: --tug-color(orange, l: 500, c: 120, a: 130);
   --tug7-surface-selection-primary-demoted-data-rest: --tug-color(teal, l: 520, c: 140, a: 130);
-  --tug7-surface-selection-primary-demoted-agent-rest: --tug-color(plum, l: 460, c: 140, a: 130);
-  --tug7-element-selection-text-normal-selected-rest: --tug-color(grape, l: 960, c: 20);
+  --tug7-surface-selection-primary-demoted-agent-rest: --tug-color(violet, l: 460, c: 140, a: 130);
+  --tug7-element-selection-text-normal-selected-rest: --tug-color(indigo, l: 960, c: 20);
 
   /* tug-text-editor selection overlay — saturated blue painted as a layer behind
      the editable surface. tug-input and other native-::selection-driven
@@ -264,90 +264,90 @@ body {
   /* `--tugx-text-editor-*` slots live in tug-text-editor.css. */
 
   /* Element — Highlight */
-  --tug7-element-highlight-fill-normal-drop-rest: --tug-color(purple, l: 790, c: 240);
+  --tug7-element-highlight-fill-normal-drop-rest: --tug-color(cobalt, l: 790, c: 240);
   --tug7-element-highlight-stroke-normal-drop-rest: var(--tugx-accent);
 
   /* Surface — Highlight */
-  --tug7-surface-highlight-primary-normal-drop-rest: --tug-color(purple, l: 740, c: 240, a: 180);
+  --tug7-surface-highlight-primary-normal-drop-rest: --tug-color(cobalt, l: 740, c: 240, a: 180);
   --tug7-surface-highlight-primary-normal-flash-rest: --tug-color(orange, l: 780, c: 300, a: 350);
   --tug7-surface-highlight-primary-normal-hover-rest: --tug-color(white, a: 50);
-  --tug7-surface-highlight-primary-normal-inspector-rest: --tug-color(violet, l: 770, c: 280, a: 220);
-  --tug7-surface-highlight-primary-normal-preview-rest: --tug-color(violet, l: 770, c: 280, a: 120);
-  --tug7-surface-highlight-primary-normal-snap-rest: --tug-color(violet, l: 770, c: 280, a: 500);
-  --tug7-surface-highlight-primary-normal-snap-hover: --tug-color(purple, l: 330, c: 20, a: 80);
+  --tug7-surface-highlight-primary-normal-inspector-rest: --tug-color(blue, l: 770, c: 280, a: 220);
+  --tug7-surface-highlight-primary-normal-preview-rest: --tug-color(blue, l: 770, c: 280, a: 120);
+  --tug7-surface-highlight-primary-normal-snap-rest: --tug-color(blue, l: 770, c: 280, a: 500);
+  --tug7-surface-highlight-primary-normal-snap-hover: --tug-color(cobalt, l: 330, c: 20, a: 80);
 
   /* Tab */
-  --tug7-element-tab-text-normal-plain-active: --tug-color(grape, l: 910, c: 20);
-  --tug7-element-tab-text-normal-plain-hover: --tug-color(grape, l: 910, c: 20);
-  --tug7-element-tab-text-normal-plain-rest: --tug-color(grape, l: 790, c: 40);
-  --tug7-element-tab-close-normal-plain-hover: --tug-color(grape, l: 910, c: 20);
-  --tug7-surface-tab-primary-normal-plain-active: --tug-color(grape, l: 320, c: 80);
-  --tug7-surface-tab-primary-normal-plain-collapsed: --tug-color(grape, l: 310, c: 20);
+  --tug7-element-tab-text-normal-plain-active: --tug-color(indigo, l: 910, c: 20);
+  --tug7-element-tab-text-normal-plain-hover: --tug-color(indigo, l: 910, c: 20);
+  --tug7-element-tab-text-normal-plain-rest: --tug-color(indigo, l: 790, c: 40);
+  --tug7-element-tab-close-normal-plain-hover: --tug-color(indigo, l: 910, c: 20);
+  --tug7-surface-tab-primary-normal-plain-active: --tug-color(indigo-violet, l: 320, c: 80);
+  --tug7-surface-tab-primary-normal-plain-collapsed: --tug-color(indigo-violet, l: 310, c: 20);
   --tug7-surface-tab-primary-normal-plain-hover: --tug-color(white, a: 80);
-  --tug7-surface-tab-primary-normal-plain-inactive: --tug-color(grape, l: 310, c: 20);
+  --tug7-surface-tab-primary-normal-plain-inactive: --tug-color(indigo-violet, l: 310, c: 20);
   --tug7-surface-tab-close-normal-plain-hover: --tug-color(white, a: 120);
 
   /* Slider — Track */
-  --tug7-surface-slider-primary-normal-track-rest: --tug-color(grape, l: 400, c: 40);
-  --tug7-element-slider-fill-normal-range-rest: --tug-color(purple, l: 650, c: 280);
+  --tug7-surface-slider-primary-normal-track-rest: --tug-color(indigo-violet, l: 400, c: 40);
+  --tug7-element-slider-fill-normal-range-rest: --tug-color(cobalt, l: 650, c: 280);
 
   /* Split — Sash */
-  --tug7-surface-split-primary-normal-sash-rest: --tug-color(grape, l: 610, c: 40);
-  --tug7-surface-split-primary-normal-sash-focus: --tug-color(grape, l: 730, c: 20);
-  --tug7-surface-split-primary-normal-sash-hover: --tug-color(grape, l: 770, c: 20);
-  --tug7-surface-split-primary-normal-sash-active: --tug-color(grape, l: 900, c: 20);
-  --tug7-element-split-icon-normal-grip-rest: --tug-color(grape, l: 380, c: 40);
-  --tug7-element-split-icon-normal-grip-hover: --tug-color(grape, l: 380, c: 60);
-  --tug7-element-split-icon-normal-grip-active: --tug-color(grape, l: 500, c: 440);
+  --tug7-surface-split-primary-normal-sash-rest: --tug-color(indigo-violet, l: 610, c: 40);
+  --tug7-surface-split-primary-normal-sash-focus: --tug-color(indigo-violet, l: 730, c: 20);
+  --tug7-surface-split-primary-normal-sash-hover: --tug-color(indigo-violet, l: 770, c: 20);
+  --tug7-surface-split-primary-normal-sash-active: --tug-color(indigo-violet, l: 900, c: 20);
+  --tug7-element-split-icon-normal-grip-rest: --tug-color(indigo-violet, l: 380, c: 40);
+  --tug7-element-split-icon-normal-grip-hover: --tug-color(indigo-violet, l: 380, c: 60);
+  --tug7-element-split-icon-normal-grip-active: --tug-color(indigo-violet, l: 500, c: 440);
 
   /* Card — Title Bar */
-  --tug7-surface-card-primary-normal-titlebar-active: --tug-color(grape, l: 320, c: 80);
-  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(grape, l: 310, c: 33);
-  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(grape, l: 300, c: 24);
+  --tug7-surface-card-primary-normal-titlebar-active: --tug-color(indigo-violet, l: 320, c: 80);
+  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(indigo-violet, l: 310, c: 33);
+  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(indigo-violet, l: 300, c: 24);
 
   /* Card — Status Bar (Z2 placement zone at bottom of top split-panel) */
-  --tug7-surface-card-primary-normal-status-rest: --tug-color(grape, l: 280, c: 20);
+  --tug7-surface-card-primary-normal-status-rest: --tug-color(indigo-violet, l: 280, c: 20);
 
   /* Card — Control band (Z0) — its own surface so Z0/Z2 tune separately (seeded equal). */
-  --tug7-surface-card-primary-normal-controlbar-rest: --tug-color(grape, l: 280, c: 20);
+  --tug7-surface-card-primary-normal-controlbar-rest: --tug-color(indigo-violet, l: 280, c: 20);
 
   /* Card — Tool-block surface (header strip + body panel share it). A touch
      lighter than the column so blocks read as their own tinted panel. Bakes the
      former text-into-surface color-mix into a plain token (look unchanged). */
-  --tug7-surface-card-primary-normal-block-rest: --tug-color(grape, l: 360, c: 20);
+  --tug7-surface-card-primary-normal-block-rest: --tug-color(indigo-violet, l: 360, c: 20);
   /* Card — Tool-block expanded content well. A step darker than the block
      surface so an expanded body sinks into a recessed well, giving diff/edit
      content a darker ground for its tint lines to read against. */
-  --tug7-surface-card-primary-normal-well-rest: --tug-color(grape, l: 250, c: 20);
+  --tug7-surface-card-primary-normal-well-rest: --tug-color(indigo-violet, l: 250, c: 20);
 
   /* Card — Title Bar Element Tokens */
-  --tug7-element-card-text-normal-title-active: --tug-color(grape, l: 930, c: 20);
-  --tug7-element-card-text-normal-title-inactive: --tug-color(grape, l: 670, c: 20);
-  --tug7-element-card-icon-normal-title-active: --tug-color(grape, l: 820, c: 180);
-  --tug7-element-card-icon-normal-title-inactive: --tug-color(grape, l: 670, c: 40);
-  --tug7-element-card-icon-normal-title-hover: --tug-color(grape, l: 800, c: 20);
+  --tug7-element-card-text-normal-title-active: --tug-color(indigo, l: 930, c: 20);
+  --tug7-element-card-text-normal-title-inactive: --tug-color(indigo, l: 670, c: 20);
+  --tug7-element-card-icon-normal-title-active: --tug-color(indigo, l: 820, c: 180);
+  --tug7-element-card-icon-normal-title-inactive: --tug-color(indigo-violet, l: 670, c: 40);
+  --tug7-element-card-icon-normal-title-hover: --tug-color(indigo-violet, l: 800, c: 20);
 
   /* Card — Title Bar Control Buttons (ghost-style, focused card) */
-  --tug7-element-card-control-normal-plain-rest: --tug-color(grape, l: 790, c: 40);
-  --tug7-element-card-control-normal-plain-hover: --tug-color(grape, l: 870, c: 20);
-  --tug7-element-card-control-normal-plain-active: --tug-color(grape, l: 910, c: 20);
+  --tug7-element-card-control-normal-plain-rest: --tug-color(indigo-violet, l: 790, c: 40);
+  --tug7-element-card-control-normal-plain-hover: --tug-color(indigo-violet, l: 870, c: 20);
+  --tug7-element-card-control-normal-plain-active: --tug-color(indigo-violet, l: 910, c: 20);
   --tug7-surface-card-control-normal-plain-rest: transparent;
   --tug7-surface-card-control-normal-plain-hover: --tug-color(white, a: 100);
   --tug7-surface-card-control-normal-plain-active: --tug-color(white, a: 200);
   --tug7-element-card-border-normal-plain-rest: transparent;
-  --tug7-element-card-border-normal-plain-hover: --tug-color(grape, l: 610, c: 60);
-  --tug7-element-card-border-normal-plain-active: --tug-color(grape, l: 610, c: 60);
+  --tug7-element-card-border-normal-plain-hover: --tug-color(indigo-violet, l: 610, c: 60);
+  --tug7-element-card-border-normal-plain-active: --tug-color(indigo-violet, l: 610, c: 60);
 
   /* Card — Title Bar Control Buttons (ghost-style, unfocused card) */
-  --tug7-element-card-control-normal-muted-rest: --tug-color(grape, l: 670, c: 20);
-  --tug7-element-card-control-normal-muted-hover: --tug-color(grape, l: 800, c: 20);
-  --tug7-element-card-control-normal-muted-active: --tug-color(grape, l: 870, c: 20);
+  --tug7-element-card-control-normal-muted-rest: --tug-color(indigo-violet, l: 670, c: 20);
+  --tug7-element-card-control-normal-muted-hover: --tug-color(indigo-violet, l: 800, c: 20);
+  --tug7-element-card-control-normal-muted-active: --tug-color(indigo-violet, l: 870, c: 20);
   --tug7-surface-card-control-normal-muted-rest: transparent;
   --tug7-surface-card-control-normal-muted-hover: --tug-color(white, a: 80);
   --tug7-surface-card-control-normal-muted-active: --tug-color(white, a: 150);
   --tug7-element-card-border-normal-muted-rest: transparent;
-  --tug7-element-card-border-normal-muted-hover: --tug-color(grape, l: 500, c: 40);
-  --tug7-element-card-border-normal-muted-active: --tug-color(grape, l: 500, c: 40);
+  --tug7-element-card-border-normal-muted-hover: --tug-color(indigo-violet, l: 500, c: 40);
+  --tug7-element-card-border-normal-muted-active: --tug-color(indigo-violet, l: 500, c: 40);
 
   /* Card — Inactive Content Overlay (two layers: desaturate + wash) */
   /* The wash is ONE colour at two strengths, and the strength is an opacity
@@ -387,29 +387,29 @@ body {
   --tug7-element-control-border-filled-accent-active: --tug-color(orange, l: 810, c: 300);
 
   /* Filled Action */
-  --tug7-surface-control-primary-filled-action-rest: --tug-color(purple, l: 650, c: 400);
-  --tug7-surface-control-primary-filled-action-hover: --tug-color(purple, l: 750, c: 280);
-  --tug7-surface-control-primary-filled-action-active: --tug-color(purple, l: 550, c: 400);
-  --tug7-element-control-text-filled-action-rest: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-text-filled-action-hover: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-text-filled-action-active: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-filled-action-rest: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-filled-action-hover: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-filled-action-active: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-border-filled-action-rest: --tug-color(purple, l: 650, c: 400);
-  --tug7-element-control-border-filled-action-hover: --tug-color(purple, l: 750, c: 280);
-  --tug7-element-control-border-filled-action-active: --tug-color(purple, l: 550, c: 400);
+  --tug7-surface-control-primary-filled-action-rest: --tug-color(cobalt, l: 650, c: 400);
+  --tug7-surface-control-primary-filled-action-hover: --tug-color(cobalt, l: 750, c: 280);
+  --tug7-surface-control-primary-filled-action-active: --tug-color(cobalt, l: 550, c: 400);
+  --tug7-element-control-text-filled-action-rest: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-text-filled-action-hover: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-text-filled-action-active: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-filled-action-rest: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-filled-action-hover: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-filled-action-active: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-border-filled-action-rest: --tug-color(cobalt, l: 650, c: 400);
+  --tug7-element-control-border-filled-action-hover: --tug-color(cobalt, l: 750, c: 280);
+  --tug7-element-control-border-filled-action-active: --tug-color(cobalt, l: 550, c: 400);
 
   /* Filled Danger */
   --tug7-surface-control-primary-filled-danger-rest: --tug-color(red, l: 630, c: 440);
   --tug7-surface-control-primary-filled-danger-hover: --tug-color(red, l: 710, c: 440);
   --tug7-surface-control-primary-filled-danger-active: --tug-color(red, l: 750, c: 420);
-  --tug7-element-control-text-filled-danger-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-danger-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-danger-active: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-danger-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-danger-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-danger-active: --tug-color(grape, l: 960, c: 20);
+  --tug7-element-control-text-filled-danger-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-danger-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-danger-active: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-danger-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-danger-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-danger-active: --tug-color(indigo, l: 960, c: 20);
   --tug7-element-control-border-filled-danger-rest: --tug-color(red, l: 630, c: 440);
   --tug7-element-control-border-filled-danger-hover: --tug-color(red, l: 710, c: 440);
   --tug7-element-control-border-filled-danger-active: --tug-color(red, l: 750, c: 420);
@@ -417,29 +417,29 @@ body {
   /* Filled Agent — violet reads perceptually brighter than its L suggests
      (saturated purple), so its ramp is pulled below the uniform t:47
      filled-role baseline for legible white text on the fill. */
-  --tug7-surface-control-primary-filled-agent-rest: --tug-color(plum, l: 600, c: 300);
-  --tug7-surface-control-primary-filled-agent-hover: --tug-color(plum, l: 670, c: 320);
-  --tug7-surface-control-primary-filled-agent-active: --tug-color(plum, l: 720, c: 300);
-  --tug7-element-control-text-filled-agent-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-agent-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-agent-active: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-agent-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-agent-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-agent-active: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-border-filled-agent-rest: --tug-color(plum, l: 500, c: 320);
-  --tug7-element-control-border-filled-agent-hover: --tug-color(plum, l: 600, c: 380);
-  --tug7-element-control-border-filled-agent-active: --tug-color(plum, l: 720, c: 300);
+  --tug7-surface-control-primary-filled-agent-rest: --tug-color(violet, l: 600, c: 300);
+  --tug7-surface-control-primary-filled-agent-hover: --tug-color(violet, l: 670, c: 320);
+  --tug7-surface-control-primary-filled-agent-active: --tug-color(violet, l: 720, c: 300);
+  --tug7-element-control-text-filled-agent-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-agent-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-agent-active: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-agent-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-agent-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-agent-active: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-border-filled-agent-rest: --tug-color(violet, l: 500, c: 320);
+  --tug7-element-control-border-filled-agent-hover: --tug-color(violet, l: 600, c: 380);
+  --tug7-element-control-border-filled-agent-active: --tug-color(violet, l: 720, c: 300);
 
   /* Filled Data */
   --tug7-surface-control-primary-filled-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-surface-control-primary-filled-data-hover: --tug-color(teal, l: 810, c: 320);
   --tug7-surface-control-primary-filled-data-active: --tug-color(teal, l: 830, c: 420);
-  --tug7-element-control-text-filled-data-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-data-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-data-active: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-data-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-data-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-data-active: --tug-color(grape, l: 960, c: 20);
+  --tug7-element-control-text-filled-data-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-data-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-data-active: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-data-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-data-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-data-active: --tug-color(indigo, l: 960, c: 20);
   --tug7-element-control-border-filled-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-element-control-border-filled-data-hover: --tug-color(teal, l: 810, c: 320);
   --tug7-element-control-border-filled-data-active: --tug-color(teal, l: 830, c: 420);
@@ -448,12 +448,12 @@ body {
   --tug7-surface-control-primary-filled-success-rest: --tug-color(green, l: 780, c: 440);
   --tug7-surface-control-primary-filled-success-hover: --tug-color(green, l: 830, c: 480);
   --tug7-surface-control-primary-filled-success-active: --tug-color(green, l: 840, c: 620);
-  --tug7-element-control-text-filled-success-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-success-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-success-active: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-success-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-success-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-success-active: --tug-color(grape, l: 960, c: 20);
+  --tug7-element-control-text-filled-success-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-success-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-success-active: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-success-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-success-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-success-active: --tug-color(indigo, l: 960, c: 20);
   --tug7-element-control-border-filled-success-rest: --tug-color(green, l: 650, c: 480);
   --tug7-element-control-border-filled-success-hover: --tug-color(green, l: 780, c: 580);
   --tug7-element-control-border-filled-success-active: --tug-color(green, l: 840, c: 620);
@@ -462,12 +462,12 @@ body {
   --tug7-surface-control-primary-filled-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-surface-control-primary-filled-caution-hover: --tug-color(yellow, l: 900, c: 280);
   --tug7-surface-control-primary-filled-caution-active: --tug-color(yellow, l: 910, c: 280);
-  --tug7-element-control-text-filled-caution-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-caution-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-text-filled-caution-active: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-caution-rest: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-caution-hover: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-control-icon-filled-caution-active: --tug-color(grape, l: 960, c: 20);
+  --tug7-element-control-text-filled-caution-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-caution-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-text-filled-caution-active: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-caution-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-caution-hover: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-control-icon-filled-caution-active: --tug-color(indigo, l: 960, c: 20);
   --tug7-element-control-border-filled-caution-rest: --tug-color(yellow, l: 720, c: 280);
   --tug7-element-control-border-filled-caution-hover: --tug-color(yellow, l: 860, c: 320);
   --tug7-element-control-border-filled-caution-active: --tug-color(yellow, l: 910, c: 280);
@@ -488,31 +488,31 @@ body {
 
   /* Outlined Action */
   --tug7-surface-control-primary-outlined-action-rest: transparent;
-  --tug7-surface-control-primary-outlined-action-hover: --tug-color(purple, l: 670, c: 380, a: 240);
-  --tug7-surface-control-primary-outlined-action-active: --tug-color(purple, l: 670, c: 380, a: 400);
-  --tug7-element-control-text-outlined-action-rest: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-text-outlined-action-hover: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-text-outlined-action-active: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-action-rest: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-action-hover: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-action-active: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-border-outlined-action-rest: --tug-color(purple, l: 710, c: 280);
-  --tug7-element-control-border-outlined-action-hover: --tug-color(purple, l: 710, c: 320);
-  --tug7-element-control-border-outlined-action-active: --tug-color(purple, l: 710, c: 340);
+  --tug7-surface-control-primary-outlined-action-hover: --tug-color(cobalt, l: 670, c: 380, a: 240);
+  --tug7-surface-control-primary-outlined-action-active: --tug-color(cobalt, l: 670, c: 380, a: 400);
+  --tug7-element-control-text-outlined-action-rest: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-text-outlined-action-hover: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-text-outlined-action-active: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-action-rest: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-action-hover: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-action-active: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-border-outlined-action-rest: --tug-color(cobalt, l: 710, c: 280);
+  --tug7-element-control-border-outlined-action-hover: --tug-color(cobalt, l: 710, c: 320);
+  --tug7-element-control-border-outlined-action-active: --tug-color(cobalt, l: 710, c: 340);
 
   /* Outlined Option */
   --tug7-surface-control-primary-outlined-option-rest: transparent;
   --tug7-surface-control-primary-outlined-option-hover: --tug-color(white, a: 100);
   --tug7-surface-control-primary-outlined-option-active: --tug-color(white, a: 200);
-  --tug7-element-control-text-outlined-option-rest: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-text-outlined-option-hover: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-text-outlined-option-active: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-option-rest: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-option-hover: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-option-active: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-border-outlined-option-rest: --tug-color(grape, l: 690, c: 40);
-  --tug7-element-control-border-outlined-option-hover: --tug-color(grape, l: 740, c: 60);
-  --tug7-element-control-border-outlined-option-active: --tug-color(grape, l: 760, c: 60);
+  --tug7-element-control-text-outlined-option-rest: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-text-outlined-option-hover: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-text-outlined-option-active: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-option-rest: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-option-hover: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-option-active: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-border-outlined-option-rest: --tug-color(indigo, l: 690, c: 40);
+  --tug7-element-control-border-outlined-option-hover: --tug-color(indigo, l: 740, c: 60);
+  --tug7-element-control-border-outlined-option-active: --tug-color(indigo, l: 760, c: 60);
 
   /* Outlined Danger */
   --tug7-surface-control-primary-outlined-danger-rest: transparent;
@@ -532,15 +532,15 @@ body {
   --tug7-surface-control-primary-outlined-agent-rest: transparent;
   --tug7-surface-control-primary-outlined-agent-hover: --tug-color(white, a: 100);
   --tug7-surface-control-primary-outlined-agent-active: --tug-color(white, a: 200);
-  --tug7-element-control-text-outlined-agent-rest: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-text-outlined-agent-hover: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-text-outlined-agent-active: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-agent-rest: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-agent-hover: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-icon-outlined-agent-active: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-border-outlined-agent-rest: --tug-color(plum, l: 670, c: 320);
-  --tug7-element-control-border-outlined-agent-hover: --tug-color(plum, l: 670, c: 360);
-  --tug7-element-control-border-outlined-agent-active: --tug-color(plum, l: 670, c: 360);
+  --tug7-element-control-text-outlined-agent-rest: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-text-outlined-agent-hover: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-text-outlined-agent-active: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-agent-rest: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-agent-hover: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-icon-outlined-agent-active: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-border-outlined-agent-rest: --tug-color(violet, l: 670, c: 320);
+  --tug7-element-control-border-outlined-agent-hover: --tug-color(violet, l: 670, c: 360);
+  --tug7-element-control-border-outlined-agent-active: --tug-color(violet, l: 670, c: 360);
 
   /* Outlined Data */
   --tug7-surface-control-primary-outlined-data-rest: transparent;
@@ -600,35 +600,35 @@ body {
 
   /* Ghost Action */
   --tug7-surface-control-primary-ghost-action-rest: transparent;
-  --tug7-surface-control-primary-ghost-action-hover: --tug-color(purple, l: 670, c: 380, a: 140);
-  --tug7-surface-control-primary-ghost-action-active: --tug-color(purple, l: 670, c: 380, a: 280);
+  --tug7-surface-control-primary-ghost-action-hover: --tug-color(cobalt, l: 670, c: 380, a: 140);
+  --tug7-surface-control-primary-ghost-action-active: --tug-color(cobalt, l: 670, c: 380, a: 280);
   --tug7-surface-control-primary-ghost-action-confirmed: transparent;
-  --tug7-element-control-text-ghost-action-rest: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-text-ghost-action-hover: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-text-ghost-action-active: --tug-color(purple, l: 960, c: 20);
+  --tug7-element-control-text-ghost-action-rest: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-text-ghost-action-hover: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-text-ghost-action-active: --tug-color(cobalt, l: 960, c: 20);
   --tug7-element-control-text-ghost-action-confirmed: --tug-color(green, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-action-rest: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-action-hover: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-action-active: --tug-color(purple, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-action-rest: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-action-hover: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-action-active: --tug-color(cobalt, l: 960, c: 20);
   --tug7-element-control-icon-ghost-action-confirmed: --tug-color(green, l: 960, c: 20);
   --tug7-element-control-border-ghost-action-rest: transparent;
-  --tug7-element-control-border-ghost-action-hover: --tug-color(purple, l: 710, c: 320);
-  --tug7-element-control-border-ghost-action-active: --tug-color(purple, l: 710, c: 340);
+  --tug7-element-control-border-ghost-action-hover: --tug-color(cobalt, l: 710, c: 320);
+  --tug7-element-control-border-ghost-action-active: --tug-color(cobalt, l: 710, c: 340);
   --tug7-element-control-border-ghost-action-confirmed: transparent;
 
   /* Ghost Option */
   --tug7-surface-control-primary-ghost-option-rest: transparent;
   --tug7-surface-control-primary-ghost-option-hover: --tug-color(white, a: 100);
   --tug7-surface-control-primary-ghost-option-active: --tug-color(white, a: 200);
-  --tug7-element-control-text-ghost-option-rest: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-text-ghost-option-hover: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-text-ghost-option-active: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-option-rest: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-option-hover: --tug-color(violet, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-option-active: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-text-ghost-option-rest: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-text-ghost-option-hover: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-text-ghost-option-active: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-option-rest: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-option-hover: --tug-color(blue, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-option-active: --tug-color(blue, l: 960, c: 20);
   --tug7-element-control-border-ghost-option-rest: transparent;
-  --tug7-element-control-border-ghost-option-hover: --tug-color(violet, l: 730, c: 360);
-  --tug7-element-control-border-ghost-option-active: --tug-color(violet, l: 730, c: 360);
+  --tug7-element-control-border-ghost-option-hover: --tug-color(blue, l: 730, c: 360);
+  --tug7-element-control-border-ghost-option-active: --tug-color(blue, l: 730, c: 360);
 
   /* Ghost Danger */
   --tug7-surface-control-primary-ghost-danger-rest: transparent;
@@ -648,15 +648,15 @@ body {
   --tug7-surface-control-primary-ghost-agent-rest: transparent;
   --tug7-surface-control-primary-ghost-agent-hover: --tug-color(white, a: 100);
   --tug7-surface-control-primary-ghost-agent-active: --tug-color(white, a: 200);
-  --tug7-element-control-text-ghost-agent-rest: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-text-ghost-agent-hover: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-text-ghost-agent-active: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-agent-rest: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-agent-hover: --tug-color(plum, l: 960, c: 20);
-  --tug7-element-control-icon-ghost-agent-active: --tug-color(plum, l: 960, c: 20);
+  --tug7-element-control-text-ghost-agent-rest: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-text-ghost-agent-hover: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-text-ghost-agent-active: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-agent-rest: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-agent-hover: --tug-color(violet, l: 960, c: 20);
+  --tug7-element-control-icon-ghost-agent-active: --tug-color(violet, l: 960, c: 20);
   --tug7-element-control-border-ghost-agent-rest: transparent;
-  --tug7-element-control-border-ghost-agent-hover: --tug-color(plum, l: 670, c: 360);
-  --tug7-element-control-border-ghost-agent-active: --tug-color(plum, l: 670, c: 360);
+  --tug7-element-control-border-ghost-agent-hover: --tug-color(violet, l: 670, c: 360);
+  --tug7-element-control-border-ghost-agent-active: --tug-color(violet, l: 670, c: 360);
 
   /* Ghost Data */
   --tug7-surface-control-primary-ghost-data-rest: transparent;
@@ -704,43 +704,43 @@ body {
      UI-selection surfaces + borders carry accent/orange (the chosen item);
      selection foregrounds stay neutral. Text/character selection is elsewhere
      (`selection … plain`) and stays blue. */
-  --tug7-element-control-border-normal-highlighted-rest: --tug-color(purple, l: 740, c: 240, a: 250);
-  --tug7-element-control-border-normal-plain-disabled: --tug-color(grape, l: 470, c: 40);
-  --tug7-element-control-border-normal-selected-rest: --tug-color(purple, l: 740, c: 240);
-  --tug7-element-control-icon-normal-plain-disabled: --tug-color(grape, l: 590, c: 40);
+  --tug7-element-control-border-normal-highlighted-rest: --tug-color(cobalt, l: 740, c: 240, a: 250);
+  --tug7-element-control-border-normal-plain-disabled: --tug-color(indigo-violet, l: 470, c: 40);
+  --tug7-element-control-border-normal-selected-rest: --tug-color(cobalt, l: 740, c: 240);
+  --tug7-element-control-icon-normal-plain-disabled: --tug-color(indigo-cobalt, l: 590, c: 40);
   --tug7-element-control-shadow-normal-plain-disabled: none;
-  --tug7-element-control-text-normal-highlighted-rest: --tug-color(purple, l: 930, c: 20);
-  --tug7-element-control-text-normal-plain-disabled: --tug-color(grape, l: 590, c: 40);
-  --tug7-element-control-text-normal-selected-rest: --tug-color(purple, l: 930, c: 20);
-  --tug7-surface-control-primary-normal-highlighted-rest: --tug-color(purple, l: 740, c: 240, a: 100);
-  --tug7-surface-control-primary-normal-plain-disabled: --tug-color(plum, l: 400, c: 20);
-  --tug7-surface-control-primary-normal-selected-disabled: --tug-color(purple, l: 740, c: 240, a: 100);
-  --tug7-surface-control-primary-normal-selected-hover: --tug-color(purple, l: 740, c: 240, a: 240);
-  --tug7-surface-control-primary-normal-selected-rest: --tug-color(purple, l: 740, c: 240, a: 180);
+  --tug7-element-control-text-normal-highlighted-rest: --tug-color(cobalt, l: 930, c: 20);
+  --tug7-element-control-text-normal-plain-disabled: --tug-color(indigo-cobalt, l: 590, c: 40);
+  --tug7-element-control-text-normal-selected-rest: --tug-color(cobalt, l: 930, c: 20);
+  --tug7-surface-control-primary-normal-highlighted-rest: --tug-color(cobalt, l: 740, c: 240, a: 100);
+  --tug7-surface-control-primary-normal-plain-disabled: --tug-color(violet, l: 400, c: 20);
+  --tug7-surface-control-primary-normal-selected-disabled: --tug-color(cobalt, l: 740, c: 240, a: 100);
+  --tug7-surface-control-primary-normal-selected-hover: --tug-color(cobalt, l: 740, c: 240, a: 240);
+  --tug7-surface-control-primary-normal-selected-rest: --tug-color(cobalt, l: 740, c: 240, a: 180);
 
   /* Field */
   --tug7-element-field-border-normal-danger-rest: --tug-color(red, l: 730, c: 420);
-  --tug7-element-field-border-normal-plain-active: --tug-color(purple, l: 740, c: 180);
-  --tug7-element-field-border-normal-plain-disabled: --tug-color(grape, l: 350, c: 40);
-  --tug7-element-field-border-normal-plain-hover: --tug-color(grape, l: 750, c: 40);
-  --tug7-element-field-border-normal-plain-readonly: --tug-color(grape, l: 350, c: 40);
-  --tug7-element-field-border-normal-plain-rest: --tug-color(grape, l: 750, c: 40);
+  --tug7-element-field-border-normal-plain-active: --tug-color(cobalt, l: 740, c: 180);
+  --tug7-element-field-border-normal-plain-disabled: --tug-color(indigo-violet, l: 350, c: 40);
+  --tug7-element-field-border-normal-plain-hover: --tug-color(indigo-cobalt, l: 750, c: 40);
+  --tug7-element-field-border-normal-plain-readonly: --tug-color(indigo-violet, l: 350, c: 40);
+  --tug7-element-field-border-normal-plain-rest: --tug-color(indigo, l: 750, c: 40);
   --tug7-element-field-border-normal-success-rest: --tug-color(green, l: 820, c: 440);
   --tug7-element-field-border-normal-caution-rest: --tug-color(yellow, l: 900, c: 260);
   --tug7-element-field-fill-normal-caution-rest: --tug-color(yellow, l: 900, c: 260);
   --tug7-element-field-fill-normal-danger-rest: --tug-color(red, l: 660, c: 440);
   --tug7-element-field-fill-normal-success-rest: --tug-color(green, l: 820, c: 440);
-  --tug7-element-field-text-normal-label-rest: --tug-color(grape, l: 930, c: 20);
-  --tug7-element-field-text-normal-placeholder-rest: --tug-color(grape, l: 730, c: 40);
-  --tug7-element-field-text-normal-plain-disabled: --tug-color(grape, l: 630, c: 20);
-  --tug7-element-field-text-normal-plain-readonly: --tug-color(grape, l: 800, c: 20);
-  --tug7-element-field-text-normal-plain-rest: --tug-color(grape, l: 930, c: 20);
+  --tug7-element-field-text-normal-label-rest: --tug-color(indigo, l: 930, c: 20);
+  --tug7-element-field-text-normal-placeholder-rest: --tug-color(indigo, l: 730, c: 40);
+  --tug7-element-field-text-normal-plain-disabled: --tug-color(indigo-cobalt, l: 630, c: 20);
+  --tug7-element-field-text-normal-plain-readonly: --tug-color(indigo, l: 800, c: 20);
+  --tug7-element-field-text-normal-plain-rest: --tug-color(indigo, l: 930, c: 20);
   --tug7-element-field-text-normal-required-rest: --tug-color(red, l: 770, c: 340);
   --tug7-surface-field-primary-normal-plain-disabled: --tug-color(red, l: 210, c: 40);
-  --tug7-surface-field-primary-normal-plain-focus: --tug-color(grape, l: 300, c: 60);
-  --tug7-surface-field-primary-normal-plain-hover: --tug-color(plum, l: 270, c: 20);
-  --tug7-surface-field-primary-normal-plain-readonly: --tug-color(plum, l: 270, c: 20);
-  --tug7-surface-field-primary-normal-plain-rest: --tug-color(grape, l: 290, c: 20);
+  --tug7-surface-field-primary-normal-plain-focus: --tug-color(indigo-violet, l: 300, c: 60);
+  --tug7-surface-field-primary-normal-plain-hover: --tug-color(violet, l: 270, c: 20);
+  --tug7-surface-field-primary-normal-plain-readonly: --tug-color(violet, l: 270, c: 20);
+  --tug7-surface-field-primary-normal-plain-rest: --tug-color(indigo-violet, l: 290, c: 20);
 
   /* Indicator */
   /* Subtle ancillary UI surface for line-number gutters, status
@@ -749,36 +749,36 @@ body {
      darker than `--tug7-surface-field-primary-normal-plain-rest`,
      a softer border than the field's plain border, muted text.
      Hand-tune to taste. */
-  --tug7-element-indicator-border-normal-plain-rest: --tug-color(grape, l: 500, c: 20);
-  --tug7-element-indicator-text-normal-plain-rest: --tug-color(grape, l: 750, c: 20);
-  --tug7-surface-indicator-primary-normal-plain-rest: --tug-color(grape, l: 270, c: 80);
+  --tug7-element-indicator-border-normal-plain-rest: --tug-color(indigo, l: 500, c: 20);
+  --tug7-element-indicator-text-normal-plain-rest: --tug-color(indigo, l: 750, c: 20);
+  --tug7-surface-indicator-primary-normal-plain-rest: --tug-color(indigo-violet, l: 270, c: 80);
 
   /* Toggle */
-  --tug7-element-checkmark-icon-normal-plain-mixed: --tug-color(grape, l: 910, c: 20);
-  --tug7-element-checkmark-icon-normal-plain-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-element-radio-border-normal-off-disabled: --tug-color(grape, l: 730, c: 40);
-  --tug7-element-radio-border-normal-off-hover: --tug-color(grape, l: 670, c: 60);
-  --tug7-element-radio-border-normal-off-rest: --tug-color(grape, l: 730, c: 40);
-  --tug7-element-radio-dot-normal-plain-disabled: --tug-color(grape, l: 610, c: 40);
-  --tug7-element-radio-dot-normal-plain-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-element-toggle-icon-normal-plain-disabled: --tug-color(grape, l: 610, c: 40);
-  --tug7-element-toggle-icon-normal-plain-mixed: --tug-color(grape, l: 960, c: 20);
-  --tug7-element-toggle-thumb-normal-on-rest: --tug-color(purple, l: 960, c: 20);
-  --tug7-element-toggle-thumb-normal-plain-disabled: --tug-color(grape, l: 610, c: 40);
-  --tug7-element-toggle-thumb-normal-plain-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-surface-toggle-primary-normal-mixed-hover: --tug-color(grape, l: 750, c: 140);
-  --tug7-surface-toggle-primary-normal-mixed-rest: --tug-color(grape, l: 740, c: 120);
-  --tug7-surface-toggle-primary-normal-off-hover: --tug-color(grape, l: 670, c: 60);
-  --tug7-surface-toggle-primary-normal-off-rest: --tug-color(grape, l: 730, c: 40);
+  --tug7-element-checkmark-icon-normal-plain-mixed: --tug-color(indigo, l: 910, c: 20);
+  --tug7-element-checkmark-icon-normal-plain-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-element-radio-border-normal-off-disabled: --tug-color(indigo-violet, l: 730, c: 40);
+  --tug7-element-radio-border-normal-off-hover: --tug-color(indigo-violet, l: 670, c: 60);
+  --tug7-element-radio-border-normal-off-rest: --tug-color(indigo-violet, l: 730, c: 40);
+  --tug7-element-radio-dot-normal-plain-disabled: --tug-color(indigo-cobalt, l: 610, c: 40);
+  --tug7-element-radio-dot-normal-plain-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-element-toggle-icon-normal-plain-disabled: --tug-color(indigo-cobalt, l: 610, c: 40);
+  --tug7-element-toggle-icon-normal-plain-mixed: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-toggle-thumb-normal-on-rest: --tug-color(cobalt, l: 960, c: 20);
+  --tug7-element-toggle-thumb-normal-plain-disabled: --tug-color(indigo-cobalt, l: 610, c: 40);
+  --tug7-element-toggle-thumb-normal-plain-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-surface-toggle-primary-normal-mixed-hover: --tug-color(indigo-cobalt, l: 750, c: 140);
+  --tug7-surface-toggle-primary-normal-mixed-rest: --tug-color(indigo-cobalt, l: 740, c: 120);
+  --tug7-surface-toggle-primary-normal-off-hover: --tug-color(indigo-violet, l: 670, c: 60);
+  --tug7-surface-toggle-primary-normal-off-rest: --tug-color(indigo-violet, l: 730, c: 40);
   --tug7-surface-toggle-primary-normal-accent-disabled: --tug-color(orange, l: 680, c: 80);
   --tug7-surface-toggle-primary-normal-accent-hover: --tug-color(orange, l: 730, c: 360);
   --tug7-surface-toggle-primary-normal-accent-rest: --tug-color(orange, l: 680, c: 320);
-  --tug7-surface-toggle-primary-normal-active-disabled: --tug-color(purple, l: 650, c: 80);
-  --tug7-surface-toggle-primary-normal-active-hover: --tug-color(purple, l: 650, c: 280);
-  --tug7-surface-toggle-primary-normal-active-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-surface-toggle-primary-normal-agent-disabled: --tug-color(plum, l: 620, c: 80);
-  --tug7-surface-toggle-primary-normal-agent-hover: --tug-color(plum, l: 620, c: 320);
-  --tug7-surface-toggle-primary-normal-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-surface-toggle-primary-normal-active-disabled: --tug-color(cobalt, l: 650, c: 80);
+  --tug7-surface-toggle-primary-normal-active-hover: --tug-color(cobalt, l: 650, c: 280);
+  --tug7-surface-toggle-primary-normal-active-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-surface-toggle-primary-normal-agent-disabled: --tug-color(violet, l: 620, c: 80);
+  --tug7-surface-toggle-primary-normal-agent-hover: --tug-color(violet, l: 620, c: 320);
+  --tug7-surface-toggle-primary-normal-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-surface-toggle-primary-normal-caution-disabled: --tug-color(yellow, l: 780, c: 80);
   --tug7-surface-toggle-primary-normal-caution-hover: --tug-color(yellow, l: 780, c: 280);
   --tug7-surface-toggle-primary-normal-caution-rest: --tug-color(yellow, l: 800, c: 360);
@@ -788,32 +788,32 @@ body {
   --tug7-surface-toggle-primary-normal-data-disabled: --tug-color(teal, l: 700, c: 80);
   --tug7-surface-toggle-primary-normal-data-hover: --tug-color(teal, l: 700, c: 320);
   --tug7-surface-toggle-primary-normal-data-rest: --tug-color(teal, l: 760, c: 300);
-  --tug7-surface-toggle-primary-normal-on-disabled: --tug-color(purple, l: 670, c: 100);
-  --tug7-surface-toggle-primary-normal-on-hover: --tug-color(purple, l: 760, c: 260);
-  --tug7-surface-toggle-primary-normal-on-rest: --tug-color(purple, l: 600, c: 360);
-  --tug7-surface-toggle-primary-normal-option-disabled: --tug-color(grape, l: 670, c: 20);
-  --tug7-surface-toggle-primary-normal-option-hover: --tug-color(grape, l: 730, c: 40);
-  --tug7-surface-toggle-primary-normal-option-rest: --tug-color(grape, l: 670, c: 40);
+  --tug7-surface-toggle-primary-normal-on-disabled: --tug-color(cobalt, l: 670, c: 100);
+  --tug7-surface-toggle-primary-normal-on-hover: --tug-color(cobalt, l: 760, c: 260);
+  --tug7-surface-toggle-primary-normal-on-rest: --tug-color(cobalt, l: 600, c: 360);
+  --tug7-surface-toggle-primary-normal-option-disabled: --tug-color(indigo-violet, l: 670, c: 20);
+  --tug7-surface-toggle-primary-normal-option-hover: --tug-color(indigo-violet, l: 730, c: 40);
+  --tug7-surface-toggle-primary-normal-option-rest: --tug-color(indigo-violet, l: 670, c: 40);
   --tug7-surface-toggle-primary-normal-success-disabled: --tug-color(green, l: 710, c: 140);
   --tug7-surface-toggle-primary-normal-success-hover: --tug-color(green, l: 710, c: 480);
   --tug7-surface-toggle-primary-normal-success-rest: --tug-color(green, l: 780, c: 440);
-  --tug7-surface-toggle-track-normal-mixed-hover: --tug-color(grape, l: 750, c: 140);
-  --tug7-surface-toggle-track-normal-mixed-rest: --tug-color(grape, l: 740, c: 120);
-  --tug7-surface-toggle-track-normal-off-hover: --tug-color(grape, l: 770, c: 60);
-  --tug7-surface-toggle-track-normal-off-rest: --tug-color(grape, l: 770, c: 40);
-  --tug7-surface-toggle-track-normal-on-disabled: --tug-color(purple, l: 670, c: 100);
-  --tug7-surface-toggle-track-normal-on-hover: --tug-color(purple, l: 760, c: 260);
-  --tug7-surface-toggle-track-normal-on-rest: --tug-color(purple, l: 670, c: 380);
-  --tug7-surface-toggle-track-normal-plain-disabled: --tug-color(plum, l: 400, c: 20);
+  --tug7-surface-toggle-track-normal-mixed-hover: --tug-color(indigo-cobalt, l: 750, c: 140);
+  --tug7-surface-toggle-track-normal-mixed-rest: --tug-color(indigo-cobalt, l: 740, c: 120);
+  --tug7-surface-toggle-track-normal-off-hover: --tug-color(indigo-violet, l: 770, c: 60);
+  --tug7-surface-toggle-track-normal-off-rest: --tug-color(indigo-violet, l: 770, c: 40);
+  --tug7-surface-toggle-track-normal-on-disabled: --tug-color(cobalt, l: 670, c: 100);
+  --tug7-surface-toggle-track-normal-on-hover: --tug-color(cobalt, l: 760, c: 260);
+  --tug7-surface-toggle-track-normal-on-rest: --tug-color(cobalt, l: 670, c: 380);
+  --tug7-surface-toggle-track-normal-plain-disabled: --tug-color(violet, l: 400, c: 20);
   --tug7-surface-toggle-track-normal-accent-disabled: --tug-color(orange, l: 680, c: 80);
   --tug7-surface-toggle-track-normal-accent-hover: --tug-color(orange, l: 730, c: 360);
   --tug7-surface-toggle-track-normal-accent-rest: --tug-color(orange, l: 680, c: 320);
-  --tug7-surface-toggle-track-normal-active-disabled: --tug-color(purple, l: 650, c: 80);
-  --tug7-surface-toggle-track-normal-active-hover: --tug-color(purple, l: 650, c: 280);
-  --tug7-surface-toggle-track-normal-active-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-surface-toggle-track-normal-agent-disabled: --tug-color(plum, l: 620, c: 80);
-  --tug7-surface-toggle-track-normal-agent-hover: --tug-color(plum, l: 620, c: 320);
-  --tug7-surface-toggle-track-normal-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-surface-toggle-track-normal-active-disabled: --tug-color(cobalt, l: 650, c: 80);
+  --tug7-surface-toggle-track-normal-active-hover: --tug-color(cobalt, l: 650, c: 280);
+  --tug7-surface-toggle-track-normal-active-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-surface-toggle-track-normal-agent-disabled: --tug-color(violet, l: 620, c: 80);
+  --tug7-surface-toggle-track-normal-agent-hover: --tug-color(violet, l: 620, c: 320);
+  --tug7-surface-toggle-track-normal-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-surface-toggle-track-normal-caution-disabled: --tug-color(yellow, l: 780, c: 80);
   --tug7-surface-toggle-track-normal-caution-hover: --tug-color(yellow, l: 780, c: 280);
   --tug7-surface-toggle-track-normal-caution-rest: --tug-color(yellow, l: 750, c: 340);
@@ -823,20 +823,20 @@ body {
   --tug7-surface-toggle-track-normal-data-disabled: --tug-color(teal, l: 700, c: 80);
   --tug7-surface-toggle-track-normal-data-hover: --tug-color(teal, l: 700, c: 320);
   --tug7-surface-toggle-track-normal-data-rest: --tug-color(teal, l: 760, c: 300);
-  --tug7-surface-toggle-track-normal-option-disabled: --tug-color(grape, l: 670, c: 20);
-  --tug7-surface-toggle-track-normal-option-hover: --tug-color(grape, l: 730, c: 40);
-  --tug7-surface-toggle-track-normal-option-rest: --tug-color(grape, l: 670, c: 40);
+  --tug7-surface-toggle-track-normal-option-disabled: --tug-color(indigo-violet, l: 670, c: 20);
+  --tug7-surface-toggle-track-normal-option-hover: --tug-color(indigo-violet, l: 730, c: 40);
+  --tug7-surface-toggle-track-normal-option-rest: --tug-color(indigo-violet, l: 670, c: 40);
   --tug7-surface-toggle-track-normal-success-disabled: --tug-color(green, l: 710, c: 140);
   --tug7-surface-toggle-track-normal-success-hover: --tug-color(green, l: 710, c: 480);
   --tug7-surface-toggle-track-normal-success-rest: --tug-color(green, l: 780, c: 440);
 
   /* Segment */
-  --tug7-surface-segment-primary-normal-plain-rest: --tug-color(grape, l: 360, c: 20);
-  --tug7-element-segment-border-normal-plain-rest: --tug-color(grape, l: 470, c: 40);
-  --tug7-element-segment-text-normal-plain-rest: --tug-color(grape, l: 820, c: 20);
-  --tug7-element-segment-text-normal-plain-hover: --tug-color(grape, l: 900, c: 20);
-  --tug7-element-segment-text-normal-active-rest: --tug-color(iris, l: 960, c: 20);
-  --tug7-element-segment-text-normal-plain-disabled: --tug-color(grape, l: 550, c: 40);
+  --tug7-surface-segment-primary-normal-plain-rest: --tug-color(indigo-violet, l: 360, c: 20);
+  --tug7-element-segment-border-normal-plain-rest: --tug-color(indigo-violet, l: 470, c: 40);
+  --tug7-element-segment-text-normal-plain-rest: --tug-color(indigo-violet, l: 820, c: 20);
+  --tug7-element-segment-text-normal-plain-hover: --tug-color(indigo-violet, l: 900, c: 20);
+  --tug7-element-segment-text-normal-active-rest: --tug-color(sapphire-cobalt, l: 960, c: 20);
+  --tug7-element-segment-text-normal-plain-disabled: --tug-color(indigo-cobalt, l: 550, c: 40);
 
   /* Tinted (control) — quiet chip emphasis shared with TugBadge. Rest mirrors
      the badge tinted recipe; hover/active deepen the tint and crisp the border
@@ -853,25 +853,25 @@ body {
   --tug7-element-control-border-tinted-accent-hover: --tug-color(orange, l: 740, c: 300, a: 520);
   --tug7-element-control-border-tinted-accent-active: --tug-color(orange, l: 740, c: 300, a: 650);
   /* Tinted Action */
-  --tug7-surface-control-primary-tinted-action-rest: --tug-color(purple, l: 600, c: 180, a: 200);
-  --tug7-surface-control-primary-tinted-action-hover: --tug-color(purple, l: 600, c: 180, a: 300);
-  --tug7-surface-control-primary-tinted-action-active: --tug-color(purple, l: 600, c: 180, a: 440);
-  --tug7-element-control-text-tinted-action-rest: --tug-color(purple, l: 900, c: 100);
-  --tug7-element-control-text-tinted-action-hover: --tug-color(purple, l: 900, c: 100);
-  --tug7-element-control-text-tinted-action-active: --tug-color(purple, l: 900, c: 100);
-  --tug7-element-control-border-tinted-action-rest: --tug-color(purple, l: 600, c: 180, a: 350);
-  --tug7-element-control-border-tinted-action-hover: --tug-color(purple, l: 600, c: 180, a: 520);
-  --tug7-element-control-border-tinted-action-active: --tug-color(purple, l: 600, c: 180, a: 650);
+  --tug7-surface-control-primary-tinted-action-rest: --tug-color(cobalt, l: 600, c: 180, a: 200);
+  --tug7-surface-control-primary-tinted-action-hover: --tug-color(cobalt, l: 600, c: 180, a: 300);
+  --tug7-surface-control-primary-tinted-action-active: --tug-color(cobalt, l: 600, c: 180, a: 440);
+  --tug7-element-control-text-tinted-action-rest: --tug-color(cobalt, l: 900, c: 100);
+  --tug7-element-control-text-tinted-action-hover: --tug-color(cobalt, l: 900, c: 100);
+  --tug7-element-control-text-tinted-action-active: --tug-color(cobalt, l: 900, c: 100);
+  --tug7-element-control-border-tinted-action-rest: --tug-color(cobalt, l: 600, c: 180, a: 350);
+  --tug7-element-control-border-tinted-action-hover: --tug-color(cobalt, l: 600, c: 180, a: 520);
+  --tug7-element-control-border-tinted-action-active: --tug-color(cobalt, l: 600, c: 180, a: 650);
   /* Tinted Agent */
-  --tug7-surface-control-primary-tinted-agent-rest: --tug-color(plum, l: 760, c: 260, a: 150);
-  --tug7-surface-control-primary-tinted-agent-hover: --tug-color(plum, l: 760, c: 260, a: 300);
-  --tug7-surface-control-primary-tinted-agent-active: --tug-color(plum, l: 760, c: 260, a: 440);
-  --tug7-element-control-text-tinted-agent-rest: --tug-color(plum, l: 880, c: 120);
-  --tug7-element-control-text-tinted-agent-hover: --tug-color(plum, l: 880, c: 120);
-  --tug7-element-control-text-tinted-agent-active: --tug-color(plum, l: 880, c: 120);
-  --tug7-element-control-border-tinted-agent-rest: --tug-color(plum, l: 670, c: 300, a: 350);
-  --tug7-element-control-border-tinted-agent-hover: --tug-color(plum, l: 670, c: 300, a: 520);
-  --tug7-element-control-border-tinted-agent-active: --tug-color(plum, l: 670, c: 300, a: 650);
+  --tug7-surface-control-primary-tinted-agent-rest: --tug-color(violet, l: 760, c: 260, a: 150);
+  --tug7-surface-control-primary-tinted-agent-hover: --tug-color(violet, l: 760, c: 260, a: 300);
+  --tug7-surface-control-primary-tinted-agent-active: --tug-color(violet, l: 760, c: 260, a: 440);
+  --tug7-element-control-text-tinted-agent-rest: --tug-color(violet, l: 880, c: 120);
+  --tug7-element-control-text-tinted-agent-hover: --tug-color(violet, l: 880, c: 120);
+  --tug7-element-control-text-tinted-agent-active: --tug-color(violet, l: 880, c: 120);
+  --tug7-element-control-border-tinted-agent-rest: --tug-color(violet, l: 670, c: 300, a: 350);
+  --tug7-element-control-border-tinted-agent-hover: --tug-color(violet, l: 670, c: 300, a: 520);
+  --tug7-element-control-border-tinted-agent-active: --tug-color(violet, l: 670, c: 300, a: 650);
   /* Tinted Data */
   --tug7-surface-control-primary-tinted-data-rest: --tug-color(teal, l: 830, c: 380, a: 150);
   --tug7-surface-control-primary-tinted-data-hover: --tug-color(teal, l: 830, c: 380, a: 300);
@@ -902,50 +902,50 @@ body {
   --tug7-element-badge-border-ghost-data-rest: transparent;
   --tug7-element-badge-border-ghost-success-rest: transparent;
   --tug7-element-badge-border-outlined-accent-rest: --tug-color(orange, l: 740, c: 320);
-  --tug7-element-badge-border-outlined-action-rest: --tug-color(purple, l: 710, c: 280);
-  --tug7-element-badge-border-outlined-agent-rest: --tug-color(plum, l: 670, c: 320);
+  --tug7-element-badge-border-outlined-action-rest: --tug-color(cobalt, l: 710, c: 280);
+  --tug7-element-badge-border-outlined-agent-rest: --tug-color(violet, l: 670, c: 320);
   --tug7-element-badge-border-outlined-caution-rest: --tug-color(yellow, l: 860, c: 280);
   --tug7-element-badge-border-outlined-danger-rest: --tug-color(red, l: 630, c: 480);
   --tug7-element-badge-border-outlined-data-rest: --tug-color(teal, l: 760, c: 320);
   --tug7-element-badge-border-outlined-success-rest: --tug-color(green, l: 780, c: 480);
   --tug7-element-badge-border-tinted-accent-rest: --tug-color(orange, l: 740, c: 300, a: 350);
-  --tug7-element-badge-border-tinted-action-rest: --tug-color(purple, l: 600, c: 180, a: 350);
-  --tug7-element-badge-border-tinted-agent-rest: --tug-color(plum, l: 670, c: 300, a: 350);
+  --tug7-element-badge-border-tinted-action-rest: --tug-color(cobalt, l: 600, c: 180, a: 350);
+  --tug7-element-badge-border-tinted-agent-rest: --tug-color(violet, l: 670, c: 300, a: 350);
   --tug7-element-badge-border-tinted-caution-rest: --tug-color(yellow, l: 860, c: 260, a: 350);
   --tug7-element-badge-border-tinted-danger-rest: --tug-color(red, l: 630, c: 440, a: 350);
   --tug7-element-badge-border-tinted-data-rest: --tug-color(teal, l: 760, c: 300, a: 350);
   --tug7-element-badge-border-tinted-success-rest: --tug-color(green, l: 780, c: 440, a: 350);
   --tug7-element-badge-icon-ghost-accent-rest: --tug-color(orange, l: 740, c: 300);
-  --tug7-element-badge-icon-ghost-action-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-element-badge-icon-ghost-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-element-badge-icon-ghost-action-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-element-badge-icon-ghost-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-element-badge-icon-ghost-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-element-badge-icon-ghost-danger-rest: --tug-color(red, l: 630, c: 440);
   --tug7-element-badge-icon-ghost-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-element-badge-icon-ghost-success-rest: --tug-color(green, l: 780, c: 440);
   --tug7-element-badge-icon-outlined-accent-rest: --tug-color(orange, l: 740, c: 300);
-  --tug7-element-badge-icon-outlined-action-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-element-badge-icon-outlined-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-element-badge-icon-outlined-action-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-element-badge-icon-outlined-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-element-badge-icon-outlined-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-element-badge-icon-outlined-danger-rest: --tug-color(red, l: 630, c: 440);
   --tug7-element-badge-icon-outlined-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-element-badge-icon-outlined-success-rest: --tug-color(green, l: 780, c: 440);
   --tug7-element-badge-text-ghost-accent-rest: --tug-color(orange, l: 740, c: 300);
-  --tug7-element-badge-text-ghost-action-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-element-badge-text-ghost-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-element-badge-text-ghost-action-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-element-badge-text-ghost-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-element-badge-text-ghost-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-element-badge-text-ghost-danger-rest: --tug-color(red, l: 630, c: 440);
   --tug7-element-badge-text-ghost-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-element-badge-text-ghost-success-rest: --tug-color(green, l: 780, c: 440);
   --tug7-element-badge-text-outlined-accent-rest: --tug-color(orange, l: 740, c: 300);
-  --tug7-element-badge-text-outlined-action-rest: --tug-color(purple, l: 710, c: 240);
-  --tug7-element-badge-text-outlined-agent-rest: --tug-color(plum, l: 670, c: 300);
+  --tug7-element-badge-text-outlined-action-rest: --tug-color(cobalt, l: 710, c: 240);
+  --tug7-element-badge-text-outlined-agent-rest: --tug-color(violet, l: 670, c: 300);
   --tug7-element-badge-text-outlined-caution-rest: --tug-color(yellow, l: 860, c: 260);
   --tug7-element-badge-text-outlined-danger-rest: --tug-color(red, l: 630, c: 440);
   --tug7-element-badge-text-outlined-data-rest: --tug-color(teal, l: 760, c: 300);
   --tug7-element-badge-text-outlined-success-rest: --tug-color(green, l: 780, c: 440);
   --tug7-element-badge-text-tinted-accent-rest: --tug-color(orange, l: 910, c: 120);
-  --tug7-element-badge-text-tinted-action-rest: --tug-color(purple, l: 900, c: 100);
-  --tug7-element-badge-text-tinted-agent-rest: --tug-color(plum, l: 880, c: 120);
+  --tug7-element-badge-text-tinted-action-rest: --tug-color(cobalt, l: 900, c: 100);
+  --tug7-element-badge-text-tinted-agent-rest: --tug-color(violet, l: 880, c: 120);
   --tug7-element-badge-text-tinted-caution-rest: --tug-color(yellow, l: 940, c: 180);
   --tug7-element-badge-text-tinted-danger-rest: --tug-color(red, l: 870, c: 180);
   --tug7-element-badge-text-tinted-data-rest: --tug-color(teal, l: 910, c: 300);
@@ -965,38 +965,38 @@ body {
   --tug7-surface-badge-primary-outlined-data-rest: transparent;
   --tug7-surface-badge-primary-outlined-success-rest: transparent;
   --tug7-surface-badge-primary-tinted-accent-rest: --tug-color(orange, l: 820, c: 280, a: 150);
-  --tug7-surface-badge-primary-tinted-action-rest: --tug-color(purple, l: 600, c: 180, a: 200);
-  --tug7-surface-badge-primary-tinted-agent-rest: --tug-color(plum, l: 760, c: 260, a: 150);
+  --tug7-surface-badge-primary-tinted-action-rest: --tug-color(cobalt, l: 600, c: 180, a: 200);
+  --tug7-surface-badge-primary-tinted-agent-rest: --tug-color(violet, l: 760, c: 260, a: 150);
   --tug7-surface-badge-primary-tinted-caution-rest: --tug-color(yellow, l: 910, c: 280, a: 150);
   --tug7-surface-badge-primary-tinted-danger-rest: --tug-color(red, l: 720, c: 440, a: 150);
   --tug7-surface-badge-primary-tinted-data-rest: --tug-color(teal, l: 830, c: 380, a: 150);
   --tug7-surface-badge-primary-tinted-success-rest: --tug-color(green, l: 850, c: 580, a: 150);
 
   /* Atom — inline token for resolved references (file, command, link, etc.) */
-  --tug7-surface-atom-primary-normal-default-rest: --tug-color(violet, l: 420, c: 40, a: 300);
-  --tug7-surface-atom-primary-normal-default-hover: --tug-color(violet, l: 450, c: 60, a: 400);
-  --tug7-element-atom-text-normal-default-rest: --tug-color(grape, l: 880, c: 20);
-  --tug7-element-atom-border-normal-default-rest: --tug-color(violet, l: 650, c: 80, a: 400);
-  --tug7-element-atom-border-normal-default-hover: --tug-color(violet, l: 770, c: 120, a: 600);
-  --tug7-element-atom-icon-normal-default-rest: --tug-color(violet, l: 790, c: 80);
-  --tug7-surface-atom-primary-normal-selected-rest: --tug-color(violet, l: 520, c: 260, a: 600);
-  --tug7-element-atom-text-normal-selected-rest: --tug-color(violet, l: 900, c: 120);
-  --tug7-element-atom-icon-normal-selected-rest: --tug-color(violet, l: 900, c: 120);
-  --tug7-element-atom-outline-normal-highlighted-rest: --tug-color(violet, l: 790, c: 280);
-  --tug7-surface-atom-primary-normal-route-rest: --tug-color(grape, l: 290, c: 40);
-  --tug7-element-atom-border-normal-route-rest: --tug-color(grape, l: 400, c: 40);
-  --tug7-element-atom-text-normal-route-rest: --tug-color(grape, l: 750, c: 60);
-  --tug7-surface-atom-primary-normal-session-rest: --tug-color(plum, l: 290, c: 40, a: 300);
-  --tug7-element-atom-border-normal-session-rest: --tug-color(plum, l: 400, c: 40, a: 400);
-  --tug7-element-atom-text-normal-session-rest: --tug-color(plum, l: 890, c: 100);
-  --tug7-element-atom-icon-normal-session-rest: --tug-color(plum, l: 770, c: 240);
+  --tug7-surface-atom-primary-normal-default-rest: --tug-color(blue, l: 420, c: 40, a: 300);
+  --tug7-surface-atom-primary-normal-default-hover: --tug-color(blue, l: 450, c: 60, a: 400);
+  --tug7-element-atom-text-normal-default-rest: --tug-color(indigo, l: 880, c: 20);
+  --tug7-element-atom-border-normal-default-rest: --tug-color(blue, l: 650, c: 80, a: 400);
+  --tug7-element-atom-border-normal-default-hover: --tug-color(blue, l: 770, c: 120, a: 600);
+  --tug7-element-atom-icon-normal-default-rest: --tug-color(blue, l: 790, c: 80);
+  --tug7-surface-atom-primary-normal-selected-rest: --tug-color(blue, l: 520, c: 260, a: 600);
+  --tug7-element-atom-text-normal-selected-rest: --tug-color(blue, l: 900, c: 120);
+  --tug7-element-atom-icon-normal-selected-rest: --tug-color(blue, l: 900, c: 120);
+  --tug7-element-atom-outline-normal-highlighted-rest: --tug-color(blue, l: 790, c: 280);
+  --tug7-surface-atom-primary-normal-route-rest: --tug-color(indigo-violet, l: 290, c: 40);
+  --tug7-element-atom-border-normal-route-rest: --tug-color(indigo-violet, l: 400, c: 40);
+  --tug7-element-atom-text-normal-route-rest: --tug-color(indigo-violet, l: 750, c: 60);
+  --tug7-surface-atom-primary-normal-session-rest: --tug-color(violet, l: 290, c: 40, a: 300);
+  --tug7-element-atom-border-normal-session-rest: --tug-color(violet, l: 400, c: 40, a: 400);
+  --tug7-element-atom-text-normal-session-rest: --tug-color(violet, l: 890, c: 100);
+  --tug7-element-atom-icon-normal-session-rest: --tug-color(violet, l: 770, c: 240);
 
   /* Skeleton */
-  --tug7-surface-skeleton-primary-normal-default-rest: --tug-color(plum, l: 350, c: 20);
-  --tug7-surface-skeleton-primary-normal-default-active: --tug-color(grape, l: 370, c: 20);
+  --tug7-surface-skeleton-primary-normal-default-rest: --tug-color(violet, l: 350, c: 20);
+  --tug7-surface-skeleton-primary-normal-default-active: --tug-color(indigo, l: 370, c: 20);
 
   /* Other */
-  --tug7-element-card-title-normal-plain-rest: --tug-color(grape, l: 930, c: 20);
+  --tug7-element-card-title-normal-plain-rest: --tug-color(indigo, l: 930, c: 20);
 
   /* `--tugx-transcript-*` slots live in tug-transcript-entry.css's body{}
    * block per tuglaws/token-naming.md. */
@@ -1011,14 +1011,14 @@ body {
   /* `--tugx-list-view-*` slots live in tug-list-view.css. */
 
   /* TugMarkdownView / TugMarkdownBlock typography (--tugx-md-*).
-     Dark-theme values for `brio`. The full token vocabulary is the
-     contract every Layer-1 markdown block consumes; harmony.css
+     Dark-theme values for `ironclad`. The full token vocabulary is the
+     contract every Layer-1 markdown block consumes; sloop.css
      declares the same token names with light-theme values.
 
      Body/heading colors and link colors reference theme palette
      tokens (--tug7-*) that already vary per theme; rgba literals are
      used for the background fills, dividers, and inline-code chrome
-     where brio (dark) and harmony (light) differ in *direction*
+     where ironclad (dark) and sloop (light) differ in *direction*
      (lighter-than-canvas vs darker-than-canvas) rather than just
      hue.
 
@@ -1041,8 +1041,8 @@ body {
    * block per tuglaws/token-naming.md. */
 
   /* ---- Terminal block (TerminalBlock per Table T07) ----
-   * Renders ANSI-aware Bash output. Brio uses near-black
-   * background and the high-contrast brio palette for ANSI 16-color
+   * Renders ANSI-aware Bash output. Ironclad uses near-black
+   * background and the high-contrast ironclad palette for ANSI 16-color
    * mapping; bright variants pop a touch more saturated than their
    * dim counterparts. The footer is a darker stripe so post-mortem
    * badges (exit code, duration) read as a separate surface.
@@ -1051,8 +1051,8 @@ body {
    * block per tuglaws/token-naming.md. The ANSI palette below remains
    * theme-anchored because each theme picks its own ANSI hues. */
 
-  /* ANSI 16-color palette — calibrated for the dark brio surface
-   * via --tug-color() recipes so brio + harmony stay theme-aware
+  /* ANSI 16-color palette — calibrated for the dark ironclad surface
+   * via --tug-color() recipes so ironclad + sloop stay theme-aware
    * (the postcss plugin expands these to oklch() at build time).
    * Magenta maps to `violet`, cyan to `teal` — closest hues in the
    * tug palette to the canonical SGR names.
@@ -1087,7 +1087,7 @@ body {
   --activity-disk:      var(--tugx-term-ansi-bright-cyan);
 
   /* ---- Tool block chrome (BlockChrome per Table T07) ----
-   * Frame painted around every Layer-2 tool block. Brio uses a
+   * Frame painted around every Layer-2 tool block. Ironclad uses a
    * lightly-elevated dark surface with a left-edge stripe whose
    * color encodes lifecycle status (streaming / ready / error).
    */

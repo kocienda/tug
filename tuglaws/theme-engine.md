@@ -25,20 +25,30 @@ low-chroma Keys read as pale tints, high-chroma Keys as vivid.
 
 | Theme | Mode | Tint | Key (chroma) | Accent (chroma) |
 |---|---|---|---|---|
-| `brio` | dark | indigo-violet | cobalt (vivid) | orange (vivid) |
-| `nocturne` | dark | teal | seafoam (vivid) | orange (vivid) |
-| `bravura` | dark | grape | purple (vivid) | orange (vivid) |
-| `harmony` | light | indigo | blue (vivid) | orange (vivid) |
-| `aria` | light | orchid | iris (vivid) | orange (vivid) |
-| `vivace` | light | cyan | seafoam (vivid) | orange (vivid) |
+| `ironclad` | dark | indigo-violet | cobalt (vivid) | orange (vivid) |
+| `caravel` | dark | teal | seafoam (vivid) | orange (vivid) |
+| `barque` | dark | grape | purple (vivid) | orange (vivid) |
+| `galleon` | dark | honey | cerulean (vivid) | orange (vivid) |
+| `collier` | dark | azure | rose (vivid) | orange (vivid) |
+| `sloop` | light | indigo | blue (vivid) | orange (vivid) |
+| `ketch` | light | orchid | iris (vivid) | orange (vivid) |
+| `skiff` | light | cyan | seafoam (vivid) | orange (vivid) |
+| `kayak` | light | honey | sapphire (vivid) | orange (vivid) |
+| `pinnace` | light | pink | rose (vivid) | orange (vivid) |
+
+The names are vessel types: ships for the dark themes, boats for the light ones, so the mode reads
+from the word alone. `galleon` and `kayak` are a warm cross-mode pair sharing the honey tint, and they
+take cool Keys because every warm Key would crowd both the caution signal and the orange Accent.
+`collier` and `pinnace` are the rose pair — a quiet tint with one hot Key, the only Keys outside the
+teal-to-purple arc.
 
 Two repetitions in that table are the files' own and not transcription slips: every theme currently
-declares the same `--tugx-accent`, so the Accent column is one hue six times, and every Key is vivid
+declares the same `--tugx-accent`, so the Accent column is one hue ten times, and every Key is vivid
 (`c: 400` dark, `c: 320` light on the filled action), so the chroma note distinguishes nothing today.
-The duet above is the *authoring* rule; the Accent column is where the six files have not yet taken
+The duet above is the *authoring* rule; the Accent column is where the ten files have not yet taken
 it up. Read the table against `styles/themes/*.css` before copying a row — it has drifted twice.
 
-Every theme is a peer — none depends on another at runtime. `brio` is special only as
+Every theme is a peer — none depends on another at runtime. `ironclad` is special only as
 `BASE_THEME_NAME` (the bundled base; see `tugdeck/src/theme-constants.ts`). Each theme is a
 complete, hand-authored CSS file defining the full token vocabulary.
 
@@ -65,7 +75,7 @@ largely a hue swap: keep the *lightness* ladder, change the *hue*.
    gone quiet. Elevation is lightness in a *short* ladder — two or three points of L between adjacent
    rungs, near the top of the range — not saturation, and not a fourth hue.
 
-   The shipped ladder, which a fourth light theme should copy rather than re-derive: content, card,
+   The shipped ladder, which a new light theme should copy rather than re-derive: content, card,
    raised, overlay and the tool-block well at `l: 985`; the rail, the focused lid band, the status
    rung and the tool block at `l: 965`; the Z0 control band at `l: 955`; chroma `c: 4`–`c: 6`
    throughout. The inactive lid is *lighter* than the focused band, not darker (`gray, l: 970`) —
@@ -78,7 +88,7 @@ largely a hue swap: keep the *lightness* ladder, change the *hue*.
    little of the Key hue and reads as two hues at once rather than one. Authoring a field on the Key
    hue is the specific mistake — it puts the action color under everything instead of on the things
    that act. `tugdeck/src/__tests__/light-theme-paper.test.ts` holds the ceiling, the ladder and the
-   one-hue rule for the three shipped light themes; a fourth joins that list.
+   one-hue rule for the five shipped light themes; a new one joins that list.
 4. **Signals are fixed across themes** by hue: `danger`=red, `success`=green, `caution`=yellow/gold,
    `data`=teal, `agent`=violet. The **selection / primary-action axis is no longer a fixed blue** —
    each theme picks its own **Key** hue (the `selection`/`active`/`toggle-on`/`link`/filled-action
@@ -95,9 +105,16 @@ largely a hue swap: keep the *lightness* ladder, change the *hue*.
 6. **Consistent authoring style** (uniform `l:`/`c:` usage) so themes diff cleanly and the next tint
    swap stays mechanical.
 
-A new theme: copy the same-mode reference (brio for dark, harmony for light), remap the neutral-tint
-family and the accent hue, set a literal-hex `--tugx-host-canvas-color` matching the app surface, and
-validate with the contrast audit below.
+A new theme: derive it from the same-mode reference (`ironclad` for dark, `sloop` for light) with the
+Theme Deriver (`deriveTheme` in `tugdeck/theme-editor-core.ts`), which rotates the Key cluster and
+holds each token's `l`/`c`. Then, by hand: remap the whole neutral-tint family to the new tint — in
+`ironclad` that is every `indigo`, `indigo-cobalt` and `indigo-violet` token, in `sloop` every
+`indigo` and `indigo-cobalt` token; set the `--tugx-chrome-*-rule-color` pair to the Key, since the
+deriver rewrites only `--tug7-*` tokens; set a literal-hex `--tugx-host-canvas-color` computed from
+the canvas token; and validate with the contrast audit below. The deriver's Key cluster includes the
+`violet` agent signal, so check where it lands: a Key far from the reference's rotates agent with it,
+and one that would put agent within 30° of red holds agent at the reference's violet instead
+(`pinnace` does).
 
 ---
 
@@ -109,7 +126,7 @@ CVD checks as the in-app Theme Accessibility card — headlessly, reusing `resol
 (the single source of truth shared with `postcss-tug-color`, so build and audit never drift).
 
 WCAG is normative per role; perceptual is informational. The gate is **comparative**: the base theme
-(`brio`) sets the accessibility budget, and no other theme may ship with *more* WCAG failures than
+(`ironclad`) sets the accessibility budget, and no other theme may ship with *more* WCAG failures than
 it. Run `audit:theme-contrast <name>` for one theme (with the full failure list), or `--list` for all.
 
 ---
@@ -119,8 +136,8 @@ it. Run `audit:theme-contrast <name>` for one theme (with the full failure list)
 ### Development
 
 - `POST /__themes/activate` is the activation API.
-- `brio` copies `styles/themes/brio.css` into `tug-active-theme.css`.
-- `harmony` copies `styles/themes/harmony.css` into `tug-active-theme.css`.
+- `ironclad` copies `styles/themes/ironclad.css` into `tug-active-theme.css`.
+- `sloop` copies `styles/themes/sloop.css` into `tug-active-theme.css`.
 - The endpoint returns `{ theme, hostCanvasColor }`.
 - `tug-active-theme.css` is always a complete theme; it is never empty.
 
@@ -129,7 +146,7 @@ it. Run `audit:theme-contrast <name>` for one theme (with the full failure list)
 - Base theme is included by app CSS import.
 - Non-base theme is activated via `<link id="tug-theme-override" href="/assets/themes/<name>.css">`.
 - `activateProductionTheme()` inserts/updates/removes that link.
-- On startup, if saved theme is non-`brio`, the link is applied before first visible paint.
+- On startup, if saved theme is non-`ironclad`, the link is applied before first visible paint.
 
 ---
 

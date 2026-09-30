@@ -287,13 +287,13 @@ describe("initActionDispatch: set-theme", () => {
     const received: string[] = [];
     registerThemeSetter((theme) => received.push(theme));
 
-    dispatchAction({ action: "set-theme", theme: "brio" });
+    dispatchAction({ action: "set-theme", theme: "ironclad" });
 
     expect(received.length).toBe(1);
-    expect(received[0]).toBe("brio");
+    expect(received[0]).toBe("ironclad");
   });
 
-  it("calls the setter for the valid theme name brio", () => {
+  it("calls the setter for the valid theme name ironclad", () => {
     const conn = createMockConnection();
     const deck = createMockDeckManager();
     initActionDispatch(conn as any, deck as any);
@@ -301,9 +301,9 @@ describe("initActionDispatch: set-theme", () => {
     const received: string[] = [];
     registerThemeSetter((theme) => received.push(theme));
 
-    dispatchAction({ action: "set-theme", theme: "brio" });
+    dispatchAction({ action: "set-theme", theme: "ironclad" });
 
-    expect(received).toEqual(["brio"]);
+    expect(received).toEqual(["ironclad"]);
   });
 
   it("accepts arbitrary theme name strings and delegates to the theme provider", () => {
@@ -335,7 +335,7 @@ describe("initActionDispatch: set-theme", () => {
     initActionDispatch(conn as any, deck as any);
 
     // No registerThemeSetter call — themeSetterRef is null after _resetForTest
-    expect(() => dispatchAction({ action: "set-theme", theme: "brio" })).not.toThrow();
+    expect(() => dispatchAction({ action: "set-theme", theme: "ironclad" })).not.toThrow();
   });
 
   it("uses the latest setter after re-registration", () => {
@@ -348,10 +348,10 @@ describe("initActionDispatch: set-theme", () => {
     registerThemeSetter((theme) => first.push(theme));
     registerThemeSetter((theme) => second.push(theme));
 
-    dispatchAction({ action: "set-theme", theme: "brio" });
+    dispatchAction({ action: "set-theme", theme: "ironclad" });
 
     expect(first.length).toBe(0);
-    expect(second).toEqual(["brio"]);
+    expect(second).toEqual(["ironclad"]);
   });
 });
 
@@ -503,11 +503,11 @@ describe("initActionDispatch: next-theme", () => {
   });
 
   it("SHIPPED_THEME_NAMES starts with the base theme", () => {
-    expect(SHIPPED_THEME_NAMES[0]).toBe("brio");
+    expect(SHIPPED_THEME_NAMES[0]).toBe("ironclad");
   });
 
   it("SHIPPED_THEME_NAMES includes every shipped theme", () => {
-    for (const name of ["nocturne", "bravura", "harmony", "aria", "vivace"]) {
+    for (const name of ["caravel", "barque", "galleon", "collier", "sloop", "ketch", "skiff", "kayak", "pinnace"]) {
       expect(SHIPPED_THEME_NAMES).toContain(name);
     }
   });

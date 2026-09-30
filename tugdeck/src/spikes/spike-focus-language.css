@@ -4,7 +4,7 @@
  * the governing contract).
  *
  * One static screen of the whole language across the component-archetype
- * taxonomy, in both themes (brio / harmony). Every state shows at once for
+ * taxonomy, in both themes (ironclad / sloop). Every state shows at once for
  * comparison, so the mockups are keyed on a self-contained `data-fl-*` attribute
  * set rather than the engine's live `data-key-*` — this card is a visual
  * overview, not a live-engine vetting (that lives in each component card).

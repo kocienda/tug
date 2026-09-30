@@ -20,7 +20,7 @@
  *  - The rendered SVG's own classes come from Mermaid (theme
  *    palette, layout-specific element ids, etc.). We do not override
  *    them — Mermaid's theme system already produces coherent
- *    diagrams on both `brio` and `harmony` and per-token tuning
+ *    diagrams on both `ironclad` and `sloop` and per-token tuning
  *    would risk colour collisions with the diagram's internal
  *    palette.
  *

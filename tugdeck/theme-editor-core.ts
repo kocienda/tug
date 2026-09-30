@@ -361,8 +361,8 @@ export function identitySeed(): DuetSeed {
 // Re-hue — derive a theme family member from a base theme.
 //
 // Tokens carry absolute OKLCH lightness (l) and chroma (c) directly, so deriving
-// a sibling is a pure hue rotation that keeps each token's own l/c — "brio at
-// seafoam" reads the same as brio, just greener — the family-from-one-base model.
+// a sibling is a pure hue rotation that keeps each token's own l/c — "ironclad at
+// seafoam" reads the same as ironclad, just greener — the family-from-one-base model.
 // ---------------------------------------------------------------------------
 
 /** The dominant chromatic hue among an axis's tokens (the theme's brand hue). */
@@ -398,7 +398,7 @@ function nearestHue(angle: number): string {
 /** Two used hues are "linked" into the same brand cluster if within this many
  *  degrees — small enough that an isolated signal hue (red/amber/green, tens of
  *  degrees from the brand) never joins, large enough to bridge the gaps within a
- *  spread brand family (e.g. harmony's blue→sapphire→indigo→violet, ≤10° steps). */
+ *  spread brand family (e.g. sloop's blue→sapphire→indigo→violet, ≤10° steps). */
 const BRAND_LINK = 20;
 /** Accent window stays tight so a warning amber next to an orange accent is left
  *  as a signal. */

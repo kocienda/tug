@@ -965,14 +965,14 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         return webView.undoManager
     }
 
-    /// Brio canvas color — final fallback when no other source is available.
-    /// Must match --tugx-host-canvas-color in tugdeck/styles/themes/brio.css.
+    /// Ironclad canvas color — final fallback when no other source is available.
+    /// Must match --tugx-host-canvas-color in tugdeck/styles/themes/ironclad.css.
     static let defaultBackgroundHex = "#16181d"
 
     /// Resolve the startup background color from the active theme's CSS file.
     /// Reads the theme name and source tree path from tugbank, then parses
     /// --tugx-host-canvas-color directly from the theme's CSS on disk.
-    /// Falls back to the tugbank-cached value, then to brio's hardcoded color.
+    /// Falls back to the tugbank-cached value, then to ironclad's hardcoded color.
     ///
     /// `theme` is the single source of truth for which theme is active;
     /// `window-background` is only a derived color cache for the native splash

@@ -17,7 +17,7 @@
  *  - **Item 2** (single text-entry surface): satisfied by construction
  *    — the block carries no input UI of its own.
  *  - **Item 6** (tokens): owns `--tugx-katex-*` (declared in both
- *    `brio.css` and `harmony.css`); the surface composes
+ *    `ironclad.css` and `sloop.css`); the surface composes
  *    `--tugx-block-*` via the shared `tugx-block.css` family.
  *  - **Item 7** (state preservation): the typeset output is a pure
  *    function of `(source, displayMode)` — no scroll, no collapse, no

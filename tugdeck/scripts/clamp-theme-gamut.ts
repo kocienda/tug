@@ -32,12 +32,16 @@ import { parseTugColor, findTugColorCallsWithWarnings } from "../src/components/
 const TUGDECK = path.resolve(import.meta.dir, "..");
 
 const TARGET_FILES = [
-  "styles/themes/aria.css",
-  "styles/themes/bravura.css",
-  "styles/themes/brio.css",
-  "styles/themes/harmony.css",
-  "styles/themes/nocturne.css",
-  "styles/themes/vivace.css",
+  "styles/themes/ketch.css",
+  "styles/themes/barque.css",
+  "styles/themes/ironclad.css",
+  "styles/themes/sloop.css",
+  "styles/themes/caravel.css",
+  "styles/themes/collier.css",
+  "styles/themes/galleon.css",
+  "styles/themes/kayak.css",
+  "styles/themes/pinnace.css",
+  "styles/themes/skiff.css",
   "styles/tug.css",
   "src/components/tugways/tug-code.css",
   "src/components/tugways/tug-data.css",

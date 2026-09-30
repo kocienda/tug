@@ -1208,8 +1208,8 @@ body {
 
    Tinted has its own control tokens whose rest state mirrors the badge tinted
    recipe; hover / active deepen the tint and crisp the border for a clearly
-   visible, theme-sensitive interaction — defined per theme in brio.css /
-   harmony.css like every other control emphasis (the wash sits over the theme
+   visible, theme-sensitive interaction — defined per theme in ironclad.css /
+   sloop.css like every other control emphasis (the wash sits over the theme
    canvas, so the feedback reads correctly in light and dark).
 
    Roles: the five semantic colour roles tinted shares with TugBadge

@@ -68,7 +68,7 @@
  * ## What is NOT here
  *
  *  - ANSI palette — that's a per-theme palette anchor; lives in
- *    `harmony.css` / `brio.css` as `--tugx-term-ansi-*`. Known carve-out.
+ *    `sloop.css` / `ironclad.css` as `--tugx-term-ansi-*`. Known carve-out.
  *  - Component-specific affordances (diff line +/- bgs, file match
  *    highlight overlay, markdown heading scale, terminal Copy button
  *    geometry, etc.). Those stay in each component's body{}.

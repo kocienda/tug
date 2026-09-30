@@ -1,4 +1,4 @@
-/* Brio — dark theme. */
+/* Caravel — dark theme. */
 body {
   --tugx-host-canvas-color: #111816;
   --tugx-theme-appearance: dark;
@@ -167,7 +167,7 @@ body {
   --tug7-element-global-fill-normal-accentSubtle-rest: --tug-color(orange, l: 530, c: 300, a: 100);
 
   /* Movement cursor / row hover for item-groups ([P03]/[Q01]) — a clearly
-     visible neutral overlay, distinct from the selection accent. Brio overlays
+     visible neutral overlay, distinct from the selection accent. Caravel overlays
      light on a dark surface. */
   --tugx-key-cursor-surface: --tug-color(white, a: 140);
 
@@ -1011,14 +1011,14 @@ body {
   /* `--tugx-list-view-*` slots live in tug-list-view.css. */
 
   /* TugMarkdownView / TugMarkdownBlock typography (--tugx-md-*).
-     Dark-theme values for `brio`. The full token vocabulary is the
-     contract every Layer-1 markdown block consumes; harmony.css
+     Dark-theme values for `caravel`. The full token vocabulary is the
+     contract every Layer-1 markdown block consumes; sloop.css
      declares the same token names with light-theme values.
 
      Body/heading colors and link colors reference theme palette
      tokens (--tug7-*) that already vary per theme; rgba literals are
      used for the background fills, dividers, and inline-code chrome
-     where brio (dark) and harmony (light) differ in *direction*
+     where caravel (dark) and sloop (light) differ in *direction*
      (lighter-than-canvas vs darker-than-canvas) rather than just
      hue.
 
@@ -1041,8 +1041,8 @@ body {
    * block per tuglaws/token-naming.md. */
 
   /* ---- Terminal block (TerminalBlock per Table T07) ----
-   * Renders ANSI-aware Bash output. Brio uses near-black
-   * background and the high-contrast brio palette for ANSI 16-color
+   * Renders ANSI-aware Bash output. Caravel uses near-black
+   * background and the high-contrast caravel palette for ANSI 16-color
    * mapping; bright variants pop a touch more saturated than their
    * dim counterparts. The footer is a darker stripe so post-mortem
    * badges (exit code, duration) read as a separate surface.
@@ -1051,8 +1051,8 @@ body {
    * block per tuglaws/token-naming.md. The ANSI palette below remains
    * theme-anchored because each theme picks its own ANSI hues. */
 
-  /* ANSI 16-color palette — calibrated for the dark brio surface
-   * via --tug-color() recipes so brio + harmony stay theme-aware
+  /* ANSI 16-color palette — calibrated for the dark caravel surface
+   * via --tug-color() recipes so caravel + sloop stay theme-aware
    * (the postcss plugin expands these to oklch() at build time).
    * Magenta maps to `violet`, cyan to `teal` — closest hues in the
    * tug palette to the canonical SGR names.
@@ -1087,7 +1087,7 @@ body {
   --activity-disk:      var(--tugx-term-ansi-bright-cyan);
 
   /* ---- Tool block chrome (BlockChrome per Table T07) ----
-   * Frame painted around every Layer-2 tool block. Brio uses a
+   * Frame painted around every Layer-2 tool block. Caravel uses a
    * lightly-elevated dark surface with a left-edge stripe whose
    * color encodes lifecycle status (streaming / ready / error).
    */

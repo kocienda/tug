@@ -783,7 +783,7 @@ async function withBootHorizon<T>(
   });
 
   // React to live tugbank changes pushed via the DEFAULTS WebSocket feed.
-  // When an external process writes to tugbank (e.g., `tugbank write ... theme harmony`),
+  // When an external process writes to tugbank (e.g., `tugbank write ... theme sloop`),
   // the TugbankClient cache updates and this callback fires.
   //
   // Guard: only call the setter if the theme actually changed. Without this,

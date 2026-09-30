@@ -3,7 +3,7 @@
  *
  * ── The fault ────────────────────────────────────────────────────────────
  * The light themes were given the dark themes' chrome recipe: a saturated
- * band with light ink on it. `harmony` seats the focused title bar at
+ * band with light ink on it. `sloop` seats the focused title bar at
  * `--tugx-chrome-key-surface` = `oklch(0.5 0.066 230)` — a mid-tone — and
  * paints the title near-white. On a light theme the card lid is therefore the
  * darkest thing on screen wearing the lightest text, which inverts the polarity
@@ -29,8 +29,8 @@
  *
  * The band is built with `oklch(from var(--tugx-chrome-key-surface) L C h)`:
  * the theme's Key hue with this card's lightness and chroma substituted. Only
- * `h` passes through, so a setting judged in `harmony` (blue) is the same
- * setting in `aria` (iris) and `vivace` (seafoam). `color-mix` cannot express
+ * `h` passes through, so a setting judged in `sloop` (blue) is the same
+ * setting in `ketch` (iris) and `skiff` (seafoam). `color-mix` cannot express
  * this — a mix can only travel toward the color you mix with, and no color
  * lies in the direction "same lightness, different chroma".
  *
@@ -78,9 +78,11 @@ import type { SpikeDef } from "./spike-registry";
  * back to naming the token instead of the hue.
  */
 const KEY_HUE_BY_THEME: Record<string, string> = {
-  harmony: "blue",
-  aria: "iris",
-  vivace: "seafoam",
+  sloop: "blue",
+  ketch: "iris",
+  skiff: "seafoam",
+  kayak: "sapphire",
+  pinnace: "rose",
 };
 
 /** The masthead's dense dot — the same cut the shipping masthead asks for. */
@@ -305,8 +307,8 @@ function SpikeLightChrome(): React.ReactElement {
         {keyHue === undefined && (
           <div className="sp-lc-notice">
             This tunes the LIGHT themes&rsquo; chrome. You are on{" "}
-            <strong>{theme || "an unknown theme"}</strong> — switch to Harmony,
-            Aria, or Vivace. The band is a light wash of the theme&rsquo;s Key
+            <strong>{theme || "an unknown theme"}</strong> — switch to Sloop,
+            Ketch, Skiff, Kayak, or Pinnace. The band is a light wash of the theme&rsquo;s Key
             hue, so on a dark ground it reads as a near-white bar and proves
             nothing.
           </div>

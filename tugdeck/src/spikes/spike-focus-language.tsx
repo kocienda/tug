@@ -3,7 +3,7 @@
  * visual language.
  *
  * One static screen showing the whole language across the component-archetype
- * taxonomy, in BOTH themes (toggle brio/harmony in the gallery chrome). Every
+ * taxonomy, in BOTH themes (toggle ironclad/sloop in the gallery chrome). Every
  * state (rest / mouse-hover / keyboard-cursor / selected) is forced via a
  * self-contained `data-fl-*` attribute so all of them show at once for
  * comparison — this is the OVERVIEW; per-component keyboard vetting on the real

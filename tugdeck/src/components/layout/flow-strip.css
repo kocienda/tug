@@ -21,7 +21,7 @@
  * segments had to hand in card-family tokens by name: a `TugSlot`'s own tokens
  * name a control on a control surface, and the canvas is a dark ground in every
  * theme — the light families included — so control ink authored for a light
- * control surface disappeared on it. Measured in `harmony`, a segment's text
+ * control surface disappeared on it. Measured in `sloop`, a segment's text
  * was l:420 on an l:380 canvas: the whole drawing was there and none of it was
  * legible. Here the strip renders on the panel the slot's tokens were authored
  * against, so it hands in nothing and the primitive is simply itself.

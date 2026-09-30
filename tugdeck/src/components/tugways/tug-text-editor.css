@@ -68,7 +68,7 @@ body {
    surface evolve independently from the editable field's chrome.
 
    The `--tugx-text-editor-selection-bg-rest` value is theme-specific
-   (defined in `styles/themes/brio.css` / `harmony.css`) — it has no
+   (defined in `styles/themes/ironclad.css` / `sloop.css`) — it has no
    plain-token equivalent, so it stays in the theme files.
 */
 

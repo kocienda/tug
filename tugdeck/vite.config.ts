@@ -69,8 +69,8 @@ function paletteHotReload(): VitePlugin {
  */
 export const ACTIVE_THEME_VIRTUAL_ID = "virtual:tug-active-theme.css";
 export const ACTIVE_THEME_RESOLVED_ID = "\0" + ACTIVE_THEME_VIRTUAL_ID;
-/** Absolute path to the brio theme CSS file. */
-const BASE_THEME_CSS = path.resolve(__dirname, "styles/themes/brio.css");
+/** Absolute path to the ironclad theme CSS file. */
+const BASE_THEME_CSS = path.resolve(__dirname, "styles/themes/ironclad.css");
 /** Absolute path to shipped override CSS files. */
 export const SHIPPED_THEMES_CSS_DIR = path.resolve(__dirname, "styles/themes");
 
@@ -100,7 +100,7 @@ const { BASE_THEME_NAME } = require("./src/theme-constants") as { BASE_THEME_NAM
  * a different file. So a `tugbank read` here returns whatever theme the
  * dev server's (often empty/legacy) db holds, not what the app is actually
  * showing. Re-reading it on each edit was the cause of the "edit a theme
- * css → snaps back to brio" bug: the read returned the base fallback and
+ * css → snaps back to ironclad" bug: the read returned the base fallback and
  * we baked it over the live theme. The client is the source of truth, and
  * it tells us via `/__themes/activate`.
  */
@@ -137,9 +137,9 @@ export function parseHostCanvasColor(cssText: string): string | null {
  * Resolve the active theme's complete CSS text — the body of the
  * `virtual:tug-active-theme.css` module.
  *
- * - For brio (or missing/default): reads styles/themes/brio.css.
+ * - For ironclad (or missing/default): reads styles/themes/ironclad.css.
  * - For any other theme: reads styles/themes/<name>.css.
- * - Falls back to brio when the named theme is missing or unreadable.
+ * - Falls back to ironclad when the named theme is missing or unreadable.
  * - The result is always a complete theme; it is never empty.
  */
 function resolveActiveThemeCss(themeName: string): string {
@@ -149,7 +149,7 @@ function resolveActiveThemeCss(themeName: string): string {
 
   const sourceCssPath = findThemeCssPath(themeName, SHIPPED_THEMES_CSS_DIR);
   if (!sourceCssPath) {
-    console.warn(`[active-theme] theme "${themeName}" not found, falling back to brio`);
+    console.warn(`[active-theme] theme "${themeName}" not found, falling back to ironclad`);
     return fs.readFileSync(BASE_THEME_CSS, "utf-8");
   }
 
@@ -214,7 +214,7 @@ function repaintActiveTheme(server: import("vite").ViteDevServer): void {
  * Vite plugin: when a theme source file changes, re-render the active-theme
  * virtual module so the app receives a standard CSS HMR update.
  *
- * Watches styles/themes/*.css (all themes including brio). Only the active
+ * Watches styles/themes/*.css (all themes including ironclad). Only the active
  * theme's own CSS feeds the live stylesheet — editing any other theme's file
  * changes nothing on screen, so we emit no update. The repaint reads from
  * `activeThemeName` (the client's truth), never a fresh `tugbank read` (wrong
@@ -263,7 +263,7 @@ export interface ActivateResult {
 /**
  * Validate a theme and read its host canvas color.
  *
- * - For the base theme (brio): reads styles/themes/brio.css.
+ * - For the base theme (ironclad): reads styles/themes/ironclad.css.
  * - For non-base themes: reads styles/themes/<name>.css from themesCssDir.
  * - Parses --tugx-host-canvas-color from the source CSS file.
  * - Throws if the source CSS is missing or host color metadata is missing/invalid.
@@ -486,7 +486,7 @@ export async function handleThemeEditApply(
 // ---------------------------------------------------------------------------
 // handleThemeDerive — POST /__theme-editor/derive
 //
-// Generate a family-member theme from a canonical base (brio/harmony) by
+// Generate a family-member theme from a canonical base (ironclad/sloop) by
 // rotating its brand hues, holding perceived chroma + lightness. Writes the
 // derived theme CSS. Drives the Theme Deriver card's Generate button. Dev-only.
 // ---------------------------------------------------------------------------

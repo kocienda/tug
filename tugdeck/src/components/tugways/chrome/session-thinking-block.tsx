@@ -47,8 +47,8 @@
  * - [L19] `.tsx` + `.css` pair, exported props interface,
  *   `data-slot="session-thinking-block"`.
  * - [L20] component-token sovereignty — owns the `--tugx-thinking-*`
- *   slot family ([Table T07]), declared in `brio.css` and
- *   `harmony.css`.
+ *   slot family ([Table T07]), declared in `ironclad.css` and
+ *   `sloop.css`.
  * - [L22] streaming binding in streaming mode subscribes the body's
  *   `TugMarkdownBlock` directly to the `PropertyStore`; deltas write
  *   the DOM imperatively without a React render cycle. The chrome

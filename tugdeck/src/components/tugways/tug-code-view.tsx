@@ -192,7 +192,7 @@ function buildLineNumbers(enabled: boolean, startLine: number): Extension {
  * `--tugx-block-*` family for code typography and `--tugx-codeview-*`
  * for viewer-local concerns (gutter colors, selection tint).
  *
- * Reads CSS variables directly so brio ↔ harmony theme switches
+ * Reads CSS variables directly so ironclad ↔ sloop theme switches
  * propagate without remount.
  */
 const tugCodeViewTheme: Extension = EditorView.theme({

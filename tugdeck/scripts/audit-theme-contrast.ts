@@ -15,7 +15,7 @@
  *
  * Usage:
  *   bun run scripts/audit-theme-contrast.ts            # audit every theme
- *   bun run scripts/audit-theme-contrast.ts brio       # audit one theme
+ *   bun run scripts/audit-theme-contrast.ts ironclad   # audit one theme
  *   bun run scripts/audit-theme-contrast.ts --quiet    # failures only
  *
  * Exit code: 0 if every theme's non-decorative pairings pass; 1 otherwise.
@@ -251,7 +251,7 @@ if (!referenceFile) {
   process.exit(1);
 }
 
-// The reference theme (brio) sets the accessibility bar: its WCAG-failure count is
+// The reference theme (ironclad) sets the accessibility bar: its WCAG-failure count is
 // the status-quo budget. No other theme may ship with MORE failures than the
 // reference. The reference is graded against itself (always passes its own gate);
 // the in-app Theme Accessibility card surfaces its individual findings for tuning.

@@ -749,7 +749,7 @@ function insertMixedAt(
  * text-editing caret (which is the cobalt
  * `--tug7-element-field-border-normal-plain-active`). Pairing the
  * caret with the ring's accent keeps the two drop cues visually
- * unified across brio and harmony.
+ * unified across ironclad and sloop.
  */
 const tugDropCaretTheme = EditorView.baseTheme({
   [`.${DROP_CARET_CLASS}`]: {

@@ -14,8 +14,8 @@
  *
  * Usage:
  *   bun run scripts/apply-theme-editor.ts <theme> <keyHue> <keyCDelta> <accentHue> <accentCDelta> [keyLDelta] [accentLDelta]
- *   bun run scripts/apply-theme-editor.ts brio cobalt -20 orange -30
- *   bun run scripts/apply-theme-editor.ts aria purple 0 sky 0 -50 40
+ *   bun run scripts/apply-theme-editor.ts ironclad cobalt -20 orange -30
+ *   bun run scripts/apply-theme-editor.ts ketch purple 0 sky 0 -50 40
  */
 
 import fs from "fs";

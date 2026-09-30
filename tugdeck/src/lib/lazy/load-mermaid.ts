@@ -15,7 +15,7 @@
  * The engine accepts a `themeName` plus a small `themeVariables` map
  * on every render call. Re-initializing per render is cheap (Mermaid
  * stores the config; the expensive work happens in `render`) and
- * keeps theme switches honest — a brio → harmony swap shows up on
+ * keeps theme switches honest — an ironclad → sloop swap shows up on
  * the next diagram emission without explicit reset.
  *
  * @module lib/lazy/load-mermaid
@@ -28,7 +28,7 @@ import type { MermaidConfig } from "mermaid";
  * markdown call sites. Mermaid accepts arbitrary string CSS colours
  * for these keys and falls back to its theme defaults for anything
  * left unset. Keeping the surface narrow here so a caller can only
- * tune what we've vetted against both `brio` and `harmony`.
+ * tune what we've vetted against both `ironclad` and `sloop`.
  */
 export interface MermaidThemeVariables {
   primaryColor?: string;

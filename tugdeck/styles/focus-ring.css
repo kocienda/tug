@@ -129,7 +129,7 @@
    neutral interactive blue) and a role-bearing component overrides them at the
    same site it injects its existing on-color (no engine attribute — pure CSS,
    per component). They alias the per-theme `--tug7-*` tokens, so one definition
-   resolves correctly in both brio and harmony ([L17] one-hop).
+   resolves correctly in both ironclad and sloop ([L17] one-hop).
 
    These are declared on `body`, NOT `:root`: the `--tug7-*` theme tokens are
    themselves scoped to `body`, so a `var(--tug7-*)` evaluated at `:root` (the

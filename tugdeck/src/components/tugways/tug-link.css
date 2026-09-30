@@ -14,7 +14,7 @@
  * link-{rest,hover}` in one hop per [L17]. The component-local
  * extension family stays sovereign per [L20] — no other component
  * reaches into it. Theme files own the underlying `--tug7-*` values
- * (`brio.css`, `harmony.css`); changing the link color in a theme
+ * (`ironclad.css`, `sloop.css`); changing the link color in a theme
  * flows automatically here.
  *
  * Visual treatment matches `TugMarkdownView`'s existing link

@@ -5,8 +5,8 @@
    wrapped in a container with a thin toolbar row.
 
    Per [D11], TugPromptEntry reuses existing base-tier global / field / badge
-   tokens. No new component-slot tokens are authored; both brio.css and
-   harmony.css remain untouched by this plan. If a visual need surfaces that
+   tokens. No new component-slot tokens are authored; both ironclad.css and
+   sloop.css remain untouched by this plan. If a visual need surfaces that
    no existing token satisfies, re-open [D11] — do not silently add theme
    edits in this file's name.
 

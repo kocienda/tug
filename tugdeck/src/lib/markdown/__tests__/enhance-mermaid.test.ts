@@ -23,13 +23,13 @@ describe("readColorLuminance — hex parsing", () => {
     expect(readColorLuminance("#ffffff")).toBeCloseTo(1, 6);
   });
 
-  test("brio canvas (#16181a) reads dark (< 0.5)", () => {
+  test("ironclad canvas (#16181a) reads dark (< 0.5)", () => {
     expect(readColorLuminance("#16181a")).toBeLessThan(0.5);
   });
 
-  test("harmony canvas (#71888e) reads dark-leaning but mid-tone", () => {
-    // Harmony's host canvas is a mid-grey; on the Rec. 709 weights
-    // it sits below the 0.5 threshold but well above brio's depth.
+  test("sloop canvas (#71888e) reads dark-leaning but mid-tone", () => {
+    // Sloop's host canvas is a mid-grey; on the Rec. 709 weights
+    // it sits below the 0.5 threshold but well above ironclad's depth.
     const l = readColorLuminance("#71888e");
     expect(l).toBeGreaterThan(readColorLuminance("#16181a"));
   });
