@@ -4,25 +4,38 @@
  *
  * A History row shows a hash, a subject, a stamp, and — expanded — a message
  * and a file roster, and the press that lands anywhere on it opens this menu:
- * the four forms a commit is worth carrying away as, in the order a reader
- * reaches for them.
+ * the commit itself and the four forms of it worth carrying away, in the order
+ * a reader reaches for them.
  *
  * So: ONE menu, claimed by the row, listing every act the row can offer.
  *
- *   Show Detail / Hide Detail   the row's own fold, named rather than remembered
- *   ─────
  *   Open Commit                 the commit's own card, wherever there is a root
  *   Open Diff                   where the surface has no diff of its own
  *   ─────
+ *   Show Detail / Hide Detail   the row's own fold, named rather than remembered
+ *   ─────
+ *   Copy as Atom                the commit itself, so a paste is a pill again
  *   Copy Short Hash             `commit:<8>`, the form the app writes commits as
  *   Copy Full Hash              the complete 40 characters, bare, for a git verb
  *   Copy Commit Header          `commit:<8>` and the subject, one line
  *   Copy Commit Record          the whole record — the row's Copy button's text
- *   Copy as Atom                the commit itself, so a paste is a pill again
+ *
+ * The list is the REGISTRY's, assembled from its named blocks, so the rules and
+ * the order are `buildEntityMenu`'s rather than this hook's — see the fixed
+ * order in `tuglaws/menus.md`.
+ *
+ * **The commit leads its own copies.** `Copy as Atom` writes the commit as the
+ * object it is; `commit:<8>` is a projection of one of its fields, as the full
+ * hash and the header and the record are. `commit:<8>` is still the first of
+ * the TEXT forms and still the form the app writes commits as — that was an
+ * argument about which spelling leads, never about where the object goes, and
+ * the object leads its projections on every kind that offers one.
  *
  * **The fold item says which way it goes.** `Show Detail` on a collapsed row,
  * `Hide Detail` on an expanded one — the same act the row's click performs,
- * spelled so the menu never asks the reader to recall the row's state.
+ * spelled so the menu never asks the reader to recall the row's state. It is an
+ * act on the row rather than a way to reach the commit, so it sits under the
+ * opens where the grammar puts an act.
  *
  * **Open Commit follows the root.** A commit's own card is its primary act,
  * so every surface that knows which repository the commit lives in offers it;

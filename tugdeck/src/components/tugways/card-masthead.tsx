@@ -22,7 +22,7 @@
  * that truncates in the middle (`TugPath`) and can be acted on.
  *
  * The tier answers a right-click for the whole of its three lines, with the
- * file's own items — Show in Finder, Copy Path, Copy as Atom. That menu is
+ * file's own items — Show in Finder, Copy as Atom, Copy Path. That menu is
  * {@link useFileIdentityMenu}, which is to a document what
  * `useSessionIdentityMenu` is to a session card's masthead.
  *

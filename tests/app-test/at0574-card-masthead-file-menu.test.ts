@@ -14,7 +14,7 @@
  * So the presses under test land on the TITLE and on the PATH: the run that
  * answered with the wrong menu, and the run that answered with none. Both have
  * to come back with the same three items, in the registry's order — Show in
- * Finder, then Copy Path and Copy as Atom under a rule — and with nothing else
+ * Finder, then Copy as Atom and Copy Path under a rule — and with nothing else
  * answering the same press, which is what the `TugLabel`'s own menu would do if
  * the tier were not asked first (`onContextMenuCapture`).
  *
@@ -178,13 +178,13 @@ describe.skipIf(!SHOULD_RUN)("at0574 — the document masthead's own menu", () =
         note("at0574 title menu", JSON.stringify(onTitle));
         expect(onTitle.map((r) => r.action)).toEqual([
           "reveal-in-finder",
-          "copy-annotation-value",
           "copy-annotation-atom",
+          "copy-annotation-value",
         ]);
         expect(onTitle.map((r) => r.label)).toEqual([
           "Show in Finder",
-          "Copy Path",
           "Copy as Atom",
+          "Copy Path",
         ]);
         expect(onTitle.every((r) => !r.disabled)).toBe(true);
         await closeMenu(app);

@@ -449,14 +449,18 @@ The two reach each other through one typed action. `useAnnotationMenu` samples t
 ────
 [ Act on it ]       Show / Hide Detail · Bind · Unbind · Discard · Replay
 ────
-[ Copy it ]         Copy <Noun> · Copy as <Format>
+[ Copy it ]         Copy as <Format> · Copy <Noun>
 ────
 [ Send it ]         Insert Atom into Prompt · Insert into Prompt
 ────
 [ Standard block ]  Look Up · Cut · Copy · … · Select All
 ```
 
-Reading down: reach the thing, act on it, take it, say something about it. A menu that opens with a rule suppresses it — whether an item leads depends on which earlier rows the surface's facts turned on, which the registry cannot know when it marks the rule.
+Reading down: reach the thing, act on it, take it, say something about it.
+
+**The rules are assembled, not written per kind.** `buildEntityMenu` in `registry.ts` takes the four blocks by name — `goTo`, `act`, `copy`, `send` — and places a rule between every two of them that both have rows; no kind writes a `separatorBefore`, and a menu never opens with a rule because the first surviving block takes none. Before the assembler each kind wrote a flat array and marked its own rules, and the result was the grammar drifting into a habit: `file-path` and `session` drew a rule before Insert and four other kinds did not, `directory` and `image` drew none anywhere, and `commit-sha` put its fold above its opens. A block whose rows the surface's facts all turned off takes no rule, which is the one thing a kind cannot know when it marks one by hand.
+
+A block may hold a **sub-group** — a nested array that takes a rule of its own inside the block. A session's *Copy Description* and *Copy Activity Line* are the one live case: they are copies, and they are fields of the surface's record rather than serializations of the entity, so they sit under a rule beneath the copies proper.
 
 ### Copy names its noun
 
@@ -464,9 +468,13 @@ Reading down: reach the thing, act on it, take it, say something about it. A men
 
 `Copy as <Format>` is the one other shape and it is reserved for a genuinely different **serialization of one entity** — *Copy as Atom* beside *Copy as Citation*, *Copy Command as Plain Text* beside *Copy Command*. Never a second entity, never a second field.
 
+**`Copy as Atom` is the FIRST row of the copy block, on every kind that offers it.** The atom is the entity itself; every other copy is a projection of one of its fields — a path, a link, a short hash, a session id — so the object leads and the fields follow. It is the assembler's row rather than a kind's, prepended wherever the entity names an atom at all, which is what makes the seat an invariant instead of a convention: a kind cannot seat it anywhere else, and a kind promoted to atom-insert later inherits the row already in its place.
+
+It was not always one. Six kinds put the atom last in their copy block and `session` put it first, each correct by its own docblock's reasoning, and the two sat inches apart on one card — the same `Copy as Atom` at the top of one menu and the bottom of another. The reading that settles it is the object's: a commit's `commit:<8>` is still the first of its TEXT forms, and that was never an argument about where the commit itself goes.
+
 **The atom copy is not a session's alone; it is what an atom-inserting entity offers.** An entity whose insert mints an atom names it in both directions — *Insert Atom into Prompt* to send it, *Copy as Atom* to take it — and one that inserts as text keeps the plain *Insert into Prompt* and offers no atom copy. A file path, a directory, a URL and a resolvable session say it; a command line, an email address and a bare sha do not, because there the insert is a jot and the label would be a lie the menu tells. Both items read one predicate — `atomSegmentFor` in `lib/annotator/atom-segment.ts` — so a kind promoted to atom-insert later inherits both with no menu edit, and the two can never disagree about what the entity is. Its `null` is also [L31] at the source: a session the ledger cannot resolve has no atom to write, so neither row is offered.
 
-`registry.test.ts` fails on a bare `Copy`, on a kind that offers no copy at all, and on a menu that opens with a rule.
+`registry.test.ts` fails on a bare `Copy`, on a kind that offers no copy at all, on a menu that opens with a rule, on a menu whose copies are not one unbroken run led by `Copy as Atom` wherever it offers one, and on a block boundary the assembler did not rule off. Those are invariants over every registered kind rather than a label list per kind — a per-kind list is what let one menu's contradiction of the rule read as a specification of it, and a label list cannot see a rule at all, so `buildEntityMenu` is held to its placement directly as well.
 
 ### The standard block appears iff the surface has a selection
 

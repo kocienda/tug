@@ -17,7 +17,7 @@ import { describe, expect, test } from "bun:test";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { sessionTagStore } from "@/lib/session-tag-store";
-import { annotationEntryFor } from "../registry";
+import { annotationEntryFor, buildEntityMenu } from "../registry";
 import type { AnnotationKind } from "../types";
 
 const ALL_KINDS: ReadonlyArray<AnnotationKind> = [
@@ -63,6 +63,32 @@ function bareEntries(kind: AnnotationKind) {
       kind: "none",
     }) ?? []
   );
+}
+
+/**
+ * The atom's seat, as one check any menu can be held to.
+ *
+ * `Copy as Atom` is the FIRST row of the copy block wherever a menu offers it:
+ * the atom is the entity, every other copy is a projection of one of its
+ * fields, so the object leads and the fields follow. And the copies are one
+ * unbroken run — a menu that scatters them has no copy block to seat anything
+ * at the front of.
+ *
+ * Stated as an invariant rather than as a list per kind. A per-kind list is
+ * what let one menu's contradiction of the rule read as a specification of it
+ * for as long as the rule was a habit reviewers kept.
+ */
+function expectAtomLeadsTheCopies(
+  entries: ReadonlyArray<{ label: string }>,
+): void {
+  const labels = entries.map((e) => e.label);
+  const copyAt = labels
+    .map((label, index) => (label.startsWith("Copy") ? index : -1))
+    .filter((index) => index >= 0);
+  expect(copyAt.length).toBeGreaterThan(0);
+  expect(copyAt).toEqual(copyAt.map((_, offset) => (copyAt[0] ?? 0) + offset));
+  if (!labels.includes("Copy as Atom")) return;
+  expect(labels[copyAt[0] ?? 0]).toBe("Copy as Atom");
 }
 
 describe("every stampable kind is registered", () => {
@@ -199,7 +225,7 @@ describe("link kinds leave the standard menu block alone", () => {
       annotationEntryFor("url")
         ?.menuEntries({ kind: "url", url: "https://x.y" }, { kind: "none" })
         .map((e) => e.label),
-    ).toEqual(["Copy Link", "Copy as Atom", "Insert Atom into Prompt"]);
+    ).toEqual(["Copy as Atom", "Copy Link", "Insert Atom into Prompt"]);
     expect(
       annotationEntryFor("email")
         ?.menuEntries({ kind: "email", address: "a@b.com" }, { kind: "none" })
@@ -211,18 +237,77 @@ describe("link kinds leave the standard menu block alone", () => {
 describe("a file offers one way into the composer", () => {
   // Whether the composer receives a chip or characters is the handler's
   // call, not a second menu item's — at0346 is where that lands.
+  //
+  // What the menu holds, not what order it holds it in: the seat of the atom
+  // is the invariant below, and a second list agreeing with it here is a
+  // second place to edit when the grammar moves.
   test("open, reveal, both copies, insert — and no second insert", () => {
-    expect(
-      annotationEntryFor("file-path")
-        ?.menuEntries({ kind: "file-path", path: "/repo/a.ts" }, { kind: "none" })
-        .map((e) => e.label),
-    ).toEqual([
-      "Open in Editor",
-      "Show in Finder",
-      "Copy Path",
-      "Copy as Atom",
-      "Insert Atom into Prompt",
-    ]);
+    const labels = bareEntries("file-path").map((e) => e.label);
+    expect([...labels].sort()).toEqual(
+      [
+        "Open in Editor",
+        "Show in Finder",
+        "Copy Path",
+        "Copy as Atom",
+        "Insert Atom into Prompt",
+      ].sort(),
+    );
+    expect(labels.filter((label) => label.startsWith("Insert"))).toHaveLength(1);
+  });
+});
+
+/**
+ * The seat, as the one rule every menu is held to.
+ *
+ * What would go wrong without this is what did go wrong: six kinds put the
+ * atom last in their copy block and one put it first, each correct by its own
+ * docblock's reasoning, and the two sat inches apart on one card. The rule is
+ * checked here rather than written out per kind, so a kind added later cannot
+ * seat it anywhere else without failing.
+ */
+describe("the atom leads the copies, or the menu offers no atom", () => {
+  for (const kind of ALL_KINDS) {
+    test(kind, () => {
+      expectAtomLeadsTheCopies(bareEntries(kind));
+    });
+  }
+
+  test("a resolvable session, from its payload alone", () => {
+    const ID = (SAMPLE.session as { target: string }).target;
+    sessionTagStore.setTag(ID, "brisk-otter");
+    try {
+      expectAtomLeadsTheCopies(bareEntries("session"));
+    } finally {
+      sessionTagStore.setTag(ID, null);
+    }
+  });
+
+  test("a session row holding the whole identity record", () => {
+    expectAtomLeadsTheCopies(
+      annotationEntryFor("session")?.menuEntries(SAMPLE.session as SamplePayload, {
+        kind: "session",
+        openCardId: null,
+        isOwnCard: false,
+        resumable: true,
+        projectDir: "/repo",
+        description: "a description",
+        activity: "a beat",
+      }) ?? [],
+    );
+  });
+
+  test("a History row holding the whole commit record", () => {
+    expectAtomLeadsTheCopies(
+      annotationEntryFor("commit-sha")?.menuEntries(
+        SAMPLE["commit-sha"] as SamplePayload,
+        {
+          kind: "commit-sha",
+          expanded: false,
+          hasRecord: true,
+          canOpenDiff: false,
+        },
+      ) ?? [],
+    );
   });
 });
 
@@ -323,6 +408,91 @@ describe("no kind opens its menu with a rule", () => {
   }
 });
 
+/**
+ * The rules themselves, which are the half of the grammar a label list cannot
+ * see.
+ *
+ * What would go wrong without this is what the assembler was written to end:
+ * `menus.md` says a rule falls between every two blocks that both have rows,
+ * and for as long as each kind marked its own that sentence was a habit rather
+ * than a fact — six kinds drew different rules for the same shape of menu.
+ * Moving the rules into `buildEntityMenu` only relocates the habit unless
+ * something fails when it stops placing them, and nothing did: every label
+ * list in this file passes with `separatorBefore` never written at all.
+ */
+describe("the assembler rules one block off from the next", () => {
+  const EMAIL = { kind: "email", address: "a@b.com" } as const;
+  const rows = (labels: ReadonlyArray<{ label: string; separatorBefore?: boolean }>) =>
+    labels.map((e) => (e.separatorBefore === true ? `── ${e.label}` : e.label));
+
+  test("every block boundary draws one, and no block opens the menu", () => {
+    expect(
+      rows(
+        buildEntityMenu(EMAIL as SamplePayload, {
+          goTo: [{ action: TUG_ACTIONS.OPEN_FILE, label: "Open in Editor" }],
+          act: [{ action: TUG_ACTIONS.TOGGLE_COMMIT_DETAIL, label: "Show Detail" }],
+          copy: [{ action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Address" }],
+          send: [{ action: TUG_ACTIONS.INSERT_INTO_PROMPT, label: "Insert into Prompt" }],
+        }),
+      ),
+    ).toEqual([
+      "Open in Editor",
+      "── Show Detail",
+      "── Copy Address",
+      "── Insert into Prompt",
+    ]);
+  });
+
+  test("a block the surface emptied takes no rule with it", () => {
+    // The one thing a kind cannot know when it marks a rule by hand: whether
+    // the block ABOVE it survived this surface's facts. Here `act` declares a
+    // row the facts turned off, and the copies must not inherit its rule on
+    // top of their own.
+    expect(
+      rows(
+        buildEntityMenu(EMAIL as SamplePayload, {
+          goTo: [{ action: TUG_ACTIONS.OPEN_FILE, label: "Open in Editor" }],
+          act: [false],
+          copy: [{ action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Address" }],
+        }),
+      ),
+    ).toEqual(["Open in Editor", "── Copy Address"]);
+  });
+
+  test("a sub-group takes a rule inside its own block", () => {
+    expect(
+      rows(
+        buildEntityMenu(EMAIL as SamplePayload, {
+          copy: [
+            { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Address" },
+            [{ action: TUG_ACTIONS.COPY_SESSION_DESCRIPTION, label: "Copy Description" }],
+          ],
+        }),
+      ),
+    ).toEqual(["Copy Address", "── Copy Description"]);
+  });
+});
+
+/**
+ * And the same rules as every registered kind actually draws them, so the
+ * assembler's contract above is not true only of hand-made blocks.
+ */
+describe("every kind rules its copies and its insert off", () => {
+  for (const kind of ALL_KINDS) {
+    test(kind, () => {
+      const entries = bareEntries(kind);
+      const firstCopy = entries.findIndex((e) => e.label.startsWith("Copy"));
+      if (firstCopy > 0) {
+        expect(entries[firstCopy]?.separatorBefore).toBe(true);
+      }
+      const insert = entries.findIndex((e) => e.label.startsWith("Insert"));
+      if (insert > 0) {
+        expect(entries[insert]?.separatorBefore).toBe(true);
+      }
+    });
+  }
+});
+
 describe("a session is offered only the copies its surface can perform", () => {
   // The atom and the citation are written from the identity record. A payload
   // carries an id, so a surface holding one is offered the id alone — an item
@@ -412,9 +582,9 @@ describe("a commit's menu grows with what the surface holds", () => {
     expect(bareEntries("commit-sha").map((e) => e.label)).toEqual([
       "Open Commit",
       "Open Diff",
+      "Copy as Atom",
       "Copy Short Hash",
       "Copy Full Hash",
-      "Copy as Atom",
       "Insert Atom into Prompt",
     ]);
   });
@@ -430,16 +600,16 @@ describe("a commit's menu grows with what the surface holds", () => {
       },
     );
     expect(items?.map((e) => e.label)).toEqual([
-      "Show Detail",
       "Open Commit",
+      "Show Detail",
+      // The record does not displace the object. A pill in a receipt or a
+      // History row is the same commit a prose mention is, so it offers the
+      // same way of carrying it away as one — and at the same seat.
+      "Copy as Atom",
       "Copy Short Hash",
       "Copy Full Hash",
       "Copy Commit Header",
       "Copy Commit Record",
-      // The record does not displace the object. A pill in a receipt or a
-      // History row is the same commit a prose mention is, so it offers the
-      // same way of carrying it away as one.
-      "Copy as Atom",
     ]);
   });
 
@@ -453,6 +623,9 @@ describe("a commit's menu grows with what the surface holds", () => {
         canOpenDiff: false,
       },
     );
-    expect(expanded?.[0]?.label).toBe("Hide Detail");
+    expect(
+      expanded?.find((e) => e.action === TUG_ACTIONS.TOGGLE_COMMIT_DETAIL)
+        ?.label,
+    ).toBe("Hide Detail");
   });
 });

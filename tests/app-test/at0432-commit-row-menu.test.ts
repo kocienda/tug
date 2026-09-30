@@ -162,20 +162,26 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           >(menuRows());
           note("at0432 menu", JSON.stringify(rows));
           expect(rows.map((r) => r.action)).toEqual([
-            "toggle-commit-detail",
             // A commit's primary act is its own card, so the open group leads
-            // the copies. The row still offers NO Open Diff: its diff is the
+            // everything. The row still offers NO Open Diff: its diff is the
             // shade beneath it, and every file in its roster carries a
             // pop-out.
             "open-commit",
+            // The fold is an act on the ROW, so it sits under the opens where
+            // the block grammar puts an act.
+            "toggle-commit-detail",
+            // The commit itself leads its copies; every row under it copies
+            // one of the commit's fields.
+            "copy-annotation-atom",
             "copy-commit-short-hash",
             "copy-commit-hash",
             "copy-commit-header",
             "copy-commit-record",
-            "copy-annotation-atom",
           ]);
           // The fold item SAYS which way it goes — the row is collapsed.
-          expect(rows[0].label).toBe("Show Detail");
+          expect(
+            rows.find((r) => r.action === "toggle-commit-detail")?.label,
+          ).toBe("Show Detail");
           // Every item is a copy of a fact the record always holds, so every
           // one is live.
           expect(rows.every((r) => !r.disabled)).toBe(true);

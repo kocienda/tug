@@ -25,6 +25,14 @@
  *   Copy Description            the whole synopsis, past the row's elision
  *   Copy Activity Line          the newest beat, when the session is running one
  *
+ * The list is the REGISTRY's and its order is `buildEntityMenu`'s: the atom
+ * leads the copies because it is the session itself and every row under it
+ * copies one of the session's fields. That is the seat on every kind now, not
+ * this menu's own reading of it — see the fixed order in `tuglaws/menus.md`.
+ * The two lower rows are a sub-group inside the copy block, under a rule of
+ * their own, because they are fields of the ROW rather than serializations of
+ * the session.
+ *
  * **The first item is one item, not two.** A reader right-clicking a session
  * wants to GET to it; whether that costs a raise or a resume is the app's
  * problem, not theirs. So the item says which of the two it will be and does

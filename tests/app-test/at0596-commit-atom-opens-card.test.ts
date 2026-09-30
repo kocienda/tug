@@ -189,6 +189,15 @@ describe.skipIf(!SHOULD_RUN)("at0596 — a click on a commit atom opens its card
           // so the absence is the assertion that matters.
           expect(await app.evalJS<number>(countByComponent("diff"))).toBe(0);
 
+          // The deck holds the card a beat before a pane mounts it, and what
+          // is read below is the DOM. So the wait is on the DOM: waiting on
+          // the deck's own count and then reading the document is a race the
+          // card wins only by how fast the pane happens to commit.
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(COMMIT_CARD)}) !== null`,
+            { timeoutMs: 15_000 },
+          );
+
           const masthead = await app.evalJS<string | null>(
             `(() => {
                const card = document.querySelector(${JSON.stringify(COMMIT_CARD)});

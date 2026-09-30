@@ -7,8 +7,13 @@
  *
  *   Show in Finder              the folder around it, with the file selected
  *   ─────
- *   Copy Path                   the path as characters
  *   Copy as Atom                the file itself, so a paste is a chip again
+ *   Copy Path                   the path as characters
+ *
+ * The file leads its own copies: the atom is the file, and the path is a
+ * projection of one of its fields, so the object leads and the field follows.
+ * That seat is `buildEntityMenu`'s on every kind that names an atom, not this
+ * menu's reading — see the fixed order in `tuglaws/menus.md`.
  *
  * So: ONE menu, claimed by the tier, and its list is the REGISTRY's — the same
  * items the same file answers with in transcript prose, in the same order, off

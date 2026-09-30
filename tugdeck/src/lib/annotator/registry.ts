@@ -270,16 +270,132 @@ function insertEntry(payload: AnnotationPayload): AnnotationMenuEntry {
 }
 
 /**
- * The atom copy, offered exactly where the insert mints one — spread into a
- * kind's copy block so a kind promoted to atom-insert later picks the row up
- * with no menu edit of its own ([L31]: an item is offered only where it can
- * be performed). `Copy as <Format>` is the sanctioned shape for a different
- * serialization of one entity, which is what an atom is beside a path.
+ * One declared row, or nothing at all.
+ *
+ * A block states the rows a kind offers and lets the surface's facts turn one
+ * off in place, so the declaration reads as the menu rather than as the
+ * assembly of one: a row that is `null` or `false` is one this surface cannot
+ * stand behind, and it takes its rule with it.
  */
-function atomCopyEntries(payload: AnnotationPayload): AnnotationMenuEntry[] {
+type MenuRow = AnnotationMenuEntry | null | false | undefined;
+
+/**
+ * A block's contents: rows, and a nested array for a sub-group that takes a
+ * rule of its own INSIDE the block. A session's Description and Activity Line
+ * beneath its copies are the one live case — they are copies, and they are
+ * fields of the surface's record rather than serializations of the entity.
+ */
+type MenuBlockDecl = ReadonlyArray<MenuRow | ReadonlyArray<MenuRow>>;
+
+/**
+ * A menu, declared as the blocks `tuglaws/menus.md` fixes the order of:
+ * reach the thing, act on it, take it, say something about it.
+ *
+ * **No kind writes a `separatorBefore`.** A rule falls between two blocks that
+ * both have rows, and whether an earlier block survived the surface's facts is
+ * exactly what a kind cannot know when it declares its own. Hand-placing them
+ * is how the grammar became a habit reviewers kept rather than an invariant
+ * the code held — six kinds drew different rules for the same shape of menu,
+ * and the atom seat drifted the same way.
+ */
+export interface EntityMenuBlocks {
+  /** Reach it — Open in Editor, Open Commit, Show in Finder, Show Session. */
+  goTo?: MenuBlockDecl;
+  /** Act on it — Show / Hide Detail, a command's two runs. */
+  act?: MenuBlockDecl;
+  /** Take it. The atom row is prepended here; a kind never writes one. */
+  copy?: MenuBlockDecl;
+  /** Send it — the insert, whichever of the two labels it carries. */
+  send?: MenuBlockDecl;
+  /**
+   * The action that writes this menu's atom, for a surface holding an
+   * identity RECORD the payload cannot carry: a session row knows its
+   * callsign and its project, so it writes an atom `atomSegmentFor` would
+   * answer `null` for. Omitted everywhere else, where the payload decides
+   * through that one predicate.
+   */
+  surfaceAtom?: TugAction;
+}
+
+/** `Copy as <Format>`, where the format is the entity itself. */
+const ATOM_COPY_LABEL = "Copy as Atom";
+
+const isRow = (row: MenuRow): row is AnnotationMenuEntry =>
+  row !== null && row !== undefined && row !== false;
+
+/** A block's surviving rows, split into the runs a rule falls between. */
+function groupsOf(decl: MenuBlockDecl | undefined): AnnotationMenuEntry[][] {
+  if (decl === undefined) return [];
+  const groups: AnnotationMenuEntry[][] = [];
+  let run: AnnotationMenuEntry[] = [];
+  for (const item of decl) {
+    if (Array.isArray(item)) {
+      if (run.length > 0) groups.push(run);
+      run = [];
+      const sub = (item as ReadonlyArray<MenuRow>).filter(isRow);
+      if (sub.length > 0) groups.push(sub);
+      continue;
+    }
+    if (isRow(item as MenuRow)) run.push(item as AnnotationMenuEntry);
+  }
+  if (run.length > 0) groups.push(run);
+  return groups;
+}
+
+/**
+ * The atom copy, at the one seat it has on every kind that offers it: the
+ * FIRST row of the copy block.
+ *
+ * The atom is the entity; every other copy is a projection of one of its
+ * fields, so the object leads and the fields follow. It is the assembler's row
+ * rather than a kind's, which is what makes the seat an invariant — a kind
+ * promoted to atom-insert later inherits the row already in its place, and no
+ * kind can seat it anywhere else ([L31]: an item is offered only where it can
+ * be performed, which is what the predicate below still decides).
+ */
+function atomRowFor(
+  payload: AnnotationPayload,
+  surfaceAtom: TugAction | undefined,
+): AnnotationMenuEntry | null {
+  if (surfaceAtom !== undefined) {
+    return { action: surfaceAtom, label: ATOM_COPY_LABEL };
+  }
   return atomSegmentFor(payload) === null
-    ? []
-    : [{ action: TUG_ACTIONS.COPY_ANNOTATION_ATOM, label: "Copy as Atom" }];
+    ? null
+    : { action: TUG_ACTIONS.COPY_ANNOTATION_ATOM, label: ATOM_COPY_LABEL };
+}
+
+/**
+ * Assemble one kind's menu from its blocks: the atom row prepended to the
+ * copies, the blocks in the fixed order, and a rule between every two of them
+ * that both survived.
+ *
+ * A menu never opens with a rule, because the first surviving group takes
+ * none — the same case `entity-menu-items` guards one layer down, where it
+ * still holds for the rows a consumer drops.
+ */
+export function buildEntityMenu(
+  payload: AnnotationPayload,
+  blocks: EntityMenuBlocks,
+): AnnotationMenuEntry[] {
+  const copy = groupsOf(blocks.copy);
+  const atom = atomRowFor(payload, blocks.surfaceAtom);
+  if (atom !== null) {
+    const first = copy[0];
+    if (first === undefined) copy.push([atom]);
+    else copy[0] = [atom, ...first];
+  }
+  const groups = [
+    ...groupsOf(blocks.goTo),
+    ...groupsOf(blocks.act),
+    ...copy,
+    ...groupsOf(blocks.send),
+  ];
+  return groups.flatMap((group, block) =>
+    group.map((entry, row) =>
+      block > 0 && row === 0 ? { ...entry, separatorBefore: true } : entry,
+    ),
+  );
 }
 
 /**
@@ -299,7 +415,11 @@ const COMMAND_MENU_ENTRIES: AnnotationMenuEntry[] = [
 
 const commandMenuEntries = (
   payload: AnnotationPayload,
-): AnnotationMenuEntry[] => [...COMMAND_MENU_ENTRIES, insertEntry(payload)];
+): AnnotationMenuEntry[] =>
+  buildEntityMenu(payload, {
+    copy: COMMAND_MENU_ENTRIES,
+    send: [insertEntry(payload)],
+  });
 
 /**
  * A slash command's menu — the two ways to RUN it, then the ways to take it.
@@ -329,21 +449,22 @@ const slashCommandMenuEntries = (
   const known = facts.kind === "slash-command" ? facts : null;
   const cannotRun =
     known !== null && (!known.hasComposer || known.argsPathMissing);
-  return [
-    {
-      action: TUG_ACTIONS.RUN_COMMAND_HERE,
-      label: "Run Here",
-      disabled: cannotRun,
-    },
-    {
-      action: TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
-      label: "Run in New Session",
-      disabled: cannotRun,
-    },
-    { ...COMMAND_MENU_ENTRIES[0], separatorBefore: true },
-    ...COMMAND_MENU_ENTRIES.slice(1),
-    insertEntry(payload),
-  ];
+  return buildEntityMenu(payload, {
+    act: [
+      {
+        action: TUG_ACTIONS.RUN_COMMAND_HERE,
+        label: "Run Here",
+        disabled: cannotRun,
+      },
+      {
+        action: TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
+        label: "Run in New Session",
+        disabled: cannotRun,
+      },
+    ],
+    copy: COMMAND_MENU_ENTRIES,
+    send: [insertEntry(payload)],
+  });
 };
 
 registerAnnotationKind("slash-command", {
@@ -358,19 +479,21 @@ registerAnnotationKind("shell-command", {
   suppressStandardItems: true,
 });
 
-const urlMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] => [
-  { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Link" },
-  ...atomCopyEntries(payload),
-  insertEntry(payload),
-];
+const urlMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] =>
+  buildEntityMenu(payload, {
+    copy: [{ action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Link" }],
+    send: [insertEntry(payload)],
+  });
 
 const emailMenuEntries = (
   payload: AnnotationPayload,
-): AnnotationMenuEntry[] => [
-  { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Address" },
-  ...atomCopyEntries(payload),
-  insertEntry(payload),
-];
+): AnnotationMenuEntry[] =>
+  buildEntityMenu(payload, {
+    copy: [
+      { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Address" },
+    ],
+    send: [insertEntry(payload)],
+  });
 
 /**
  * The `{ path, line?, endLine? }` an open carries. A cited range wins
@@ -400,22 +523,21 @@ registerAnnotationKind("file-path", {
   //
   // A file is the kind the atom copy lands on first, and a second copy is
   // what makes this menu's block boundaries worth drawing: reach it, take
-  // it, send it, with a rule between each. `menus.md` fixes that order.
-  menuEntries: (payload) => [
-    {
-      action: TUG_ACTIONS.OPEN_FILE,
-      label: "Open in Editor",
-      value: openTargetFor(payload) ?? undefined,
-    },
-    { action: TUG_ACTIONS.REVEAL_IN_FINDER, label: "Show in Finder" },
-    {
-      action: TUG_ACTIONS.COPY_ANNOTATION_VALUE,
-      label: "Copy Path",
-      separatorBefore: true,
-    },
-    ...atomCopyEntries(payload),
-    { ...insertEntry(payload), separatorBefore: true },
-  ],
+  // it, send it, with a rule between each. The assembler draws those rules
+  // from the blocks below; `menus.md` fixes their order.
+  menuEntries: (payload) =>
+    buildEntityMenu(payload, {
+      goTo: [
+        {
+          action: TUG_ACTIONS.OPEN_FILE,
+          label: "Open in Editor",
+          value: openTargetFor(payload) ?? undefined,
+        },
+        { action: TUG_ACTIONS.REVEAL_IN_FINDER, label: "Show in Finder" },
+      ],
+      copy: [{ action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Path" }],
+      send: [insertEntry(payload)],
+    }),
   suppressStandardItems: false,
 });
 
@@ -439,12 +561,12 @@ registerAnnotationKind("email", {
 
 const directoryMenuEntries = (
   payload: AnnotationPayload,
-): AnnotationMenuEntry[] => [
-  { action: TUG_ACTIONS.REVEAL_IN_FINDER, label: "Show in Finder" },
-  { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Path" },
-  ...atomCopyEntries(payload),
-  insertEntry(payload),
-];
+): AnnotationMenuEntry[] =>
+  buildEntityMenu(payload, {
+    goTo: [{ action: TUG_ACTIONS.REVEAL_IN_FINDER, label: "Show in Finder" }],
+    copy: [{ action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Path" }],
+    send: [insertEntry(payload)],
+  });
 
 registerAnnotationKind("directory", {
   // A directory has no editor to open into, so the click does what the
@@ -458,95 +580,85 @@ registerAnnotationKind("directory", {
   suppressStandardItems: false,
 });
 
-const imageMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] => [
-  { action: TUG_ACTIONS.OPEN_IMAGE_PREVIEW, label: "Open Image" },
-  { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Name" },
-  ...atomCopyEntries(payload),
-  insertEntry(payload),
-];
+const imageMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] =>
+  buildEntityMenu(payload, {
+    goTo: [{ action: TUG_ACTIONS.OPEN_IMAGE_PREVIEW, label: "Open Image" }],
+    copy: [{ action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Name" }],
+    send: [insertEntry(payload)],
+  });
 
 /**
  * A commit's menu — the same list wherever a commit is shown, with the rows
  * a surface cannot fill left out rather than dimmed forever.
  *
- * **The first copy is the one the app writes commits as.** `commit:<8>` is
- * what an atom, a receipt, and a line of transcript ink all say, so it leads
- * the copies and every other form is measured from it: the bare full hash for
- * a git argument, the header for a sentence, the record for a paste.
+ * **The commit itself leads the copies.** `Copy as Atom` writes the commit as
+ * the object it is — the sidecar the composer re-materializes a chip from, and
+ * `commit:<8>` as the plain text a reader outside Tug can place — and every
+ * other row copies one of its FIELDS: the short hash, the bare full hash for a
+ * git argument, the header for a sentence, the record for a paste. The object
+ * leads its projections, which is the seat the assembler gives it on every
+ * kind rather than a reading this menu takes on its own.
  *
- * `Copy as Atom` sits with them, because a commit is a real atom now: it
- * writes the same two flavors a file or session atom does — the sidecar the
- * composer re-materializes a chip from, and `commit:<8>` as the plain text a
- * reader outside Tug can place. It is spread from {@link atomCopyEntries}
- * rather than written here, so the row and the insert's label read one
- * predicate and cannot come to disagree about what a commit is.
+ * That overturns an earlier argument — that `commit:<8>` leads because it is
+ * the form the app writes commits as. It is still the form the app writes, and
+ * still the first of the TEXT forms; it was never an argument about the object.
  *
- * It sits BESIDE the insert rather than up with the hash copies, so the two
- * items arrive and depart together on every path through this function. A
- * History row, which holds the whole record and offers no insert at all, is
- * the path that would otherwise have earned an atom copy with nothing naming
- * it in the other direction.
+ * Transcript ink and a receipt header know a sha and nothing else, so they get
+ * the forms a sha alone can stand behind. A History row holds the subject and
+ * the whole record, and its facts say so — it offers the header and the record
+ * and no insert at all, and it offers the atom exactly as a prose mention does,
+ * because a pill in a receipt is the same commit a sentence mentions.
  *
- * Transcript ink and a receipt header know a sha and nothing else, so they
- * get the two forms a sha alone can stand behind. A History row holds the
- * subject and the whole record, and its facts say so. The fold leads when the
- * row has one, named in the direction it will move, so the menu never asks
- * the reader to recall the row's state.
+ * The fold is an act on the row, so it sits in the act block under the opens,
+ * named in the direction it will move — the menu never asks the reader to
+ * recall the row's state.
  */
 function commitMenuEntries(
   payload: AnnotationPayload,
   facts: AnnotationMenuFacts,
 ): AnnotationMenuEntry[] {
   const known = facts.kind === "commit-sha" ? facts : null;
-  const entries: AnnotationMenuEntry[] = [];
-  if (known?.expanded !== undefined) {
-    entries.push({
-      action: TUG_ACTIONS.TOGGLE_COMMIT_DETAIL,
-      label: known.expanded ? "Hide Detail" : "Show Detail",
-    });
-  }
-  // The commit's own card leads the open group: a commit atom's primary act
-  // is the commit itself, and its diff is the narrower question of what it
-  // changed. A History row offers this and still offers no Open Diff — the
-  // row's diff is the shade beneath it, and the card is somewhere else.
-  if (known === null || known.canOpenCommit !== false) {
-    entries.push({
-      action: TUG_ACTIONS.OPEN_COMMIT,
-      label: "Open Commit",
-      ...(entries.length > 0 ? { separatorBefore: true } : {}),
-    });
-  }
-  // A sha alone can always open its diff; a surface that says it cannot —
-  // a commit with no repository behind it — drops the row.
-  if (known === null || known.canOpenDiff) {
-    entries.push({
-      action: TUG_ACTIONS.OPEN_DIFF,
-      label: "Open Diff",
-      ...(entries.length > 0 ? { separatorBefore: true } : {}),
-    });
-  }
-  entries.push({
-    action: TUG_ACTIONS.COPY_COMMIT_SHORT_HASH,
-    label: "Copy Short Hash",
-    ...(entries.length > 0 ? { separatorBefore: true } : {}),
+  const hasRecord = known?.hasRecord === true;
+  return buildEntityMenu(payload, {
+    goTo: [
+      // The commit's own card leads the open group: a commit atom's primary
+      // act is the commit itself, and its diff is the narrower question of
+      // what it changed. A History row offers this and still offers no Open
+      // Diff — the row's diff is the shade beneath it, and the card is
+      // somewhere else.
+      (known === null || known.canOpenCommit !== false) && {
+        action: TUG_ACTIONS.OPEN_COMMIT,
+        label: "Open Commit",
+      },
+      // A sha alone can always open its diff; a surface that says it cannot —
+      // a commit with no repository behind it — drops the row.
+      (known === null || known.canOpenDiff) && {
+        action: TUG_ACTIONS.OPEN_DIFF,
+        label: "Open Diff",
+      },
+    ],
+    act: [
+      known?.expanded !== undefined && {
+        action: TUG_ACTIONS.TOGGLE_COMMIT_DETAIL,
+        label: known.expanded ? "Hide Detail" : "Show Detail",
+      },
+    ],
+    copy: [
+      { action: TUG_ACTIONS.COPY_COMMIT_SHORT_HASH, label: "Copy Short Hash" },
+      { action: TUG_ACTIONS.COPY_COMMIT_HASH, label: "Copy Full Hash" },
+      hasRecord && {
+        action: TUG_ACTIONS.COPY_COMMIT_HEADER,
+        label: "Copy Commit Header",
+      },
+      hasRecord && {
+        action: TUG_ACTIONS.COPY_COMMIT_RECORD,
+        label: "Copy Commit Record",
+      },
+    ],
+    // A History row sends nothing into a prompt — there is no composer beside
+    // it — so it declares no send block and takes no rule for one.
+    send: hasRecord ? [] : [insertEntry(payload)],
   });
-  entries.push({ action: TUG_ACTIONS.COPY_COMMIT_HASH, label: "Copy Full Hash" });
-  if (known?.hasRecord === true) {
-    entries.push(
-      { action: TUG_ACTIONS.COPY_COMMIT_HEADER, label: "Copy Commit Header" },
-      { action: TUG_ACTIONS.COPY_COMMIT_RECORD, label: "Copy Commit Record" },
-    );
-    // Copy as Atom belongs to the commit, not to the surface that drew it.
-    // This branch used to return here, which is why a pill in a receipt or a
-    // History row offered every form of a commit EXCEPT the one that pastes
-    // back as a pill — the only way to put a commit atom on the pasteboard was
-    // to right-click a prose mention of it.
-    entries.push(...atomCopyEntries(payload));
-    return entries;
-  }
-  entries.push(...atomCopyEntries(payload));
-  entries.push(insertEntry(payload));
-  return entries;
 }
 
 registerAnnotationKind("commit-sha", {
@@ -589,65 +701,55 @@ function sessionMenuEntries(
   facts: AnnotationMenuFacts,
 ): AnnotationMenuEntry[] {
   const known = facts.kind === "session" ? facts : null;
-  const entries: AnnotationMenuEntry[] = [];
-  if (known !== null && !known.isOwnCard) {
-    entries.push(
-      known.openCardId !== null
-        ? { action: TUG_ACTIONS.SHOW_SESSION, label: "Show Session" }
-        : {
-            action: TUG_ACTIONS.RESUME_SESSION,
-            label: "Resume Session",
-            disabled: !known.resumable,
-          },
-    );
-  }
   // The atom and the citation are written from the session's identity RECORD
   // — its callsign, its project, the sidecar a paste back into Tug rebuilds
   // the chip from. A surface holding the record writes both from its own
-  // facts. A surface holding only the id writes neither from the payload, so
-  // it is offered the citation not at all and the atom only through
-  // `atomSegmentFor`, which resolves the identity for itself and answers
-  // `null` when the ledger cannot. The id it can always write.
-  if (known !== null) {
-    entries.push({
-      action: TUG_ACTIONS.COPY_SESSION_ATOM,
-      label: "Copy as Atom",
-      ...(entries.length > 0 ? { separatorBefore: true } : {}),
-    });
-    entries.push({
-      action: TUG_ACTIONS.COPY_SESSION_CITATION,
-      label: "Copy as Citation",
-    });
-  } else {
-    // A surface holding only the id still offers the atom WHEN THE LEDGER CAN
-    // ANSWER FOR IT: `atomSegmentFor` resolves the identity itself, so the
-    // transcript's session ink is not stuck at the id the payload carries.
-    // Without this row the ink would say `Insert Atom into Prompt` and offer
-    // no way to take that atom, which is the one thing the rule forbids.
-    entries.push(...atomCopyEntries(payload));
-  }
-  entries.push({
-    action: TUG_ACTIONS.COPY_SESSION_ID,
-    label: "Copy Session ID",
+  // facts, which is what `surfaceAtom` says. A surface holding only the id
+  // writes neither from the payload, so it is offered the citation not at all
+  // and the atom only through `atomSegmentFor`, which resolves the identity
+  // for itself and answers `null` when the ledger cannot — the assembler's
+  // default, and the reason the transcript's session ink is not stuck at the
+  // id its payload carries. Without that row the ink would say `Insert Atom
+  // into Prompt` and offer no way to take the atom, which the rule forbids.
+  // The id it can always write.
+  return buildEntityMenu(payload, {
+    ...(known !== null
+      ? { surfaceAtom: TUG_ACTIONS.COPY_SESSION_ATOM }
+      : {}),
+    goTo: [
+      known !== null && !known.isOwnCard
+        ? known.openCardId !== null
+          ? { action: TUG_ACTIONS.SHOW_SESSION, label: "Show Session" }
+          : {
+              action: TUG_ACTIONS.RESUME_SESSION,
+              label: "Resume Session",
+              disabled: !known.resumable,
+            }
+        : null,
+    ],
+    copy: [
+      known !== null && {
+        action: TUG_ACTIONS.COPY_SESSION_CITATION,
+        label: "Copy as Citation",
+      },
+      { action: TUG_ACTIONS.COPY_SESSION_ID, label: "Copy Session ID" },
+      // The surface's own fields, not the entity's serializations, so they
+      // take a rule of their own inside the copy block.
+      [
+        known?.description !== undefined && {
+          action: TUG_ACTIONS.COPY_SESSION_DESCRIPTION,
+          label: "Copy Description",
+          disabled: (known.description ?? "").trim().length === 0,
+        },
+        known?.activity !== undefined && {
+          action: TUG_ACTIONS.COPY_SESSION_ACTIVITY,
+          label: "Copy Activity Line",
+          disabled: (known.activity ?? "").trim().length === 0,
+        },
+      ],
+    ],
+    send: [insertEntry(payload)],
   });
-  if (known?.description !== undefined) {
-    entries.push({
-      action: TUG_ACTIONS.COPY_SESSION_DESCRIPTION,
-      label: "Copy Description",
-      separatorBefore: true,
-      disabled: (known.description ?? "").trim().length === 0,
-    });
-  }
-  if (known?.activity !== undefined) {
-    entries.push({
-      action: TUG_ACTIONS.COPY_SESSION_ACTIVITY,
-      label: "Copy Activity Line",
-      ...(known.description === undefined ? { separatorBefore: true } : {}),
-      disabled: (known.activity ?? "").trim().length === 0,
-    });
-  }
-  entries.push({ ...insertEntry(payload), separatorBefore: true });
-  return entries;
 }
 
 registerAnnotationKind("session", {
