@@ -643,7 +643,6 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
 
   // useResponderChain() returns the manager or null (safe outside provider).
   // Needed for canHandle/validateAction queries and explicit-target dispatch.
-  performance.mark("tug:button-render");
   const manager = useResponderChain();
   // Focus manager — owns the engine-projected `data-default-ring` ([P14]).
   const focusManager = useFocusManager();

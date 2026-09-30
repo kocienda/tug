@@ -61,17 +61,52 @@ export interface IDeckManagerStore {
   subscribe: (callback: (landing: CommitLanding) => void) => () => void;
 
   /**
-   * PROBE (motion-before-React, step 1): subscribe on the commit's OWN task.
-   * `subscribe` above is told one painted frame later while the probe runs;
-   * a DOM writer that must see the commit before React does takes this door.
+   * Subscribe on the commit's OWN task. `subscribe` above is told one painted
+   * frame later ([D204]); a subscriber that must see the commit before React
+   * does takes this door.
+   *
+   * **What may ride it ([B04]).** The door is for DOM writers and for readers
+   * of the flip's edge — facts that are only visible from inside the commit,
+   * because a bit's standing value a task later says nothing about whether it
+   * moved. Anything on it that reaches REACT does so through the same door
+   * React is told through, `scheduleAfterPaint`; a React-visible write made
+   * here re-renders the canvas inside `transferFocusForActivation`'s
+   * `flushSync`, and the canvas then reads the deck's new snapshot and runs
+   * the whole Last pass in the click task ([F05]).
+   *
+   * The six subscribers, audited against that rule:
+   *
+   * - `canvas-arm` (`deck-canvas.tsx`) — measures and writes the DOM, and
+   *   keeps its own refs. No React write.
+   * - `selection-guard` (`selection-guard.ts`) — installs a `mousedown`
+   *   interceptor and repaints its overlay. DOM only.
+   * - `destination-flip` (`deck-trace.ts`) — appends to the trace ring, which
+   *   has no React subscribers.
+   * - `test-surface` (`test-surface.ts`) — increments a local counter inside
+   *   one probe.
+   * - `cards-selection` (`cards-selection-store.ts`) — reads the
+   *   first-responder transition here and takes the after-paint door for its
+   *   `pickOnly`, which is the rule's one worked example.
+   * - `key-card` (`responder-chain-provider.tsx`) — the exception, and it is
+   *   deliberate. `focusManager.setKeyCard` notifies React subscribers, but
+   *   the activation's own focus claim runs later in the SAME task and reads
+   *   the key card this sets; deferring it would leave `applyBagFocus`
+   *   claiming focus for the card that was active before the commit. It is a
+   *   writer of structural focus state rather than of a deck view, and the
+   *   cost it can add to the flush is one focus-manager projection.
    */
   subscribeSync?: (callback: (landing: CommitLanding) => void, label?: string) => () => void;
 
   /**
-   * PROBE: deliver the deferred notification NOW, synchronously. A caller
+   * Deliver the deferred notification NOW, synchronously. A caller
    * whose next line reads DOM that only React's commit produces — a tab
    * switch's `display: contents`, a new pane's host — calls this inside its
    * `flushSync` so the contract "DOM consistent after the commit" holds.
+   *
+   * Called from a SYNCHRONOUS subscriber, where the commit being told about
+   * has not scheduled its deferral yet, it instead votes that commit
+   * undeferred: the store tells React inline at the end of the same task.
+   * The canvas's `arm` is that caller, on a retarget ([B01]).
    */
   flushPendingNotify?: () => void;
 

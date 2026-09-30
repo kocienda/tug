@@ -27,11 +27,40 @@ export function getTugTiming(): number {
   return isNaN(value) ? 1 : value;
 }
 
-/** Check whether motion is enabled. Returns false when --tug-motion is 0, true otherwise. */
-export function isTugMotionEnabled(): boolean {
+/**
+ * The observer's cached answer, or `null` before anything has read one.
+ *
+ * `--tug-motion` is 0 in exactly one place — the `prefers-reduced-motion`
+ * block in `tug.css` — and {@link initMotionObserver} already watches that
+ * media query. So the value is knowable without asking the style system, and
+ * asking is what mattered: {@link isTugMotionEnabled} is read by the deck's
+ * `notify`, by every settle arm and by the sheet host, which put a
+ * `getComputedStyle` on `<html>` inside the commit path ([B07]).
+ */
+let cachedMotionEnabled: boolean | null = null;
+
+/** Read `--tug-motion` off computed style. The slow path, taken once. */
+function readMotionFromStyle(): boolean {
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--tug-motion").trim();
   const value = parseFloat(raw);
   return isNaN(value) ? true : value !== 0;
+}
+
+/**
+ * Check whether motion is enabled. Returns false when --tug-motion is 0, true
+ * otherwise.
+ *
+ * An INLINE `--tug-motion` on `<html>` wins, and is the one thing this cannot
+ * cache: it is how a test turns motion off mid-run, and no media query fires
+ * for it. Reading the inline style attribute is a property lookup on a
+ * `CSSStyleDeclaration` the element already holds — it resolves nothing and
+ * forces no recalc — so the fast path stays fast and the override stays live.
+ */
+export function isTugMotionEnabled(): boolean {
+  const inline = document.documentElement.style.getPropertyValue("--tug-motion").trim();
+  if (inline !== "") return parseFloat(inline) !== 0;
+  if (cachedMotionEnabled === null) cachedMotionEnabled = readMotionFromStyle();
+  return cachedMotionEnabled;
 }
 
 /**
@@ -49,6 +78,10 @@ export function initMotionObserver(): () => void {
   const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   function applyMotionAttribute(reduced: boolean): void {
+    // The cache and the attribute are one decision, written together: the
+    // media query is the only thing that moves `--tug-motion`, so this is the
+    // only place the cached answer can go stale ([B07]).
+    cachedMotionEnabled = !reduced;
     if (reduced) {
       document.body.setAttribute("data-tug-motion", "off");
     } else {

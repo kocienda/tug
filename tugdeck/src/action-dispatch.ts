@@ -123,6 +123,7 @@ import type {
 import { publishListDigestLinesOk } from "./lib/digest-store";
 import { publishListOverviewPostsOk } from "./lib/overview-store";
 import { cardServicesStore } from "./lib/card-services-store";
+import { mark as perfMark, marksEnabled } from "@/lib/perf-marks";
 import { pendingAskStore } from "./lib/pending-ask-store";
 import {
   publishSessionUpdated,
@@ -1039,9 +1040,16 @@ export function initActionDispatch(
     }
     raiseCard(deckManager, cardId);
     flashPaneBorderOnSettle(pane.id);
-    performance.mark("tug:action-end");
-    queueMicrotask(() => performance.mark("tug:action-microtask"));
-    window.setTimeout(() => performance.mark("tug:action-next-task"), 0);
+    perfMark("tug:action-end");
+    // Where the action's own work landed relative to the task boundaries
+    // after it — and the scheduling is asked for rather than unconditional,
+    // because a microtask and a zero timer queued inside the gesture's task
+    // for a mark nobody will read is a task competing with the settle's own
+    // first frame ([F08]).
+    if (marksEnabled()) {
+      queueMicrotask(() => perfMark("tug:action-microtask"));
+      window.setTimeout(() => perfMark("tug:action-next-task"), 0);
+    }
   });
 
   // resume-session: open a fresh session card and restore a session into it.

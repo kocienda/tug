@@ -58,6 +58,7 @@ import { useOpenMenuClaim } from "./use-open-menu-claim";
 
 // ---- Fallback context menu ----
 
+import { mark as perfMark } from "@/lib/perf-marks";
 import "./tug-menu.css";
 import "./tug-key-sink.css";
 
@@ -264,7 +265,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
     registerMenuValidationChain(manager);
 
     const publishMenuCaps = (): void => {
-      performance.mark("tug:menu-caps");
+      perfMark("tug:menu-caps");
       const caps = computeEditCapabilities(manager);
       // The chain first responder owns the edit menu. A deactivated card now
       // resigns first responder (a canvas-background click clears the active
@@ -304,7 +305,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
         redoLabel: labels.redo,
         nativeUndoToken: isNativeText ? nativeUndoCounter : 0,
       });
-      performance.mark("tug:menu-caps-end");
+      perfMark("tug:menu-caps-end");
     };
     publishMenuCaps();
     const unsubscribeEditCaps = manager.subscribe(publishMenuCaps);

@@ -55,6 +55,7 @@ import { KEY_CURSOR_ATTRIBUTE } from "./use-focus-cursor";
 import { resolveDefaultFocusTarget } from "@/default-focus";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { getRegistration } from "@/card-registry";
+import { mark as perfMark } from "@/lib/perf-marks";
 import { isFocusDestination } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 
@@ -3250,9 +3251,9 @@ export class FocusManager {
     this.invariantCheckQueued = true;
     window.setTimeout(() => {
       this.invariantCheckQueued = false;
-      performance.mark("tug:focus-invariant");
+      perfMark("tug:focus-invariant");
       this.checkFocusInvariant(reason);
-      performance.mark("tug:focus-invariant-end");
+      perfMark("tug:focus-invariant-end");
     }, 0);
   }
 

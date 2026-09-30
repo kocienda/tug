@@ -196,6 +196,7 @@ export function computeEditCapabilities(
  * produces it lives, so the wire shape and the only function that can fill
  * it are never two separate opinions.
  */
+import { mark as perfMark } from "@/lib/perf-marks";
 import type { ChordSpec } from "@/components/tugways/chord-format";
 export type { ChordSpec };
 
@@ -1130,9 +1131,9 @@ export class HostMenuStatePublisher {
     this.flushScheduled = true;
     this.schedule(() => {
       this.flushScheduled = false;
-      performance.mark("tug:menu-flush");
+      perfMark("tug:menu-flush");
       this.flush();
-      performance.mark("tug:menu-flush-end");
+      perfMark("tug:menu-flush-end");
     });
   }
 
@@ -1216,9 +1217,9 @@ export class HostMenuStatePublisher {
       updateTugOpen: this.updateTugOpen,
     };
     this.lastFacts = facts;
-    performance.mark("tug:menu-facts");
+    perfMark("tug:menu-facts");
     const commands = computeCommandCapabilities(this.validationSource(facts));
-    performance.mark("tug:menu-commands");
+    perfMark("tug:menu-commands");
     this.lastGates = commands;
     const payload: MenuStatePayload = {
       panes,
@@ -1238,7 +1239,7 @@ export class HostMenuStatePublisher {
       appModalOpen: this.appModalOpen,
     };
     const serialized = JSON.stringify(payload);
-    performance.mark("tug:menu-serialized");
+    perfMark("tug:menu-serialized");
     if (serialized === this.lastSent) return;
     this.lastSent = serialized;
     this.post(payload);

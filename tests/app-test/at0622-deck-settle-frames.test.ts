@@ -100,6 +100,7 @@
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugdeck/src/lib/settle-frame-probe.ts
+ * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/scripts/audit-motion.ts
  * @covers tuglaws/animation-doctrine.md
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
@@ -292,6 +293,98 @@ function columnDeck(): Record<string, unknown> {
       layout: "flow",
     },
     hasFocus: true,
+  };
+}
+
+/**
+ * Four session cards and TWO sidebar cards pinned to the same rail — the
+ * fixture for the two-commits-in-one-task shape ([B02], [F03]).
+ *
+ * Two members is the whole point. `hideSidebarRail` writes the record of what
+ * was standing in its own commit and then closes each member in its own, so a
+ * rail of two produces THREE notifies inside one task and, under the
+ * deferral, one coalesced React commit — which is exactly the arm sequence
+ * where a second arm could pass the prelaunch predicate and throw the first's
+ * measurement away. A rail of one produces two notifies and the shape is
+ * weaker; a rail of none produces no gesture at all.
+ */
+function railDeck(): Record<string, unknown> {
+  const ids = Array.from({ length: 4 }, (_, i) => `at0622-c${i + 1}`);
+  return {
+    cards: [
+      ...ids.map((id) => ({
+        id,
+        componentId: "session",
+        title: id,
+        closable: true,
+      })),
+      {
+        id: "at0622-l1",
+        componentId: "layout",
+        title: "Layout",
+        closable: true,
+      },
+      {
+        id: "at0622-j1",
+        componentId: "jots",
+        title: "Jots",
+        closable: true,
+      },
+    ],
+    panes: [
+      ...ids.map((id, index) => ({
+        id: `at0622-p${index + 1}`,
+        position: { x: 40, y: 40 },
+        size: { width: SLIM_PX, height: 400 },
+        cardIds: [id],
+        activeCardId: id,
+        title: "",
+        acceptsFamilies: ["maker"],
+        slot: index,
+      })),
+      {
+        id: "at0622-pl1",
+        position: { x: 0, y: 0 },
+        size: { width: RAIL_WIDTH, height: 900 },
+        cardIds: ["at0622-l1"],
+        activeCardId: "at0622-l1",
+        title: "Layout",
+        acceptsFamilies: [] as string[],
+      },
+      {
+        id: "at0622-pj1",
+        position: { x: 0, y: 0 },
+        size: { width: RAIL_WIDTH, height: 900 },
+        cardIds: ["at0622-j1"],
+        activeCardId: "at0622-j1",
+        title: "Jots",
+        acceptsFamilies: [] as string[],
+      },
+    ],
+    activePaneId: "at0622-p1",
+    imposition: {
+      kind: "four-up",
+      sidebars: {
+        // LEFT, and that is the fixture's other load-bearing choice. A rail
+        // on the right widens the band when it goes and moves no frame in
+        // it — the panes are laid out from the left edge, so their origins
+        // are unchanged and "every moved frame carries a tween" is a claim
+        // about an empty set. On the left the band shifts by the rail's
+        // whole width and every frame in it has somewhere to be carried to.
+        layout: { side: "left" },
+        jots: { side: "left" },
+      },
+      layout: "flow",
+    },
+    hasFocus: true,
+  };
+}
+
+function railBlob(): Record<string, unknown> {
+  return {
+    version: 5,
+    activeSpaceId: SPACE_ID,
+    spaces: [{ id: SPACE_ID, name: "One", deck: railDeck() }],
   };
 }
 
@@ -647,7 +740,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
 
       const four = await launch(4);
       try {
-        await four.app.enableDeckTrace(true);
+        await traceWithSettleFrames(four.app);
         const idle = await sampleIdle(four.app);
         report("four-up idle control", idle);
         expect(
@@ -656,33 +749,56 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
         ).toBe(false);
 
         const plain = await sampleBarActivation(four.app, 4, 0);
-        report("four-up plain probe", plain.probe);
-        note(`at0622 four-up plain row: ${JSON.stringify(plain.row)}`);
-        note(`at0622 four-up click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
-        note(`at0622 four-up commits: ${JSON.stringify(await reactCommits(four.app))}`);
+        report("four-up cold-first probe", plain.probe);
+        note(`at0622 four-up cold-first row: ${JSON.stringify(plain.row)}`);
+        const coldMarks = await clickTaskMarks(four.app);
+        note(`at0622 four-up cold-first click task: ${JSON.stringify(coldMarks)}`);
+        note(`at0622 four-up cold-first commits: ${JSON.stringify(await reactCommits(four.app))}`);
 
-        // ---- The warm flip: a READING, not a claim. ----------------------
-        // The plain leg is the first activation of a card whose picker has
-        // never been presented, so its window carries the picker's whole mount
-        // cascade — a cost a real deck pays once per unbound card, at launch.
-        // The flip a user makes all day is between two cards that already
-        // stand complete. Card 1's picker presented at launch (it is the
-        // active pane) and card 4's on the plain leg, so from where that leg
-        // left the strip, activating card 1 is a flip the other way across the
-        // same band with both pickers warm. From HERE, not from home: at home
-        // card 1 already stands in the band and the activation would move
-        // nothing, so no settle row would ever be written. Taken BEFORE the
-        // plain leg's bar so the reading exists on a red run too; the forcing
-        // leg's own home-and-activate then reads a warm flip back to card 4.
+        // ---- The WARM FLIP is the bar ([B08]). --------------------------
+        //
+        // The cold first activation above is a reading and nothing more. It
+        // activates a card whose picker has never been presented, so its
+        // window carries the picker's whole mount cascade — a cost a real
+        // deck pays once per unbound card, at launch, and never again. A bar
+        // pinned there is a bar over fixture cost, and it moves whenever the
+        // picker's mount does.
+        //
+        // The gesture a user makes all day is a flip between two cards that
+        // already stand complete, and that is what the bar is now pinned to.
+        // Card 1's picker presented at launch (it is the active pane) and
+        // card 4's on the cold leg, so from where that leg left the strip,
+        // activating card 1 is a flip the other way across the same band with
+        // both pickers warm. From HERE, not from home: at home card 1 already
+        // stands in the band and the activation would move nothing, so no
+        // settle row would ever be written and `expectBar`'s travel guard
+        // would be the clause that caught it.
         const warm = await sampleBarActivation(four.app, 1, 0, "here");
         report("four-up warm-flip probe", warm.probe);
         note(`at0622 four-up warm-flip row: ${JSON.stringify(warm.row)}`);
-        note(`at0622 four-up warm-flip click task: ${JSON.stringify(await clickTaskMarks(four.app))}`);
+        const warmMarks = await clickTaskMarks(four.app);
+        note(`at0622 four-up warm-flip click task: ${JSON.stringify(warmMarks)}`);
         note(`at0622 four-up warm-flip commits: ${JSON.stringify(await reactCommits(four.app))}`);
 
-        expectBar("four-up", plain);
-        fourFrames = plain.row.longestGapFrames;
-        fourGapMs = plain.row.longestGapMs;
+        // [B04]'s pin, on the pinned bar leg — the warm flip.
+        //
+        // The cold first activation is a READING here for the same reason
+        // its gap numbers are ([B08]): its flush carries the picker's whole
+        // mount cascade, which renders the canvas inside the window on some
+        // runs and not others, and a canvas that renders for ANY reason in
+        // that window reads the deck's new snapshot and runs the Last pass
+        // with it. Measured across four runs at one commit the cold leg's
+        // Last pass landed at +20, +20, +8 and +7 against flush windows of
+        // 6ms and 17ms — inside on one of them. That residue is real and is
+        // recorded rather than pinned: [B04] closed the cards-selection
+        // route into the flush, and the picker's mount is a second route
+        // this arc does not touch.
+        reportLastPassOrder("four-up cold first", coldMarks);
+        expectLastPassAfterNotify("four-up warm flip", warmMarks);
+
+        expectBar("four-up warm flip", warm);
+        fourFrames = warm.row.longestGapFrames;
+        fourGapMs = warm.row.longestGapMs;
 
         // ---- The forcing leg ([D5]). ----------------------------------
         // Both instruments have to be shown noticing a defect put there on
@@ -701,8 +817,8 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
           forced.probe.longestGapMs,
           `four-up forced: a ${FORCED_STALL_MS}ms task planted inside the ` +
             `settle window must show up as a gap at least that wide — the ` +
-            `plain leg's bench-probe worst was ` +
-            `${plain.probe.longestGapMs.toFixed(0)}ms, so a claim the plain ` +
+            `warm flip's bench-probe worst was ` +
+            `${warm.probe.longestGapMs.toFixed(0)}ms, so a claim the pinned ` +
             `leg could also satisfy would prove nothing about whether the ` +
             `injector ran at all. Forced: ` +
             `${forced.probe.longestGapMs.toFixed(0)}ms / ` +
@@ -713,7 +829,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
           forced.row.longestGapFrames,
           `four-up forced: and the CANVAS's own record fails the bar it just ` +
             `passed, which is what makes the bar a measurement rather than a ` +
-            `formality. Plain read ${fourGapMs.toFixed(0)}ms / ` +
+            `formality. The warm flip read ${fourGapMs.toFixed(0)}ms / ` +
             `${fourFrames.toFixed(2)} frames; forced reads ` +
             `${forced.row.longestGapMs.toFixed(0)}ms / ` +
             `${forced.row.longestGapFrames.toFixed(2)} frames`,
@@ -725,7 +841,7 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
 
       const eight = await launch(8);
       try {
-        await eight.app.enableDeckTrace(true);
+        await traceWithSettleFrames(eight.app);
         const idle = await sampleIdle(eight.app);
         report("eight-up idle control", idle);
         expect(
@@ -734,9 +850,19 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
         ).toBe(false);
 
         const plain = await sampleBarActivation(eight.app, 8, 0);
-        report("eight-up plain probe", plain.probe);
-        note(`at0622 eight-up plain row: ${JSON.stringify(plain.row)}`);
-        expectBar("eight-up", plain);
+        report("eight-up cold-first probe", plain.probe);
+        note(`at0622 eight-up cold-first row: ${JSON.stringify(plain.row)}`);
+
+        // The same flip, at twice the card count. The bar and the scaling
+        // clause below are both read off it rather than off the cold leg, so
+        // the comparison is warm against warm: a picker cascade that mounts
+        // once per unbound card would otherwise put the whole difference
+        // between four and eight into the clause that is supposed to be
+        // measuring the settle.
+        const warm = await sampleBarActivation(eight.app, 1, 0, "here");
+        report("eight-up warm-flip probe", warm.probe);
+        note(`at0622 eight-up warm-flip row: ${JSON.stringify(warm.row)}`);
+        expectBar("eight-up warm flip", warm);
 
         // ---- The scaling clause. --------------------------------------
         // This is the claim the arc's purpose actually makes, and the one a
@@ -744,12 +870,13 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the deck's settle, at the bar", () => {
         // The baseline's whole signature of the defect was that the cost grew
         // with the card count: +51ms at four, +71ms at eight.
         expect(
-          Math.abs(plain.row.longestGapFrames - fourFrames),
+          Math.abs(warm.row.longestGapFrames - fourFrames),
           `the worst gap does not grow with the card count — four-up read ` +
             `${fourGapMs.toFixed(0)}ms / ${fourFrames.toFixed(2)} frames, ` +
-            `eight-up reads ${plain.row.longestGapMs.toFixed(0)}ms / ` +
-            `${plain.row.longestGapFrames.toFixed(2)} frames on ` +
-            `${plain.row.panes} panes. Within one display frame is the bar; ` +
+            `eight-up reads ${warm.row.longestGapMs.toFixed(0)}ms / ` +
+            `${warm.row.longestGapFrames.toFixed(2)} frames on ` +
+            `${warm.row.panes} panes, both on the WARM FLIP. Within one ` +
+            `display frame is the bar; ` +
             `a settle whose price is proportional to how much has to be ` +
             `rasterized would miss it`,
         ).toBeLessThanOrEqual(1);
@@ -970,12 +1097,18 @@ describe.skipIf(!SHOULD_RUN)(
         // FOLD still carries height.
         const { app, tugbankPath } = await launch(4);
         try {
-          await app.enableDeckTrace(true);
+          await traceWithSettleFrames(app);
           await home(app);
           await wait(AFTER_LAND_MS);
 
           const fold = await sampleFold(app, true, 0);
           reportFold("fold", fold);
+          // The fold's click-task timeline, with the preamble split ([B08]).
+          // `tug:set-pane-folded` is the store mutator's entry and the three
+          // `tug:arm-*` marks are the arm's own phases, so the stretch that
+          // used to read as one unattributed 11–12 ms before `tug:arm-end`
+          // now has a left edge and three interior cuts.
+          note(`at0622 fold click task: ${JSON.stringify(await clickTaskMarks(app))}`);
           expectFoldBar("fold", fold);
 
           const unfold = await sampleFold(app, false, 0);
@@ -1027,7 +1160,7 @@ describe.skipIf(!SHOULD_RUN)(
         // read.
         const { app, tugbankPath } = await launch(4);
         try {
-          await app.enableDeckTrace(true);
+          await traceWithSettleFrames(app);
           await home(app);
           await wait(AFTER_LAND_MS);
 
@@ -1387,30 +1520,120 @@ interface SettleFramesRow {
   readonly pendingTicks: number;
   readonly offCurveTicks: number;
   readonly offCurvePaneIds: readonly string[];
+  /** The retarget double-hop, which `offCurveTicks` cannot see ([B01]). */
+  readonly strandedTicks: number;
+  readonly strandedPaneIds: readonly string[];
   readonly longestOffCurveRunTicks: number;
   readonly longestOffCurveRunOffsetMs: number;
   readonly violations: readonly string[];
 }
 
-/** PROBE: the click task's marks, milliseconds after the last `tug:arm-end`: count, first and last, from 60ms before it to 200ms after. */
+/**
+ * Turn the trace on AND arm the `settle-frames` kind.
+ *
+ * The canvas's frame pump is cost-bearing — a rAF loop for the length of
+ * every settle, a computed style per shown frame per tick — so since [B07] it
+ * is armed by name rather than riding the global flag, the same door
+ * `space-switch-frames` uses. A leg that reads the row asks for it; a deck
+ * nobody is measuring runs no pump.
+ */
+const traceWithSettleFrames = async (app: App): Promise<void> => {
+  await app.enableDeckTrace(true);
+  await app.evalJS<null>(
+    `(window.__deckTrace.enableKind("settle-frames", true), null)`,
+  );
+};
+
+/** One exit ghost's travel over the beat that took it away. */
+interface GhostTravel {
+  /** The largest |translateX| the ghost was seen wearing. */
+  readonly maxPx: number;
+  /** How many frames it was in the document for. */
+  readonly ticks: number;
+}
+
+/**
+ * Start a per-frame census of every exit ghost's `translateX`.
+ *
+ * A departing RAIL leaves by the edge it stands on, and since [B10] its ghost
+ * — and the shadow strip beside it — slide on the `depart` beat rather than
+ * on a plant-time clock of their own. Nothing else in this file would notice
+ * if that slide stopped happening: a rail that vanished on the spot still
+ * moves the band, still carries every surviving frame, and still leaves no
+ * ghost behind. The travel has to be read directly or it is not read at all.
+ *
+ * Sampled off computed style rather than off the animation, because what is
+ * claimed is what the frame PAINTED — an effect that exists and applies
+ * nothing is exactly the failure a `fill` or a play-pending window produces.
+ *
+ * Falsified with the depart beat's rail branch forced to the band's fade
+ * under a `file probe`: every ghost read `maxPx: 0` over 15 frames and the
+ * file dropped from 10/12 to 9/12. On the beat it reads 443.9px over 16
+ * frames, the same number for both members and the strip.
+ */
+const armGhostCensus = (app: App): Promise<null> =>
+  app.evalJS<null>(
+    `(function () {
+       var seen = {};
+       window.__at0622Ghosts = seen;
+       var tick = function () {
+         var els = document.querySelectorAll("[data-exit-ghost-for]");
+         for (var i = 0; i < els.length; i++) {
+           var el = els[i];
+           var key = el.getAttribute("data-exit-ghost-for");
+           var row = seen[key];
+           if (row === undefined) { row = seen[key] = { maxPx: 0, ticks: 0 }; }
+           var m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+           row.maxPx = Math.max(row.maxPx, Math.abs(m.m41));
+           row.ticks += 1;
+         }
+         window.__at0622GhostRaf = requestAnimationFrame(tick);
+       };
+       window.__at0622GhostRaf = requestAnimationFrame(tick);
+       return null;
+     })()`,
+  );
+
+/** Stop the census and read it, with the ghosts still standing at rest. */
+const readGhostCensus = (
+  app: App,
+): Promise<{
+  travel: Record<string, GhostTravel>;
+  standing: readonly string[];
+}> =>
+  app.evalJS(
+    `(function () {
+       cancelAnimationFrame(window.__at0622GhostRaf);
+       var standing = [];
+       var els = document.querySelectorAll("[data-exit-ghost-for]");
+       for (var i = 0; i < els.length; i++) {
+         standing.push(els[i].getAttribute("data-exit-ghost-for"));
+       }
+       return { travel: window.__at0622Ghosts, standing: standing };
+     })()`,
+  );
+
+/**
+ * The click task's marks, milliseconds after the last `tug:arm-end`: count,
+ * first and last, from 60ms before it to 200ms after.
+ *
+ * The names are the ones that survive [B07]'s gate. The four per-render marks
+ * and the per-subscriber `tug:sync:*` pair are gone from the product — they
+ * were a mark per React render and six pairs per commit, on every instance,
+ * for a census this reader only ever printed.
+ */
 const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
   app.evalJS<Record<string, unknown>>(
     `(function () {
-       var names = ["tug:arm-end", "tug:flushSync-start", "tug:flushSync-end", "tug:applyBagFocus-end",
+       var names = ["tug:set-pane-folded",
+                    "tug:arm-measured", "tug:arm-episodes-end", "tug:arm-planned",
+                    "tug:arm-end", "tug:flushSync-start", "tug:flushSync-end", "tug:applyBagFocus-end",
                     "tug:action-end", "tug:action-microtask", "tug:action-next-task",
                     "tug:first-tick", "tug:react-notify",
                     "tug:react-notify-end", "tug:last-pass", "tug:canvas-render",
                     "tug:flip-will-end", "tug:flip-commit-end", "tug:flip-chain-key-end",
                     "tug:flip-did-deactivate-end", "tug:flip-did-activate-end",
-                    "tug:button-render", "tug:pane-render", "tug:card-host-render", "tug:session-render",
                     "tug:chain-notify",
-                    "tug:sync:canvas-arm", "tug:sync:canvas-arm-end",
-                    "tug:sync:destination-flip", "tug:sync:destination-flip-end",
-                    "tug:sync:selection-guard", "tug:sync:selection-guard-end",
-                    "tug:sync:cards-selection", "tug:sync:cards-selection-end",
-                    "tug:sync:key-card", "tug:sync:key-card-end",
-                    "tug:sync:test-surface", "tug:sync:test-surface-end",
-                    "tug:sync:anon", "tug:sync:anon-end",
                     "tug:menu-flush", "tug:menu-facts", "tug:menu-commands", "tug:menu-serialized",
                     "tug:menu-flush-end", "tug:menu-caps", "tug:menu-caps-end",
                     "tug:focus-invariant", "tug:focus-invariant-end", "tug:focus-measure", "tug:focus-measure-end"];
@@ -1427,6 +1650,104 @@ const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
        return out;
      })()`,
   );
+
+/** Every recorded offset for one mark, whether the census folded it or not. */
+function markTimes(
+  marks: Record<string, unknown>,
+  name: string,
+): readonly number[] {
+  const v = marks[name];
+  if (Array.isArray(v)) return v as readonly number[];
+  if (v !== null && typeof v === "object") {
+    const o = v as { first?: number; last?: number };
+    return [o.first, o.last].filter((n): n is number => typeof n === "number");
+  }
+  return [];
+}
+
+/** The same three readings the pin makes, as a diagnostics line. */
+function reportLastPassOrder(
+  leg: string,
+  marks: Record<string, unknown>,
+): void {
+  note(
+    `at0622 ${leg} last-pass order: last-pass ` +
+      `${JSON.stringify(markTimes(marks, "tug:last-pass"))}, react-notify ` +
+      `${JSON.stringify(markTimes(marks, "tug:react-notify"))}, flush ` +
+      `${JSON.stringify(markTimes(marks, "tug:flushSync-start"))}..` +
+      `${JSON.stringify(markTimes(marks, "tug:flushSync-end"))}`,
+  );
+}
+
+/**
+ * [B04]'s pin: the Last pass may not run inside the click task's flush.
+ *
+ * `transferFocusForActivation` wraps the activation in a `flushSync`, and
+ * anything that renders the canvas inside it pulls the whole FLIP Last pass —
+ * measure, invert, plan, launch — back into the gesture's own task, which is
+ * precisely the cost [D204]'s deferred notify exists to move off it. The
+ * defect is not that some subscriber notifies the canvas: React reads
+ * `getSnapshot` on every render whatever woke it, so ANY component that
+ * re-renders in that window reads the deck's new state. So the claim is read
+ * off the outcome rather than off the cause — where `tug:last-pass` lands
+ * relative to `tug:react-notify` and to the flush's own two marks.
+ *
+ * Measured before [B04], and again with the change reverted under a
+ * `file probe`: on the cold first activation `tug:last-pass` read at +10 ms
+ * with `tug:flushSync-end` also at +10 and the first `tug:react-notify` not
+ * until +21; the probe run read +8 against +19. Either way the Last pass ran
+ * a whole frame before React was told, inside the flush, which is [F05]
+ * exactly.
+ *
+ * After it, the same leg reads both marks at +20 with the flush closed at
+ * +3: the Last pass is the layout effect of the commit the notify caused,
+ * which is the shape the ordering is asserting and the reason the clause is
+ * `>=` rather than `>`.
+ */
+function expectLastPassAfterNotify(
+  leg: string,
+  marks: Record<string, unknown>,
+): void {
+  const lastPass = markTimes(marks, "tug:last-pass");
+  const notify = markTimes(marks, "tug:react-notify");
+  const flushStart = markTimes(marks, "tug:flushSync-start");
+  const flushEnd = markTimes(marks, "tug:flushSync-end");
+
+  // The guard: with no Last pass and no notify in the window there is no
+  // ordering to read, and every clause below would pass by vacancy.
+  expect(
+    lastPass.length > 0 && notify.length > 0,
+    `${leg}: the window really contains a Last pass and a React notify — ` +
+      `last-pass ${JSON.stringify(lastPass)}, react-notify ` +
+      `${JSON.stringify(notify)}`,
+  ).toBe(true);
+
+  expect(
+    lastPass[0],
+    `${leg}: the Last pass never runs BEFORE React is told ([B04]) — ` +
+      `last-pass at ` +
+      `${lastPass[0]}ms, first react-notify at ${notify[0]}ms, both relative ` +
+      `to the arm. A Last pass that reads first is the canvas rendering from ` +
+      `something else in the click task and taking the deck's new snapshot ` +
+      `with it. Equal is the healthy reading and not a tie: the Last pass IS ` +
+      `the layout effect of the commit the notify caused, and the host's ` +
+      `clock resolves to 1ms, so a commit that lands promptly puts both ` +
+      `marks in the same millisecond`,
+  ).toBeGreaterThanOrEqual(notify[0]);
+
+  if (flushStart.length > 0 && flushEnd.length > 0) {
+    const inFlush = lastPass.filter(
+      (t) => t >= flushStart[0] && t <= flushEnd[flushEnd.length - 1],
+    );
+    expect(
+      inFlush,
+      `${leg}: and no Last pass runs inside the activation's flushSync — ` +
+        `the flush spans ${flushStart[0]}..` +
+        `${flushEnd[flushEnd.length - 1]}ms and these landed in it: ` +
+        `[${inFlush.join(", ")}]`,
+    ).toEqual([]);
+  }
+}
 
 /** PROBE: every React commit from 60ms before the last `tug:arm-end` to 200ms after, times relative to it. */
 const reactCommits = (app: App): Promise<unknown> =>
@@ -1452,6 +1773,24 @@ const settleFrameRows = (
     `window.__deckTrace.since(${mark}).filter(function (e) {
        return e.kind === "settle-frames";
      })`,
+  );
+
+/**
+ * Every `settle-retarget` the canvas recorded in the window, as
+ * `paneId:mode:beat`.
+ *
+ * What makes a retarget leg falsifiable. A second gesture that arrives after
+ * the first has landed, or one the arm takes the prelaunch path for, produces
+ * no retarget at all — and then every clause about what a retarget does is a
+ * claim about a gesture nobody made. The canvas writes one row per frame it
+ * held `hold-at-current`, which is exactly the set of frames the third pass
+ * hands residue back to.
+ */
+const retargetRows = (app: App, mark: number): Promise<readonly string[]> =>
+  app.evalJS<readonly string[]>(
+    `window.__deckTrace.since(${mark}).filter(function (e) {
+       return e.kind === "settle-retarget";
+     }).map(function (e) { return e.paneId + ":" + e.mode + ":" + e.beat; })`,
   );
 
 const motionViolationRows = (
@@ -1520,7 +1859,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const { app, tugbankPath } = await launch(4);
         try {
-          await app.enableDeckTrace(true);
+          await traceWithSettleFrames(app);
           await home(app);
           await wait(AFTER_LAND_MS);
 
@@ -1624,7 +1963,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const { app, tugbankPath } = await launch(8, columnBlob());
         try {
-          await app.enableDeckTrace(true);
+          await traceWithSettleFrames(app);
           await wait(AFTER_LAND_MS);
 
           const mark = await traceMark(app);
@@ -1727,7 +2066,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const { app, tugbankPath } = await launch(4);
         try {
-          await app.enableDeckTrace(true);
+          await traceWithSettleFrames(app);
 
           // ---- Leg 1: a long task planted inside the settle window. ----
           //
@@ -1887,6 +2226,1363 @@ describe.skipIf(!SHOULD_RUN)(
         }
       },
       TEST_TIMEOUT_MS,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// The retarget double-hop ([B01], [B08])
+// ---------------------------------------------------------------------------
+
+/**
+ * A gesture interrupted by a second one, read for the hop the gap bar and the
+ * off-curve bar are both blind to.
+ *
+ * The defect is a consequence of [D204]'s deferral and nothing else. `arm`
+ * cancels the running tween `hold-at-current`, hands the residue back and
+ * clears the flip on its own tick, under a comment saying nothing paints in
+ * between — and under a deferred React commit something does. The frame paints
+ * once carrying NO tween at all, at the interrupted settle's end pose, and the
+ * Last pass a frame later measures Last and tweens from the mid pose it
+ * inverted. The eye gets mid -> old end -> mid -> new end.
+ *
+ * Neither standing bar can see it. The gap bar counts ticks and every tick
+ * arrived. The off-curve bar compares a pose against a curve and on that tick
+ * there is no curve — the classifier's case 4 skips a frame carrying no
+ * effect, which is exactly the frame in question. `strandedTicks` is the
+ * reading added for it: travelling before, no effect now, travelling again
+ * later, standing at the committed pose. Its bar is zero.
+ *
+ * **Neither gesture goes through focus, and that is load-bearing.** An
+ * ACTIVATION cannot expose this defect, and the reason is [F05]: the cards
+ * selection store rides the synchronous door, the canvas subscribes to it,
+ * and the canvas therefore re-renders inside `transferFocusForActivation`'s
+ * `flushSync` and runs its Last pass in the gesture's own task. The
+ * deferral's hole accidentally patches the deferral's defect for the one
+ * family of gestures that goes through focus — measured: with the [B01]
+ * flush reverted out, an activation retargeted by an activation reads zero
+ * stranded ticks, and so does a fold interrupted by a CLOSE, which routes
+ * through `_removeCard` into the same `flushSync`. [F02] says so in its own
+ * words: "every NON-ACTIVATION gesture that lands mid-settle takes this
+ * path."
+ *
+ * `go-to-slot` is not the answer either, and the retarget guard below is
+ * what said so: the walk writes the flow offset on its readers and runs no
+ * FLIP tween at all, so a second walk finds `settleTweensRef` empty, holds
+ * nothing, and records no `settle-retarget`. Every clause over it was
+ * vacuous. The gestures that do put a frame in `settleTweensRef` without
+ * touching focus are the ones with a real term of their own: a session
+ * card's fold, and a content-width change. Both are used below, and the
+ * guard is what keeps a future edit from quietly falling back into a
+ * gesture that retargets nothing.
+ *
+ * The interruption lands at 140ms, inside the 400ms beat and late enough
+ * that every tween has really started, where the 80ms retarget leg above
+ * catches tweens that never did.
+ *
+ * **Which leg reads the defect, measured rather than assumed.** With the
+ * [B01] flush reverted out, leg 2 fails — one stranded tick across
+ * `p2`, `p3`, `p4` and the rail, which is the double hop in the flesh — and
+ * leg 1 stays green. A fold retargeted by a fold holds ONE frame, and that
+ * frame's replacement beat is planned soon enough that no sampled tick
+ * catches it bare; the resize holds all five at once and one of them is
+ * always caught. Both are kept: leg 1 is the narrow shape and costs a
+ * gesture pair, and a defect that widens would show there first.
+ */
+const RETARGET_AT_MS = 140;
+
+describe.skipIf(!SHOULD_RUN)(
+  "at0622 — a settle interrupted mid-flight leaves no frame stranded",
+  () => {
+    test(
+      "a fold retargeted at 140ms, and a resize interrupted by a fold, strand no frame at the first gesture's end pose",
+      async () => {
+        const { app, tugbankPath } = await launch(4);
+        try {
+          await traceWithSettleFrames(app);
+
+          // ---- Leg 1: one fold interrupted by another. ----------------
+          //
+          // Two folds on two different panes. The second arm finds the
+          // first's pane still in `settleTweensRef`, holds it
+          // `hold-at-current`, measures, and hands the residue back — the
+          // third pass, which is the whole subject.
+          await home(app);
+          let mark = await traceMark(app);
+          await app.armSettleFrameProbe();
+          // The classifier derives the display's period from the quiet head,
+          // so the whole reading's scale depends on there being one.
+          await wait(120);
+          const beforeSlide = await paneHeightOf(app, "at0622-p2");
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-card-folded", ` +
+              `{ cardId: "at0622-c2", folded: true }), null)`,
+          );
+          await wait(RETARGET_AT_MS);
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-card-folded", ` +
+              `{ cardId: "at0622-c3", folded: true }), null)`,
+          );
+          await wait(AFTER_LAND_MS * 2);
+          await app.waitForCondition<boolean>(
+            `window.__deckTrace.since(${mark}).some(function (e) {
+               return e.kind === "settle-frames";
+             })`,
+            { timeoutMs: 20_000 },
+          );
+          const slideProbe = await app.takeSettleFrameReading();
+          await app.disarmSettleFrameProbe();
+          const slideRows = await settleFrameRows(app, mark);
+          const slideRow = slideRows[slideRows.length - 1] as SettleFramesRow;
+          const afterSlide = await paneHeightOf(app, "at0622-p2");
+          const slideRetargets = await retargetRows(app, mark);
+          note(`at0622 retarget/slide probe: ${JSON.stringify(slideProbe)}`);
+          note(`at0622 retarget/slide row: ${JSON.stringify(slideRow)}`);
+          note(
+            `at0622 retarget/slide height p2: ${beforeSlide} -> ${afterSlide}px`,
+          );
+          note(
+            `at0622 retarget/slide retargets: ` +
+              `${JSON.stringify(slideRetargets)}`,
+          );
+
+          expect(
+            slideProbe.suspended,
+            `slide retarget: the window was served across both gestures — ` +
+              `${slideProbe.ticks} ticks at ` +
+              `${slideProbe.framePeriodMs.toFixed(2)}ms. A suspended window ` +
+              `reports the same zeros as a deck that never hopped`,
+          ).toBe(false);
+          expect(
+            slideRetargets.length,
+            `slide retarget: the second walk really caught the first in ` +
+              `flight — the canvas recorded ` +
+              `${slideRetargets.length} \`settle-retarget\` row(s): ` +
+              `${JSON.stringify(slideRetargets)}. Without one there is no ` +
+              `interrupted tween, no residue handed back, and the clause ` +
+              `below is a claim about a gesture nobody made`,
+          ).toBeGreaterThan(0);
+          expect(
+            beforeSlide === afterSlide,
+            `slide retarget: and the FIRST fold really landed — ` +
+              `${beforeSlide} -> ${afterSlide}px on p2. A gesture that moved ` +
+              `nothing satisfies the clause below by having no travel to ` +
+              `interrupt`,
+          ).toBe(false);
+          expect(
+            slideProbe.strandedTicks,
+            `slide retarget: no shown frame stood at the FIRST gesture's end ` +
+              `pose with no tween on it — ${slideProbe.strandedTicks} tick(s) ` +
+              `on [${slideProbe.strandedPaneIds.join(", ")}]. Every frame's ` +
+              `pose on the tick after the second gesture lies on the first ` +
+              `tween's curve or the second's; a stranded tick is the one that ` +
+              `lies on neither, and it is the double hop the reader sees`,
+          ).toBe(0);
+          expect(
+            slideRow.strandedTicks,
+            `slide retarget: and the product's own record, over the settle ` +
+              `rather than the window, agrees — ` +
+              `${slideRow.strandedTicks} tick(s) on ` +
+              `[${slideRow.strandedPaneIds.join(", ")}]`,
+          ).toBe(0);
+
+          // ---- Leg 2: a resize interrupted by a fold. -----------------
+          //
+          // The mixed shape, and the one the first leg cannot be: a content
+          // width change resizes every frame, so the arm takes the MEASURED
+          // path with `sizeChanged` true and opens a resize episode per
+          // frame, and the fold that interrupts it carries a `height` term
+          // of its own. The settle crosses between the arm's prelaunch and
+          // the Last pass that [F13] says are two mechanisms rather than
+          // one, which is where a double hop has two places to come from
+          // instead of one.
+          await home(app);
+          const foldHeightBefore = await paneHeightOf(app, "at0622-p4");
+          mark = await traceMark(app);
+          await app.armSettleFrameProbe();
+          await wait(120);
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-content-width", ` +
+              `{ preset: "wide" }), null)`,
+          );
+          await wait(RETARGET_AT_MS);
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-card-folded", ` +
+              `{ cardId: "at0622-c4", folded: true }), null)`,
+          );
+          await wait(AFTER_LAND_MS * 2);
+          await app.waitForCondition<boolean>(
+            `window.__deckTrace.since(${mark}).some(function (e) {
+               return e.kind === "settle-frames";
+             })`,
+            { timeoutMs: 20_000 },
+          );
+          const foldProbe = await app.takeSettleFrameReading();
+          await app.disarmSettleFrameProbe();
+          const foldRows = await settleFrameRows(app, mark);
+          const foldRow = foldRows[foldRows.length - 1] as SettleFramesRow;
+          const foldHeightAfter = await paneHeightOf(app, "at0622-p4");
+          const foldRetargets = await retargetRows(app, mark);
+          note(`at0622 retarget/fold probe: ${JSON.stringify(foldProbe)}`);
+          note(`at0622 retarget/fold row: ${JSON.stringify(foldRow)}`);
+          note(
+            `at0622 retarget/fold height: ${foldHeightBefore} -> ` +
+              `${foldHeightAfter}px`,
+          );
+          note(
+            `at0622 retarget/fold retargets: ${JSON.stringify(foldRetargets)}`,
+          );
+
+          expect(
+            foldProbe.suspended,
+            `resize/fold: the window was served across both gestures — ` +
+              `${foldProbe.ticks} ticks`,
+          ).toBe(false);
+          expect(
+            foldRetargets.length,
+            `resize/fold: the fold really caught the resize in flight — the ` +
+              `canvas recorded ${foldRetargets.length} ` +
+              `\`settle-retarget\` row(s): ${JSON.stringify(foldRetargets)}`,
+          ).toBeGreaterThan(0);
+          expect(
+            foldHeightBefore === foldHeightAfter,
+            `resize/fold: the fold really landed — ${foldHeightBefore} -> ` +
+              `${foldHeightAfter}px on p4`,
+          ).toBe(false);
+          expect(
+            foldProbe.strandedTicks,
+            `resize/fold: no frame stood at the resize's end pose with ` +
+              `no tween on it — ${foldProbe.strandedTicks} tick(s) on ` +
+              `[${foldProbe.strandedPaneIds.join(", ")}]`,
+          ).toBe(0);
+          expect(
+            foldRow.strandedTicks,
+            `resize/fold: and the product's own record agrees — ` +
+              `${foldRow.strandedTicks} tick(s) on ` +
+              `[${foldRow.strandedPaneIds.join(", ")}]`,
+          ).toBe(0);
+
+          // ---- The residue clause, for both. --------------------------
+          // A settle that strands nothing and leaves an opening pose on is
+          // still a settle that ended wrong, and the two failures are
+          // independent.
+          const residue = await residualTranslates(app);
+          expect(
+            [...residue],
+            `both legs: every surviving frame landed at Last. A pane named ` +
+              `here kept the opening pose of a beat that is over`,
+          ).toEqual([]);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Two commits in one task ([B02], [B08])
+// ---------------------------------------------------------------------------
+
+/** Every shown frame's origin, as `paneId -> "x,y"`, rounded. */
+const frameOrigins = (app: App): Promise<Record<string, string>> =>
+  app.evalJS<Record<string, string>>(
+    `(function () {
+       var out = {};
+       document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).forEach(
+         function (el) {
+           var r = el.getBoundingClientRect();
+           out[el.getAttribute("data-pane-id")] =
+             Math.round(r.x) + "," + Math.round(r.y);
+         });
+       return out;
+     })()`,
+  );
+
+/**
+ * A gesture whose whole cost is that it commits more than once inside one
+ * task, read for the frames it forgets to carry.
+ *
+ * `hideSidebarRail` with two members is three notifies in one task: the
+ * record of what was standing, then a close per member. Under [D204] those
+ * three commits coalesce into ONE React commit a painted frame later, and the
+ * canvas arms three times before it lands. The arm that matters is the
+ * second: the tweens the first arm measured for have not been launched yet —
+ * the Last pass that launches them has not run — so `settleTweensRef` is
+ * empty, and before [B02] the whole prelaunch predicate was satisfiable. The
+ * prelaunch then called `firstRects.clear()`, the coalesced Last pass found
+ * no First rect for anything, and every frame the rail's disappearance moved
+ * CUT while nothing on the deck glided ([F03]).
+ *
+ * `cutPaneIds` is the clause. It exists because nothing else could read this
+ * one: a frame that carried no effect at any tick never enters the curve
+ * comparison at all, so a run in which every frame jumped satisfies the gap
+ * bar, the off-curve bar and the opacity bar together. The guards beside it
+ * are what keep the zero from being free — the rail really went, and the band
+ * really moved.
+ *
+ * **This leg is a live GUARD, not a reproduction, and the difference is
+ * recorded rather than papered over.** [F03] is a finding verified by
+ * reading, and this is the first attempt to reproduce it: with the [B02]
+ * clause reverted out, the gesture below still carries every frame. The
+ * reason measured is that a rail's commits are not flow-only — hiding a rail
+ * moves the band's edge, so `flowOnly` is false and the prelaunch predicate
+ * was never reachable on this path whatever the rects said. [F03]'s other
+ * named shape, the flow retune inside `retuneSidebarAllocation`, commits the
+ * flow-only retune FIRST and the rail retunes after, which is the safe order;
+ * and the reveal `movePaneToSlot` holds back lands on `onceCardDidTravel`,
+ * a later task. So the defect is real as a reachable state of the predicate
+ * and was not reachable by any gesture tried here.
+ *
+ * What IS falsifiable is the reading, and it is proven as data:
+ * `settle-frame-probe.test.ts` drives a cut frame, a frame that only resized,
+ * and a frame that moved and was carried through the classifier directly. So
+ * a `cutPaneIds` that stopped noticing fails there, and this leg is what
+ * stands over the live gesture in case a future commit order reaches the
+ * predicate the way [F03] describes.
+ */
+describe.skipIf(!SHOULD_RUN)(
+  "at0622 — two commits in one task carry every frame they move",
+  () => {
+    test(
+      "hiding a two-member rail moves the band and leaves no frame uncarried",
+      async () => {
+        const { app, tugbankPath } = await launch(4, railBlob());
+        try {
+          await traceWithSettleFrames(app);
+          await home(app);
+          await wait(AFTER_LAND_MS);
+
+          const before = await frameOrigins(app);
+          const mark = await traceMark(app);
+          await app.armSettleFrameProbe();
+          await armGhostCensus(app);
+          // The quiet head the classifier derives the display's period from.
+          await wait(120);
+          await app.dispatchControlAction("toggle-sidebars");
+          await wait(AFTER_LAND_MS * 2);
+          await app.waitForCondition<boolean>(
+            `window.__deckTrace.since(${mark}).some(function (e) {
+               return e.kind === "settle-frames";
+             })`,
+            { timeoutMs: 20_000 },
+          );
+          const probe = await app.takeSettleFrameReading();
+          await app.disarmSettleFrameProbe();
+          const ghosts = await readGhostCensus(app);
+          const after = await frameOrigins(app);
+          note(`at0622 two-commit probe: ${JSON.stringify(probe)}`);
+          note(`at0622 two-commit ghosts: ${JSON.stringify(ghosts)}`);
+          note(
+            `at0622 two-commit origins: ${JSON.stringify(before)} -> ` +
+              `${JSON.stringify(after)}`,
+          );
+
+          expect(
+            probe.suspended,
+            `two-commit: the window was served across the gesture — ` +
+              `${probe.ticks} ticks at ${probe.framePeriodMs.toFixed(2)}ms`,
+          ).toBe(false);
+
+          // ---- The two guards that keep the clause from being free. ----
+          const railPanes = ["at0622-pl1", "at0622-pj1"];
+          expect(
+            railPanes.filter((id) => id in before),
+            `two-commit: both rail members were standing before the ` +
+              `gesture — ${JSON.stringify(Object.keys(before))}. A rail of ` +
+              `one commits twice rather than three times and is not the ` +
+              `shape this leg is for`,
+          ).toEqual(railPanes);
+          expect(
+            railPanes.filter((id) => id in after),
+            `two-commit: and the hide really took them — ` +
+              `${JSON.stringify(Object.keys(after))}`,
+          ).toEqual([]);
+          const moved = Object.keys(after).filter(
+            (id) => id in before && before[id] !== after[id],
+          );
+          expect(
+            moved.length,
+            `two-commit: and the band really moved when the rail went — ` +
+              `moved [${moved.join(", ")}]. A gesture that moved nothing ` +
+              `satisfies the clause below by having nothing to carry`,
+          ).toBeGreaterThan(0);
+
+          // ---- The clause. ---------------------------------------------
+          expect(
+            [...probe.cutPaneIds],
+            `two-commit: every frame the gesture moved was carried by a ` +
+              `tween — [${probe.cutPaneIds.join(", ")}] moved with nothing ` +
+              `on them. This is the one reading that can see [F03]: a frame ` +
+              `carrying no effect at any tick never enters the curve ` +
+              `comparison, so a settle in which every frame jumped passes ` +
+              `the gap bar and the off-curve bar together`,
+          ).toEqual([]);
+          expect(
+            [...probe.rectsChangedAfterLanding],
+            `two-commit: and no frame settled twice`,
+          ).toEqual([]);
+
+          // ---- The rail's own exit, on the beat ([B10]). ---------------
+          //
+          // The clause above is about the SURVIVORS. The rails themselves
+          // are gone from the DOM by the time anything above reads it, and
+          // their exit is the one motion in this gesture nothing else here
+          // can see: a rail that vanished on the spot moves the band, leaves
+          // no ghost behind, and satisfies every bar above.
+          const travelled = Object.keys(ghosts.travel).sort();
+          expect(
+            travelled,
+            `two-commit: both rail members and the side's shadow strip got ` +
+              `a ghost — ${JSON.stringify(travelled)}. A missing strip is ` +
+              `the depth of the panel blinking out while the panel slides`,
+          ).toEqual(["at0622-pj1", "at0622-pl1", "rail-shadow:left"]);
+          for (const key of travelled) {
+            const row = ghosts.travel[key] as GhostTravel;
+            expect(
+              row.maxPx,
+              `two-commit: ${key}'s ghost travelled off the edge — ` +
+                `${row.maxPx.toFixed(1)}px over ${row.ticks} frame(s). Near ` +
+                `zero is a rail that disappeared where it stood`,
+            ).toBeGreaterThan(100);
+            expect(
+              row.ticks,
+              `two-commit: and travelled ACROSS frames rather than in one ` +
+                `jump — ${key} was in the document for ${row.ticks} frame(s)`,
+            ).toBeGreaterThan(2);
+          }
+          // One travel per side: the strip stands ten pixels inboard, so a
+          // strip measured against the edge separately would take a longer
+          // journey and drift away from the panel it is the depth of.
+          const spans = travelled.map(
+            (k) => (ghosts.travel[k] as GhostTravel).maxPx,
+          );
+          expect(
+            Math.max(...spans) - Math.min(...spans),
+            `two-commit: every ghost on the side travelled the RAIL's ` +
+              `distance — ${JSON.stringify(spans)}`,
+          ).toBeLessThan(0.5);
+          expect(
+            [...ghosts.standing],
+            `two-commit: and every ghost was collected when its beat landed`,
+          ).toEqual([]);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// An arrival interrupted by a close ([B03], [F04])
+// ---------------------------------------------------------------------------
+
+/** When the close lands, measured from the `show-card` that starts the arrival. */
+const ARRIVAL_RETARGET_AT_MS = 140;
+/** How long the per-frame opacity census runs. Two settles, back to back. */
+const ARRIVAL_CENSUS_MS = 2_000;
+
+interface ArrivalSample {
+  t: number;
+  /** The beat the imposer named on this frame, `""` outside a beat. */
+  beat: string;
+  /** Every shown frame's COMPUTED opacity, by pane id. */
+  opacity: Record<string, number>;
+  /** The pane ids wearing `data-arriving` — appended, not yet divided in. */
+  arriving: readonly string[];
+}
+
+/**
+ * Arm a per-frame census of every shown frame's computed opacity against the
+ * beat the imposer names, and hand back what it saw.
+ *
+ * Computed rather than inline, and that is the whole point: the hold an
+ * arrival wears is an inline `opacity: 0`, and the defect this leg reads is a
+ * restorer handing that inline value back — after which the frame's computed
+ * opacity is the stylesheet's 1 with no inline anything. A census of
+ * `el.style.opacity` would read `""` in both the healthy and the broken case.
+ */
+async function arrivalCensus(app: App): Promise<void> {
+  await app.evalJS<null>(
+    `(function () {
+       window.__at0622arrival = [];
+       var t0 = performance.now();
+       var tick = function () {
+         var canvas = document.querySelector("[data-imposer-settling]");
+         var sample = {
+           t: performance.now() - t0,
+           beat: canvas === null
+             ? ""
+             : canvas.getAttribute("data-imposer-beat") || "",
+           opacity: {},
+           arriving: [],
+         };
+         document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).forEach(
+           function (el) {
+             var id = el.getAttribute("data-pane-id");
+             sample.opacity[id] = Number(getComputedStyle(el).opacity);
+             if (el.hasAttribute("data-arriving")) sample.arriving.push(id);
+           });
+         window.__at0622arrival.push(sample);
+         if (performance.now() - t0 < ${ARRIVAL_CENSUS_MS}) {
+           requestAnimationFrame(tick);
+         }
+       };
+       requestAnimationFrame(tick);
+       return null;
+     })()`,
+  );
+}
+
+/**
+ * A card arriving, interrupted during its `room` beat by a close.
+ *
+ * This is [P08]'s case read at the frame level. An arrival is planned as
+ * `room` then `arrive`: the Last pass holds the newcomer at inline
+ * `opacity: 0`, builds both beats up front with delays, and the fade's active
+ * phase does not begin until `room` has run. Before [B03] the newcomer left
+ * `pendingArrivalsRef` at the moment its fade was CONSTRUCTED — synchronously,
+ * inside that same Last pass — so for the whole length of `room` the deck held
+ * an invisible frame that nothing was protecting. A commit landing in that
+ * window armed a settle whose First pass measured the held frame like any
+ * other: `hold-at-current` committed the underlying `opacity: 0`, the
+ * restorers handed the pre-hold opacity back, and the card stood at full
+ * opacity a beat before the room it was arriving into had been made ([F04]).
+ *
+ * The claim is the one the eye makes: **the arriving frame's computed opacity
+ * never reads 1 before an arrive beat has begun.** A frame wearing
+ * `data-arriving` is excluded — that is a newcomer appended to its column and
+ * not yet part of its division, which no settle is carrying and which its own
+ * commit reveals ([B01] of the imposer's arrival rules).
+ *
+ * Three guards keep the green from being free, and the third is the one the
+ * earlier steps of this pass taught: a reading is only evidence if the gesture
+ * it reads demonstrably happened.
+ *
+ *   1. A frame really arrived — a pane id in the census that was not standing
+ *      before the dispatch.
+ *   2. The close really took `at0622-p1`, and an arrive beat really ran, so
+ *      "never 1 before arrive" is a window rather than the whole record.
+ *   3. The close really retargeted a settle in flight — a `settle-retarget`
+ *      trace row — and it landed before the arrive beat began. Without this
+ *      the leg passes on a close that arrived after the arrival was over,
+ *      which is a gesture pair that cannot expose the defect at all.
+ *
+ * **What the pre-fix reading actually was**, taken with the [B03] change
+ * reverted out under a `file probe`: the newcomer's own id appears in the
+ * retarget rows (`<uuid>:matched:room` beside `at0622-p3:matched:room`),
+ * and the beats the census saw across the whole window are `room` and
+ * `depart` — **no arrive beat ever ran**. That is [F04] read from its far
+ * end. The arm found the frame unprotected, measured it as TRAVELLING
+ * because it had a First rect now, and the replacement Last pass planned the
+ * chain with nothing arriving in it; the restorers had already handed the
+ * opacity back, so the card stood full-strength through a settle that owed
+ * it no fade. After the fix the newcomer is absent from the retarget rows —
+ * the arm skipped it — and the arrive beat runs at ~840ms. So the leg fails
+ * pre-fix on the arrive-beat clause rather than on the opacity list, and
+ * both are the same defect: a card that pops in has no arrival to be early
+ * to.
+ */
+describe.skipIf(!SHOULD_RUN)(
+  "at0622 — an arrival interrupted by a close keeps its hold",
+  () => {
+    test(
+      "a card arriving, closed into at 140ms, never stands at full opacity before its arrive beat",
+      async () => {
+        const { app, tugbankPath } = await launch(3);
+        try {
+          await traceWithSettleFrames(app);
+          await home(app);
+          await wait(AFTER_LAND_MS);
+
+          const before = await frameOrigins(app);
+          const mark = await traceMark(app);
+          await arrivalCensus(app);
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("show-card", ` +
+              `{ component: "session" }), null)`,
+          );
+          await wait(ARRIVAL_RETARGET_AT_MS);
+          await app.evalJS<null>(`(window.__tug.closePane("at0622-p1"), null)`);
+          await wait(ARRIVAL_CENSUS_MS + 400);
+          const samples = await app.evalJS<ArrivalSample[]>(
+            `window.__at0622arrival`,
+          );
+          const after = await frameOrigins(app);
+          const retargets = await retargetRows(app, mark);
+
+          const standing = new Set(Object.keys(before));
+          const seen = new Set<string>();
+          for (const s of samples) {
+            for (const id of Object.keys(s.opacity)) seen.add(id);
+          }
+          const newcomers = [...seen].filter((id) => !standing.has(id));
+          const beats: string[] = [];
+          for (const s of samples) {
+            if (s.beat !== "" && !beats.includes(s.beat)) beats.push(s.beat);
+          }
+          const firstArrive = samples.findIndex((s) => s.beat === "arrive");
+
+          note(
+            `at0622 arrival/close panes: ${JSON.stringify([...standing])} -> ` +
+              `${JSON.stringify(Object.keys(after))}, newcomers ` +
+              `${JSON.stringify(newcomers)}`,
+          );
+          note(
+            `at0622 arrival/close beats: ${JSON.stringify(beats)} over ` +
+              `${samples.length} frames; first arrive at ` +
+              `${firstArrive < 0 ? "never" : Math.round(samples[firstArrive].t) + "ms"}`,
+          );
+          note(
+            `at0622 arrival/close retargets: ${JSON.stringify(retargets)}`,
+          );
+
+          // ---- The guards. ---------------------------------------------
+          expect(
+            newcomers.length,
+            `arrival/close: a frame really arrived — the census saw ` +
+              `${JSON.stringify([...seen])} and the deck was standing at ` +
+              `${JSON.stringify([...standing])}. With no newcomer there is ` +
+              `no arrival and the claim below is about nothing`,
+          ).toBe(1);
+          const newcomer = newcomers[0];
+          expect(
+            "at0622-p1" in after,
+            `arrival/close: and the close really took at0622-p1 — ` +
+              `${JSON.stringify(Object.keys(after))}`,
+          ).toBe(false);
+          expect(
+            beats,
+            `arrival/close: and an arrive beat really ran, so the window ` +
+              `below is a window — beats seen ${JSON.stringify(beats)}`,
+          ).toContain("arrive");
+          expect(
+            retargets.length,
+            `arrival/close: and the close really retargeted a settle in ` +
+              `flight — rows ${JSON.stringify(retargets)}. A close that ` +
+              `landed after the arrival was over cannot reach the defect`,
+          ).toBeGreaterThan(0);
+          expect(
+            samples[firstArrive].t,
+            `arrival/close: and the arrive beat began AFTER the close, ` +
+              `which is what makes the pre-arrive window real`,
+          ).toBeGreaterThan(ARRIVAL_RETARGET_AT_MS);
+
+          // ---- The claim. -----------------------------------------------
+          const bare = samples
+            .slice(0, firstArrive)
+            .filter(
+              (s) =>
+                newcomer in s.opacity &&
+                !s.arriving.includes(newcomer) &&
+                s.opacity[newcomer] >= 1,
+            )
+            .map((s) => `${Math.round(s.t)}ms/${s.beat || "-"}`);
+          expect(
+            bare,
+            `arrival/close: the arriving frame never stood at full opacity ` +
+              `before its arrive beat began — it did at [${bare.join(", ")}]. ` +
+              `Each of those is a frame on which the card was fully visible ` +
+              `in a room that had not been made for it: the retarget ran the ` +
+              `arrival's own restorers and handed the hold back ([F04])`,
+          ).toEqual([]);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// [B09]: the rest of the ask's behaviours, each against the one bar
+// ---------------------------------------------------------------------------
+
+/**
+ * The one bar, stated once.
+ *
+ * The activation's bar and the fold's bar were each written for their own
+ * gesture and each carries its own gap allowance, and the difference between
+ * them is a fact about how much of the motion their window covers rather than
+ * about how much stall the eye will take. [B09] asks the remaining behaviours
+ * the same five questions, off the same instrument, at the same numbers:
+ *
+ *   1. the lead from the gesture to the first rendered frame is at most one
+ *      display frame,
+ *   2. no gap in the run is longer than two,
+ *   3. no shown frame painted a pose off its own curve on any tick,
+ *   4. no shown frame's rect moved again after the beat landed,
+ *   5. and the window was served — the tick count is above the suspension
+ *      floor, so the four clauses above are not four readings of an rAF that
+ *      stopped.
+ *
+ * Which gesture is being judged is not one of the questions, and that is the
+ * point of stating the bar once: a behaviour whose motion is cheaper than an
+ * activation's does not get a looser number for being cheaper, and one whose
+ * motion is more expensive does not get a looser number for being expensive.
+ * A leg that reads red against this stays red and is recorded.
+ */
+const B09_GAP_FRAMES_BAR = 2;
+
+/**
+ * Every shown pane, id and rounded rect, as one comparable string.
+ *
+ * The generic form of `flowOffset` and `paneHeightOf`: the reading that says
+ * the gesture did something, for gestures whose "something" is not one number.
+ * A card appearing adds an id, a card leaving takes one away, a walk moves
+ * every origin, and bullseye changes one frame's width and every other
+ * frame's place. Every one of those changes this string, and a gesture that
+ * changed nothing leaves it identical — which is the whole of what the guard
+ * needs to ask.
+ */
+const bandCensus = (app: App): Promise<string> =>
+  app.evalJS<string>(
+    `Array.prototype.map.call(
+       document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}),
+       function (el) {
+         var r = el.getBoundingClientRect();
+         return el.getAttribute("data-pane-id") + "@" + Math.round(r.left) +
+           "," + Math.round(r.top) + "+" + Math.round(r.width) + "x" +
+           Math.round(r.height);
+       }
+     ).join(" ")`,
+  );
+
+/**
+ * Start recording the distinct beats the imposer names, in the order it names
+ * them.
+ *
+ * The settle-frames row says how the window was served and says nothing about
+ * WHICH choreography served it, and three of the legs below make a claim
+ * about a named beat — `room` then `arrive` for a card appearing, `depart`
+ * for one leaving. Without this the appear leg passes just as well on a card
+ * that popped into place with no arrival at all, which is precisely the
+ * failure [F04] turned out to be.
+ *
+ * Read off `data-imposer-beat` on the settling container, the same attribute
+ * `arrivalCensus` reads, because that is the imposer's own name for what it
+ * is running rather than a test's inference from what moved.
+ */
+const armBeatCensus = (app: App): Promise<null> =>
+  app.evalJS<null>(
+    `(function () {
+       var seen = [];
+       window.__at0622Beats = seen;
+       var tick = function () {
+         var canvas = document.querySelector("[data-imposer-settling]");
+         var beat = canvas === null
+           ? ""
+           : canvas.getAttribute("data-imposer-beat") || "";
+         if (beat !== "" && seen.indexOf(beat) < 0) seen.push(beat);
+         window.__at0622BeatRaf = requestAnimationFrame(tick);
+       };
+       window.__at0622BeatRaf = requestAnimationFrame(tick);
+       return null;
+     })()`,
+  );
+
+const readBeatCensus = (app: App): Promise<readonly string[]> =>
+  app.evalJS<readonly string[]>(
+    `(cancelAnimationFrame(window.__at0622BeatRaf), window.__at0622Beats)`,
+  );
+
+/** One [B09] gesture, read by both instruments and by the beat census. */
+interface B09Leg {
+  readonly probe: SettleFrameReading;
+  /** The last settle-frames row in the window, or `null` if none was written. */
+  readonly row: SettleFramesRow | null;
+  /** How many rows the window carried — a coalesced settle writes one. */
+  readonly rows: number;
+  readonly before: string;
+  readonly after: string;
+  readonly beats: readonly string[];
+  /** The runtime [D9] guard's report, as `paneId:property`. */
+  readonly violations: readonly string[];
+}
+
+/**
+ * One gesture, sampled the way {@link sampleFold} samples a fold: a quiet head
+ * so the classifier can derive the display's period, the gesture through its
+ * own real door, a wait on the release row rather than on a duration.
+ *
+ * `gestureJs` is the door's own call rather than an action name and payload,
+ * because the behaviours below do not share one door: three go through
+ * `dispatchControlAction` and the close goes through `closePane`, which is
+ * what the pane's own close button calls.
+ *
+ * The settle-frames row is waited for rather than required. A gesture that
+ * arms no settle writes no row, and that is a finding about the gesture worth
+ * reading rather than a timeout worth throwing — so the wait is bounded, the
+ * row may come back `null`, and the bar says for itself that a missing row is
+ * a failure.
+ */
+async function sampleB09Gesture(
+  app: App,
+  gestureJs: string,
+  stallMs = 0,
+): Promise<B09Leg> {
+  const before = await bandCensus(app);
+  const mark = await traceMark(app);
+  await armBeatCensus(app);
+  await app.armSettleFrameProbe();
+  await wait(120);
+  await app.evalJS<null>(`(${gestureJs}, null)`);
+  // Planted after the dispatch and after the canvas has taken a sample or
+  // two, so it burns between two of the canvas's own samples rather than
+  // ahead of its first — the same reasoning `STALL_PLANTED_AT_MS` carries for
+  // the activation leg, and the whole of why a forced leg falsifies the ROW
+  // rather than only the bench probe.
+  if (stallMs > 0) {
+    await wait(STALL_PLANTED_AT_MS);
+    await app.forceSettleStall(stallMs);
+  }
+  await wait(AFTER_LAND_MS);
+  try {
+    await app.waitForCondition<boolean>(
+      `window.__deckTrace.since(${mark}).some(function (e) {
+         return e.kind === "settle-frames";
+       })`,
+      { timeoutMs: 8_000 },
+    );
+  } catch {
+    // No row. The bar's third clause is what says so; see the doc above.
+  }
+  const probe = await app.takeSettleFrameReading();
+  await app.disarmSettleFrameProbe();
+  const rows = await settleFrameRows(app, mark);
+  const beats = await readBeatCensus(app);
+  const violations = await motionViolationRows(app, mark);
+  const after = await bandCensus(app);
+  return {
+    probe,
+    row: rows.length === 0 ? null : (rows[rows.length - 1] as SettleFramesRow),
+    rows: rows.length,
+    before,
+    after,
+    beats,
+    violations,
+  };
+}
+
+/**
+ * The pane ids that were NOT standing before this gesture — the frames that
+ * arrived in it.
+ *
+ * What the pose clause's exemption is computed from on a gesture that brings
+ * frames in. An arriving frame is held at inline `opacity: 0` for the whole
+ * of `room`, painting the identity while its own curve says its origin, and
+ * the reader sees none of it. Derived from the leg's own before-and-after
+ * census rather than written down, so a gesture that stops bringing frames
+ * in exempts nobody.
+ */
+function arrivedIn(r: B09Leg): readonly string[] {
+  const before = new Set(r.before.split(" ").map((s) => s.split("@")[0]));
+  return r.after
+    .split(" ")
+    .map((s) => s.split("@")[0])
+    .filter((id) => id !== "" && !before.has(id));
+}
+
+function reportB09(leg: string, r: B09Leg): void {
+  note(`at0622 ${leg} row: ${JSON.stringify(r.row)} (${r.rows} row(s))`);
+  note(`at0622 ${leg} probe: ${JSON.stringify(r.probe)}`);
+  note(
+    `at0622 ${leg} beats: ${JSON.stringify(r.beats)}; violations ` +
+      `${JSON.stringify(r.violations)}`,
+  );
+  note(`at0622 ${leg} band: ${r.before} -> ${r.after}`);
+}
+
+/**
+ * The five clauses of the bar above, over one leg.
+ *
+ * `exempt` names panes the POSE clause does not judge, and it exists for
+ * exactly one reading, measured rather than anticipated: an arriving frame is
+ * held at inline `opacity: 0` for the whole of the `room` beat, and across
+ * those 24 ticks it paints the identity while its own curve says its origin.
+ * The reader sees none of it — the frame is invisible for every one of those
+ * ticks — so counting them is the pose clause answering a question about a
+ * frame nobody is looking at. Every other pane in the same settle is judged
+ * in full, and the caller has to name the exemption and show it earned: the
+ * appear leg exempts only the pane the probe itself reports at opacity 0.
+ *
+ * The count is still asserted for every pane that is NOT exempt, so an
+ * off-curve tick on a visible frame fails this exactly as before.
+ */
+function expectB09Bar(
+  leg: string,
+  r: B09Leg,
+  exempt: readonly string[] = [],
+): void {
+  const { probe } = r;
+
+  // ---- The three that keep the rest from being vacuous. -----------------
+  expect(
+    probe.suspended,
+    `${leg}: the window was served across the gesture — ${probe.ticks} ` +
+      `ticks at ${probe.framePeriodMs.toFixed(2)}ms. A suspended window ` +
+      `reports the same zeros as a perfect deck`,
+  ).toBe(false);
+  expect(
+    r.before === r.after,
+    `${leg}: the band actually changed — a gesture that moved nothing ` +
+      `satisfies every clause below by having no motion in it. before ` +
+      `${r.before} / after ${r.after}`,
+  ).toBe(false);
+  expect(
+    r.row,
+    `${leg}: the canvas armed a settle and wrote its record — with no row ` +
+      `there is no reading, and a gesture that changed the band without ` +
+      `arming a settle changed it in one paint, which is a cut`,
+  ).not.toBeNull();
+  const row = r.row as SettleFramesRow;
+
+  // ---- The bar. ---------------------------------------------------------
+  expect(
+    row.firstPaintDelayMs,
+    `${leg}: the lead from the gesture to the first rendered frame is at ` +
+      `most one display frame — ${row.firstPaintDelayMs}ms, of which ` +
+      `${row.commitDelayMs}ms was spent before the canvas armed, against a ` +
+      `derived period of ${probe.framePeriodMs.toFixed(2)}ms`,
+  ).toBeLessThanOrEqual(probe.framePeriodMs);
+  expect(
+    row.longestGapFrames,
+    `${leg}: no gap over ${B09_GAP_FRAMES_BAR} display frames across the ` +
+      `whole motion, lead included — ${row.longestGapMs.toFixed(0)}ms / ` +
+      `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+      `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
+  ).toBeLessThanOrEqual(B09_GAP_FRAMES_BAR);
+  expect(
+    row.offCurvePaneIds.filter((id) => !exempt.includes(id)),
+    `${leg}: no shown frame painted a pose off its own settle's curve at any ` +
+      `tick — ${row.offCurveTicks} of ${row.ticks} ticks were off, on ` +
+      `[${row.offCurvePaneIds.join(", ")}], longest run ` +
+      `${row.longestOffCurveRunTicks} ticks from ` +
+      `${row.longestOffCurveRunOffsetMs}ms` +
+      (exempt.length === 0 ? "" : `, with [${exempt.join(", ")}] exempt`) +
+      `. A frame that arrives on time carrying the wrong pose shows the ` +
+      `reader none of the travel`,
+  ).toEqual([]);
+  expect(
+    [...probe.rectsChangedAfterLanding],
+    `${leg}: no shown frame's rect moved after the beat landed — a frame ` +
+      `that settles twice reads as a correction`,
+  ).toEqual([]);
+}
+
+/**
+ * A card appearing and a card leaving, each against the bar.
+ *
+ * On the SHARED-COLUMN fixture with one column split, which is the shape the
+ * ask names and the one where an arrival has a room to be made for it. A new
+ * card opening into a split column is seated at that column's bottom in the
+ * arriving commit ([D194]), so the sitters give up height for it — the `room`
+ * beat — before its own fade runs — the `arrive` beat. On a flow deck of
+ * one-card columns the newcomer takes a slot of its own and `room` is a beat
+ * about nobody.
+ *
+ * The close is `closePane`, the pane's own close button's call, and it takes
+ * the newcomer back out of the same column: the sitters reclaim the height on
+ * the `depart` beat while the ghost of the departing frame leaves.
+ *
+ * Both legs assert the beat by name off the imposer's own attribute, because
+ * every timing clause in the bar is satisfied perfectly by a card that popped
+ * into place with no choreography at all — which is what [F04] turned out to
+ * be when it was read from its far end.
+ *
+ * **What the two legs read, at this arc's end.** The appear leg holds the bar
+ * — `["room", "arrive"]`, a 3ms lead, a worst gap of 1.9 frames — with the
+ * one exemption `expectB09Bar` documents: the arriving frame paints 24–25
+ * ticks off its own curve across the whole of `room`, held at opacity 0
+ * throughout, which is the `backwards` question the doctrine's worked example
+ * still has open rather than anything the reader sees.
+ *
+ * **The DISAPPEAR leg stands red on its lead, and it is not loosened.**
+ * Measured across three runs at this tree: 29ms, 33ms and 24ms from the
+ * gesture to the first rendered frame, with `commitDelayMs` 0 on all three —
+ * so none of it is spent before the canvas arms, and every millisecond of it
+ * is the deck's own. Against a 17ms period that is one and a half to two
+ * display frames of nothing after the user closes a card. Every other clause
+ * passes: `["depart", "room"]` both run, no off-curve tick, no rect moved
+ * after landing, worst gap 1.7–1.9 frames. The bar is the same bar the walk
+ * and bullseye both clear from the same sampler, so the number is the deck's
+ * and not the instrument's.
+ */
+describe.skipIf(!SHOULD_RUN)(
+  "at0622 — a card appears and leaves, at the bar",
+  () => {
+    test(
+      "a card arriving into a split column, and the same card closed out of it, hold the bar across room, arrive and depart",
+      async () => {
+        const { app, tugbankPath } = await launch(8, columnBlob());
+        try {
+          await traceWithSettleFrames(app);
+          await home(app);
+          // The active pane is `at0622-p1`, which sits in slot 0; splitting
+          // that column is what gives the newcomer a division to be seated
+          // at the bottom of.
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-column-mode", ` +
+              `{ slot: 0, mode: "split" }), null)`,
+          );
+          await wait(AFTER_LAND_MS);
+
+          const standing = new Set(
+            (await bandCensus(app)).split(" ").map((s) => s.split("@")[0]),
+          );
+
+          const appear = await sampleB09Gesture(
+            app,
+            `window.__tug.dispatchControlAction("show-card", ` +
+              `{ component: "session" })`,
+          );
+          reportB09("appear", appear);
+          expect(
+            appear.beats,
+            `appear: the arrival really ran its choreography — beats seen ` +
+              `${JSON.stringify(appear.beats)}. A card that popped into ` +
+              `place satisfies every clause of the bar by having no motion`,
+          ).toContain("arrive");
+          expect(
+            appear.beats,
+            `appear: and the sitters really made room for it first — beats ` +
+              `${JSON.stringify(appear.beats)}`,
+          ).toContain("room");
+
+          const newcomers = appear.after
+            .split(" ")
+            .map((s) => s.split("@")[0])
+            .filter((id) => id !== "" && !standing.has(id));
+          expect(
+            newcomers.length,
+            `appear: exactly one frame arrived — ${JSON.stringify(newcomers)}`,
+          ).toBe(1);
+
+          // ---- The pose clause's one exemption, and what earns it. ------
+          //
+          // The arriving frame is held at inline `opacity: 0` until its
+          // `arrive` beat begins, and across the whole of `room` it paints
+          // the identity while its own curve says its origin. Measured on
+          // this leg: 24 of 40 ticks, one unbroken run from 0ms, on the
+          // newcomer alone, with the probe reporting `minOpacity: 0` on that
+          // same pane. So the exemption is not "the arriving frame is
+          // special" — it is "the probe watched this frame be invisible for
+          // the whole run", which is a fact the reading itself carries.
+          //
+          // The two clauses below are what keep it from being a hole. The
+          // exempt pane must be the newcomer, and it must be the one the
+          // probe saw at zero opacity; anything else and the exemption does
+          // not apply and the pose clause judges every pane.
+          expect(
+            appear.probe.minOpacity,
+            `appear: the arriving frame really was held invisible — the ` +
+              `probe's worst opacity was ${appear.probe.minOpacity} on ` +
+              `\`${appear.probe.minOpacityPaneId}\`. Without a held frame ` +
+              `there is nothing to exempt and the clause below judges it`,
+          ).toBe(0);
+          expect(
+            appear.probe.minOpacityPaneId,
+            `appear: and the frame held invisible is the one that arrived — ` +
+              `${JSON.stringify(newcomers)}`,
+          ).toBe(newcomers[0]);
+          note(
+            `at0622 appear off-curve: ${appear.row?.offCurveTicks} tick(s) ` +
+              `on [${appear.row?.offCurvePaneIds.join(", ")}], longest run ` +
+              `${appear.row?.longestOffCurveRunTicks} from ` +
+              `${appear.row?.longestOffCurveRunOffsetMs}ms — the arriving ` +
+              `frame across \`room\`, held at opacity 0 throughout`,
+          );
+          expectB09Bar("appear", appear, [appear.probe.minOpacityPaneId]);
+
+          const disappear = await sampleB09Gesture(
+            app,
+            `window.__tug.closePane(${JSON.stringify(newcomers[0])})`,
+          );
+          reportB09("disappear", disappear);
+          expect(
+            disappear.beats,
+            `disappear: the departure really ran its beat — beats seen ` +
+              `${JSON.stringify(disappear.beats)}`,
+          ).toContain("depart");
+          expectB09Bar("disappear", disappear);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      BAR_TIMEOUT_MS,
+    );
+  },
+);
+
+/**
+ * The walk across the band, both directions, against the bar.
+ *
+ * `go-to-slot` is the Go ▸ Go to Slot N door, and on a flow deck it is the
+ * gesture that carries the reader from one end of the strip to the other with
+ * no activation, no focus transfer and no card count change in it — the
+ * cheapest motion the deck makes, and therefore the one with the least excuse
+ * for a hole in it.
+ *
+ * Both directions, because the strip's two ends are not symmetric: the walk
+ * out runs against a band whose far slots have never been laid out at their
+ * final width, and the walk home runs against frames that have.
+ */
+describe.skipIf(!SHOULD_RUN)("at0622 — the walk across the band", () => {
+  test(
+    "go-to-slot out and home holds the bar in both directions",
+    async () => {
+      const { app, tugbankPath } = await launch(4);
+      try {
+        await traceWithSettleFrames(app);
+        await home(app);
+        await wait(AFTER_LAND_MS);
+
+        const out = await sampleB09Gesture(
+          app,
+          `window.__tug.dispatchControlAction("go-to-slot", { value: 4 })`,
+        );
+        reportB09("go-to-slot out", out);
+        expectB09Bar("go-to-slot out", out);
+
+        const back = await sampleB09Gesture(
+          app,
+          `window.__tug.dispatchControlAction("go-to-slot", { value: 1 })`,
+        );
+        reportB09("go-to-slot home", back);
+        expectB09Bar("go-to-slot home", back);
+
+        // ---- The forcing leg ([D5]), for all three of [B09]'s bars. -----
+        //
+        // One leg, not three, and the reason is that the three legs above
+        // read one instrument through one sampler. What has to be shown is
+        // that `sampleB09Gesture` and the bar over it notice a defect put
+        // there on purpose; which gesture it is planted inside says nothing
+        // more. The walk is the cheapest of the three to run and the one
+        // whose plain reading sits furthest inside the bar, so a forced
+        // failure here cannot be the deck's own noise.
+        const forced = await sampleB09Gesture(
+          app,
+          `window.__tug.dispatchControlAction("go-to-slot", { value: 4 })`,
+          FORCED_STALL_MS,
+        );
+        reportB09("go-to-slot forced", forced);
+        expect(
+          (forced.row as SettleFramesRow).longestGapFrames,
+          `go-to-slot forced: a ${FORCED_STALL_MS}ms task planted inside the ` +
+            `settle window must fail the bar the two legs above just ` +
+            `passed — out read ` +
+            `${(out.row as SettleFramesRow).longestGapMs.toFixed(0)}ms / ` +
+            `${(out.row as SettleFramesRow).longestGapFrames.toFixed(2)} ` +
+            `frames; forced reads ` +
+            `${(forced.row as SettleFramesRow).longestGapMs.toFixed(0)}ms / ` +
+            `${(forced.row as SettleFramesRow).longestGapFrames.toFixed(2)}. ` +
+            `Without this every green above is unfalsifiable: a sampler that ` +
+            `stopped observing and a deck that stopped stalling read the same`,
+        ).toBeGreaterThan(B09_GAP_FRAMES_BAR);
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    BAR_TIMEOUT_MS,
+  );
+});
+
+/**
+ * Bullseye in and out, against the bar — and [F15] named by a test.
+ *
+ * `toggle-bullseye` puts the frontmost pane alone in the band and takes it
+ * out again. Its term is a real `width`: the distortion the flip would have
+ * to carry as `scaleX` is past `MAX_FLIP_SCALE_DISTORTION`, so `pane-flip.ts`
+ * tweens width keyframes instead and re-wraps the subtree every frame. That
+ * is a [D9] violation the doctrine does not name — the worked example still
+ * says width crosses as `scaleX` — and until this leg existed the runtime
+ * guard had never been SHOWN reporting `:width` on any gesture. The column
+ * leg asserts `:height` the same way, and for the same reason: a standing
+ * violation the doctrine records in prose and no test exercises is a comment,
+ * not a fact.
+ *
+ * **On a WIDE deck rather than the fixture's own width, and that is [F15]
+ * read narrower than the brief states it.** Whether a width change rides as
+ * a real term or as a raster `scaleX` is a question about the distortion,
+ * not about the gesture, and `MAX_FLIP_SCALE_DISTORTION` was chosen to admit
+ * the ADJACENT preset — `pane-flip.ts` says so where the constant is
+ * declared. The deck's three widths are slim 675, comfy 800 and wide 1230,
+ * and bullseye opens the frontmost pane at comfy; from slim that is one step
+ * and reads 0.185, just inside the cap. Run at the fixture's own width this
+ * leg's first reading was an empty violation list — the guard saw nothing
+ * because there was nothing to see. So the leg sets the deck to wide first,
+ * through `set-content-width`, which is the Layout card's own door: 1230 →
+ * 800 is two steps and a distortion of 0.54, and the width really rides.
+ *
+ * What that costs [F15] is its generality, and the finding is worth more
+ * stated correctly: the width-over-cap path is bullseye's ON A WIDE DECK,
+ * not bullseye's as such.
+ *
+ * So the violation clause here is two-sided. The guard must report something
+ * — an empty list would mean the gesture never took the width path and the
+ * clause proved nothing — and everything it reports must be `:width`. Any
+ * other property is a second standing violation nobody has written down.
+ */
+describe.skipIf(!SHOULD_RUN)("at0622 — bullseye, and [F15]'s width", () => {
+  test(
+    "bullseye in and out holds the bar, and the runtime guard reports :width and nothing else",
+    async () => {
+      const { app, tugbankPath } = await launch(4);
+      try {
+        await traceWithSettleFrames(app);
+        await home(app);
+        // Two preset steps from where bullseye opens, so the flip crosses by
+        // real geometry rather than by raster; see the docblock.
+        await app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("set-content-width", ` +
+            `{ preset: "wide" }), null)`,
+        );
+        await wait(AFTER_LAND_MS);
+        await home(app);
+        await wait(AFTER_LAND_MS);
+        note(`at0622 bullseye fixture at wide: ${await bandCensus(app)}`);
+
+        const enter = await sampleB09Gesture(
+          app,
+          `window.__tug.dispatchControlAction("toggle-bullseye", {})`,
+        );
+        reportB09("bullseye enter", enter);
+        expect(
+          enter.violations.length,
+          `bullseye enter: the runtime [D9] guard reported something — an ` +
+            `empty list here means the gesture never took the width path and ` +
+            `the clause below is about nothing ([F15])`,
+        ).toBeGreaterThan(0);
+        expect(
+          [
+            ...new Set(
+              enter.violations.map((v) => v.slice(v.lastIndexOf(":") + 1)),
+            ),
+          ].sort(),
+          `bullseye enter: and every property it reported is \`width\` — ` +
+            `${JSON.stringify(enter.violations)}. [F15]: width over the ` +
+            `scale cap is the second standing [D9] hit, and anything else ` +
+            `here is a third nobody has written down`,
+        ).toEqual(["width"]);
+        expectB09Bar("bullseye enter", enter);
+
+        const exit = await sampleB09Gesture(
+          app,
+          `window.__tug.dispatchControlAction("toggle-bullseye", {})`,
+        );
+        reportB09("bullseye exit", exit);
+        expect(
+          [
+            ...new Set(
+              exit.violations.map((v) => v.slice(v.lastIndexOf(":") + 1)),
+            ),
+          ].sort(),
+          `bullseye exit: the same on the way out — ` +
+            `${JSON.stringify(exit.violations)}`,
+        ).toEqual(["width"]);
+        expectB09Bar("bullseye exit", exit);
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    BAR_TIMEOUT_MS,
+  );
+});
+
+/**
+ * The sidebars, and the retune that follows a resize — the last two of
+ * [B09]'s eleven, against the same bar.
+ *
+ * **Hide and show, on a TWO-MEMBER rail.** One member is a weaker gesture:
+ * `hideSidebarRail` writes the record of what was standing in its own commit
+ * and then closes each member in its own, so a rail of two produces three
+ * notifies inside one task and one coalesced React commit — which is the arm
+ * sequence the whole of [B02] is about. The bar is read across the whole
+ * choreography including the rail's own exit, which since [B10] rides the
+ * `depart` beat rather than a plant-time clock: a rail that vanished where it
+ * stood moves the band exactly as one that slid away, and only the beat name
+ * tells them apart.
+ *
+ * **Resize to fit** is the settled-resize retune, through its own door
+ * (`resize-sidebars-to-fit`, ⌥⇧⌘S and View ▸ Resize Sidebars To Fit). It is
+ * the gesture whose commit is a RETUNE rather than a structural change — no
+ * pane arrives, none leaves, none changes slot, and every rail's allocation
+ * moves at once. The row is read from that commit, which is the point: a
+ * retune that reached the canvas a frame late would show as lead here and
+ * nowhere else in this file.
+ */
+describe.skipIf(!SHOULD_RUN)(
+  "at0622 — the sidebars and the settled-resize retune, at the bar",
+  () => {
+    test(
+      "hiding and showing a two-member rail, and the resize retune, each hold the bar",
+      async () => {
+        const { app, tugbankPath } = await launch(4, railBlob());
+        try {
+          await traceWithSettleFrames(app);
+          await home(app);
+          await wait(AFTER_LAND_MS);
+
+          // All three sampled BEFORE any of them is judged. One red leg
+          // would otherwise take the whole test down before the gestures
+          // after it ever ran, and a reading nobody took is worse than a
+          // red one: the arc's rule is that a red leg is recorded, and it
+          // cannot be recorded if the run stopped above it.
+          const hide = await sampleB09Gesture(
+            app,
+            `window.__tug.dispatchControlAction("toggle-sidebars", {})`,
+          );
+          reportB09("sidebars hide", hide);
+
+          const show = await sampleB09Gesture(
+            app,
+            `window.__tug.dispatchControlAction("toggle-sidebars", {})`,
+          );
+          reportB09("sidebars show", show);
+
+          // The retune wants a deck whose rails do NOT already fit, or it
+          // commits nothing and the band guard is what catches it. Widening
+          // both rails past their share is what gives the retune something
+          // to take back.
+          await app.evalJS<null>(
+            `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", ` +
+              `{ kind: "i64", value: 900 }), null)`,
+          );
+          await wait(AFTER_LAND_MS);
+
+          const retune = await sampleB09Gesture(
+            app,
+            `window.__tug.dispatchControlAction("resize-sidebars-to-fit", {})`,
+          );
+          reportB09("resize to fit", retune);
+
+          expectB09Bar("sidebars hide", hide);
+          // The rails ARRIVE on the way back, so the show leg carries the
+          // same exemption the appear leg does and for the same measured
+          // reason: each arriving rail frame is held at inline `opacity: 0`
+          // across the whole of `room` and paints the identity while its own
+          // curve says its origin. Two rails, two exempt panes, and the
+          // exemption is earned the same way — the probe names one of them
+          // at `minOpacity: 0`, and the other is its sibling in the same
+          // arrival. Every frame that was already standing is judged.
+          expectB09Bar("sidebars show", show, arrivedIn(show));
+          expectB09Bar("resize to fit", retune);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      BAR_TIMEOUT_MS,
     );
   },
 );

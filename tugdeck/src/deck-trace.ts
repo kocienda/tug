@@ -452,6 +452,31 @@ export type DeckTraceEvent = {
       activeElement: string;
     }
   | {
+      // A focus claim made at a target the user cannot see ([B05]). The
+      // option's own contract says `deferCommit` is only for a caller whose
+      // incoming card is already mounted and displayed; when it is passed
+      // anyway, the deck's React commit is a painted frame away and the
+      // layer's `data-space-shown` or the tab's `display` has not been
+      // rewritten yet, so `applyBagFocus`'s `.focus()` lands on a hidden
+      // element and does nothing at all. That miss used to be silent — an
+      // [L31] violation — and this row is what ends the silence.
+      //
+      // `reason` names what was hiding the target: `parked-space` for a
+      // space layer without `data-space-shown`, `display-none` for a card
+      // host whose computed `display` is `none` (the non-active tab of its
+      // pane), and `hidden` for a target under `visibility: hidden`.
+      // `activeElement` is where focus actually stood afterwards, formatted
+      // rather than held.
+      //
+      // In `ALWAYS_RECORDED_KINDS`: it is a record of a defect, and the
+      // sessions that hold the evidence are the ones nobody was watching.
+      kind: "focus-claim-hidden";
+      cardId: string;
+      site: string;
+      reason: "parked-space" | "display-none" | "hidden";
+      activeElement: string;
+    }
+  | {
       // Fires every time `paintMirrorAsActive` runs in
       // `tug-text-editor/state-preservation.ts`, with `caller` tagging
       // the originating path. Used by Step 1's investigation matrix
@@ -749,6 +774,14 @@ export type DeckTraceEvent = {
       pendingTicks: number;
       offCurveTicks: number;
       offCurvePaneIds: readonly string[];
+      // The double-hop, which `offCurveTicks` cannot see: a frame travelling,
+      // then carrying no effect at all for a tick while standing at its
+      // committed pose, then travelling again ([B01]).
+      strandedTicks: number;
+      strandedPaneIds: readonly string[];
+      // Bench-probe only in practice: the in-product sampler declines the
+      // rect read, so this row carries it empty ([B02]).
+      cutPaneIds: readonly string[];
       longestOffCurveRunTicks: number;
       longestOffCurveRunOffsetMs: number;
       violations: readonly string[];
@@ -933,6 +966,7 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "cold-boot-restore-snapshot" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "engine-restore-applied" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "focus-measurement" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "focus-claim-hidden" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "engine-paint-mirror-active" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "engine-paint-mirror-inactive" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "macrotask-focus-claim" }>, StampedFields>
@@ -1177,6 +1211,7 @@ const ALWAYS_RECORDED_KINDS: ReadonlySet<DeckTraceEvent["kind"]> = new Set([
   "extent-rebase",
   "session-lifecycle",
   "opening-bid-mismatch",
+  "focus-claim-hidden",
 ]);
 
 function appendEvent(

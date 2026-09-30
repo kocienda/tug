@@ -132,6 +132,7 @@ import { traceApplyDefaultFocus } from "./default-focus";
 import { mayClaimActivationFocus } from "./components/tugways/focus-manager";
 
 import type { FocusModality, FocusTarget } from "./components/tugways/focus-manager";
+import { mark as perfMark } from "@/lib/perf-marks";
 import type { IDeckManagerStore } from "./deck-manager-store";
 import type { CardStateBag, FocusSnapshot } from "./layout-tree";
 
@@ -201,6 +202,47 @@ function isElementHidden(el: HTMLElement | null): boolean {
 }
 
 /**
+ * Why a focus claim's target cannot be seen, or `null` when it can ([B05]).
+ *
+ * `deferCommit`'s own contract is that the incoming card is already mounted
+ * and displayed. Two callers cannot satisfy it and used to pass it anyway:
+ * an activation into a PARKED workspace, whose layer's `data-space-shown` is
+ * written by React from the snapshot — now the deferred commit — and an
+ * activation onto a card that is a NON-ACTIVE TAB of its pane, whose subtree
+ * is still `display: none` for the same reason. In both, `.focus()` lands on
+ * a hidden element, does nothing, and step 6 then blurs the outgoing card, so
+ * focus falls to `body` and the user is typing into nothing ([F06]).
+ *
+ * The order matters: a parked layer is `visibility: hidden` rather than
+ * `display: none`, so its descendants still have client rects and the
+ * cheaper test would call it visible. Ask the layer first.
+ *
+ * **And the test is computed style, never boxes.** A card host is
+ * `display: contents` when it is shown — that is what the tab switch flips
+ * it to — and a `display: contents` element generates no boxes at all, so
+ * `getClientRects()` is empty for a perfectly visible card. Reading it that
+ * way called every host hidden and cost the deferral on every activation;
+ * the computed `display` is the one that separates `contents` from `none`.
+ */
+function hiddenClaimReason(
+  root: HTMLElement | null,
+): "parked-space" | "display-none" | "hidden" | null {
+  if (root === null) return null;
+  const layer = root.closest("[data-space-layer]");
+  if (layer !== null && !layer.hasAttribute("data-space-shown")) {
+    return "parked-space";
+  }
+  const win = root.ownerDocument.defaultView;
+  if (win === null) return null;
+  const style = win.getComputedStyle(root);
+  // The non-active tab of a pane: its host is rendered but not displayed
+  // until the commit being deferred flips it to `display: contents`.
+  if (style.display === "none") return "display-none";
+  if (style.visibility === "hidden") return "hidden";
+  return null;
+}
+
+/**
  * Diagnostic helper — emits the `pre-sync` and `post-sync` halves
  * of a `focus-measurement` triple around a framework focus-claim
  * site, then schedules the `post-gesture` tail on a macrotask so it
@@ -247,7 +289,7 @@ function measureFocusClaim(
   // delegate uses.
   if (typeof setTimeout === "function") {
     setTimeout(() => {
-      performance.mark("tug:focus-measure");
+      perfMark("tug:focus-measure");
       deckTrace.record({
         kind: "focus-measurement",
         phase: "post-gesture",
@@ -255,7 +297,7 @@ function measureFocusClaim(
         cardId,
         activeElement: formatElement(doc.activeElement),
       });
-      performance.mark("tug:focus-measure-end");
+      perfMark("tug:focus-measure-end");
     }, 0);
   }
 }
@@ -781,10 +823,17 @@ export interface TransferFocusForActivationOptions {
    */
   modality?: FocusModality;
   /**
-   * PROBE: leave the deck store's React commit to land after the next
-   * painted frame rather than flushing it inside step 2. Only for a caller
-   * whose incoming card is already mounted and displayed — a plain
-   * activation — so nothing in steps 3–5 reads DOM the commit produces.
+   * Leave the deck store's React commit to land after the next painted
+   * frame ([D204]) rather than flushing it inside step 2.
+   *
+   * **Only for a caller whose incoming card is already mounted and
+   * displayed** — a plain activation — so nothing in steps 3–5 reads DOM the
+   * commit produces. It is a precondition rather than a preference, and
+   * `raiseCard` computes it rather than defaulting it ([B05]): an incoming
+   * card that is not its pane's active tab, or that lives in a workspace
+   * nobody is looking at, has its `display` or its layer's
+   * `data-space-shown` written by the very commit being deferred, so the
+   * focus claim in step 4 would land on a hidden element.
    */
   deferCommit?: boolean;
 }
@@ -851,18 +900,18 @@ export function transferFocusForActivation(
   // `flushSync` — but wrapping unconditionally is harmless and
   // keeps the contract uniform.
   if (commitMutation !== undefined) {
-    performance.mark("tug:flushSync-start");
+    perfMark("tug:flushSync-start");
     flushSync(() => {
       commitMutation();
-      // The deck store tells React on the task after the next paint (see
-      // `PROBE_DEFER_REACT_NOTIFY`), which would leave step 5's `.focus()`
+      // The deck store tells React on the task after the next paint
+      // ([D204]), which would leave step 5's `.focus()`
       // landing on a still-`display: none` element on a tab switch or a
       // pane that has not mounted. Flush it here, inside the sandwich, so
       // this contract holds — unless the caller has said it need not.
       if (deferCommit !== true) store.flushPendingNotify?.();
     });
   }
-  performance.mark("tug:flushSync-end");
+  perfMark("tug:flushSync-end");
 
   // Step 3 — Ask the engine whether this claim is permitted (Spec S03).
   //
@@ -889,7 +938,31 @@ export function transferFocusForActivation(
     site: "focus-transfer",
     ...(modality !== undefined ? { modality } : {}),
   });
-  performance.mark("tug:applyBagFocus-end");
+  perfMark("tug:applyBagFocus-end");
+
+  // Step 4b — The miss is never silent ([B05], [L31]).
+  //
+  // `applyBagFocus` returns `"applied"` for a `.focus()` it made, not for
+  // one that took: focusing an element under a hidden layer or inside a
+  // `display: none` tab is a no-op the DOM reports nothing about, and step 6
+  // then blurs the outgoing card, so focus lands on `body`. Read the target's
+  // visibility here, where the claim was just made, and record what was
+  // hiding it.
+  if (result === "applied") {
+    const claimRoot = store.peekCardHostRoot(incomingCardId);
+    const hidden = hiddenClaimReason(claimRoot);
+    if (hidden !== null) {
+      deckTrace.record({
+        kind: "focus-claim-hidden",
+        cardId: incomingCardId,
+        site: "focus-transfer",
+        reason: hidden,
+        activeElement: formatElement(
+          claimRoot?.ownerDocument.activeElement ?? null,
+        ),
+      });
+    }
+  }
 
   // Step 5 — Post-dispatch follow-ups (selection / form-control).
   //
@@ -1161,6 +1234,47 @@ export function reactivateCurrentFocusDestination(
 }
 
 /**
+ * Whether this raise may leave its React commit to the next painted frame.
+ *
+ * Two conditions, and both are about whether the incoming card is already on
+ * screen at the moment the focus claim is made ([B05]):
+ *
+ * - **It is its pane's active tab.** A card that is a background tab is
+ *   rendered with `display: none` and the commit being deferred is the one
+ *   that flips it to `display: contents`.
+ * - **Its workspace is the shown one.** A parked space's layer carries no
+ *   `data-space-shown`, and that attribute is written by React from the
+ *   snapshot — the deferred snapshot. `focus-session-card` into a parked
+ *   workspace calls `activateSpace` and then this, in one task.
+ *
+ * Neither holds and the commit flushes inside step 2, exactly as every
+ * activation did before [D204]. The cost is one synchronous React commit on
+ * a gesture that is by definition not the flow slide the deferral protects.
+ * A store that carries no spaces at all answers `null` for `spaceOf` and so
+ * falls to the flush, which is the safe direction.
+ *
+ * **And the DOM has to agree, which the store alone cannot say.** The parked
+ * case arrives here with the store already reporting the target space as
+ * active: `focus-session-card` calls `activateSpace` and then this, in one
+ * task, and it is that FIRST commit whose React notify is still a painted
+ * frame away. So the last question is asked of the document — is the
+ * incoming card's host on screen this instant — using the same predicate
+ * that records the miss when one happens. A card with no mounted host
+ * cannot defer either: the commit is what mounts it.
+ */
+function mayDeferCommit(store: IDeckManagerStore, cardId: string): boolean {
+  const pane = store
+    .getSnapshot()
+    .panes.find((p) => p.cardIds.includes(cardId));
+  if (pane === undefined || pane.activeCardId !== cardId) return false;
+  if (store.spaceOf(cardId) !== store.getSpacesSnapshot().activeSpaceId) {
+    return false;
+  }
+  const root = store.peekCardHostRoot(cardId);
+  return root !== null && hiddenClaimReason(root) === null;
+}
+
+/**
  * Raise a card: front it in its pane, reorder the panes so it comes forward,
  * and hand it the responder chain — the whole of what a click on a card does,
  * for a caller that has only the card's id.
@@ -1184,6 +1298,6 @@ export function raiseCard(
       store.activateCard(cardId);
     },
     modality,
-    deferCommit: true,
+    deferCommit: mayDeferCommit(store, cardId),
   });
 }

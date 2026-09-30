@@ -106,6 +106,7 @@ import type {
   LiveTurnPerf,
   ReplayIngestPerf,
 } from "./lib/code-session-store";
+import { clearMarks } from "./lib/perf-marks";
 import {
   snapshotRowParseCounters,
   type RowParseCountersSnapshot,
@@ -1639,6 +1640,13 @@ export interface TugTestSurface {
    * to the eye even though every rect was on a tween. Armed only between this
    * call and {@link TugTestSurface.disarmSettleFrameProbe}; nothing samples at
    * rest.
+   *
+   * Arming also drops every standing performance mark ([B07]). The probe is
+   * armed before the gesture and the marks are read after it, so this is the
+   * one place that can say "the timeline from here belongs to this leg"
+   * without destroying a mark the gesture itself writes — the settle's own
+   * `arm` runs in the same task as the gesture's preamble, where a clear
+   * would take `tug:set-pane-folded` with it.
    */
   armSettleFrameProbe(): void;
 
@@ -3093,6 +3101,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
     },
 
     armSettleFrameProbe(): void {
+      clearMarks();
       settleFrameProbe.arm();
     },
 

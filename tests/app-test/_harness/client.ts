@@ -622,6 +622,21 @@ export interface SettleFrameReading {
   offCurveTicks: number;
   /** Every pane that painted off-curve at any tick. */
   offCurvePaneIds: string[];
+  /**
+   * Ticks at which a frame was travelling, carried NO effect at all, and
+   * travelled again later, while standing at its committed pose — the
+   * retarget double-hop ([B01]). `offCurveTicks` cannot see it: a tick with
+   * no effect has no curve to compare a pose against.
+   */
+  strandedTicks: number;
+  /** Every pane stranded at any tick. */
+  strandedPaneIds: string[];
+  /**
+   * Every pane whose ORIGIN moved across the run while it carried no
+   * transform-bearing effect at any tick — the cut ([B02]). Bench-probe
+   * only; the in-product record declines the rect read and reads it empty.
+   */
+  cutPaneIds: string[];
   /** The longest run of CONSECUTIVE off-curve ticks. */
   longestOffCurveRunTicks: number;
   /**

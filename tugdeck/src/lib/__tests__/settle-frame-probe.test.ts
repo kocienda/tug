@@ -735,6 +735,150 @@ describe("classifySettleFrames", () => {
     expect(reading.offCurveTicks).toBe(1);
   });
 
+  test("a frame that loses its effect mid-travel and stands at its committed pose is STRANDED, where the off-curve bar is blind", () => {
+    // The retarget double-hop, as data ([B01]). Under a deferred React commit
+    // the arm cancels the running tween, hands the residue back and clears
+    // the flip on its own tick, and the Last pass that launches the
+    // replacement is a painted frame away — so for one tick the frame carries
+    // no effect at all and stands at the FLIP's committed pose, which is the
+    // interrupted settle's destination. The reader sees mid -> old end -> mid
+    // -> new end.
+    //
+    // `offCurveTicks` cannot see it and the assertion below says so: a tick
+    // with no effect on it has no curve to compare a pose against, so the
+    // classifier's case 4 skips it. That is exactly why this reading exists.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => {
+          if (tick < 10 || tick > 30) return [pane("p1")];
+          const curve: [number, number] = [-200 + (tick - 10) * 9, 0];
+          // Tick 20: no effect, no transform — the committed pose.
+          return tick === 20
+            ? [pane("p1", { appliedTranslate: null, animations: 0 })]
+            : [onCurve("p1", curve)];
+        },
+      }),
+    );
+
+    expect(reading.strandedTicks).toBe(1);
+    expect([...reading.strandedPaneIds]).toEqual(["p1"]);
+    expect(reading.offCurveTicks).toBe(0);
+  });
+
+  test("a pane HELD at an inline pose between two of its own beats is not stranded", () => {
+    // The false positive the clause is narrowed against, and the reason the
+    // committed-pose test is there at all. A pane waiting between a resize
+    // beat and the move beat that will carry it holds a constant inline
+    // transform and carries no effect — case 4's real subject, and doing
+    // exactly what the settle asked of it.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => {
+          if (tick < 10 || tick > 30) return [pane("p1")];
+          const curve: [number, number] = [-200 + (tick - 10) * 9, 0];
+          return tick >= 18 && tick <= 22
+            ? [pane("p1", { appliedTranslate: [-128, 0], animations: 0 })]
+            : [onCurve("p1", curve)];
+        },
+      }),
+    );
+
+    expect(reading.strandedTicks).toBe(0);
+    expect([...reading.strandedPaneIds]).toEqual([]);
+  });
+
+  test("a clean run strands nothing", () => {
+    // The bar has to be falsifiable in the other direction too: a settle that
+    // never dropped its tween reads zero, so the one above is about the drop
+    // rather than about every run.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => {
+          if (tick < 10 || tick > 30) return [pane("p1")];
+          return [onCurve("p1", [-200 + (tick - 10) * 9, 0])];
+        },
+      }),
+    );
+
+    expect(reading.strandedTicks).toBe(0);
+  });
+
+  test("a frame whose origin moved while it never carried a tween is CUT", () => {
+    // [F03]'s output, as data ([B02]). Two commits in one task, the second
+    // arm discards the first's First rects, the coalesced Last pass plans
+    // nothing, and the frame jumps to Last while its neighbours glide.
+    //
+    // Every other clause is blind to it for case 4's reason, and the
+    // assertions below say so: no effect at any tick means the pane never
+    // enters the curve comparison, so `offCurveTicks` reads zero over a
+    // frame that showed the reader none of its travel.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => [
+          // p1 glides, carried.
+          tick >= 10 && tick <= 30
+            ? onCurve("p1", [-200 + (tick - 10) * 9, 0])
+            : pane("p1"),
+          // p2 jumps at tick 10 and never animates.
+          pane("p2", {
+            rect: { x: tick < 10 ? 0 : 400, y: 0, width: 100, height: 100 },
+          }),
+        ],
+      }),
+    );
+
+    expect([...reading.cutPaneIds]).toEqual(["p2"]);
+    expect(reading.offCurveTicks).toBe(0);
+  });
+
+  test("a frame that only RESIZED is not cut — the origin is what has to be carried", () => {
+    // A fold's `height` and a width preset are real terms with no transform
+    // in them. Counting a size change as an uncarried move would make the
+    // bar fire on every fold, which is the shape of an instrument that has
+    // to be loosened rather than one that is right.
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => [
+          pane("p1", {
+            rect: { x: 0, y: 0, width: 100, height: tick < 10 ? 400 : 120 },
+          }),
+        ],
+      }),
+    );
+
+    expect([...reading.cutPaneIds]).toEqual([]);
+  });
+
+  test("a frame that moved and WAS carried is not cut", () => {
+    const reading = classifySettleFrames(
+      run({
+        ticks: 40,
+        quiet: 10,
+        panes: (tick) => [
+          tick >= 10 && tick <= 30
+            ? onCurve("p1", [-200 + (tick - 10) * 9, 0], {
+                rect: { x: tick * 10, y: 0, width: 100, height: 100 },
+              })
+            : pane("p1", {
+                rect: { x: tick * 10, y: 0, width: 100, height: 100 },
+              }),
+        ],
+      }),
+    );
+
+    expect([...reading.cutPaneIds]).toEqual([]);
+  });
+
   test("the fixed-descendant count is the worst tick, not the last", () => {
     const samples = run({ ticks: 40, quiet: 10 }).map((sample, index) => ({
       ...sample,

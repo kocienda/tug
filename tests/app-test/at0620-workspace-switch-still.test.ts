@@ -1,8 +1,20 @@
 /**
- * at0620-workspace-switch-quiet.test.ts — what a workspace switch actually
- * does to the canvas, frame by frame, BEFORE anything about it changes.
+ * at0620-workspace-switch-still.test.ts — a workspace switch lands still: the
+ * arriving deck is solved for the canvas it arrives in, and nothing under the
+ * switch epoch animates or moves after it closes.
  *
- * ## Why a recording rather than an assertion
+ * ## Why the name changed, 2026-09-29
+ *
+ * This file was `at0620-workspace-switch-quiet` and it was named for
+ * `briefs/workspace-switch-quiet-brief.md` — a cover-until-quiet mechanism
+ * every part of which was deleted by `8a4fd3687`. Nothing here has tested a
+ * cover since. What it tests is stillness, which is a property of the switch
+ * rather than of a mechanism, so the name is now the property. The cadence
+ * half — whether the switch DELIVERS its frames — belongs to
+ * `at0643-workspace-switch-cadence.test.ts`, which holds it to the deck-wide
+ * two-display-frame bar.
+ *
+ * ## Why it began as a recording rather than an assertion
  *
  * The arc this file opens is about stillness: a switch should go from one
  * still screen to another with no extraneous movement after the transition
@@ -42,8 +54,8 @@
  *
  * The readings said which of the candidates above actually move, and the
  * answer is in `briefs/workspace-switch-quiet-recording.md`. The claim that
- * came out of them is in the trace rather than in the pixels, and it is the
- * one leg of this file that fails:
+ * came out of them is in the trace rather than in the pixels, and it was the
+ * one leg of this file that failed when it was written. It passes now:
  *
  * **From the swap commit onward, no arm carried.** A switch is not one commit.
  * The swap spells itself `"cut"` and `arm` has always declined that; every
@@ -66,9 +78,11 @@
  * window suspends it, so asserting `"settled"` would be red on a busy desktop
  * for a reason that is not the product; the rule's proof is the unit test
  * over `spaceEpochClosed`. And the scroller criterion is VACUOUS on this
- * fixture — no transcript here overflows, so the sampler has never tracked a
- * scroller at all — which is noted beside the assertion rather than left for
- * a reader to discover.
+ * fixture on most legs — the `note()` beside the assertion prints how many
+ * scrollers were tracked, and on 2026-09-29 that read 2 on the plain A->B
+ * leg and 0 on the other five. Which legs overflow a transcript is not
+ * stable, so the criterion is real on some runs and vacuous on others; the
+ * note says which, per run, rather than leaving a reader to discover it.
  *
  * ## The three conditions
  *
@@ -875,7 +889,7 @@ async function recordSwitch(
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0620 — a workspace switch, recorded before it is changed",
+  "at0620 — a workspace switch lands still",
   () => {
     test(
       "six switches across three conditions, sampled frame by frame",
@@ -891,7 +905,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         const app = await launchTugApp({
-          testName: "at0620-workspace-switch-quiet",
+          testName: "at0620-workspace-switch-still",
           env: { TUGBANK_PATH: tugbankPath },
           skipAccessibilityPreflight: true,
           persistInTestMode: true,

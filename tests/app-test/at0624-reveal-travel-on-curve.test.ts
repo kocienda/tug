@@ -469,6 +469,13 @@ describe.skipIf(!SHOULD_RUN)(
         const { app, tugbankPath } = await launch();
         try {
           await app.enableDeckTrace(true);
+          // The canvas's frame pump is armed by name since [B07] — it is
+          // cost-bearing (a rAF loop per settle, a computed style per shown
+          // frame per tick), so a deck nobody is measuring runs none of it.
+          // This leg reads the `settle-frames` row, so it asks.
+          await app.evalJS<null>(
+            `(window.__deckTrace.enableKind("settle-frames", true), null)`,
+          );
 
           // ---- The plain leg. -------------------------------------------
           const plainFile = path.join(dir, "plain.txt");

@@ -2,6 +2,8 @@
 
 # Workspace switch: cover until quiet
 
+> **Superseded in full, 2026-09-29 — every mechanism this brief decided was deleted by `8a4fd3687`.** The cover, the quiet gate and the epoch machinery are gone; a switch is held still by `data-space-switching` telling `arm` to decline every commit from the swap onward, and by `activateSpace` re-solving the arriving deck inside the swap commit so nothing has to be covered while it settles. What survives is the recording the brief asked for (`briefs/workspace-switch-quiet-recording.md`) and the test, which no longer tests a cover: `at0643-workspace-switch-cadence.test.ts` holds the switch to the deck-wide two-display-frame bar, and `at0620-workspace-switch-still.test.ts` holds the arriving deck still. Nothing below is a plan; it is the record of what was decided then.
+
 **Purpose:** Switching workspaces still reads as herky-jerky. Content pops, hops and flashes after the dissolve lands, and the user does not want the fix to be a longer pause between workspaces. This brief pins where the movement comes from and decides how a switch goes from one still screen to another.
 
 ---

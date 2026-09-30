@@ -168,6 +168,13 @@ export type DeckTraceEventShape = {
       activeElement: string;
     }
   | {
+      kind: "focus-claim-hidden";
+      cardId: string;
+      site: string;
+      reason: string;
+      activeElement: string;
+    }
+  | {
       kind: "engine-paint-mirror-active";
       cardId: string;
       caller: string;
@@ -343,6 +350,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "cold-boot-restore-snapshot",
   "engine-restore-applied",
   "focus-measurement",
+  "focus-claim-hidden",
   "engine-paint-mirror-active",
   "engine-paint-mirror-inactive",
   "macrotask-focus-claim",
@@ -592,6 +600,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
     }
     case "focus-measurement":
       return `focus-measurement ${fmt(e.cardId)} phase=${fmt(e.phase)} site=${fmt(e.site)} active=${e.activeElement || "∅"}`;
+    case "focus-claim-hidden":
+      return `focus-claim-hidden ${fmt(e.cardId)} site=${fmt(e.site)} reason=${fmt(e.reason)} active=${e.activeElement || "∅"}`;
     case "engine-paint-mirror-active":
       return `engine-paint-mirror-active ${fmt(e.cardId)} caller=${fmt(e.caller)}`;
     case "engine-paint-mirror-inactive":

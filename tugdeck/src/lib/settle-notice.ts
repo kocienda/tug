@@ -2,6 +2,17 @@
  * The settle's end — the one notice the deck sends when the imposer's
  * choreography is over and every frame is standing where it belongs.
  *
+ * There is no matching START notice, and there was: a
+ * `tug-imposer-settle-start` was dispatched from the store subscriber so the
+ * transcript list view could pin each ready cell's `content-visibility`
+ * inline for the settle's length, in place of a stylesheet rule keyed on the
+ * container's `data-imposer-settling` that made the engine walk every
+ * descendant when the attribute toggled. The pin moved elsewhere, the last
+ * listener went with it, and the dispatcher stood with no callers until
+ * [B10] took it out. A notice nobody hears is not an extension point; it is
+ * a second definition of when a settle begins, waiting to disagree with the
+ * arm.
+ *
  * A settle is the imposer's spring, and its clock is that spring: a beat can
  * be retargeted mid-travel, a chain can gain a beat the pass before it did not
  * plan, and reduced motion ends the whole thing in one commit. Anything
@@ -34,32 +45,6 @@
 
 /** Dispatched on the canvas container when a settle ends. Not cancelable: the settle is already over. */
 export const IMPOSER_SETTLE_END = "tug-imposer-settle-end";
-
-/**
- * Dispatched on the canvas container the moment a settle ARMS — the opening
- * the {@link IMPOSER_SETTLE_END} notice closes. It fires from the store
- * subscriber, before React has rendered the commit it belongs to, so a
- * listener runs on the outgoing DOM: what it writes is in place for the
- * settle's first frame. Not cancelable; the settle is already armed.
- *
- * The first listener is the transcript list view's relevance pin: for the
- * settle's length each ready cell keeps the `content-visibility` the engine
- * had decided, written inline on the cell. That used to be a stylesheet rule
- * keyed on the container's `data-imposer-settling`, and a rule that restyles
- * descendants on an ancestor's attribute makes the engine walk every
- * descendant of that ancestor when the attribute toggles — 25ms each way on
- * a six-session deck, inside the gesture's own task and again at the land.
- */
-export const IMPOSER_SETTLE_START = "tug-imposer-settle-start";
-
-export function dispatchImposerSettleStart(container: HTMLElement): void {
-  container.dispatchEvent(
-    new CustomEvent(IMPOSER_SETTLE_START, {
-      cancelable: false,
-      bubbles: false,
-    }),
-  );
-}
 
 /**
  * Announce that the settle on `container` has ended.

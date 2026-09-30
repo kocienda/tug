@@ -240,6 +240,7 @@ import { cardServicesStore } from "./lib/card-services-store";
 import type { CardBinding } from "./protocol";
 import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
+import { mark as perfMark } from "@/lib/perf-marks";
 import type { CodeSessionStore } from "./lib/code-session-store";
 import {
   reactivateCurrentFocusDestination,
@@ -249,15 +250,6 @@ import {
 
 /** Debounce delay for saving layout (ms) */
 const SAVE_DEBOUNCE_MS = 500;
-
-/**
- * PROBE (motion-before-React, step 1). When true, `notify()` tells the
- * `subscribeSync` subscribers inside the commit's task and every other
- * subscriber — React's `useSyncExternalStore` hooks among them — on the task
- * after the next painted frame, so the deck's React commit leaves the gesture's
- * task and lands under a settle the canvas has already launched.
- */
-const PROBE_DEFER_REACT_NOTIFY = true;
 
 /**
  * The registered `componentId` of a Session card.
@@ -1131,11 +1123,24 @@ export class DeckManager implements IDeckManagerStore {
 
   private subscribers: Set<(landing: CommitLanding) => void> = new Set();
 
-  /** PROBE: subscribers told inside the commit's own task. */
+  /** Subscribers told inside the commit's own task ([B04], [D204]). */
   private syncSubscribers: Map<(landing: CommitLanding) => void, string> = new Map();
 
-  /** PROBE: the one deferred notification in flight, coalescing every commit until it flushes. */
+  /** The one deferred notification in flight, coalescing every commit until it flushes. */
   private deferredNotify: { landing: CommitLanding } | null = null;
+
+  /**
+   * The in-flight commit's deferral vote, live only for the length of the
+   * sync-subscriber pass in {@link notify}.
+   *
+   * A sync subscriber runs BEFORE the commit it is being told about has
+   * scheduled its deferral, so `flushPendingNotify` called from inside one
+   * has nothing to flush — the notification it wants is still a few lines
+   * away. It votes here instead, and `notify` reads the vote where it would
+   * otherwise have deferred. Nested so a sync subscriber that provokes its
+   * own commit cannot spend the outer commit's vote.
+   */
+  private inFlightDeferralVote: { flush: boolean } | null = null;
 
   private stateVersion: number = 0;
 
@@ -1189,7 +1194,13 @@ export class DeckManager implements IDeckManagerStore {
 
   public getSnapshot = (): DeckState => this.deckState;
 
-  /** PROBE: {@link subscribe}'s synchronous door. See `PROBE_DEFER_REACT_NOTIFY`. */
+  /**
+   * {@link subscribe}'s synchronous door ([D204], [B04]).
+   *
+   * For a DOM writer and for a reader of the flip's edge. Anything on it that
+   * reaches REACT does so through the same door React is told through, or the
+   * deferral it was given is undone by the subscriber standing next to it.
+   */
   public subscribeSync = (callback: (landing: CommitLanding) => void, label = "anon"): (() => void) => {
     this.syncSubscribers.set(callback, label);
     return () => {
@@ -1197,18 +1208,30 @@ export class DeckManager implements IDeckManagerStore {
     };
   };
 
-  /** PROBE: {@link IDeckManagerStore.flushPendingNotify}. */
+  /** {@link IDeckManagerStore.flushPendingNotify}. */
   public flushPendingNotify = (): void => {
+    // The vote first, and unconditionally, because the two halves answer
+    // different questions. A caller inside the sync-subscriber pass is asking
+    // that THIS commit not be deferred — the canvas's `arm` on a retarget
+    // ([B01]) — and whether some EARLIER commit's deferral is still in flight
+    // has nothing to do with it. Voting only when there is nothing pending
+    // left one reachable hole: a commit that armed nothing (a cut, an
+    // unchanged signature) defers while an earlier settle's tweens still run,
+    // and the next commit's retarget then flushes that stale notification,
+    // returns, and is itself deferred — the double-hop, on the path written
+    // to close it.
+    if (this.inFlightDeferralVote !== null) this.inFlightDeferralVote.flush = true;
     const pending = this.deferredNotify;
-    if (pending === null) return;
-    this.deferredNotify = null;
-    performance.mark("tug:react-notify");
-    this.subscribers.forEach((cb) => cb(pending.landing));
-    performance.mark("tug:react-notify-end");
+    if (pending !== null) {
+      this.deferredNotify = null;
+      perfMark("tug:react-notify");
+      this.subscribers.forEach((cb) => cb(pending.landing));
+      perfMark("tug:react-notify-end");
+    }
   };
 
   /**
-   * PROBE: tell the deferred subscribers after the next painted frame. rAF
+   * Tell the deferred subscribers after the next painted frame ([D204]). rAF
    * runs before that frame's rendering update and a zero timer queued inside
    * it runs after, so the flush lands on the far side of one paint. A deadline
    * timer stands behind it for a window whose rAF is suspended ([L32]).
@@ -1223,9 +1246,9 @@ export class DeckManager implements IDeckManagerStore {
     const flush = (): void => {
       if (this.deferredNotify !== pending) return;
       this.deferredNotify = null;
-      performance.mark("tug:react-notify");
+      perfMark("tug:react-notify");
       this.subscribers.forEach((cb) => cb(pending.landing));
-      performance.mark("tug:react-notify-end");
+      perfMark("tug:react-notify-end");
     };
     scheduleAfterPaint(flush);
   }
@@ -2515,14 +2538,23 @@ export class DeckManager implements IDeckManagerStore {
     // `host-menu-state` aggregator subscribes at boot (main.tsx) and
     // projects each notification into the `menuState` push the Swift
     // host validates its menus from.
-    this.syncSubscribers.forEach((label, cb) => {
-      performance.mark(`tug:sync:${label}`);
+    const priorVote = this.inFlightDeferralVote;
+    const vote = { flush: false };
+    this.inFlightDeferralVote = vote;
+    // Keys, not entries: the label is the call site's name for its door and
+    // the thing the [B04] audit in `deck-manager-store.ts` lists by, not
+    // something this pass reads — the per-subscriber marks that used to read
+    // it were six pairs on every commit and are gone ([B07]).
+    for (const cb of this.syncSubscribers.keys()) {
       cb(landing);
-      performance.mark(`tug:sync:${label}-end`);
-    });
+    }
+    this.inFlightDeferralVote = priorVote;
     // Under reduced motion there is no tween to keep the commit out of, and a
     // deferral would only put the snapped layout one frame behind the gesture.
-    if (!PROBE_DEFER_REACT_NOTIFY || !isTugMotionEnabled()) {
+    // A sync subscriber that voted — a retarget's `arm` ([B01]) — is told the
+    // same way: the residue it just handed back is only safe while the Last
+    // pass follows it before anything paints.
+    if (vote.flush || !isTugMotionEnabled()) {
       this.subscribers.forEach((cb) => cb(landing));
       return;
     }
@@ -4431,15 +4463,15 @@ export class DeckManager implements IDeckManagerStore {
     if (oldFR !== null) this.cardLifecycle.notifyCardWillDeactivate(oldFR);
     if (newFR !== null) this.cardLifecycle.notifyCardWillActivate(newFR);
     this._clearBullseyeOnFocusFlip(newFR);
-    performance.mark("tug:flip-will-end");
+    perfMark("tug:flip-will-end");
     commit();
-    performance.mark("tug:flip-commit-end");
+    perfMark("tug:flip-commit-end");
     if (newFR !== null) this.cardLifecycle.setResponderChainKey(newFR);
-    performance.mark("tug:flip-chain-key-end");
+    perfMark("tug:flip-chain-key-end");
     if (oldFR !== null) this.cardLifecycle.notifyCardDidDeactivate(oldFR);
-    performance.mark("tug:flip-did-deactivate-end");
+    perfMark("tug:flip-did-deactivate-end");
     if (newFR !== null) this.cardLifecycle.notifyCardDidActivate(newFR);
-    performance.mark("tug:flip-did-activate-end");
+    perfMark("tug:flip-did-activate-end");
     // Record after the composite bit has changed — matches Spec
     // `deck-trace` ordering ("fr-flip after the composite
     // bit changes"). See list [#l01-recording-sites].
@@ -7745,6 +7777,13 @@ export class DeckManager implements IDeckManagerStore {
     // none of the three refusals between here and there leaves a stamp behind
     // for the next settle to read as its own.
     const gestureAt = performance.now();
+    // The bench's origin for the fold's PREAMBLE ([B08]). `tug:arm-end` is
+    // the canvas arming, and everything before it on a fold read as an
+    // unattributed 11–12 ms on the click-task timeline: the mutator's own
+    // work, the commit, and the deferred notify all landed in one anonymous
+    // stretch. A mark at the entry gives that stretch a left edge, so the
+    // gap can be split into "before the store wrote" and "after it did".
+    perfMark("tug:set-pane-folded");
     const pane = this.deckState.panes.find((p) => p.id === paneId);
     if (!pane) return;
     if (this._sidebarComponentIdOfPane(paneId) !== undefined) {

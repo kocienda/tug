@@ -202,6 +202,7 @@ import {
   stillHiddenLayerLoops,
   stillLoopOnStart,
 } from "./space-layer-loops";
+import { mark as perfMark } from "@/lib/perf-marks";
 import "./space-layer.css";
 import "./rail-vacancy.css";
 import "./margin-cap.css";
@@ -601,7 +602,7 @@ interface ArrangementSignature {
   readonly full: string;
   /** Every term except the flow offset and each pane's slot. */
   readonly size: string;
-  /** PROBE: every term except the flow offset. Equal across a pure flow slide. */
+  /** Every term except the flow offset. Equal across a pure flow slide. */
   readonly sansOffset: string;
 }
 
@@ -897,14 +898,6 @@ interface SettleTween {
  * this is generous over that and still short beside the bound it guards.
  */
 const SPACE_EPOCH_DEADLINE_MARGIN_MS = 120;
-
-/**
- * PROBE (motion-before-React, step 1). A commit that changes ONLY the flow
- * offset has its move beat launched from `arm` — inside the gesture's task,
- * from the store's own delta, before React renders — and the Last pass adopts
- * it rather than planning one. Read with `at0622`'s `settle-frames` row.
- */
-const PROBE_PRELAUNCH_FLOW = true;
 
 /**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
@@ -2527,7 +2520,7 @@ const LayerPanes = memo(function LayerPanes({
  * Those are the deck's, not any one workspace's ((#canvas-shape)).
  */
 export function DeckCanvas(_props: DeckCanvasProps) {
-  performance.mark("tug:canvas-render");
+  perfMark("tug:canvas-render");
   // ---- Store subscription ([D04]) ----
   // Named `store` (not `manager`) to avoid collision with the ResponderChainManager
   // variable below.
@@ -3708,11 +3701,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * raises no episode.
    */
   const sizeSignatureRef = useRef(arrangementSig.size);
-  /** PROBE: the offset-less signature as `arm` last saw it. */
+  /** The offset-less signature as `arm` last saw it. */
   const sansOffsetRef = useRef(arrangementSig.sansOffset);
-  /** PROBE: the flow offset as `arm` last saw it, rounded as it is written. */
+  /** The flow offset as `arm` last saw it, rounded as it is written. */
   const flowOffsetRef = useRef(Math.round(store.getSnapshot().flowOffset ?? 0));
-  /** PROBE: the move beat `arm` launched ahead of React, if one is up. */
+  /** The move beat `arm` launched ahead of React, if one is up ([D204]). */
   const prelaunchRef = useRef<{ token: object } | null>(null);
   const settleTimerRef = useRef<number | null>(null);
   /**
@@ -4083,11 +4076,43 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    *
    * So `arm` skips a pending frame — no First rect, no restore, no cancel —
    * and the Last pass finds it exactly as an arrival again: still held, still
-   * owed its beat, and enough to keep the replacement settle fused. Entries
-   * leave when their arrive beat launches, and the whole set is emptied when a
-   * settle releases, since nothing is pending past the end of the settle.
+   * owed its beat, and enough to keep the replacement settle fused.
+   *
+   * **An entry leaves when its arrive beat BEGINS, not when its effect is
+   * created ([B03]).** The beats of a chain are all created up front, each
+   * with its own delay, so an effect's existence says nothing about whether
+   * its beat has started: `runBeat("arrive")` builds the fades synchronously
+   * inside the Last pass, a whole `room` beat before the fade's active phase.
+   * Dropping the id there left the frame unprotected for that window — a
+   * close landing during `room` measured the held frame, `hold-at-current`
+   * committed the underlying `opacity: 0`, the restorers handed the pre-hold
+   * opacity back, and the card popped to full opacity with no arrival at all
+   * ([F04]). So the delete rides `whenBeatBegins`, which resolves on the
+   * beat's own first active frame and never before it, and which a retarget
+   * cancels along with the settle — an interrupted arrival stays pending and
+   * is found as an arrival again.
+   *
+   * The whole set is emptied when a settle releases, since nothing is pending
+   * past the end of the settle; the reduced-motion Last pass hands a pending
+   * arrival's hold back on its early return, and the switch sweep drops ids
+   * for panes no beat is ever coming for ([P05]).
+   *
+   * **It carries the hold's restorers, and it is the ONLY record that does
+   * while the frame is pending ([B10]).** An arriving frame used to be
+   * written down three times — here, in the `arrivals` array the Last pass
+   * builds, and in a `settleTweensRef` entry with an empty `anims` array
+   * whose whole job was to hold the restorers so `arm`, the sweep and the
+   * unmount teardown could hand the opacity back. That third record was a
+   * tween record naming no tween, and every reader of `settleTweensRef` had
+   * to know it might be one. Now the pending map holds the frame and its
+   * restorers, and the `settleTweensRef` entry is written when the arrive
+   * beat BEGINS — the same instant the id leaves here, with the live fade
+   * already in it. One record at a time, and which one says which half of
+   * the arrival the frame is in.
    */
-  const pendingArrivalsRef = useRef<Set<string>>(new Set());
+  const pendingArrivalsRef = useRef<
+    Map<string, { frame: HTMLElement; restores: Array<() => void> }>
+  >(new Map());
 
   /**
    * Fire `cardDidArrive` for every card the deck holds that is still marked
@@ -4218,8 +4243,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
      * take — completion, sweep, and the unmount teardown. Nothing here runs
      * on a settled deck, which is what lets the product measure itself
      * without spending anything to do it ([D1], [B10]).
+     *
+     * And nothing here runs on a deck nobody is measuring ([B07]). The pump
+     * is cost-bearing in {@link DeckTrace.enableKind}'s sense — a rAF loop
+     * for the length of every settle, a computed style per shown frame per
+     * tick — so it is armed by name like `space-switch-frames` rather than
+     * riding the global trace flag. The release still records `settle-arm`
+     * and `settle-release` on a shipping instance; the frame-by-frame row is
+     * for the bench that asked for it.
      */
     const startSettleFrameRecord = (el: HTMLElement): void => {
+      if (!deckTrace.isKindEnabled("settle-frames")) return;
       const record = settleFramesRef.current;
       // A retarget arms again inside a window that is already being recorded,
       // and the record belongs to the WINDOW rather than to the arm: the
@@ -4261,7 +4295,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // feeding `rectsChangedAfterLanding`, which the row has no field for
         // either. Either would put a cost inside the one window [D9] forbids
         // main-thread work in, to compute a number nothing here reads.
-        if (record.samples.length === 0) performance.mark("tug:first-tick");
+        if (record.samples.length === 0) perfMark("tug:first-tick");
         record.samples.push(sampleSettleFrame(el));
         record.raf = requestAnimationFrame(tick);
       };
@@ -4295,6 +4329,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         pendingTicks: reading.pendingTicks,
         offCurveTicks: reading.offCurveTicks,
         offCurvePaneIds: reading.offCurvePaneIds,
+        strandedTicks: reading.strandedTicks,
+        strandedPaneIds: reading.strandedPaneIds,
+        cutPaneIds: reading.cutPaneIds,
         longestOffCurveRunTicks: reading.longestOffCurveRunTicks,
         longestOffCurveRunOffsetMs: reading.longestOffCurveRunOffsetMs,
         violations: reading.violations,
@@ -4324,6 +4361,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // numbers and then the release that ended them.
       stopSettleFrameRecord();
       deckTrace.record({ kind: "settle-release", source });
+      // The hold comes off with the id, always ([B10]). The pending map is
+      // the ONLY record of an arriving frame whose beat never began, so
+      // emptying it without running its restorers leaves the frame wearing
+      // the inline `opacity: 0` the Last pass wrote and nothing left that
+      // knows about it — a card nobody can see, for the life of the canvas.
+      //
+      // It is a backstop rather than the only site: the sweep and the
+      // reduced-motion Last pass hand the hold back themselves, because both
+      // need it back BEFORE they take the settle's marks off. The path this
+      // catches is the one that has neither — a Last pass that finds no First
+      // rect at all (a switch epoch, motion turned off mid-settle) and
+      // releases on the spot because no tween record stands. Before [B10] the
+      // pending arrival WAS such a record, which is what used to hold that
+      // release back. The restorers are idempotent, so running them here
+      // after a caller already did costs a write of the same value.
+      for (const { restores } of pendingArrivalsRef.current.values()) {
+        for (const restore of restores) restore();
+      }
       pendingArrivalsRef.current.clear();
     };
     settleReleaseRef.current = releaseSettle;
@@ -4363,6 +4418,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           endStillCrossing(entry.el);
         }
         // After the frames, so the flush inside carries their hand-back.
+        //
+        // And the frames that never reached a tween record: an arrival whose
+        // beat had not begun when this window ran out is in the pending map
+        // and nowhere else ([B10]), still wearing the inline `opacity: 0`
+        // the Last pass wrote. `releaseSettle` below empties the map, so the
+        // restorers have to run before it or the hold outlives the settle.
+        for (const { restores } of pendingArrivalsRef.current.values()) {
+          for (const restore of restores) restore();
+        }
         endSettleMarks(el);
         // Every ghost this window was still carrying. The sweep is the net for
         // a settle whose completion never landed, and a ghost is the one thing
@@ -4433,7 +4497,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // and not a translate.
       const sizeChanged = next.size !== sizeSignatureRef.current;
       sizeSignatureRef.current = next.size;
-      // PROBE: is this commit a pure flow slide, and by how much?
+      // Is this commit a pure flow slide, and by how much?
       const flowOnly = next.sansOffset === sansOffsetRef.current && !sizeChanged;
       sansOffsetRef.current = next.sansOffset;
       const prevFlowOffset = flowOffsetRef.current;
@@ -4493,7 +4557,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // fade IS in flight keeps it: its landing is unconditional, and cutting
       // it would take the departure off the screen mid-fade.
       removeDepartureGhostsRef.current("unlaunched");
-      // PROBE: every arm supersedes the Last pass before it. Under the
+      // Every arm supersedes the Last pass before it. Under the
       // deferral there is a painted frame between this arm and its own Last
       // pass, and a beat this arm cancels lands its completion in that
       // frame — with the generation unbumped it read as the settle's own
@@ -4520,21 +4584,42 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // be seen to. So the episodes are still raised, the imposer's settle-end
       // notice still goes out, and only the tweens are refused.
       const motion = isTugMotionEnabled() && !switching;
-      // PROBE: launch the move from here when nothing else is in flight and
-      // the whole change is the strip's offset. Measuring is skipped for a
-      // pre-launched settle: the Last pass finds no First rects and leaves the
-      // marks and the hold to this beat's own landing.
+      // Launch the move from here when nothing else is in flight and the
+      // whole change is the strip's offset ([D204]): the beat starts inside
+      // the gesture's task, from the store's own delta, before React renders,
+      // and the Last pass adopts it rather than planning one. Measuring is
+      // skipped for a pre-launched settle: the Last pass finds no First rects
+      // and leaves the marks and the hold to this beat's own landing.
       const prelaunch =
-        PROBE_PRELAUNCH_FLOW &&
         motion &&
         flowOnly &&
         prevFlowOffset !== nextFlowOffset &&
         settleTweensRef.current.size === 0 &&
+        // Nothing MEASURED and unrendered ([B02]). A First rect standing here
+        // is an earlier arm in this same task whose Last pass has not run —
+        // two commits in one task produce two synchronous arms and, under the
+        // deferral, ONE coalesced React commit. Without this clause the
+        // second arm passes on "no running tweens" (there are none yet: the
+        // Last pass has not launched them), takes the prelaunch path, and
+        // `firstRects.clear()` throws away the first arm's measurement — so
+        // the coalesced Last pass finds nothing to plan and every frame the
+        // first commit moved CUTS. `hideSidebarRail` and the flow retune
+        // after a rail retune are the shapes that do it ([F03]).
+        //
+        // A prelaunch is a beat planned from the store delta alone, and it is
+        // only valid when no beat is waiting on the DOM. That is the
+        // definition the Beat primitive will need too.
+        settleFirstRectsRef.current.size === 0 &&
         pendingArrivalsRef.current.size === 0;
       if (!prelaunch) prelaunchRef.current = null;
       const measure = motion && !prelaunch;
       const firstRects = settleFirstRectsRef.current;
-      firstRects.clear();
+      // Under `measure` only, for the clause above's reason: a prelaunch must
+      // never discard a measurement somebody is still waiting on. It cannot
+      // reach a non-empty map any more, so this is the guard restated where
+      // the damage used to happen rather than a second condition. Every Last
+      // pass clears on every path out, so nothing accumulates.
+      if (measure) firstRects.clear();
       const firstFolds = settleFirstFoldsRef.current;
       firstFolds.clear();
       const firstRailSides = settleFirstRailSidesRef.current;
@@ -4748,7 +4833,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
       }
 
-      performance.mark("tug:arm-measured");
+      perfMark("tug:arm-measured");
       // Second pass: the episodes. A begin is a READ — `discoverScrollers`
       // asks `scrollHeight`, and every unclaimed scroller it finds is then
       // measured down to twelve boxes deep — so it belongs with the
@@ -4785,7 +4870,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           stamps.push(() => handle.stamp());
         }
       }
-      performance.mark("tug:arm-episodes-end");
+      perfMark("tug:arm-episodes-end");
 
       // Third pass: the frames caught mid-settle. Every write below — a
       // restored width, a cleared transform, an episode's stamp — happens
@@ -4794,8 +4879,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // own doc asks for; it goes back a few lines later in that tick, and
       // nothing paints in between.
       for (const apply of stamps) apply();
+      // Did the arm cancel anything? Every branch below that hands residue
+      // back is a retarget, and a retarget is never deferred — see the flush
+      // after the strips.
+      let retargeted = armedStrips.length > 0;
       for (const { paneId, frame, running } of armed) {
         if (running !== undefined) {
+          retargeted = true;
           // The `snap-to-end` the hold above replaces committed the tween's
           // FINAL value into inline style instead, and the microtask that took
           // it back was long enough to paint — one frame at a stale size
@@ -4810,6 +4900,32 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         for (const restore of running.restores) restore();
         clearFlip(key, strip, running.anims);
       }
+
+      // A RETARGET IS NEVER DEFERRED ([B01]).
+      //
+      // "Nothing paints in between" above is a claim about this tick, and it
+      // only holds while React commits on this tick too. Under [D204] the
+      // deck's notify lands a painted frame later, so the residue comes off
+      // here, the frame paints once at the interrupted settle's END pose
+      // carrying no tween at all, and only then does the Last pass measure
+      // Last and tween from the mid pose it inverted. The eye gets
+      // mid → old end → mid → new end, and the bench cannot see it: the
+      // frame has no effect on that tick, so the off-curve classifier has no
+      // curve to compare it against.
+      //
+      // The flush asks the store to tell React inline instead. `arm` is a
+      // synchronous subscriber, so this commit has not scheduled its
+      // deferral yet and the call is a VOTE rather than a flush; the store
+      // reads it a few lines after `arm` returns and the Last pass follows
+      // the restores before anything paints, exactly as it did before [D204].
+      // The cost is that a retarget pays the commit in-task — the price a
+      // retarget always paid. The deferral's win was the first gesture's,
+      // and it keeps it.
+      //
+      // Moving the third pass into the Last pass was the alternative and is
+      // rejected: it changes what First measures on the next retarget and
+      // reopens the stale-size flash this pass was written to close.
+      if (retargeted) store.flushPendingNotify?.();
 
       // A column whose mode flipped moves the one member the stack shows and
       // holds every other one behind it — `settleHoldPlanRef` says why the
@@ -4950,7 +5066,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // reintroduce the very commit the hold is here to keep out. Sized
       // here against the crossing's nominal; the Last pass re-holds against
       // the choreography's total once it knows the beats.
-      performance.mark("tug:arm-planned");
+      perfMark("tug:arm-planned");
       if (motion) {
         settleReleasedRef.current = false;
         holdSessions(Math.max(2 * windowMs, 1000));
@@ -4962,7 +5078,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // armed at exactly the crossing's duration would win the race with the
       // last tween's `finished` by a frame and release from the wrong clock.
       scheduleSweep(Math.max(2 * windowMs, 1000));
-      performance.mark("tug:arm-end");
+      perfMark("tug:arm-end");
     };
     const unsubscribe = store.subscribeSync?.(arm, "canvas-arm") ?? store.subscribe(arm);
     return () => {
@@ -4974,6 +5090,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
       // Unmounting mid-gesture leaves neither a running tween nor a
       // transform — nor a card whose notifications nobody will release.
+      // A pending arrival's hold comes off inside `releaseSettle` on every
+      // path, this one included ([B10]): the effect's teardown re-runs
+      // whenever `store` or a hold callback changes identity, and there the
+      // frames outlive it.
       releaseSettle("unmount");
       settleBeatRef.current = null;
       settleLaunchRef.current = null;
@@ -5023,7 +5143,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // frame's `left` calc resolves against. Measuring Last before the fresh
   // insets land would tween every rail side flip from a stale delta.
   useLayoutEffect(() => {
-    performance.mark("tug:last-pass");
+    perfMark("tug:last-pass");
     const el = containerRef.current;
     const firstRects = settleFirstRectsRef.current;
     const firstFolds = settleFirstFoldsRef.current;
@@ -5087,6 +5207,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       firstRailSides.clear();
       firstRailShadows.clear();
       endAllEpisodes();
+      // A pending arrival's hold comes off HERE rather than at the sweep
+      // ([B03]). Under reduced motion no arrive beat will ever run, so the
+      // `whenBeatBegins` delete that ends an arrival is never reached and the
+      // frame stays at inline `opacity: 0` until the settle window timer —
+      // up to a second of an invisible card. The restorers are what hand the
+      // pre-hold opacity back, so they run with the id: dropping the id alone
+      // would leave the frame invisible rather than merely unfaded.
+      for (const [paneId, pending] of [...pendingArrivalsRef.current]) {
+        pendingArrivalsRef.current.delete(paneId);
+        for (const restore of pending.restores) restore();
+      }
       if (settleTweensRef.current.size === 0) {
         takeSettlingMarkOff(el);
         el.removeAttribute("data-imposer-beat");
@@ -5196,24 +5327,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const departures: Array<{
       paneId: string;
       ghost: HTMLElement;
+      /**
+       * A rail leaves by the edge it stands on, and this is how far ([B10]).
+       * `undefined` for a frame in the band, which has no edge of its own
+       * and fades where it stands.
+       */
+      travelPx?: number;
     }> = [];
     /**
-     * The rails that left, which do NOT ride the depart beat.
+     * Which side each departing RAIL left by, keyed by the ghost's name.
      *
-     * A rail's exit is launched the moment its ghost is planted, on a clock of
-     * its own, because the beat is not reachable for it: hiding the sidebars
-     * is a run of commits in ONE turn — a record, then a close per member, per
-     * side — and every commit's `arm` sweeps the ghosts whose beat has not
-     * launched yet. A beat that launches on a microtask always loses that
-     * race, so every rail but the last one closed vanished without travelling.
-     * Launching at the plant is what makes each rail's exit its own, however
-     * many commits follow it.
+     * Collected while the ghosts are planted and read once afterwards, when
+     * the travel per side can be measured against the canvas. A band frame is
+     * absent from it, which is what "this exit is a fade" means.
      */
-    const railDepartures: Array<{
-      paneId: string;
-      ghost: HTMLElement;
-      side: SidebarSide;
-    }> = [];
+    const railSideOfGhost = new Map<string, SidebarSide>();
     /**
      * The shadow strips of the sides whose rails are ALL arriving, held
      * invisible with their rails and slid in on the arrive beat.
@@ -5377,10 +5505,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // launched alongside it ([P05]), so what happens here is the opening
         // pose and nothing else: the frame is held invisible until its arrive
         // beat comes round, which is the same rule `applyHolds` states for an
-        // axis whose grow beat is still to come. Registered in
-        // `settleTweensRef` with an empty `anims` array so `arm`, the sweep and
-        // the unmount teardown all hand the opacity back — a frame left wearing
-        // the hold would be a card nobody can see.
+        // axis whose grow beat is still to come. The hold's restorers go in
+        // the PENDING map and nowhere else ([B10]) — `arm`, the sweep and the
+        // unmount teardown all read them there, and the `settleTweensRef`
+        // entry is written when the arrive beat begins, with its fade already
+        // in it. A frame left wearing the hold would be a card nobody can
+        // see, so exactly one of the two records owns it at every instant.
         //
         // No `outstanding += 1` here: the chain accounts for the arrive beat,
         // and counting it twice would leave the settle's hold outstanding
@@ -5390,18 +5520,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // keeps the restorer that knows the opacity it had before any hold.
         // Capturing a fresh one here would record the hold itself as the
         // value to hand back, and the card would end its arrival invisible.
-        const prior = settleTweensRef.current.get(paneId);
-        const restores =
-          prior !== undefined && pendingArrivalsRef.current.has(paneId)
-            ? prior.restores
-            : [inlineRestorer(frame, "opacity")];
-        pendingArrivalsRef.current.add(paneId);
+        //
+        // The pending map is where that restorer lives now ([B10]), and it
+        // answers the question exactly: an id still in it is a frame whose
+        // arrive beat never began, which is the one case worth carrying. A
+        // frame whose beat DID begin is out of the map and in
+        // `settleTweensRef`, where a retarget's `arm` has already cancelled
+        // its fade and run its restorers — so a fresh capture is right there.
+        const prior = pendingArrivalsRef.current.get(paneId);
+        const restores = prior?.restores ?? [inlineRestorer(frame, "opacity")];
         frame.style.opacity = "0";
-        settleTweensRef.current.set(paneId, {
-          el: frame,
-          anims: [],
-          restores,
-        });
+        pendingArrivalsRef.current.set(paneId, { frame, restores });
         arrivals.push({ paneId, frame, restores });
         continue;
       }
@@ -5750,16 +5879,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // Registered the instant it is planted, so every exit below can hand it
       // back by name. A departure whose pane somehow departs twice replaces
       // its own entry, which is the right record of one pane, one ghost.
-      // A rail's ghost counts as launched from the instant it is planted,
-      // because it is: the slide below starts on this same tick, and the
-      // sweep must leave it to travel.
+      //
+      // Unlaunched, rail or not ([B10]). A rail's exit used to be launched
+      // here, on a clock of its own, because the beat was not reachable for
+      // it: hiding the sidebars is a run of commits in ONE turn, and under
+      // the old per-commit React commit each of those produced a Last pass
+      // whose `arm` swept the ghosts whose beat had not launched yet, so
+      // every rail but the last one closed vanished without travelling. The
+      // deferred, coalesced commit ([D204]) produces ONE Last pass for the
+      // whole run: the ghosts are planted and their beat is launched in the
+      // same pass, and no `arm` stands between the two. So the exit rides the
+      // `depart` beat like every other exit, and the deck has no animation
+      // left that is unconditional on the settle generation.
+      departureGhostsRef.current.set(paneId, { ghost, launched: false });
       const railSide = firstRailSides.get(paneId);
-      departureGhostsRef.current.set(paneId, {
-        ghost,
-        launched: railSide !== undefined,
-      });
-      if (railSide === undefined) departures.push({ paneId, ghost });
-      else railDepartures.push({ paneId, ghost, side: railSide });
+      departures.push({ paneId, ghost });
+      if (railSide !== undefined) railSideOfGhost.set(paneId, railSide);
     }
     // A rail leaves by the edge it stands on, and it takes its SHADOW with
     // it. The shadow is one strip per side drawn by the canvas rather than by
@@ -5773,22 +5908,23 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // strip stands ten pixels inboard, so measuring it against the edge
     // separately would give it a longer journey and the two would drift apart
     // over the crossing.
-    if (railDepartures.length > 0) {
+    if (railSideOfGhost.size > 0) {
       const canvasRect = el.getBoundingClientRect();
       const travelBySide = new Map<SidebarSide, number>();
-      for (const { ghost, side } of railDepartures) {
+      for (const departure of departures) {
+        const side = railSideOfGhost.get(departure.paneId);
+        if (side === undefined) continue;
         if (travelBySide.has(side)) continue;
         travelBySide.set(
           side,
-          railTravelPx(ghost.getBoundingClientRect(), side, canvasRect),
+          railTravelPx(departure.ghost.getBoundingClientRect(), side, canvasRect),
         );
       }
-      const leaving: Array<{ key: string; node: HTMLElement; px: number }> =
-        railDepartures.map(({ paneId, ghost, side }) => ({
-          key: paneId,
-          node: ghost,
-          px: travelBySide.get(side) ?? 0,
-        }));
+      for (const departure of departures) {
+        const side = railSideOfGhost.get(departure.paneId);
+        if (side === undefined) continue;
+        departure.travelPx = travelBySide.get(side) ?? 0;
+      }
       for (const [side, px] of travelBySide) {
         if (el.querySelector(`[data-rail-shadow="${side}"]`) !== null) continue;
         const rect = firstRailShadows.get(side);
@@ -5806,42 +5942,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         el.appendChild(ghost);
         // In the same registry the pane ghosts are in, so the canvas
         // teardown's "take them all" sweep reaches these too — and launched,
-        // for the reason its rail's is.
-        departureGhostsRef.current.set(key, { ghost, launched: true });
-        leaving.push({ key, node: ghost, px });
-      }
-      // On its own clock and its own completion, unconditional on the settle
-      // generation: a ghost stands for a pane that has already left the deck,
-      // so nothing later will ever collect it and nothing it could interrupt
-      // is still watching.
-      //
-      // **`snap-to-end`, and a landing on BOTH outcomes.** The settle's own
-      // `hold-at-current` is wrong for a ghost twice over: it REJECTS
-      // `finished`, so a landing hung on the resolve alone never runs, and it
-      // commits the mid-slide pose to inline style — which strands the tile in
-      // the document, parked in the middle of the deck, wearing the transform
-      // it was cancelled at. A ghost has no restorer and no later pass, so
-      // that stripe would stand for the life of the canvas. Snapping to the
-      // end is also the honest answer: the end is off the edge.
-      for (const { key, node, px } of leaving) {
-        const slide = animate(
-          node,
-          { transform: ["translateX(0px)", `translateX(${px}px)`] },
-          {
-            ...settleOpts,
-            duration: fadeCurve.durationMs,
-            easing: "ease-out",
-            slotCancelMode: "snap-to-end",
-            key: `rail-exit:${key}`,
-          },
-        );
-        const collect = (): void => {
-          const entry = departureGhostsRef.current.get(key);
-          if (entry === undefined) return;
-          entry.ghost.remove();
-          departureGhostsRef.current.delete(key);
-        };
-        void slide.finished.then(collect, collect);
+        // unlaunched with its rail, because it rides the same beat ([B10]).
+        departureGhostsRef.current.set(key, { ghost, launched: false });
+        departures.push({ paneId: key, ghost, travelPx: px });
       }
     }
     // The beats. Every frame's shrink tweens together; on their joint
@@ -5990,8 +6093,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           // moving right, and the right rail is its mirror. A card in the band
           // has no edge of its own and keeps the fade — it is not travelling
           // from anywhere, it is beginning to be here ([D135]). The way OUT is
-          // not here at all: a rail's exit is launched where its ghost is
-          // planted, for the race the `railDepartures` comment states.
+          // the mirror of it, and it is here too now ([B10]): a rail's ghost
+          // slides off the edge it came in by, on this beat, with its shadow
+          // strip beside it on the same keyframes.
           const canvasRect = el.getBoundingClientRect();
           // **One travel per side, and the shadow takes the pane's** — the
           // exit's rule, for the exit's reason.
@@ -6013,11 +6117,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           });
           const fades: TugAnimation[] =
             kind === "depart"
-              ? departures.map(({ ghost }) =>
-                  animate(ghost, { opacity: [1, 0] }, {
-                    ...fadeOpts,
-                    key: "imposer-exit-ghost",
-                  }),
+              ? departures.map(({ ghost, travelPx }) =>
+                  animate(
+                    ghost,
+                    travelPx === undefined
+                      ? { opacity: [1, 0] }
+                      : {
+                          transform: [
+                            "translateX(0px)",
+                            `translateX(${travelPx}px)`,
+                          ],
+                        },
+                    { ...fadeOpts, key: "imposer-exit-ghost" },
+                  ),
                 )
               : arrivals.map(({ frame }) => {
                   const attr = frame.getAttribute("data-rail-side");
@@ -6111,20 +6223,33 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               anims: fades,
               land,
             };
-          });
-          // An arriving frame's fade is registered on its own entry so a
-          // retarget cancels what is actually in flight, exactly as a planned
-          // beat's tween is.
-          if (kind === "arrive") {
-            for (const [i, { paneId }] of arrivals.entries()) {
-              pendingArrivalsRef.current.delete(paneId);
-              const entry = settleTweensRef.current.get(paneId);
-              const anim = fades[i];
-              if (entry !== undefined && anim !== undefined) {
-                entry.anims.push(anim);
+            // An arriving frame stops being pending HERE — on the arrive
+            // beat's own first active frame — rather than at the moment its
+            // fade was constructed ([B03]). The doc on `pendingArrivalsRef`
+            // says what the old placement cost. A retarget before this point
+            // cancels the marker with the settle, so `begin` never runs, the
+            // id stays in the set, and the replacement arm leaves the frame
+            // alone: no First rect, hold kept, no restore.
+            //
+            // And it becomes a `settleTweensRef` entry in the same breath,
+            // carrying the fade that is now running and the restorers the
+            // pending map was holding ([B10]). The two records hand the frame
+            // to each other rather than both describing it: while the beat is
+            // still to come the pending map owns it, and from its first
+            // active frame the tween record does — which is exactly when
+            // there is a tween to record.
+            if (kind === "arrive") {
+              for (const [i, { paneId, frame, restores }] of arrivals.entries()) {
+                pendingArrivalsRef.current.delete(paneId);
+                const anim = fades[i];
+                settleTweensRef.current.set(paneId, {
+                  el: frame,
+                  anims: anim === undefined ? [] : [anim],
+                  restores,
+                });
               }
             }
-          }
+          });
           return Promise.allSettled(fades.map((anim) => anim.finished)).then(
             () => {
               if (kind === "depart") {
@@ -7239,13 +7364,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const paneId = frame.getAttribute("data-pane-id");
         if (paneId !== null) onScreen.add(paneId);
       }
-      for (const paneId of [...pendingArrivalsRef.current]) {
+      for (const [paneId, pending] of [...pendingArrivalsRef.current]) {
         if (onScreen.has(paneId)) continue;
         pendingArrivalsRef.current.delete(paneId);
-        const entry = settleTweensRef.current.get(paneId);
-        if (entry === undefined) continue;
-        for (const restore of entry.restores) restore();
-        settleTweensRef.current.delete(paneId);
+        for (const restore of pending.restores) restore();
       }
     }
 

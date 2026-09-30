@@ -270,6 +270,33 @@ export interface SettleFrameReading {
   readonly offCurveTicks: number;
   /** Every pane that painted off-curve at any tick. */
   readonly offCurvePaneIds: readonly string[];
+  /**
+   * Ticks at which at least one frame was STRANDED: travelling on the tick
+   * before, carrying no effect at all on this one, and travelling again
+   * later, while standing at its committed pose.
+   *
+   * The double-hop [B01] closes, and the one failure `offCurveTicks` cannot
+   * see by construction — a tick with no effect on it has no curve to compare
+   * a pose against, so the classifier's case 4 skips it. What the reader sees
+   * is the frame at the interrupted settle's END pose for one painted frame
+   * before the replacement tween takes it back: mid → old end → mid → new
+   * end. The bar is zero.
+   */
+  readonly strandedTicks: number;
+  /** Every pane stranded at any tick. */
+  readonly strandedPaneIds: readonly string[];
+  /**
+   * Every pane whose ORIGIN moved across the run while it carried no
+   * transform-bearing effect at any tick — the cut ([B02]).
+   *
+   * The failure [F03] produces: two commits in one task, the second arm
+   * discards the first's First rects, the coalesced Last pass plans nothing,
+   * and the frames the first commit moved jump while their neighbours glide.
+   * Invisible to every other clause, because a pane with no effect at any
+   * tick never enters the curve comparison. Bench-probe only — the
+   * in-product record declines the rect read, so the row reads this empty.
+   */
+  readonly cutPaneIds: readonly string[];
   /** The longest run of CONSECUTIVE off-curve ticks. */
   readonly longestOffCurveRunTicks: number;
   /**
@@ -305,6 +332,9 @@ const EMPTY_READING: SettleFrameReading = {
   pendingTicks: 0,
   offCurveTicks: 0,
   offCurvePaneIds: [],
+  strandedTicks: 0,
+  strandedPaneIds: [],
+  cutPaneIds: [],
   longestOffCurveRunTicks: 0,
   longestOffCurveRunOffsetMs: -1,
   violations: [],
@@ -536,6 +566,8 @@ export function classifySettleFrames(
   let pendingTicks = 0;
   let offCurveTicks = 0;
   const offCurvePaneIds = new Set<string>();
+  let strandedTicks = 0;
+  const strandedPaneIds = new Set<string>();
   // Spec S01's cases 3 and 4 need this pane's own effect history across the
   // WHOLE run, not just the part of it already walked, so they are resolved in
   // one pass up front rather than carried as a bit.
@@ -558,6 +590,10 @@ export function classifySettleFrames(
   const firstEffectTick = new Map<string, number>();
   const lastEffectTick = new Map<string, number>();
   const curveByPane = new Map<string, (Translate | null)[]>();
+  // Which ticks this pane carried a transform-bearing effect at all, which is
+  // what {@link SettleFrameReading.strandedTicks} reads backwards and
+  // forwards from the tick it is judging.
+  const effectByPane = new Map<string, boolean[]>();
   for (let i = 0; i < samples.length; i += 1) {
     for (const frame of samples[i].frames) {
       let series = curveByPane.get(frame.paneId);
@@ -566,6 +602,12 @@ export function classifySettleFrames(
         curveByPane.set(frame.paneId, series);
       }
       series[i] = frame.curveTranslate;
+      let present = effectByPane.get(frame.paneId);
+      if (present === undefined) {
+        present = new Array<boolean>(samples.length).fill(false);
+        effectByPane.set(frame.paneId, present);
+      }
+      present[i] = frame.hasTransformEffect;
       if (!frame.hasTransformEffect) continue;
       if (!firstEffectTick.has(frame.paneId)) firstEffectTick.set(frame.paneId, i);
       lastEffectTick.set(frame.paneId, i);
@@ -579,6 +621,7 @@ export function classifySettleFrames(
     const sample = samples[tick];
     if (sample.movePending) pendingTicks += 1;
     let offCurveHere = false;
+    let strandedHere = false;
     if (sample.movePending || sample.moveCurrentTime !== null) {
       if (moveBornAt === null) moveBornAt = sample.t;
     }
@@ -610,7 +653,42 @@ export function classifySettleFrames(
       // them to stand and neither is comparable to a curve.
       if (first === undefined || last === undefined) continue;
       if (tick < first) continue;
-      if (!frame.hasTransformEffect && tick <= last) continue;
+      if (!frame.hasTransformEffect && tick <= last) {
+        // Case 4's blind spot, and the one tick [B01] is about.
+        //
+        // The skip is right for a pane WAITING between two of its own beats:
+        // it is holding an inline pose something told it to hold, and there
+        // is no curve to compare it against. It is wrong for a pane that was
+        // TRAVELLING on the tick before, carries no effect on this one, and
+        // travels again later — the tween did not pause, it vanished, and the
+        // pane is painting a pose no curve in the settle passes through.
+        //
+        // Under a deferred React commit that is exactly what a retarget
+        // produces: `arm` cancels the running tween, hands the residue back
+        // and clears the flip on its own tick, and the Last pass that would
+        // launch the replacement is a painted frame away. So the frame paints
+        // once at the interrupted settle's END pose — the identity, since the
+        // FLIP's committed pose IS the destination — and then hops back to
+        // the mid pose the new tween inverts from. mid → old end → mid → new
+        // end, on a tick carrying no effect, which is why no curve comparison
+        // could ever see it.
+        //
+        // Held to the identity rather than counted for any effect-less tick:
+        // a pane parked at a non-identity inline pose is being held, and a
+        // hold is not the hop.
+        const held = frame.appliedTranslate;
+        const atCommittedPose =
+          held === null ||
+          (Math.abs(held[0]) <= OFF_CURVE_TOLERANCE_PX &&
+            Math.abs(held[1]) <= OFF_CURVE_TOLERANCE_PX);
+        const present = effectByPane.get(frame.paneId);
+        const travelledBefore = tick > 0 && present?.[tick - 1] === true;
+        if (atCommittedPose && travelledBefore) {
+          strandedHere = true;
+          strandedPaneIds.add(frame.paneId);
+        }
+        continue;
+      }
 
       // The poses this frame may be holding without being off its curve.
       //
@@ -691,6 +769,7 @@ export function classifySettleFrames(
       }
     }
     if (offCurveHere) offCurveTicks += 1;
+    if (strandedHere) strandedTicks += 1;
     if (offCurveHere) {
       if (currentRunTicks === 0) currentRunStartT = sample.t;
       currentRunTicks += 1;
@@ -731,6 +810,55 @@ export function classifySettleFrames(
     }
   }
 
+  // Every frame that MOVED across the run and never carried a tween — the cut
+  // ([B02]).
+  //
+  // A frame the imposer moved without planning a beat for it is the whole of
+  // what [F03] produces: the coalesced Last pass finds no First rect, plans
+  // nothing, and the frame jumps to Last while every frame beside it glides.
+  // No clause above can see it, and the reason is case 4 again — a pane with
+  // no effect at any tick never enters the curve comparison at all, so the
+  // reading that says "it arrived on time and on its curve" is a reading
+  // about frames that HAD a curve.
+  //
+  // The ORIGIN alone, not the whole box. A frame that only resized — a
+  // fold's `height`, a width preset — did not travel, and the beat carrying
+  // a size term is not a transform. What this asks is whether a frame that
+  // went somewhere was carried there.
+  //
+  // Rect-bearing samples only, like `rectsChangedAfterLanding` above: the
+  // in-product record declines the read ([D9] would otherwise force a layout
+  // per tick on a compositor-only settle), so this field is the bench
+  // probe's and the row reads it empty.
+  const cutPaneIds = new Set<string>();
+  {
+    const firstOrigin = new Map<string, readonly [number, number]>();
+    const lastOrigin = new Map<string, readonly [number, number]>();
+    const everAnimated = new Set<string>();
+    for (const sample of samples) {
+      for (const frame of sample.frames) {
+        if (frame.hasTransformEffect) everAnimated.add(frame.paneId);
+        if (frame.rect === null) continue;
+        const origin = [frame.rect.x, frame.rect.y] as const;
+        if (!firstOrigin.has(frame.paneId)) {
+          firstOrigin.set(frame.paneId, origin);
+        }
+        lastOrigin.set(frame.paneId, origin);
+      }
+    }
+    for (const [paneId, first] of firstOrigin) {
+      if (everAnimated.has(paneId)) continue;
+      const last = lastOrigin.get(paneId);
+      if (last === undefined) continue;
+      if (
+        Math.abs(last[0] - first[0]) > OFF_CURVE_TOLERANCE_PX ||
+        Math.abs(last[1] - first[1]) > OFF_CURVE_TOLERANCE_PX
+      ) {
+        cutPaneIds.add(paneId);
+      }
+    }
+  }
+
   return {
     ticks: samples.length,
     framePeriodMs,
@@ -751,6 +879,9 @@ export function classifySettleFrames(
     pendingTicks,
     offCurveTicks,
     offCurvePaneIds: [...offCurvePaneIds],
+    strandedTicks,
+    strandedPaneIds: [...strandedPaneIds],
+    cutPaneIds: [...cutPaneIds],
     longestOffCurveRunTicks,
     // Measured from the first tick a transform-bearing effect existed, so the
     // offset reads as a position along the settle rather than along the

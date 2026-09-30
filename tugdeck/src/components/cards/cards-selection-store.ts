@@ -27,6 +27,8 @@
 
 import { isSidebarCard } from "@/card-registry";
 import type { IDeckManagerStore } from "@/deck-manager-store";
+import { scheduleAfterPaint } from "@/lib/after-paint";
+import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
 
 /** The selected card ids in pick order, plus the anchor ⇧-extension ranges from. */
 export interface LensSelectionSnapshot {
@@ -231,12 +233,36 @@ export function getLayoutCursorCard(): string | null {
  * bit's standing value — a selection built while some other card is fronted
  * (⌘-clicking rows in the Cards card never fronts anything) must survive, and only a
  * fresh activation means the user moved on.
+ *
+ * **The read is synchronous and the write is not ([B04]).** This rides
+ * `subscribeSync`, the door for a subscriber that needs the flip's edge — the
+ * transition of the first-responder bit is only visible from inside the
+ * commit, because the bit's standing value a task later says nothing about
+ * whether it moved. But `selection` is a store React subscribes to, and a
+ * React-visible write made here re-renders the deck canvas inside
+ * `transferFocusForActivation`'s `flushSync`; the canvas then reads the
+ * deck's NEW snapshot (React reads `getSnapshot` on render whatever notified
+ * it) and runs the whole Last pass inside the click task, which is the one
+ * thing [D204]'s deferral exists to prevent. Measured on the bench at 5–11 ms
+ * of Last pass inside the flush ([F05]).
+ *
+ * So the `pickOnly` takes the after-paint door — the same door the deck's own
+ * React notify takes — coalesced to one write per painted frame and standing
+ * down under reduced motion, where there is no tween to protect. The
+ * semantics are unchanged: a second transition inside the same frame
+ * overwrites the pending id exactly as a second synchronous `pickOnly` would
+ * have overwritten the first selection.
  */
 export function attachLayoutSelectionToDeck(
   deck: IDeckManagerStore,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): () => void {
   let lastFirstResponder = deck.getFirstResponderCardId();
+  // The coalesced deferral's one slot. Non-null means a write is scheduled
+  // and has not run; a later transition replaces the id rather than queueing
+  // a second pass, which is what makes N commits in one task cost one write.
+  let pendingPick: string | null = null;
+  let detached = false;
   const handle = (): void => {
     const state = deck.getSnapshot();
     selection.pruneTo(state.cards.map((c) => c.id));
@@ -255,7 +281,27 @@ export function attachLayoutSelectionToDeck(
     if (card === undefined || isSidebarCard(card.componentId)) return;
     if (selection.getSnapshot().ids.includes(fr)) return;
     if (suppressed) return;
-    selection.pickOnly(fr);
+    // Reduced motion stands down: there is no tween whose first frame the
+    // React commit could land in, so the write costs nothing where it is.
+    if (!isTugMotionEnabled()) {
+      selection.pickOnly(fr);
+      return;
+    }
+    const alreadyScheduled = pendingPick !== null;
+    pendingPick = fr;
+    if (alreadyScheduled) return;
+    scheduleAfterPaint(() => {
+      const id = pendingPick;
+      pendingPick = null;
+      if (detached || id === null) return;
+      selection.pickOnly(id);
+    });
   };
-  return deck.subscribeSync?.(handle, "cards-selection") ?? deck.subscribe(handle);
+  const unsubscribe =
+    deck.subscribeSync?.(handle, "cards-selection") ?? deck.subscribe(handle);
+  return () => {
+    detached = true;
+    pendingPick = null;
+    unsubscribe();
+  };
 }

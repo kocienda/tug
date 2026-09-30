@@ -20,13 +20,21 @@
 </head>
 <body style="margin:0;padding:0;overflow:hidden">
   <div id="deck-container"></div>
-  <!-- PROBE: React commit census. The devtools-shaped hook must exist before
+  <!-- React commit census ([B07]). The devtools-shaped hook must exist before
        react-dom evaluates, and a module import cannot promise that once the
        bundler hoists the vendor chunk, so it is installed here. Every commit
        is walked once for the fibers that performed work and recorded with a
-       timestamp; read it with window.__tugCommits.since(t). -->
+       timestamp; read it with window.__tugCommits.since(t).
+
+       It is installed ONLY in test mode. The walk is a whole-tree diff on
+       every React commit — the most expensive instrument on the deck, and
+       one that runs on the shipping path for nobody. `__tugTestMode` is
+       written by a WKUserScript at atDocumentStart, so it is already there
+       when this runs; off it, the hook is never installed and react-dom
+       takes its ordinary no-devtools path. -->
   <script>
     (function () {
+      if (window.__tugTestMode !== true) return;
       if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
       var commits = [];
       function nameOf(type) {

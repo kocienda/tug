@@ -67,6 +67,7 @@ import { createContext } from "react";
 import type { TugAction } from "./action-vocabulary";
 import type { KeyBinding } from "./keybinding-map";
 import { chordMatchesEvent } from "./chord-format";
+import { mark as perfMark } from "@/lib/perf-marks";
 import { scheduleAfterPaint } from "@/lib/after-paint";
 import { isTugMotionEnabled } from "./scale-timing";
 
@@ -1693,7 +1694,7 @@ export class ResponderChainManager {
         this.schedule(() => {
           if (!this.deferredNotifyPending) return;
           this.deferredNotifyPending = false;
-          performance.mark("tug:chain-notify");
+          perfMark("tug:chain-notify");
           for (const cb of this.subscribers) cb();
         });
       }

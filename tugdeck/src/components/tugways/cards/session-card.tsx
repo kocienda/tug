@@ -648,7 +648,6 @@ export function SessionCardContent({
   renderTurnTrailing,
   footerContent,
 }: SessionCardContentProps) {
-  performance.mark("tug:session-render");
   const services = useSessionCardServices(cardId);
   // Subscribe to the restore registry so `SessionRestoring` mounts as
   // soon as `restoreSessions` fires a `spawn_session(resume)` for
@@ -1106,13 +1105,21 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   const sheetOpenRef = useRef(false);
   // Whether this host is still mounted, for a present that was handed to the
   // after-paint door and comes back to a card that may have closed meanwhile.
+  //
+  // Set true on mount as well as false on unmount, in ONE layout effect
+  // ([B06]). The initializer alone is not enough under StrictMode, whose
+  // mount → unmount → remount of the same component instance runs the cleanup
+  // against a ref that no later effect puts back: the host is live again and
+  // the ref reads dead, so every deferred present after the first is dropped
+  // on a card that is perfectly fine. One effect writing both edges makes the
+  // ref say what the mount actually is, at every edge, in both regimes.
   const pickerHostLiveRef = useRef(true);
-  useLayoutEffect(
-    () => () => {
+  useLayoutEffect(() => {
+    pickerHostLiveRef.current = true;
+    return () => {
       pickerHostLiveRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Whether the sheet has ever been presented for this picker. State, not a
   // ref, because the standing notice below is rendered from it — and unlike
@@ -1366,7 +1373,10 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     // whose frame nobody can see yet; and reduced motion, where there is no
     // tween to protect. `presentSheet` re-reads the fold and its own latch at
     // the door, so a card that folded or presented in between is left alone;
-    // a card unmounted in between has no host to present on.
+    // a card unmounted in between has no host to present on; and a card that
+    // stopped being first responder in between is not presented on at all
+    // ([B06]) — every precondition the stack would have read is read again on
+    // the far side of the frame the deferral inserted.
     return cardLifecycle.observeCardDidActivate(cardId, () => {
       const store = getDeckStore();
       const arriving =
@@ -1376,7 +1386,20 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
         return;
       }
       scheduleAfterPaint(() => {
-        if (pickerHostLiveRef.current) presentSheet();
+        if (!pickerHostLiveRef.current) return;
+        // And the card must still be the one the user is looking at ([B06]).
+        // The activation that scheduled this present is a fact about the
+        // frame it fired in, and a frame is exactly what the after-paint door
+        // puts between the two: activate an unbound card and then activate
+        // another inside the same task — a chain fan-out, a restore that
+        // raises two cards, a click that lands while a keyboard activation is
+        // in flight — and both presents arrive after the paint, the first of
+        // them onto a card that stopped being first responder before it ever
+        // ran. Re-reading first responder at the door is what makes the
+        // deferral invisible: a present the stack would have made is still
+        // made, and one the stack would have made WRONG is not made at all.
+        if (getDeckStore()?.getFirstResponderCardId() !== cardId) return;
+        presentSheet();
       });
     });
   }, [cardLifecycle, cardId, presentSheet]);
