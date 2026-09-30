@@ -444,7 +444,7 @@ mod tests {
     // The corpus sessions live outside the repo and are written while the
     // suite runs, so the sweep both skips gracefully when absent and drops
     // any file that moves mid-run (`StillFiles`).
-    use crate::live_corpus::{StillFiles, reference_corpus_dir, tugcode_bin};
+    use crate::live_corpus::{StillFiles, corpus_has_sessions, reference_corpus_dir, tugcode_bin};
 
     /// The dead-branch parity contract: for every session in the real local
     /// corpus, this port's dead set equals tugcode's (`tugcode dead <dir>`),
@@ -453,8 +453,8 @@ mod tests {
     #[test]
     fn dead_sets_match_tugcode_over_real_corpus() {
         let dir = reference_corpus_dir();
-        if !dir.is_dir() {
-            eprintln!("skipping: real corpus not present at {}", dir.display());
+        if !corpus_has_sessions(&dir) {
+            eprintln!("skipping: no real corpus sessions at {}", dir.display());
             return;
         }
         let bin = tugcode_bin();

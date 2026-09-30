@@ -336,7 +336,7 @@ mod tests {
         reference_corpus_dir().join("49e9aec6-7c3a-4c0c-9f74-5a9a0551812e.jsonl")
     }
 
-    use crate::live_corpus::{StillFiles, reference_corpus_dir, tugcode_bin};
+    use crate::live_corpus::{StillFiles, corpus_has_sessions, reference_corpus_dir, tugcode_bin};
 
     fn origin_str(o: TurnOrigin) -> &'static str {
         match o {
@@ -571,8 +571,8 @@ mod tests {
     #[test]
     fn engine_matches_tugcode_segmentation_over_real_corpus() {
         let dir = reference_corpus_dir();
-        if !dir.is_dir() {
-            eprintln!("skipping: real corpus not present at {}", dir.display());
+        if !corpus_has_sessions(&dir) {
+            eprintln!("skipping: no real corpus sessions at {}", dir.display());
             return;
         }
         let bin = tugcode_bin();

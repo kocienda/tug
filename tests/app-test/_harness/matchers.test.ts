@@ -441,6 +441,13 @@ const EVENT_FIXTURES: Record<
     cardId: "c2",
     activeElement: "input#c2",
   },
+  "focus-claim-hidden": {
+    kind: "focus-claim-hidden",
+    cardId: "c2",
+    site: "focus-transfer",
+    reason: "parked-space",
+    activeElement: "input#c2",
+  },
   "engine-paint-mirror-active": {
     kind: "engine-paint-mirror-active",
     cardId: "c2",

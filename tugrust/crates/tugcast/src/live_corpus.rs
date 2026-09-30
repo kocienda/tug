@@ -17,10 +17,42 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-/// The user's real local session corpus for this project.
+/// The user's real local session corpus for this checkout.
+///
+/// Derived, never written down: Claude Code names a project directory after
+/// the checkout's own path with every non-alphanumeric byte turned into `-`,
+/// so the path is computed from `CARGO_MANIFEST_DIR` rather than hardcoded.
+/// A hardcoded one goes stale the moment the checkout is renamed or the
+/// contract runs from an arc worktree, and a stale path is a gate that
+/// silently compares nothing.
 pub fn reference_corpus_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".claude/projects/-Users-kocienda-Mounts-u-src-tugtool")
+    let checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let checkout = std::fs::canonicalize(&checkout).unwrap_or(checkout);
+    PathBuf::from(home)
+        .join(".claude/projects")
+        .join(encode_project_dir(&checkout))
+}
+
+/// Claude Code's project-directory encoding: every byte that is not
+/// alphanumeric becomes `-`, so `/Users/me/src/tug` is `-Users-me-src-tug`.
+fn encode_project_dir(path: &Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// True when `dir` holds at least one session JSONL. A corpus directory can
+/// outlive its sessions — a renamed checkout leaves the old one behind with
+/// only `memory/` in it — and an empty corpus is nothing to compare against,
+/// so every contract treats it exactly as it treats an absent one.
+pub fn corpus_has_sessions(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
 }
 
 /// The bun-compiled `tugcode` binary — the other side of every parity
