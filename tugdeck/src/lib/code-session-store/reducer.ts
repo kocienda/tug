@@ -560,6 +560,16 @@ export interface CodeSessionState {
      * older than the field.
      */
     site?: string;
+    /**
+     * For `wire_error` only: the bridge's own verdict on whether the session
+     * can go on. The bridge marks a frame `recoverable` when tugcode is
+     * still alive and holding the session — an EOF'd claude it can respawn
+     * on the next submit, not a session that is gone. The card reads it to
+     * decide whether Dismiss is allowed to give the entry back, rather than
+     * treating every `lastError` as a death. Absent on every other cause,
+     * and on a frame from a tugcode older than the field.
+     */
+    recoverable?: boolean;
   } | null;
   lastCost: CostSnapshot | null;
   /**
@@ -5272,6 +5282,11 @@ function handleWireError(
     // label with nothing behind it. Older bridges send none.
     ...(typeof event.site === "string" && event.site.length > 0
       ? { site: event.site }
+      : {}),
+    // Carried, not just received: the affordance this comment has always
+    // promised needs the flag to survive into the snapshot the card reads.
+    ...(typeof event.recoverable === "boolean"
+      ? { recoverable: event.recoverable }
       : {}),
   });
   return {

@@ -100,6 +100,17 @@ fn print_report(r: &SweepReport, verb: &str, quiet: bool) {
         .map(|(pid, cmd)| format!("{pid} {cmd}"))
         .collect();
     section(verb, "reparented processes", &procs, quiet);
+    // Point at the durable record whenever this pass actually signalled
+    // something. Killing a `claude` or a `tugcode` is the one thing a sweep
+    // does that another person will later want to account for, and a report
+    // that scrolled past in a `--quiet || true` invocation is not an
+    // account. Printed even under `--quiet`, which shortens sections but is
+    // not a reason to hide where the evidence went.
+    // `verb` is also "would sweep" for the preview passes, which signal
+    // nothing and so have nothing to point at.
+    if verb == "swept" && !r.processes_killed.is_empty() {
+        println!("  recorded in {}", janitor::kill_log_path().display());
+    }
 }
 
 fn section(verb: &str, label: &str, items: &[String], quiet: bool) {

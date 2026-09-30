@@ -1552,10 +1552,16 @@ interface SessionCardBodyProps {
 /**
  * Render the consolidated `<TugPaneBanner>` from a derived spec.
  * The body calls this once with the spec from
- * `deriveSessionCardBannerSpec` and the `setDismissedAt` setter the
+ * `deriveSessionCardBannerSpec` and the `onDismiss` handler the
  * Dismiss footer wires up for the `error` kind. Centralized here so
  * the JSX stays close to its presentation siblings without burying
  * the precedence-chain mapping inside the body's render tree.
+ *
+ * `onDismiss` is a handler rather than the bare `setDismissedAt` because
+ * dismissing has a second half the setter cannot do: the Dismiss button holds
+ * activeElement at the moment it is clicked, and the banner it is inside is
+ * about to unmount, so the caret has to be put somewhere deliberately or it
+ * lands nowhere. See the body's handler.
  *
  * `kind === "none"` still renders the banner with `visible: false`
  * — the component runs its exit animation and unmounts via its
@@ -1574,7 +1580,7 @@ interface SessionCardBodyProps {
  */
 function renderSessionCardBanner(
   spec: ReturnType<typeof deriveSessionCardBannerSpec>,
-  setDismissedAt: (at: number) => void,
+  onDismiss: (at: number) => void,
 ): React.ReactElement {
   if (spec.kind === "error") {
     // `spec.message` is the backend detail. For a crashed session it is
@@ -1605,7 +1611,7 @@ function renderSessionCardBanner(
           <TugPushButton
             emphasis="outlined"
             role="danger"
-            onClick={() => setDismissedAt(spec.at)}
+            onClick={() => onDismiss(spec.at)}
           >
             Dismiss
           </TugPushButton>
@@ -2290,17 +2296,58 @@ export function SessionCardBody({
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const bannerSpec = deriveSessionCardBannerSpec(codeSnap, { dismissedAt });
 
-  // Once the session hits any non-recoverable error, disable the entry —
-  // the dismiss gesture only hides the banner, the underlying session is
-  // still dead. The user recovers by closing and reopening the card.
-  // `resume_failed` and the auth gate (`auth_required` / `claude_missing`)
-  // are excluded upstream: the card observer unbinds the bound body on
-  // those causes (the picker sheet re-renders instead), so they never
-  // reach this dead-session classification. Attachment rejections never
-  // reach `lastError` at all — they surface as a card bulletin, so they
-  // neither disable the entry nor light its errored ring.
+  // Once the session hits a non-recoverable error, disable the entry — the
+  // underlying session really is gone, and the user recovers by closing and
+  // reopening the card. `resume_failed` and the auth gate (`auth_required` /
+  // `claude_missing`) are excluded upstream: the card observer unbinds the
+  // bound body on those causes (the picker sheet re-renders instead), so
+  // they never reach this dead-session classification. Attachment rejections
+  // never reach `lastError` at all — they surface as a card bulletin, so
+  // they neither disable the entry nor light its errored ring.
+  //
+  // **Dismissing a RECOVERABLE error gives the entry back.** The bridge marks
+  // a frame recoverable when tugcode is still alive holding the session, and
+  // since the 2026-09-30 incident the next submit is what respawns claude
+  // against it — so on those, "the session is still dead" is simply untrue,
+  // and a card that stayed inert was refusing the one gesture that would have
+  // healed it. Treating them as deaths also cost the caret: the entry's
+  // disabled ring and the cycle's resting focus hang off this one boolean, so
+  // a dismissed banner left the composer locked with the Dismiss button
+  // holding activeElement and the focus engine standing down against it.
+  // Scoped by `at`, exactly as the banner's own dismissal is: this dismissal
+  // forgives THIS error, and a fresh one re-raises on its own `at`.
   const sessionErrored =
-    codeSnap.lastError !== null && codeSnap.lastError.cause !== "resume_failed";
+    codeSnap.lastError !== null &&
+    codeSnap.lastError.cause !== "resume_failed" &&
+    !(
+      codeSnap.lastError.recoverable === true &&
+      codeSnap.lastError.at === dismissedAt
+    );
+
+  // Dismiss, both halves. The stamp is what the banner and `sessionErrored`
+  // read; the focus is what the *user* reads, and the setter alone cannot do
+  // it. At click time the Dismiss button holds activeElement inside a banner
+  // that is about to unmount, and on a recoverable error the entry it was
+  // covering is about to become live again — so without an explicit landing
+  // the caret is left on a removed node. That is the shape the focus watchdog
+  // logged six times during the 2026-09-30 incident: `reassert budget
+  // exhausted … standing down`, the engine fighting a button that had taken
+  // the route and never gave it back.
+  //
+  // Deferred one frame because the landing is only legal after the render
+  // that clears `sessionErrored` — the entry pane is `disabled` until then,
+  // and a claim on a disabled surface is the ring and the caret disagreeing
+  // again. Non-recoverable errors keep the entry inert, so there is nowhere
+  // to land and the stamp is the whole gesture.
+  const dismissBanner = useCallback(
+    (at: number) => {
+      const recoverable = codeSnap.lastError?.recoverable === true;
+      setDismissedAt(at);
+      if (!recoverable) return;
+      requestAnimationFrame(() => entryDelegateRef.current?.focus());
+    },
+    [codeSnap.lastError, entryDelegateRef],
+  );
 
   // Keyboard-focus-cycling ([P09]/[P10]). ⌥⇥ trades the editor's Tab for
   // a trapped tour of the card's chrome zones (the submit is the
@@ -5281,7 +5328,7 @@ export function SessionCardBody({
         false`; the component runs its exit animation and then
         unmounts via its internal `mounted` state.
       */}
-        {renderSessionCardBanner(bannerSpec, setDismissedAt)}
+        {renderSessionCardBanner(bannerSpec, dismissBanner)}
       </div>
     </CardContentResponderScope>
   );

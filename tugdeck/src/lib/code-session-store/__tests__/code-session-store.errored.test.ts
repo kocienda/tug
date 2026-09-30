@@ -265,6 +265,35 @@ describe("CodeSessionStore — a rotation clears the banner it superseded", () =
     expect(store.getSnapshot().lastError?.site).toBeUndefined();
   });
 
+  it("carries the bridge's recoverable verdict onto the banner", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseWireError(conn, store, "drain_eof_open_turn");
+
+    // The card decides whether Dismiss gives the entry back on this flag, so
+    // a frame the bridge marked recoverable has to arrive as one. Dropping it
+    // is what made every wire error read as a death.
+    expect(store.getSnapshot().lastError?.recoverable).toBe(true);
+  });
+
+  it("carries no recoverable verdict when the bridge sent none", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    store.send("hi", []);
+    driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID);
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "error",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      message: "Claude process stream ended unexpectedly",
+    });
+
+    // Absent stays absent rather than becoming `false`: an older tugcode has
+    // no opinion, and the card's `=== true` test reads that as "not
+    // recoverable" without the snapshot claiming the bridge said so.
+    expect(store.getSnapshot().lastError?.cause).toBe("wire_error");
+    expect(store.getSnapshot().lastError?.recoverable).toBeUndefined();
+  });
+
   it("leaves the banner standing on a replayed stage divider", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);

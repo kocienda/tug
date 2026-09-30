@@ -1314,6 +1314,15 @@ export interface CodeSessionSnapshot {
      * older than the field.
      */
     site?: string;
+    /**
+     * For `wire_error` only: the bridge's own verdict on whether the session
+     * can go on — set when tugcode is still alive holding it, so the next
+     * submit can put a claude back under the card. The card reads it to
+     * decide whether Dismiss gives the entry back or leaves it inert. Absent
+     * on every other cause, and on a frame from a tugcode older than the
+     * field.
+     */
+    recoverable?: boolean;
   } | null;
 
   /**

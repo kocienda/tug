@@ -3440,6 +3440,16 @@ export class SessionManager {
    * by {@link startStdoutDrain} when a fresh claude is spawned.
    */
   private claudeStdoutEofObserved: boolean = false;
+  /**
+   * True once {@link reattachAfterEof} has tried (and failed) to bring a
+   * fresh claude up for the current EOF episode. One attempt per episode:
+   * a respawn that cannot spawn will not spawn on the next submit either,
+   * and retrying it per keystroke-batch would turn a dead session into a
+   * fork bomb. Reset alongside {@link claudeStdoutEofObserved} by
+   * {@link startStdoutDrain}, so a claude that *does* come up restores the
+   * one attempt the next EOF is entitled to.
+   */
+  private eofReattachAttempted: boolean = false;
   private permissionManager: PermissionManager;
   /**
    * The session's current reasoning-effort level ([#step-4]), or `null` when
@@ -4309,6 +4319,66 @@ export class SessionManager {
   }
 
   /**
+   * Bring a live claude back under a card whose claude died — the recovery
+   * the `send_after_eof` dead end used to refuse.
+   *
+   * The dead end was never a *decision*, only a guard: `handleUserMessage`
+   * cannot install an `ActiveTurn` against a stdout that has EOF'd, because
+   * nothing will ever resolve the turn's completion promise. But the two
+   * ways a card reaches that state — a claude killed out from under tugcode
+   * (the 2026-09-30 incident: SIGTERM mid-turn, `drain_eof_open_turn`) and a
+   * claude that exited on its own — both leave **tugcode itself alive and
+   * serving**, holding the session id, its JSONL, and its bindings. Nothing
+   * about them is unrecoverable; the session was only unattended. So the
+   * submit that used to be refused is the natural moment to reattach: the
+   * user asking for the next turn IS the request to have one.
+   *
+   * `--resume` against the same claude id, which is what {@link respawnResume}
+   * does for {@link forceTerminateAndRespawn} and {@link handleStopAllWork} —
+   * same conversation, JSONL intact, synthetic `session_init` so the card
+   * re-announces its binding rather than rebinding to something new. The
+   * `killAndCleanup` first is not ceremony: the dead process's handle,
+   * watchers and group are still held, and its sweep is what stops a tool
+   * subprocess that outlived its claude from outliving its replacement too.
+   *
+   * Returns `false` when there is nothing to do it with — then, and only
+   * then, does the caller emit `send_after_eof` and leave the card for the
+   * user to close. One attempt per EOF episode ({@link eofReattachAttempted});
+   * a spawn that failed once fails the same way on the next keystroke.
+   */
+  private async reattachAfterEof(): Promise<boolean> {
+    if (!this.claudeStdoutEofObserved) return true;
+    if (this.eofReattachAttempted) return false;
+    this.eofReattachAttempted = true;
+    return this.respawn(async () => {
+      // Re-read under the gate: a rotation, fork or effort change may have
+      // seated a fresh claude while this submit waited for it, and that
+      // claude is the one the turn belongs to.
+      if (!this.claudeStdoutEofObserved) return true;
+      try {
+        await this.killAndCleanup();
+        // killAndCleanup latched `isShuttingDown` for the teardown; clear it
+        // so the fresh spawn's early-exit watcher is armed normally.
+        this.isShuttingDown = false;
+        const claudeId = this.respawnResume();
+        logSessionLifecycle("tugcode.reattach_after_eof", {
+          session_id: this.sessionId,
+          claude_session_id: claudeId,
+          outcome: "respawned",
+        });
+        return true;
+      } catch (err) {
+        logSessionLifecycle("tugcode.reattach_after_eof", {
+          session_id: this.sessionId,
+          outcome: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return false;
+      }
+    });
+  }
+
+  /**
    * Signal claude's whole process group, falling back to the child alone when
    * the group is already gone. `signal` is a name so the fallback can carry
    * it unchanged.
@@ -5049,6 +5119,18 @@ export class SessionManager {
           session_id: sessionId,
           reason,
           exit_code: code,
+          // A shell reports a signalled death as 128 + signum, and "claude
+          // exited 143" read alone says nothing about who sent the 15. This
+          // pair is what separates the two cases a reader actually has to
+          // tell apart: a claude that fell over on its own, and one that was
+          // signalled — by us, or by somebody else on the machine. The
+          // 2026-09-30 investigation had neither field and spent its whole
+          // length establishing what these two say outright.
+          signal: code > 128 && code < 192 ? code - 128 : null,
+          // False here means tugcode did not ask for this exit: no respawn,
+          // no stop, no quiesce was in flight. Then the sender was external,
+          // and the search starts outside this process.
+          self_inflicted: this.isShuttingDown,
         });
         await writeLineAndExit(
           errorFrame("post_handshake_exit", reason, true),
@@ -6082,6 +6164,10 @@ export class SessionManager {
     // handleUserMessage on the fast-path "claude is dead" branch
     // forever.
     this.claudeStdoutEofObserved = false;
+    // …and with it the one reattach attempt the next EOF episode gets. A
+    // claude that came up is proof the spawn path works, so the attempt
+    // spent on the last episode must not be held against the next.
+    this.eofReattachAttempted = false;
     const reader = (
       claudeProcess.stdout as ReadableStream<Uint8Array>
     ).getReader();
@@ -7621,6 +7707,15 @@ export class SessionManager {
       }
     } else if (!turn.gotResult) {
       if (!turn.suppressEmit) {
+        // The frame alone is anonymous — `site=drain_eof_open_turn` and
+        // nothing else, which is what a reader gets when several tugcodes
+        // share one stderr capture. Name the session and say whether we
+        // asked for this, so a mid-turn death is as legible as the
+        // between-turns one the `turn === null` branch above already logs.
+        logSessionLifecycle("tugcode.claude_stdout_eof_open_turn", {
+          session_id: this.sessionId,
+          self_inflicted: this.isShuttingDown,
+        });
         emitErrorFrame(
           "drain_eof_open_turn",
           "Claude process stream ended unexpectedly",
@@ -7698,23 +7793,24 @@ export class SessionManager {
       }
     }
 
-    if (!this.claudeProcess) {
-      throw new Error("Session not initialized");
-    }
-
-    // Fast-path: the drain already observed claude's stdout
-    // closing. Installing an `ActiveTurn` here would block on a
-    // completion promise nothing will ever resolve. Emit the
-    // canonical end-of-stream error frame and return — same shape
-    // pre-R1e's read-loop emitted when its `readNextLine` returned
-    // null on the first iteration.
-    if (this.claudeStdoutEofObserved) {
+    // The drain already observed claude's stdout closing. Installing an
+    // `ActiveTurn` against that process would block on a completion promise
+    // nothing will ever resolve — so before anything else, put a live claude
+    // back under the card. The EOF latch is checked BEFORE the
+    // `claudeProcess` null guard on purpose: the latch can only be set by a
+    // drain, and a drain can only exist for a process that was spawned, so
+    // reaching here is never the "never initialized" case that guard names.
+    if (this.claudeStdoutEofObserved && !(await this.reattachAfterEof())) {
       emitErrorFrame(
         "send_after_eof",
         "Claude process stream ended unexpectedly",
         true,
       );
       return;
+    }
+
+    if (!this.claudeProcess) {
+      throw new Error("Session not initialized");
     }
 
     // Forward the inbound content blocks directly to claude. The

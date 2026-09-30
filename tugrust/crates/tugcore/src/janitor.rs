@@ -473,6 +473,15 @@ pub fn sweep_reparented_processes(min_age: Duration, mode: SweepMode) -> Vec<(i3
         if !process_command(row.pid).is_some_and(|c| is_orphan_command(&c)) {
             continue;
         }
+        // Say so before doing it, durably. This is the only code in the
+        // tree that signals a `claude` or `tugcode` by name, so when one
+        // dies with no explanation this file is the first place that can
+        // answer "was it us?" — and on 2026-09-30 nothing could. The sweep
+        // usually runs from `tugtool host sweep`, which has no tracing
+        // subscriber and is invoked `--quiet || true` by the app-test
+        // recipe, so its stdout report reaches nobody; the record has to
+        // outlive the process that wrote it.
+        record_process_kill(&row);
         // SAFETY: kill(2) on a pid we just verified; a failure is
         // reported through errno, which we ignore deliberately.
         unsafe { libc::kill(row.pid, libc::SIGTERM) };
@@ -483,6 +492,69 @@ pub fn sweep_reparented_processes(min_age: Duration, mode: SweepMode) -> Vec<(i3
         killed.push((row.pid, row.command));
     }
     killed
+}
+
+/// Filename of the janitor's kill record, in [`crate::instance::base_data_dir`]
+/// — machine-global and shared, not per-instance, because the sweep is
+/// machine-wide and the process that ran it is usually a bare `tugtool` that
+/// belongs to no instance.
+pub const KILL_LOG_FILENAME: &str = "janitor-kills.jsonl";
+
+/// Bytes past which [`record_process_kill`] trims the record to its most
+/// recent [`KILL_LOG_RETAINED`] lines. Steady state is an empty file — a
+/// janitor that signals a process at all is reporting a leak — so this is a
+/// guard against a pathological loop, not a routine rotation.
+const KILL_LOG_MAX_BYTES: u64 = 1 << 20;
+
+/// Lines kept when the record is trimmed.
+const KILL_LOG_RETAINED: usize = 2_000;
+
+/// Absolute path of the janitor's kill record.
+pub fn kill_log_path() -> PathBuf {
+    crate::instance::base_data_dir().join(KILL_LOG_FILENAME)
+}
+
+/// Append one line naming a process this sweep is about to signal, and who is
+/// doing it.
+///
+/// Best-effort in the strongest sense: **no failure here may stop a sweep**.
+/// A record that cannot be written is worse than no record, but a janitor
+/// that refuses to reclaim debris because it could not write a log is worse
+/// than both.
+fn record_process_kill(row: &ProcRow) {
+    let entry = serde_json::json!({
+        "at": chrono::Utc::now().to_rfc3339(),
+        "pid": row.pid,
+        "ppid": row.ppid,
+        "elapsed_secs": row.elapsed.as_secs(),
+        "command": row.command,
+        "signal": "SIGTERM",
+        // The half that was missing. "Something SIGTERM'd it" is where the
+        // 2026-09-30 investigation stalled; the sweeper's own identity is
+        // what turns that into an answer.
+        "by_pid": std::process::id(),
+        "by_instance": crate::instance::instance_id(),
+    });
+    let Ok(line) = serde_json::to_string(&entry) else {
+        return;
+    };
+    let path = kill_log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::metadata(&path).is_ok_and(|m| m.len() > KILL_LOG_MAX_BYTES)
+        && let Ok(existing) = fs::read_to_string(&path)
+    {
+        let kept: Vec<&str> = existing
+            .lines()
+            .skip(existing.lines().count().saturating_sub(KILL_LOG_RETAINED))
+            .collect();
+        let _ = fs::write(&path, kept.join("\n") + "\n");
+    }
+    use std::io::Write as _;
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{line}");
+    }
 }
 
 fn ps_rows() -> Vec<ProcRow> {
@@ -837,6 +909,68 @@ pub(crate) fn older_than(meta: &fs::Metadata, min_age: Duration) -> bool {
 mod tests {
     use super::*;
     use std::fs::File;
+
+    /// Point [`crate::instance::base_data_dir`] at a scratch root for the
+    /// body of one test, restoring whatever was there on the way out.
+    struct DataDirGuard(Option<std::ffi::OsString>);
+
+    impl DataDirGuard {
+        fn set(dir: &Path) -> Self {
+            let prior = std::env::var_os(crate::instance::ENV_DATA_DIR);
+            // SAFETY: single-threaded test body, serialized against every
+            // other test that touches this variable.
+            unsafe { std::env::set_var(crate::instance::ENV_DATA_DIR, dir) };
+            Self(prior)
+        }
+    }
+
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            // SAFETY: as above.
+            unsafe {
+                match self.0.take() {
+                    Some(v) => std::env::set_var(crate::instance::ENV_DATA_DIR, v),
+                    None => std::env::remove_var(crate::instance::ENV_DATA_DIR),
+                }
+            }
+        }
+    }
+
+    /// The record is what turns "something SIGTERM'd my claude" into an
+    /// answer, so it has to carry the victim AND the sweeper, and it has to
+    /// accumulate rather than replace: two kills in one pass are two lines.
+    #[test]
+    #[serial_test::serial]
+    fn a_process_kill_is_recorded_with_its_sweeper() {
+        let root = tempfile::tempdir().unwrap();
+        let _g = DataDirGuard::set(root.path());
+
+        let row = parse_ps_row(
+            "  4242   1 10:00 /Users/x/.local/bin/claude -p --output-format stream-json",
+        )
+        .expect("parse");
+        record_process_kill(&row);
+        record_process_kill(&row);
+
+        let body = fs::read_to_string(kill_log_path()).expect("record written");
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2, "appends, never replaces: {body}");
+
+        let entry: serde_json::Value = serde_json::from_str(lines[0]).expect("json line");
+        assert_eq!(entry["pid"], 4242);
+        assert_eq!(entry["ppid"], 1);
+        assert_eq!(entry["signal"], "SIGTERM");
+        assert_eq!(entry["elapsed_secs"], 600);
+        assert!(
+            entry["command"]
+                .as_str()
+                .is_some_and(|c| c.contains("claude")),
+            "the victim is named: {entry}"
+        );
+        // The half the 2026-09-30 investigation did not have.
+        assert_eq!(entry["by_pid"], std::process::id());
+        assert!(entry["at"].as_str().is_some_and(|s| !s.is_empty()));
+    }
 
     /// Backdate `path` so an age gate sees it as debris.
     fn age(path: &Path, secs: u64) {

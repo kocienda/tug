@@ -74,6 +74,16 @@ interface DrainTestRig {
   manager: SessionManager;
   stdout: MockClaudeStdout;
   emitted: OutboundMessage[];
+  /**
+   * The stdout mocks handed to every spawn after the first, newest last —
+   * one per respawn the manager performed. Empty until something respawns.
+   */
+  respawns: MockClaudeStdout[];
+  /**
+   * Make the NEXT `spawnClaude` throw instead of returning a child, so a
+   * test can drive the "nothing to reattach to" half of the recovery.
+   */
+  failNextSpawn(): void;
   /** Yield to microtasks so the drain task can read pending chunks. */
   flush(): Promise<void>;
   /** Restore Bun.write etc. */
@@ -94,11 +104,15 @@ function makeDrainRig(opts?: {
   jsonlReader?: (path: string) => Promise<JsonlReadResult>;
 }): DrainTestRig {
   const stdout = makeMockClaudeStdout();
-  const stderr = new ReadableStream<Uint8Array>({
-    start(c) {
-      c.close();
-    },
-  });
+  // One per child, never shared: `startStderrReader` locks the stream it is
+  // given, so a respawn handed the retired child's stderr fails the whole
+  // respawn with "ReadableStream is locked".
+  const makeMockStderr = (): ReadableStream<Uint8Array> =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        c.close();
+      },
+    });
 
   const sessionId = crypto.randomUUID();
   const projectDir = `/tmp/r1e-drain-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -118,15 +132,46 @@ function makeDrainRig(opts?: {
 
   // Inject the mock claude child. The drain calls `getReader()` on
   // `claudeProcess.stdout` itself — single-owner invariant.
-  const mockChild = {
-    stdout: stdout.stream,
-    stderr,
-    stdin: { write: () => {}, end: () => {}, flush: () => {} },
-    exited: new Promise<number>(() => {}),
-    kill: () => {},
+  //
+  // `exited` settles only once the manager ENDS the child (stdin EOF or a
+  // signal), which is the honest shape: a claude nobody has torn down has
+  // not exited, so the early-exit watcher stays quiet for the tests that
+  // never tear one down — and `killAndCleanup` still returns promptly for
+  // the one test that does, rather than waiting out its whole grace.
+  const makeMockChild = (out: MockClaudeStdout) => {
+    let markExited: (code: number) => void = () => {};
+    const exited = new Promise<number>((resolve) => {
+      markExited = resolve;
+    });
+    return {
+      stdout: out.stream,
+      stderr: makeMockStderr(),
+      stdin: {
+        write: () => {},
+        end: () => markExited(0),
+        flush: () => {},
+      },
+      exited,
+      kill: () => markExited(0),
+    };
   };
+
+  const respawns: MockClaudeStdout[] = [];
+  let spawned = 0;
+  let failNext = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (manager as any).spawnClaude = () => mockChild;
+  (manager as any).spawnClaude = () => {
+    if (failNext) {
+      failNext = false;
+      throw new Error("claude CLI not found (PATH or ~/.local/bin)");
+    }
+    if (spawned++ === 0) return makeMockChild(stdout);
+    // Every respawn gets its own stdout, because the first one is closed by
+    // the time anything respawns and a reused stream would EOF instantly.
+    const next = makeMockClaudeStdout();
+    respawns.push(next);
+    return makeMockChild(next);
+  };
 
   // Capture IPC output.
   const emitted: OutboundMessage[] = [];
@@ -163,6 +208,10 @@ function makeDrainRig(opts?: {
     manager,
     stdout,
     emitted,
+    respawns,
+    failNextSpawn() {
+      failNext = true;
+    },
     async flush() {
       // Two microtask spins is enough to give the drain task a chance
       // to read whatever's been enqueued and call writeLine. The
@@ -320,21 +369,57 @@ describe("Step R1e — drain robustness", () => {
     }
   });
 
-  test("EOF before handleUserMessage installs an ActiveTurn surfaces immediately as the canonical error", async () => {
+  test("EOF before handleUserMessage reattaches a fresh claude instead of refusing the send", async () => {
     const rig = makeDrainRig();
     try {
       rig.manager.prepareSession();
       await rig.manager.runReplay();
       await rig.manager.spawnClaudeAndWatch();
 
-      // Drain observes EOF before any handleUserMessage call.
+      // Drain observes EOF before any handleUserMessage call — the claude
+      // was killed out from under tugcode, which is still alive and serving.
       rig.stdout.close();
       await rig.flush();
 
-      // Now call handleUserMessage — the fast-path EOF check should
-      // emit the canonical error frame and return without installing
-      // an ActiveTurn (which would block forever on a doomed
-      // completion promise).
+      // The submit is the request to have a turn, so it is the moment to put
+      // a live claude back: `--resume`, same id, and the turn runs on it.
+      const turnPromise = rig.manager.handleUserMessage({
+        type: "user_message",
+        content: [{ type: "text", text: "hi" }],
+      });
+      await rig.flush();
+
+      expect(rig.respawns.length).toBe(1);
+      rig.respawns[0].feed({ type: "result", subtype: "success", result: "" });
+      await rig.flush();
+      await turnPromise;
+
+      // The dead end is gone: no `send_after_eof`, and the turn bracketed.
+      const errors = rig.emitted.filter((e) => e.type === "error") as Array<{
+        site?: string;
+      }>;
+      expect(errors.some((e) => e.site === "send_after_eof")).toBe(false);
+      expect(
+        rig.emitted.filter((e) => e.type === "turn_complete").length,
+      ).toBe(1);
+    } finally {
+      rig.cleanup();
+    }
+  });
+
+  test("a reattach that cannot spawn still surfaces the canonical error, once", async () => {
+    const rig = makeDrainRig();
+    try {
+      rig.manager.prepareSession();
+      await rig.manager.runReplay();
+      await rig.manager.spawnClaudeAndWatch();
+
+      rig.stdout.close();
+      await rig.flush();
+
+      // Nothing to reattach to. The send falls back to the frame it always
+      // emitted, and the card is the user's to close.
+      rig.failNextSpawn();
       await rig.manager.handleUserMessage({
         type: "user_message",
         content: [{ type: "text", text: "hi" }],
@@ -344,6 +429,16 @@ describe("Step R1e — drain robustness", () => {
       expect(errors.length).toBeGreaterThanOrEqual(1);
       const last = errors[errors.length - 1] as { message: string };
       expect(last.message).toContain("stream ended unexpectedly");
+
+      // And the failed attempt is not retried per submit — a spawn that
+      // failed once fails the same way on the next keystroke, so the second
+      // send answers from the latch without touching the spawn path.
+      const spawnsBefore = rig.respawns.length;
+      await rig.manager.handleUserMessage({
+        type: "user_message",
+        content: [{ type: "text", text: "again" }],
+      });
+      expect(rig.respawns.length).toBe(spawnsBefore);
     } finally {
       rig.cleanup();
     }
