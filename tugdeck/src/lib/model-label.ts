@@ -138,9 +138,19 @@ export function isContextAnnotation(segment: string): boolean {
 
 /**
  * The "name with version" title for a capability/catalog row, from claude's
- * own wording: the leading `·`-separated segment of the row's `description`
- * (`"Fable 5 · Most capable…"` → `"Fable 5"`), plus the context-window
- * annotation when claude states one.
+ * own wording.
+ *
+ * Claude has shaped a row two ways. Through 2.1.276 the name led the
+ * `description` and `displayName` was a bare family (`displayName: "Fable"`,
+ * `description: "Fable 5.1 · Most capable…"`). From 2.1.285 `displayName` is
+ * the versioned name and `description` is only the tagline
+ * (`displayName: "Opus 5.5"`, `description: "For complex work…"`) — except
+ * the `default` row, which still leads its description with the name it
+ * resolves to (`"Opus 5.5 · Best for everyday…"`). So a description carries
+ * a name exactly when it has more than one `·`-separated segment: then the
+ * leading segment is the title, plus the context-window annotation when
+ * claude states one. A single-segment description is a tagline, and the
+ * title is the display name.
  *
  * Claude has spelled that annotation two ways, and both must survive as the
  * chip's ` · 1M`: inline in the name segment (`"Opus 4.8 with 1M context ·
@@ -149,15 +159,15 @@ export function isContextAnnotation(segment: string): boolean {
  * dropped the window from the newer wording, so a 1M model read as a bare
  * `Opus 5` — the same staleness that mis-sized the context gauge.
  *
- * A row without a description falls back to its display name, parenthetical
- * stripped.
+ * A row without a name-bearing description falls back to its display name,
+ * parenthetical stripped.
  */
 export function modelRowTitle(row: CapabilityModel): string {
   if (row.description !== undefined) {
     // Isolate the leading name segment FIRST, then compress — compressing
     // first would introduce the very `·` the split keys on.
     const segments = row.description.split("·").map((s) => s.trim());
-    const name = compressContextPhrase(segments[0]);
+    const name = segments.length > 1 ? compressContextPhrase(segments[0]) : "";
     if (name.length > 0) {
       const annotation = segments[1];
       return annotation !== undefined && isContextAnnotation(annotation)
@@ -173,17 +183,23 @@ export function modelRowTitle(row: CapabilityModel): string {
  * id (`claude-sonnet-4-6`), a picker selector (`sonnet`), or an optimistic
  * display label (`Sonnet 4.6`).
  *
- * Four tiers, most-certain first. The `default` row is out of play past the
+ * Five tiers, most-certain first. The `default` row is out of play past the
  * exact tier — it names no particular model, so nothing may drift onto it.
  *
  *  1. **Exact selector value.**
  *  2. **Canonical key** ([model-selector.ts] `canonicalModelKey`) — the same
  *     model under a different spelling (`claude-fable-5` ↔ the catalog's
  *     `claude-fable-5[1m]`).
- *  3. **Token-boundary containment** — the row's value appearing inside the
+ *  3. **Same name** — the row's title ({@link modelRowTitle}) equals the
+ *     string's parsed label ({@link formatModelLabel}), so a resolved
+ *     `claude-opus-5-5` finds claude's `opus` row titled `Opus 5.5`. From
+ *     2.1.285 the catalog pairs short family selectors with older versioned
+ *     ids of the same family (`opus` is Opus 5.5, `claude-opus-5` is Opus 5),
+ *     so the name is the one fact that tells them apart.
+ *  4. **Token-boundary containment** — the row's value appearing inside the
  *     string, which is what maps an optimistic display label (`Sonnet 4.6`)
  *     back to its row.
- *  4. **Family/version prefix relation** — a short family selector against a
+ *  5. **Family/version prefix relation** — a short family selector against a
  *     versioned id (`opus[1m]` ↔ `claude-opus-5`). Claude's catalog spells
  *     the row `opus[1m]` while the resolved id it reports is `claude-opus-5`,
  *     and the JSONL a resume replays records the bare `claude-opus-5`; without
@@ -204,6 +220,9 @@ export function modelRowTitle(row: CapabilityModel): string {
  *  - **Token boundaries only.** The row's value must sit at the start/end of
  *    the string or against a non-alphanumeric neighbor, so `sonnet` matches
  *    `claude-sonnet-4-6` but `e` never matches inside `sonnet`.
+ *  - **A version is whole.** A value ending in a version number must not be
+ *    followed by another version segment, so `claude-opus-5` never matches
+ *    inside `claude-opus-5-5` — a different model, not a spelling of it.
  *
  * Among surviving containment candidates the LONGEST value wins, so a specific
  * row beats a generic one rather than the match depending on row order. The
@@ -216,6 +235,7 @@ function stripVendorPrefix(s: string): string {
 
 /** True when `needle` occurs in `haystack` delimited by non-alphanumerics. */
 function containsAtTokenBoundary(haystack: string, needle: string): boolean {
+  const versioned = /\d$/.test(needle);
   let from = 0;
   for (;;) {
     const at = haystack.indexOf(needle, from);
@@ -225,7 +245,9 @@ function containsAtTokenBoundary(haystack: string, needle: string): boolean {
     const after = afterIndex >= haystack.length ? "" : haystack[afterIndex];
     const opens = before === "" || !/[a-z0-9]/.test(before);
     const closes = after === "" || !/[a-z0-9]/.test(after);
-    if (opens && closes) return true;
+    const extendsVersion =
+      versioned && /^[-.]\d{1,2}(?!\d)/.test(haystack.slice(afterIndex));
+    if (opens && closes && !extendsVersion) return true;
     from = at + 1;
   }
 }
@@ -247,6 +269,12 @@ export function findModelRow(
     const sameKey = concrete.find((r) => canonicalModelKey(r.value) === key);
     if (sameKey !== undefined) return sameKey;
   }
+
+  const label = formatModelLabel(model.trim()).toLowerCase();
+  const sameName = concrete.find(
+    (r) => modelRowTitle(r).toLowerCase() === label,
+  );
+  if (sameName !== undefined) return sameName;
 
   const haystack = stripVendorPrefix(lower);
   let best: CapabilityModel | null = null;

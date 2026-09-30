@@ -107,6 +107,13 @@
   margin-block-end: calc(var(--tug-space-lg) * 2.5);
 }
 
+/* The older-models toggle hangs under the list it expands, centered like the
+   channel notes — it is the list's own footnote, not a fourth channel. */
+.ai-config-older-models {
+  display: flex;
+  justify-content: center;
+}
+
 /* The track's wrapper. The slider's own ticks are inset by half a thumb, so
    the first and last tick LABELS overhang it; the inset here keeps them inside
    the channel's edges. Sizing a composed child belongs on a wrapper, never on

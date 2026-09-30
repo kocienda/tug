@@ -20,7 +20,9 @@
  *
  *  - **Model** — a `TugListView` option list, because a model is the decision
  *    people actually deliberate: every option carries its own name AND
- *    description, at a size worth reading.
+ *    description, at a size worth reading. Superseded versions of a family
+ *    ({@link foldOlderModels}) fold behind a "Show older models" toggle under
+ *    the list, so the front rank is the handful of choices people make.
  *  - **Effort** — a `TugSlider` **stepped track** (`showTicks` + `tickLabel`),
  *    because effort is ordinal. The track spans exactly the levels the current
  *    model offers, so an unreachable level is absent rather than greyed.
@@ -53,11 +55,12 @@
 import "./ai-config-editor.css";
 import "./sheet-option-list.css";
 
-import React, { useCallback, useId, useMemo } from "react";
+import React, { useCallback, useId, useMemo, useState } from "react";
 
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSlider } from "@/components/tugways/tug-slider";
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
 import {
   TugListView,
   type TugListViewCellProps,
@@ -73,6 +76,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import type { CapabilityModel } from "@/lib/session-metadata-store";
 import { compressContextPhrase, resolveModelLabel, knownModelRows } from "@/lib/model-label";
 import { formatEffortLabel, resolveEffortSupport } from "@/lib/effort";
+import { foldOlderModels } from "@/lib/model-picker-data";
 import {
   PERMISSION_MODE_MENU,
   formatPermissionMode,
@@ -120,12 +124,18 @@ const NO_DESCRIPTION = "";
 /** Focus orders within the host's focus group, relative to `focusOrderBase`. */
 export const AI_CONFIG_ROW_OFFSET: Record<AiConfigRow, number> = {
   model: 0,
-  effort: 1,
-  mode: 2,
+  effort: 2,
+  mode: 3,
 };
 
+/**
+ * The "Show older models" toggle's focus order — between the model list and
+ * the effort track, where it sits. Not a channel, so not an `AiConfigRow`.
+ */
+const OLDER_MODELS_TOGGLE_OFFSET = 1;
+
 /** How many focus orders the editor consumes — the host numbers around it. */
-export const AI_CONFIG_ROW_COUNT = 3;
+export const AI_CONFIG_ROW_COUNT = 4;
 
 export interface AiConfigEditorProps {
   /** Options + capability lists, from {@link resolveAiConfigSources}. */
@@ -148,7 +158,7 @@ export interface AiConfigEditorProps {
    * every new one. It is host copy — the one thing a host says for itself.
    */
   scopeNote: string;
-  /** The host's focus group; the editor claims three consecutive orders. */
+  /** The host's focus group; the editor claims four consecutive orders. */
   focusGroup: string;
   /** The first of those orders. Defaults to 0. */
   focusOrderBase?: number;
@@ -312,12 +322,29 @@ export function AiConfigEditor({
 
   // ---- The model channel's list ----
 
-  const dataSource = useMemo(() => new ModelListDataSource(options), [options]);
-  const delegate = useMemo<TugListViewDelegate>(
-    () => ({ onSelect: (index) => selectModel(options[index].value) }),
-    [options, selectModel],
+  // Older versions fold away until asked for. The current pick is never
+  // folded out of sight: collapsed, it keeps its catalog slot among the
+  // front rank, so the checkmark is always on a visible row.
+  const fold = useMemo(() => foldOlderModels(options), [options]);
+  const [showOlder, setShowOlder] = useState(false);
+  const shown = useMemo(
+    () =>
+      showOlder
+        ? options
+        : options.filter(
+            (option) =>
+              !fold.older.includes(option) ||
+              option.value === value.modelSelector,
+          ),
+    [options, fold, showOlder, value.modelSelector],
   );
-  const currentModelIndex = options.findIndex(
+
+  const dataSource = useMemo(() => new ModelListDataSource(shown), [shown]);
+  const delegate = useMemo<TugListViewDelegate>(
+    () => ({ onSelect: (index) => selectModel(shown[index].value) }),
+    [shown, selectModel],
+  );
+  const currentModelIndex = shown.findIndex(
     (option) => option.value === value.modelSelector,
   );
 
@@ -407,6 +434,22 @@ export function AiConfigEditor({
                 />
               </ModelListContext.Provider>
             </div>
+            {fold.older.length > 0 && (
+              <div className="ai-config-older-models">
+                <TugPushButton
+                  size="sm"
+                  emphasis="ghost"
+                  role="action"
+                  data-slot="ai-config-older-models"
+                  aria-expanded={showOlder}
+                  onClick={() => setShowOlder((open) => !open)}
+                  focusGroup={focusGroup}
+                  focusOrder={focusOrderBase + OLDER_MODELS_TOGGLE_OFFSET}
+                >
+                  {showOlder ? "Hide older models" : "Show older models"}
+                </TugPushButton>
+              </div>
+            )}
           </div>
 
           <div className="ai-config-channel">

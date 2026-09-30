@@ -244,3 +244,43 @@ describe("resolveModelLabel", () => {
     expect(resolveModelLabel("gpt-4o", ROWS)).toBe("gpt-4o");
   });
 });
+
+/**
+ * Claude Code 2.1.285's row shape: `displayName` is the versioned name, the
+ * description a bare tagline, and older versions of a family ride beside the
+ * short family selector. Trimmed from the v2.1.285 stream-json capture.
+ */
+const ROWS_2_1_285: CapabilityModel[] = [
+  { value: "default", displayName: "Default (recommended)", description: "Opus 5.5 · Best for everyday, complex tasks" },
+  { value: "opus", displayName: "Opus 5.5", description: "For complex work and everyday tasks" },
+  { value: "claude-fable-5-1", displayName: "Fable 5.1", description: "For your toughest challenges" },
+  { value: "sonnet", displayName: "Sonnet 5.5", description: "Most efficient for simpler tasks" },
+  { value: "haiku", displayName: "Haiku 4.5", description: "Fastest for quick answers" },
+  { value: "claude-sonnet-5", displayName: "Sonnet 5", description: "Efficient for routine tasks" },
+  { value: "claude-opus-5", displayName: "Opus 5", description: "Best for everyday, complex tasks" },
+  { value: "claude-opus-4-8", displayName: "Opus 4.8", description: "Best for everyday, complex tasks" },
+];
+
+describe("2.1.285 row shape", () => {
+  test("a tagline-only description titles the row by its display name", () => {
+    expect(modelRowTitle(ROWS_2_1_285[1])).toBe("Opus 5.5");
+    expect(modelRowTitle(ROWS_2_1_285[6])).toBe("Opus 5");
+  });
+
+  test("the default row still takes the name its description leads with", () => {
+    expect(modelRowTitle(ROWS_2_1_285[0])).toBe("Opus 5.5");
+  });
+
+  test("a resolved id finds its own version, not an older one it contains", () => {
+    expect(findModelRow("claude-opus-5-5", ROWS_2_1_285)?.value).toBe("opus");
+    expect(findModelRow("claude-sonnet-5-5", ROWS_2_1_285)?.value).toBe("sonnet");
+    expect(findModelRow("claude-opus-5", ROWS_2_1_285)?.value).toBe("claude-opus-5");
+    expect(findModelRow("claude-haiku-4-5-20251001", ROWS_2_1_285)?.value).toBe("haiku");
+  });
+
+  test("the chip names the model, never its tagline", () => {
+    expect(resolveModelLabel("claude-opus-5-5", ROWS_2_1_285)).toBe("Opus 5.5");
+    expect(resolveModelLabel("claude-opus-4-8", ROWS_2_1_285)).toBe("Opus 4.8");
+    expect(resolveModelLabel(null, ROWS_2_1_285)).toBe("Opus 5.5");
+  });
+});
