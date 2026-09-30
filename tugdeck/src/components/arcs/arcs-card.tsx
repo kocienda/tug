@@ -1289,11 +1289,11 @@ function ArcsBody(): React.ReactElement {
             pendingConfirm === null
               ? ""
               : pendingConfirm.kind === "discard"
-                ? `Discard ${pendingConfirm.row.entry.display_name}? Its branch and worktree go with it, and any uncommitted work in the worktree is handed back to the base checkout.`
-                : // What it destroys, said plainly, because nothing can put it
+                ? `Discard ${pendingConfirm.row.entry.display_name}? Its branch and worktree go; uncommitted work returns to the base checkout.`
+                : // One clause for what goes, one for why nothing can put it
                   // back: `.tug/` is excluded from git, so the brief is in no
                   // commit and no reflog ([B04]).
-                  `Delete the documents for ${pendingConfirm.row.entry.display_name}? Its brief and any plan or task list are destroyed permanently — they are untracked, so git will not give them back.`
+                  `Delete the documents for ${pendingConfirm.row.entry.display_name}? They are untracked — git will not give them back.`
           }
           confirmLabel={pendingConfirm?.kind === "delete" ? "Delete" : "Discard"}
           confirmRole="danger"

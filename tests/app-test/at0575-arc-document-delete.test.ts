@@ -14,8 +14,8 @@
  * This drives the remedy that replaced it, as one round trip against the real
  * app: the row wears a delete button beside its transport, the press arms the
  * card's one confirm rather than acting, the message says the brief is
- * destroyed permanently and is untracked so git will not give it back, and the
- * confirm removes the directory on disk while the arc beside it keeps its own.
+ * untracked so git will not give it back, and the confirm removes the
+ * directory on disk while the arc beside it keeps its own.
  *
  * The delete is deliberately **not** a discard and does not route through one:
  * the frame is `changeset_delete_documents`, the op touches no branch, no
@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)("AT0575: deleting a paperwork row's documents", () 
         expect(question.message).toContain(ARC_NAME);
         // The sentence that earns the confirm: `.tug/` is untracked, so there
         // is no commit and no reflog to restore the brief from.
-        expect(question.message).toContain("permanently");
+        expect(question.message).toContain("untracked");
         expect(question.message).toContain("git will not give them back");
         // Armed is not done.
         expect(existsSync(documentsDir(ARC_NAME))).toBe(true);
