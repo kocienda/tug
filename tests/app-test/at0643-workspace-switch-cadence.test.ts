@@ -452,20 +452,23 @@ async function recordSwitch(
 }
 
 /**
- * The cadence claim over one switch, or the void reading noted.
+ * The cadence claim over one switch.
  *
- * Returns whether the run was asserted, so the test can say how many of its
- * switches actually carried the bar — a run where every reading was suspended
- * is a run that proved nothing, and it says so rather than reading green.
+ * A suspended reading is RED, per switch. It used to void the switch and
+ * return `false`, with only an all-void run failing — so three of four
+ * switches could be swallowed by an occluded window and the file still read
+ * green on the one that was served. A voided reading proves nothing about the
+ * switch it was taken over, and a claim the file makes about four switches
+ * is not made by one. The message names the usual cause, which is the
+ * harness window rather than the product; it is still not a pass.
  */
-function assertCadence(label: string, r: FrameRecord): boolean {
-  if (r.suspended) {
-    note(
-      `at0643 ${label}: VOID — rAF suspended (${r.ticks} tick(s)); the window ` +
-        `was occluded, so no cadence claim is made about this switch`,
-    );
-    return false;
-  }
+function assertCadence(label: string, r: FrameRecord): void {
+  expect(
+    r.suspended,
+    `at0643 ${label}: rAF was suspended across this switch (${r.ticks} ` +
+      `tick(s)), so no cadence claim can be made about it. The usual cause ` +
+      `is the harness window being occluded; re-run with it unoccluded`,
+  ).toBe(false);
 
   // The warning tier, before the bars. It asserts nothing; it puts a line in
   // the report when a reading has moved toward a bar without reaching it. One
@@ -528,8 +531,6 @@ function assertCadence(label: string, r: FrameRecord): boolean {
       `${r.framePeriodMs}ms period) — measured ${r.longestGapMs}ms across ` +
       `${r.ticks} ticks`,
   ).toBeLessThanOrEqual(LONGEST_GAP_FRAMES * r.framePeriodMs);
-
-  return true;
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -657,36 +658,13 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.evalJS<number>(LOOPS_REMOVE);
 
-          let asserted = 0;
           for (const [label, record] of runs) {
             expect(
               record.ticks,
               `${label}: the sampler produced a record`,
             ).toBeGreaterThan(0);
-            if (assertCadence(label, record)) asserted += 1;
+            assertCadence(label, record);
           }
-
-          // [P10]: a suspended run voids rather than passes. A single voided
-          // switch is the window manager rather than the product, and the
-          // count goes out through `note()`.
-          note(
-            `at0643 cadence: ${asserted} of ${runs.length} switches carried ` +
-              `the bar; the rest were voided by rAF suspension`,
-          );
-          // But a run where EVERY reading voided is RED ([B05]). It used to
-          // be a second `note()` inside a green test, which is a test that
-          // reports its own vacuity and passes anyway — and a green nobody
-          // can distinguish from a green that measured something is worse
-          // than a red that says why. The cause is usually the harness
-          // window being occluded rather than the product, and that is what
-          // the message says; it is still not a pass.
-          expect(
-            asserted,
-            `at0643: EVERY one of the ${runs.length} readings was voided by ` +
-              `rAF suspension, so this run proved nothing about cadence and ` +
-              `must not read as a pass. Re-run with the harness window ` +
-              `unoccluded`,
-          ).toBeGreaterThan(0);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);

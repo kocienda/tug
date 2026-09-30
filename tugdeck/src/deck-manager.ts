@@ -8060,6 +8060,11 @@ export class DeckManager implements IDeckManagerStore {
       this.reactRoot = null;
     }
     this.destroyed = true;
+    // A deferred notify still in flight would tell every subscriber left in
+    // the set about a store that no longer exists. Its rAF and timers cannot
+    // be cancelled from here, but `flush` checks identity against this slot
+    // before it delivers, so clearing it is the release ([L27]).
+    this.deferredNotify = null;
     for (const watch of [...this.arrivalWatches.values()]) watch.dispose();
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);

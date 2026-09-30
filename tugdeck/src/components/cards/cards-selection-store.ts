@@ -262,6 +262,17 @@ export function getLayoutCursorCard(): string | null {
  * the READ of the card list, because the live ids are the ones this commit
  * published and pruning a frame later against a deck that has moved on would
  * drop a card that came back.
+ *
+ * **Two commits in one frame read the pending write, not the snapshot.** A
+ * deferred `pickOnly` is a selection that stands from the commit's point of
+ * view and has not been published yet, so the collapse test a second
+ * transition makes in the same frame asks the pending id rather than the
+ * store — otherwise fronting X and then Y inside one task left the selection
+ * on X, where a synchronous pass would have ended on Y. And a pending pick
+ * whose card was closed before the frame landed is dropped at the door: the
+ * prune runs first, and a `pickOnly` after it would put a dead id back into
+ * a selection the prune had just cleaned. Both are the one-frame window the
+ * deferral opened, closed at the write.
  */
 export function attachLayoutSelectionToDeck(
   deck: IDeckManagerStore,
@@ -275,11 +286,17 @@ export function attachLayoutSelectionToDeck(
   // The prune's own slot, on the same terms: the last commit's live ids win,
   // because a prune against the newest card list is the one every earlier
   // prune in the same frame would have agreed with.
-  let pendingPrune: readonly string[] | null = null;
+  let pendingPrune: ReadonlySet<string> | null = null;
+  // The newest commit's card list, so a pick that reaches the door after its
+  // card has gone is refused rather than published.
+  let lastLive: ReadonlySet<string> = new Set(
+    deck.getSnapshot().cards.map((c) => c.id),
+  );
   let detached = false;
   const handle = (): void => {
     const state = deck.getSnapshot();
-    const liveIds = state.cards.map((c) => c.id);
+    const liveIds = new Set(state.cards.map((c) => c.id));
+    lastLive = liveIds;
     if (!isTugMotionEnabled()) {
       selection.pruneTo(liveIds);
     } else {
@@ -307,7 +324,11 @@ export function attachLayoutSelectionToDeck(
     // A rail taking focus — the Cards card itself, most of the time — is not the
     // user leaving the selection behind; it is how the selection gets made.
     if (card === undefined || isSidebarCard(card.componentId)) return;
-    if (selection.getSnapshot().ids.includes(fr)) return;
+    // The selection as a synchronous pass would see it: the pending pick,
+    // when one is scheduled, is the selection this frame already made.
+    const standing =
+      pendingPick !== null ? [pendingPick] : selection.getSnapshot().ids;
+    if (standing.includes(fr)) return;
     if (suppressed) return;
     // Reduced motion stands down: there is no tween whose first frame the
     // React commit could land in, so the write costs nothing where it is.
@@ -322,6 +343,9 @@ export function attachLayoutSelectionToDeck(
       const id = pendingPick;
       pendingPick = null;
       if (detached || id === null) return;
+      // Fronted and closed inside one frame: the prune ahead of this has
+      // already dropped it, and it must not come back.
+      if (!lastLive.has(id)) return;
       selection.pickOnly(id);
     });
   };

@@ -257,13 +257,14 @@ describe("the prune behind the after-paint door", () => {
   /** A deck whose commits this test lands by hand. */
   function fakeDeck(cards: string[]): {
     deck: IDeckManagerStore;
-    commit: (next: string[]) => void;
+    commit: (next: string[], firstResponder?: string | null) => void;
   } {
     let ids = cards;
+    let firstResponder: string | null = null;
     let listener: (() => void) | null = null;
     const deck = {
       getSnapshot: () => ({ cards: ids.map((id) => ({ id })) }),
-      getFirstResponderCardId: () => null,
+      getFirstResponderCardId: () => firstResponder,
       subscribeSync: (cb: () => void) => {
         listener = cb;
         return () => {
@@ -274,8 +275,9 @@ describe("the prune behind the after-paint door", () => {
     } as unknown as IDeckManagerStore;
     return {
       deck,
-      commit: (next: string[]) => {
+      commit: (next: string[], nextFirstResponder = firstResponder) => {
         ids = next;
+        firstResponder = nextFirstResponder;
         listener?.();
       },
     };
@@ -363,6 +365,45 @@ describe("the prune behind the after-paint door", () => {
 
     expect(selection.getSnapshot().ids).toEqual(["a"]);
     expect(rafs.length).toBe(0);
+
+    detach();
+  });
+
+  test("two activations in one frame end on the second card, as a synchronous pass would", () => {
+    // "b" is selected; "a" is fronted, then "b" is fronted again, all before
+    // the frame lands. Synchronously that is pickOnly("a") then pickOnly("b").
+    // Read against the STORE, the second transition finds "b" already
+    // selected and returns, leaving the pending "a" to land on a deck whose
+    // first responder is "b".
+    const selection = new CardsSelectionStore();
+    selection.toggle("b");
+
+    const { deck, commit } = fakeDeck(["a", "b"]);
+    const detach = attachLayoutSelectionToDeck(deck, selection);
+    commit(["a", "b"], "a");
+    commit(["a", "b"], "b");
+    expect(selection.getSnapshot().ids).toEqual(["b"]);
+
+    paint();
+    expect(selection.getSnapshot().ids).toEqual(["b"]);
+    expect(deck.getFirstResponderCardId()).toBe("b");
+
+    detach();
+  });
+
+  test("a card fronted and closed inside one frame is not selected dead", () => {
+    // "a" is fronted, then closed, and first responder falls to nothing —
+    // both inside one frame. The prune lands first and finds nothing to drop;
+    // the pick behind it must not put the closed card into the selection.
+    const selection = new CardsSelectionStore();
+
+    const { deck, commit } = fakeDeck(["a", "b"]);
+    const detach = attachLayoutSelectionToDeck(deck, selection);
+    commit(["a", "b"], "a");
+    commit(["b"], null);
+
+    paint();
+    expect(selection.getSnapshot().ids).toEqual([]);
 
     detach();
   });
