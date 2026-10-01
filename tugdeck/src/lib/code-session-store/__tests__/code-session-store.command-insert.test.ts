@@ -4,7 +4,7 @@
  * `{ name, args, submit }` here for the prompt entry to seed as a
  * ready-to-run draft; the prompt entry clears it once seeded. `submit` is
  * the difference between the click, which seeds and stops, and the menu's
- * Run Here, which seeds and sends.
+ * Run in This Session, which seeds and sends.
  *
  * Driven through the real `CodeSessionStore` facade (no mock store) so
  * the snapshot-reference stability the seeding `useLayoutEffect` relies

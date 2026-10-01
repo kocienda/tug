@@ -315,7 +315,7 @@ export function useAnnotationMenu({
     };
   }, [insertTarget]);
 
-  // Run Here: the command the right-click landed on, as this card's next
+  // Run in This Session: the command the right-click landed on, as this card's next
   // turn. It goes through the surface's own `PromptInsertTarget`, which is
   // the originating card's composer and never another card's — the entity is
   // in this transcript, so "here" can only mean this one ([B05]).
@@ -341,7 +341,7 @@ export function useAnnotationMenu({
   // right-click landed in — that card's project is the one the new card
   // opens on, and its slot is the one the new card lands beside.
   //
-  // Gated on the same capability Run Here is: a surface with no composer of
+  // Gated on the same capability Run in This Session is: a surface with no composer of
   // its own is a surface whose card has no session, and a new card opened
   // from one would have no project to open on.
   const handleRunCommandInNewSession = useCallback((): ActionHandlerResult => {

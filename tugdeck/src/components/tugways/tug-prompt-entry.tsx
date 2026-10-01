@@ -1837,11 +1837,19 @@ export const TugPromptEntry = React.forwardRef<
   }, [landingActive, keymapRegistry.getSnapshot()]);
   useKeybindings(commitKeybindings);
 
-  // The submit path, held for the seeding effect below: a Run Here seeds
+  // The submit path, held for the seeding effect below: a Run in This Session seeds
   // and sends inside one paint, and `performSubmit` is declared several
   // hundred lines further down. Null only on the first render, before the
   // assignment below it. [L07]
   const performSubmitRef = useRef<(() => Promise<void>) | null>(null);
+
+  // A submit that landed before the card could send — during the transport-
+  // settling window, or while a fresh card's replay brackets it — is armed
+  // here and flushed by the effect below `performSubmit` the moment
+  // `canSubmit` flips true. See `classifyBlockedSubmit` + `performSubmit`'s
+  // blocked-submit branch, and the command-insert effect below, which arms
+  // it directly for a seeded run.
+  const pendingSubmitRef = useRef(false);
 
   // Command insert ([P03]/[P04]). A click on a known slash command in the
   // transcript parks `{ name, args }` on the code-session store; this
@@ -1858,12 +1866,20 @@ export const TugPromptEntry = React.forwardRef<
   // one paint; the slot survives until an editor exists (no consume on a
   // missing view) so a click is never silently dropped.
   //
-  // `submit` is what the menu's Run Here adds: the same seed, then the same
+  // `submit` is what the menu's Run in This Session adds: the same seed, then the same
   // `performSubmit` the Return key and the Z5 button reach, fired in this
   // paint so the command goes out as the card's next turn rather than
   // sitting in the composer. It runs through `performSubmitRef` because
   // `performSubmit` is declared below this effect — the ref is assigned at
   // render time and read at fire time, which is [L07]'s own shape.
+  //
+  // A run that lands before the card can send is ARMED rather than fired.
+  // Run in New Session seeds a card whose session is still binding — its
+  // transport settling, its replay bracketing it — and `performSubmit` would
+  // stop at the Z5 gate (the button reads Restoring / Reconnecting) before
+  // its own deferral could arm, leaving the command sitting in the composer.
+  // The run is an explicit gesture, so it waits for `canSubmit` the way a
+  // blocked Return does, and the flush effect below sends it.
   //
   // The args are atomized on the way in: `atomizeCommandArgs` mints the file
   // chip the `@` completion would have placed for each `@path` token, so a
@@ -1890,7 +1906,10 @@ export const TugPromptEntry = React.forwardRef<
     );
     editor.focus();
     codeSessionStore.consumePendingCommandInsert();
-    if (submit) void performSubmitRef.current?.();
+    if (!submit) return;
+    const live = snapRef.current;
+    if (live.canSubmit || live.canInterrupt) void performSubmitRef.current?.();
+    else pendingSubmitRef.current = true;
   }, [pendingCommandInsert, codeSessionStore]);
 
   // Jot insert ([P05]). A jot dragged from the Jots card onto the prompt
@@ -2604,12 +2623,6 @@ export const TugPromptEntry = React.forwardRef<
     [],
   );
 
-  // A submit that landed during the transport-settling window is
-  // armed here and flushed by the effect below the moment `canSubmit`
-  // flips true. See `classifyBlockedSubmit` + `performSubmit`'s
-  // blocked-submit branch.
-  const pendingSubmitRef = useRef(false);
-
   // Live refs so `performSubmit` (a stable callback) reads the shell + PATH
   // stores without widening its dep list ([L07]).
   const shellSessionStoreRef = useRef(shellSessionStore);
@@ -3186,7 +3199,7 @@ export const TugPromptEntry = React.forwardRef<
   ]);
 
   // Live ref to `performSubmit` for the command-insert effect above, which
-  // is declared before this callback exists and fires a Run Here inside its
+  // is declared before this callback exists and fires a Run in This Session inside its
   // own seeding paint. Assigned at render time like the other submit-path
   // mirrors, so the effect reads the live closure rather than a stale one
   // ([L07]).

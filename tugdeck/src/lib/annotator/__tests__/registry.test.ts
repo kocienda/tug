@@ -117,7 +117,7 @@ describe("command kinds replace the standard menu block", () => {
 
   test("a slash command leads with the two runs, then the same copies", () => {
     expect(bareEntries("slash-command").map((e) => e.label)).toEqual([
-      "Run Here",
+      "Run in This Session",
       "Run in New Session",
       "Copy Command",
       "Copy Command as Plain Text",
@@ -181,7 +181,7 @@ describe("command kinds replace the standard menu block", () => {
         argsPathMissing: false,
       });
       expect(entries.map((e) => e.label)).toEqual([
-        "Run Here",
+        "Run in This Session",
         "Run in New Session",
       ]);
       expect(entries.map((e) => e.disabled)).toEqual([true, true]);

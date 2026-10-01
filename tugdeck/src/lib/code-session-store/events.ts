@@ -563,7 +563,7 @@ export interface ConsumeDraftRestoreActionEvent {
  *
  * `submit` is the difference between seeding a draft and running one. A
  * click seeds and stops there, because the draft is the user's to finish;
- * the menu's Run Here sets it, and the entry sends the seeded draft as the
+ * the menu's Run in This Session sets it, and the entry sends the seeded draft as the
  * card's next turn in the same paint. It rides the same slot rather than a
  * second one so a seed and a run cannot be in flight at once — the later
  * one replaces the earlier, which is what a second click already did.

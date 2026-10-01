@@ -1656,7 +1656,7 @@ export class CodeSessionStore {
 
   /**
    * Seed the same command AND send it, as this card's next turn — the
-   * menu's Run Here. It rides the one slot {@link insertCommandDraft} uses,
+   * menu's Run in This Session. It rides the one slot {@link insertCommandDraft} uses,
    * with `submit` set, so the two cannot be in flight at once and the entry
    * seeds and submits inside a single paint rather than leaving a draft
    * somebody has to press Return on.

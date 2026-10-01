@@ -6,7 +6,7 @@
  * a `slash-command` entity like any other. Its context menu is where the
  * three verbs live, and each is a different answer to "run this":
  *
- *   1. `Run Here` — seed the originating card's own composer and SEND, as
+ *   1. `Run in This Session` — seed the originating card's own composer and SEND, as
  *      that card's next turn. Observed by the composer emptying (the submit
  *      cleared it) and the command arriving as the user's own transcript row.
  *   2. `Run in New Session` — a SECOND Session card appears beside the first,
@@ -244,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
   );
 
   test(
-    "Run Here sends the command as this card's next turn",
+    "Run in This Session sends the command as this card's next turn",
     async () => {
       const app = await seedCardWithCommandLine("at0560-run-brief-here");
       try {

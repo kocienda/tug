@@ -427,7 +427,7 @@ const commandMenuEntries = (
  * A command line in the transcript is a thing to do, and until these rows
  * existed the only way to do it was to seed the composer and press send, or
  * to copy the line and rebuild it wherever you wanted it. So the runs lead:
- * Run Here sends it as this card's next turn, Run in New Session opens a card
+ * Run in This Session sends it as this card's next turn, Run in New Session opens a card
  * beside this one on the same project and sends it there. The copy block is
  * unchanged and sits below a rule, which is the order every other kind's menu
  * takes — reach it, take it, send it.
@@ -453,7 +453,7 @@ const slashCommandMenuEntries = (
     act: [
       {
         action: TUG_ACTIONS.RUN_COMMAND_HERE,
-        label: "Run Here",
+        label: "Run in This Session",
         disabled: cannotRun,
       },
       {
