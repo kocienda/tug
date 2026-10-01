@@ -10,8 +10,12 @@
  *
  * What this file pins:
  *
- *   1. **Same height.** The unconnected row and a connected row in the same
- *      list measure the same height.
+ *   1. **Same layout.** The unconnected row and a connected row in the same
+ *      list measure the same height, and every part of the row — the dot, the
+ *      title, the slot cluster, the description, the activity, the tape —
+ *      stands at the same horizontal place in both. Height alone passed a row
+ *      whose slots were pushed inward by a close box the connected row does
+ *      not carry and which drew no tape.
  *   2. **The name reads like a connected row's.** `<project>/unconnected-session`,
  *      where the project is the leaf of the path the card's picker opens on —
  *      here the seeded `default-project-path`, since a fresh tugbank has no
@@ -91,6 +95,42 @@ function deckShape(): Record<string, unknown> {
   };
 }
 
+/** The parts of a session row whose placement the two rows must share. */
+const PARTS = [
+  ".tug-session-row-dot",
+  ".tug-list-row-title",
+  ".tug-session-row-slots",
+  ".tug-session-row-description",
+  ".tug-activity-line",
+  ".session-activity-spark",
+] as const;
+
+/**
+ * Each part's left and right edge, measured from its row's own left edge, so
+ * two rows at different heights in the list compare directly. A missing part
+ * reads `null`.
+ */
+function partEdges(
+  app: App,
+  rowSelector: string,
+): Promise<Record<string, { left: number; right: number } | null>> {
+  return app.evalJS(
+    `(function () {
+       var row = document.querySelector(${JSON.stringify(rowSelector)});
+       var out = {};
+       var parts = ${JSON.stringify(PARTS)};
+       for (var i = 0; i < parts.length; i++) {
+         var el = row === null ? null : row.querySelector(parts[i]);
+         if (el === null) { out[parts[i]] = null; continue; }
+         var r = el.getBoundingClientRect();
+         var base = row.getBoundingClientRect().left;
+         out[parts[i]] = { left: r.left - base, right: r.right - base };
+       }
+       return out;
+     })()`,
+  );
+}
+
 /** A row's border-box height, or -1 when no row matches. */
 function heightOf(app: App, selector: string): Promise<number> {
   return app.evalJS<number>(
@@ -134,6 +174,31 @@ describe.skipIf(!SHOULD_RUN)("at0658 — an unconnected Session card's row", () 
           Math.abs(unconnected - connected),
           "the unconnected row stands at the connected row's height",
         ).toBeLessThan(0.5);
+        const connectedParts = await partEdges(app, CONNECTED);
+        const unconnectedParts = await partEdges(app, UNCONNECTED);
+        note(
+          `at0658 parts: connected ${JSON.stringify(connectedParts)} | ` +
+            `unconnected ${JSON.stringify(unconnectedParts)}`,
+        );
+        for (const part of PARTS) {
+          const c = connectedParts[part];
+          const u = unconnectedParts[part];
+          expect(c, `${part} is drawn on the connected row`).not.toBeNull();
+          expect(u, `${part} is drawn on the unconnected row`).not.toBeNull();
+          expect(
+            Math.abs(u!.left - c!.left),
+            `${part} starts where the connected row's does`,
+          ).toBeLessThan(0.5);
+          // The title and the activity end where their text ends, which
+          // differs between the two rows by design; their START is the claim.
+          if (part === ".tug-list-row-title" || part === ".tug-activity-line") {
+            continue;
+          }
+          expect(
+            Math.abs(u!.right - c!.right),
+            `${part} ends where the connected row's does`,
+          ).toBeLessThan(0.5);
+        }
 
         // ---- 2. The name. ----------------------------------------------
         const title = await app.evalJS<string>(

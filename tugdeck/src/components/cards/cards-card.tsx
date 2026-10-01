@@ -604,7 +604,6 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
   if (row === undefined || row.type !== "pane") return null;
   const { identity } = row;
   if (identity.tugSessionId === null || identity.projectDir === null) {
-    const closeLabel = `Close ${identity.title}`;
     return (
       <CardsUnconnectedSessionRow
         selected={selected}
@@ -614,24 +613,6 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
         onRowPointerDown={ctx.onRowPointerDown}
         spaceId={row.spaceId}
         spaceActive={row.spaceId === dataSource.activeSpaceId()}
-        trailing={
-          identity.closable ? (
-            <TugIconButton
-              className="cards-row-close"
-              icon={<X size={12} />}
-              size="xs"
-              aria-label={closeLabel}
-              title={closeLabel}
-              focusGroup={ROW_ACTION_FOCUS_GROUP}
-              focusOrder={0}
-              onClick={(e) => {
-                // Closing is not a row activation — stop it reaching the cell.
-                e?.stopPropagation();
-                ctx.onClose(identity.cardId, row.spaceId);
-              }}
-            />
-          ) : undefined
-        }
       />
     );
   }

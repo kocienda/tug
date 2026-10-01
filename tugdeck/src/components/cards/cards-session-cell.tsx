@@ -55,6 +55,7 @@ import {
   TugSessionRow,
 } from "@/components/tugways/tug-session-row";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
+import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useSeedPath } from "@/components/tugways/cards/session-picker-seed";
 import { projectLeafName } from "@/lib/session-identity";
@@ -180,8 +181,6 @@ export interface CardsUnconnectedSessionRowProps {
   selected: boolean;
   spaceId: string;
   spaceActive: boolean;
-  /** The row's close box, when the card is closable. */
-  trailing?: React.ReactNode;
 }
 
 /**
@@ -192,7 +191,10 @@ export interface CardsUnconnectedSessionRowProps {
  * and then grow it when the card connects. The title reads like a connected
  * row's `<project>/<callsign>`: the project is the one the card's picker opens
  * on ({@link useSeedPath}), and the callsign's place says it has none yet.
- * The dot is the idle phase's, still, because nothing is running.
+ * The dot is the idle phase's, still, because nothing is running, and the
+ * tape is the flatline a session with no activity draws. Nothing is added
+ * that a connected row does not carry — no close box — so the two pack the
+ * same furniture into the same width.
  */
 export function CardsUnconnectedSessionRow({
   cardId,
@@ -202,7 +204,6 @@ export function CardsUnconnectedSessionRow({
   selected,
   spaceId,
   spaceActive,
-  trailing,
 }: CardsUnconnectedSessionRowProps): React.ReactElement {
   const seedPath = useSeedPath();
   const project = seedPath.length > 0 ? projectLeafName(seedPath) : "";
@@ -229,14 +230,13 @@ export function CardsUnconnectedSessionRow({
       description="Not connected to a session"
       descriptionStandIn
       activity="Choose a session in the card"
+      sparkline={<SessionActivitySparkline sessionId="" />}
       slots={
         <>
           <SlotPicker cardId={cardId} />
           <CardsColumnBadge cardId={cardId} />
         </>
       }
-      trailing={trailing}
-      trailingReveal="engaged"
       onPointerDown={(e) => onRowPointerDown(orderKey, e)}
       data-testid="cards-unconnected-session-row"
       data-cards-row-id={orderKey}
