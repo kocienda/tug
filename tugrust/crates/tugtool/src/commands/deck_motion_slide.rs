@@ -55,6 +55,13 @@ const EARLY_GAPS_SHOWN: usize = 6;
 /// Quiet time between one click's window and the next click.
 const REST_BETWEEN_MS: u64 = 400;
 
+/// What a click costs beyond its window and rest: the two warm-up frames and
+/// the eval round trip. Generous, so the samplers outlast the last click.
+const CLICK_OVERHEAD_MS: u64 = 400;
+
+/// How long `sample` is given to attach before the first click.
+const SAMPLER_ATTACH_MS: u64 = 1500;
+
 /// The eval call for one page op.
 pub fn page_call(args: &Value) -> String {
     format!("({})({})", PAGE.trim_end(), args)
@@ -258,6 +265,7 @@ pub fn run_slide(
     from: &str,
     to: &str,
     count: u32,
+    sample: bool,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || {
@@ -300,6 +308,24 @@ pub fn run_slide(
     }
     std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
 
+    // The samplers start after the warm-up click, so it is not in their
+    // reports, and run long enough to cover every recorded click.
+    let samplers = if sample {
+        let targets = crate::commands::deck_motion_sample::targets(port)?;
+        let per_click_ms = u64::from(WINDOW_MS) + REST_BETWEEN_MS + CLICK_OVERHEAD_MS;
+        let total_ms = u64::from(count) * 2 * per_click_ms + SAMPLER_ATTACH_MS + 1000;
+        let seconds = total_ms.div_ceil(1000) as u32;
+        let samplers = crate::commands::deck_motion_sample::start(&targets, seconds)?;
+        if !json_output {
+            let names: Vec<String> = targets.iter().map(|(l, p)| format!("{l} {p}")).collect();
+            eprintln!("sampling {} for {seconds} s", names.join(", "));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(SAMPLER_ATTACH_MS));
+        Some(samplers)
+    } else {
+        None
+    };
+
     let mut readings = Vec::new();
     for _ in 0..count {
         for title in [&to, &from] {
@@ -315,6 +341,15 @@ pub fn run_slide(
     }
 
     let summary = summarize(&readings);
+    let processes = match samplers {
+        Some(samplers) => {
+            if !json_output {
+                eprintln!("waiting for the samplers to finish");
+            }
+            Some(samplers.finish()?)
+        }
+        None => None,
+    };
     if json_output {
         println!(
             "{}",
@@ -329,12 +364,16 @@ pub fn run_slide(
                 "longFrameMs": LONG_FRAME_MS,
                 "clicks": readings,
                 "summary": summary,
+                "samples": processes,
             }))
             .unwrap()
         );
     } else {
         println!();
         print_summary(&summary);
+        if let Some(processes) = &processes {
+            crate::commands::deck_motion_sample::print(processes, readings.len());
+        }
     }
     Ok(0)
 }

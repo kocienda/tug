@@ -1144,6 +1144,11 @@ pub enum DeckMotionCommands {
         /// Clicks in each direction.
         #[arg(long, default_value_t = 8)]
         count: u32,
+        /// Also run `/usr/bin/sample` at 1 ms on the Tug host and its WebKit
+        /// WebContent and GPU processes across the clicks, and report each
+        /// busy thread's phases and heaviest frames.
+        #[arg(long)]
+        sample: bool,
         #[command(flatten)]
         target: DeckTarget,
     },

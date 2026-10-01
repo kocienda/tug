@@ -150,8 +150,19 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
         DeckMotionCommands::Enable { .. } => set_eval_opt_in(port, true, json_output),
         DeckMotionCommands::Disable { .. } => set_eval_opt_in(port, false, json_output),
         DeckMotionCommands::Slide {
-            from, to, count, ..
-        } => crate::commands::deck_motion_slide::run_slide(port, &from, &to, count, json_output),
+            from,
+            to,
+            count,
+            sample,
+            ..
+        } => crate::commands::deck_motion_slide::run_slide(
+            port,
+            &from,
+            &to,
+            count,
+            sample,
+            json_output,
+        ),
         other => {
             let code = eval_code_for(&other).expect("only enable/disable have no eval code");
             let result = match post_eval(port, &code)? {

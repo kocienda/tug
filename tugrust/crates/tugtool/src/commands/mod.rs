@@ -3,6 +3,7 @@
 pub mod ask;
 pub mod changesets;
 pub mod deck_motion;
+pub mod deck_motion_sample;
 pub mod deck_motion_slide;
 pub mod file;
 pub mod file_probe;
