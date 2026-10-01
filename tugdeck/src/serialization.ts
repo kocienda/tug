@@ -3,7 +3,7 @@
  *
  * **Current wire format:** `version: 5` — a list of named SPACES, each holding
  * one deck, with on-disk keys `{ version: 5, activeSpaceId, spaces: [{ id,
- * name, focusedCardId?, deck }] }`. Each `deck` is the v4 BODY verbatim:
+ * name, focusedCardId?, theme?, deck }] }`. Each `deck` is the v4 BODY verbatim:
  * `{ cards, panes, activePaneId?, imposition }`, with `panes[]` carrying the
  * additive-optional `slot?` and `imposition` carrying `{ kind?, sidebars, … }`.
  * `imposition` was a bare kind string in earlier v4 blobs and both shapes
@@ -45,6 +45,7 @@ import {
   type SpaceState,
   type SpacesState,
   nextSpaceName,
+  withFallbackTheme,
   wrapAsMainSpace,
 } from "./spaces";
 import {
@@ -185,7 +186,8 @@ function serializeDeckBody(deckState: DeckState): object {
  * Returns a plain object. Caller should JSON.stringify before writing.
  *
  * The envelope carries `version`, `spaces` and `activeSpaceId`; each space
- * carries `id`, `name`, its deck body, and `focusedCardId` when it has one.
+ * carries `id`, `name`, its deck body, and `focusedCardId` and `theme` when
+ * it has them.
  * A unit test pins all three key sets.
  */
 export function serialize(spaces: SpacesState): object {
@@ -198,6 +200,7 @@ export function serialize(spaces: SpacesState): object {
       ...(space.focusedCardId !== undefined
         ? { focusedCardId: space.focusedCardId }
         : {}),
+      ...(space.theme !== undefined ? { theme: space.theme } : {}),
       deck: serializeDeckBody(space.deck),
     })),
   };
@@ -221,8 +224,25 @@ export function serialize(spaces: SpacesState): object {
  * a larger display is capped to the current canvas and pulled fully on-screen
  * so neither it nor its contents overhang the visible bounds. See
  * {@link fitPaneGeometry}.
+ *
+ * `fallbackTheme` is the global `dev.tugapp.app` / `theme` key's value. A
+ * space that names no theme — every space in a blob written before spaces
+ * carried one — takes it, so such a deck comes back in the theme it was left
+ * in. Omitted, a space with no theme stays without one.
  */
 export function deserialize(
+  json: string,
+  canvasWidth: number,
+  canvasHeight: number,
+  fallbackTheme?: string,
+): SpacesState {
+  return withFallbackTheme(
+    deserializeSpaces(json, canvasWidth, canvasHeight),
+    fallbackTheme,
+  );
+}
+
+function deserializeSpaces(
   json: string,
   canvasWidth: number,
   canvasHeight: number,
@@ -294,6 +314,7 @@ function parseSpaces(
         ? rawName
         : nextSpaceName(spaces.map((s) => s.name));
     const rawFocused = record["focusedCardId"];
+    const rawTheme = record["theme"];
     const deck = parseOneDeck(
       JSON.stringify({ version: 4, ...(deckBody as Record<string, unknown>) }),
       canvasWidth,
@@ -304,6 +325,9 @@ function parseSpaces(
       name,
       deck,
       ...(typeof rawFocused === "string" ? { focusedCardId: rawFocused } : {}),
+      ...(typeof rawTheme === "string" && rawTheme.length > 0
+        ? { theme: rawTheme }
+        : {}),
     });
   }
 

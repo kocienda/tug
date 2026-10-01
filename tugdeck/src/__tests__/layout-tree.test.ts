@@ -2111,6 +2111,47 @@ describe("the v5 layout blob", () => {
     expect(focused.spaces[0]["focusedCardId"]).toBe("c1");
   });
 
+  test("a space carries theme only when it has one, and it round-trips", () => {
+    const state = {
+      spaces: [
+        { id: "s1", name: "Main", deck: deckWith("a"), theme: "sloop" },
+        { id: "s2", name: "Side", deck: deckWith("b") },
+      ],
+      activeSpaceId: "s1",
+    };
+    const out = serialize(state) as { spaces: Record<string, unknown>[] };
+    expect(Object.keys(out.spaces[0]).sort()).toEqual([
+      "deck",
+      "id",
+      "name",
+      "theme",
+    ]);
+    expect(Object.keys(out.spaces[1]).sort()).toEqual(["deck", "id", "name"]);
+
+    const restored = deserialize(JSON.stringify(out), 1920, 1080);
+    expect(restored.spaces.map((s) => s.theme)).toEqual(["sloop", undefined]);
+  });
+
+  test("a space with no theme takes the global value on load; one with a theme keeps it", () => {
+    const state = {
+      spaces: [
+        { id: "s1", name: "Main", deck: deckWith("a") },
+        { id: "s2", name: "Side", deck: deckWith("b"), theme: "sloop" },
+        { id: "s3", name: "Odd", deck: deckWith("c") },
+      ],
+      activeSpaceId: "s1",
+    };
+    const blob = serialize(state) as { spaces: Record<string, unknown>[] };
+    // A theme that is not a non-empty string is no theme at all.
+    blob.spaces[2]["theme"] = "";
+    const restored = deserialize(JSON.stringify(blob), 1920, 1080, "caravel");
+    expect(restored.spaces.map((s) => s.theme)).toEqual([
+      "caravel",
+      "sloop",
+      "caravel",
+    ]);
+  });
+
   test("the deck body carries no version key of its own — the envelope owns it", () => {
     const out = serialize(wrapAsMainSpace(deckWith("c1"))) as {
       spaces: { deck: Record<string, unknown> }[];
@@ -2217,6 +2258,15 @@ describe("migrating a pre-v5 blob to one space named Main (Spec S02)", () => {
     // And the migrated space carries no focused card: that pointer arrives
     // through `DeckManager`'s legacy `initialFocusedCardId` argument.
     expect(restored.spaces[0].focusedCardId).toBeUndefined();
+  });
+
+  test("a migrated Main space takes the global theme", () => {
+    const restored = deserialize(JSON.stringify(v4Blob), 1920, 1080, "ketch");
+    expect(restored.spaces[0].theme).toBe("ketch");
+    // With no global value to take, it stays without one.
+    expect(
+      deserialize(JSON.stringify(v4Blob), 1920, 1080).spaces[0].theme,
+    ).toBeUndefined();
   });
 
   test("v3, v2 and an unreadable blob wrap the same way", () => {

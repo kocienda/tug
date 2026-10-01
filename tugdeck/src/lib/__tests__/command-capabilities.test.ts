@@ -127,6 +127,17 @@ describe("computeCommandCapabilities", () => {
     expect(computeCommandCapabilities(source(chain), entries)["view.nextTheme"].enabled).toBe(false);
   });
 
+  test("Apply To All Workspaces is enabled only while some workspace's theme differs", () => {
+    // The shipped entry, so the predicate under test is the one the menu gets.
+    const chain = new ResponderChainManager();
+    const gate = (facts: Partial<CommandMenuFacts>) =>
+      computeCommandCapabilities(source(chain, facts), COMMANDS)[
+        "view.applyThemeToAllWorkspaces"
+      ];
+    expect(gate({ spaceThemesDiffer: false }).enabled).toBe(false);
+    expect(gate({ spaceThemesDiffer: true }).enabled).toBe(true);
+  });
+
   test("a registry-routed entry with no predicate is enabled", () => {
     // There is no responder to ask and no predicate to consult; an entry
     // that publishes a gate at all has to answer something, and "available"

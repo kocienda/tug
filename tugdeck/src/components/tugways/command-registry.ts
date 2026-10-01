@@ -262,6 +262,12 @@ export interface CommandMenuFacts {
    */
   readonly spaceCount: number;
   /**
+   * Some workspace wears a theme other than the current workspace's. Gates
+   * Apply To All Workspaces: with every workspace already in the current
+   * theme the command has nothing to do, and a disabled item says so.
+   */
+  readonly spaceThemesDiffer: boolean;
+  /**
    * An app-modal wizard — `ConfigureTug`, `UpdateTug` or `TugVersionGate` —
    * is on screen. Radix traps the web view's focus and pointer while one is;
    * AppKit's menu bar is not trapped, so every command that would change the
@@ -331,6 +337,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   focusTravel: null,
   sidebars: {},
   spaceCount: 0,
+  spaceThemesDiffer: false,
   appModalOpen: false,
   updateTugOpen: false,
 };
@@ -1926,6 +1933,18 @@ export const COMMANDS: readonly CommandEntry[] = [
         { preventDefault: true, menuEligible: true },
       ),
     ],
+  },
+  {
+    // Sets every workspace's theme to the current workspace's. A registered
+    // command with no chord of its own, so one can be bound later. Mirrored
+    // because it has an answer: it is enabled only while some workspace
+    // wears a different theme.
+    id: "apply-theme-to-all-workspaces",
+    title: "Apply To All Workspaces",
+    routing: "registry",
+    menuItemId: "view.applyThemeToAllWorkspaces",
+    mirrored: true,
+    validate: (chain) => chain.menu.spaceThemesDiffer,
   },
   // The three zoom commands state their chords here and take their
   // enablement from the host: the predicate reads `window.currentPageZoom`,

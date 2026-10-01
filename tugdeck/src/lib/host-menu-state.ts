@@ -28,7 +28,7 @@
  */
 
 import type { DeckState } from "../layout-tree";
-import type { SpacesSnapshot } from "../spaces";
+import { spaceThemesDiffer, type SpacesSnapshot } from "../spaces";
 import { bullseyePaneIdOf, slotStackOf } from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
@@ -596,6 +596,12 @@ export interface MenuStateDeckProjection {
    * deck and knows nothing of the level above it.
    */
   spaces: MenuStateSpaceEntry[];
+  /**
+   * Some workspace wears a theme other than the current one. Gates View ▸
+   * Theme ▸ Apply To All Workspaces, which would otherwise be an enabled
+   * item that does nothing.
+   */
+  spaceThemesDiffer: boolean;
   activeCard: MenuStateActiveCard | null;
   /**
    * Whether a card is selected — `activePaneId` is set. A canvas-background
@@ -871,6 +877,7 @@ export function projectDeckState(
       name: space.name,
       active: space.id === spaces.activeSpaceId,
     })),
+    spaceThemesDiffer: spaceThemesDiffer(spaces),
     activeCard,
     selectionActive: state.activePaneId !== undefined,
     stackDepth,
@@ -902,6 +909,7 @@ export class HostMenuStatePublisher {
   private deckProjection: MenuStateDeckProjection = {
     panes: [],
     spaces: [],
+    spaceThemesDiffer: false,
     activeCard: null,
     selectionActive: false,
     stackDepth: 0,
@@ -1141,6 +1149,7 @@ export class HostMenuStatePublisher {
     const {
       panes,
       spaces,
+      spaceThemesDiffer,
       activeCard,
       selectionActive,
       stackDepth,
@@ -1213,6 +1222,7 @@ export class HostMenuStatePublisher {
       // Delete row's gate and the rows it would delete from can never
       // disagree about how many there are ([P07]).
       spaceCount: spaces.length,
+      spaceThemesDiffer,
       appModalOpen: this.appModalOpen,
       updateTugOpen: this.updateTugOpen,
     };

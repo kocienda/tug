@@ -594,6 +594,13 @@ export function initActionDispatch(
     }
   });
 
+  // apply-theme-to-all-workspaces: every workspace takes the current
+  // workspace's theme. Nothing on screen changes — the current workspace
+  // already wears it — so this is a record write and nothing else.
+  registerAction("apply-theme-to-all-workspaces", () => {
+    deckManager.applyThemeToAllSpaces();
+  });
+
   // source-tree: Call WKScriptMessageHandler bridge if available
   registerAction("source-tree", () => {
     console.info("source-tree: triggering source tree picker");

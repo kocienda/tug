@@ -227,6 +227,8 @@ export type CardsRow =
       readonly name: string;
       /** The workspace being rendered. Marked; folds like any other. */
       readonly active: boolean;
+      /** The theme this workspace wears — what its row's swatch shows. */
+      readonly theme: string | undefined;
       /** Whether this workspace's rows follow. */
       readonly expanded: boolean;
       /** Pane rows filed under this workspace, after filtering. */
@@ -461,6 +463,8 @@ export interface SpaceRowsInput {
   readonly name: string;
   /** The workspace being rendered. Exactly one entry is active. */
   readonly active: boolean;
+  /** The theme this workspace wears. */
+  readonly theme?: string;
   /**
    * Whether this workspace's rows are shown, for EVERY workspace including
    * the active one ([B02]). The caller reads it from `collapsedSpacesStore`,
@@ -745,6 +749,7 @@ export function buildCardsRows(
       spaceId: space.id,
       name: space.name,
       active: space.active,
+      theme: space.theme,
       expanded: space.expanded,
       count,
       summary: count === 1 ? "1 card" : `${count} cards`,
@@ -1395,6 +1400,7 @@ export function useCardsDataSource(
         id: entry.id,
         name: entry.name,
         active,
+        theme: entry.theme,
         // Expanded by default; folded exactly when the store says so, active
         // workspace included ([B02]).
         expanded: !collapsedSpaces.has(entry.id),

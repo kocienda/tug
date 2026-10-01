@@ -40,6 +40,14 @@ export interface SpaceState {
    * `initialFocusedCardId` argument (Spec S02).
    */
   focusedCardId?: string;
+  /**
+   * The theme this space wears. The theme on screen is always the active
+   * space's. Absent only on a record read from a blob written before spaces
+   * carried one, which {@link withFallbackTheme} fills from the global
+   * `dev.tugapp.app` / `theme` key on the way in — so a deck saved before
+   * this field existed comes back looking exactly as it did.
+   */
+  theme?: string;
 }
 
 /** Every space, and which one is rendered. */
@@ -67,7 +75,7 @@ export interface SpacesState {
  * names beside them.
  */
 export interface SpacesSnapshot {
-  spaces: readonly { id: string; name: string }[];
+  spaces: readonly { id: string; name: string; theme?: string }[];
   activeSpaceId: string;
   /**
    * The workspaces React is holding mounted — the active one and every one
@@ -143,6 +151,48 @@ function sameParkedDeck(deck: DeckState, parked: DeckState): boolean {
 export function wrapAsMainSpace(deck: DeckState): SpacesState {
   const id = crypto.randomUUID();
   return { spaces: [{ id, name: MAIN_SPACE_NAME, deck }], activeSpaceId: id };
+}
+
+/**
+ * `state` with `fallback` written onto every space that names no theme.
+ *
+ * Returns `state` itself when there is nothing to fill, or no fallback to
+ * fill with.
+ */
+export function withFallbackTheme(
+  state: SpacesState,
+  fallback: string | undefined,
+): SpacesState {
+  if (fallback === undefined) return state;
+  if (state.spaces.every((s) => s.theme !== undefined)) return state;
+  return {
+    ...state,
+    spaces: state.spaces.map((s) =>
+      s.theme !== undefined ? s : { ...s, theme: fallback },
+    ),
+  };
+}
+
+/** The theme the active space wears, or `undefined` when it names none. */
+export function activeSpaceTheme(state: {
+  spaces: readonly { id: string; theme?: string }[];
+  activeSpaceId: string;
+}): string | undefined {
+  return state.spaces.find((s) => s.id === state.activeSpaceId)?.theme;
+}
+
+/**
+ * True when some space wears a theme other than the active space's — which is
+ * exactly when applying the current theme to every workspace would change
+ * something. False for an empty list and when no active space is named.
+ */
+export function spaceThemesDiffer(state: {
+  spaces: readonly { id: string; theme?: string }[];
+  activeSpaceId: string;
+}): boolean {
+  const active = state.spaces.find((s) => s.id === state.activeSpaceId);
+  if (active === undefined) return false;
+  return state.spaces.some((s) => s.theme !== active.theme);
 }
 
 /**

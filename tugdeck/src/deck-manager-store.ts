@@ -709,6 +709,13 @@ export interface IDeckManagerStore {
   renameSpace: (spaceId: string, name: string) => void;
 
   /**
+   * Choose a workspace's theme. The active workspace's is applied to the
+   * screen; a parked one's is only recorded, and shows when the user switches
+   * to it.
+   */
+  chooseSpaceTheme: (spaceId: string, theme: string) => void;
+
+  /**
    * Copy a workspace's layout and sidebars — never its content cards — into a
    * new one named `<name> copy`, appended after the source and not activated
    * ([P06]). Returns the new id, or `null` when no space has that id.

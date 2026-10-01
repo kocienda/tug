@@ -12,23 +12,29 @@
  * debug / each worktree) sharing one working tree no longer bleed themes into
  * each other.
  *
- * Production mode: Theme switching swaps a <link id="tug-theme-override">
- * element pointing to the pre-built per-theme CSS asset. Host canvas color
- * is read from CSS metadata token --tugx-host-canvas-color after the override
- * stylesheet is applied. [D08]
+ * Production mode: every theme in use has its own pre-loaded <link> to the
+ * pre-built per-theme CSS asset (`theme-links.ts`), and switching is a
+ * synchronous flip between them — which is what lets a workspace switch
+ * change the theme in the same commit as the cut. Host canvas color is read
+ * from CSS metadata token --tugx-host-canvas-color after the flip. [D08]
+ *
+ * The theme on screen is module state here rather than React state, because
+ * the workspace switch that changes it runs outside React. The provider reads
+ * it through `useSyncExternalStore` [L02].
  *
  * (#settheme-flow), [D03] Direct load, [D04] Dual persistence,
- * (#s03-theme-provider), [D08] Production link swap
+ * (#s03-theme-provider), [D08] Production theme links
  */
 
 import React, {
   createContext,
   useContext,
-  useState,
   useEffect,
   useRef,
+  useSyncExternalStore,
 } from "react";
-import { putTheme } from "../settings-api";
+import { themeMirror } from "../theme-mirror";
+import { loadThemeLink, showThemeLink } from "../theme-links";
 import { registerThemeSetter, registerThemeGetter } from "../action-dispatch";
 import { publishActiveTheme } from "../lib/host-menu-state";
 import { notifyThemeChange } from "../theme-tokens";
@@ -79,59 +85,142 @@ export function sendCanvasColor(hex: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// activateProductionTheme — production <link> swap [D08]
+// The theme on screen
 // ---------------------------------------------------------------------------
 
+let onScreenTheme: string = BASE_THEME_NAME;
+const onScreenThemeListeners = new Set<() => void>();
+
+/** The name of the theme on screen. */
+export function getOnScreenTheme(): string {
+  return onScreenTheme;
+}
+
 /**
- * Swap a `<link id="tug-theme-override">` element to activate a theme in
- * production mode (no Vite dev server, no POST /__themes/activate).
- *
- * - For the base theme: removes the link element if present (base theme tokens are the CSS foundation).
- * - For non-base themes: sets href to `/assets/themes/<name>.css`, creating the
- *   element if it does not already exist.
- *
- * [D08] Production link swap, (#s03-production-link).
+ * Record the theme the boot applied, before the first render. Notifies
+ * nobody: there is no reader yet.
  */
-export async function activateProductionTheme(themeName: string): Promise<string | null> {
-  const LINK_ID = "tug-theme-override";
-  const existing = document.getElementById(LINK_ID) as HTMLLinkElement | null;
+export function seedOnScreenTheme(theme: string): void {
+  onScreenTheme = theme;
+}
 
-  if (themeName === BASE_THEME_NAME) {
-    // Base theme tokens take over — remove the override link if present.
-    if (existing) {
-      existing.remove();
-    }
-    return readHostCanvasColorFromAppliedCss();
-  }
+function subscribeOnScreenTheme(listener: () => void): () => void {
+  onScreenThemeListeners.add(listener);
+  return () => {
+    onScreenThemeListeners.delete(listener);
+  };
+}
 
-  const href = `/assets/themes/${themeName}.css`;
-  const targetHref = new URL(href, window.location.href).href;
-  const link = existing ?? document.createElement("link");
-  if (!existing) {
-    link.id = LINK_ID;
-    link.rel = "stylesheet";
-    document.head.appendChild(link);
+/**
+ * Everything that follows a theme's CSS being applied, in one place so a
+ * menu pick and a workspace switch cannot differ in what they leave behind:
+ * the host window's canvas color, the provider's readers, the token
+ * subscribers that bake colors, and the global key.
+ */
+function finishThemeChange(theme: string, hostCanvasColor: string | null): void {
+  if (hostCanvasColor !== null) sendCanvasColor(hostCanvasColor);
+  if (theme !== onScreenTheme) {
+    onScreenTheme = theme;
+    for (const listener of Array.from(onScreenThemeListeners)) listener();
   }
-  if (link.href !== targetHref) {
-    await new Promise<void>((resolve, reject) => {
-      const onLoad = () => {
-        link.removeEventListener("load", onLoad);
-        link.removeEventListener("error", onError);
-        resolve();
-      };
-      const onError = () => {
-        link.removeEventListener("load", onLoad);
-        link.removeEventListener("error", onError);
-        reject(new Error(`Failed to load production theme CSS: ${href}`));
-      };
-      link.addEventListener("load", onLoad);
-      link.addEventListener("error", onError);
-      link.href = href;
-    }).catch((err: unknown) => {
-      console.warn("activateProductionTheme failed", err);
+  notifyThemeChange();
+  themeMirror.write(theme);
+}
+
+/**
+ * Every request to put a theme on screen takes the next number, and the
+ * theme it asked for becomes the one wanted. An asynchronous apply that
+ * resolves after a later request was made does nothing — the later one
+ * decides. Without this, switching A → B → A while B's theme is still on its
+ * way (always in dev; in production when B's sheet had not loaded) lands B's
+ * theme on screen in workspace A after the switch back, because A's own
+ * request was a no-op: A's theme was still the one on screen.
+ */
+let themeRequest = 0;
+let wantedTheme: string = BASE_THEME_NAME;
+
+function beginThemeRequest(theme: string): number {
+  themeRequest += 1;
+  wantedTheme = theme;
+  return themeRequest;
+}
+
+/** The production flip to a loaded sheet, and what follows it. */
+function flipToLoadedTheme(theme: string): boolean {
+  if (theme === onScreenTheme) return true;
+  if (!showThemeLink(theme)) return false;
+  finishThemeChange(theme, readHostCanvasColorFromAppliedCss());
+  return true;
+}
+
+/**
+ * Put `theme` on screen synchronously. Returns true when it is on screen on
+ * return, and false — having changed nothing — when that cannot be done
+ * synchronously: in production because the theme's stylesheet has not
+ * loaded, and in dev always, because the dev server's one HMR'd theme module
+ * cannot flip synchronously — unless `theme` is already on screen. A false
+ * is answered with {@link applyTheme}. Either way it supersedes any apply
+ * still in flight.
+ */
+export function applyLoadedTheme(theme: string): boolean {
+  beginThemeRequest(theme);
+  if (theme === onScreenTheme) return true;
+  if (!import.meta.env.PROD) return false;
+  return flipToLoadedTheme(theme);
+}
+
+/**
+ * Put `theme` on screen, waiting for its CSS if need be. Resolves true once
+ * it is on screen. In production this loads the theme's stylesheet and ends
+ * in the same flip as {@link applyLoadedTheme}; in dev it POSTs to
+ * /__themes/activate, which re-renders the active-theme virtual module via
+ * HMR. [D03] Resolves false when a later request superseded it.
+ */
+export async function applyTheme(theme: string): Promise<boolean> {
+  const request = beginThemeRequest(theme);
+  if (import.meta.env.PROD) {
+    if (!(await loadThemeLink(theme))) return false;
+    if (request !== themeRequest) return false;
+    return flipToLoadedTheme(theme);
+  }
+  try {
+    const res = await fetch("/__themes/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme }),
     });
+    if (!res.ok) {
+      console.warn(`applyTheme: activate failed for "${theme}" (${res.status})`);
+      return false;
+    }
+    const result = (await res.json()) as { hostCanvasColor?: string };
+    if (request !== themeRequest) {
+      // The dev server now serves `theme`, which nobody wants any more. When
+      // the request that superseded this one posted nothing — it asked for
+      // the theme already on screen — put that theme back on the server.
+      if (wantedTheme !== theme && wantedTheme === onScreenTheme) {
+        void applyTheme(wantedTheme);
+      }
+      return false;
+    }
+    finishThemeChange(
+      theme,
+      typeof result.hostCanvasColor === "string" ? result.hostCanvasColor : null,
+    );
+    return true;
+  } catch (err: unknown) {
+    console.warn(`applyTheme: activate request failed for "${theme}"`, err);
+    return false;
   }
-  return readHostCanvasColorFromAppliedCss();
+}
+
+/**
+ * Load `theme`'s stylesheet ahead of use, so a later switch to a workspace
+ * wearing it is synchronous. A no-op in dev, which has no per-theme assets.
+ */
+export function preloadTheme(theme: string): void {
+  if (!import.meta.env.PROD) return;
+  void loadThemeLink(theme);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,95 +277,50 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 /**
  * React context provider for theme state.
  *
- * Exposes `theme` and `setTheme` via React context. Registers a stable setter
- * wrapper with the action-dispatch system so the set-theme control frame can
- * update the theme from the Mac menu.
+ * Exposes `theme` and `setTheme` via React context. Registers a setter with
+ * the action-dispatch system so the set-theme control frame can update the
+ * theme from the Mac menu.
  *
- * The `setTheme` implementation posts to POST /__themes/activate with the new
- * theme name. The server records it as the active theme, re-renders the
- * virtual:tug-active-theme.css module, and returns { theme, hostCanvasColor }.
- * On success: calls sendCanvasColor(hostCanvasColor), updates React state,
- * persists to localStorage, and calls putTheme(). [D03]
+ * `theme` is the theme on screen, read from this module's store — a
+ * workspace switch changes it without passing through here. `setTheme` is a
+ * theme being CHOSEN: it applies the theme through {@link applyTheme} and,
+ * once it is on screen, reports it through `onThemeApplied`, which is where
+ * the deck records it on the active workspace. A switch reports nothing,
+ * because the workspace already holds the theme it is being shown in.
  */
 export function TugThemeProvider({
   children,
-  initialTheme = BASE_THEME_NAME,
+  onThemeApplied,
 }: {
   children?: React.ReactNode;
-  initialTheme?: string;
+  /** Called with the theme name once a chosen theme is the one on screen. */
+  onThemeApplied?: (theme: string) => void;
 }): React.JSX.Element {
-  const [theme, setThemeState] = useState<string>(initialTheme);
+  const theme = useSyncExternalStore(subscribeOnScreenTheme, getOnScreenTheme);
 
-  // Stable ref always pointing at the latest setTheme function.
-  // The action-dispatch handler captures this ref once on mount and reads
-  // the current value on every call, preventing stale closures.
-  const setThemeRef = useRef<(t: string) => void>(() => {});
-
-  const setTheme = (newTheme: string): void => {
-    if (import.meta.env.PROD) {
-      // Production: swap <link> element and read host color from applied CSS. [D08]
-      void activateProductionTheme(newTheme).then((hostCanvasColor) => {
-        if (hostCanvasColor) {
-          sendCanvasColor(hostCanvasColor);
-        }
-        setThemeState(newTheme);
-        notifyThemeChange();
-        try { localStorage.setItem("td-theme", newTheme); } catch { /* unavailable */ }
-        putTheme(newTheme);
-      });
-      return;
-    }
-
-    // Dev: POST to activate endpoint — re-renders the active-theme virtual module via HMR. [D03]
-    void fetch("/__themes/activate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ theme: newTheme }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          console.warn(`setTheme: activate failed for "${newTheme}" (${res.status})`);
-          return;
-        }
-        return res.json().then((data: unknown) => {
-          const result = data as { theme?: string; hostCanvasColor?: string };
-          if (typeof result.hostCanvasColor === "string") {
-            sendCanvasColor(result.hostCanvasColor);
-          }
-          setThemeState(newTheme);
-          notifyThemeChange();
-          try { localStorage.setItem("td-theme", newTheme); } catch { /* unavailable */ }
-          putTheme(newTheme);
-        });
-      })
-      .catch((err: unknown) => {
-        console.warn(`setTheme: activate request failed for "${newTheme}"`, err);
-      });
-  };
-
-  // Keep ref current on every render so the stable wrapper always calls the latest setter.
+  // The latest callback, read at the moment a chosen theme lands.
+  const onThemeAppliedRef = useRef(onThemeApplied);
   useEffect(() => {
-    setThemeRef.current = setTheme;
+    onThemeAppliedRef.current = onThemeApplied;
   });
 
-  // Stable ref always pointing at the current theme name.
-  const themeRef = useRef<string>(initialTheme);
+  const setThemeRef = useRef((newTheme: string): void => {
+    void applyTheme(newTheme).then((applied) => {
+      if (applied) onThemeAppliedRef.current?.(newTheme);
+    });
+  });
+  const setTheme = setThemeRef.current;
 
-  // Keep themeRef current so the getter always returns the latest value, and
-  // mirror the name outward for the host's Theme submenu checkmark — however
+  // Mirror the name outward for the host's Theme submenu checkmark — however
   // the theme changed, including the paths the host cannot see.
   useEffect(() => {
-    themeRef.current = theme;
     publishActiveTheme(theme);
-  });
+  }, [theme]);
 
-  // Register stable wrappers with the action-dispatch system once on mount.
-  // The wrappers read from refs so they always access the latest values.
+  // Register with the action-dispatch system once on mount.
   useEffect(() => {
-    registerThemeSetter((themeName: string) => {
-      setThemeRef.current(themeName);
-    });
-    registerThemeGetter(() => themeRef.current);
+    registerThemeSetter(setThemeRef.current);
+    registerThemeGetter(getOnScreenTheme);
   }, []);
 
   return React.createElement(

@@ -58,7 +58,7 @@ function deck(cards: CardState[], panes: TugPaneState[]): DeckState {
  * here rather than repeated at every call.
  */
 function spacesOf(
-  spaces: readonly { id: string; name: string }[],
+  spaces: readonly { id: string; name: string; theme?: string }[],
   activeSpaceId: string,
 ): SpacesSnapshot {
   return { spaces, activeSpaceId, mountedSpaceIds: [], mountedDecks: new Map() };
@@ -132,6 +132,30 @@ describe("projectDeckState", () => {
       { id: "s1", name: "Main", active: false },
       { id: "s2", name: "Second", active: true },
     ]);
+  });
+
+  test("spaceThemesDiffer is true exactly when a workspace wears another theme", () => {
+    const differ = (themes: (string | undefined)[], active = "s0") =>
+      projectDeckState(
+        deck([], []),
+        spacesOf(
+          themes.map((theme, i) => ({
+            id: `s${i}`,
+            name: `W${i}`,
+            ...(theme !== undefined ? { theme } : {}),
+          })),
+          active,
+        ),
+      ).spaceThemesDiffer;
+    expect(differ(["sloop", "sloop", "sloop"])).toBe(false);
+    expect(differ(["sloop", "caravel"])).toBe(true);
+    // The comparison is against the CURRENT workspace, whichever it is.
+    expect(differ(["sloop", "caravel"], "s1")).toBe(true);
+    expect(differ(["sloop"])).toBe(false);
+    // A workspace that names no theme differs from one that names one.
+    expect(differ(["sloop", undefined])).toBe(true);
+    // No workspaces, as before the first snapshot lands: nothing to apply to.
+    expect(projectDeckState(deck([], [])).spaceThemesDiffer).toBe(false);
   });
 
   test("pane entries carry cardCount and the active card's closable", () => {

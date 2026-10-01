@@ -570,6 +570,21 @@ body {
   gap: var(--tugx-list-row-trailing-gap);
 }
 
+/* The theme swatch: the workspace's theme, shown as the canvas color that
+   theme paints behind the deck, and the door to choosing another. The color
+   is the row's data, so it arrives as the chip's own inline background rather
+   than as a token — it is deliberately NOT the theme on screen. A hairline in
+   the row's own text ink keeps a chip legible when its color is the color of
+   the surface it sits on, which is the ordinary case for the active
+   workspace. */
+.cards-space-swatch {
+  display: block;
+  inline-size: 0.75em;
+  block-size: 0.75em;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--tug7-element-global-text-normal-subtle-rest);
+}
+
 /* The rows of a workspace that is not on screen. Quieted a step because the
    deck does not hold those cards, not because the rows refuse anything: they
    are picked, dragged and reordered like any other ([P09], [B01]). The tone is

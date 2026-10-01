@@ -39,6 +39,14 @@
  * [L19] the row composes `TugListRow` and the cue is a real `BlockFoldCue`;
  * [L24] the rename draft is the field's own while it is open.
  *
+ * **The theme swatch is the fourth thing on the row, and it is not a verb.**
+ * A workspace wears a theme, and the swatch shows which — the canvas color
+ * that theme paints behind the deck — so a column of these rows can be read
+ * for it without opening anything. It is also the door: a click opens the
+ * themes, dark then light, with the workspace's own marked. That is why it is
+ * a chip in the trailing cluster and not a fourth item in the `···` menu,
+ * which could open the setting but never show it.
+ *
  * @module components/cards/cards-space-header
  */
 
@@ -55,6 +63,10 @@ import {
 import { TugInput } from "@/components/tugways/tug-input";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
+import {
+  TugPopupMenu,
+  type TugPopupMenuEntry,
+} from "@/components/tugways/internal/tug-popup-menu";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import type { KeyViewBehavior } from "@/components/tugways/focus-manager";
 import type {
@@ -62,6 +74,7 @@ import type {
   TugListViewCellRenderer,
 } from "@/components/tugways/tug-list-view";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import { THEME_CATALOG, themeCatalogEntry } from "@/theme-catalog";
 
 import type { CardsDataSource } from "./cards-data-source";
 import { CARDS_RENAME_FOCUS_ORDER, useCellContext } from "./cards-cell-context";
@@ -273,6 +286,36 @@ function SpaceRenameField({
   );
 }
 
+/** A theme's canvas color as a chip — the row's swatch and each menu item's. */
+function ThemeSwatch({ theme }: { theme: string }): React.ReactElement {
+  return (
+    <span
+      className="cards-space-swatch"
+      data-cards-swatch-theme={theme}
+      style={{ backgroundColor: themeCatalogEntry(theme).canvasColor }}
+    />
+  );
+}
+
+/**
+ * The themes a workspace can wear, as the swatch's menu: the dark ones, a
+ * rule, the light ones — View ▸ Theme's own grouping — with the workspace's
+ * current theme marked.
+ */
+function themeMenuItems(current: string): TugPopupMenuEntry[] {
+  const item = (entry: (typeof THEME_CATALOG)[number]): TugPopupMenuEntry => ({
+    id: entry.name,
+    label: entry.label,
+    icon: <ThemeSwatch theme={entry.name} />,
+    selected: entry.name === current,
+  });
+  return [
+    ...THEME_CATALOG.filter((entry) => entry.mode === "dark").map(item),
+    { type: "separator" },
+    ...THEME_CATALOG.filter((entry) => entry.mode === "light").map(item),
+  ];
+}
+
 /** A WORKSPACE header — the outermost row ([P09], Spec S04, Spec S05). */
 export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
   index,
@@ -292,6 +335,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
   });
   if (row === undefined || row.type !== "space-header") return null;
   const renaming = ctx.renamingSpaceId === row.spaceId;
+  const theme = themeCatalogEntry(row.theme);
   return (
     <TugListRow
       className="cards-space-header"
@@ -357,6 +401,35 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
               boundary in the row with less air than the boundaries either side
               of it. */}
           <span className="cards-space-tally cards-space-tally-controls">
+          {/* The theme this workspace wears, and the door to choosing another.
+              The wrapper keeps the press and the click to itself for the
+              `···` trigger's reason — the row is a drag handle and a way to
+              go there — and it catches the menu's own events too, which
+              travel the React tree from the portal back through here. A pick
+              for a workspace that is not on screen changes this chip and
+              nothing else. */}
+          <span
+            className="cards-space-theme"
+            data-slot="cards-space-theme"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <TugPopupMenu
+              trigger={
+                <TugIconButton
+                  className="cards-header-theme"
+                  icon={<ThemeSwatch theme={theme.name} />}
+                  aria-label={`Theme for workspace ${row.name}: ${theme.label}`}
+                  data-testid="cards-space-theme-button"
+                  size="2xs"
+                />
+              }
+              align="end"
+              items={themeMenuItems(theme.name)}
+              onSelect={(id) => ctx.onChooseSpaceTheme(row.spaceId, id)}
+              data-testid="cards-space-theme-menu"
+            />
+          </span>
           {/* The visible door to the same three verbs the right-click opens
               ([B01]). It opens the menu at its own rect rather than at a
               pointer position, which is what makes it a button rather than a

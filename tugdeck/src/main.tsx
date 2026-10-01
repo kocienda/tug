@@ -57,7 +57,7 @@ import { focusRingModalityStore, normalizeFocusRingModality } from "./focus-ring
 import { getThemeSetter } from "./action-dispatch";
 import {
   sendCanvasColor,
-  activateProductionTheme,
+  seedOnScreenTheme,
   syncDevActiveTheme,
   readHostCanvasColorFromAppliedCss,
 } from "./contexts/theme-provider";
@@ -95,6 +95,9 @@ import { initMotionObserver } from "./components/tugways/scale-timing";
 import { installMotionGuard } from "./lib/motion-guard";
 import { setGestureOriginSource } from "./lib/motion-guard/gesture-frame-probe";
 import { initThemeTokens } from "./theme-tokens";
+import { themeMirror } from "./theme-mirror";
+import { loadThemeLink, showThemeLink } from "./theme-links";
+import { activeSpaceTheme } from "./spaces";
 import { FONT_STACKS } from "./lib/editor-settings-store";
 import { deserialize } from "./serialization";
 import { attachTugTestSurface } from "./test-surface";
@@ -352,7 +355,21 @@ async function withBootHorizon<T>(
   const theme = readTheme(tugbankClient);
   const focusedCardId = readDeckState(tugbankClient);
 
-  const initialTheme = theme ?? BASE_THEME_NAME;
+  // The theme on screen is the active workspace's. The global key is its
+  // mirror, and the fallback for a space that names none — every space in a
+  // layout saved before workspaces carried a theme.
+  const globalTheme = theme ?? BASE_THEME_NAME;
+  let initialTheme = globalTheme;
+  if (layout !== null) {
+    try {
+      initialTheme =
+        activeSpaceTheme(
+          deserialize(JSON.stringify(layout), 0, 0, globalTheme),
+        ) ?? globalTheme;
+    } catch {
+      // An unreadable layout boots in the global theme.
+    }
+  }
 
   // Seed the keyboard-access mode from the DEFAULTS snapshot and stamp
   // `data-keyboard-access` on the document root before first render, so the
@@ -377,8 +394,14 @@ async function withBootHorizon<T>(
   // Startup theme reconciliation, before first render so the app does not
   // flash the wrong theme and then restyle.
   if (import.meta.env.PROD) {
-    // Apply the saved non-base override <link>.
-    await withBootHorizon("theme", activateProductionTheme(initialTheme));
+    // Load the active workspace's theme and show it. Every other workspace's
+    // theme is loaded ahead of use by the deck manager.
+    await withBootHorizon(
+      "theme",
+      loadThemeLink(initialTheme).then(() => {
+        showThemeLink(initialTheme);
+      }),
+    );
   } else {
     // Reconcile the dev server's baked active theme with this variant's saved
     // theme — the dev server's boot seed can come from a different tugbank
@@ -394,6 +417,12 @@ async function withBootHorizon<T>(
 
   // Capture the baseline sentinel for theme change detection.
   initThemeTokens();
+  seedOnScreenTheme(initialTheme);
+
+  // The global key follows the theme on screen. This writes only when the
+  // active workspace's theme and the key disagreed at boot.
+  themeMirror.seed(globalTheme);
+  themeMirror.write(initialTheme);
 
   // Warm the editor font stacks now, once the @font-face rules are in
   // the document, so the first atom-chip bake (Canvas measurement +
@@ -527,7 +556,7 @@ async function withBootHorizon<T>(
     initialTheme,
     cardStates,
     focusedCardId ?? undefined,
-    { testMode: isTestMode }
+    { testMode: isTestMode, fallbackTheme: globalTheme }
   );
 
   // Initialize action dispatch (no SessionNotificationRef in Phase 0).
@@ -786,10 +815,12 @@ async function withBootHorizon<T>(
   // When an external process writes to tugbank (e.g., `tugbank write ... theme sloop`),
   // the TugbankClient cache updates and this callback fires.
   //
-  // Guard: only call the setter if the theme actually changed. Without this,
-  // setTheme → putTheme → tugbank write → DEFAULTS push → onDomainChanged → setTheme
-  // creates an infinite loop of CSS HMR updates.
-  let currentTheme = initialTheme;
+  // Guard: the key mirrors the theme on screen, so most pushes are echoes of
+  // this client's own writes — a theme pick, a workspace switch — and are
+  // already applied. Only a value the mirror did not write is an outside
+  // write, and it means "set the current workspace's theme". Without the
+  // guard, setTheme → tugbank write → DEFAULTS push → onDomainChanged →
+  // setTheme creates an infinite loop of CSS HMR updates.
   tugbankClient.onDomainChanged((domain, entries) => {
     // Keymap overrides written from another process (a second window, or
     // `tugbank write … dev.tugapp.keymap`). The keymap registry republishes
@@ -803,10 +834,9 @@ async function withBootHorizon<T>(
     if (domain === "dev.tugapp.app") {
       const themeEntry = entries["theme"];
       if (themeEntry && themeEntry.kind === "string" && typeof themeEntry.value === "string") {
-        if (themeEntry.value !== currentTheme) {
-          currentTheme = themeEntry.value;
+        if (themeMirror.observe(themeEntry.value)) {
           const setter = getThemeSetter();
-          if (setter) setter(currentTheme);
+          if (setter) setter(themeEntry.value);
         }
       }
       // Keyboard-access mode pushed from another process (e.g. the Swift host
@@ -887,6 +917,7 @@ async function withBootHorizon<T>(
           spaces: snapshot.spaces.map((s) => ({
             id: s.id,
             name: s.name,
+            theme: s.theme,
             active: s.id === snapshot.activeSpaceId,
             deck: deck.getSpaceDeck(s.id),
           })),

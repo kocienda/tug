@@ -290,6 +290,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "reload-from-disk": "command",
   "new-text-card": "command",
   "next-theme": "command",
+  "apply-theme-to-all-workspaces": "command",
   "add-card-to-active-pane": "command",
   close: "command",
   "close-all": "command",

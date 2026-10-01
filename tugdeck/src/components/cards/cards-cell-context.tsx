@@ -60,6 +60,8 @@ export interface CardsCellContextValue {
   onCommitRename: (spaceId: string, name: string) => void;
   /** Escape: leave the field with the name it had. */
   onCancelRename: () => void;
+  /** A pick from the row's theme swatch: the theme that workspace wears. */
+  onChooseSpaceTheme: (spaceId: string, theme: string) => void;
   /** The card's focus group — where the rename field registers. */
   focusGroup: string;
   /** Put the keyboard on the rename field that just mounted ([L22]). */

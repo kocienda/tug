@@ -144,9 +144,10 @@ it. Run `audit:theme-contrast <name>` for one theme (with the full failure list)
 ### Production
 
 - Base theme is included by app CSS import.
-- Non-base theme is activated via `<link id="tug-theme-override" href="/assets/themes/<name>.css">`.
-- `activateProductionTheme()` inserts/updates/removes that link.
-- On startup, if saved theme is non-`ironclad`, the link is applied before first visible paint.
+- Each non-base theme in use has its own `<link data-tug-theme="<name>" href="/assets/themes/<name>.css">`, loaded ahead of use and held: one per theme some workspace wears (`theme-links.ts`).
+- Showing a theme is a synchronous flip of the loaded sheets' `disabled`, so a workspace switch changes the theme in the same commit as the cut. The link's `media` attribute is never changed after insertion — WebKit re-requests the stylesheet when it is.
+- `applyLoadedTheme()` is the synchronous flip; `applyTheme()` loads a theme not yet in the document and ends in the same flip.
+- On startup the active workspace's theme is loaded and shown before first visible paint.
 
 ---
 

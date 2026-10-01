@@ -1940,6 +1940,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("next-theme")
     }
 
+    @objc private func applyThemeToAllWorkspaces(_ sender: Any) {
+        sendControl("apply-theme-to-all-workspaces")
+    }
+
     @objc private func addCardToActivePane(_ sender: Any) {
         sendControl("add-card-to-active-pane")
     }
@@ -2981,6 +2985,12 @@ extension AppDelegate: NSMenuDelegate {
         // back on the item until the next sweep.
         let nextItem = NSMenuItem(title: "Next Theme", action: #selector(nextTheme(_:)), keyEquivalent: "t", modifierMask: [.command, .shift]).identified("view.nextTheme")
         menu.addItem(nextItem)
+
+        // Separator + Apply To All Workspaces. Enabled only while some
+        // workspace wears a theme other than the current one; the gate rides
+        // the menu-state push under this item's identifier.
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Apply To All Workspaces", action: #selector(applyThemeToAllWorkspaces(_:)), keyEquivalent: "").identified("view.applyThemeToAllWorkspaces"))
 
         applyCommandChords(in: menu)
     }

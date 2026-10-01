@@ -12,10 +12,12 @@
 import { describe, test, expect } from "bun:test";
 import {
   MAIN_SPACE_NAME,
+  activeSpaceTheme,
   duplicatedDeck,
   moveCardBetweenDecks,
   nextSpaceName,
   parkedDeck,
+  withFallbackTheme,
   wrapAsMainSpace,
 } from "../spaces";
 import type { DeckState } from "../layout-tree";
@@ -113,6 +115,45 @@ describe("wrapAsMainSpace", () => {
     expect(wrapAsMainSpace(plainDeck).activeSpaceId).not.toBe(
       wrapAsMainSpace(plainDeck).activeSpaceId,
     );
+  });
+});
+
+describe("a space's theme", () => {
+  const state = {
+    spaces: [
+      { id: "s1", name: "Main", deck: plainDeck, theme: "sloop" },
+      { id: "s2", name: "Side", deck: plainDeck, theme: "caravel" },
+      { id: "s3", name: "Bare", deck: plainDeck },
+    ],
+    activeSpaceId: "s2",
+  };
+
+  // `createSpace` copies this onto the record it makes, which is the whole
+  // of how a new workspace comes to wear the theme of the one being left.
+  test("the active space's theme is the one a new space inherits", () => {
+    expect(activeSpaceTheme(state)).toBe("caravel");
+    expect(activeSpaceTheme({ ...state, activeSpaceId: "s1" })).toBe("sloop");
+  });
+
+  test("an active space with no theme, or no active space, has none to give", () => {
+    expect(activeSpaceTheme({ ...state, activeSpaceId: "s3" })).toBeUndefined();
+    expect(activeSpaceTheme({ ...state, activeSpaceId: "gone" })).toBeUndefined();
+  });
+
+  test("the fallback fills only the spaces that name no theme", () => {
+    const filled = withFallbackTheme(state, "ketch");
+    expect(filled.spaces.map((s) => s.theme)).toEqual([
+      "sloop",
+      "caravel",
+      "ketch",
+    ]);
+    expect(filled.activeSpaceId).toBe("s2");
+  });
+
+  test("the state itself comes back when there is nothing to fill", () => {
+    expect(withFallbackTheme(state, undefined)).toBe(state);
+    const filled = withFallbackTheme(state, "ketch");
+    expect(withFallbackTheme(filled, "skiff")).toBe(filled);
   });
 });
 

@@ -1316,6 +1316,14 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     [],
   );
   const onCancelRename = useCallback((): void => setRenamingSpaceId(null), []);
+  const onChooseSpaceTheme = useCallback(
+    (spaceId: string, theme: string): void => {
+      // Whether the pick repaints is the store's to decide: it does for the
+      // workspace on screen and does not for a parked one.
+      getDeckStore()?.chooseSpaceTheme(spaceId, theme);
+    },
+    [],
+  );
 
   // The keyboard follows the field that just opened ([L22]): placement, never
   // a raw focus write, because in this card's keyboard-focus mode the route
@@ -1515,6 +1523,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       renamingSpaceId,
       onCommitRename,
       onCancelRename,
+      onChooseSpaceTheme,
       focusGroup: CARDS_FOCUS_GROUP,
       focusRenameField,
       spaceCount,
@@ -1532,6 +1541,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       renamingSpaceId,
       onCommitRename,
       onCancelRename,
+      onChooseSpaceTheme,
       focusRenameField,
       spaceCount,
       filterQuery,

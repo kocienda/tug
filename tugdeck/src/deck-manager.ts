@@ -43,6 +43,7 @@ import { buildDefaultLayout, serialize, deserialize } from "./serialization";
 import { scheduleAfterPaint } from "./lib/after-paint";
 import {
   MAIN_SPACE_NAME,
+  activeSpaceTheme,
   duplicatedDeck,
   moveCardBetweenDecks,
   nextSpaceName,
@@ -125,7 +126,13 @@ import { TugAlertProvider } from "./components/tugways/tug-alert";
 import { TugBulletinProvider } from "./components/tugways/tug-bulletin";
 import { putLayout, putCardState } from "./settings-api";
 import { flushPromptHistorySync } from "./lib/prompt-history-api";
-import { TugThemeProvider, type ThemeName } from "./contexts/theme-provider";
+import {
+  TugThemeProvider,
+  applyLoadedTheme,
+  applyTheme,
+  preloadTheme,
+  type ThemeName,
+} from "./contexts/theme-provider";
 import { composeProviders } from "./lib/compose-providers";
 import type {
   EngineHooks,
@@ -329,6 +336,7 @@ interface SpaceRecord {
   name: string;
   deck: DeckState | null;
   focusedCardId?: string;
+  theme?: string;
 }
 
 export interface TerminationVerdict {
@@ -1120,6 +1128,13 @@ export class DeckManager implements IDeckManagerStore {
 
   private initialTheme: ThemeName;
 
+  /**
+   * The global theme key's value at boot: what a loaded space that names no
+   * theme takes. Absent when the host gave none, and such a space then stays
+   * without one.
+   */
+  private fallbackTheme: ThemeName | undefined;
+
   // ---- Subscribable store state (useSyncExternalStore contract) ----
 
   private subscribers: Set<(landing: CommitLanding) => void> = new Set();
@@ -1287,7 +1302,11 @@ export class DeckManager implements IDeckManagerStore {
         mountedDecks.set(space.id, space.deck);
       }
       this.spacesSnapshotCache = {
-        spaces: this.spaces.map((s) => ({ id: s.id, name: s.name })),
+        spaces: this.spaces.map((s) => ({
+          id: s.id,
+          name: s.name,
+          ...(s.theme !== undefined ? { theme: s.theme } : {}),
+        })),
         activeSpaceId: this.activeSpaceId,
         mountedSpaceIds,
         mountedDecks,
@@ -1460,6 +1479,24 @@ export class DeckManager implements IDeckManagerStore {
         // snapshot subscribers see already names the new arrangement.
         this.mountedSpaceIds.add(spaceId);
         this.invalidateSpacesSnapshot();
+        // The theme changes in this commit, with the cut ([L06]: a stylesheet
+        // flip, no React state in the way). Every workspace's theme is
+        // loaded ahead of use, so the flip is synchronous and the first frame
+        // that shows the arriving cards shows them in their own theme.
+        //
+        // Dev builds are the exception and it is accepted: the dev server
+        // serves the active theme as one HMR'd module that cannot flip
+        // synchronously, so `applyLoadedTheme` declines and the theme follows
+        // a few frames behind the cut. The same fallback covers a production
+        // switch that outran the load of the incoming theme's stylesheet.
+        //
+        // Asked even when the incoming theme is already on screen: the ask
+        // supersedes an apply still in flight from the workspace being left,
+        // which would otherwise land after this cut, in the wrong workspace.
+        const incomingTheme = incoming.theme;
+        if (incomingTheme !== undefined && !applyLoadedTheme(incomingTheme)) {
+          void applyTheme(incomingTheme);
+        }
         // The switch epoch opens here ([P01], Spec S02). Written before the
         // notify below, so the very first thing any subscriber can do is read
         // it, and written by this method rather than by a layout effect in the
@@ -1584,7 +1621,18 @@ export class DeckManager implements IDeckManagerStore {
         ? trimmed
         : nextSpaceName(this.spaces.map((s) => s.name));
     const id = crypto.randomUUID();
-    this.spaces.push({ id, name: chosen, deck: buildDefaultLayout() });
+    // The new workspace wears the theme of the one being left, so creating
+    // one never changes what is on screen.
+    const theme = activeSpaceTheme({
+      spaces: this.spaces,
+      activeSpaceId: this.activeSpaceId,
+    });
+    this.spaces.push({
+      id,
+      name: chosen,
+      deck: buildDefaultLayout(),
+      ...(theme !== undefined ? { theme } : {}),
+    });
     this.invalidateSpacesSnapshot();
     this.activateSpace(id);
     // The latch would otherwise stand a SECOND rail the first time a card
@@ -1639,10 +1687,70 @@ export class DeckManager implements IDeckManagerStore {
       validateDeckState(deck);
     }
     const id = crypto.randomUUID();
-    this.spaces.splice(index + 1, 0, { id, name: `${source.name} copy`, deck });
+    this.spaces.splice(index + 1, 0, {
+      id,
+      name: `${source.name} copy`,
+      deck,
+      ...(source.theme !== undefined ? { theme: source.theme } : {}),
+    });
     this.invalidateSpacesSnapshot();
     this.scheduleSave();
     return id;
+  };
+
+  /**
+   * Record the theme a workspace wears. Writes the record and nothing else:
+   * putting a theme on screen is the theme provider's work, and it reports
+   * back here once the active workspace's theme is applied.
+   */
+  public setSpaceTheme = (spaceId: string, theme: string): void => {
+    const space = this.spaces.find((s) => s.id === spaceId);
+    if (space === undefined) {
+      console.warn(`setSpaceTheme: no space with id "${spaceId}"`);
+      return;
+    }
+    if (space.theme === theme) return;
+    space.theme = theme;
+    preloadTheme(theme);
+    this.invalidateSpacesSnapshot();
+    this.scheduleSave();
+  };
+
+  /**
+   * Choose a workspace's theme from outside the Theme menu — the swatch on
+   * its row. For the workspace on screen this is the menu's own path: the
+   * theme is applied, and the record follows once it is. For a parked one
+   * only the record moves, and nothing repaints until the user goes there.
+   */
+  public chooseSpaceTheme = (spaceId: string, theme: string): void => {
+    if (spaceId !== this.activeSpaceId) {
+      this.setSpaceTheme(spaceId, theme);
+      return;
+    }
+    void applyTheme(theme).then((applied) => {
+      if (applied) this.setSpaceTheme(spaceId, theme);
+    });
+  };
+
+  /**
+   * Give every workspace the active workspace's theme. The active one already
+   * wears it, so nothing on screen changes; a no-op when they all do.
+   */
+  public applyThemeToAllSpaces = (): void => {
+    const theme = activeSpaceTheme({
+      spaces: this.spaces,
+      activeSpaceId: this.activeSpaceId,
+    });
+    if (theme === undefined) return;
+    let changed = false;
+    for (const space of this.spaces) {
+      if (space.theme === theme) continue;
+      space.theme = theme;
+      changed = true;
+    }
+    if (!changed) return;
+    this.invalidateSpacesSnapshot();
+    this.scheduleSave();
   };
 
   /**
@@ -2227,7 +2335,7 @@ export class DeckManager implements IDeckManagerStore {
     initialTheme?: ThemeName,
     initialCardStates?: Map<string, CardStateBag>,
     initialFocusedCardId?: string,
-    options?: { testMode?: boolean },
+    options?: { testMode?: boolean; fallbackTheme?: ThemeName },
   ) {
     this.container = container;
     this.connection = connection;
@@ -2247,6 +2355,7 @@ export class DeckManager implements IDeckManagerStore {
     this.bootStateHonored = !dropBootState;
     this.initialLayout = dropBootState ? null : (initialLayout ?? null);
     this.initialTheme = initialTheme ?? BASE_THEME_NAME;
+    this.fallbackTheme = options?.fallbackTheme;
 
     if (initialCardStates && !dropBootState) {
       this.cardStateCache = new Map(initialCardStates);
@@ -2340,7 +2449,15 @@ export class DeckManager implements IDeckManagerStore {
     this.reactRoot.render(
       composeProviders(
         [
-          [TugThemeProvider, { initialTheme: this.initialTheme }],
+          [
+            TugThemeProvider,
+            {
+              // The theme on screen is the active workspace's, so a theme
+              // chosen and applied is a theme that workspace now wears.
+              onThemeApplied: (theme: string) =>
+                this.setSpaceTheme(this.activeSpaceId, theme),
+            },
+          ],
           [TugTooltipProvider, null],
           [ErrorBoundary, null],
           [ResponderChainProvider, null],
@@ -7962,7 +8079,12 @@ export class DeckManager implements IDeckManagerStore {
     if (this.initialLayout !== null) {
       try {
         const json = JSON.stringify(this.initialLayout);
-        loaded = deserialize(json, canvasWidth, canvasHeight);
+        loaded = deserialize(
+          json,
+          canvasWidth,
+          canvasHeight,
+          this.fallbackTheme,
+        );
       } catch (e) {
         console.warn("DeckManager: failed to deserialize initialLayout from API, falling back", e);
       }
@@ -7972,7 +8094,9 @@ export class DeckManager implements IDeckManagerStore {
     if (loaded === null) {
       this.factoryFresh = this.bootStateHonored;
       const id = crypto.randomUUID();
-      this.spaces = [{ id, name: MAIN_SPACE_NAME, deck: null }];
+      this.spaces = [
+        { id, name: MAIN_SPACE_NAME, deck: null, theme: this.initialTheme },
+      ];
       this.activeSpaceId = id;
       this.mountedSpaceIds = new Set([id]);
       this.invalidateSpacesSnapshot();
@@ -7990,10 +8114,16 @@ export class DeckManager implements IDeckManagerStore {
       ...(space.focusedCardId !== undefined
         ? { focusedCardId: space.focusedCardId }
         : {}),
+      ...(space.theme !== undefined ? { theme: space.theme } : {}),
     }));
     this.activeSpaceId = this.spaces[activeIndex].id;
     this.mountedSpaceIds = new Set([this.activeSpaceId]);
     this.invalidateSpacesSnapshot();
+    // Every workspace's theme is loaded now, so that switching to one never
+    // waits on a stylesheet.
+    for (const space of this.spaces) {
+      if (space.theme !== undefined) preloadTheme(space.theme);
+    }
 
     return this.filterRegisteredCards(loaded.spaces[activeIndex].deck);
   }
@@ -8011,6 +8141,7 @@ export class DeckManager implements IDeckManagerStore {
         ...(space.focusedCardId !== undefined
           ? { focusedCardId: space.focusedCardId }
           : {}),
+        ...(space.theme !== undefined ? { theme: space.theme } : {}),
       })),
       activeSpaceId: this.activeSpaceId,
     };

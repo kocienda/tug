@@ -377,6 +377,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.unname` | `run-slash-command:unname` | key card | registry gate |
 | `session.usage` | `run-slash-command:usage` | key card | registry gate |
 | `view.actualSize` | `zoom-actual` | first responder | host tier |
+| `view.applyThemeToAllWorkspaces` | `apply-theme-to-all-workspaces` | registered handler | registry gate |
 | `view.bullseye` | `toggle-bullseye` | first responder | registry gate |
 | `view.cardWidth.comfy` | `set-pane-width:comfy` | first responder | registry gate |
 | `view.cardWidth.slim` | `set-pane-width:slim` | first responder | registry gate |
