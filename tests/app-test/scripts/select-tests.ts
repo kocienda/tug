@@ -397,9 +397,11 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugdeck/src/lib/code-session-store/": 30,
     "tugdeck/src/lib/markdown/": 19,
 
-    // The themes, which are one system: a token added to one file is answered in all six,
-    // so a test asserting contrast has the set as its honest subject.
-    "tugdeck/styles/themes/": 7,
+    // `tugdeck/styles/themes/` was here at 7 and is gone: the directory grew to
+    // ten themes, and its one declaration — `at0109`'s — boots under the base
+    // theme and never switches, so it was narrowed to `ironclad.css` rather than
+    // refinanced upward. The ring tokens it reads are app-owned in
+    // `focus-ring.css`, which it already names.
 
     "tugrust/crates/tugbank-core/": 10,
     "tugrust/crates/tugbank/": 3,

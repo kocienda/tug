@@ -31,7 +31,7 @@
  * ring's `data-key-view-kbd` styling actually resolves.
  *
  * @covers tugdeck/styles/focus-ring.css
- * @covers tugdeck/styles/themes/
+ * @covers tugdeck/styles/themes/ironclad.css
  * @covers tugdeck/src/components/tugways/focus-manager.ts
  * @covers tugdeck/src/focus-ring-modality-store.ts
  * @covers tugdeck/src/keyboard-access-store.ts

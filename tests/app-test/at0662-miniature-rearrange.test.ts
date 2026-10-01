@@ -33,7 +33,6 @@
  * @covers tugdeck/src/components/layout/miniature-gestures.ts
  * @covers tugdeck/src/lib/drop-zone-host-registry.ts
  * @covers tugdeck/src/lib/drop-zones.ts
- * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */
 
 import { describe, expect, test } from "bun:test";
