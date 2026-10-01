@@ -82,6 +82,17 @@
  * three masthead row classes it does not. The rail's session cell is checked
  * for both halves of that: it grows no field, and its title keeps its grow.
  *
+ * ── The ink reaches the field and nothing else ──
+ * The field's ink differs by the pane's focus, and it is a custom property, so
+ * where it is declared decides what a focus flip restyles. Declared on the
+ * pane, it inherited into every element the pane holds and a flip restyled the
+ * whole subtree — 15 ms on a session pane and about 50 on the Overview, inside
+ * the commit a flow slide runs over. Declared on the field, a flip restyles the
+ * field. The pin is structural rather than a duration: across a real focus
+ * flip, no element of either pane but a field resolves the ink at all, and each
+ * field's own ink still follows its pane's focus, which is the dots looking the
+ * same.
+ *
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/components/tugways/session-masthead.css
  * @covers tugdeck/src/components/tugways/card-masthead.css
@@ -774,4 +785,103 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  test(
+    "the ink is the field's own, so a focus flip restyles nothing else in the pane",
+    async () => {
+      const app = await launchTugApp({ testName: "at0628-grab-dot-ink" });
+      try {
+        await app.seedDeckState({ state: DECK, focusCardId: "A" });
+        await app.bindSession("A", {
+          tugSessionId: "at0628-ink-A",
+          projectDir: "/tmp/at0628",
+        });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null` +
+            ` && document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null` +
+            ` && document.querySelector('.tug-pane[data-pane-id="p1"]')` +
+            `.getAttribute("data-focused") === "true"`,
+          { timeoutMs: 15_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        // Every element of the two content panes, the pane included, and what
+        // each resolves `--tugx-pane-dot-ink` to. Read off the browser, so a
+        // declaration anywhere above the field — on the pane, the bar, a
+        // masthead frame — shows up as an element that resolves it.
+        const read = (): Promise<InkReading> =>
+          app.evalJS<InkReading>(
+            `(function () {
+              var out = { holders: [], fields: {}, count: 0 };
+              ["p1", "p2"].forEach(function (id) {
+                var pane = document.querySelector('.tug-pane[data-pane-id="' + id + '"]');
+                if (pane === null) return;
+                var els = [pane].concat(Array.prototype.slice.call(pane.querySelectorAll("*")));
+                out.count += els.length;
+                els.forEach(function (el) {
+                  var ink = getComputedStyle(el).getPropertyValue("--tugx-pane-dot-ink").trim();
+                  if (el.classList.contains("tug-pane-grab-dots")) {
+                    (out.fields[id] = out.fields[id] || []).push(ink);
+                  } else if (ink !== "") {
+                    out.holders.push(id + " " + String(el.className || el.tagName).split(" ")[0]);
+                  }
+                });
+              });
+              return out;
+            })()`,
+          );
+
+        const before = await read();
+        note(
+          `focus on A: ${before.count} elements, holders ${JSON.stringify(before.holders.slice(0, 5))}, fields ${JSON.stringify(before.fields)}`,
+        );
+        expect(before.count, "the panes are populated").toBeGreaterThan(50);
+        // The ink resolves on the field and nowhere else. An element that
+        // resolves it is one whose style a focus flip would change.
+        expect(before.holders, "no element but a field holds the ink").toEqual([]);
+        expect(before.fields.p1?.length ?? 0, "the focused pane has a field").toBeGreaterThan(0);
+        expect(before.fields.p2?.length ?? 0, "the unfocused pane has a field").toBeGreaterThan(0);
+        const focusedInk = before.fields.p1[0];
+        const recededInk = before.fields.p2[0];
+        expect(focusedInk, "the focused field is inked").not.toBe("");
+        expect(recededInk, "the receded field is inked").not.toBe("");
+        expect(recededInk, "the ink follows the pane's focus").not.toBe(focusedInk);
+
+        // The flip, through the product's own door.
+        await app.evalJS<null>(
+          `(function () { window.__tug.activateCard("B"); return null; })()`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('.tug-pane[data-pane-id="p2"]')` +
+            `.getAttribute("data-focused") === "true"`,
+          { timeoutMs: 5_000 },
+        );
+        await wait(300);
+
+        const after = await read();
+        note(`focus on B: fields ${JSON.stringify(after.fields)}`);
+        expect(after.holders, "still no element but a field holds the ink").toEqual([]);
+        // The dots look the same: each field took the other's ink.
+        for (const ink of after.fields.p1 ?? []) {
+          expect(ink, "the pane that lost focus wears the receded ink").toBe(recededInk);
+        }
+        for (const ink of after.fields.p2 ?? []) {
+          expect(ink, "the pane that took focus wears the focused ink").toBe(focusedInk);
+        }
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
+
+/** Where `--tugx-pane-dot-ink` resolves across the two content panes. */
+interface InkReading {
+  /** Elements other than a field that resolve the ink — `"<pane> <class>"`. */
+  holders: string[];
+  /** Each pane's fields, and the ink each resolves. */
+  fields: Record<string, string[]>;
+  /** How many elements were read, so an empty pane cannot pass vacuously. */
+  count: number;
+}

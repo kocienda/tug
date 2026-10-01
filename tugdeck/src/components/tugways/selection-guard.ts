@@ -323,6 +323,11 @@ class SelectionGuard {
   // Whether CSS.highlights is available.
   private highlightsAvailable = false;
 
+  // Whether `detach()` has unregistered the guard. While detached the
+  // `inactive-selection` name stays out of `CSS.highlights` whatever the
+  // highlight holds; `attach()` clears it.
+  private detached = false;
+
   // Whether the app window currently holds focus. Flipped to `false`
   // on `applicationDidResignActive` and back to `true` on
   // `applicationDidBecomeActive`. Read by `updatePaint`: when `false`,
@@ -388,14 +393,36 @@ class SelectionGuard {
 
   /**
    * Create the inactive-selection CSS Highlight if the API is available.
-   * Idempotent — safe to call multiple times.
+   * Idempotent — safe to call multiple times. Created unregistered: the name
+   * enters `CSS.highlights` only while it holds ranges ({@link syncRegistration}).
    */
   private initHighlights(): void {
     if (this.highlightsAvailable) return;
     if (typeof CSS !== "undefined" && CSS.highlights !== undefined) {
       this.highlightsAvailable = true;
       this.inactiveHighlight = new Highlight();
-      CSS.highlights.set("inactive-selection", this.inactiveHighlight);
+    }
+  }
+
+  /**
+   * Register `inactive-selection` while it has ranges, and unregister it when
+   * the last goes — the rule `filter-mark-painter.ts` keeps for its own name.
+   * An empty highlight paints nothing, but WebKit still resolves a
+   * `::highlight()` style per text box per registered name at every text
+   * paint, so a name left registered with no ranges is a tax on every repaint
+   * in the app.
+   */
+  private syncRegistration(): void {
+    if (!this.highlightsAvailable || this.inactiveHighlight === null) return;
+    if (typeof CSS === "undefined" || CSS.highlights === undefined) return;
+    const wanted = !this.detached && this.inactiveHighlight.size > 0;
+    const current = CSS.highlights.get("inactive-selection");
+    if (wanted) {
+      if (current !== this.inactiveHighlight) {
+        CSS.highlights.set("inactive-selection", this.inactiveHighlight);
+      }
+    } else if (current !== undefined) {
+      CSS.highlights.delete("inactive-selection");
     }
   }
 
@@ -670,6 +697,7 @@ class SelectionGuard {
       }
       this.inactiveHighlight.add(range);
     }
+    this.syncRegistration();
 
     // Sync native `::selection` to the focused card's Range. When
     // there is no focused card or the focused card has not published
@@ -730,13 +758,11 @@ class SelectionGuard {
     document.addEventListener("selectstart", this.boundSelectStart, { capture: true });
 
     // Initialize highlight if not yet created (covers tests that install
-    // mock CSS.highlights after module import), and re-register with
-    // CSS.highlights if detach() previously unregistered it.
+    // mock CSS.highlights after module import), and re-register it with
+    // CSS.highlights if detach() unregistered it while it held ranges.
     this.initHighlights();
-    if (this.highlightsAvailable && this.inactiveHighlight &&
-        typeof CSS !== "undefined" && CSS.highlights !== undefined) {
-      CSS.highlights.set("inactive-selection", this.inactiveHighlight);
-    }
+    this.detached = false;
+    this.syncRegistration();
 
     // App-lifecycle subscriptions. The guard is the sole consumer of
     // these events today; more delegates may attach later. Kept as
@@ -812,9 +838,8 @@ class SelectionGuard {
     this.stopAutoscroll();
     this.removePreventMousedown();
 
-    if (this.highlightsAvailable && typeof CSS !== "undefined" && CSS.highlights !== undefined) {
-      CSS.highlights.delete("inactive-selection");
-    }
+    this.detached = true;
+    this.syncRegistration();
     this.cardRanges.clear();
     this.windowHasFocus = true;
     this.lastPaintFocusedCardId = null;
@@ -975,6 +1000,7 @@ class SelectionGuard {
     if (this.inactiveHighlight) {
       this.inactiveHighlight.clear();
     }
+    this.syncRegistration();
   }
 
   // ---- selectstart gate ----

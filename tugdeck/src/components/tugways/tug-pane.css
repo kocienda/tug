@@ -798,8 +798,15 @@ body {
    `.tug-pane[data-focused="true"] …` rule is a DESCENDANT selector and matches
    any pane nested under a focused one, which the gallery's pane-in-a-pane
    fixtures do. Keying the recede off the pane's own
-   `:not([data-focused="true"])` cannot make that mistake. */
-.tug-pane {
+   `:not([data-focused="true"])` cannot make that mistake.
+
+   Declared on the FIELD, never on the pane. A custom property inherits, so an
+   ink declared on `.tug-pane` and overridden by its focus reached every element
+   the pane holds, and a focus flip changed an inherited value on all of them:
+   the whole subtree restyled to repaint one strip of dots — 15 ms on a session
+   pane, about 50 on the Overview, inside the commit a flow slide runs over. On
+   the field, the flip restyles the field. The dots are the same dots. */
+.tug-pane-grab-dots {
   --tugx-pane-dot-ink: color-mix(
     in oklab,
     var(--tugx-pane-title-bar-icon-active) 50%,
@@ -807,7 +814,7 @@ body {
   );
 }
 
-.tug-pane:not([data-focused="true"]) {
+.tug-pane:not([data-focused="true"]) .tug-pane-grab-dots {
   --tugx-pane-dot-ink: color-mix(
     in oklab,
     var(--tugx-pane-title-bar-icon-inactive) 45%,

@@ -392,10 +392,14 @@ export function rangeFromNodes(
 }
 
 /**
- * The document's one pair of `Highlight` objects, created and registered on
- * first use. They are never removed from `CSS.highlights`: an empty highlight
- * paints nothing, so there is nothing to clean up, and a name that outlives a
- * card is a name the next card does not have to reclaim.
+ * The document's one pair of `Highlight` objects, created on first use and
+ * registered in `CSS.highlights` only while they hold ranges — the rule
+ * `filter-mark-painter.ts` keeps for its own name. An empty highlight paints
+ * nothing, but it is not free: WebKit resolves a `::highlight()` style per
+ * text box per registered name at every text paint, ranges or no ranges, and
+ * a pair left registered for the life of the page was half the paint samples
+ * at the start of a flow slide. The objects themselves are kept, so a card's
+ * ranges always land in the same pair whichever card registers it.
  */
 let sharedPair: { match: Highlight; active: Highlight } | null = null;
 
@@ -403,10 +407,22 @@ function sharedHighlights(): { match: Highlight; active: Highlight } | null {
   if (typeof CSS === "undefined" || CSS.highlights === undefined) return null;
   if (sharedPair === null) {
     sharedPair = { match: new Highlight(), active: new Highlight() };
-    CSS.highlights.set(MATCH_HIGHLIGHT, sharedPair.match);
-    CSS.highlights.set(ACTIVE_HIGHLIGHT, sharedPair.active);
   }
   return sharedPair;
+}
+
+/** Register a shared highlight while it has ranges, and unregister it when the last goes. */
+function syncRegistration(name: string, highlight: Highlight): void {
+  if (highlight.size > 0) {
+    if (CSS.highlights.get(name) !== highlight) CSS.highlights.set(name, highlight);
+  } else if (CSS.highlights.has(name)) {
+    CSS.highlights.delete(name);
+  }
+}
+
+function syncSharedRegistration(pair: { match: Highlight; active: Highlight }): void {
+  syncRegistration(MATCH_HIGHLIGHT, pair.match);
+  syncRegistration(ACTIVE_HIGHLIGHT, pair.active);
 }
 
 export class TranscriptFindHighlighter {
@@ -444,6 +460,7 @@ export class TranscriptFindHighlighter {
     if (pair !== null) {
       for (const range of this.ownMatch) pair.match.delete(range);
       for (const range of this.ownActive) pair.active.delete(range);
+      syncSharedRegistration(pair);
     }
     this.ownMatch.clear();
     this.ownActive.clear();
@@ -545,6 +562,7 @@ export class TranscriptFindHighlighter {
         this.ownMatch.add(range);
       }
     }
+    syncSharedRegistration(pair);
 
     // No DOM-walk active match this paint (unmounted, or an editor match):
     // whatever clamp the last one lifted goes back.
