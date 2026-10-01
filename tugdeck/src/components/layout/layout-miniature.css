@@ -6,10 +6,12 @@
  * band — the allocator's settled geometry, drawn by the rule it illustrates
  * rather than by a layout that merely resembles it.
  *
- * The drawing is a READOUT, so it is drawn in chrome ink — global neutrals —
- * and never in the control palette. The accent surfaces belong to things that
- * answer a press; the segment pills directly under this drawing wear them. A
- * picture painted from the same tokens claims the same contract.
+ * The drawing is CHROME at rest, so it is drawn in chrome ink — global
+ * neutrals — and never in the control palette. Its parts do answer a hand,
+ * but not here: the places overlay standing over it (`layout-places.css`)
+ * holds a target on every block and member, and lights only the part under the
+ * pointer. A picture painted from the accent would claim to be live all over
+ * at once, when the accent belongs to the one thing being pressed.
  *
  * One ink, three strengths: the frame and the rails are quiet, the cards are
  * mid, and the ground is the recess they stand in. One border in the whole
@@ -202,7 +204,9 @@
    Key is the right axis on its own terms anyway. The window is a statement
    about what is IN VIEW — the part of a strip too long for it that the
    canvas is showing — and that is a selection, which is what Key is for.
-   Nothing about it answers a press. */
+   The bracket itself answers no press — the drawing is chrome — but the
+   places overlay stands a grip on its frame (`layout-places.css`), and a drag
+   that starts there slides the band along the strip. */
 
 /* WHICH key token, and why not the obvious one. The first cut reached for
    `--tug7-surface-toggle-primary-normal-on-rest` — the Key axis's filled
@@ -284,12 +288,15 @@
 /* ─────────────────────────────────────────────────────────────────────────
    The drag, mirrored.
 
-   A dragged card is a rect on the canvas and the place being offered is
-   another; the channel publishes both as fractions of the canvas box ([P08]),
-   which is exactly what a percentage of this drawing means. So the two
-   elements need no scale factor and no measurement — `* 100%` is the whole
-   conversion, and it stays right through a window resize, a zoom, and a rail
-   opening, none of which either side has to hear about.
+   A dragged card is a rect and the place being offered is another; the
+   channel publishes both as fractions of the box the drag is drawn on
+   ([P08]). A drag on the canvas publishes fractions of the canvas box, which
+   is what a percentage of this drawing means; a drag started on this drawing
+   (the places overlay's targets) publishes fractions of this drawing's own
+   padding box, which is exactly what these percentages are taken against. So
+   the two elements need no scale factor and no measurement — `* 100%` is the
+   whole conversion, and it stays right through a window resize, a zoom, and
+   a rail opening, none of which either side has to hear about.
 
    Both are absent from the drawing at rest. `data-gauge-drag` says a drag is
    happening and `data-gauge-zone` says it is offering a place, which are two

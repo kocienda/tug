@@ -975,6 +975,18 @@ describe("the indication moves once the pointer has committed to it", () => {
     expect(dropZoneKey(pickLiveZone([a, b], past, a)!)).toBe("column:0:1");
   });
 
+  it("a smaller picture passes its own margin", () => {
+    // 5px past the midpoint the challenger is 10px nearer by centre: short of
+    // the canvas's margin, past a margin of 3.
+    const nearerBy10 = { x: 50, y: 155 };
+    expect(dropZoneKey(pickLiveZone([a, b], nearerBy10, a)!)).toBe(
+      "column:0:0",
+    );
+    expect(dropZoneKey(pickLiveZone([a, b], nearerBy10, a, 3)!)).toBe(
+      "column:0:1",
+    );
+  });
+
   it("an incumbent that is no longer advertised yields to the nearest", () => {
     expect(dropZoneKey(pickLiveZone([b], { x: 50, y: 20 }, a)!)).toBe(
       "column:0:1",

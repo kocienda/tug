@@ -500,6 +500,25 @@ export interface DropZoneHost {
   /** Show the live zone, or take the indication away. Imperative DOM [L06]. */
   indicate(zone: DropZone | null): void;
   /**
+   * Enumerate for a drag whose hand is not on the canvas — the Layout
+   * miniature's. The miniature offers the canvas's own zones and lets the
+   * canvas commit them, hit-testing only in its own space ([P08]), so this is
+   * {@link DropZoneHost.enumerate} with three differences. The dragged frame's
+   * start rect is its own frame, read in the same pass that measures every
+   * pane: it never moved. No tab bars are passed, because a tab-bar merge is
+   * the pane gesture's to commit and the miniature never offers one ([P10]).
+   * And the zones are not clipped to the band: the miniature draws the whole
+   * strip, so a place the band has slid past is still one the hand can reach.
+   * Empty zones when the pane has no shown frame.
+   */
+  enumerateRemote(draggedPaneId: string): DropZoneSet;
+  /** Draw (or clear) the canvas outline alone — no gauge publish. A remote
+   *  drag publishes its own zone gauge, in its own space. */
+  outline(zone: DropZone | null): void;
+  /** Stamp or clear the canvas's `data-carrying`: which kind of card is in
+   *  the air, which the held-open places read to show themselves. */
+  carry(kind: "rail" | "card" | null): void;
+  /**
    * Publish where the dragged frame stands to the gauge channel ([P08]), so
    * instruments away from the canvas can draw the drag itself. `null` retires
    * the drag: the frame gauge goes quiet and the drag-only affordances with it.
@@ -1125,14 +1144,17 @@ function nearer(
  * Which zone the pointer is asking for, given the one already indicated.
  *
  * The incumbent holds its place until a challenger beats it by
- * {@link ZONE_HYSTERESIS_PX}, so the indication crosses a boundary once rather
- * than oscillating across it. An incumbent that is no longer in the list — a
- * column that lost a member mid-gesture — yields to the nearest zone.
+ * `margin` — {@link ZONE_HYSTERESIS_PX} by default, the canvas's — so the
+ * indication crosses a boundary once rather than oscillating across it. A
+ * picture drawn smaller than the canvas passes a margin suited to its scale.
+ * An incumbent that is no longer in the list — a column that lost a member
+ * mid-gesture — yields to the nearest zone.
  */
 export function pickLiveZone(
   zones: readonly DropZone[],
   pointer: { x: number; y: number },
   incumbent: DropZone | null,
+  margin: number = ZONE_HYSTERESIS_PX,
 ): DropZone | null {
   if (zones.length === 0) return null;
   let best = zones[0];
@@ -1152,7 +1174,7 @@ export function pickLiveZone(
   return nearer(
     bestScore,
     zoneScore(hitRectOf(standing), pointer),
-    ZONE_HYSTERESIS_PX,
+    margin,
   )
     ? best
     : standing;

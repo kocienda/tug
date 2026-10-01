@@ -12,13 +12,50 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { miniatureGeometry } from "@/components/layout/layout-miniature";
-import { CONTENT_WIDTH_PX, IMPOSITION_GAP_PX } from "@/lib/layout-imposer";
+import {
+  miniatureGeometry,
+  miniatureWindowRect,
+  type MiniatureMemberSpan,
+} from "@/components/layout/layout-miniature";
+import {
+  CONTENT_WIDTH_PX,
+  IMPOSITION_GAP_PX,
+  type PlaceAllocation,
+} from "@/lib/layout-imposer";
 
 /** The right edge of the last block, in percent of the field. */
 function span(blocks: readonly { leftPct: number; widthPct: number }[]): number {
   const last = blocks[blocks.length - 1];
   return last.leftPct + last.widthPct;
+}
+
+/** A place standing its members at `heights`, against a run of `run` px. */
+function place(
+  standing: PlaceAllocation["standing"],
+  heights: readonly number[],
+  run: number,
+): PlaceAllocation {
+  const seam = 4;
+  const tops = heights.map(
+    (_, i) => heights.slice(0, i).reduce((a, b) => a + b, 0) + i * seam,
+  );
+  return {
+    standing,
+    ids: heights.map((_, i) => `m${i}`),
+    heights,
+    tops,
+    stripLength:
+      heights.reduce((a, b) => a + b, 0) + (heights.length - 1) * seam,
+    run,
+    seam,
+  };
+}
+
+/** The air between each member and the next, in percent of the run. */
+function seams(members: readonly MiniatureMemberSpan[]): number[] {
+  return members
+    .slice(1)
+    .map((m, i) => m.topPct - (members[i].topPct + members[i].spanPct));
 }
 
 describe("miniatureGeometry — fit", () => {
@@ -305,10 +342,150 @@ describe("miniatureGeometry — flow", () => {
 describe("miniatureGeometry — what a split does not touch", () => {
   test("a slot's band is the same whether or not the column is divided", () => {
     // A split divides the RUN, which is the field's height; it must never move
-    // an edge along the band. The geometry takes no split argument at all, and
-    // this is the claim that says why that is correct rather than an omission.
+    // an edge along the band. The geometry takes the splits only to span the
+    // members down the run, and this is the claim that it does nothing else.
     const whole = miniatureGeometry({ kind: "three-up", rails: { right: 2 } });
-    const again = miniatureGeometry({ kind: "three-up", rails: { right: 2 } });
-    expect(again.blocks).toEqual(whole.blocks);
+    const split = miniatureGeometry({
+      kind: "three-up",
+      rails: { right: 2 },
+      columnSplits: { 1: 3 },
+    });
+    const edges = (blocks: typeof whole.blocks) =>
+      blocks.map(({ slot, leftPct, widthPct }) => ({ slot, leftPct, widthPct }));
+    expect(edges(split.blocks)).toEqual(edges(whole.blocks));
+    expect(split.rails).toEqual(whole.rails);
+  });
+});
+
+describe("miniatureGeometry — members", () => {
+  test("a split column's members divide its run in proportion to their heights", () => {
+    const { blocks } = miniatureGeometry({
+      kind: "three-up",
+      columnSplits: { 1: 2 },
+      columnAllocations: { 1: place("shared", [300, 600], 904) },
+    });
+    // Only the split column carries members; a whole one carries none.
+    expect(blocks[0].members).toBeUndefined();
+    expect(blocks[0].overflow).toBe(false);
+    const members = blocks[1].members!;
+    expect(members.map((m) => m.index)).toEqual([0, 1]);
+    expect(blocks[1].overflow).toBe(false);
+    // Shared: flush top and bottom, the seam between, and the twice-as-tall
+    // member twice the span.
+    expect(members[0].topPct).toBe(0);
+    const last = members[members.length - 1];
+    expect(last.topPct + last.spanPct).toBeCloseTo(100, 6);
+    expect(seams(members)[0]).toBeGreaterThan(0);
+    expect(members[1].spanPct).toBeCloseTo(members[0].spanPct * 2, 6);
+  });
+
+  test("an overflowing column spans every member, and the run cuts the last", () => {
+    const { blocks } = miniatureGeometry({
+      kind: "two-up",
+      columnSplits: { 0: 3 },
+      columnAllocations: { 0: place("overflow", [400, 400, 400], 1000) },
+    });
+    const members = blocks[0].members!;
+    expect(members.length).toBe(3);
+    expect(blocks[0].overflow).toBe(true);
+    // Heights against the RUN: each member is two fifths of it, less the
+    // seam air, and the third runs past the field's bottom edge.
+    expect(members[0].topPct).toBe(0);
+    expect(new Set(seams(members).map((s) => s.toFixed(6))).size).toBe(1);
+    const last = members[2];
+    expect(last.topPct + last.spanPct).toBeGreaterThan(100);
+  });
+
+  test("with no allocation, a split column takes the anonymous equal division", () => {
+    const { blocks } = miniatureGeometry({
+      kind: "two-up",
+      columnSplits: { 1: 2 },
+    });
+    const members = blocks[1].members!;
+    expect(members.length).toBe(2);
+    expect(members[0].spanPct).toBeCloseTo(members[1].spanPct, 6);
+    expect(blocks[1].overflow).toBe(false);
+  });
+
+  test("a rail spans as many members as its allocation has, not its card count", () => {
+    // A card dragged loose off the rail keeps its side and so is still
+    // counted, but the allocation holds no height for it.
+    const { rails } = miniatureGeometry({
+      kind: "two-up",
+      rails: { right: 3 },
+      railAllocations: { right: place("shared", [450, 450], 904) },
+    });
+    expect(rails.right!.members.length).toBe(2);
+    expect(rails.right!.overflow).toBe(false);
+  });
+
+  test("an anonymous rail divides equally, and an overflowing one says so", () => {
+    const { rails } = miniatureGeometry({
+      kind: "two-up",
+      rails: { left: 3, right: 2 },
+      railAllocations: { right: place("overflow", [700, 700], 1000) },
+    });
+    const left = rails.left!.members;
+    expect(left.length).toBe(3);
+    expect(new Set(left.map((m) => m.spanPct.toFixed(6))).size).toBe(1);
+    expect(rails.left!.overflow).toBe(false);
+    expect(rails.right!.overflow).toBe(true);
+  });
+});
+
+describe("miniatureWindowRect", () => {
+  const overflowing = {
+    kind: "six-up" as const,
+    layout: "flow" as const,
+    width: "wide" as const,
+  };
+
+  test("there is no window under fit, for a strip inside its band, or with no offset", () => {
+    const fit = miniatureGeometry({ kind: "six-up", width: "wide" });
+    expect(
+      miniatureWindowRect(fit, {
+        kind: "six-up",
+        layout: "fit",
+        offsetPx: 0,
+        bandPx: 1000,
+      }),
+    ).toBeNull();
+    const short = miniatureGeometry({
+      kind: "two-up",
+      layout: "flow",
+      width: "slim",
+    });
+    expect(short.flow.overflows).toBe(false);
+    expect(
+      miniatureWindowRect(short, {
+        kind: "two-up",
+        layout: "flow",
+        offsetPx: 0,
+        bandPx: 1000,
+      }),
+    ).toBeNull();
+    const long = miniatureGeometry(overflowing);
+    expect(long.flow.overflows).toBe(true);
+    expect(
+      miniatureWindowRect(long, {
+        kind: "six-up",
+        layout: "flow",
+        offsetPx: undefined,
+        bandPx: 1000,
+      }),
+    ).toBeNull();
+  });
+
+  test("over an overflowing strip, the window is the band scaled and slid by the offset", () => {
+    const geometry = miniatureGeometry(overflowing);
+    const rect = miniatureWindowRect(geometry, {
+      kind: "six-up",
+      layout: "flow",
+      offsetPx: 300,
+      bandPx: 1200,
+    })!;
+    expect(rect.widthPct).toBeCloseTo(100 * geometry.flow.scale, 9);
+    expect(rect.fraction).toBeCloseTo(0.25, 9);
+    expect(rect.leftPct).toBeCloseTo(0.25 * 100 * geometry.flow.scale, 9);
   });
 });

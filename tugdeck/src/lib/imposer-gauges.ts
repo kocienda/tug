@@ -15,17 +15,25 @@
  *
  * - `flow-offset` — how far the flow strip has slid under the band.
  * - `column-offset:<slot>` — how far an overflowing column's strip has slid.
- * - `drag-frame` — where the dragged frame stands on the canvas.
- * - `drag-zone` — where the indicated drop zone stands on the canvas.
+ * - `drag-frame` — where the dragged frame stands.
+ * - `drag-zone` — where the indicated drop zone stands.
+ *
+ * The two drag signals are stated against the box the drag is DRAWN on. A
+ * drag whose hand is on the canvas publishes fractions of the canvas box; a
+ * drag whose hand is on the Layout miniature publishes fractions of the
+ * miniature's own padding box, because the miniature is not the canvas at one
+ * scale — it draws rails at a nominal width and an overflowing flow strip
+ * whole — and its ghost and offered place are drawn in that box. The
+ * miniature is the only consumer of either signal, so the two never meet.
  *
  * **Every value is a unitless FRACTION**, and that is the contract's load-
  * bearing decision. An offset is a fraction of the band or run it slides
- * under; a rect is a fraction of the canvas box. A consumer drawing at another
- * scale — the miniature is a deck a hundredth of the size — cannot convert a
- * pixel it is given, because CSS cannot divide a length by a length: there is
- * no `calc(var(--x) / var(--band))`. A fraction needs no conversion at all. It
- * multiplies straight into whatever unit the consumer draws in
- * (`calc(var(--gauge-drag-x, 0) * 100%)`), which is the same reason the
+ * under; a rect is a fraction of the box its drag is drawn on. A consumer
+ * drawing at another scale — the miniature is a deck a hundredth of the size —
+ * cannot convert a pixel it is given, because CSS cannot divide a length by a
+ * length: there is no `calc(var(--x) / var(--band))`. A fraction needs no
+ * conversion at all. It multiplies straight into whatever unit the consumer
+ * draws in (`calc(var(--gauge-drag-x, 0) * 100%)`), which is the same reason the
  * miniature's committed column slides have always been passed as fractions.
  *
  * Committed values keep flowing through the store as they do today; the gauges
@@ -55,7 +63,8 @@
  * @module lib/imposer-gauges
  */
 
-/** A rect in the gauge channel's units: fractions of the canvas box. */
+/** A rect in the gauge channel's units: fractions of the box it is drawn
+ *  against — the canvas's, or the miniature's for a drag started there. */
 export interface GaugeRect {
   x: number;
   y: number;
@@ -258,7 +267,7 @@ export function publishColumnOffset(slot: number, fraction: number | null): void
 }
 
 /**
- * Where the dragged frame stands, in fractions of the canvas box — and, with
+ * Where the dragged frame stands, in fractions of the drag's box — and, with
  * it, whether a drag is happening at all. `null` retires the frame and takes
  * `data-gauge-drag` off every registered element, which is what makes the
  * drag-only affordances disappear without a render.
@@ -268,7 +277,7 @@ export function publishDragFrame(rect: GaugeRect | null): void {
   setDragActive(rect !== null);
 }
 
-/** Where the indicated zone stands, in fractions of the canvas box. `null` is
+/** Where the indicated zone stands, in fractions of the drag's box. `null` is
  *  the ⌘-freed stretch: no place is being offered, and the highlight goes —
  *  while the drag itself, and its ghost, carry on. */
 export function publishDragZone(rect: GaugeRect | null): void {

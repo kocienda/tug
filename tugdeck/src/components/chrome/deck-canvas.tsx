@@ -176,8 +176,14 @@ import {
 } from "@/lib/directional-focus";
 import {
   enumerateDropZones,
+  type DropZone,
+  type DropZoneSet,
   type DropZoneHost,
 } from "@/lib/drop-zones";
+import {
+  getDropZoneHost,
+  registerDropZoneHost,
+} from "@/lib/drop-zone-host-registry";
 import { indicateDropZone } from "@/lib/drop-zone-indicator";
 import {
   publishColumnOffset,
@@ -6768,142 +6774,184 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         height: rect.height / height,
       };
     };
+    /**
+     * Measure the canvas and enumerate — one body for the canvas's own drag
+     * and for a remote one. `draggedAtStart` is the rect the gesture
+     * snapshotted at its start, or `"measured"` for a remote drag, whose frame
+     * never moved: it is read from the same pass that measures every pane, so
+     * there is no second query. `clipToBand: false` leaves the band out, for a
+     * picture that draws the whole strip.
+     */
+    const measureAndEnumerate = (
+      draggedPaneId: string,
+      tabBars: ReadonlyMap<string, Rect>,
+      draggedAtStart: Rect | "measured",
+      { clipToBand }: { clipToBand: boolean },
+    ): DropZoneSet => {
+      const canvas = containerRef.current;
+      if (canvas === null) return { zones: [], origin: null };
+      const zoom = getTugZoom() || 1;
+      const canvasRect = canvas.getBoundingClientRect();
+      const toCanvas = (rect: DOMRect): Rect => ({
+        x: (rect.left - canvasRect.left) / zoom,
+        y: (rect.top - canvasRect.top) / zoom,
+        width: rect.width / zoom,
+        height: rect.height / zoom,
+      });
+      const state = store.getSnapshot();
+      const panes = new Map<string, Rect>();
+      for (const el of canvas.querySelectorAll<HTMLElement>(
+        SHOWN_PANE_FRAMES,
+      )) {
+        const paneId = el.getAttribute("data-pane-id");
+        if (paneId === null) continue;
+        panes.set(paneId, toCanvas(el.getBoundingClientRect()));
+      }
+      const startRect =
+        draggedAtStart === "measured"
+          ? panes.get(draggedPaneId)
+          : draggedAtStart;
+      if (startRect === undefined) return { zones: [], origin: null };
+      // A slot's rect is the union of what stands in it — one pane's frame
+      // for a lone card or a stack, the whole divided run for a split column.
+      // Read off the members rather than re-solved, for the reason above.
+      const slots = new Map<number, Rect>();
+      const kind = state.imposition.kind;
+      if (kind !== undefined) {
+        for (const pane of state.panes) {
+          if (pane.slot === undefined) continue;
+          const rect = panes.get(pane.id);
+          if (rect === undefined) continue;
+          const slot = clampSlot(kind, pane.slot);
+          const standing = slots.get(slot);
+          if (standing === undefined) {
+            slots.set(slot, rect);
+            continue;
+          }
+          const top = Math.min(standing.y, rect.y);
+          const bottom = Math.max(
+            standing.y + standing.height,
+            rect.y + rect.height,
+          );
+          slots.set(slot, {
+            x: Math.min(standing.x, rect.x),
+            y: top,
+            width: Math.max(standing.width, rect.width),
+            height: bottom - top,
+          });
+        }
+        // The held-open places. A slot with no pane in it has nothing above
+        // to measure, and `drop-zones.ts` has advertised an empty anchor as
+        // one of its four zone kinds since it shipped — a branch that has
+        // been unreachable the whole time, because a missing rect makes the
+        // slot advertise nothing. The vacancy tile is what closes that: it
+        // stands at the anchor and the width a card landing there would
+        // take, so the tile IS the promise the indicator draws.
+        //
+        // Read off the DOM like everything else here, and for the same
+        // reason: the alternative is re-solving the anchor from the kind,
+        // the rail widths and the band, which is a second derivation of
+        // geometry the CSS `calc()` chain owns and can drift from.
+        for (const el of canvas.querySelectorAll<HTMLElement>(
+          ".tug-slot-vacancy[data-vacant-slot]",
+        )) {
+          const slot = Number(el.getAttribute("data-vacant-slot"));
+          if (!Number.isInteger(slot) || slots.has(slot)) continue;
+          slots.set(slot, toCanvas(el.getBoundingClientRect()));
+        }
+      }
+      // The held-open deck edge, read the same way: the tile IS the promise
+      // the indicator draws for a side with no rail ([B10]).
+      const railVacancies: Partial<Record<SidebarSide, Rect>> = {};
+      for (const el of canvas.querySelectorAll<HTMLElement>(
+        ".tug-rail-vacancy[data-vacant-rail]",
+      )) {
+        const side = el.getAttribute("data-vacant-rail");
+        if (!isSidebarSide(side)) continue;
+        railVacancies[side] = toCanvas(el.getBoundingClientRect());
+      }
+      // The rails, read once: the engine needs their membership, their
+      // shares and their floors, and three readings of one rail would
+      // agree only by luck.
+      const railsForZones = sidebarRailsOf(state, UNMEASURED_RUNS);
+      return enumerateDropZones(state, draggedPaneId, {
+        slots,
+        panes,
+        tabBars,
+        // The band's edges, so a content card's places are clipped to
+        // what the reader can see: a slot tile that has slid under a rail
+        // measures at its true rect and would otherwise be offered there.
+        // A remote drag asks for none: its picture draws the whole strip.
+        band: clipToBand ? store.getBandEdges() : null,
+        // The runs are the deck's own measurement rather than a sum of the
+        // frames above: a frame in flight is one of those frames, and the
+        // store is the one reader a hand cannot move.
+        runs: {
+          column: store.getColumnRunHeight(),
+          rail: store.getRailRunHeight(),
+        },
+        draggedAtStart: startRect,
+        railVacancies,
+        // Every member of every place, by pane id: the engine allocates its
+        // tiles from these, and it keys everything by pane, so a rail member
+        // is re-keyed here beside its shares — the one boundary that can see
+        // both names for a member.
+        members: placeMembersByPaneId(state, railsForZones),
+        rails: railsForZones.map((rail) => {
+          // The engine keys everything by pane id; the rail's stored shares
+          // are keyed by componentId, so they re-key here, at the one place
+          // that can see both names for a member.
+          const stored = state.imposition.rails?.[rail.side]?.shares;
+          const shares: Record<string, number> = {};
+          if (stored !== undefined) {
+            for (const member of rail.members) {
+              const weight = stored[member.componentId];
+              if (weight !== undefined) shares[member.paneId] = weight;
+            }
+          }
+          return {
+            side: rail.side,
+            members: rail.members.map((member) => member.paneId),
+            shares,
+          };
+        }),
+      });
+    };
+    const outline = (zone: DropZone | null): void => {
+      // A tab bar indicates through the attribute it has always indicated
+      // through, which the gesture stamps itself — showing the outline there
+      // too would be two answers to one question ([P10]).
+      const rect = zone === null || zone.kind === "tab-bar" ? null : zone.rect;
+      indicateDropZone(containerRef.current, rect);
+    };
+    const carry = (kind: "rail" | "card" | null): void => {
+      const canvas = containerRef.current;
+      if (canvas === null) return;
+      if (kind === null) canvas.removeAttribute("data-carrying");
+      else canvas.setAttribute("data-carrying", kind);
+    };
     return {
       enumerate(draggedPaneId, tabBars, draggedAtStart) {
-        const canvas = containerRef.current;
-        if (canvas === null) return { zones: [], origin: null };
-        const zoom = getTugZoom() || 1;
-        const canvasRect = canvas.getBoundingClientRect();
-        const toCanvas = (rect: DOMRect): Rect => ({
-          x: (rect.left - canvasRect.left) / zoom,
-          y: (rect.top - canvasRect.top) / zoom,
-          width: rect.width / zoom,
-          height: rect.height / zoom,
-        });
-        const state = store.getSnapshot();
-        const panes = new Map<string, Rect>();
-        for (const el of canvas.querySelectorAll<HTMLElement>(
-          SHOWN_PANE_FRAMES,
-        )) {
-          const paneId = el.getAttribute("data-pane-id");
-          if (paneId === null) continue;
-          panes.set(paneId, toCanvas(el.getBoundingClientRect()));
-        }
-        // A slot's rect is the union of what stands in it — one pane's frame
-        // for a lone card or a stack, the whole divided run for a split column.
-        // Read off the members rather than re-solved, for the reason above.
-        const slots = new Map<number, Rect>();
-        const kind = state.imposition.kind;
-        if (kind !== undefined) {
-          for (const pane of state.panes) {
-            if (pane.slot === undefined) continue;
-            const rect = panes.get(pane.id);
-            if (rect === undefined) continue;
-            const slot = clampSlot(kind, pane.slot);
-            const standing = slots.get(slot);
-            if (standing === undefined) {
-              slots.set(slot, rect);
-              continue;
-            }
-            const top = Math.min(standing.y, rect.y);
-            const bottom = Math.max(
-              standing.y + standing.height,
-              rect.y + rect.height,
-            );
-            slots.set(slot, {
-              x: Math.min(standing.x, rect.x),
-              y: top,
-              width: Math.max(standing.width, rect.width),
-              height: bottom - top,
-            });
-          }
-          // The held-open places. A slot with no pane in it has nothing above
-          // to measure, and `drop-zones.ts` has advertised an empty anchor as
-          // one of its four zone kinds since it shipped — a branch that has
-          // been unreachable the whole time, because a missing rect makes the
-          // slot advertise nothing. The vacancy tile is what closes that: it
-          // stands at the anchor and the width a card landing there would
-          // take, so the tile IS the promise the indicator draws.
-          //
-          // Read off the DOM like everything else here, and for the same
-          // reason: the alternative is re-solving the anchor from the kind,
-          // the rail widths and the band, which is a second derivation of
-          // geometry the CSS `calc()` chain owns and can drift from.
-          for (const el of canvas.querySelectorAll<HTMLElement>(
-            ".tug-slot-vacancy[data-vacant-slot]",
-          )) {
-            const slot = Number(el.getAttribute("data-vacant-slot"));
-            if (!Number.isInteger(slot) || slots.has(slot)) continue;
-            slots.set(slot, toCanvas(el.getBoundingClientRect()));
-          }
-        }
-        // The held-open deck edge, read the same way: the tile IS the promise
-        // the indicator draws for a side with no rail ([B10]).
-        const railVacancies: Partial<Record<SidebarSide, Rect>> = {};
-        for (const el of canvas.querySelectorAll<HTMLElement>(
-          ".tug-rail-vacancy[data-vacant-rail]",
-        )) {
-          const side = el.getAttribute("data-vacant-rail");
-          if (!isSidebarSide(side)) continue;
-          railVacancies[side] = toCanvas(el.getBoundingClientRect());
-        }
-        // The rails, read once: the engine needs their membership, their
-        // shares and their floors, and three readings of one rail would
-        // agree only by luck.
-        const railsForZones = sidebarRailsOf(state, UNMEASURED_RUNS);
-        return enumerateDropZones(state, draggedPaneId, {
-          slots,
-          panes,
-          tabBars,
-          // The band's edges, so a content card's places are clipped to
-          // what the reader can see: a slot tile that has slid under a rail
-          // measures at its true rect and would otherwise be offered there.
-          band: store.getBandEdges(),
-          // The runs are the deck's own measurement rather than a sum of the
-          // frames above: a frame in flight is one of those frames, and the
-          // store is the one reader a hand cannot move.
-          runs: {
-            column: store.getColumnRunHeight(),
-            rail: store.getRailRunHeight(),
-          },
-          draggedAtStart,
-          railVacancies,
-          // Every member of every place, by pane id: the engine allocates its
-          // tiles from these, and it keys everything by pane, so a rail member
-          // is re-keyed here beside its shares — the one boundary that can see
-          // both names for a member.
-          members: placeMembersByPaneId(state, railsForZones),
-          rails: railsForZones.map((rail) => {
-            // The engine keys everything by pane id; the rail's stored shares
-            // are keyed by componentId, so they re-key here, at the one place
-            // that can see both names for a member.
-            const stored = state.imposition.rails?.[rail.side]?.shares;
-            const shares: Record<string, number> = {};
-            if (stored !== undefined) {
-              for (const member of rail.members) {
-                const weight = stored[member.componentId];
-                if (weight !== undefined) shares[member.paneId] = weight;
-              }
-            }
-            return {
-              side: rail.side,
-              members: rail.members.map((member) => member.paneId),
-              shares,
-            };
-          }),
+        return measureAndEnumerate(draggedPaneId, tabBars, draggedAtStart, {
+          clipToBand: true,
         });
       },
 
+      enumerateRemote(draggedPaneId) {
+        return measureAndEnumerate(draggedPaneId, new Map(), "measured", {
+          clipToBand: false,
+        });
+      },
+
+      outline,
+
       indicate(zone) {
-        // A tab bar indicates through the attribute it has always indicated
-        // through, which the gesture stamps itself — showing the outline there
-        // too would be two answers to one question ([P10]).
-        const rect =
-          zone === null || zone.kind === "tab-bar" ? null : zone.rect;
-        indicateDropZone(containerRef.current, rect);
+        outline(zone);
         // Instruments away from the canvas hear the same answer ([P08]): a
         // place being offered, or none. A tab bar publishes none, so the
         // miniature's highlight and the canvas outline say the same thing.
+        const rect =
+          zone === null || zone.kind === "tab-bar" ? null : zone.rect;
         publishDragZone(canvasFractionOf(rect));
       },
 
@@ -6932,17 +6980,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // This verb is the right hook because it is already the drag's
         // lifecycle — it is called with a frame when one starts travelling and
         // with null when the gesture retires, by every path that ends one.
-        const canvas = containerRef.current;
-        if (canvas !== null) {
-          if (frame === null) canvas.removeAttribute("data-carrying");
-          else {
-            canvas.setAttribute(
-              "data-carrying",
-              frame.getAttribute("data-role") === "sidebar" ? "rail" : "card",
-            );
-          }
-        }
+        carry(
+          frame === null
+            ? null
+            : frame.getAttribute("data-role") === "sidebar"
+              ? "rail"
+              : "card",
+        );
       },
+
+      carry,
 
       commit(zone, draggedPaneId) {
         const state = store.getSnapshot();
@@ -7169,6 +7216,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
     };
   }, [store]);
+
+  // The host is reachable off the canvas, for a drag whose hand is on the
+  // Layout miniature. Registered in a layout effect so it is there before any
+  // event can ask for it ([L03]); cleared only if it is still this one.
+  useLayoutEffect(() => {
+    registerDropZoneHost(dropZoneHost);
+    return () => {
+      if (getDropZoneHost() === dropZoneHost) registerDropZoneHost(null);
+    };
+  }, [dropZoneHost]);
 
   // ---------------------------------------------------------------------------
   // The switch is a cut, and what it leaves behind is the epoch

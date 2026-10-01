@@ -314,7 +314,7 @@ function placeSpanPcts(
  * the element being moved, which is the unit a CSS translation is stated in.
  * The result is consumed as `calc(var(--mini-slide) * 1%)`.
  */
-function slideExpression(
+export function slideExpression(
   signal: GaugeSignal,
   committed: number,
   scale: number,
@@ -342,48 +342,40 @@ function slideExpression(
  * draw, and the same affordance.
  */
 function Rail({
-  count,
   widthPct,
-  allocation,
+  members,
+  overflow,
 }: {
-  count: number;
   widthPct: number;
-  allocation?: PlaceAllocation | null;
+  members: readonly MiniatureMemberSpan[];
+  overflow: boolean;
 }): React.ReactElement {
-  // The side's own allocation when there is one; the anonymous one a proposal
-  // gets otherwise ([P09]). Either way ONE arithmetic draws the spans, and the
-  // drawing derives no member height of its own.
-  const place = allocation ?? nominalPlaceAllocation(count, NOMINAL_RUN, 0);
-  const overflow = place.standing === "overflow";
+  // The spans are `miniatureGeometry`'s, from the side's own allocation when
+  // there is one and the anonymous one a proposal gets otherwise ([P09]).
+  // Either way ONE arithmetic draws them, and the drawing derives no member
+  // height of its own.
+  //
   // Every member is drawn, not the first three: an overflowing rail's members
   // no longer share one height, so which of them the cut falls on is a fact
   // about their floors rather than a constant the drawing could know in
   // advance. The run clips whatever hangs below it, exactly as the column
   // blocks are clipped.
-  //
-  // …and exactly as many as the place HAS, which is not the same number as the
-  // side's card count: a card dragged loose off the rail keeps its side — so it
-  // is still counted here — and stops being a member of the rail, so the
-  // allocation has no height for it. Drawing `count` members would index a span
-  // nobody allocated.
-  const spans = placeSpanPcts(place, count);
   return (
     <span
       className="layout-mini-rail"
       data-rail-overflow={overflow ? "true" : undefined}
       style={{ flexBasis: `${widthPct}%` }}
     >
-      {Array.from({ length: spans.length }, (_, i) => {
+      {members.map(({ index, topPct: top, spanPct: span }) => {
         // The members divide: segments with a seam between them, the first
         // flush with the top of the strip and the last with its bottom.
         //
         // Drawn AT REST, unlike a column's, which slides by its live offset:
         // no rail offset rides the gauge channel, and a rail's question here
         // is what stands on the side rather than where its viewport stands.
-        const { top, span } = spans[i];
         return (
           <span
-            key={i}
+            key={index}
             className="layout-mini-rail-member"
             style={{ top: `${top}%`, bottom: `${100 - top - span}%` }}
           />
@@ -397,6 +389,35 @@ function Rail({
 export interface MiniatureRect {
   leftPct: number;
   widthPct: number;
+}
+
+/**
+ * One member of a divided place — a split column's or a rail's — at rest.
+ *
+ * Both the drawing and the overlay that stands targets on it place members
+ * from these spans, so the two cannot disagree about where a member is.
+ */
+export interface MiniatureMemberSpan {
+  /** Index in the place's own order: `DeckColumn.members` / `railMembersOf`. */
+  index: number;
+  /** At-rest top and span, in percent of the run (the field's height). */
+  topPct: number;
+  spanPct: number;
+}
+
+/** A divided place's members, and whether the place overflows its run. */
+function memberSpans(
+  place: PlaceAllocation,
+  drawn: number,
+): { members: readonly MiniatureMemberSpan[]; overflow: boolean } {
+  return {
+    members: placeSpanPcts(place, drawn).map(({ top, span }, index) => ({
+      index,
+      topPct: top,
+      spanPct: span,
+    })),
+    overflow: place.standing === "overflow",
+  };
 }
 
 /**
@@ -414,10 +435,30 @@ export interface MiniatureRect {
  * replicates the same flex row and feeds these numbers to the same properties.
  */
 export interface MiniaturePlaceRects {
-  /** Each occupied side's flex basis, in percent of the frame's content box. */
-  rails: Partial<Record<SidebarSide, { basisPct: number }>>;
-  /** One entry per drawn block, placed within the field. */
-  blocks: readonly (MiniatureRect & { slot: number })[];
+  /**
+   * Each occupied side's flex basis, in percent of the frame's content box,
+   * and its members' at-rest spans down the run.
+   */
+  rails: Partial<
+    Record<
+      SidebarSide,
+      {
+        basisPct: number;
+        members: readonly MiniatureMemberSpan[];
+        overflow: boolean;
+      }
+    >
+  >;
+  /**
+   * One entry per drawn block, placed within the field. A split column
+   * (`columnSplits[slot] >= 2`) also carries its members' at-rest spans down
+   * the run; `overflow` is false whenever `members` is absent.
+   */
+  blocks: readonly (MiniatureRect & {
+    slot: number;
+    members?: readonly MiniatureMemberSpan[];
+    overflow: boolean;
+  })[];
   /** Whether the flow strip is longer than the band, the scale that fits the
    *  whole of it into the field when it is, and the seam each live block gives
    *  up off its own right edge so the strip reads as separate cards without
@@ -442,6 +483,11 @@ export interface MiniaturePlaceRects {
  * blocks are, so a consumer handed the synthetic strip while the drawing drew
  * the real one would stand its parts over a picture that is not there. Absent,
  * the strip is the synthetic one every proposal draws.
+ *
+ * So are the places' allocations, which decide where a split column's or a
+ * rail's members stand down the run. They are the one span arithmetic both
+ * the drawing and the overlay place members from, so a target cannot stand
+ * over a member the drawing put somewhere else.
  */
 export function miniatureGeometry({
   kind,
@@ -451,6 +497,9 @@ export function miniatureGeometry({
   layout = "fit",
   band,
   flow,
+  columnSplits,
+  columnAllocations,
+  railAllocations,
 }: {
   kind: ImpositionKind | null;
   rails?: MiniatureRails;
@@ -465,6 +514,12 @@ export function miniatureGeometry({
   band?: number;
   /** The live places, when there are some. */
   flow?: MiniatureFlowStrip | null;
+  /** @see {@link LayoutMiniatureProps.columnSplits} */
+  columnSplits?: Readonly<Record<number, number>>;
+  /** @see {@link LayoutMiniatureProps.columnAllocations} */
+  columnAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
+  /** @see {@link LayoutMiniatureProps.railAllocations} */
+  railAllocations?: Partial<Record<SidebarSide, PlaceAllocation | null>>;
 }): MiniaturePlaceRects {
   const left = rails.left ?? 0;
   const right = rails.right ?? 0;
@@ -565,7 +620,7 @@ export function miniatureGeometry({
   // Where every block stands, in percent of the field. A free card (no
   // imposition) keeps its own width and the middle of the field, which is the
   // one drawing with no arrangement to place.
-  const blocks: readonly (MiniatureRect & { slot: number })[] =
+  const placed: readonly (MiniatureRect & { slot: number })[] =
     kind === null
       ? Array.from({ length: count }, (_, i) => ({
           slot: i,
@@ -578,14 +633,83 @@ export function miniatureGeometry({
           widthPct: Math.max(block.widthPct * flowScale - flowSeam, 0),
         }));
 
-  const railRects: Partial<Record<SidebarSide, { basisPct: number }>> = {};
-  if (left > 0) railRects.left = { basisPct: railPct };
-  if (right > 0) railRects.right = { basisPct: railPct };
+  // A split column divides its RUN, not the band: its members keep the slot's
+  // left edge and width and stack down it. Past two members the column stops
+  // dividing and starts scrolling ([P08]), and every member is still spanned,
+  // each at its own natural height, down a strip that runs off the bottom.
+  // The place is the column's own allocation when there is one, and the
+  // anonymous one a proposal gets otherwise ([P09]).
+  const blocks = placed.map((block) => {
+    const count = columnSplits?.[block.slot] ?? 1;
+    if (count < 2) return { ...block, overflow: false };
+    const place =
+      columnAllocations?.[block.slot] ??
+      nominalPlaceAllocation(count, NOMINAL_RUN, 0);
+    return { ...block, ...memberSpans(place, count) };
+  });
+
+  // A rail is spanned from the side's own allocation, or the anonymous one.
+  //
+  // …and exactly as many members as the place HAS, which is not the same
+  // number as the side's card count: a card dragged loose off the rail keeps
+  // its side — so it is still counted — and stops being a member of the rail,
+  // so the allocation has no height for it. `placeSpanPcts` slices to
+  // `place.heights`, so nobody indexes a span nobody allocated.
+  const railRects: MiniaturePlaceRects["rails"] = {};
+  for (const [side, count] of [
+    ["left", left],
+    ["right", right],
+  ] as const) {
+    if (count <= 0) continue;
+    const place =
+      railAllocations?.[side] ?? nominalPlaceAllocation(count, NOMINAL_RUN, 0);
+    railRects[side] = { basisPct: railPct, ...memberSpans(place, count) };
+  }
 
   return {
     rails: railRects,
     blocks,
     flow: { overflows: flowOverflows, scale: flowScale, seamPct: flowSeam },
+  };
+}
+
+/**
+ * Where the flow window stands over the drawing's field — the one arithmetic
+ * for the bracket and for anything standing over it.
+ *
+ * The window marks the band over the strip: as wide a share of the field as
+ * the band is of the strip, standing where the offset has slid the strip under
+ * it. `fraction` is that offset as a fraction of the band, which is the
+ * committed value the `flow-offset` gauge's live term is measured from.
+ *
+ * `null` when there is no window to place: the strip fits its band, the layout
+ * is not flow, there is no imposition, or the offset or the band is unknown.
+ */
+export function miniatureWindowRect(
+  geometry: MiniaturePlaceRects,
+  input: {
+    kind: ImpositionKind | null;
+    layout: ImpositionLayout;
+    offsetPx: number | undefined;
+    bandPx: number | undefined;
+  },
+): { leftPct: number; widthPct: number; fraction: number } | null {
+  const { kind, layout, offsetPx, bandPx } = input;
+  if (
+    !geometry.flow.overflows ||
+    layout !== "flow" ||
+    kind === null ||
+    offsetPx === undefined ||
+    bandPx === undefined ||
+    bandPx <= 0
+  ) {
+    return null;
+  }
+  const fraction = offsetPx / bandPx;
+  return {
+    leftPct: fraction * 100 * geometry.flow.scale,
+    widthPct: 100 * geometry.flow.scale,
+    fraction,
   };
 }
 
@@ -652,24 +776,30 @@ export function LayoutMiniature({
     layout,
     band: flowBandPx,
     flow: flowLive,
+    columnSplits,
+    columnAllocations,
+    railAllocations,
   });
   const railPct =
     geometry.rails.left?.basisPct ?? geometry.rails.right?.basisPct ?? 0;
   const blocks = geometry.blocks;
-  const flowOverflows = geometry.flow.overflows;
-  const flowScale = geometry.flow.scale;
 
-  // The window marks the band over the strip: as wide a share of the drawing as
-  // the band is of the strip, standing where the offset has slid the strip
-  // under it. At rest — or with no live truth to read — that is flush left.
-  //
-  // Read from the same guard the geometry used, so the window and the blocks it
-  // stands over cannot disagree about whether the strip is the real one.
-  const flowFraction =
-    flowLive === null || layout !== "flow" || kind === null
-      ? 0
-      : flowLive.offsetPx / flowLive.bandPx;
-  const windowLeft = flowFraction * 100 * flowScale;
+  // The window marks the band over the strip — the shared arithmetic, so the
+  // overlay's grip and this bracket stand in one place. A strip that outruns
+  // its band always draws the bracket; with no live offset to read (every
+  // proposal) it stands flush left, at rest.
+  const windowRect = geometry.flow.overflows
+    ? (miniatureWindowRect(geometry, {
+        kind,
+        layout,
+        offsetPx: flowLive?.offsetPx,
+        bandPx: flowLive?.bandPx,
+      }) ?? {
+        leftPct: 0,
+        widthPct: 100 * geometry.flow.scale,
+        fraction: 0,
+      })
+    : null;
 
   // Which columns are drawn as sliding strips — the signals this drawing has
   // anything to do with. A column that divides rather than overflows has no
@@ -724,9 +854,9 @@ export function LayoutMiniature({
     >
       {left > 0 ? (
         <Rail
-          count={left}
           widthPct={railPct}
-          allocation={railAllocations?.left}
+          members={geometry.rails.left?.members ?? []}
+          overflow={geometry.rails.left?.overflow ?? false}
         />
       ) : null}
       <span className="layout-mini-field">
@@ -747,8 +877,7 @@ export function LayoutMiniature({
             // bottom, with a seam between — the same equal division the rail's
             // split draws, and for the same reason. A hand-dragged ratio is not
             // what the picture is answering.
-            const members = columnSplits?.[block.slot] ?? 1;
-            if (members < 2) {
+            if (block.members === undefined) {
               return (
                 <span
                   key={block.slot}
@@ -765,15 +894,14 @@ export function LayoutMiniature({
             // heights against the run — the geometry the deck itself resolves —
             // and the card the run's bottom edge cuts IS the affordance saying
             // there is more below.
-            const place =
-              columnAllocations?.[block.slot] ??
-              nominalPlaceAllocation(members, NOMINAL_RUN, 0);
-            const overflow = place.standing === "overflow";
-            const spans = placeSpanPcts(place, members);
+            //
+            // The spans are `miniatureGeometry`'s, so the overlay's targets
+            // stand on exactly these members.
+            const overflow = block.overflow;
             const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
             const slide = fraction * 100;
-            return Array.from({ length: members }, (_, m) => {
-              const { top: memberTop, span } = spans[m];
+            return block.members.map((member) => {
+              const { index: m, topPct: memberTop, spanPct: span } = member;
               const top = memberTop - slide;
               // A fraction of the RUN is the whole field's height; the member is
               // `span` percent of it, and a translation is stated in percent of
@@ -813,20 +941,20 @@ export function LayoutMiniature({
             });
           })}
         </span>
-        {flowOverflows ? (
+        {windowRect !== null ? (
           <span
             className="layout-mini-window"
             style={
               {
-                left: `${windowLeft}%`,
-                width: `${100 * flowScale}%`,
+                left: `${windowRect.leftPct}%`,
+                width: `${windowRect.widthPct}%`,
                 // The window IS the band, so a slide of one band moves it by
                 // its own width — which makes the scale from "fractions of the
                 // band" to "percent of this element" exactly 100, whatever the
                 // drawing's size or the strip's scale. The reason the gauge is
                 // a fraction, in one number.
                 "--mini-slide-x": committed
-                  ? slideExpression("flow-offset", flowFraction, 100)
+                  ? slideExpression("flow-offset", windowRect.fraction, 100)
                   : undefined,
               } as React.CSSProperties
             }
@@ -835,16 +963,18 @@ export function LayoutMiniature({
       </span>
       {right > 0 ? (
         <Rail
-          count={right}
           widthPct={railPct}
-          allocation={railAllocations?.right}
+          members={geometry.rails.right?.members ?? []}
+          overflow={geometry.rails.right?.overflow ?? false}
         />
       ) : null}
       {/*
         * The drag, drawn. Both stand over the WHOLE drawing rather than inside
         * the field, because a drag crosses rails and gaps as freely as it
-        * crosses slots — the gauges state a rect as a fraction of the canvas,
-        * and this element is the canvas at another scale. They are rendered
+        * crosses slots — the gauges state a rect as a fraction of the box the
+        * drag is drawn on: the canvas's for a drag on the canvas, this
+        * drawing's padding box for one started on the overlay above it
+        * (`imposer-gauges.ts`). Either way `* 100%` places it. They are rendered
         * once and moved by CSS forever after: their visibility is the
         * channel's attributes and their position is its properties, so a whole
         * drag costs no render at all ([P09]).

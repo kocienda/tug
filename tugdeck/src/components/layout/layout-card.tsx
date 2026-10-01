@@ -63,12 +63,18 @@
  * every control it passed over restated the card's largest element while
  * the reader was only travelling. Pressing is how a hand changes the plan.
  *
- * The drawing itself is a readout and takes no pointer (`pointer-events: none`)
- * — it is drawn in chrome neutrals rather than the control palette, and the
- * hand that tries it finds nothing to press. What answers a hand is the places
- * overlay standing over it, which is a separate element for exactly that
- * reason: the picture states, the marks act, and the two never argue about
- * which one a click was meant for.
+ * The drawing is chrome at rest and takes no pointer itself
+ * (`pointer-events: none`) — it is drawn in chrome neutrals rather than the
+ * control palette. What answers a hand is the places overlay standing over it:
+ * an invisible target on every column block, split member and rail member,
+ * which lights only while the pointer is on it, and the stack/split marks
+ * above those. Pressing a block goes to its slot and raises the card standing
+ * there (a second press in succession cycles a stack); pressing a member
+ * raises that member's card. Dragging any of them rearranges the deck: the
+ * canvas offers its own drop zones, the picture places each on the part that
+ * draws it, and the canvas commits the one the hand leaves the card on. The
+ * overlay is a separate element so the drawing can stay `aria-hidden` and
+ * presentational while its parts take presses and drags.
  *
  * **The rows fold.** The card is a statement and an instrument in one box —
  * the plate on top says what the deck is doing and draws it, the rows beneath
@@ -99,8 +105,14 @@
  * control emits `selectValue` through the responder chain, which this card
  * turns into `set-imposition` / `set-imposition-layout` / `set-content-width` /
  * `set-sidebar-side` / `set-column-mode` dispatches; [L19] every control is a `TugChoiceGroup` and
- * every caption a `TugLabel`, composed rather than hand-rolled; [L30] the card never touches
- * the deck store — it goes through the command funnel like any other door.
+ * every caption a `TugLabel`, composed rather than hand-rolled; [L30] every
+ * user-invocable act goes through the command funnel. The card touches the
+ * deck store directly in three narrow places that are not commands: the
+ * strip's scrub (`previewFlowOffset`/`setFlowOffset`, per-frame appearance),
+ * `goToSlot` (`setFlowOffset`, `raiseCard` and the arrival flash), and the
+ * miniature's presses and drops (`raiseCard`/`flashCardPane`, and the drop-zone
+ * host's `commit`) — the same calls the pane chrome makes for a click on a
+ * card and a drag of one.
  *
  * @module components/layout/layout-card
  */
@@ -124,12 +136,21 @@ import type {
   MiniatureFlowSlot,
   MiniatureRails,
 } from "@/components/layout/layout-miniature";
-import { LayoutPlaces } from "@/components/layout/layout-places";
+import {
+  LayoutPlaces,
+  MiniatureWindowGrip,
+} from "@/components/layout/layout-places";
 import { FlowStrip } from "@/components/layout/flow-strip";
 import type { FlowStripTravel } from "@/components/layout/flow-strip";
 import { raiseCard } from "@/focus-transfer";
-import { miniatureGeometry } from "@/components/layout/layout-miniature";
-import { flashSlot } from "@/lib/flash-pane-border";
+import {
+  miniatureGeometry,
+  miniatureWindowRect,
+  type MiniaturePlaceRects,
+} from "@/components/layout/layout-miniature";
+import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
+import { useMiniatureGestures } from "@/components/layout/use-miniature-gestures";
+import { useMiniatureWindowDrag } from "@/components/layout/use-miniature-window-drag";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
 import type { LayoutPlace } from "@/components/layout/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
@@ -170,6 +191,7 @@ import {
   deckSlotStrip,
   type DeckColumn,
   railAllocationOf,
+  railMembersOf,
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
@@ -493,6 +515,21 @@ function useCommittedAllocations(columns: readonly DeckColumn[]): {
   }, [rails, columns]);
 }
 
+/**
+ * Each side's rail members, in rail order — the panes the miniature's rail
+ * targets press. Read with the snapshot ([L02]) and kept by reference while
+ * equal.
+ */
+function useRailMembers(): Partial<
+  Record<SidebarSide, readonly { componentId: string; paneId: string }[]>
+> {
+  return useDeckDerived((deck) =>
+    deck === null
+      ? {}
+      : { left: railMembersOf(deck, "left"), right: railMembersOf(deck, "right") },
+  );
+}
+
 /** The deck's live flow SHAPE, in the numbers the committed miniature draws
  *  from — see {@link useCommittedFlow}. The offset is deliberately not here:
  *  it moves on every slide, and {@link useCommittedFlowOffset} is its door. */
@@ -572,6 +609,43 @@ function CommittedMiniature(
       {...props}
       committed
       flowOffsetPx={props.flowBandPx === undefined ? undefined : flowOffsetPx}
+    />
+  );
+}
+
+/**
+ * The flow window's grip, with the live offset read here rather than in the
+ * card, for the reason {@link CommittedMiniature} reads it: the window moves
+ * on every slide, and this is the only component that has to move with it.
+ * Nothing when the strip fits its band — there is no window to grip.
+ */
+function CommittedWindowGrip({
+  geometry,
+  kind,
+  layout,
+  bandPx,
+  onPointerDown,
+}: {
+  geometry: MiniaturePlaceRects;
+  kind: ImpositionKind | null;
+  layout: ImpositionLayout;
+  bandPx: number | undefined;
+  onPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
+}): React.ReactElement | null {
+  const offsetPx = useCommittedFlowOffset();
+  const rect = miniatureWindowRect(geometry, {
+    kind,
+    layout,
+    offsetPx: bandPx === undefined ? undefined : offsetPx,
+    bandPx,
+  });
+  if (rect === null) return null;
+  return (
+    <MiniatureWindowGrip
+      leftPct={rect.leftPct}
+      widthPct={rect.widthPct}
+      fraction={rect.fraction}
+      onPointerDown={onPointerDown}
     />
   );
 }
@@ -898,16 +972,16 @@ function previewIdOf(el: Element | null): string | null {
   )}`;
 }
 
-/** The Layout card's props. The card id is the pane's, and the card has no
- *  use for it: every fact it reads is the deck's own, and every act it takes
- *  goes through the command funnel ([L30]). */
+/** The Layout card's props. The card id is read by the miniature's gestures:
+ *  a press activates the Layout card's own pane on pointerdown, and that pane
+ *  must not end a stack press's succession. */
 export interface LayoutContentProps {
   /** The Layout card's id. */
   cardId: string;
 }
 
 export function LayoutContent(
-  _props: LayoutContentProps,
+  props: LayoutContentProps,
 ): React.ReactElement {
   const imposition = useImposition();
   const kind = imposition.kind ?? DEFAULT_IMPOSITION_KIND;
@@ -997,7 +1071,7 @@ export function LayoutContent(
         width: block.widthPct / 100,
       };
     }
-    return { basis, spans };
+    return { basis, spans, geometry };
   }, [kind, rails, contentWidth, layout, committedFlow]);
 
   // The strip's two writes, and the only place this card touches the deck
@@ -1025,17 +1099,49 @@ export function LayoutContent(
   // badge's if the place is held open — which is the same answer the Center
   // Card chord gives, so a place named by hand and a place named by chord
   // reply in the same voice.
-  const goToSlot = useCallback((slot: number, center: number | null): void => {
-    const store = getDeckStore();
-    if (store === null) return;
-    if (center !== null) {
-      store.setFlowOffset(center);
-    } else {
-      const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
-      if (pane !== undefined) raiseCard(store, pane.activeCardId);
-    }
-    flashSlot(store, slot);
-  }, []);
+  //
+  // The numbered strip calls this with no options, and gets exactly that. A
+  // press on the miniature's block passes `raiseCardId` — the card the press
+  // reached, which may be the bottom of a stack the press is cycling — and then
+  // the card is raised in BOTH layouts, after the travel so its own reveal
+  // finds the slot already centred, and the ring follows the raised card's
+  // pane rather than whichever pane of the stack happens to be first. A `null`
+  // id is an empty slot: its vacancy flashes and nothing is raised.
+  const goToSlot = useCallback(
+    (
+      slot: number,
+      center: number | null,
+      options?: { raiseCardId?: string | null },
+    ): void => {
+      const store = getDeckStore();
+      if (store === null) return;
+      if (options !== undefined && options.raiseCardId !== undefined) {
+        if (center !== null) store.setFlowOffset(center);
+        const raiseCardId = options.raiseCardId;
+        if (raiseCardId === null) {
+          flashSlot(store, slot);
+        } else {
+          raiseCard(store, raiseCardId);
+          flashCardPane(store, raiseCardId);
+        }
+        return;
+      }
+      if (center !== null) {
+        store.setFlowOffset(center);
+      } else {
+        const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
+        if (pane !== undefined) raiseCard(store, pane.activeCardId);
+      }
+      flashSlot(store, slot);
+    },
+    [],
+  );
+  const { onTargetPointerDown } = useMiniatureGestures({
+    cardId: props.cardId,
+    goToSlot,
+  });
+  const railMembers = useRailMembers();
+  const { onWindowPointerDown } = useMiniatureWindowDrag();
   const committedColumnOffsets = useCommittedColumnOffsets();
   // The arrangeable places, for the overlay that draws them on the picture:
   // EVERY slot the kind defines, occupied or not, each carrying its STORED
@@ -1060,9 +1166,13 @@ export function LayoutContent(
 
   /** Which slots the miniature draws divided, and into how many shares. */
   const columnSplits: Record<number, number> = {};
+  /** …and which pane is each share, top to bottom — what a member target
+   *  presses. */
+  const columnMembers: Record<number, readonly string[]> = {};
   for (const column of columns) {
     if (column.mode === "split" && column.members.length > 1) {
       columnSplits[column.slot] = column.members.length;
+      columnMembers[column.slot] = column.members;
     }
   }
 
@@ -1421,9 +1531,10 @@ export function LayoutContent(
             overlay inside it would hide its own buttons from assistive
             technology. The wrapper is what the overlay positions against.
 
-            No pointer handlers here, and nothing watching for a cursor: the
-            marks are buttons rather than auditions, so neither the hand nor the
-            ring asks the plan for anything while it is on the picture. */}
+            Nothing here watches for a cursor: the marks are buttons rather
+            than auditions, and the overlay's targets take presses rather than
+            hovers, so neither the hand nor the ring asks the plan for a
+            preview while it is on the picture. */}
       {/* The plate: the drawing and its legend, as one block. They are held
           together here rather than left to the card's own rhythm because
           the strip is the plan's legend and reads as one thing with it — the
@@ -1484,6 +1595,22 @@ export function LayoutContent(
           columns={columnPlaces}
           focusGroup={LAYOUT_FOCUS_GROUP}
           focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
+          columnSplits={columnSplits}
+          columnAllocations={committedAllocations.columns}
+          columnOffsets={committedColumnOffsets ?? undefined}
+          columnMembers={columnMembers}
+          railAllocations={committedAllocations.rails}
+          railMembers={railMembers}
+          onTargetPointerDown={onTargetPointerDown}
+          windowGrip={
+            <CommittedWindowGrip
+              geometry={stripGeometry.geometry}
+              kind={kind}
+              layout={layout}
+              bandPx={committedFlow?.bandPx}
+              onPointerDown={onWindowPointerDown}
+            />
+          }
         />
       </div>
 

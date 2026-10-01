@@ -23,6 +23,9 @@
  * |-----------------------------------------------------|-----------------------------------------------------|---------------|-------------------------------|
  * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-border-normal-strong-rest     | informational | .layout-places mark at rest   |
  * | --tug7-surface-global-primary-normal-default-rest   | --tug7-element-global-text-normal-default-rest      | control       | .layout-places mark on hover  |
+ * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-border-normal-strong-rest     | control       | .layout-places-target on a block, under the hand |
+ * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-divider-normal-separator-rest | control       | .layout-places-target on a rail member, under the hand |
+ * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-border-normal-strong-rest     | control       | .layout-places-window frame, under the hand or dragging |
  *
  * The surface in the first row is a border token, and that is not a slip: a
  * mark stands on a drawn BLOCK, and `layout-miniature.css` paints its blocks
@@ -36,6 +39,12 @@
  * where a card is standing is the deck's resting fact, true whether or not
  * anybody is reaching for it. Under the hand it becomes a control and says so
  * by inverting: the page's own two colours, swapped.
+ *
+ * The same rule governs every other part of the picture. The drawing is chrome
+ * at rest, and the overlay above it answers a hand: one invisible target per
+ * column block, split member and rail member, each drawing nothing until the
+ * pointer is on it, and then a one-pixel frame in the page's text ink — the
+ * part under the hand lit, and nothing else.
  */
 
 .layout-places {
@@ -58,9 +67,10 @@
   box-sizing: border-box;
   border: 1px solid transparent;
 
-  /* The plan sets `pointer-events: none` over the whole drawing, because a
-     drawing is a statement and there is nothing in it to press. This overlay is
-     the exception the rule was waiting for, so the pointer comes back here.
+  /* The plan sets `pointer-events: none` over the whole drawing, because the
+     drawing paints the deck and this overlay is what takes the hand — its
+     marks, and the targets standing on every block and member beneath them.
+     So the pointer comes back here.
 
      It comes back on the WHOLE box rather than on the marks alone, and that is
      load-bearing rather than lazy: the focus engine's walk excludes any
@@ -69,9 +79,8 @@
      the ring must never land on something a press cannot reach. An inert root
      therefore takes the picture out of the Tab walk entirely — registered,
      visible, and silently unreachable by keyboard. Nothing is lost by letting
-     the box take the pointer: the only thing under it is a drawing that already
-     refuses one, and a hover on the box's empty air resolves to no preview id,
-     which is the same as no hover at all. */
+     the box take the pointer: a hover on the box's empty air resolves to no
+     preview id, which is the same as no hover at all. */
   pointer-events: auto;
 
   /* And because it is reachable, it RINGS — the whole picture is one Tab stop
@@ -108,10 +117,16 @@
 }
 
 /* One side's strip. Width comes from the same flex-basis the drawing's rail
-   takes, so the two land on each other whatever the preset. */
+   takes, so the two land on each other whatever the preset. Its member
+   targets run off the bottom of an overflowing side as the drawing's do, so
+   that side clips them. */
 .layout-places-rail {
   position: relative;
   flex: 0 0 auto;
+}
+
+.layout-places-rail[data-overflow] {
+  overflow: clip;
 }
 
 /* The run the cards stand across — everything the rails have not taken, exactly
@@ -122,10 +137,123 @@
   min-inline-size: 0;
 }
 
-/* A slot's block, at the same left and width the drawing gave it. */
+/* A slot's block, at the same left and width the drawing gave it. It is only
+   the mark's frame: full height, so it takes no pointer, or it would swallow
+   every press meant for the targets beneath it. The mark inside takes its own. */
 .layout-places-block {
   position: absolute;
   inset-block: 0;
+  pointer-events: none;
+}
+
+/* The targets' layer: the field's box, clipped as the drawing's run is, so an
+   overflowing column's member targets run off the bottom with the members they
+   stand on. It renders before the marks and so beneath them. The marks must
+   not clip — their ring and hover chip reach past the block — which is why the
+   clip is this layer's and not the field's. */
+.layout-places-run {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+}
+
+/* One part of the drawing, ready for a hand. Nothing at rest — the drawing is
+   chrome, and a picture whose every block wore a frame would read as a form —
+   and under the hand a one-pixel frame in the page's text ink, the same pair
+   the marks rest in and the most legible the theme has. A part that is a
+   drag's source keeps the light for the length of the drag. */
+.layout-places-target {
+  position: absolute;
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+.layout-places-target[data-target="block"] {
+  inset-block: 0;
+}
+
+.layout-places-target[data-target="rail"] {
+  inset-inline: 0;
+}
+
+.layout-places-target:hover,
+.layout-places-target[data-drag-source] {
+  box-shadow: inset 0 0 0 1px var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The flow window's grip: the drawing's bracket, restated, so its frame can
+   take a drag. Same rect, same `-2px` overhang, same slide on the
+   `flow-offset` gauge, and the same settle-timed glide when a commit moves it,
+   so the two move as one. The box itself takes no pointer — a press inside
+   the window belongs to the block under it — and only the four edge bands
+   below do.
+
+   At rest it draws nothing: the bracket beneath is the window's picture.
+   Under the hand, and for the whole of a drag, it lights by drawing its frame
+   in the page's text ink over the bracket, the same light a target takes. */
+.layout-places-window {
+  position: absolute;
+  inset-block: -2px;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-radius: 2px;
+  pointer-events: none;
+  transform: translateX(calc(var(--mini-slide-x, 0) * 1%));
+  transition-property: left, width, transform;
+  transition-duration: var(
+    --tugx-imposer-settle-duration,
+    var(--tug-motion-duration-slow)
+  );
+  transition-timing-function: var(--tug-motion-easing-standard);
+}
+
+.layout-places-window:hover,
+.layout-places-window[data-dragging] {
+  border-color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* Each edge band is centred on the 2px stroke, which runs from -2px to 0
+   outside the grip's padding box — so its centre line is at -1px.
+
+   TUNE: the band's thickness is the open question of whether the frame is a
+   big enough target in a picture about 210px wide. It is one property so it
+   can be judged in the hand and moved in one place. */
+.layout-places-window-edge {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.layout-places-window-edge[data-edge="left"],
+.layout-places-window-edge[data-edge="right"] {
+  inset-block: calc(-1px - var(--tugx-layout-places-window-hit, 6px) / 2);
+  inline-size: var(--tugx-layout-places-window-hit, 6px);
+}
+
+.layout-places-window-edge[data-edge="left"] {
+  inset-inline-start: calc(-1px - var(--tugx-layout-places-window-hit, 6px) / 2);
+}
+
+.layout-places-window-edge[data-edge="right"] {
+  inset-inline-end: calc(-1px - var(--tugx-layout-places-window-hit, 6px) / 2);
+}
+
+.layout-places-window-edge[data-edge="top"],
+.layout-places-window-edge[data-edge="bottom"] {
+  inset-inline: calc(-1px - var(--tugx-layout-places-window-hit, 6px) / 2);
+  block-size: var(--tugx-layout-places-window-hit, 6px);
+}
+
+.layout-places-window-edge[data-edge="top"] {
+  inset-block-start: calc(-1px - var(--tugx-layout-places-window-hit, 6px) / 2);
+}
+
+.layout-places-window-edge[data-edge="bottom"] {
+  inset-block-end: calc(-1px - var(--tugx-layout-places-window-hit, 6px) / 2);
+}
+
+.layout-places-window[data-dragging] .layout-places-window-edge {
+  cursor: grabbing;
 }
 
 /* The mark itself, at the foot of the part it belongs to. The foot rather than
@@ -146,7 +274,7 @@
      can drift apart. */
   padding-inline: 2px;
 
-  /* The one thing in the picture that answers a hand. */
+  /* The mark takes its own press, above the block target beneath it. */
   pointer-events: auto;
 
   /* **Body in the ink, seams in the ground.** A mark stands ON a drawn block,
@@ -303,4 +431,16 @@
    keep their hit areas: the hovered one is what is HOLDING the preview up. */
 .layouts-plan[data-previewing] + .layout-places .layout-places-mark {
   opacity: 0;
+}
+
+/* And the targets stand down altogether. A preview is the keyboard's alone,
+   and a part lit under the pointer over a DIFFERENT arrangement would name a
+   card that is not where the picture shows it. */
+.layouts-plan[data-previewing] + .layout-places .layout-places-target {
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.layouts-plan[data-previewing] + .layout-places .layout-places-window-edge {
+  pointer-events: none;
 }

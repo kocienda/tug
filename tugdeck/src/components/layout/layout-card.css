@@ -100,10 +100,13 @@
    Every layer has the same structure, so swapping layers never moves the
    section's height.
 
-   The plan takes no pointer. It is a statement of what the deck is doing, and
-   the rows below it are where that statement is changed — so hovering it gives
-   no cursor, selects no text and reacts in no way, and a hover crossing it on
-   the way to a control is not a hover the section has to answer. */
+   The plan itself takes no pointer: it paints the deck, and the places
+   overlay standing over it (`layout-places.css`) is what takes the hand —
+   a target on every block, split member and rail member, and the marks
+   above them. The drawing is chrome at rest and the part under the hand
+   lights; the plan's own layers never select text or answer a hover, so a
+   hover crossing them on the way to a control is not one the section has to
+   answer. */
 /* The figure: the drawing and the places standing on it, as one block. The
    overlay positions against this rather than against the plan, because the plan
    is `aria-hidden` and an overlay inside it would hide its own buttons from
@@ -136,6 +139,17 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* While the window bracket is being dragged — and for one frame after the
+   commit — the bracket and its grip track the hand rather than gliding after
+   it. Their resting transitions follow the deck's settle; per-frame writes
+   need none, and at the commit the bracket re-pins with a zero net slide that
+   would otherwise tween `left` and `transform` against each other. The drag
+   hook stamps and clears the attribute. */
+.layouts-figure[data-window-drag] .layout-mini[data-committed="true"] .layout-mini-window,
+.layouts-figure[data-window-drag] .layout-places-window {
+  transition: none;
 }
 
 .layouts-plan {

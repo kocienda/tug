@@ -66,6 +66,15 @@
  * takes no events at all — the live overlay beneath keeps the hover that
  * raised the preview.
  *
+ * **Every part of the drawing is a target, too.** Beneath the marks stands one
+ * invisible target per column block, per split member and per rail member, at
+ * the spans `miniatureGeometry` gives the drawing. The drawing is chrome at
+ * rest; a target draws nothing until the hand is on it, and then lights the
+ * part under it ([B11]). What a press on one does is not decided here: the
+ * target reports itself through `onTargetPointerDown`, and the card's gesture
+ * hook acts. The targets are `aria-hidden` and carry no `layout-card-place-`
+ * testid, so the keyboard cursor, which walks the marks, never lands on one.
+ *
  * Presentational: props in, CSS out, no store reads and no state ([L06]). The
  * section resolves every fact from its own subscription and hands them down.
  *
@@ -86,9 +95,12 @@ import { deepEqual } from "@/lib/deep-equal";
 
 import {
   miniatureGeometry,
+  slideExpression,
   type MiniatureFlowStrip,
   type MiniatureRails,
 } from "@/components/layout/layout-miniature";
+import type { MiniatureTarget } from "@/components/layout/miniature-gestures";
+import { registerGauge } from "@/lib/imposer-gauges";
 import {
   SplitGlyph,
   StackGlyph,
@@ -102,6 +114,7 @@ import type {
   ContentWidth,
   ImpositionKind,
   ImpositionLayout,
+  PlaceAllocation,
   SidebarSide,
 } from "@/lib/layout-imposer";
 
@@ -156,6 +169,87 @@ export interface LayoutPlacesProps {
    * plain glyphs, no buttons, no focus stop, no pointer.
    */
   ghost?: boolean;
+  /** Which slots the drawing divides, and into how many members — the same
+   *  prop the drawing beneath was given, so the targets land on its members. */
+  columnSplits?: Readonly<Record<number, number>>;
+  /** The committed columns' own divisions, as the drawing was given them. */
+  columnAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
+  /** Each overflowing column's committed slide, as a fraction of the run. */
+  columnOffsets?: Readonly<Record<number, number>>;
+  /** Each split column's member pane ids, top to bottom, keyed by slot. */
+  columnMembers?: Readonly<Record<number, readonly string[]>>;
+  /** The committed rails' own divisions, as the drawing was given them. */
+  railAllocations?: Partial<Record<SidebarSide, PlaceAllocation | null>>;
+  /** Each side's rail members, in rail order. */
+  railMembers?: Partial<
+    Record<SidebarSide, readonly { componentId: string; paneId: string }[]>
+  >;
+  /** A hand landed on one of the drawing's parts. */
+  onTargetPointerDown?: (
+    event: React.PointerEvent<HTMLElement>,
+    target: MiniatureTarget,
+  ) => void;
+  /** The flow window's grip, when the strip outruns its band. Rendered over
+   *  the targets and under the marks ([P05]). */
+  windowGrip?: React.ReactNode;
+}
+
+/**
+ * The flow window's grip: four thin bands standing on the bracket's frame,
+ * which take a drag that slides the band along the strip.
+ *
+ * Only the frame takes the hand. The grip's own box is `pointer-events: none`,
+ * so a press in the middle of the window still lands on the block beneath it —
+ * the window is a statement about what is in view, and its interior belongs to
+ * the cards it frames.
+ *
+ * It stands where the drawing's bracket stands — the same `miniatureWindowRect`
+ * — and rides the same `flow-offset` gauge with the same slide expression, so
+ * it tracks a scrub, a wheel or its own drag without rendering.
+ */
+export function MiniatureWindowGrip({
+  leftPct,
+  widthPct,
+  fraction,
+  onPointerDown,
+}: {
+  leftPct: number;
+  widthPct: number;
+  fraction: number;
+  onPointerDown?: (event: React.PointerEvent<HTMLElement>) => void;
+}): React.ReactElement {
+  const ref = useRef<HTMLSpanElement | null>(null);
+  // [L03] — the gauge writes onto this element per frame; it is claimed in a
+  // layout effect and released with it.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    return registerGauge("flow-offset", el);
+  }, []);
+  return (
+    <span
+      ref={ref}
+      className="layout-places-window"
+      data-testid="layout-card-window-grip"
+      aria-hidden="true"
+      style={
+        {
+          left: `${leftPct}%`,
+          width: `${widthPct}%`,
+          "--mini-slide-x": slideExpression("flow-offset", fraction, 100),
+        } as React.CSSProperties
+      }
+    >
+      {(["left", "right", "top", "bottom"] as const).map((edge) => (
+        <span
+          key={edge}
+          className="layout-places-window-edge"
+          data-edge={edge}
+          onPointerDown={onPointerDown}
+        />
+      ))}
+    </span>
+  );
 }
 
 /** The glyph a place's stored arrangement wears. Nothing is ever marked lit:
@@ -262,8 +356,26 @@ export function LayoutPlaces({
   focusGroup,
   focusOrder = 0,
   ghost = false,
+  columnSplits,
+  columnAllocations,
+  columnOffsets,
+  columnMembers,
+  railAllocations,
+  railMembers,
+  onTargetPointerDown,
+  windowGrip,
 }: LayoutPlacesProps): React.ReactElement {
-  const geometry = miniatureGeometry({ kind, rails, width, layout, band, flow });
+  const geometry = miniatureGeometry({
+    kind,
+    rails,
+    width,
+    layout,
+    band,
+    flow,
+    columnSplits,
+    columnAllocations,
+    railAllocations,
+  });
 
   // ---- One stop, a cursor over its places ([P24] deferred commit) ----
   //
@@ -341,19 +453,111 @@ export function LayoutPlaces({
   const columnOf = (slot: number): LayoutPlace | undefined =>
     columns.find((place) => place.slot === slot);
 
-  /** A side's width, held open and empty — the rail carries no mark, and the
-   *  field's marks only land on the blocks if the picture's own flex row is
-   *  replicated whole. */
+  /** A target's pointerdown, naming what it stands on. */
+  const pressOf =
+    (target: MiniatureTarget) =>
+    (event: React.PointerEvent<HTMLElement>): void =>
+      onTargetPointerDown?.(event, target);
+
+  /** A side's width, held at the drawing's basis — the rail carries no mark,
+   *  and the field's marks only land on the blocks if the picture's own flex
+   *  row is replicated whole. It holds one target per member the drawing
+   *  draws and the deck can name. */
   const rail = (side: SidebarSide): React.ReactElement | null => {
     const basis = geometry.rails[side];
     if (basis === undefined) return null;
+    const members = railMembers?.[side] ?? [];
     return (
       <span
         className="layout-places-rail"
+        data-side={side}
+        data-overflow={basis.overflow ? "" : undefined}
         style={{ flexBasis: `${basis.basisPct}%` }}
-      />
+      >
+        {ghost
+          ? null
+          : basis.members
+              .filter((span) => span.index < members.length)
+              .map((span) => {
+                const paneId = members[span.index].paneId;
+                return (
+                  <span
+                    key={paneId}
+                    className="layout-places-target"
+                    data-target="rail"
+                    data-side={side}
+                    data-pane-id={paneId}
+                    data-testid={`layout-card-target-rail-${side}-${span.index}`}
+                    aria-hidden="true"
+                    style={{
+                      top: `${span.topPct}%`,
+                      height: `${span.spanPct}%`,
+                    }}
+                    onPointerDown={pressOf({ kind: "rail", side, paneId })}
+                  />
+                );
+              })}
+      </span>
     );
   };
+
+  /** One target per unsplit block, one per split member — beneath the marks,
+   *  in a run that clips as the drawing's run does ([P05]). Slot order is
+   *  paint order, so where fit laps two blocks the target on top is the card
+   *  the reader can see. */
+  const targets = ghost ? null : (
+    <span className="layout-places-run">
+      {geometry.blocks.map((block) => {
+        if (block.members === undefined) {
+          return (
+            <span
+              key={block.slot}
+              className="layout-places-target"
+              data-target="block"
+              data-slot={block.slot}
+              data-testid={`layout-card-target-block-${block.slot}`}
+              aria-hidden="true"
+              style={{
+                left: `${block.leftPct}%`,
+                width: `${block.widthPct}%`,
+              }}
+              onPointerDown={pressOf({ kind: "block", slot: block.slot })}
+            />
+          );
+        }
+        const ids = columnMembers?.[block.slot] ?? [];
+        const slide = block.overflow
+          ? (columnOffsets?.[block.slot] ?? 0) * 100
+          : 0;
+        return block.members.map((member) => {
+          const paneId = ids[member.index];
+          if (paneId === undefined) return null;
+          return (
+            <span
+              key={`${block.slot}:${paneId}`}
+              className="layout-places-target"
+              data-target="member"
+              data-slot={block.slot}
+              data-pane-id={paneId}
+              data-testid={`layout-card-target-member-${block.slot}-${member.index}`}
+              aria-hidden="true"
+              style={{
+                left: `${block.leftPct}%`,
+                width: `${block.widthPct}%`,
+                top: `${member.topPct - slide}%`,
+                height: `${member.spanPct}%`,
+              }}
+              onPointerDown={pressOf({
+                kind: "member",
+                slot: block.slot,
+                paneId,
+              })}
+            />
+          );
+        });
+      })}
+    </span>
+  );
 
   return (
     <span
@@ -368,19 +572,29 @@ export function LayoutPlaces({
     >
       {rail("left")}
       <span className="layout-places-field">
+        {targets}
+        {ghost ? null : windowGrip}
         {geometry.blocks.map((block) => {
           const place = columnOf(block.slot);
-          if (place === undefined) return null;
+          // Every slot draws its block, empty or not: the block is the part a
+          // drag's zone for that slot stands on. Only a place carries a mark.
           return (
             <span
               key={block.slot}
               className="layout-places-block"
+              data-slot={block.slot}
               style={{
                 left: `${block.leftPct}%`,
                 width: `${block.widthPct}%`,
               }}
             >
-              <PlaceMark place={place} senderId={place.senderId} ghost={ghost} />
+              {place === undefined ? null : (
+                <PlaceMark
+                  place={place}
+                  senderId={place.senderId}
+                  ghost={ghost}
+                />
+              )}
             </span>
           );
         })}
