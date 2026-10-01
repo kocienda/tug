@@ -182,6 +182,13 @@ export interface SendActionEvent {
    * too, so it proves nothing and licenses nothing.
    */
   pathUnsatisfied?: boolean;
+  /**
+   * Queue the submission rather than send it, whatever the phase. Set while
+   * the card is handing this store over to the session a directory change
+   * moved it to: the session behind this store is already closed, so the
+   * words wait in the queue and ride the hand-over to the new store.
+   */
+  queueOnly?: boolean;
 }
 
 /** `session_init` frame — carries Claude's `session_id` (for `--resume`). */

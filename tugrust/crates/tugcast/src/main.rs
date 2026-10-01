@@ -1381,6 +1381,11 @@ async fn main() {
     if let Some(rl) = refs_ledger.as_ref() {
         supervisor.set_refs_ledger(Arc::clone(rl));
     }
+    // And the prompt ledger, which a directory change writes the moved
+    // session's prompt lineage into before acknowledging the move.
+    if let Some(pl) = prompt_ledger.as_ref() {
+        supervisor.set_prompt_ledger(Arc::clone(pl));
+    }
 
     // The changeset scribe ([P11]/[P22]): the maintained-draft engine runs a
     // headless `claude -p` with the model from

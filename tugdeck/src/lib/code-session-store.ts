@@ -548,6 +548,8 @@ export class CodeSessionStore {
    */
   private _lastSentUserMessage: unknown = null;
   private _disposed = false;
+  /** Set by {@link holdSendsForHandOver}; every later send queues. */
+  private _sendsHeldForHandOver = false;
   /** Set by `bindEditorView`; outside `state`, so it notifies nobody. */
   private _editorView: (() => EditorView | null) | null = null;
   private _feedStoreUnsub: (() => void) | null = null;
@@ -1076,6 +1078,7 @@ export class CodeSessionStore {
       content: wire.content,
       turnKey: mintTurnKey(),
       suppress: opts?.suppress === true,
+      queueOnly: this._sendsHeldForHandOver,
       // Read here rather than in the reducer, which is pure and cannot see a
       // module store. Only the believed negative is passed: `unsatisfied`
       // means there is no route and the submission is held ([P10]). The
@@ -1860,6 +1863,19 @@ export class CodeSessionStore {
    */
   exportQueuedSends(): CodeSessionState["queuedSends"] {
     return this.state.queuedSends;
+  }
+
+  /**
+   * Stop sending: every later submission is queued instead, for
+   * {@link exportQueuedSends} to hand to the store that replaces this one.
+   *
+   * For a directory change, which keeps this store on screen until the new
+   * session's transcript is ready: the session behind this store is already
+   * closed, so a send from it would reach nothing. One-way — the store is
+   * disposed at the hand-over.
+   */
+  holdSendsForHandOver(): void {
+    this._sendsHeldForHandOver = true;
   }
 
   /**

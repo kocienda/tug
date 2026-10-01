@@ -78,6 +78,7 @@ import {
 } from "../settings-api";
 import type { DeckManager } from "../deck-manager";
 import { logSessionLifecycle } from "./session-lifecycle-log";
+import { isDirectoryChangeRebind } from "./directory-change";
 
 export interface CardServices {
   /**
@@ -177,6 +178,23 @@ export interface CardServices {
 const TRANSCRIPT_SCROLL_KEY = "session-card-transcript";
 
 /**
+ * The longest a directory change holds the old transcript on screen waiting
+ * for the new one. Measured at under 100 ms from the re-bind to the new
+ * session's replay completing on a warm machine; a cold tugcode start on a
+ * long session takes seconds (the resume preflight allows for five to ten),
+ * and the limit has to outlast that. Past it the card shows the new session
+ * as it stands: a move must never leave a card showing a session tugcast has
+ * already closed.
+ */
+const HELD_SWAP_LIMIT_MS = 10_000;
+
+/** A directory change's new bag, built and waiting to replace the shown one. */
+interface HeldSwap {
+  readonly services: CardServices;
+  readonly release: () => void;
+}
+
+/**
  * Read the saved transcript anchor's `turnDepthFromEnd` (turns from the
  * anchored turn to the bottom) from the card's persisted bag, or `undefined`
  * when there's no usable anchor (fresh card, at-bottom save, legacy row-only
@@ -205,6 +223,15 @@ function readSavedAnchorTurnDepth(
 
 class CardServicesStore {
   private readonly _services = new Map<string, CardServices>();
+  /**
+   * Bags built for a directory change and not yet shown, by card. While one
+   * is here the card keeps rendering the bag in `_services` — the session it
+   * moved away from — so its transcript never empties; the swap publishes the
+   * new bag once its replay is ready ([L02]: one notification, both maps).
+   */
+  private readonly _heldSwaps = new Map<string, HeldSwap>();
+  /** {@link HELD_SWAP_LIMIT_MS}, shortened by tests that exercise the limit. */
+  private _heldSwapLimitMs = HELD_SWAP_LIMIT_MS;
   private readonly _listeners = new Set<() => void>();
   private _bindingUnsub: (() => void) | null = null;
   private _deckUnsub: (() => void) | null = null;
@@ -295,8 +322,22 @@ class CardServicesStore {
     // cardId alone would keep the old session's transcript on a rebind.
     for (const [cardId, binding] of bindings) {
       const existing = this._services.get(cardId);
+      const held = this._heldSwaps.get(cardId);
+      if (held !== undefined) {
+        if (held.services.tugSessionId === binding.tugSessionId) continue;
+        // The binding moved on before the swap was ready — a second move, or
+        // a `/clear` over a move still settling. The held bag was never
+        // shown, so it goes quietly; the branches below take it from here.
+        this._dropHeldSwap(cardId);
+      }
       if (existing) {
         if (existing.tugSessionId === binding.tugSessionId) continue;
+        // A directory change: build the new bag, keep the old one on screen
+        // until the new session's transcript is ready.
+        if (isDirectoryChangeRebind(cardId, binding.tugSessionId)) {
+          this._beginHeldSwap(cardId, existing, binding);
+          continue;
+        }
         // Same card, new session → tear the old bag down before rebuilding.
         this._dispose(cardId);
       }
@@ -310,6 +351,7 @@ class CardServicesStore {
     // Dispose for vanished bindings.
     for (const cardId of [...this._services.keys()]) {
       if (bindings.has(cardId)) continue;
+      this._dropHeldSwap(cardId);
       this._dispose(cardId);
       changed = true;
     }
@@ -317,6 +359,103 @@ class CardServicesStore {
     if (changed) {
       for (const l of this._listeners) l();
     }
+  }
+
+  /**
+   * Start a directory change's held swap: build the bag for the new session,
+   * stop the shown one sending, and wait for the first of the new session's
+   * replay completing, its store erroring, or {@link HELD_SWAP_LIMIT_MS}.
+   *
+   * The binding has already moved, so the title, the workspace key and every
+   * reader of the binding follow the move at once; only what the bag renders
+   * waits. The shown store's session is already closed — tugcast closed it
+   * after acknowledging the move — and its `closed` state frame is dropped by
+   * the store's own frame filter, so it stays quiet while it waits.
+   */
+  private _beginHeldSwap(
+    cardId: string,
+    shown: CardServices,
+    binding: CardSessionBinding,
+  ): void {
+    const services = this._construct(cardId, binding);
+    if (!services) {
+      // No connection: nothing will ever answer for the new session, so
+      // there is nothing to wait for. Swap now, as any other re-bind does.
+      this._dispose(cardId);
+      for (const l of this._listeners) l();
+      return;
+    }
+    shown.codeSessionStore.holdSendsForHandOver();
+    logSessionLifecycle("services_store.held_swap_begin", {
+      card_id: cardId,
+      tug_session_id: services.tugSessionId,
+    });
+    const store = services.codeSessionStore;
+    const ready = (): boolean => {
+      const snap = store.getSnapshot();
+      return snap.replayEverCompleted || snap.phase === "errored";
+    };
+    let settled = false;
+    // Deferred to a microtask: the swap disposes a store and seeds another,
+    // and must not do either from inside the new store's own notification.
+    // A microtask still lands before the frame is painted.
+    const settle = (reason: "ready" | "timeout"): void => {
+      if (settled) return;
+      settled = true;
+      queueMicrotask(() => this._completeHeldSwap(cardId, services, reason));
+    };
+    const unsubscribe = store.subscribe(() => {
+      if (ready()) settle("ready");
+    });
+    const timer = setTimeout(() => settle("timeout"), this._heldSwapLimitMs);
+    this._heldSwaps.set(cardId, {
+      services,
+      release: () => {
+        settled = true;
+        unsubscribe();
+        clearTimeout(timer);
+      },
+    });
+    if (ready()) settle("ready");
+  }
+
+  /**
+   * Show the new bag: dispose the old one, carry anything the user sent
+   * while the swap waited into the new store, and notify once.
+   */
+  private _completeHeldSwap(
+    cardId: string,
+    services: CardServices,
+    reason: "ready" | "timeout",
+  ): void {
+    const held = this._heldSwaps.get(cardId);
+    // Dropped or replaced since the swap settled: nothing to complete.
+    if (held === undefined || held.services !== services) return;
+    held.release();
+    this._heldSwaps.delete(cardId);
+    const shown = this._services.get(cardId);
+    const waiting = shown?.codeSessionStore.exportQueuedSends() ?? [];
+    if (shown !== undefined) {
+      this._disposeBag(cardId, shown, { stash: false });
+    }
+    this._services.set(cardId, services);
+    logSessionLifecycle("services_store.held_swap_complete", {
+      card_id: cardId,
+      tug_session_id: services.tugSessionId,
+      reason,
+      handed_over: waiting.length,
+    });
+    services.codeSessionStore.seedQueuedSends(waiting);
+    for (const l of this._listeners) l();
+  }
+
+  /** Discard a held swap's bag, which was never shown. */
+  private _dropHeldSwap(cardId: string): void {
+    const held = this._heldSwaps.get(cardId);
+    if (held === undefined) return;
+    held.release();
+    this._heldSwaps.delete(cardId);
+    this._disposeBag(cardId, held.services, { stash: false });
   }
 
   private _construct(cardId: string, binding: CardSessionBinding): CardServices | null {
@@ -719,13 +858,27 @@ class CardServicesStore {
   private _dispose(cardId: string): void {
     const services = this._services.get(cardId);
     if (!services) return;
-    logSessionLifecycle("services_store.dispose", { card_id: cardId });
     this._services.delete(cardId);
-    // Rescue anything the user queued before the store goes down with
-    // the bag. A reconnect disposes every card up front, before any
-    // restore is attempted, so this is the last moment those messages
-    // exist anywhere ([L23]).
-    stashQueuedSends(cardId, services.codeSessionStore.exportQueuedSends());
+    this._disposeBag(cardId, services, { stash: true });
+  }
+
+  /**
+   * Tear one bag down. `stash` rescues its queued sends for the next bag
+   * this card is given; a held swap hands them over directly instead.
+   */
+  private _disposeBag(
+    cardId: string,
+    services: CardServices,
+    opts: { stash: boolean },
+  ): void {
+    logSessionLifecycle("services_store.dispose", { card_id: cardId });
+    if (opts.stash) {
+      // Rescue anything the user queued before the store goes down with
+      // the bag. A reconnect disposes every card up front, before any
+      // restore is attempted, so this is the last moment those messages
+      // exist anywhere ([L23]).
+      stashQueuedSends(cardId, services.codeSessionStore.exportQueuedSends());
+    }
     services.codeSessionStore.dispose();
     services.transcriptStore.dispose();
     services.sessionMetadataStore.dispose();
@@ -813,6 +966,12 @@ class CardServicesStore {
     for (const services of this._services.values()) {
       if (services.tugSessionId === tugSessionId) return services;
     }
+    // A bag a directory change has built and not yet shown is still the
+    // owner of its session's answers — the shell and refs restores it asked
+    // for at construction land while it waits.
+    for (const held of this._heldSwaps.values()) {
+      if (held.services.tugSessionId === tugSessionId) return held.services;
+    }
     return null;
   };
 
@@ -894,6 +1053,15 @@ class CardServicesStore {
    */
   closeCardForTest(cardId: string): void {
     this._closeCardInternal(cardId);
+  }
+
+  /**
+   * Test seam — shorten (or, with `null`, restore) the longest a directory
+   * change holds the old transcript, so the limit's exit runs in a test.
+   * @internal
+   */
+  setHeldSwapLimitForTest(ms: number | null): void {
+    this._heldSwapLimitMs = ms ?? HELD_SWAP_LIMIT_MS;
   }
 }
 

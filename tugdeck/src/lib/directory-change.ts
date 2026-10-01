@@ -168,6 +168,16 @@ export function beginDirectoryChange(args: {
 }
 
 /**
+ * Whether a binding of `cardId` to `tugSessionId` is a pending move's ack —
+ * read by the services store when the binding lands, which is before the
+ * ack settles the move. A move holds the old transcript on screen until the
+ * new one is ready; `/clear` and `/resume` re-bind without one.
+ */
+export function isDirectoryChangeRebind(cardId: string, tugSessionId: string): boolean {
+  return pendingMoves.get(cardId)?.newTugSessionId === tugSessionId;
+}
+
+/**
  * Settle a `spawn_session_ok` against a pending move. Answers the target
  * when the ack is the move's own, clearing it; `null` otherwise.
  */

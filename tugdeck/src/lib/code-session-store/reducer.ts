@@ -1431,7 +1431,14 @@ function handleSend(
   // between sending into a dead path and telling the user no.
   const held = shouldHoldSubmission(state, event);
 
-  if (!held && (state.phase === "idle" || state.phase === "errored")) {
+  // A store being handed over to a moved card's new session queues every
+  // submission, whatever its phase: the session behind it is closed, and the
+  // queue is what the hand-over carries.
+  if (
+    !held &&
+    event.queueOnly !== true &&
+    (state.phase === "idle" || state.phase === "errored")
+  ) {
     const submitAt = Date.now();
     const userMessage: UserMessage = {
       kind: "user_message",
@@ -5362,25 +5369,41 @@ function handleSeedQueuedSends(
   if (event.sends.length === 0 || state.queuedSends.length > 0) {
     return { state, effects: [] };
   }
-  return {
-    state: {
-      ...state,
-      queuedSends: event.sends.map((s) => ({
-        content: [...s.content],
-        text: s.text,
-        atoms: [...s.atoms],
-        turnKey: s.turnKey,
-        origin: s.origin,
-        queuedAt: s.queuedAt,
-        // The hold rides across the disposal with the words. A card that
-        // lost its store while the network was down inherits a prompt that
-        // is still waiting for the network, not one about to be sent into
-        // it.
-        held: s.held,
-      })),
-    },
-    effects: [],
+  const seeded: CodeSessionState = {
+    ...state,
+    queuedSends: event.sends.map((s) => ({
+      content: [...s.content],
+      text: s.text,
+      atoms: [...s.atoms],
+      turnKey: s.turnKey,
+      origin: s.origin,
+      queuedAt: s.queuedAt,
+      // The hold rides across the disposal with the words. A card that
+      // lost its store while the network was down inherits a prompt that
+      // is still waiting for the network, not one about to be sent into
+      // it.
+      held: s.held,
+    })),
   };
+  // A store seeded before its replay drains the queue at that replay's
+  // end. One seeded after it — a directory change hands its queue over
+  // once the new session's transcript is ready — has no later boundary
+  // that would reach the queue, so an idle store flushes it now.
+  if (
+    state.replayEverCompleted &&
+    (state.phase === "idle" || state.phase === "errored") &&
+    !headIsHeld(seeded)
+  ) {
+    return flushQueuedHeadResult(
+      seeded,
+      seeded.scratch,
+      seeded.committedMsgIds,
+      seeded.sessionInitTokens,
+      [],
+      {},
+    );
+  }
+  return { state: seeded, effects: [] };
 }
 
 /**

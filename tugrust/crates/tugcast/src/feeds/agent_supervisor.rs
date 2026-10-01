@@ -2117,6 +2117,14 @@ pub struct AgentSupervisor {
     /// don't exercise refs restore — the read yields a null run. Set via
     /// [`AgentSupervisor::set_refs_ledger`] in `main.rs`.
     pub refs_ledger: Option<Arc<crate::refs_ledger::RefsLedger>>,
+    /// The prompt-history ledger, written by a directory change: the moved
+    /// session's `session_lineage` is recorded before the move is
+    /// acknowledged, so the card's first history read under the new id
+    /// already reaches the prompts typed before the move. `None` in tests
+    /// that don't exercise it, and when the ledger failed to open — the move
+    /// still happens, and recall falls back to the fork edge tugcode writes
+    /// later. Set via [`AgentSupervisor::set_prompt_ledger`] in `main.rs`.
+    pub prompt_ledger: Option<Arc<crate::prompt_ledger::PromptLedger>>,
     /// The one digester, read by the `list_digest_lines` CONTROL op — the
     /// deck's mount-time tail. Shared with the digest bridge, which is its
     /// only writer. `None` in tests that don't exercise the read (and before
@@ -4480,6 +4488,7 @@ impl AgentSupervisor {
             session_ledger,
             shell_ledger: None,
             refs_ledger: None,
+            prompt_ledger: None,
             digester: None,
             scribe: None,
             spawner_factory,
@@ -6091,6 +6100,11 @@ impl AgentSupervisor {
             }
             None => (None, None),
         };
+        // The prompt history follows a move before the move is acknowledged:
+        // the ack re-binds the card, and its composer asks for history at once.
+        if let Some(from) = relocate_from.as_ref().filter(|from| **from != tug_session_id) {
+            self.record_relocated_prompt_lineage(from, &tug_session_id);
+        }
         let ack = serde_json::json!({
             "action": "spawn_session_ok",
             "card_id": card_id,
@@ -11291,6 +11305,43 @@ impl AgentSupervisor {
     /// Called once in `main.rs` before the supervisor is shared.
     pub fn set_refs_ledger(&mut self, ledger: Arc<crate::refs_ledger::RefsLedger>) {
         self.refs_ledger = Some(ledger);
+    }
+
+    /// Attach the prompt-history ledger (the write side of a directory
+    /// change's prompt lineage). Called once in `main.rs` before the
+    /// supervisor is shared.
+    pub fn set_prompt_ledger(&mut self, ledger: Arc<crate::prompt_ledger::PromptLedger>) {
+        self.prompt_ledger = Some(ledger);
+    }
+
+    /// Record a moved session's prompt lineage: the chain the session it moved
+    /// away from reads through, followed by the new id.
+    ///
+    /// Runs before `spawn_session_ok`, because the ack is what re-binds the
+    /// card and its composer asks for history under the new id at once. The
+    /// fork edge that would otherwise carry the read is written by the bridge
+    /// when tugcode announces the segment, which is after that first ask, and
+    /// the deck never asks twice. Recorded whether or not the parent held a
+    /// conversation: the typed history belongs to the card, not to claude's
+    /// transcript. Each move records the full chain, so a second move before
+    /// any turn still reaches the first move's parent. A failed write is
+    /// logged and the move proceeds — recall is degraded, never the move.
+    fn record_relocated_prompt_lineage(&self, from: &TugSessionId, to: &TugSessionId) {
+        let Some(prompts) = self.prompt_ledger.as_deref() else {
+            return;
+        };
+        let lineage = crate::prompt_lineage::LineageSource::new(self.session_ledger.clone());
+        let mut chain = crate::prompt_lineage::chain_for(&lineage, prompts, from.as_str());
+        chain.retain(|id| id != to.as_str());
+        chain.push(to.as_str().to_owned());
+        if let Err(err) = prompts.record_chain(&chain, crate::session_ledger::now_millis()) {
+            warn!(
+                relocate_from = %from,
+                tug_session_id = %to,
+                error = %err,
+                "spawn_session: cannot record the moved session's prompt lineage"
+            );
+        }
     }
 
     /// Re-live any seat a demote closed while its bridge went on running.
@@ -23228,6 +23279,20 @@ mod tests {
         Arc<SessionLedger>,
         broadcast::Receiver<Frame>,
     ) {
+        make_supervisor_for_ledger_with_prompts(ledger, terminal_registry_root, None)
+    }
+
+    /// [`make_supervisor_for_ledger`] with a prompt-history ledger attached,
+    /// the way `main.rs` attaches it.
+    fn make_supervisor_for_ledger_with_prompts(
+        ledger: Arc<SessionLedger>,
+        terminal_registry_root: Option<std::path::PathBuf>,
+        prompts: Option<Arc<crate::prompt_ledger::PromptLedger>>,
+    ) -> (
+        Arc<AgentSupervisor>,
+        Arc<SessionLedger>,
+        broadcast::Receiver<Frame>,
+    ) {
         let (state_tx, _state_rx) = broadcast::channel(64);
         let (meta_tx, _meta_rx) = broadcast::channel(8);
         let (code_tx, _code_rx) = broadcast::channel(8);
@@ -23244,7 +23309,7 @@ mod tests {
             })),
             ..AgentSupervisorConfig::default()
         };
-        let (sup, mut register_rx) = AgentSupervisor::new_with_ledger(
+        let (mut sup, mut register_rx) = AgentSupervisor::new_with_ledger(
             SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
             SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
             SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
@@ -23257,6 +23322,9 @@ mod tests {
             registry,
             cancel,
         );
+        if let Some(prompts) = prompts {
+            sup.set_prompt_ledger(prompts);
+        }
         tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
         (Arc::new(sup), ledger, control_rx)
     }
@@ -24719,6 +24787,81 @@ mod tests {
                 parent_project_dir: a.clone(),
             }),
             "the second move carries the conversation the first one carried"
+        );
+    }
+
+    /// A move carries the card's prompt history before tugcode has started:
+    /// the history page the composer reads under the new id — the moment the
+    /// ack re-binds it, before any fork edge exists — already holds the
+    /// prompts typed before the move. The parent here never held a
+    /// conversation, so nothing is forked, and the history still follows;
+    /// and a second move before any turn reaches back through the first.
+    #[tokio::test]
+    async fn a_move_records_the_prompt_lineage_before_it_is_acknowledged() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prompts = Arc::new(crate::prompt_ledger::PromptLedger::open_in_memory().unwrap());
+        let (sup, ledger, _rx) = make_supervisor_for_ledger_with_prompts(
+            ledger_in(&tmp),
+            None,
+            Some(Arc::clone(&prompts)),
+        );
+        let (a, b) = two_project_dirs(&tmp);
+        let c = tmp.path().join("dir-c");
+        std::fs::create_dir_all(&c).unwrap();
+        let c = c.display().to_string();
+        let typed = |session: &str, text: &str, at: i64| {
+            prompts
+                .append(&crate::prompt_ledger::NewPromptEntry {
+                    session_id: session.to_owned(),
+                    route: ">".to_owned(),
+                    text: text.to_owned(),
+                    atoms_json: "[]".to_owned(),
+                    project_path: String::new(),
+                    submitted_at_ms: at,
+                    client_entry_id: format!("{session}-{at}"),
+                })
+                .unwrap();
+        };
+        // What the history route answers: the page under `session`, read
+        // through its lineage.
+        let page = |session: &str| -> Vec<String> {
+            let lineage = crate::prompt_lineage::LineageSource::new(Some(Arc::clone(&ledger)));
+            let chain = crate::prompt_lineage::chain_for(&lineage, &prompts, session);
+            let (rows, _) = prompts.list_page(&chain, None, 50).unwrap();
+            rows.into_iter().map(|row| row.text).collect()
+        };
+
+        sup.handle_control("spawn_session", &spawn_payload_in("card-1", "p", &a), 10)
+            .await
+            .expect_handled();
+        typed("p", "first", 1);
+        typed("p", "/cd dir-b", 2);
+
+        sup.handle_control(
+            "spawn_session",
+            &relocate_payload("card-1", "m1", &b, "p"),
+            10,
+        )
+        .await
+        .expect_handled();
+        assert_eq!(
+            page("m1"),
+            vec!["first", "/cd dir-b"],
+            "the moved card's first read already holds the prompts typed before the move"
+        );
+
+        typed("m1", "/cd dir-c", 3);
+        sup.handle_control(
+            "spawn_session",
+            &relocate_payload("card-1", "m2", &c, "m1"),
+            10,
+        )
+        .await
+        .expect_handled();
+        assert_eq!(
+            page("m2"),
+            vec!["first", "/cd dir-b", "/cd dir-c"],
+            "a second move before any turn reaches back through the first"
         );
     }
 
