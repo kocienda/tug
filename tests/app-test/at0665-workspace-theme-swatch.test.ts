@@ -2,16 +2,19 @@
  * at0665-workspace-theme-swatch.test.ts — a workspace row shows its theme and
  * is the door to changing it.
  *
- * Each row in the Workspaces card carries a swatch drawn in the canvas color
- * of the theme that workspace wears, so the list can be read for it. A click
- * on the swatch opens the themes, dark then light, with the workspace's own
- * marked. What a pick does depends on which row it was made on:
+ * Each row in the Workspaces card carries a swatch drawn in the Key hue of
+ * the theme that workspace wears, so the list can be read for it. A click
+ * on the swatch opens the themes, dark then light under their headings, each
+ * with its own Key-hue chip and the workspace's own marked. What a pick does
+ * depends on which row it was made on:
  *
  *   1. Two workspaces are seeded in different themes. Each row's swatch is
- *      painted in its own theme's canvas color — the parked one's included,
+ *      painted in its own theme's Key hue — the parked one's included,
  *      which is a color the document is not otherwise showing.
  *   2. The swatch on the PARKED row opens the menu: every shipped theme, the
- *      dark ones ahead of the light ones, the row's theme checked.
+ *      dark ones under a Dark heading ahead of the light ones under a Light
+ *      heading, each item's chip in that theme's Key hue, the row's theme
+ *      checked.
  *   3. A pick there changes that workspace's record and its swatch, and
  *      nothing else: the screen keeps the active workspace's theme and the
  *      active workspace's record is untouched.
@@ -28,6 +31,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+import { THEME_CATALOG, themeCatalogEntry } from "../../tugdeck/src/theme-catalog";
 
 import { launchTugApp, note } from "./_harness";
 import {
@@ -61,10 +66,22 @@ function canvasColorOf(theme: string): string {
   return match[1].toLowerCase();
 }
 
-/** `#rrggbb` as the `rgb(r, g, b)` a computed style reports. */
-function asRgb(hex: string): string {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+/**
+ * A theme's Key hue as the page paints it: the catalog's color set on a probe
+ * element and read back as a computed style, so the comparison is in the
+ * engine's own serialization rather than a guess at it.
+ */
+async function paintedKey(app: App, theme: string): Promise<string> {
+  return app.evalJS<string>(
+    `(function () {
+       var el = document.createElement("span");
+       el.style.backgroundColor = ${JSON.stringify(themeCatalogEntry(theme).keyColor)};
+       document.body.appendChild(el);
+       var color = getComputedStyle(el).backgroundColor;
+       el.remove();
+       return color;
+     })()`,
+  );
 }
 
 /**
@@ -204,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
             { timeoutMs: 10_000 },
           );
 
-          // (1) Each row's swatch is its own theme's canvas color.
+          // (1) Each row's swatch is its own theme's Key hue.
           const atRest = {
             one: await swatchOf(app, SPACE_ONE),
             two: await swatchOf(app, SPACE_TWO),
@@ -212,15 +229,16 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           note("at0665 swatches at rest", JSON.stringify(atRest));
           expect(atRest.one).toEqual({
             theme: THEME_ONE,
-            color: asRgb(canvasColorOf(THEME_ONE)),
+            color: await paintedKey(app, THEME_ONE),
           });
           expect(atRest.two).toEqual({
             theme: THEME_TWO,
-            color: asRgb(canvasColorOf(THEME_TWO)),
+            color: await paintedKey(app, THEME_TWO),
           });
 
-          // (2) The parked row's swatch opens the themes, dark then light,
-          // with that workspace's own checked.
+          // (2) The parked row's swatch opens the themes, dark then light
+          // under their headings, each chip in its theme's Key hue, with that
+          // workspace's own checked.
           await openThemeMenu(app, SPACE_TWO);
           const items = await app.evalJS<{ id: string; checked: string | null }[]>(
             `Array.prototype.map.call(
@@ -249,6 +267,39 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           expect(
             items.filter((item) => item.checked === "true").map((item) => item.id),
           ).toEqual([THEME_TWO]);
+          const sequence = await app.evalJS<string[]>(
+            `Array.prototype.map.call(
+               document.querySelectorAll(${JSON.stringify(`${MENU} .tug-menu-label, ${MENU} .tug-menu-item`)}),
+               function (el) {
+                 return el.classList.contains("tug-menu-label")
+                   ? "# " + el.textContent.trim()
+                   : el.getAttribute("data-item-id");
+               },
+             )`,
+          );
+          note("at0665 the menu's headings and items", JSON.stringify(sequence));
+          expect(sequence).toEqual([
+            "# Dark",
+            ...THEME_CATALOG.filter((e) => e.mode === "dark").map((e) => e.name),
+            "# Light",
+            ...THEME_CATALOG.filter((e) => e.mode === "light").map((e) => e.name),
+          ]);
+          const chips = await app.evalJS<Record<string, string>>(
+            `(function () {
+               var out = {};
+               document.querySelectorAll(${JSON.stringify(`${MENU} .tug-menu-item`)}).forEach(function (el) {
+                 var chip = el.querySelector(".cards-space-swatch");
+                 out[el.getAttribute("data-item-id")] = getComputedStyle(chip).backgroundColor;
+               });
+               return out;
+             })()`,
+          );
+          note("at0665 the menu's chips", JSON.stringify(chips));
+          const expectedChips: Record<string, string> = {};
+          for (const entry of THEME_CATALOG) {
+            expectedChips[entry.name] = await paintedKey(app, entry.name);
+          }
+          expect(chips).toEqual(expectedChips);
           // Opening a menu on a parked row is not going there.
           expect(
             await app.evalJS<string>(`window.tugdeck.diag.getSpaces().activeSpaceId`),
@@ -267,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           await waitSwatchTheme(app, SPACE_TWO, THEME_PARKED_PICK);
           expect(await swatchOf(app, SPACE_TWO)).toEqual({
             theme: THEME_PARKED_PICK,
-            color: asRgb(canvasColorOf(THEME_PARKED_PICK)),
+            color: await paintedKey(app, THEME_PARKED_PICK),
           });
           expect(await recordedThemes(app)).toEqual([THEME_ONE, THEME_PARKED_PICK]);
           expect(await app.evalJS<string>(SCREEN_CANVAS)).toBe(
@@ -313,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           await waitSwatchTheme(app, SPACE_TWO, THEME_ACTIVE_PICK);
           expect(await swatchOf(app, SPACE_ONE)).toEqual({
             theme: THEME_ONE,
-            color: asRgb(canvasColorOf(THEME_ONE)),
+            color: await paintedKey(app, THEME_ONE),
           });
           const deadline = Date.now() + 8_000;
           let checked = await app.menuItemState(`view.theme.${THEME_ACTIVE_PICK}`);

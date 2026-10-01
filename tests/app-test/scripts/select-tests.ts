@@ -336,7 +336,14 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // rather than refinanced upward. Debt paid down, which is the remedy this
     // ratchet asks for first.
     "tugdeck/src/components/tugways/hooks/": 11,
-    "tugdeck/src/components/tugways/internal/": 36,
+    // Raised from 36 by `tug-popup-menu-activation.ts`, the popup menu's
+    // pick-versus-blink sequencing, split out of `tug-popup-menu.tsx` so it
+    // could be unit-tested with no DOM. It is that menu's own code, so a test
+    // that drives the menu still drives it.
+    // Raised in place, which trips the refinance rule for the reason the
+    // `tug-text-editor/` entry below gives: the delete-then-re-add needs two
+    // commits for a key already in `HEAD`. The argument is written here.
+    "tugdeck/src/components/tugways/internal/": 37,
     "tugdeck/src/components/tugways/tug-text-card-editor/": 5,
     // Re-added at 32 rather than raised from 31, which is what the ratchet
     // below asks for. Two modules have joined this directory since the

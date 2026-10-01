@@ -286,21 +286,23 @@ function SpaceRenameField({
   );
 }
 
-/** A theme's canvas color as a chip — the row's swatch and each menu item's. */
+/** A theme's Key hue as a chip — the row's swatch and each menu item's. */
 function ThemeSwatch({ theme }: { theme: string }): React.ReactElement {
   return (
     <span
       className="cards-space-swatch"
       data-cards-swatch-theme={theme}
-      style={{ backgroundColor: themeCatalogEntry(theme).canvasColor }}
+      style={{ backgroundColor: themeCatalogEntry(theme).keyColor }}
     />
   );
 }
 
 /**
  * The themes a workspace can wear, as the swatch's menu: the dark ones, a
- * rule, the light ones — View ▸ Theme's own grouping — with the workspace's
- * current theme marked.
+ * rule, the light ones — View ▸ Theme's own grouping — each group under its
+ * heading, with the workspace's current theme marked. The headings are what
+ * keep two chips of one hue apart: no two themes in a mode share a Key hue,
+ * but a dark and a light one can.
  */
 function themeMenuItems(current: string): TugPopupMenuEntry[] {
   const item = (entry: (typeof THEME_CATALOG)[number]): TugPopupMenuEntry => ({
@@ -310,8 +312,10 @@ function themeMenuItems(current: string): TugPopupMenuEntry[] {
     selected: entry.name === current,
   });
   return [
+    { type: "label", label: "Dark" },
     ...THEME_CATALOG.filter((entry) => entry.mode === "dark").map(item),
     { type: "separator" },
+    { type: "label", label: "Light" },
     ...THEME_CATALOG.filter((entry) => entry.mode === "light").map(item),
   ];
 }
@@ -426,6 +430,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
               }
               align="end"
               items={themeMenuItems(theme.name)}
+              selectAtBlinkStart
               onSelect={(id) => ctx.onChooseSpaceTheme(row.spaceId, id)}
               data-testid="cards-space-theme-menu"
             />

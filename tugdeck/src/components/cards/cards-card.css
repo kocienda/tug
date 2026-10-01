@@ -570,13 +570,13 @@ body {
   gap: var(--tugx-list-row-trailing-gap);
 }
 
-/* The theme swatch: the workspace's theme, shown as the canvas color that
-   theme paints behind the deck, and the door to choosing another. The color
+/* The theme swatch: the workspace's theme, shown as that theme's Key hue —
+   the color of its selection and filled buttons, the color a theme is
+   recognized by — and the door to choosing another. The color
    is the row's data, so it arrives as the chip's own inline background rather
    than as a token — it is deliberately NOT the theme on screen. A hairline in
    the row's own text ink keeps a chip legible when its color is the color of
-   the surface it sits on, which is the ordinary case for the active
-   workspace. */
+   the surface it sits on. */
 .cards-space-swatch {
   display: block;
   inline-size: 0.75em;

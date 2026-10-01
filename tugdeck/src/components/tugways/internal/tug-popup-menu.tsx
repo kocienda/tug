@@ -79,6 +79,7 @@ import { useOpenMenuClaim } from "@/components/tugways/use-open-menu-claim";
 import { TugSheetStackingContext } from "@/components/tugways/tug-sheet-stacking-context";
 import { cn } from "@/lib/utils";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { sequencePopupMenuActivation } from "./tug-popup-menu-activation";
 
 // ---- Types ----
 
@@ -176,6 +177,19 @@ export interface TugPopupMenuProps {
   items: TugPopupMenuEntry[];
   /** Called with the selected item's id when an item is clicked. */
   onSelect: (id: string) => void;
+  /**
+   * Run {@link onSelect} as the confirmation blink starts instead of when it
+   * ends. Default `false`: the pick waits out the blink, then `onSelect` runs
+   * and the menu closes.
+   *
+   * Set it on a menu whose pick has a visible effect the user is waiting on —
+   * the workspace row's theme menu applies its theme this way, so the theme
+   * changes while the blink plays rather than after it. The blink still
+   * plays, the menu still closes at its end, and the guard that keeps the
+   * menu's own chain dispatches from dismissing it stays up for the whole
+   * blink in either timing.
+   */
+  selectAtBlinkStart?: boolean;
   /** Menu alignment relative to the trigger. Default: "start". */
   align?: "start" | "center" | "end";
   /**
@@ -236,11 +250,14 @@ export interface TugPopupMenuProps {
  * - animate().finished resolves when the blink completes; the caller's
  *   onSelect is invoked and then the locally controlled open state
  *   flips to false, closing the menu through Radix's onOpenChange path.
+ * - With `selectAtBlinkStart`, the caller's onSelect runs as the blink
+ *   starts instead; the close still waits for the blink to complete.
  */
 export function TugPopupMenu({
   trigger,
   items,
   onSelect,
+  selectAtBlinkStart = false,
   align = "start",
   side,
   sideOffset = 3,
@@ -399,35 +416,32 @@ export function TugPopupMenu({
     // Drive blink via TugAnimator; sequence menu close on animate().finished.
     // slow = 350ms. The close path uses the locally controlled open
     // state (setOpen(false)) rather than synthesizing a document-level
-    // Escape keydown. blinkingRef stays true across the onSelect call
-    // so that any chain dispatches issued by the handler (e.g.,
-    // TugPopupButton's sendToFirstResponderForContinuation) are skipped by the
+    // Escape keydown. blinkingRef stays true from here until the blink
+    // settles, across the onSelect call in either timing, so that any chain
+    // dispatches issued by the handler (e.g., TugPopupButton's
+    // sendToFirstResponderForContinuation) are skipped by the
     // observeDispatch subscription above and do not double-close the
-    // menu. blinkingRef is reset only after onSelect completes. [D01]
+    // menu. [D01]
     //
-    // .catch() handles WAAPI rejection (e.g. element removed from DOM before
-    // animation completes). On rejection: fire onSelect as a best-effort
-    // fallback, reset blinkingRef, and close the menu. Without this guard,
-    // blinkingRef would stay true permanently and all subsequent selections
-    // would be silently swallowed.
-    animate(target, blinkKeyframes, {
-      duration: "--tug-motion-duration-slow",
-      easing,
-    }).finished.then(() => {
-      // Fire caller's callback while the blink guard is still active so
-      // any downstream dispatches do not dismiss our own menu prematurely.
-      onSelect(id);
-
-      blinkingRef.current = false;
-      setOpen(false);
-    }).catch(() => {
-      // Animation rejected (element detached, interrupted, etc.).
-      // Fire the callback so selection is never lost, then reset guard
-      // and close via controlled state.
-      onSelect(id);
-      blinkingRef.current = false;
-      setOpen(false);
-    });
+    // `onSelect` runs at the blink's end by default, or at its start under
+    // `selectAtBlinkStart`; the close is at the end either way. A rejected
+    // blink (element removed from DOM before it completes) still selects
+    // and still closes — otherwise blinkingRef would stay true permanently
+    // and all subsequent selections would be silently swallowed.
+    void sequencePopupMenuActivation(
+      animate(target, blinkKeyframes, {
+        duration: "--tug-motion-duration-slow",
+        easing,
+      }).finished,
+      {
+        selectAtBlinkStart,
+        select: () => onSelect(id),
+        finish: () => {
+          blinkingRef.current = false;
+          setOpen(false);
+        },
+      },
+    );
   }
 
   /**
