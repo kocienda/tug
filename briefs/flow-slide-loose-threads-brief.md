@@ -44,6 +44,8 @@ The gesture is the one `briefs/flow-slide-remaining-costs-brief.md` was written 
 
 **[F11] `just app-test-covers-check` is red on main for reasons outside this work.** It reports `tugdeck/src/components/chrome/deck-canvas.tsx` fanning out to 30 tests against an accepted 29, and `tugdeck/styles/themes/` at 11 sources against a recorded 7. The deck-canvas fan-out arrived with the rail fix, which is flow-slide work. **(verified, run during the arc)**
 
+**[F12] `tugtool deck motion slide` exists, and its first quiet reading is on a near-full deck that has lost the half-size deck's gains.** Run by the user from a terminal with no session mid-turn, sixteen clicks between `tug/goodly-ferry` and `tug/goodly-treat`, on a deck of 16,421 elements, 1,004 stacking contexts and 5,291 render-layer candidates (Overview 6,660): 5–7 frames in the first 200 ms against `[F13]`'s 10–12; the first frame at 63–75 ms against 34–41; and then, in every click, a ~40 ms gap and a ~50 ms gap before ordinary pacing near 180 ms. The lead is blocked 168–181 ms, *less* than the half-size deck's 212–226, so the late start is not script alone; a per-frame cost that grows with the layer population is the inference, unconfirmed until `--sample` attributes it. Frames of 26–31 ms are back at the settle's hand-back (~450 and ~480 ms) in 13 of 16 clicks, milder than the pre-fix 28–45, which reopens `[F06]` under `[B05]`. Settle on at 58–71 ms, off at 471–492. An earlier run taken from inside a session that was mid-turn read 2–4 early frames and carried 30–60 ms frames through the whole window, so a reading from a working session is not a reading of the gesture. **(verified, measured with the verb)**
+
 ---
 
 ## Decisions {#decisions}

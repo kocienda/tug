@@ -1125,6 +1125,28 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// Drive the flow slide and read what it delivered.
+    ///
+    /// Clicks a session row in the Cards card `--count` times in each
+    /// direction between `--from` and `--to`, and reports per click and in
+    /// aggregate: frames in the first 200 ms, the first frame's offset, the
+    /// early gaps, every long frame with its time, main-thread blocking in the
+    /// click's first 260 ms, and the settle mark's on and off times — beside a
+    /// census of the deck, without which no two readings compare.
+    Slide {
+        /// The session row the slide starts from: its title, exact or else a
+        /// unique substring, case-insensitive.
+        #[arg(long)]
+        from: String,
+        /// The session row the slide goes to, matched the same way.
+        #[arg(long)]
+        to: String,
+        /// Clicks in each direction.
+        #[arg(long, default_value_t = 8)]
+        count: u32,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// Open the `diag/eval` door on this instance (loopback only).
     Enable {
         #[command(flatten)]

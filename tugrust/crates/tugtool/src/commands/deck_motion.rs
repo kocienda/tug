@@ -35,7 +35,7 @@ pub const EVAL_GATED_REMEDY: &str = "eval is gated on this instance — run 'tug
 
 /// Exit code for a shut eval door. Distinct from 1 so a script can tell
 /// "not allowed to ask" from "asked and it went wrong".
-const EXIT_GATED: i32 = 2;
+pub(crate) const EXIT_GATED: i32 = 2;
 
 /// How long an armed gesture chain runs before it stops itself, in ms.
 ///
@@ -55,7 +55,8 @@ const GESTURE_WINDOW_DEFAULT_MS: u32 = 8000;
 /// survives the round trip instead of terminating the string literal early.
 ///
 /// Returns `None` for `enable` and `disable`, which are defaults writes rather
-/// than evaluations.
+/// than evaluations, and for `slide`, which posts many calls of its own
+/// (`deck_motion_slide.rs`).
 pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
     let json = |s: &str| serde_json::to_string(s).expect("a string always encodes");
     Some(match cmd {
@@ -110,7 +111,9 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
             json(mode),
             window.unwrap_or(GESTURE_WINDOW_DEFAULT_MS)
         ),
-        DeckMotionCommands::Enable { .. } | DeckMotionCommands::Disable { .. } => return None,
+        DeckMotionCommands::Enable { .. }
+        | DeckMotionCommands::Disable { .. }
+        | DeckMotionCommands::Slide { .. } => return None,
     })
 }
 
@@ -129,6 +132,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Demote { target, .. }
         | DeckMotionCommands::Chains { target, .. }
         | DeckMotionCommands::Gesture { target, .. }
+        | DeckMotionCommands::Slide { target, .. }
         | DeckMotionCommands::Enable { target }
         | DeckMotionCommands::Disable { target } => target,
     }
@@ -145,6 +149,9 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
     match cmd {
         DeckMotionCommands::Enable { .. } => set_eval_opt_in(port, true, json_output),
         DeckMotionCommands::Disable { .. } => set_eval_opt_in(port, false, json_output),
+        DeckMotionCommands::Slide {
+            from, to, count, ..
+        } => crate::commands::deck_motion_slide::run_slide(port, &from, &to, count, json_output),
         other => {
             let code = eval_code_for(&other).expect("only enable/disable have no eval code");
             let result = match post_eval(port, &code)? {
@@ -164,12 +171,12 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
     }
 }
 
-enum EvalOutcome {
+pub(crate) enum EvalOutcome {
     Ok(serde_json::Value),
     Gated,
 }
 
-fn post_eval(port: u16, code: &str) -> Result<EvalOutcome, String> {
+pub(crate) fn post_eval(port: u16, code: &str) -> Result<EvalOutcome, String> {
     let url = format!("http://127.0.0.1:{port}/api/eval");
     let response = ureq::post(&url).send_json(serde_json::json!({ "code": code }));
     let mut response = match response {
@@ -257,7 +264,9 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Demote { .. } => fallback(value),
         DeckMotionCommands::Chains { mode, .. } => render_chains(mode, value),
         DeckMotionCommands::Gesture { mode, .. } => render_gesture(mode, value),
-        DeckMotionCommands::Enable { .. } | DeckMotionCommands::Disable { .. } => fallback(value),
+        DeckMotionCommands::Enable { .. }
+        | DeckMotionCommands::Disable { .. }
+        | DeckMotionCommands::Slide { .. } => fallback(value),
     }
 }
 
