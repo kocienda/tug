@@ -195,7 +195,11 @@ import {
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
-import { writeCanvasFlowOffset, writeLayerFlowOffset } from "./flow-offset";
+import {
+  FLOW_OFFSET_FRAME_READERS,
+  writeCanvasFlowOffset,
+  writeLayerFlowOffset,
+} from "./flow-offset";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_ATTRIBUTE,
@@ -5081,6 +5085,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           anims: TugAnimation[];
         }> = [];
         for (const { paneId, frame } of armed) {
+          // Only a frame whose `left` reads the strip's offset moved, so only
+          // it has a delta to invert. A rail pane stands where it stood: the
+          // slots changing never moves a sidebar card, and a tween launched
+          // on one throws it `dx` off its place and glides it back.
+          if (!frame.matches(FLOW_OFFSET_FRAME_READERS)) continue;
           frame.style.transformOrigin = "0 0";
           const anim = animate(frame, keyframes, {
             duration: curve.durationMs,

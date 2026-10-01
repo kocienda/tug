@@ -116,6 +116,8 @@ const AFTER_LAND_MS = 900;
  * screen, so nothing here may ever be read as arriving.
  */
 const RESIDENT = ["a-p1", "a-p2", "a-p3", "a-p4", "at0621-pl1"] as const;
+/** The Layout rail's pane — the one resident no slot change may move. */
+const RAIL_PANE = "at0621-pl1";
 
 /** Every pane frame in the document — hidden layers and crossing ones too. */
 const ALL_FRAMES = ".tug-pane[data-pane-id]";
@@ -412,6 +414,20 @@ function expectTravelled(reading: Reading, leg: string): void {
   ).toBe(false);
 }
 
+/**
+ * The rail stood still. A sidebar card does not move when the slots change —
+ * not by a pixel, not for a frame. The pre-launched move beat once tweened
+ * every shown frame by the strip's delta, rails included, which threw each
+ * rail pane a card's width off its place and glided it back.
+ */
+function expectRailStill(reading: Reading, leg: string): void {
+  expect(
+    reading.rectsMoved.includes(RAIL_PANE),
+    `${leg}: the rail pane's rect never changed across the walk ` +
+      `(frames moved: ${reading.rectsMoved.join(",") || "none"})`,
+  ).toBe(false);
+}
+
 /** Nothing faded, at any sample of the window. The plain gesture's whole bar. */
 function expectNoFade(reading: Reading, leg: string): void {
   expect(
@@ -530,10 +546,12 @@ describe.skipIf(!SHOULD_RUN)(
 
           expectTravelled(plain, "plain");
           expectNoFade(plain, "plain");
+          expectRailStill(plain, "plain");
           expectNoResidue(restingPlain, "plain");
 
           expectTravelled(afterSwitch, "after a cut-short arrival");
           expectNoFade(afterSwitch, "after a cut-short arrival");
+          expectRailStill(afterSwitch, "after a cut-short arrival");
           expectNoResidue(restingAfter, "after a cut-short arrival");
         } finally {
           await app.close();
