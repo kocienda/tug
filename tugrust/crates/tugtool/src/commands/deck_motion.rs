@@ -154,6 +154,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             to,
             count,
             sample,
+            queries,
             ..
         } => crate::commands::deck_motion_slide::run_slide(
             port,
@@ -161,6 +162,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             &to,
             count,
             sample,
+            queries,
             json_output,
         ),
         other => {

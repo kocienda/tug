@@ -27,8 +27,10 @@ use std::process::{Child, Command, Stdio};
 
 const SAMPLE_BIN: &str = "/usr/bin/sample";
 
-/// Sampling interval, in ms.
-const INTERVAL_MS: u32 = 1;
+/// Sampling interval, in ms. Every sample stops the process to walk its
+/// stacks; at 1 ms that took the deck's first frame from ~85 ms to 180–420 ms,
+/// so the interval is set for proportions, which survive, over resolution.
+const INTERVAL_MS: u32 = 5;
 
 /// How many threads, and how many frames per thread, a report keeps.
 const THREADS_KEPT: usize = 4;

@@ -1149,6 +1149,11 @@ pub enum DeckMotionCommands {
         /// busy thread's phases and heaviest frames.
         #[arg(long)]
         sample: bool,
+        /// Also record every selector query the deck makes in each click's
+        /// window — `querySelector`, `querySelectorAll`, `closest`, `matches` —
+        /// and report each selector's calls, time, and caller.
+        #[arg(long)]
+        queries: bool,
         #[command(flatten)]
         target: DeckTarget,
     },

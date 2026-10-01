@@ -496,6 +496,25 @@ export class ResponderChainManager {
   // generic API — the manager never constructs new ActionEvents on
   // their behalf.
   private nodes: Map<string, ResponderNode> = new Map();
+  /**
+   * Bumped on every {@link register} and {@link unregister}. A key card's
+   * `card-content` responder can only appear, vanish, or change identity by
+   * registering or unregistering, so this is what keys
+   * {@link keyCardContentCache}.
+   */
+  private nodesGeneration = 0;
+  /**
+   * The last answer {@link findKeyCardContentId} computed, and what it was
+   * computed for. The host menu's state flush asks every key-card action in
+   * turn, and each ask used to repeat the same document lookup and card-subtree
+   * scan — ~33 of each per activation on the release deck, growing with the
+   * card.
+   */
+  private keyCardContentCache: {
+    cardId: string;
+    generation: number;
+    contentId: string | null;
+  } | null = null;
   private firstResponderId: string | null = null;
   private validationVersion = 0;
   private subscribers: Set<() => void> = new Set();
@@ -534,6 +553,7 @@ export class ResponderChainManager {
     // Widen to `ResponderNode<never>` for internal storage. See the
     // comment on `private nodes` for why this cast is sound at runtime.
     this.nodes.set(node.id, node as unknown as ResponderNode);
+    this.nodesGeneration += 1;
     if (node.parentId === null && this.firstResponderId === null) {
       this.firstResponderId = node.id;
       this.syncFirstResponderDomAttribute();
@@ -581,6 +601,7 @@ export class ResponderChainManager {
   unregister(id: string): void {
     const node = this.nodes.get(id);
     this.nodes.delete(id);
+    this.nodesGeneration += 1;
 
     if (this.firstResponderId === id) {
       let nextFirst: string | null = null;
@@ -1294,10 +1315,32 @@ export class ResponderChainManager {
    *   4. Return the first match, or null.
    *
    * No document / no key card / no content-scope descendant → null.
+   *
+   * The answer is cached against the key card and {@link nodesGeneration}, so
+   * repeated asks between registrations cost a comparison, not a scan.
    */
   private findKeyCardContentId(): string | null {
     const cardId = this.getKeyCard();
     if (cardId === null || typeof document === "undefined") return null;
+    const cached = this.keyCardContentCache;
+    if (
+      cached !== null &&
+      cached.cardId === cardId &&
+      cached.generation === this.nodesGeneration
+    ) {
+      return cached.contentId;
+    }
+    const contentId = this.scanKeyCardContentId(cardId);
+    this.keyCardContentCache = {
+      cardId,
+      generation: this.nodesGeneration,
+      contentId,
+    };
+    return contentId;
+  }
+
+  /** The uncached half of {@link findKeyCardContentId}. */
+  private scanKeyCardContentId(cardId: string): string | null {
     const escapedId =
       typeof CSS !== "undefined" && typeof CSS.escape === "function"
         ? CSS.escape(cardId)

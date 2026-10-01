@@ -24,7 +24,7 @@
 //! never reaches (`[F08]`).
 
 use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED, EvalOutcome, post_eval};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// The page half: one function expression, applied to a JSON argument object.
@@ -45,9 +45,13 @@ const EARLY_MS: f64 = 200.0;
 /// bar the hand-rolled readings used, kept so the numbers stay comparable.
 const LONG_FRAME_MS: f64 = 25.0;
 
-/// A heartbeat gap over this counts as blocking. A zero timer is clamped to
-/// 4 ms once it nests, so a gap at the clamp is the heartbeat running freely.
-const BLOCK_GAP_MS: f64 = 4.0;
+/// The floor under the heartbeat's cadence: a nested zero timer is clamped to
+/// at least 4 ms. On the release deck it free-runs slower than that — 7–9 ms
+/// gaps at rest — which is why the cadence is measured, not assumed.
+const TIMER_CLAMP_MS: f64 = 4.0;
+
+/// How long the heartbeat runs before the click, to measure its cadence.
+const PREROLL_MS: u32 = 150;
 
 /// How many early gaps a click's line shows.
 const EARLY_GAPS_SHOWN: usize = 6;
@@ -84,6 +88,9 @@ pub struct ClickReading {
     pub early_gaps_ms: Vec<f64>,
     pub long_frames: Vec<LongFrame>,
     pub lead_block_ms: f64,
+    /// The heartbeat's free-running gap before the click; `lead_block_ms` is
+    /// the time beyond it.
+    pub heartbeat_cadence_ms: f64,
     pub settle_on_ms: Option<f64>,
     pub settle_off_ms: Option<f64>,
     /// Whether focus moved to another pane. A click that moved nothing slid
@@ -102,6 +109,46 @@ fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
 }
 
+/// The heartbeat's free-running gap: the median gap before the click, never
+/// under the timer clamp, or the clamp when there are too few beats to say.
+fn cadence(pre: &[f64]) -> f64 {
+    let mut gaps: Vec<f64> = pre.windows(2).map(|w| w[1] - w[0]).collect();
+    if gaps.len() < 3 {
+        return TIMER_CLAMP_MS;
+    }
+    gaps.sort_by(f64::total_cmp);
+    gaps[gaps.len() / 2].max(TIMER_CLAMP_MS)
+}
+
+/// Main-thread blocking over `[0, LEAD_MS]` from heartbeat times relative to
+/// the click: every gap's excess over the heartbeat's own cadence.
+///
+/// Counting whole gaps over a fixed bar — 4 ms, as the hand-rolled readings
+/// did — counts the heartbeat's own free-running cadence as blocking when that
+/// cadence is slower than the bar, and on the release deck it is 7–9 ms: every
+/// earlier lead figure read high for that reason. The click itself is the
+/// first beat, so the click's own task is counted; a gap straddling the
+/// window's end counts its part inside, and a heartbeat that never beat again
+/// was blocked to the window's end.
+fn lead_block(beats: &[f64], cadence: f64) -> f64 {
+    let lead = f64::from(LEAD_MS);
+    let mut points = vec![0.0];
+    points.extend(beats.iter().copied().filter(|t| *t > 0.0));
+    let mut blocked = 0.0;
+    for w in points.windows(2) {
+        if w[0] >= lead {
+            break;
+        }
+        blocked += (w[1].min(lead) - w[0] - cadence).max(0.0);
+    }
+    if let Some(last) = points.last()
+        && *last < lead
+    {
+        blocked += (lead - last - cadence).max(0.0);
+    }
+    blocked.round()
+}
+
 /// Reduce the page half's raw times for one click.
 ///
 /// `frames` and `beats` are times relative to the click, ascending; `settle`
@@ -115,12 +162,8 @@ pub fn reduce(raw: &Value) -> ClickReading {
         .map(|w| (w[0], round1(w[1] - w[0])))
         .collect();
 
-    let lead_block_ms = beats
-        .windows(2)
-        .map(|w| w[1] - w[0])
-        .filter(|g| *g > BLOCK_GAP_MS)
-        .sum::<f64>()
-        .round();
+    let heartbeat_cadence_ms = round1(cadence(&numbers(raw, "preBeats")));
+    let lead_block_ms = lead_block(&beats, heartbeat_cadence_ms);
 
     let flips: Vec<(f64, bool)> = raw
         .get("settle")
@@ -158,6 +201,7 @@ pub fn reduce(raw: &Value) -> ClickReading {
             })
             .collect(),
         lead_block_ms,
+        heartbeat_cadence_ms,
         settle_on_ms,
         settle_off_ms,
         moved: raw.get("moved").and_then(|m| m.as_bool()).unwrap_or(false),
@@ -189,6 +233,7 @@ pub struct Summary {
     pub frames_in_early: Option<Span>,
     pub first_frame_ms: Option<Span>,
     pub lead_block_ms: Option<Span>,
+    pub heartbeat_cadence_ms: Option<Span>,
     pub settle_on_ms: Option<Span>,
     pub settle_off_ms: Option<Span>,
     /// How many clicks had at least one long frame.
@@ -205,6 +250,7 @@ pub fn summarize(readings: &[ClickReading]) -> Summary {
         frames_in_early: span(readings.iter().map(|r| r.frames_in_early as f64)),
         first_frame_ms: span(readings.iter().filter_map(|r| r.first_frame_ms)),
         lead_block_ms: span(readings.iter().map(|r| r.lead_block_ms)),
+        heartbeat_cadence_ms: span(readings.iter().map(|r| r.heartbeat_cadence_ms)),
         settle_on_ms: span(readings.iter().filter_map(|r| r.settle_on_ms)),
         settle_off_ms: span(readings.iter().filter_map(|r| r.settle_off_ms)),
         clicks_with_long_frames: readings
@@ -252,13 +298,70 @@ fn resolve(port: u16, name: &str) -> Result<Option<String>, String> {
     }
 }
 
-fn record(port: u16, title: &str) -> Result<Option<ClickReading>, String> {
+type Recorded = (ClickReading, Vec<QueryRow>);
+
+fn record(port: u16, title: &str, queries: bool) -> Result<Option<Recorded>, String> {
     let raw = page(
         port,
-        json!({"op": "record", "name": title, "windowMs": WINDOW_MS, "leadMs": LEAD_MS}),
+        json!({
+            "op": "record",
+            "name": title,
+            "windowMs": WINDOW_MS,
+            "leadMs": LEAD_MS,
+            "prerollMs": PREROLL_MS,
+            "queries": queries,
+        }),
     )?;
-    Ok(raw.map(|raw| reduce(&raw)))
+    Ok(raw.map(|raw| {
+        let rows = raw
+            .get("queries")
+            .filter(|q| !q.is_null())
+            .and_then(|q| serde_json::from_value(q.clone()).ok())
+            .unwrap_or_default();
+        (reduce(&raw), rows)
+    }))
 }
+
+/// One selector, as the page half's query recorder saw it in one click, or
+/// summed across clicks.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryRow {
+    pub method: String,
+    pub selector: String,
+    pub count: u64,
+    pub ms: f64,
+    pub lead_count: u64,
+    pub lead_ms: f64,
+    pub max_ms: f64,
+    /// The caller's stack at the first call seen.
+    pub stack: String,
+}
+
+/// Sum each (method, selector) across clicks, most expensive first.
+pub fn aggregate_queries(rows: Vec<QueryRow>) -> Vec<QueryRow> {
+    let mut by_key: Vec<QueryRow> = Vec::new();
+    for row in rows {
+        match by_key
+            .iter_mut()
+            .find(|r| r.method == row.method && r.selector == row.selector)
+        {
+            Some(sum) => {
+                sum.count += row.count;
+                sum.ms += row.ms;
+                sum.lead_count += row.lead_count;
+                sum.lead_ms += row.lead_ms;
+                sum.max_ms = sum.max_ms.max(row.max_ms);
+            }
+            None => by_key.push(row),
+        }
+    }
+    by_key.sort_by(|a, b| b.ms.total_cmp(&a.ms));
+    by_key
+}
+
+/// How many selectors the text report lists.
+const QUERIES_SHOWN: usize = 15;
 
 pub fn run_slide(
     port: u16,
@@ -266,6 +369,7 @@ pub fn run_slide(
     to: &str,
     count: u32,
     sample: bool,
+    queries: bool,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || {
@@ -292,6 +396,11 @@ pub fn run_slide(
 
     if !json_output {
         print_census(&census);
+        if sample {
+            println!(
+                "note: the samplers stop WebContent to read its stacks, so the frame numbers below are perturbed — take frames from a run without --sample"
+            );
+        }
         println!(
             "slide '{from}' ⇄ '{to}', {count} click(s) each way, {WINDOW_MS} ms window per click"
         );
@@ -303,7 +412,7 @@ pub fn run_slide(
 
     // One unrecorded click onto the starting card, so the first recorded click
     // is a real slide rather than a click on the card already focused.
-    if record(port, &from)?.is_none() {
+    if record(port, &from, false)?.is_none() {
         return gated();
     }
     std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
@@ -327,20 +436,23 @@ pub fn run_slide(
     };
 
     let mut readings = Vec::new();
+    let mut query_rows = Vec::new();
     for _ in 0..count {
         for title in [&to, &from] {
-            let Some(reading) = record(port, title)? else {
+            let Some((reading, rows)) = record(port, title, queries)? else {
                 return gated();
             };
             if !json_output {
                 print_click(readings.len() + 1, &reading);
             }
             readings.push(reading);
+            query_rows.extend(rows);
             std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
         }
     }
 
     let summary = summarize(&readings);
+    let query_rows = queries.then(|| aggregate_queries(query_rows));
     let processes = match samplers {
         Some(samplers) => {
             if !json_output {
@@ -365,12 +477,17 @@ pub fn run_slide(
                 "clicks": readings,
                 "summary": summary,
                 "samples": processes,
+                "framesPerturbedBySampling": sample,
+                "queries": query_rows,
             }))
             .unwrap()
         );
     } else {
         println!();
         print_summary(&summary);
+        if let Some(rows) = &query_rows {
+            print_queries(rows, readings.len());
+        }
         if let Some(processes) = &processes {
             crate::commands::deck_motion_sample::print(processes, readings.len());
         }
@@ -408,6 +525,36 @@ fn print_census(census: &Value) {
             panes.len(),
             largest.join(", ")
         );
+    }
+}
+
+fn print_queries(rows: &[QueryRow], clicks: usize) {
+    let total: f64 = rows.iter().map(|r| r.ms).sum();
+    let lead: f64 = rows.iter().map(|r| r.lead_ms).sum();
+    let per = |x: f64| if clicks > 0 { x / clicks as f64 } else { 0.0 };
+    println!();
+    println!(
+        "selector queries: {} distinct, {:.1} ms per click ({:.1} ms in the first {LEAD_MS} ms) — timed by a wrapper, which adds a little of its own",
+        rows.len(),
+        per(total),
+        per(lead)
+    );
+    println!("  ms/click  lead  calls/click  max ms  query");
+    for r in rows.iter().take(QUERIES_SHOWN) {
+        let selector: String = r.selector.chars().take(70).collect();
+        println!(
+            "  {:>8.2}  {:>4.1}  {:>11.1}  {:>6.2}  {}({})",
+            per(r.ms),
+            per(r.lead_ms),
+            per(r.count as f64),
+            r.max_ms,
+            r.method,
+            selector
+        );
+        let stack: String = r.stack.chars().take(150).collect();
+        if !stack.is_empty() {
+            println!("            from {stack}");
+        }
     }
 }
 
@@ -461,8 +608,9 @@ fn print_summary(s: &Summary) {
     );
     println!("  first frame              {} ms", range(s.first_frame_ms));
     println!(
-        "  lead blocked (first {LEAD_MS} ms)  {} ms",
-        range(s.lead_block_ms)
+        "  lead blocked (first {LEAD_MS} ms)  {} ms, beyond a heartbeat that free-runs at {} ms",
+        range(s.lead_block_ms),
+        range(s.heartbeat_cadence_ms)
     );
     println!(
         "  settle on / off          {} / {} ms",
@@ -502,6 +650,7 @@ mod tests {
         let raw = json!({
             "title": "beta",
             "frames": [36.0, 50.0, 66.5, 83.0, 100.0, 140.0, 156.0, 190.0, 210.0],
+            "preBeats": [-30.0, -22.0, -14.0, -6.0],
             "beats": [0.5, 5.0, 9.0, 120.0, 124.0, 128.0, 240.0, 244.0],
             "settle": [[33.0, true], [33.0, true], [450.0, false], [452.0, false]],
             "moved": true,
@@ -524,8 +673,11 @@ mod tests {
                 },
             ]
         );
-        // 4.5 (>4), 111, 112; the 4.0 gaps at the clamp are a free heartbeat.
-        assert_eq!(r.lead_block_ms, 228.0);
+        // An 8 ms cadence before the click; then 111 and 112 less the
+        // cadence, and the 16 after the last beat less it. The short gaps
+        // are the heartbeat running freely.
+        assert_eq!(r.heartbeat_cadence_ms, 8.0);
+        assert_eq!(r.lead_block_ms, 215.0);
         assert_eq!(r.settle_on_ms, Some(33.0));
         assert_eq!(r.settle_off_ms, Some(452.0));
         assert!(r.moved);
@@ -551,14 +703,45 @@ mod tests {
         assert_eq!(r.settle_off_ms, None);
     }
 
+    fn row(selector: &str, count: u64, ms: f64, max_ms: f64) -> QueryRow {
+        QueryRow {
+            method: "Document.querySelector".to_string(),
+            selector: selector.to_string(),
+            count,
+            ms,
+            lead_count: count,
+            lead_ms: ms,
+            max_ms,
+            stack: "first".to_string(),
+        }
+    }
+
+    #[test]
+    fn queries_sum_across_clicks_and_sort_by_time() {
+        let mut second = row("[data-a]", 2, 1.5, 1.0);
+        second.stack = "second".to_string();
+        let agg = aggregate_queries(vec![
+            row("[data-a]", 3, 2.0, 0.5),
+            row("[data-b]", 1, 9.0, 9.0),
+            second,
+        ]);
+        assert_eq!(agg.len(), 2);
+        assert_eq!(agg[0].selector, "[data-b]");
+        assert_eq!(agg[1].count, 5);
+        assert_eq!(agg[1].ms, 3.5);
+        assert_eq!(agg[1].max_ms, 1.0);
+        // The first stack seen is the one kept.
+        assert_eq!(agg[1].stack, "first");
+    }
+
     #[test]
     fn the_summary_spans_every_click() {
         let a = reduce(&json!({
-            "frames": [34.0, 50.0], "beats": [0.0, 212.0],
+            "frames": [34.0, 50.0], "beats": [4.0, 216.0, 260.0, 264.0],
             "settle": [[31.0, true], [444.0, false]], "moved": true
         }));
         let b = reduce(&json!({
-            "frames": [41.0, 57.0, 400.0], "beats": [0.0, 226.0],
+            "frames": [41.0, 57.0, 400.0], "beats": [4.0, 230.0, 234.0, 260.0, 263.0],
             "settle": [[35.0, true], [458.0, false]], "moved": false
         }));
         let s = summarize(&[a, b]);
@@ -574,8 +757,10 @@ mod tests {
         assert_eq!(
             s.lead_block_ms,
             Some(Span {
-                min: 212.0,
-                max: 226.0
+                // No pre-roll, so the clamp: 208 + 40 straddling the end;
+                // 222 + 22.
+                min: 244.0,
+                max: 248.0
             })
         );
         assert_eq!(

@@ -79,6 +79,78 @@
     };
   }
 
+  // Every selector query the deck makes while the recorder is installed, keyed
+  // by method and selector: how many, how long, how many and how long inside
+  // the lead, the longest single call, and the caller's stack from the first
+  // call — a selector string usually names its caller, and the stack settles
+  // it when it does not. The wrappers are installed just before the click and
+  // always restored before the result is built, so the verb's own queries are
+  // never counted and the deck is left exactly as it was found.
+  function queryRecorder(leadMs) {
+    var table = {};
+    var origin = 0;
+    var saved = [];
+    var METHODS = [
+      [Document.prototype, "Document", ["querySelector", "querySelectorAll"]],
+      [Element.prototype, "Element", ["querySelector", "querySelectorAll", "closest", "matches"]],
+    ];
+    function callerStack() {
+      var lines = String(new Error().stack || "").split("\n").slice(2, 6);
+      return lines.map(function (l) {
+        return l.replace(/https?:\/\/[^/]+\/(?:assets\/)?/, "");
+      }).join(" < ");
+    }
+    function wrap(proto, owner, name) {
+      var original = proto[name];
+      saved.push([proto, name, original]);
+      proto[name] = function (selector) {
+        var t0 = performance.now();
+        try {
+          return original.apply(this, arguments);
+        } finally {
+          var t1 = performance.now();
+          var key = owner + "." + name + "\u0000" + selector;
+          var row = table[key];
+          if (!row) {
+            row = table[key] = {
+              method: owner + "." + name, selector: String(selector),
+              count: 0, ms: 0, leadCount: 0, leadMs: 0, maxMs: 0, stack: callerStack(),
+            };
+          }
+          var d = t1 - t0;
+          row.count += 1;
+          row.ms += d;
+          if (d > row.maxMs) row.maxMs = d;
+          if (origin > 0 && t0 - origin <= leadMs) {
+            row.leadCount += 1;
+            row.leadMs += d;
+          }
+        }
+      };
+    }
+    return {
+      install: function () {
+        METHODS.forEach(function (m) {
+          m[2].forEach(function (name) { wrap(m[0], m[1], name); });
+        });
+      },
+      start: function (t) { origin = t; },
+      restore: function () {
+        saved.reverse().forEach(function (s) { s[0][s[1]] = s[2]; });
+        saved = [];
+      },
+      rows: function () {
+        return Object.keys(table).map(function (k) {
+          var r = table[k];
+          r.ms = Math.round(r.ms * 100) / 100;
+          r.leadMs = Math.round(r.leadMs * 100) / 100;
+          r.maxMs = Math.round(r.maxMs * 100) / 100;
+          return r;
+        });
+      },
+    };
+  }
+
   if (args.op === "census") return census();
 
   if (args.op === "resolve") {
@@ -121,8 +193,11 @@
     beat();
 
     var before = focusedPaneId();
-    // Two frames of recorder before the click, so the click lands into a chain
-    // that is already running rather than one it starts.
+    var queries = args.queries ? queryRecorder(args.leadMs) : null;
+    // Two frames of recorder, then `prerollMs` of heartbeat before the click:
+    // the click lands into a chain that is already running rather than one it
+    // starts, and the heartbeat's free-running cadence is measured before
+    // anything happens, so blocking can be read as time beyond it.
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         setTimeout(function () {
@@ -133,6 +208,10 @@
             button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true,
           };
           click = performance.now();
+          if (queries) {
+            queries.install();
+            queries.start(click);
+          }
           target.dispatchEvent(new PointerEvent("pointerdown", o));
           target.dispatchEvent(new MouseEvent("mousedown", o));
           o.buttons = 0;
@@ -142,6 +221,7 @@
           setTimeout(function () {
             done = true;
             observer.disconnect();
+            if (queries) queries.restore();
             var rel = function (t) { return Math.round((t - click) * 10) / 10; };
             resolve({
               title: titleOf(row),
@@ -149,14 +229,19 @@
               // just before the click can read the click's own time.
               frames: frames.filter(function (t) { return t > click; }).map(rel),
               beats: beats
-                .filter(function (t) { return t >= click && t <= click + args.leadMs; })
+                // Past the lead, so a gap straddling its end can be clipped.
+                .filter(function (t) { return t >= click && t <= click + args.leadMs + 100; })
+                .map(rel),
+              preBeats: beats
+                .filter(function (t) { return t < click && t >= click - args.prerollMs; })
                 .map(rel),
               settle: marks.map(function (m) { return [rel(m[0]), m[1]]; }),
               moved: focusedPaneId() !== before,
               visibility: document.visibilityState,
+              queries: queries ? queries.rows() : null,
             });
           }, args.windowMs);
-        }, 0);
+        }, args.prerollMs);
       });
     });
   });

@@ -12,10 +12,11 @@
  * card content makes the React parent the wrong answer), so the with-a-key-card
  * half is pinned by the real-app menu tests; what is testable here is the
  * without-a-key-card answer, which is the one a mirror recompute hits on every
- * deck with nothing focused.
+ * deck with nothing focused — and, against a stand-in `document` that only
+ * counts, that the subtree walk is cached rather than repeated per action.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { ResponderChainManager } from "../responder-chain";
 import { TUG_ACTIONS } from "../action-vocabulary";
@@ -145,5 +146,112 @@ describe("key-card-scoped validation and state", () => {
     expect(
       chain.queryActionStateInKeyCard(TUG_ACTIONS.INTERRUPT_SESSION),
     ).toBeUndefined();
+  });
+});
+
+/**
+ * The host menu's state flush asks every key-card action in turn, and each ask
+ * used to repeat the key card's document lookup and card-subtree scan. The
+ * answer is now cached until the key card changes or a responder registers or
+ * unregisters — the only ways the card's content responder can change.
+ *
+ * Unit tests run without a DOM, so a stand-in `document` answers the two
+ * queries the walk makes and counts the subtree scans.
+ */
+describe("the key card's content responder is found once, not once per ask", () => {
+  const saved = (globalThis as { document?: unknown }).document;
+  afterEach(() => {
+    if (saved === undefined) delete (globalThis as { document?: unknown }).document;
+    else (globalThis as { document?: unknown }).document = saved;
+  });
+
+  /** Card elements whose subtree holds the named content responders. */
+  function installDeck(contentsByCard: Record<string, string[]>): { scans: number } {
+    const counter = { scans: 0 };
+    const element = (cardId: string) => ({
+      setAttribute: () => {},
+      removeAttribute: () => {},
+      querySelectorAll: () => {
+        counter.scans += 1;
+        return (contentsByCard[cardId] ?? []).map((id) => ({
+          getAttribute: () => id,
+        }));
+      },
+    });
+    (globalThis as unknown as { document: unknown }).document = {
+      querySelector: (selector: string) => {
+        const m = /^\[data-responder-id="([^"]+)"\]$/.exec(selector);
+        return m !== null && m[1] in contentsByCard ? element(m[1]) : null;
+      },
+      querySelectorAll: () => [],
+      // The chain's notify path asks `isTugMotionEnabled`; an inline
+      // `--tug-motion: 0` answers it without computed style and notifies at
+      // once rather than after a paint this stand-in will never have.
+      documentElement: { style: { getPropertyValue: () => "0" } },
+    };
+    return counter;
+  }
+
+  function deckChain(): ResponderChainManager {
+    const chain = new ResponderChainManager();
+    for (const card of ["card-a", "card-b"]) {
+      chain.register({ id: card, parentId: null, kind: "card", actions: {} });
+      chain.register({
+        id: `${card}-content`,
+        parentId: card,
+        kind: "card-content",
+        actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
+        queryActionState: () => card,
+      });
+    }
+    return chain;
+  }
+
+  test("repeated asks for one key card scan its subtree once", () => {
+    const counter = installDeck({
+      "card-a": ["card-a-content"],
+      "card-b": ["card-b-content"],
+    });
+    const chain = deckChain();
+    chain.makeFirstResponder("card-a-content");
+
+    for (let i = 0; i < 5; i++) {
+      expect(chain.queryActionStateInKeyCard(TUG_ACTIONS.TOGGLE_JOTS)).toBe("card-a");
+    }
+    expect(counter.scans).toBe(1);
+  });
+
+  test("a new key card is scanned afresh", () => {
+    const counter = installDeck({
+      "card-a": ["card-a-content"],
+      "card-b": ["card-b-content"],
+    });
+    const chain = deckChain();
+    chain.makeFirstResponder("card-a-content");
+    expect(chain.queryActionStateInKeyCard(TUG_ACTIONS.TOGGLE_JOTS)).toBe("card-a");
+
+    chain.makeFirstResponder("card-b-content");
+    expect(chain.queryActionStateInKeyCard(TUG_ACTIONS.TOGGLE_JOTS)).toBe("card-b");
+    expect(counter.scans).toBe(2);
+  });
+
+  test("a registration invalidates the answer, so a content responder that arrives later is found", () => {
+    const contents: Record<string, string[]> = { "card-a": [] };
+    const counter = installDeck(contents);
+    const chain = new ResponderChainManager();
+    chain.register({ id: "card-a", parentId: null, kind: "card", actions: {} });
+    chain.makeFirstResponder("card-a");
+    expect(chain.queryActionStateInKeyCard(TUG_ACTIONS.TOGGLE_JOTS)).toBeUndefined();
+
+    contents["card-a"] = ["late-content"];
+    chain.register({
+      id: "late-content",
+      parentId: "card-a",
+      kind: "card-content",
+      actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
+      queryActionState: () => "late",
+    });
+    expect(chain.queryActionStateInKeyCard(TUG_ACTIONS.TOGGLE_JOTS)).toBe("late");
+    expect(counter.scans).toBe(2);
   });
 });
