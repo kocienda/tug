@@ -3213,8 +3213,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // or a `···` landed on; absent, the verb means the ACTIVE workspace,
       // which is the target the menu names. `targetSpaceId` below is that one
       // rule, written once.
+      // New is Rename's second path run on the workspace it just made: a new
+      // workspace is one you are about to name, so the Workspaces card comes
+      // forward — opened if it is closed — with the new header's field open
+      // and its default name selected. Escape keeps that name; nothing here
+      // undoes the creation.
       [TUG_ACTIONS.NEW_SPACE]: () => {
-        store.createSpace();
+        const spaceId = store.createSpace();
+        revealSidebarCard(store, CARDS_CARD_ID);
+        cardsSpaceVerbRequest.request("rename", spaceId);
       },
       [TUG_ACTIONS.RENAME_SPACE]: (event: ActionEvent) => {
         const payload = event.value as

@@ -207,8 +207,8 @@ describe.skipIf(!SHOULD_RUN)("at0585 — a delete that honours every guard", () 
         note(`at0585 confirm: ${JSON.stringify(message)}`);
         expect(
           message,
-          "the sentence counts what will close, and says nothing about sessions there are none of",
-        ).toBe(`Delete ${HOME_NAME} and close 2 cards?`);
+          "the sentence counts the workspace's own card — never its Workspaces rail — and says nothing about sessions there are none of",
+        ).toBe(`Delete ${HOME_NAME} and close 1 card?`);
 
         // ---- Confirm is not the last word: the card gets its own sheet. --
         await app.nativeClickAtElement(CONFIRM_OK);

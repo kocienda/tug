@@ -704,9 +704,10 @@ describe.skipIf(!SHOULD_RUN)(
               `document.querySelector(${JSON.stringify(CONFIRM_MESSAGE)}).textContent`,
             ),
             // Two panes stand in that workspace — its Workspaces rail and the
-            // Session card — and the sentence counts cards, with the live
-            // sessions among them named parenthetically ([P06], Spec S03).
-          ).toBe("Delete Away and close 2 cards (1 session)?");
+            // Session card — and the sentence counts the workspace's own
+            // cards, never its rail's, with the live sessions among them
+            // named parenthetically ([P06], Spec S03).
+          ).toBe("Delete Away and close 1 card (1 session)?");
           await app.nativeClickAtElement(CONFIRM_CANCEL);
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,

@@ -256,6 +256,17 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
           "the new workspace is the one you are now in",
         ).not.toBe(SPACE_ONE);
         const created = afterNew.activeSpaceId;
+        // New also opens the new workspace's name for editing (at0656 pins
+        // the whole of that); cancel it so the rows below start from rest.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
+          { timeoutMs: 15_000 },
+        );
+        await app.nativeKey("Escape");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
+          { timeoutMs: 8_000 },
+        );
 
         // Duplicate: a copy of the ACTIVE workspace, from a row that names no
         // workspace at all — which is the whole of [P02].
@@ -279,8 +290,8 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
           "and the copy is not activated — you stay where you were",
         ).toBe(created);
 
-        // Rename: no card is open on this workspace, so the verb has to bring
-        // one. The field opening at all is the proof the reveal ran ([P03]).
+        // Rename: the field opening again is the verb's own work, on the
+        // card New brought ([P03]).
         expect(
           await app.evalJS<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,

@@ -43,7 +43,7 @@ import type {
 } from "@/components/tugways/tug-list-view";
 import type { CardState, DeckState, TugPaneState } from "@/layout-tree";
 import type { SpacesSnapshot } from "@/spaces";
-import { findSidebarPanes } from "@/deck-store-selectors";
+import { workspacePanes } from "@/deck-store-selectors";
 import type { CardSessionBinding } from "@/lib/card-session-binding-store";
 import type { WorkspacesChangesetSnapshot } from "@/lib/changeset-types";
 import {
@@ -826,13 +826,13 @@ function buildSpaceRows(
 
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const cardSeq = new Map(deck.cards.map((c, i) => [c.id, i]));
-  const railPaneIds = new Set(findSidebarPanes(deck).map(({ pane }) => pane.id));
   let paneCount = 0;
 
-  // 1. One entry per pane, filed by its active card's group.
+  // 1. One entry per pane, filed by its active card's group. The rail's
+  //    panes are not the workspace's cards, and the delete confirm counts by
+  //    the same rule.
   const entries: PaneEntry[] = [];
-  for (const pane of deck.panes) {
-    if (railPaneIds.has(pane.id)) continue;
+  for (const pane of workspacePanes(deck)) {
     const activeCard = cardsById.get(pane.activeCardId);
     if (activeCard === undefined) continue;
     const group = r.group(activeCard.componentId);

@@ -724,6 +724,12 @@ export interface IDeckManagerStore {
   spaceHoldsLiveSessions: (spaceId: string) => number;
 
   /**
+   * How many cards a workspace holds: its panes, never its sidebar's, and
+   * never narrowed by a filter. The delete confirm's count.
+   */
+  spaceCardCount: (spaceId: string) => number;
+
+  /**
    * Remove a workspace and close its sessions ([P07]). Refuses the last one.
    * Deleting the active workspace activates its nearest neighbour first.
    * Returns whether it was deleted.

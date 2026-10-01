@@ -137,6 +137,20 @@ export function findSidebarPanes(
 }
 
 /**
+ * The panes that are the workspace's own — every pane except the rail's.
+ *
+ * A sidebar card is furniture: every workspace is given a rail when it is
+ * made, and the rail is not the user's work. So "the cards in a workspace",
+ * wherever it is counted or listed, means these panes. The Workspaces list
+ * builds its rows from them and the delete confirm counts them, and the two
+ * must agree.
+ */
+export function workspacePanes(state: DeckState): readonly TugPaneState[] {
+  const rail = new Set(findSidebarPanes(state).map(({ pane }) => pane.id));
+  return state.panes.filter((pane) => !rail.has(pane.id));
+}
+
+/**
  * `slotStackOf(state, slot)` — every pane holding `slot`, in z-order
  * (last = topmost, the order `DeckState.panes` itself carries). Empty when
  * the slot is unoccupied.

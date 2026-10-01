@@ -83,6 +83,7 @@ import {
   deckColumnsOf,
   deckFlowStrip,
   findSidebarPanes,
+  workspacePanes,
   paneRenderWidthOf,
   railAllocationOf,
   railMembersOf,
@@ -1668,6 +1669,16 @@ export class DeckManager implements IDeckManagerStore {
       if (cachedRowIsLive(spaceBindingsLedgerStore.get(card.id))) count += 1;
     }
     return count;
+  };
+
+  /**
+   * How many cards a workspace holds — its panes less its rail's
+   * ({@link workspacePanes}). Unfiltered: this is what a delete would close
+   * of the user's, whatever the Workspaces list is narrowed to.
+   */
+  public spaceCardCount = (spaceId: string): number => {
+    const deck = this.getSpaceDeck(spaceId);
+    return deck === null ? 0 : workspacePanes(deck).length;
   };
 
   /**

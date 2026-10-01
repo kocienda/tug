@@ -1398,6 +1398,10 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     const { verb, spaceId } = verbRequest;
     cardsSpaceVerbRequest.clear();
     if (verb === "rename") {
+      // A field opened on a header scrolled out of the list is a field nobody
+      // can see — a just-created workspace lands at the list's end — so the
+      // header is revealed first, as the delete's anchor is ([P10]).
+      anchorForSpace(spaceId);
       setRenamingSpaceId(spaceId);
       return;
     }
@@ -1412,14 +1416,15 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     // Both counts come from the STORE rather than from the row. The row's
     // count is filtered — a search narrows what the list shows — and the
     // sentence must name what will actually be closed. `spaceHoldsLiveSessions`
-    // is the one definition of that ([P07]); `getSpaceDeck` answers with the
-    // live deck for the active workspace and the parked record for any other,
-    // so the pane count is right either way.
+    // is the one definition of that ([P07]), and `spaceCardCount` of the
+    // cards — the workspace's panes less its rail's, the rule the list's own
+    // rows are built by. The rail is furniture every workspace is given, so
+    // a fresh workspace closes 0 cards, not the 3 its sidebar stands.
     setPendingDelete({
       spaceId,
       name: spaceNameOf(spaceId),
       sessions: store.spaceHoldsLiveSessions(spaceId),
-      cards: store.getSpaceDeck(spaceId)?.panes.length ?? 0,
+      cards: store.spaceCardCount(spaceId),
       anchor: anchorForSpace(spaceId),
     });
   }, [verbRequest, layerShown, anchorForSpace, spaceNameOf]);
@@ -1848,7 +1853,10 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           it is asking about once it has shifted within the card. Either alone
           is half of it. `anchorForSpace` supplies the third part by revealing
           the header first ([P10]) — an arrow aimed off the edge of the card is
-          worse than no arrow. */}
+          worse than no arrow.
+
+          It opens BELOW the header: above, it covers the previous
+          workspace's header and rows, and reads as a question about them. */}
       <TugConfirmPopover
         open={pendingDelete !== null}
         anchorEl={pendingDelete?.anchor ?? null}
@@ -1859,7 +1867,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         }
         confirmLabel="Delete"
         confirmRole="danger"
-        side="top"
+        side="bottom"
         align="center"
         collisionBoundary={cardRootRef.current}
         collisionPadding={6}
