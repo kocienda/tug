@@ -50,7 +50,14 @@ import {
   useAnnotationContextFor,
 } from "@/components/tugways/use-annotation-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
-import { TUG_SESSION_ROW_INDICATOR_SIZE } from "@/components/tugways/tug-session-row";
+import {
+  TUG_SESSION_ROW_INDICATOR_SIZE,
+  TugSessionRow,
+} from "@/components/tugways/tug-session-row";
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
+import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
+import { useSeedPath } from "@/components/tugways/cards/session-picker-seed";
+import { projectLeafName } from "@/lib/session-identity";
 
 export interface CardsSessionRowProps {
   cardId: string;
@@ -158,5 +165,85 @@ export function CardsSessionRow({
         {...(spaceActive ? {} : { "data-cards-space-inactive": "true" })}
       />
     </AnnotationScope>
+  );
+}
+
+/** The callsign run an unconnected card wears where a session's would sit. */
+export const UNCONNECTED_SESSION_LABEL = "unconnected-session";
+
+export interface CardsUnconnectedSessionRowProps {
+  cardId: string;
+  /** The pane-row identity the reorder matches on. */
+  orderKey: string;
+  filterQuery: string;
+  onRowPointerDown: (orderKey: string, event: React.PointerEvent) => void;
+  selected: boolean;
+  spaceId: string;
+  spaceActive: boolean;
+  /** The row's close box, when the card is closable. */
+  trailing?: React.ReactNode;
+}
+
+/**
+ * A Session card that has not connected to a session yet — its picker is up.
+ *
+ * It wears the monitor row's shape, three lines and the same dot, so adding a
+ * Session card does not drop a one-line row into a column of three-line ones
+ * and then grow it when the card connects. The title reads like a connected
+ * row's `<project>/<callsign>`: the project is the one the card's picker opens
+ * on ({@link useSeedPath}), and the callsign's place says it has none yet.
+ * The dot is the idle phase's, still, because nothing is running.
+ */
+export function CardsUnconnectedSessionRow({
+  cardId,
+  orderKey,
+  filterQuery,
+  onRowPointerDown,
+  selected,
+  spaceId,
+  spaceActive,
+  trailing,
+}: CardsUnconnectedSessionRowProps): React.ReactElement {
+  const seedPath = useSeedPath();
+  const project = seedPath.length > 0 ? projectLeafName(seedPath) : "";
+  const title =
+    project.length > 0
+      ? `${project}/${UNCONNECTED_SESSION_LABEL}`
+      : UNCONNECTED_SESSION_LABEL;
+  return (
+    <TugSessionRow
+      selected={selected}
+      className="session-row-content cards-row"
+      subAlign="edge"
+      indicator={
+        <TugProgressIndicator
+          variant="pulsing-dot"
+          size={TUG_SESSION_ROW_INDICATOR_SIZE}
+          role="inherit"
+          state="stopped"
+          aria-hidden
+        />
+      }
+      indicatorSize={TUG_SESSION_ROW_INDICATOR_SIZE}
+      name={renderFilterHighlight(title, filterQuery)}
+      description="Not connected to a session"
+      descriptionStandIn
+      activity="Choose a session in the card"
+      slots={
+        <>
+          <SlotPicker cardId={cardId} />
+          <CardsColumnBadge cardId={cardId} />
+        </>
+      }
+      trailing={trailing}
+      trailingReveal="engaged"
+      onPointerDown={(e) => onRowPointerDown(orderKey, e)}
+      data-testid="cards-unconnected-session-row"
+      data-cards-row-id={orderKey}
+      data-cards-row-group="sessions"
+      data-cards-group-run={groupRunKey(spaceId, "sessions")}
+      data-cards-space-run={spaceId}
+      {...(spaceActive ? {} : { "data-cards-space-inactive": "true" })}
+    />
   );
 }

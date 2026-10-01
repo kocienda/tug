@@ -11,7 +11,8 @@
 
 import type { TaggedValue } from "@/lib/tugbank-client";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
-import { hostFactsStore } from "@/lib/host-facts-store";
+import { useTugbankValue } from "@/lib/use-tugbank-value";
+import { hostFactsStore, useHostFacts } from "@/lib/host-facts-store";
 import {
   DEFAULT_PROJECT_PATH_DOMAIN,
   DEFAULT_PROJECT_PATH_KEY,
@@ -111,5 +112,45 @@ export function readSeedPath(): string {
           client.get(INITIAL_PROJECT_PATH_DOMAIN, INITIAL_PROJECT_PATH_KEY),
         ),
     hostFactsStore.getSnapshot()?.home,
+  );
+}
+
+const NO_RECENTS: string[] = [];
+
+/**
+ * The seed path, live — the same four inputs through the same precedence,
+ * each read through its store's hook ([L02]).
+ *
+ * For a surface that has to say where a Session card that has not connected
+ * yet is about to open, without being the picker: the Workspaces card names
+ * such a card by this path's project. It is the path the picker OPENS on, not
+ * whatever the user has since typed into its field — that edit is the
+ * picker's own state and is not published.
+ */
+export function useSeedPath(): string {
+  const recents = useTugbankValue(
+    RECENT_PROJECTS_DOMAIN,
+    RECENT_PROJECTS_KEY,
+    parseRecents,
+    NO_RECENTS,
+  );
+  const defaultProjectPath = useTugbankValue(
+    DEFAULT_PROJECT_PATH_DOMAIN,
+    DEFAULT_PROJECT_PATH_KEY,
+    parseString,
+    "",
+  );
+  const initialProjectPath = useTugbankValue(
+    INITIAL_PROJECT_PATH_DOMAIN,
+    INITIAL_PROJECT_PATH_KEY,
+    parseString,
+    "",
+  );
+  const hostFacts = useHostFacts();
+  return seedPathFrom(
+    recents,
+    defaultProjectPath,
+    initialProjectPath,
+    hostFacts?.home,
   );
 }

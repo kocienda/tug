@@ -142,7 +142,7 @@ import {
   groupRunKey,
   type CardsGroup,
 } from "./cards-groups";
-import { CardsSessionRow } from "./cards-session-cell";
+import { CardsSessionRow, CardsUnconnectedSessionRow } from "./cards-session-cell";
 import {
   CardsCellContext,
   CARDS_RENAME_FOCUS_ORDER,
@@ -591,8 +591,9 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
 };
 
 /** A single-card session pane — the monitor row, unchanged from the section it
- *  came from. An unbound session card has no monitor to draw, so it falls
- *  through to the generic row. */
+ *  came from. An unbound session card has no monitor to draw, so it wears the
+ *  monitor's shape with nothing in it yet — the same three lines, so the row
+ *  does not change height when the card connects. */
 const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
   index,
   dataSource,
@@ -603,19 +604,34 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
   if (row === undefined || row.type !== "pane") return null;
   const { identity } = row;
   if (identity.tugSessionId === null || identity.projectDir === null) {
+    const closeLabel = `Close ${identity.title}`;
     return (
-      <OneLineRow
+      <CardsUnconnectedSessionRow
         selected={selected}
-        identity={identity}
-        glyph={registrationGlyph(identity)}
-        disambiguator={null}
-        rowId={row.orderKey}
-        group={row.group}
+        cardId={identity.cardId}
+        orderKey={row.orderKey}
+        filterQuery={ctx.filterQuery}
+        onRowPointerDown={ctx.onRowPointerDown}
         spaceId={row.spaceId}
         spaceActive={row.spaceId === dataSource.activeSpaceId()}
-        subrow={false}
-        showSlots
-        showClose={identity.closable}
+        trailing={
+          identity.closable ? (
+            <TugIconButton
+              className="cards-row-close"
+              icon={<X size={12} />}
+              size="xs"
+              aria-label={closeLabel}
+              title={closeLabel}
+              focusGroup={ROW_ACTION_FOCUS_GROUP}
+              focusOrder={0}
+              onClick={(e) => {
+                // Closing is not a row activation — stop it reaching the cell.
+                e?.stopPropagation();
+                ctx.onClose(identity.cardId, row.spaceId);
+              }}
+            />
+          ) : undefined
+        }
       />
     );
   }
