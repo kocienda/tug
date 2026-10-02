@@ -33,6 +33,7 @@
  * @covers tugdeck/styles/focus-ring.css
  * @covers tugdeck/styles/themes/ironclad.css
  * @covers tugdeck/src/components/tugways/focus-manager.ts
+ * @covers tugdeck/src/components/tugways/focus-marks.ts
  * @covers tugdeck/src/focus-ring-modality-store.ts
  * @covers tugdeck/src/keyboard-access-store.ts
  * @covers tugdeck/src/components/tugways/cards/gallery-chain-actions.tsx
@@ -70,17 +71,25 @@ function deckShape() {
 // Snapshot the element currently carrying the key view (whatever it is) and the
 // keyboard-reached ring element (if any). A single read keeps the pointer- and
 // keyboard-modality assertions consistent across one paint.
+//
+// The outlines are PAINTED widths: WebKit reports `outline-width` as specified
+// even when `outline-style` is `none` (CSS UI 4 stopped zeroing it), so the
+// width alone reads 3px on a key view that paints no ring at all.
 const RING_PROBE = `(function(){
   var kv = document.querySelector("[data-key-view]");
   var kbd = document.querySelector("[data-key-view-kbd]");
   var ae = document.activeElement;
   var target = document.querySelector(${JSON.stringify(DEMO_TARGET)});
   var report = window.__tug.getFocusInvariantReport();
+  function painted(el) {
+    var cs = getComputedStyle(el);
+    return cs.outlineStyle === "none" ? "0px" : cs.outlineWidth;
+  }
   return {
     keyView: kv ? kv.getAttribute("data-key-view") : null,
-    keyViewOutline: kv ? getComputedStyle(kv).outlineWidth : null,
+    keyViewOutline: kv ? painted(kv) : null,
     keyViewIsKbd: kv ? kv.hasAttribute("data-key-view-kbd") : null,
-    kbdOutline: kbd ? getComputedStyle(kbd).outlineWidth : null,
+    kbdOutline: kbd ? painted(kbd) : null,
     activeInControl: ae !== null && target !== null && target.contains(ae),
     violations: report === null ? -1 : report.violations,
   };

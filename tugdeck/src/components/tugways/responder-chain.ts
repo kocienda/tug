@@ -68,7 +68,7 @@ import type { TugAction } from "./action-vocabulary";
 import type { KeyBinding } from "./keybinding-map";
 import { chordMatchesEvent } from "./chord-format";
 import { mark as perfMark } from "@/lib/perf-marks";
-import { scheduleAfterPaint } from "@/lib/after-paint";
+import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { isTugMotionEnabled } from "./scale-timing";
 
 export type { TugAction, GalleryAction } from "./action-vocabulary";
@@ -522,11 +522,12 @@ export class ResponderChainManager {
   /**
    * When the generic subscribers are told — see {@link incrementAndNotify}.
    * Production defers past the next painted frame; a test wanting the
-   * synchronous shape passes `(flush) => flush()`.
+   * synchronous shape passes one that runs `flush` and returns a no-op. The
+   * scheduler returns the deferral's release ([L27]).
    */
-  private readonly schedule: (flush: () => void) => void;
+  private readonly schedule: (flush: () => void) => CancelAfterPaint;
 
-  constructor(schedule: (flush: () => void) => void = scheduleAfterPaint) {
+  constructor(schedule: (flush: () => void) => CancelAfterPaint = scheduleAfterPaint) {
     this.schedule = schedule;
   }
   private dispatchObservers: Set<DispatchObserver> = new Set();
@@ -1732,14 +1733,16 @@ export class ResponderChainManager {
     // answer "who is the key card", which a gesture's next line may need.
     const defer = typeof document !== "undefined" && isTugMotionEnabled();
     if (defer) {
-      if (!this.deferredNotifyPending) {
-        this.deferredNotifyPending = true;
-        this.schedule(() => {
-          if (!this.deferredNotifyPending) return;
-          this.deferredNotifyPending = false;
+      if (this.cancelDeferredNotify === null) {
+        let ran = false;
+        const cancel = this.schedule(() => {
+          ran = true;
+          this.cancelDeferredNotify = null;
           perfMark("tug:chain-notify");
           for (const cb of this.subscribers) cb();
         });
+        // A scheduler that ran `flush` inline has nothing left to release.
+        if (!ran) this.cancelDeferredNotify = cancel;
       }
     } else {
       for (const cb of this.subscribers) cb();
@@ -1747,9 +1750,20 @@ export class ResponderChainManager {
     this.notifyKeyResponderObservers();
   }
 
-  /** One deferred generic notification in flight; every commit until it
-   *  flushes coalesces into it. */
-  private deferredNotifyPending = false;
+  /** The release of the one deferred generic notification in flight; every
+   *  commit until it flushes coalesces into it. Null when none is pending. */
+  private cancelDeferredNotify: CancelAfterPaint | null = null;
+
+  /**
+   * Release the deferred generic notification in flight, if any ([L27]). The
+   * provider calls it on teardown, so a chain whose subtree has gone does not
+   * leave a frame callback queued to tell subscribers that unmounted with it.
+   * The chain stays usable: the next change schedules a fresh one.
+   */
+  releaseDeferredNotify(): void {
+    this.cancelDeferredNotify?.();
+    this.cancelDeferredNotify = null;
+  }
 
   /**
    * Recompute the derived key-responder-of-kind value for every

@@ -32,7 +32,7 @@ import { spaceThemesDiffer, type SpacesSnapshot } from "../spaces";
 import { bullseyePaneIdOf, slotStackOf } from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
-import { scheduleAfterPaint } from "./after-paint";
+import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
 import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
@@ -892,6 +892,20 @@ export function projectDeckState(
 }
 
 /**
+ * The unit tests' clock: a microtask, with a release that keeps a flush
+ * cancelled before the queue drains from running.
+ */
+function scheduleMicrotask(flush: () => void): CancelAfterPaint {
+  let live = true;
+  queueMicrotask(() => {
+    if (live) flush();
+  });
+  return () => {
+    live = false;
+  };
+}
+
+/**
  * Diff-and-coalesce publisher. Holds the latest inputs, schedules a
  * microtask flush on any change, and posts through the injected sink
  * only when the serialized payload differs from the last one sent.
@@ -905,8 +919,9 @@ export class HostMenuStatePublisher {
    * When a scheduled flush runs. Production hands in {@link scheduleAfterPaint}
    * so the projection, the validation walk and the host post leave the
    * gesture's task; the default microtask is the unit tests' clock.
+   * The scheduler returns the flush's release ([L27]).
    */
-  private readonly schedule: (flush: () => void) => void;
+  private readonly schedule: (flush: () => void) => CancelAfterPaint;
   private deckProjection: MenuStateDeckProjection = {
     panes: [],
     spaces: [],
@@ -989,11 +1004,12 @@ export class HostMenuStatePublisher {
   /** The gates of the last flush, for {@link lastGateFor}. */
   private lastGates: Record<string, MenuCommandGate> = {};
   private lastSent: string | null = null;
-  private flushScheduled = false;
+  /** The release of the one scheduled flush; null when none is pending. */
+  private cancelFlush: CancelAfterPaint | null = null;
 
   constructor(
     post: (payload: MenuStatePayload) => void,
-    schedule: (flush: () => void) => void = queueMicrotask,
+    schedule: (flush: () => void) => CancelAfterPaint = scheduleMicrotask,
   ) {
     this.post = post;
     this.schedule = schedule;
@@ -1136,14 +1152,23 @@ export class HostMenuStatePublisher {
   }
 
   private scheduleFlush(): void {
-    if (this.flushScheduled) return;
-    this.flushScheduled = true;
-    this.schedule(() => {
-      this.flushScheduled = false;
+    if (this.cancelFlush !== null) return;
+    let ran = false;
+    const cancel = this.schedule(() => {
+      ran = true;
+      this.cancelFlush = null;
       perfMark("tug:menu-flush");
       this.flush();
       perfMark("tug:menu-flush-end");
     });
+    // A scheduler that ran the flush inline has nothing left to release.
+    if (!ran) this.cancelFlush = cancel;
+  }
+
+  /** Release a scheduled flush that has not run ([L27]). */
+  dispose(): void {
+    this.cancelFlush?.();
+    this.cancelFlush = null;
   }
 
   private flush(): void {

@@ -1713,6 +1713,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
 
     return () => {
       unsubscribeCardConstruction?.();
+      manager.releaseDeferredNotify();
       uninstallModifierLatch();
       document.removeEventListener("keydown", noteKeyboardInput, { capture: true });
       document.removeEventListener("pointerdown", notePointerInput, { capture: true });

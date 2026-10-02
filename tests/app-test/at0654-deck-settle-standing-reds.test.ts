@@ -22,33 +22,37 @@
  *
  * ## The five, and what each reads
  *
- * - **The warm flip across the band, at four and eight cards.** At the edge
- *   of its bars and rotating: one run fails the four-up gap (2.41 frames
- *   against 2), the next the eight-up move lead (34 ms against a 17 ms
- *   period). The residual is one 917-fiber deck commit re-rendering every
- *   pane's title bar on a commit that changed one pane's focus — the
- *   pane-chrome grain, program item 1.
- * - **The fold, in both directions.** Lead 18–19 ms against a 17 ms period,
- *   or a 1.06-frame gap against a one-frame bar; which clause fails rotates.
- *   The lead is [D204]'s deferral plus the Last pass that plans and launches
- *   every tween — the fold still plans after React commits.
- * - **A card's departure from a split column.** Lead 24–33 ms with
- *   `commitDelayMs` 0 on every run, so all of it is the deck's own after the
- *   arm. Attributed: closing a pane renumbers every surviving pane's position
- *   label, and each survivor's whole rollup popover tree re-renders inside
- *   the settle window (1828 of 2947 fibers performed at +14 ms).
- * - **Showing a two-member rail.** Gap 3.2–3.8 frames against 2, where
- *   hiding the same rail reads 1.29. Attributed: showing a rail MOUNTS its
- *   entire contents inside the settle window (3898 of 4341 fibers at +33 ms,
- *   four milliseconds after the Last pass) — concept 3 of the ask, nothing
- *   created inside a gesture, still owed.
+ * Read three times alone on 2026-10-01; every leg was red at least once and
+ * none was green all three times, so none has earned its way back to `at0622`.
+ *
+ * - **The warm flip across the band, at four and eight cards.** The gap now
+ *   holds its bar (1.18–1.53 frames against 2, four-up and eight-up alike);
+ *   what rotates is the four-up move lead, the first painted frame 18–23 ms
+ *   after the move's start against a 17 ms period, red on two runs of three.
+ *   The title-bar fan-out once blamed for it is gone — the largest commit in
+ *   the four-up flip is 257 fibers — so the lead is not yet attributed.
+ * - **The fold, in both directions.** Held to `FOLD_GAP_FRAMES_BAR`, 1.5
+ *   display periods, not one frame. Which clause fails rotates: the fold's
+ *   lead (18 ms against a 17 ms period, 8 ms of it before the canvas armed),
+ *   or the unfold's gap (1.88–2.59 frames). The lead is [D204]'s deferral
+ *   plus the Last pass that plans and launches every tween — the fold still
+ *   plans after React commits.
+ * - **A card's departure from a split column.** Gap 1.71–2.53 frames against
+ *   2, red on one run of three, with a first paint at 1–2 ms and
+ *   `commitDelayMs` 0, so what is late is the deck's own work after the arm.
+ *   Its largest commit is 2965 fibers: closing a pane renumbers every
+ *   surviving pane's position label, and each survivor's rollup popover tree
+ *   re-renders inside the settle window.
+ * - **Showing a two-member rail.** Gap 2.18–2.65 frames against 2, red on
+ *   every run. Showing a rail MOUNTS its entire contents inside the settle
+ *   window (a 4501-fiber commit) — concept 3 of the ask, nothing created
+ *   inside a gesture, still owed.
  * - **Dividing four shared columns of eight session cards.** The
- *   height-bearing gesture, and the first time it has had a frame bar at
- *   all: 48 ms / 2.82 frames over 65 ticks on nine panes, with five frames
- *   carrying a real `height` tween — [D9]'s standing hit, delivering late.
- *   Stacking them again reads exactly 2.00 frames, on the edge. This is
- *   concept 5 of the ask (height by translation and occlusion) read as a
- *   number rather than a design note.
+ *   height-bearing gesture: 1.71–2.06 frames against 2, red on one run of
+ *   three, on a commit of 2621–3289 fibers, with real `height` tweens on the
+ *   column's frames — [D9]'s standing hit, delivering at the edge. Stacking
+ *   them again reads 1.82–2.12. This is concept 5 of the ask (height by
+ *   translation and occlusion) read as a number rather than a design note.
  *
  * The forcing legs ride with the flip and the fold, because a red leg is only
  * a reading if the instrument can be shown noticing a stall put there on

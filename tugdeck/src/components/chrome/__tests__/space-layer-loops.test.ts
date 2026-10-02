@@ -18,6 +18,7 @@ import {
   stillLoops,
   type LoopLike,
 } from "@/components/chrome/space-layer-loops";
+import { createMotionBreaker } from "@/lib/motion-guard/breaker";
 
 interface FakeLayer {
   shown: boolean;
@@ -170,5 +171,50 @@ describe("stillLoops", () => {
     expect(hiddenLoop.log).toEqual(["pause", "play"]);
     expect(shownLoop.log).toEqual(["pause"]);
     expect(outside.log).toEqual([]);
+  });
+});
+
+describe("the motion switch thrown back", () => {
+  test("a loop held by the demotion when its layer was shown resumes on the off edge", () => {
+    // `<html>` as the switch sees it.
+    const attrs = new Set<string>();
+    const root = {
+      hasAttribute: (n: string) => attrs.has(n),
+      setAttribute: (n: string) => void attrs.add(n),
+      removeAttribute: (n: string) => void attrs.delete(n),
+    };
+    const breaker = createMotionBreaker(() => root);
+
+    // The demotion resolves the loop's iteration count to zero, so while it
+    // stands the animation is not a loop at all.
+    let iterations = Infinity;
+    const layer: FakeLayer = { shown: false };
+    const loop = animation(elementIn(layer), Infinity);
+    (loop as { effect: AnimationEffect | null }).effect = {
+      target: elementIn(layer),
+      getTiming: () => ({ iterations }),
+    } as unknown as AnimationEffect;
+
+    // The canvas's subscription: the same pass a workspace switch runs.
+    const release = breaker.onResume(() => {
+      stillLoops([loop], never);
+    });
+
+    // Stilled in the dark, then demoted, then its workspace shown: the switch
+    // pass declines to resume a loop the demotion is holding.
+    stillLoops([loop], never);
+    breaker.demote(true);
+    iterations = 0;
+    layer.shown = true;
+    expect(stillLoops([loop], never)).toEqual({ stilled: 0, resumed: 0 });
+    expect(loop.playState).toBe("paused");
+
+    // Thrown back: the stylesheet lets go, and the off edge's pass resumes it.
+    iterations = Infinity;
+    breaker.demote(false);
+    expect(loop.log).toEqual(["pause", "play"]);
+    expect(loop.playState).toBe("running");
+
+    release();
   });
 });

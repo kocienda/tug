@@ -35,15 +35,16 @@
  * began.
  *
  * **Resume touches only what this module paused**, kept in a `WeakSet` so a
- * loop whose element is gone is forgotten with it. A loop the motion switch
- * demoted (`data-tug-motion-demoted` on `<html>`, resolved by the stylesheet
- * to `animation-play-state: paused`) reads `paused` off its computed style,
- * and a resume that would override that is declined — the switch's hold
- * outranks the layer's. **A declined resume keeps its record**, because this
- * module is the only thing that can ever hand the loop back: the pause was
- * taken through the API, so the stylesheet returning to `running` when the
- * switch is thrown back does not resume it, and a loop dropped from the set on the
- * one pass that declined it is one no later pass will look at again.
+ * loop whose element is gone is forgotten with it. A loop CSS is holding — the
+ * motion switch's demotion (`data-tug-motion-demoted` on `<html>`, which
+ * resolves its iteration count to zero, so it is not a loop while it stands),
+ * or a component's own `animation-play-state: paused` — is not resumed over
+ * that hold. **A declined resume keeps its record**, because this module is
+ * the only thing that can ever hand the loop back: the pause was taken through
+ * the API, so the stylesheet letting go does not resume it, and a loop dropped
+ * from the set on the one pass that declined it is one no later pass will look
+ * at again. The passes that look again are a workspace switch and the motion
+ * switch's off edge, which the canvas subscribes to for exactly this.
  *
  * Nothing here is React state ([L06]): it is the Web Animations API on
  * elements the canvas already owns.

@@ -41,6 +41,16 @@
  * user's motion off on its own. This switch is thrown by hand — `tugtool deck
  * motion demote on|off`, `window.__tugMotion.demote()` — and by nothing else.
  *
+ * ## Throwing it back re-arms what it stood down
+ *
+ * Clearing the attribute is not the whole of `demote(false)`. A loop the deck
+ * paused through the Web Animations API while demoted — a hidden workspace's
+ * loop whose resume `space-layer-loops.ts` declined because the stylesheet
+ * was holding it — is not resumed by the stylesheet letting go, because the
+ * API outranks it. So the off edge tells its subscribers ({@link
+ * MotionBreaker.onResume}), and the canvas runs the same loop pass a
+ * workspace switch runs. A refusal re-arms; it does not just return ([L32]).
+ *
  * @module lib/motion-guard/breaker
  */
 
@@ -93,9 +103,25 @@ export interface MotionBreaker {
   demote(on: boolean): void;
   /** Back to how the page started: un-demoted. */
   reset(): void;
+  /**
+   * Be told when a demotion is cleared — the edge from demoted to not, and
+   * nothing else. Returns the release ([L27]).
+   */
+  onResume(listener: () => void): () => void;
+}
+
+/** The slice of `<html>` the switch reads and writes. */
+export interface DemoteRoot {
+  hasAttribute(name: string): boolean;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
 }
 
 class MotionBreakerImpl implements MotionBreaker {
+  private readonly resumeListeners = new Set<() => void>();
+
+  constructor(private readonly rootOf: () => DemoteRoot | null) {}
+
   get budgetMs(): number {
     return RENDER_COST_BUDGET_MS;
   }
@@ -105,19 +131,40 @@ class MotionBreakerImpl implements MotionBreaker {
   }
 
   get demoted(): boolean {
-    if (typeof document === "undefined") return false;
-    return document.documentElement.hasAttribute(DEMOTED_ATTRIBUTE);
+    return this.rootOf()?.hasAttribute(DEMOTED_ATTRIBUTE) ?? false;
   }
 
   demote(on: boolean): void {
-    if (typeof document === "undefined") return;
-    if (on) document.documentElement.setAttribute(DEMOTED_ATTRIBUTE, "");
-    else document.documentElement.removeAttribute(DEMOTED_ATTRIBUTE);
+    const root = this.rootOf();
+    if (root === null) return;
+    if (on) {
+      root.setAttribute(DEMOTED_ATTRIBUTE, "");
+      return;
+    }
+    if (!root.hasAttribute(DEMOTED_ATTRIBUTE)) return;
+    root.removeAttribute(DEMOTED_ATTRIBUTE);
+    for (const listener of [...this.resumeListeners]) listener();
   }
 
   reset(): void {
     this.demote(false);
   }
+
+  onResume(listener: () => void): () => void {
+    this.resumeListeners.add(listener);
+    return () => {
+      this.resumeListeners.delete(listener);
+    };
+  }
 }
 
-export const motionBreaker: MotionBreaker = new MotionBreakerImpl();
+/** A switch over `rootOf()`; the deck's is {@link motionBreaker}. */
+export function createMotionBreaker(
+  rootOf: () => DemoteRoot | null,
+): MotionBreaker {
+  return new MotionBreakerImpl(rootOf);
+}
+
+export const motionBreaker: MotionBreaker = createMotionBreaker(() =>
+  typeof document === "undefined" ? null : document.documentElement,
+);

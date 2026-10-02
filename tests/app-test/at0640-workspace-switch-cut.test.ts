@@ -93,6 +93,7 @@
  * @covers tugdeck/src/components/chrome/space-layer.ts
  * @covers tugdeck/src/components/chrome/space-layer.css
  * @covers tugdeck/src/lib/space-settled.ts
+ * @covers tugdeck/src/lib/space-switch-mark.ts
  */
 
 import { describe, expect, test } from "bun:test";

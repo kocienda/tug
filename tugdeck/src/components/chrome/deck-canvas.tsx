@@ -144,6 +144,7 @@ import {
 } from "@/lib/settle-notice";
 import {
   SPACE_EPOCH_BOUND_MS,
+  spaceEpochDeadlineMs,
   spaceEpochClosed,
 } from "@/lib/space-settled";
 import {
@@ -213,6 +214,7 @@ import {
   stillHiddenLayerLoops,
   stillLoopOnStart,
 } from "./space-layer-loops";
+import { motionBreaker } from "@/lib/motion-guard/breaker";
 import { mark as perfMark } from "@/lib/perf-marks";
 import "./space-layer.css";
 import "./rail-vacancy.css";
@@ -898,17 +900,6 @@ interface SettleTween {
   anims: TugAnimation[];
   restores: Array<() => void>;
 }
-
-/**
- * How long after the epoch's own bound the mark is swept anyway ([L32] clause 2).
- *
- * A margin rather than the bare duration because the deadline is the net, not
- * the clock: it must never fire while the epoch's own gate could still close it
- * properly and record its span, and it must fire soon enough that a stranded
- * mark is a blink rather than a state. One frame of slack at 60Hz is about 16ms;
- * this is generous over that and still short beside the bound it guards.
- */
-const SPACE_EPOCH_DEADLINE_MARGIN_MS = 120;
 
 /**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
@@ -7307,6 +7298,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       el.removeEventListener("animationstart", stillLoopOnStart);
     };
   }, []);
+  // And part three: the motion switch thrown back. A loop this canvas paused
+  // while the deck was demoted kept its record but was not resumed — the
+  // demotion was holding it — and the stylesheet letting go cannot resume a
+  // loop the Web Animations API paused. So the off edge runs the same pass a
+  // workspace switch runs, and the shown layer's loops come back ([L32]).
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    return motionBreaker.onResume(() => {
+      stillHiddenLayerLoops(el);
+    });
+  }, []);
 
   /** The workspace the last commit was showing — the one a switch leaves. */
   const previousSpaceIdRef = useRef<string | null>(null);
@@ -7677,8 +7680,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // more — there is no tween — so it is the bound plus a margin, scaled the
     // way TugAnimator scales, so a slowed-down deck is not cut short by its own
     // safety net.
-    const deadlineMs =
-      SPACE_EPOCH_BOUND_MS * getTugTiming() + SPACE_EPOCH_DEADLINE_MARGIN_MS;
+    const deadlineMs = spaceEpochDeadlineMs(getTugTiming());
     state.deadline = window.setTimeout(() => {
       state.deadline = null;
       if (state.generation === generation) endEpoch();

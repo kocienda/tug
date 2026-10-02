@@ -27,7 +27,7 @@
 
 import { isSidebarCard } from "@/card-registry";
 import type { IDeckManagerStore } from "@/deck-manager-store";
-import { scheduleAfterPaint } from "@/lib/after-paint";
+import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
 
 /** The selected card ids in pick order, plus the anchor ⇧-extension ranges from. */
@@ -292,7 +292,10 @@ export function attachLayoutSelectionToDeck(
   let lastLive: ReadonlySet<string> = new Set(
     deck.getSnapshot().cards.map((c) => c.id),
   );
-  let detached = false;
+  // The releases of the two slots' scheduled writes, held so detaching
+  // cancels them rather than leaving them queued behind a dead seam ([L27]).
+  let cancelPick: CancelAfterPaint | null = null;
+  let cancelPrune: CancelAfterPaint | null = null;
   const handle = (): void => {
     const state = deck.getSnapshot();
     const liveIds = new Set(state.cards.map((c) => c.id));
@@ -303,10 +306,11 @@ export function attachLayoutSelectionToDeck(
       const pruneScheduled = pendingPrune !== null;
       pendingPrune = liveIds;
       if (!pruneScheduled) {
-        scheduleAfterPaint(() => {
+        cancelPrune = scheduleAfterPaint(() => {
+          cancelPrune = null;
           const ids = pendingPrune;
           pendingPrune = null;
-          if (detached || ids === null) return;
+          if (ids === null) return;
           selection.pruneTo(ids);
         });
       }
@@ -339,10 +343,11 @@ export function attachLayoutSelectionToDeck(
     const alreadyScheduled = pendingPick !== null;
     pendingPick = fr;
     if (alreadyScheduled) return;
-    scheduleAfterPaint(() => {
+    cancelPick = scheduleAfterPaint(() => {
+      cancelPick = null;
       const id = pendingPick;
       pendingPick = null;
-      if (detached || id === null) return;
+      if (id === null) return;
       // Fronted and closed inside one frame: the prune ahead of this has
       // already dropped it, and it must not come back.
       if (!lastLive.has(id)) return;
@@ -352,7 +357,9 @@ export function attachLayoutSelectionToDeck(
   const unsubscribe =
     deck.subscribeSync?.(handle, "cards-selection") ?? deck.subscribe(handle);
   return () => {
-    detached = true;
+    cancelPick?.();
+    cancelPrune?.();
+    cancelPick = cancelPrune = null;
     pendingPick = null;
     pendingPrune = null;
     unsubscribe();

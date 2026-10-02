@@ -40,7 +40,8 @@ import {
   sweptArriving,
 } from "./layout-tree";
 import { buildDefaultLayout, serialize, deserialize } from "./serialization";
-import { scheduleAfterPaint } from "./lib/after-paint";
+import { scheduleAfterPaint, type CancelAfterPaint } from "./lib/after-paint";
+import { SpaceSwitchMark, switchMarkDeadlineMs } from "./lib/space-switch-mark";
 import {
   MAIN_SPACE_NAME,
   activeSpaceTheme,
@@ -1143,7 +1144,16 @@ export class DeckManager implements IDeckManagerStore {
   private syncSubscribers: Map<(landing: CommitLanding) => void, string> = new Map();
 
   /** The one deferred notification in flight, coalescing every commit until it flushes. */
-  private deferredNotify: { landing: CommitLanding } | null = null;
+  private deferredNotify: { landing: CommitLanding; cancel: CancelAfterPaint } | null = null;
+
+  /**
+   * The switch epoch's mark, with the deadline this writer owes behind it —
+   * see `lib/space-switch-mark.ts` ([L32]).
+   */
+  private readonly switchMark = new SpaceSwitchMark(SPACE_SWITCHING_ATTRIBUTE, {
+    setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimeout: (id) => window.clearTimeout(id),
+  });
 
   /**
    * The in-flight commit's deferral vote, live only for the length of the
@@ -1240,6 +1250,7 @@ export class DeckManager implements IDeckManagerStore {
     const pending = this.deferredNotify;
     if (pending !== null) {
       this.deferredNotify = null;
+      pending.cancel();
       perfMark("tug:react-notify");
       this.subscribers.forEach((cb) => cb(pending.landing));
       perfMark("tug:react-notify-end");
@@ -1257,16 +1268,17 @@ export class DeckManager implements IDeckManagerStore {
       if (landing === "cross") this.deferredNotify.landing = "cross";
       return;
     }
-    const pending = { landing };
+    const pending: { landing: CommitLanding; cancel: CancelAfterPaint } = {
+      landing,
+      cancel: () => {},
+    };
     this.deferredNotify = pending;
-    const flush = (): void => {
-      if (this.deferredNotify !== pending) return;
+    pending.cancel = scheduleAfterPaint(() => {
       this.deferredNotify = null;
       perfMark("tug:react-notify");
       this.subscribers.forEach((cb) => cb(pending.landing));
       perfMark("tug:react-notify-end");
-    };
-    scheduleAfterPaint(flush);
+    });
   }
 
   // ---- Spaces store (a second useSyncExternalStore contract, [P03], [L02]) ----
@@ -1515,14 +1527,21 @@ export class DeckManager implements IDeckManagerStore {
         // children. `arm` and the crossfade effect both read and sweep that
         // same element, so the three agree by construction.
         //
-        // The mark is a debt from this frame ([L32]) and `DeckCanvas` owes it
-        // back. A host with no canvas in the DOM yet — a boot before the first
-        // render, a harness with no deck mounted — simply gets no mark, which
-        // is the honest answer: there is nothing on screen to animate.
+        // The mark is a debt from this frame ([L32]). `DeckCanvas` pays it back
+        // in the ordinary close, and this writer arms a deadline of its own
+        // behind that close, because the canvas's effect only runs when React
+        // sees the active id change — two switches in one task that end where
+        // they began would otherwise strand it. A host with no canvas in the
+        // DOM yet — a boot before the first render, a harness with no deck
+        // mounted — simply gets no mark, which is the honest answer: there is
+        // nothing on screen to animate.
         //
-        this.container
-          .querySelector<HTMLElement>(CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR)
-          ?.setAttribute(SPACE_SWITCHING_ATTRIBUTE, "");
+        this.switchMark.open(
+          this.container.querySelector<HTMLElement>(
+            CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
+          ),
+          switchMarkDeadlineMs(getTugTiming()),
+        );
         // `"cut"`, and that word is the whole of the fix ([P11], [B08]).
         //
         // A switch used to be spelled to the canvas as an ordinary
@@ -8203,10 +8222,10 @@ export class DeckManager implements IDeckManagerStore {
     }
     this.destroyed = true;
     // A deferred notify still in flight would tell every subscriber left in
-    // the set about a store that no longer exists. Its rAF and timers cannot
-    // be cancelled from here, but `flush` checks identity against this slot
-    // before it delivers, so clearing it is the release ([L27]).
+    // the set about a store that no longer exists, so release it ([L27]).
+    this.deferredNotify?.cancel();
     this.deferredNotify = null;
+    this.switchMark.release();
     for (const watch of [...this.arrivalWatches.values()]) watch.dispose();
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);

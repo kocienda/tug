@@ -90,6 +90,26 @@ export const SPACE_EPOCH_BOUND_MS = 400;
  */
 export const EPOCH_SILENT_FRAMES = 2;
 
+/**
+ * How long after the epoch's own bound the mark is swept anyway ([L32] clause 2).
+ *
+ * A margin rather than the bare duration because the deadline is the net, not
+ * the clock: it must never fire while the epoch's own gate could still close it
+ * properly and record its span, and it must fire soon enough that a stranded
+ * mark is a blink rather than a state. One frame of slack at 60Hz is about 16ms;
+ * this is generous over that and still short beside the bound it guards.
+ */
+export const SPACE_EPOCH_DEADLINE_MARGIN_MS = 120;
+
+/**
+ * The canvas's deadline behind its epoch: the bound plus the margin, scaled the
+ * way TugAnimator scales, so a slowed-down deck is not cut short by its own
+ * safety net. `timing` is `getTugTiming()`.
+ */
+export function spaceEpochDeadlineMs(timing: number): number {
+  return SPACE_EPOCH_BOUND_MS * timing + SPACE_EPOCH_DEADLINE_MARGIN_MS;
+}
+
 /** The facts {@link spaceEpochClosed} decides over. */
 export interface SpaceEpochInput {
   /**

@@ -58,6 +58,7 @@ import { getRegistration } from "@/card-registry";
 import { mark as perfMark } from "@/lib/perf-marks";
 import { isFocusDestination } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
+import { TrackedMark } from "./focus-marks";
 
 /**
  * The behavior a key-view component declares to the engine ([P01]): the pure
@@ -322,27 +323,6 @@ function cssEscapeId(id: string): string {
   return typeof CSS !== "undefined" && typeof CSS.escape === "function"
     ? CSS.escape(id)
     : id;
-}
-
-/**
- * Clear a projection mark from every element in `marked` other than `keep`,
- * forgetting each as it goes. Returns how many elements actually carried the
- * mark — an element the engine marked and something else since unmarked (an
- * unregistered default-ring node) costs a write it does not count.
- */
-function clearStaleMarks(
-  marked: Set<HTMLElement>,
-  keep: HTMLElement | null,
-  attrs: readonly string[],
-): number {
-  let writes = 0;
-  for (const el of marked) {
-    if (el === keep) continue;
-    marked.delete(el);
-    if (attrs.some((a) => el.hasAttribute(a))) writes += 1;
-    for (const a of attrs) el.removeAttribute(a);
-  }
-  return writes;
 }
 
 /**
@@ -808,6 +788,7 @@ export class FocusContext {
   /** Remove a focusable. No-op if it is not registered. */
   unregisterFocusable(id: string): void {
     if (this.focusables.delete(id)) {
+      this.coord.pruneDetachedMarksAfterCommit();
       this.notify();
     }
   }
@@ -2480,6 +2461,7 @@ export class FocusContext {
     if (i < 0) return;
     this.defaultRingStack.splice(i, 1);
     node.removeAttribute("data-default-ring");
+    this.coord.pruneDetachedMarksAfterCommit();
     this.reproject();
   }
 
@@ -2611,13 +2593,15 @@ export class FocusManager {
   private chain: ResponderChainManager | null = null;
 
   // ---- Projection bookkeeping ----
-  // The elements the projection has written each mark onto. The engine is the
-  // only writer of these attributes, so clearing a stale mark means clearing
-  // exactly what it wrote — no document-wide scan per projection, which is
-  // paid about nine times per activation and grows with the deck.
-  private readonly markedKeyView: Set<HTMLElement> = new Set();
-  private readonly markedKeyWithin: Set<HTMLElement> = new Set();
-  private readonly markedDefaultRing: Set<HTMLElement> = new Set();
+  // The elements the projection has written each mark onto — see
+  // `focus-marks.ts` for why the engine tracks rather than scans.
+  private readonly markedKeyView = new TrackedMark([
+    KEY_VIEW_ATTRIBUTE,
+    "data-key-view-kbd",
+  ]);
+  private readonly markedKeyWithin = new TrackedMark([KEY_WITHIN_ATTRIBUTE]);
+  private readonly markedDefaultRing = new TrackedMark(["data-default-ring"]);
+  private detachedMarkPruneQueued = false;
   // Focus-key lookups memoized for the length of one `computeProjection`
   // pass, which reads the DOM without writing it; `null` outside a pass.
   private focusKeyMemo: Map<string, HTMLElement | null> | null = null;
@@ -3388,6 +3372,27 @@ export class FocusManager {
   }
 
   /**
+   * A registration went away: forget every marked element that left the
+   * document with it, so the bookkeeping does not retain an unmounted subtree
+   * until some later projection happens to run ([L27]).
+   *
+   * Unregistrations run from layout-effect cleanups, and React runs those
+   * BEFORE it detaches the subtree they belong to — so at the call the element
+   * is still connected. The prune waits one microtask, which lands after the
+   * commit that removed it. Coalesced: one prune per burst of unregistrations.
+   */
+  pruneDetachedMarksAfterCommit(): void {
+    if (typeof document === "undefined" || this.detachedMarkPruneQueued) return;
+    this.detachedMarkPruneQueued = true;
+    queueMicrotask(() => {
+      this.detachedMarkPruneQueued = false;
+      this.markedKeyView.forgetDetached();
+      this.markedKeyWithin.forgetDetached();
+      this.markedDefaultRing.forgetDetached();
+    });
+  }
+
+  /**
    * Converge the DOM onto {@link computeProjection}'s answer.
    *
    * Diff-then-write per mark: a mark is removed only from elements that should
@@ -3424,12 +3429,9 @@ export class FocusManager {
     const p = this.computeProjection();
     let writes = 0;
 
-    writes += clearStaleMarks(this.markedKeyView, p.keyViewEl, [
-      KEY_VIEW_ATTRIBUTE,
-      "data-key-view-kbd",
-    ]);
+    writes += this.markedKeyView.clearExcept(p.keyViewEl);
     if (p.keyViewEl !== null && p.keyViewId !== null) {
-      this.markedKeyView.add(p.keyViewEl);
+      this.markedKeyView.track(p.keyViewEl);
       if (p.keyViewEl.getAttribute(KEY_VIEW_ATTRIBUTE) !== p.keyViewId) {
         p.keyViewEl.setAttribute(KEY_VIEW_ATTRIBUTE, p.keyViewId);
         writes += 1;
@@ -3444,22 +3446,18 @@ export class FocusManager {
       }
     }
 
-    writes += clearStaleMarks(this.markedKeyWithin, p.keyWithinEl, [
-      KEY_WITHIN_ATTRIBUTE,
-    ]);
+    writes += this.markedKeyWithin.clearExcept(p.keyWithinEl);
     if (p.keyWithinEl !== null) {
-      this.markedKeyWithin.add(p.keyWithinEl);
+      this.markedKeyWithin.track(p.keyWithinEl);
       if (!p.keyWithinEl.hasAttribute(KEY_WITHIN_ATTRIBUTE)) {
         p.keyWithinEl.setAttribute(KEY_WITHIN_ATTRIBUTE, "");
         writes += 1;
       }
     }
 
-    writes += clearStaleMarks(this.markedDefaultRing, p.defaultRingEl, [
-      "data-default-ring",
-    ]);
+    writes += this.markedDefaultRing.clearExcept(p.defaultRingEl);
     if (p.defaultRingEl !== null) {
-      this.markedDefaultRing.add(p.defaultRingEl);
+      this.markedDefaultRing.track(p.defaultRingEl);
       if (!p.defaultRingEl.hasAttribute("data-default-ring")) {
         p.defaultRingEl.setAttribute("data-default-ring", "");
         writes += 1;

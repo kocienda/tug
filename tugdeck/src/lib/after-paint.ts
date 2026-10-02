@@ -11,24 +11,43 @@
  *
  * Without `requestAnimationFrame` (a unit test, a worker) the callback runs
  * synchronously: there is no frame to land beyond.
+ *
+ * The door returns its release ([L27]): the cancel clears the frame callback
+ * and both timers, and the caller calls it on teardown. Whichever path fires
+ * first releases the other, so a deadline that wins in an occluded window
+ * leaves no frame callback queued behind it to drain as a burst on unocclusion.
  */
 
 /** The deadline behind the deferral: an occluded window never fires rAF. */
 export const AFTER_PAINT_DEADLINE_MS = 50;
 
-export function scheduleAfterPaint(fn: () => void): void {
+/** Releases a scheduled after-paint callback; idempotent, and safe after it ran. */
+export type CancelAfterPaint = () => void;
+
+const NOOP_CANCEL: CancelAfterPaint = () => {};
+
+export function scheduleAfterPaint(fn: () => void): CancelAfterPaint {
   if (typeof requestAnimationFrame !== "function") {
     fn();
-    return;
+    return NOOP_CANCEL;
   }
-  let done = false;
+  let frame: number | null = null;
+  let paintTimer: number | null = null;
+  let deadlineTimer: number | null = null;
+  const release = (): void => {
+    if (frame !== null) cancelAnimationFrame(frame);
+    if (paintTimer !== null) window.clearTimeout(paintTimer);
+    if (deadlineTimer !== null) window.clearTimeout(deadlineTimer);
+    frame = paintTimer = deadlineTimer = null;
+  };
   const once = (): void => {
-    if (done) return;
-    done = true;
+    release();
     fn();
   };
-  requestAnimationFrame(() => {
-    window.setTimeout(once, 0);
+  frame = requestAnimationFrame(() => {
+    frame = null;
+    paintTimer = window.setTimeout(once, 0);
   });
-  window.setTimeout(once, AFTER_PAINT_DEADLINE_MS);
+  deadlineTimer = window.setTimeout(once, AFTER_PAINT_DEADLINE_MS);
+  return release;
 }

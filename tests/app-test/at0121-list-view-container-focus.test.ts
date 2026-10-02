@@ -67,12 +67,15 @@ function deckShape() {
 // Container snapshot: the scroller's own (suppressed) marks, the keyboard
 // marker, and the tab stop. Both `outline` and `backgroundImage` must stay bare
 // in every state — those are the two forms the retired container mark took.
+// `outline` is the PAINTED width: WebKit reports `outline-width` as specified
+// even when `outline-style` is `none` (CSS UI 4 stopped zeroing it), so the
+// width alone reads 3px on an element that paints no outline at all.
 const CONTAINER_PROBE = `(function(){
   var el = document.querySelector(${JSON.stringify(CONTAINER)});
   if (!el) return null;
   var cs = getComputedStyle(el);
   return {
-    outline: cs.outlineWidth,
+    outline: cs.outlineStyle === "none" ? "0px" : cs.outlineWidth,
     frameWidth: cs.borderLeftWidth,
     backgroundImage: cs.backgroundImage,
     keyboardReached: el.hasAttribute("data-key-view-kbd"),

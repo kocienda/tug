@@ -40,6 +40,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/focus-manager.ts
+ * @covers tugdeck/src/components/tugways/focus-marks.ts
  * @covers tugdeck/src/components/tugways/cards/gallery-accordion.tsx
  */
 

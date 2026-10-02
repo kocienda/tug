@@ -216,27 +216,49 @@ describe("getSelectedIdSet", () => {
  * inline" from "ran a paint later" rather than reading a timing.
  */
 describe("the prune behind the after-paint door", () => {
-  const rafs: Array<() => void> = [];
-  const timers: Array<() => void> = [];
+  // Keyed by id, so the door's release can cancel what it queued.
+  let nextId = 1;
+  const rafs = new Map<number, () => void>();
+  const timers = new Map<number, () => void>();
   let saved: Record<string, unknown> = {};
 
   /** Drain one painted frame: the rAF, then the zero timer queued inside it. */
   function paint(): void {
-    const frame = rafs.splice(0, rafs.length);
+    const frame = [...rafs.values()];
+    rafs.clear();
     for (const cb of frame) cb();
-    const due = timers.splice(0, timers.length);
-    for (const fn of due) fn();
+    for (const [id, fn] of [...timers.entries()]) {
+      if (!timers.delete(id)) continue;
+      fn();
+    }
   }
 
   beforeEach(() => {
     const g = globalThis as unknown as Record<string, unknown>;
     saved = {
       requestAnimationFrame: g.requestAnimationFrame,
+      cancelAnimationFrame: g.cancelAnimationFrame,
       window: g.window,
       document: g.document,
     };
-    g.requestAnimationFrame = (cb: () => void) => rafs.push(cb);
-    g.window = { setTimeout: (fn: () => void) => timers.push(fn) };
+    g.requestAnimationFrame = (cb: () => void) => {
+      const id = nextId++;
+      rafs.set(id, cb);
+      return id;
+    };
+    g.cancelAnimationFrame = (id: number) => {
+      rafs.delete(id);
+    };
+    g.window = {
+      setTimeout: (fn: () => void) => {
+        const id = nextId++;
+        timers.set(id, fn);
+        return id;
+      },
+      clearTimeout: (id: number) => {
+        timers.delete(id);
+      },
+    };
     // Motion ON, read off the inline `--tug-motion` fast path, so the
     // stand-down branch is not the one under test.
     g.document = {
@@ -245,8 +267,8 @@ describe("the prune behind the after-paint door", () => {
   });
 
   afterEach(() => {
-    rafs.length = 0;
-    timers.length = 0;
+    rafs.clear();
+    timers.clear();
     const g = globalThis as unknown as Record<string, unknown>;
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete g[key];
@@ -364,7 +386,7 @@ describe("the prune behind the after-paint door", () => {
     commit(["a"]);
 
     expect(selection.getSnapshot().ids).toEqual(["a"]);
-    expect(rafs.length).toBe(0);
+    expect(rafs.size).toBe(0);
 
     detach();
   });
