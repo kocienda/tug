@@ -459,10 +459,8 @@ final class TestHarnessConnection {
                 return
             }
             let wid = CGWindowID(window.windowNumber)
-            guard let cg = CGWindowListCreateImage(
-                .null, .optionIncludingWindow, wid, [.boundsIgnoreFraming, .bestResolution]
-            ) else {
-                self.respondError(id: id, name: "CaptureError", message: "CGWindowListCreateImage returned nil")
+            guard let cg = captureOwnWindowImage(wid) else {
+                self.respondError(id: id, name: "CaptureError", message: "window capture returned nil")
                 return
             }
             let rep = NSBitmapImageRep(cgImage: cg)

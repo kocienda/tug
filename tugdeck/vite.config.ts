@@ -172,15 +172,17 @@ function resolveActiveThemeCss(themeName: string): string {
  *   Either way, `activeThemeName` — not a fresh read — drives later loads.
  * - `load` returns the active theme's complete CSS; PostCSS expands its
  *   `--tug-color()` tokens. The module is never empty.
- * - Same logic for dev and build — in a production build `load` runs at build
- *   time and bakes the seeded theme into the bundle (the production link swap
- *   then overrides it at runtime, [D08]).
+ * - A production build bakes the base theme, never the build machine's
+ *   tugbank: the bundle must not depend on who built it (a stale name there
+ *   warned and fell back anyway), and the production link swap applies the
+ *   user's theme at runtime, [D08].
  */
 function activeThemeVirtualPlugin(): VitePlugin {
   return {
     name: "active-theme-virtual",
-    configResolved() {
-      activeThemeName = readActiveThemeFromTugbank();
+    configResolved(config) {
+      activeThemeName =
+        config.command === "build" ? BASE_THEME_NAME : readActiveThemeFromTugbank();
     },
     resolveId(id) {
       if (id === ACTIVE_THEME_VIRTUAL_ID) return ACTIVE_THEME_RESOLVED_ID;

@@ -919,9 +919,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             let group = DispatchGroup()
             for index in 0..<count {
                 let t0 = CFAbsoluteTimeGetCurrent()
-                if let cg = CGWindowListCreateImage(
-                    .null, .optionIncludingWindow, wid, [.boundsIgnoreFraming, .bestResolution]
-                ) {
+                if let cg = captureOwnWindowImage(wid) {
                     let target = dir.appendingPathComponent(String(format: "frame-%02d.png", index))
                     group.enter()
                     encode.async {
@@ -2224,4 +2222,23 @@ private extension NSColor {
             alpha: 1.0
         )
     }
+}
+
+/// One composited image of a window this process owns, as the window server
+/// painted it. `CGWindowListCreateImage` is deprecated in favor of
+/// ScreenCaptureKit, but ScreenCaptureKit needs a Screen Recording grant even
+/// for the caller's own window, and this call does not — which is the whole
+/// reason the frame-burst diagnostic and the harness capture can run on a
+/// user's machine unprompted. The symbol is resolved at run time so the
+/// deprecation does not fail a warnings-clean build; nil if it is ever gone.
+func captureOwnWindowImage(_ windowID: CGWindowID) -> CGImage? {
+    typealias CreateImage = @convention(c) (
+        CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption
+    ) -> Unmanaged<CGImage>?
+    let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)
+    guard let symbol = dlsym(rtldDefault, "CGWindowListCreateImage") else { return nil }
+    let create = unsafeBitCast(symbol, to: CreateImage.self)
+    return create(
+        .null, .optionIncludingWindow, windowID, [.boundsIgnoreFraming, .bestResolution]
+    )?.takeRetainedValue()
 }
