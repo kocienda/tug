@@ -26,6 +26,7 @@ import {
 } from "@/lib/resize-episode";
 import {
   contentBoxHeight,
+  FOLD_PREPARE_MS,
   adoptFoldCrossing,
   adoptStillCrossing,
   endFoldCrossing,
@@ -5410,6 +5411,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       stillCrossingId: number | null;
     }
     const choreography: Choreographed[] = [];
+    // Whether this settle OPENED a fold crossing — a fold or an unfold it is
+    // the first to carry, not one it adopted mid-travel. Read where the beats
+    // launch, which is where the fold's prepare beat is paid.
+    let opensFoldCrossing = false;
     /**
      * The frames arriving in this settle, and the ghosts standing in for the
      * panes leaving it — collected by the passes below and launched by the
@@ -5734,7 +5739,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             firstFold.contentHeight ?? 0,
             lastContentHeight ?? 0,
           );
-          if (heldHeight > 0) crossingId = markFoldCrossing(frame, heldHeight);
+          if (heldHeight > 0) {
+            crossingId = markFoldCrossing(frame, heldHeight);
+            opensFoldCrossing = true;
+          }
         }
         // A crossing this settle did not open, on a frame it is taking over.
         // The edge has not stopped — this settle is carrying the rest of the
@@ -6090,10 +6098,27 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (kind === "arrive") return arrivals.length > 0;
         return choreography.some((c) => c.beats.some((b) => b.kind === kind));
       });
-      const totalMs = launched.reduce(
-        (sum, kind) => sum + motionDurationMs(BEAT_RECIPE[kind], duration),
-        0,
-      );
+      // A FOLD'S PREPARE BEAT: one move at a time. A fold's commit changes the
+      // card's interior — on an unfold the transcript slot comes back from
+      // `display: none` — and what answers that change arrives a frame later:
+      // observers' rAF-coalesced writes, the after-paint React notify. Left to
+      // land under the tween they held the main thread 30–47ms right after
+      // the first moving frame, where the spring covers most of its travel, so
+      // the edge crossed half the card in a hole. So a settle that opens a
+      // fold crossing holds every beat off by this much: the frame stands at
+      // First for the frame those answers land in — nothing visible changes,
+      // the held interior is clipped by a frame that has not moved — and the
+      // edge starts on the frame after. One and a half display frames rather
+      // than two, so the second frame is always inside it and the third never
+      // is. A crossing this settle merely adopted is already travelling and
+      // pays nothing.
+      const prepareMs = opensFoldCrossing ? FOLD_PREPARE_MS : 0;
+      const totalMs =
+        prepareMs +
+        launched.reduce(
+          (sum, kind) => sum + motionDurationMs(BEAT_RECIPE[kind], duration),
+          0,
+        );
       if (totalMs > crossing.durationMs) {
         const totalWindowMs = totalMs * getTugTiming();
         settleSweepRef.current?.(Math.max(2 * totalWindowMs, 1000));
@@ -6506,7 +6531,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // frames and re-plans them, which is exactly what it already did for a
       // beat that was in flight, and now does for beats that are merely
       // delayed.
-      let beatDelayMs = 0;
+      let beatDelayMs = prepareMs;
       const beatRuns: Array<Promise<void>> = [];
       if (settleGenerationRef.current === generation) {
         for (const kind of BEAT_ORDER) {

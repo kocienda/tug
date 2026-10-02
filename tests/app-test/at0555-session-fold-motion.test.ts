@@ -403,9 +403,12 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
         expect(showWall, "the card below travels").not.toBeNull();
         if (showFold !== null && showWall !== null) {
           // The wall moves first, from the launch: the move beat opens the
-          // room the subject is about to grow into.
+          // room the subject is about to grow into. The launch is the fold's
+          // prepare beat later than the commit (`FOLD_PREPARE_MS`, 25ms): the
+          // settle stands at First for the frame the interior's answers land
+          // in, and the first beat — still the wall's — moves after it.
           expect(showWall.start, "the wall moves from the launch").toBeLessThan(
-            80,
+            80 + 25,
           );
           expect(
             showWall.end - showWall.start,
@@ -467,9 +470,10 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
         expect(foldNeighbour, "the card below travels back").not.toBeNull();
         if (foldEntry !== null && foldNeighbour !== null) {
           // The mirror: the subject shrinks first, from the launch, and the
-          // wall moves up into the room it left once it has stopped.
+          // wall moves up into the room it left once it has stopped. The
+          // launch is the prepare beat later than the commit, as above.
           expect(foldEntry.start, "the fold shrinks from the launch").toBeLessThan(
-            80,
+            80 + 25,
           );
           expect(
             foldEntry.end - foldEntry.start,

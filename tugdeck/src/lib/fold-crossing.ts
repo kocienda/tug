@@ -110,6 +110,16 @@ export const STILL_HELD_HEIGHT_PROP = "--tugx-still-held-height";
  */
 export const STILL_ANCHOR_ATTR = "data-still-anchor";
 
+/**
+ * How long a settle that opens a fold crossing stands at First before its
+ * first beat moves, in ms — the fold's prepare beat. One and a half 60Hz
+ * frames: the frame after the commit's own, where the interior's answers to
+ * the commit land (observers' rAF writes, the after-paint React notify), is
+ * always inside it, and the frame after that never is. Scaled with every
+ * other imposer duration by `--tug-timing`.
+ */
+export const FOLD_PREPARE_MS = 25;
+
 let nextCrossingId = 1;
 
 /** What a standing crossing wrote, so a re-mark can refuse to lower it and the end takes it off the same box. */

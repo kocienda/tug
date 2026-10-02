@@ -417,6 +417,12 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
     // var consumed by sticky descendant chrome, whose relayout can queue
     // a sibling observer notification within the same delivery pass.
     let rafId = 0;
+    // The last height written or queued, so a report that changes nothing writes
+    // nothing. A header with no box reports 0 — its transcript is out of
+    // layout under a folded card — and that is not a height: writing it, and
+    // writing the real one back on the unfold, was one inherited-property
+    // write per tool block in the frame after each, under the fold's edge.
+    let written = -1;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry === undefined) return;
@@ -428,6 +434,8 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
         boxes !== undefined && boxes.length > 0
           ? boxes[0].blockSize
           : entry.contentRect.height;
+      if (next === 0 || next === written) return;
+      written = next;
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         write(next);
