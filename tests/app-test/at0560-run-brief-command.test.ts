@@ -10,11 +10,9 @@
  *      that card's next turn. Observed by the composer emptying (the submit
  *      cleared it) and the command arriving as the user's own transcript row.
  *   2. `Run in New Session` — a SECOND Session card appears beside the first,
- *      and the command does NOT run in the one the reader right-clicked in.
- *      What the new card does with the command once its session binds is not
- *      observed here: the binding would take a real spawn in the fixture's
- *      throwaway project, and the stash that carries the command to it is
- *      pinned as pure logic in `opening-command-stash.test.ts` instead.
+ *      the command runs THERE — its first turn is the command, sent by the
+ *      card itself, with its composer left empty — and it does NOT run in the
+ *      one the reader right-clicked in.
  *   3. `Copy Command` — the line on the pasteboard, unchanged and unrun.
  *
  * The plain left click is the fourth verb and the one with no menu: it seeds
@@ -300,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
   );
 
   test(
-    "Run in New Session opens a second card and leaves this one alone",
+    "Run in New Session opens a second card that runs the command, and leaves this one alone",
     async () => {
       const app = await seedCardWithCommandLine("at0560-run-brief-new-session");
       try {
@@ -322,6 +320,33 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         ) as string[];
         expect(cards).toContain("A");
         expect(cards.length).toBeGreaterThan(1);
+
+        // The new card runs the command as its first turn: the reader's own
+        // row carrying the brief, sent by the card's own runner rather than
+        // left waiting in its composer. The window covers the runner's
+        // catalog deadline, for a harness claude that never sends one.
+        const newCard = `[data-card-id]:not([data-card-id="A"])`;
+        await app.waitForCondition<boolean>(
+          `Array.from(document.querySelectorAll(${JSON.stringify(
+            `${newCard} [data-testid="session-card-transcript-user-body"]`,
+          )})).some(function(r){
+            return (r.textContent || '').indexOf(${JSON.stringify(BRIEF)}) !== -1;
+          })`,
+          { timeoutMs: 30_000 },
+        );
+        const sentEvents = (await app.getDeckTrace({})).filter(
+          (e) => e.kind === "session-lifecycle" && e.event === "opening_command.sent",
+        );
+        expect(sentEvents.length).toBe(1);
+        const theirs = await app.evalJS<string>(
+          `(function(){
+            var cm = document.querySelector(${JSON.stringify(
+              `${newCard} [data-slot="tug-text-editor"] .cm-content`,
+            )});
+            return cm ? (cm.querySelectorAll('[data-atom-type]').length + ':' + (cm.textContent || '')) : 'none';
+          })()`,
+        );
+        expect(theirs.indexOf("a-thing")).toBe(-1);
 
         // The originating card's own composer is untouched: the command did
         // not run here, and the transcript the reader was reading still says

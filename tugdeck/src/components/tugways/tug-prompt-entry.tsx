@@ -3118,11 +3118,19 @@ export const TugPromptEntry = React.forwardRef<
       .slashCommands.map((c) => c.name);
     let wireText = submitText;
     let wireAtoms = sendAtoms;
-    if (sendAtoms.length === 1 && sendAtoms[0].type === "command") {
+    // A leading command atom is canonicalized whatever follows it: a command
+    // line carrying `@path` mentions has more than one atom, and it still has
+    // to reach claude under the name claude expands.
+    if (
+      sendAtoms.length >= 1 &&
+      sendAtoms[0].type === "command" &&
+      positionedAtoms[0]?.position === 0
+    ) {
       const canonical = resolveRemoteCommand(sendAtoms[0].value, catalogNames);
       if (canonical !== null && canonical !== sendAtoms[0].value) {
         wireAtoms = [
           { ...sendAtoms[0], value: canonical, label: canonical },
+          ...sendAtoms.slice(1),
         ];
       }
     } else if (sendAtoms.length === 0) {

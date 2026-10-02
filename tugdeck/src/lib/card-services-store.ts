@@ -78,6 +78,7 @@ import {
 } from "../settings-api";
 import type { DeckManager } from "../deck-manager";
 import { logSessionLifecycle } from "./session-lifecycle-log";
+import { runOpeningCommand } from "./opening-command-runner";
 import { isDirectoryChangeRebind } from "./directory-change";
 
 export interface CardServices {
@@ -223,6 +224,11 @@ function readSavedAnchorTurnDepth(
 
 class CardServicesStore {
   private readonly _services = new Map<string, CardServices>();
+  /**
+   * The opening-command runner each bag is carrying, by the bag's session
+   * store, so the bag's teardown stops a run that never got to fire.
+   */
+  private readonly _openingRuns = new Map<CodeSessionStore, () => void>();
   /**
    * Bags built for a directory change and not yet shown, by card. While one
    * is here the card keeps rendering the bag in `_services` — the session it
@@ -809,14 +815,17 @@ class CardServicesStore {
       codeSessionStore.seedQueuedSends(stranded);
     }
     // A card opened by Run in New Session carries the command it was opened
-    // to run. Delivered as a seeded draft rather than as a queued send: the
-    // composer is what submits it, so the classification, the transcript row
-    // and the bytes on the wire are a typed command's. The entry's own
-    // deferral holds it until the card can send — the seed waits for an
-    // editor to exist, and the submit waits for `canSubmit`.
+    // to run, and runs it itself: the runner sends it straight from this bag
+    // once the replay is done, the session can submit, and the catalog has
+    // named the qualified command. The composer is not on the road — a card
+    // still being born mounts, restores and remounts it, and the command used
+    // to be lost in each. See `opening-command-runner.ts`.
     const opening = drainOpeningCommand(cardId);
     if (opening !== undefined) {
-      codeSessionStore.runCommandDraft(opening.name, opening.args);
+      this._openingRuns.set(
+        codeSessionStore,
+        runOpeningCommand(cardId, opening, codeSessionStore, sessionMetadataStore),
+      );
     }
     // Bound the cold-resume load by recency: replay only the most recent N
     // committed turns (the canonical unit). A long session loads its relevant
@@ -872,6 +881,8 @@ class CardServicesStore {
     opts: { stash: boolean },
   ): void {
     logSessionLifecycle("services_store.dispose", { card_id: cardId });
+    this._openingRuns.get(services.codeSessionStore)?.();
+    this._openingRuns.delete(services.codeSessionStore);
     if (opts.stash) {
       // Rescue anything the user queued before the store goes down with
       // the bag. A reconnect disposes every card up front, before any
