@@ -193,7 +193,7 @@ const READ_ROW = `(function(){
     refused: occ !== null && occ.hasAttribute("data-refused"),
     stripHeight: strip === null
       ? 0
-      : Math.round(strip.getBoundingClientRect().height),
+      : strip.getBoundingClientRect().height,
     titleSize: title === null ? null : getComputedStyle(title).fontSize,
     sheets: document.querySelectorAll(${JSON.stringify(SHEET)}).length,
     folded: frame.getAttribute("data-folded") === "true",
@@ -405,11 +405,13 @@ describe.skipIf(!SHOULD_RUN)(
             "and Cancel is right-aligned",
           ).toBeLessThanOrEqual(1.5);
           // And the band does not change depth when it stops being the
-          // instruments: the occupant holds the resting row's height.
+          // instruments: the occupant holds the resting row's height. Read
+          // unrounded: the 0.8px a rounded reading let through was the gap
+          // that drew a second rule between Z2's bottom and the frame's.
           expect(
             Math.abs(running.stripHeight - before.stripHeight),
             "the strip is the same depth occupied or not",
-          ).toBeLessThanOrEqual(1);
+          ).toBeLessThanOrEqual(0.1);
           // The instruments are hidden, not unmounted ([L26]).
           expect(running.cellsMounted).toBe(before.cellsMounted);
           expect(running.cellsShown).toBe(0);

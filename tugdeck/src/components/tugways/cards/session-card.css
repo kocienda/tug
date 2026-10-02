@@ -385,10 +385,15 @@
   --tugx-z2-cell-tasks-arc: 17ch;
   --tugx-z2-cell-jobs-arc: 9ch;
   --tugx-z2-cell-context-arc: 14ch;
-  /* Measured: the resting cells' own row is 35px (an 11px legend apparatus,
-     its 5px tick excursion, the 2px stack gap, the 18px value row), which
-     builds a 53px strip. at0562 pins the two depths equal. */
-  --tugx-z2-occupant-height: 35px;
+  /* Measured: the resting cells' own row is 35.8px (an 11px legend apparatus,
+     its 5px tick excursion, the 2px stack gap, the 18px value row, and the
+     fraction the cell stack's own boxes carry), which builds the 53.8px strip
+     `FOLDED_CARD_HEIGHT_PX` is squared with. The fraction is not slack: at
+     35px the occupied strip stood 0.8px short of the tier, and that sliver
+     opened between Z2's bottom rule and the frame's, so a compacting folded
+     card drew a double line along its foot. at0562 pins the two depths equal
+     to the sub-pixel. */
+  --tugx-z2-occupant-height: 35.8px;
   --tugx-z2-occupant-gap: 0.625rem;
   --tugx-z2-occupant-bar-width: 160px;
 

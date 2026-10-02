@@ -197,7 +197,7 @@
   justify-content: center;
   gap: var(--tugx-z2-occupant-gap, 0.625rem);
   min-width: 0;
-  height: var(--tugx-z2-occupant-height, 35px);
+  height: var(--tugx-z2-occupant-height, 35.8px);
 }
 
 /* The compaction occupant is the cover sheet on one line — **icon, title,
