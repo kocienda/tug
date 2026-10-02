@@ -68,17 +68,21 @@ export const DEFAULT_OVERVIEW_CARD_ROWS = 50;
 /**
  * The ceiling on the accumulated list.
  *
- * Paging with no bound would make the Overview an unbounded column of live
- * markdown blocks, each with its own annotation subscriptions and portal
- * hosts, under a memo that walks every post on every change — the shape the
- * transcript has a whole DOM-eviction project for. The Overview must not
- * acquire that problem while importing none of the remedy, so the walk stops
- * here: ten times the default opening tail.
+ * The bound is a compositing-walk budget. Every post is about seventy
+ * elements, all of them rendered — the column skips nothing unseen — and on
+ * the release deck each post added about 0.006 ms to every frame that carries
+ * a style change, so 500 posts would have cost the deck some 3 ms of every
+ * such frame. At 150 the Overview's share stays under a millisecond
+ * (`briefs/compositing-walk-readings.md`). It is also what keeps the column
+ * from becoming an unbounded list of live markdown blocks, each with its own
+ * annotation subscriptions and portal hosts, under a memo that walks every
+ * post on every change.
  *
- * Reaching it ends paging. A reader 500 posts deep wants search, not another
- * page, and the card says nothing about it.
+ * Reaching it ends paging. The posts past it stay in the ledger; a reader 150
+ * posts deep wants search, not another page, and the card says nothing about
+ * it.
  */
-export const OVERVIEW_MAX_ROWS = 500;
+export const OVERVIEW_MAX_ROWS = 150;
 
 /** How close to the top starts loading older history, in px. */
 export const LOAD_OLDER_PX = 200;
@@ -394,8 +398,12 @@ export class OverviewStore {
         cardRows,
       });
       // `card_rows` sizes the OPENING request now — how much history the card
-      // opens with, rather than how many rows it will ever show.
-      const frame = encodeListOverviewPosts({ limit: cardRows });
+      // opens with, rather than how many rows it will ever show. Never more
+      // than the ceiling: a tail the store would trim on arrival is a tail it
+      // does not ask for.
+      const frame = encodeListOverviewPosts({
+        limit: Math.min(cardRows, OVERVIEW_MAX_ROWS),
+      });
       this.conn.send(frame.feedId, frame.payload);
     }
     return this.snapshot;

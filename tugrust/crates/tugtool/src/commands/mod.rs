@@ -5,6 +5,7 @@ pub mod changesets;
 pub mod deck_motion;
 pub mod deck_motion_sample;
 pub mod deck_motion_slide;
+pub mod deck_motion_walk;
 pub mod file;
 pub mod file_probe;
 pub mod file_run;

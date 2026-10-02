@@ -28,10 +28,14 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import {
   DEFAULT_OVERVIEW_CARD_ROWS,
+  OVERVIEW_CARD_ROWS_KEY,
+  OVERVIEW_DOMAIN,
   OVERVIEW_MAX_ROWS,
   OverviewStore,
   publishListOverviewPostsOk,
 } from "@/lib/overview-store";
+import { setTugbankClient } from "@/lib/tugbank-singleton";
+import type { TugbankClient } from "@/lib/tugbank-client";
 import type { TugConnection } from "@/connection";
 import { FeedId, type FeedIdValue, type OverviewPostWire } from "@/protocol";
 
@@ -200,6 +204,31 @@ describe("OverviewStore", () => {
       conn.pushOverviewFrame(post(id, `post ${id}`));
     }
     expect(store.getSnapshot().posts.length).toBe(DEFAULT_OVERVIEW_CARD_ROWS + 5);
+  });
+
+  it("a card_rows past the ceiling opens with the ceiling, not a tail it would trim", () => {
+    // Through the real `setTugbankClient` seam rather than `mock.module`,
+    // which would leak across files in bun's single-process run.
+    const cardRows = OVERVIEW_MAX_ROWS + 350;
+    setTugbankClient({
+      get: (domain: string, key: string) =>
+        domain === OVERVIEW_DOMAIN && key === OVERVIEW_CARD_ROWS_KEY
+          ? { value: cardRows }
+          : undefined,
+      readDomain: () => undefined,
+      onDomainChanged: () => () => {},
+    } as unknown as TugbankClient);
+    try {
+      const { store, conn } = makeStore();
+      stores.push(store);
+      const snap = store.getSnapshot();
+      const decoded = JSON.parse(new TextDecoder().decode(conn.frames[0].payload));
+      expect(decoded.limit).toBe(OVERVIEW_MAX_ROWS);
+      // The knob itself is still read as set; only the request is clamped.
+      expect(snap.cardRows).toBe(cardRows);
+    } finally {
+      setTugbankClient(null);
+    }
   });
 
   it("the accumulated list stops at the ceiling, dropping the end the reader left", () => {

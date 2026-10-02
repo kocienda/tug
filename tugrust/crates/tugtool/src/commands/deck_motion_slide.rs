@@ -68,8 +68,16 @@ const CLICK_OVERHEAD_MS: u64 = 400;
 const SAMPLER_ATTACH_MS: u64 = 1500;
 
 /// The eval call for one page op.
+#[cfg(test)]
 pub fn page_call(args: &Value) -> String {
-    format!("({})({})", PAGE.trim_end(), args)
+    script_call(PAGE, args)
+}
+
+/// The eval call for one op of any embedded page script: the function
+/// expression applied to its JSON argument object. `walk` posts its own
+/// script through the same shape (`deck_motion_walk.rs`).
+pub(crate) fn script_call(script: &str, args: &Value) -> String {
+    format!("({})({})", script.trim_end(), args)
 }
 
 /// One long frame: when it started, relative to the click, and how long it was.
@@ -265,7 +273,14 @@ pub fn summarize(readings: &[ClickReading]) -> Summary {
 
 /// Post one page op. `None` when the eval door is shut.
 fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
-    match post_eval(port, &page_call(&args))? {
+    script_page(port, PAGE, args)
+}
+
+/// Post one op of an embedded page script. `None` when the eval door is shut;
+/// a page `{error}` comes back as `Err`, carrying the row titles when the page
+/// sent them.
+pub(crate) fn script_page(port: u16, script: &str, args: Value) -> Result<Option<Value>, String> {
+    match post_eval(port, &script_call(script, &args))? {
         EvalOutcome::Gated => Ok(None),
         EvalOutcome::Ok(value) => {
             if let Some(error) = value.get("error").and_then(|e| e.as_str()) {

@@ -55,8 +55,8 @@ const GESTURE_WINDOW_DEFAULT_MS: u32 = 8000;
 /// survives the round trip instead of terminating the string literal early.
 ///
 /// Returns `None` for `enable` and `disable`, which are defaults writes rather
-/// than evaluations, and for `slide`, which posts many calls of its own
-/// (`deck_motion_slide.rs`).
+/// than evaluations, and for `slide` and `walk`, which post many calls of
+/// their own (`deck_motion_slide.rs`, `deck_motion_walk.rs`).
 pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
     let json = |s: &str| serde_json::to_string(s).expect("a string always encodes");
     Some(match cmd {
@@ -113,7 +113,8 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         ),
         DeckMotionCommands::Enable { .. }
         | DeckMotionCommands::Disable { .. }
-        | DeckMotionCommands::Slide { .. } => return None,
+        | DeckMotionCommands::Slide { .. }
+        | DeckMotionCommands::Walk { .. } => return None,
     })
 }
 
@@ -133,6 +134,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Chains { target, .. }
         | DeckMotionCommands::Gesture { target, .. }
         | DeckMotionCommands::Slide { target, .. }
+        | DeckMotionCommands::Walk { target, .. }
         | DeckMotionCommands::Enable { target }
         | DeckMotionCommands::Disable { target } => target,
     }
@@ -167,6 +169,32 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             tasks,
             json_output,
         ),
+        DeckMotionCommands::Walk { restore: true, .. } => {
+            crate::commands::deck_motion_walk::run_restore(port, json_output)
+        }
+        DeckMotionCommands::Walk {
+            arms,
+            rounds,
+            frames,
+            driver,
+            ..
+        } => {
+            let arms: Vec<_> = arms
+                .iter()
+                .map(|a| {
+                    crate::commands::deck_motion_walk::WalkArm::parse(a)
+                        .expect("clap admits only arm names")
+                })
+                .collect();
+            crate::commands::deck_motion_walk::run_walk(
+                port,
+                &arms,
+                rounds,
+                frames,
+                &driver,
+                json_output,
+            )
+        }
         other => {
             let code = eval_code_for(&other).expect("only enable/disable have no eval code");
             let result = match post_eval(port, &code)? {
@@ -281,7 +309,8 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Gesture { mode, .. } => render_gesture(mode, value),
         DeckMotionCommands::Enable { .. }
         | DeckMotionCommands::Disable { .. }
-        | DeckMotionCommands::Slide { .. } => fallback(value),
+        | DeckMotionCommands::Slide { .. }
+        | DeckMotionCommands::Walk { .. } => fallback(value),
     }
 }
 
@@ -909,6 +938,16 @@ mod tests {
     fn enable_and_disable_evaluate_nothing() {
         assert!(eval_code_for(&DeckMotionCommands::Enable { target: target() }).is_none());
         assert!(eval_code_for(&DeckMotionCommands::Disable { target: target() }).is_none());
+        // `walk` posts its own page ops rather than one evaluation.
+        let walk = DeckMotionCommands::Walk {
+            arms: vec!["overview-skip".to_string()],
+            rounds: 3,
+            frames: 30,
+            driver: "width".to_string(),
+            restore: false,
+            target: target(),
+        };
+        assert!(eval_code_for(&walk).is_none());
     }
 
     /// A remedy that does not name the command that fixes it is a dead end:

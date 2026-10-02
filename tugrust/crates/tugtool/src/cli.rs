@@ -1168,6 +1168,48 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// Price the compositing walk with a named subtree skipped or removed.
+    ///
+    /// A frame with nothing dirty runs no walk, so this drives one: inside
+    /// every sampled frame it toggles the width (or transform) of a hidden
+    /// fixed 1px element, and reads the walk as the driven frames' p50 above
+    /// the undriven floor's. Each arm is read paired with a baseline taken
+    /// just before it, over `--rounds`, with the deck's running loops paused
+    /// for each burst; the report is the walk each arm saved, per thousand
+    /// elements, stacking contexts and render-layer candidates it removed,
+    /// beside a census of the deck.
+    ///
+    /// Every arm is an inline-style write restored when its reading ends, and
+    /// every run ends by checking nothing was left behind. Removing a parked
+    /// workspace with `display: none` throws its render state away, so the
+    /// re-show after `parked-absent` rebuilds that layer once. Take a reading
+    /// with the Tug window in front: a covered window stops the frames.
+    Walk {
+        /// The arms to read, comma-separated, in the order given.
+        #[arg(
+            long,
+            value_delimiter = ',',
+            value_parser = crate::commands::deck_motion_walk::ARM_NAMES,
+            default_values = crate::commands::deck_motion_walk::ARM_NAMES
+        )]
+        arms: Vec<String>,
+        /// How many times each arm is read, each paired with its own baseline.
+        #[arg(long, default_value_t = 3)]
+        rounds: u32,
+        /// Frames sampled per burst.
+        #[arg(long, default_value_t = 30)]
+        frames: u32,
+        /// The style change written in every driven frame: `width` toggles a
+        /// layout property, `transform` a transform-family one.
+        #[arg(long, value_parser = ["width", "transform"], default_value = "width")]
+        driver: String,
+        /// Read nothing: put back whatever an interrupted reading left on the
+        /// deck, and say what that was.
+        #[arg(long)]
+        restore: bool,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// Open the `diag/eval` door on this instance (loopback only).
     Enable {
         #[command(flatten)]
