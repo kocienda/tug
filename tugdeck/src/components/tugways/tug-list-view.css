@@ -138,6 +138,15 @@ body {
      resolves nothing. */
   --tugx-list-view-stripe-tint: var(--tug7-element-global-text-normal-default-rest);
   --tugx-list-view-stripe-shade: var(--tug7-surface-global-primary-normal-content-rest);
+  /* A multiplier on every stripe strength. The light themes raise it (below):
+     on paper the even rows' wash runs toward a content surface the rail
+     already nearly is, so only the odd rows' wash moves and the same percent
+     bands at under half the strength it has on a dark theme. */
+  --tugx-list-view-stripe-gain: 1;
+}
+
+[data-theme-mode="light"] body {
+  --tugx-list-view-stripe-gain: 2.5;
 }
 
 /* ---- Scroll container ---- */

@@ -28,8 +28,8 @@ low-chroma Keys read as pale tints, high-chroma Keys as vivid.
 | `ironclad` | dark | indigo-violet | cobalt (vivid) | orange (vivid) |
 | `caravel` | dark | teal | seafoam (vivid) | orange (vivid) |
 | `barque` | dark | grape | purple (vivid) | orange (vivid) |
-| `galleon` | dark | honey | cerulean (vivid) | orange (vivid) |
-| `collier` | dark | azure | rose (vivid) | orange (vivid) |
+| `galleon` | dark | honey | gold (vivid) | orange (vivid) |
+| `collier` | dark | azure | cyan (vivid) | orange (vivid) |
 | `sloop` | light | indigo | blue (vivid) | orange (vivid) |
 | `ketch` | light | orchid | iris (vivid) | orange (vivid) |
 | `skiff` | light | cyan | seafoam (vivid) | orange (vivid) |
@@ -37,10 +37,11 @@ low-chroma Keys read as pale tints, high-chroma Keys as vivid.
 | `pinnace` | light | pink | rose (vivid) | orange (vivid) |
 
 The names are vessel types: ships for the dark themes, boats for the light ones, so the mode reads
-from the word alone. `galleon` and `kayak` are a warm cross-mode pair sharing the honey tint, and they
-take cool Keys because every warm Key would crowd both the caution signal and the orange Accent.
-`collier` and `pinnace` are the rose pair — a quiet tint with one hot Key, the only Keys outside the
-teal-to-purple arc.
+from the word alone. `galleon` and `kayak` are a warm cross-mode pair sharing the honey tint; `kayak`
+takes a cool Key, because a warm Key crowds both the caution signal and the orange Accent. A dark
+theme's Key sits beside its tint, as `ironclad`'s cobalt sits beside indigo-violet: `collier` is cyan
+on azure and `galleon` gold on honey — a Key from across the wheel reads as a second theme laid over
+the first. `galleon` accepts the crowding that costs. `pinnace` carries the one hot Key, rose on pink.
 
 Two repetitions in that table are the files' own and not transcription slips: every theme currently
 declares the same `--tugx-accent`, so the Accent column is one hue ten times, and every Key is vivid

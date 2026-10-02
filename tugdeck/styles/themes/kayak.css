@@ -250,9 +250,9 @@ body {
      alphas as the dark ones: a wash over a pale ground darkens where a wash over
      a dark ground lightens, and the step reads at the same strength either way.
      Sole consumer is the list row. */
-  --tug7-surface-selection-primary-normal-quiet-rest: --tug-color(sapphire, l: 930, c: 50, a: 180);
-  --tug7-surface-selection-primary-normal-quiet-hover: --tug-color(sapphire, l: 930, c: 50, a: 240);
-  --tug7-surface-selection-primary-normal-quiet-strong: --tug-color(sapphire, l: 930, c: 50, a: 320);
+  --tug7-surface-selection-primary-normal-quiet-rest: --tug-color(sapphire, l: 600, c: 300, a: 180);
+  --tug7-surface-selection-primary-normal-quiet-hover: --tug-color(sapphire, l: 600, c: 300, a: 240);
+  --tug7-surface-selection-primary-normal-quiet-strong: --tug-color(sapphire, l: 600, c: 300, a: 320);
   /* Demoted selection — a selected list row whose descended trailing
      accessory holds the keyboard key view yields its fill to the live
      control: the row drops to a calmer wash TINGED BY THE ACCESSORY'S ROLE

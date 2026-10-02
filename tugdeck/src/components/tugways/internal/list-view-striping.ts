@@ -135,5 +135,5 @@ function stripeWash(
     typeof strength === "number"
       ? strength
       : STRIPE_STRENGTH_PERCENT[strength];
-  return `color-mix(in srgb, ${tint} ${percent}%, transparent)`;
+  return `color-mix(in srgb, ${tint} calc(${percent}% * var(--tugx-list-view-stripe-gain, 1)), transparent)`;
 }
