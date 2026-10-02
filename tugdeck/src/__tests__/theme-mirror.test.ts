@@ -66,4 +66,26 @@ describe("ThemeMirror", () => {
     const { mirror } = mirrorSeeded("ironclad");
     expect(mirror.observe("ironclad")).toBe(false);
   });
+
+  test("a push from before an own write landed is not an outside write", () => {
+    // A theme pick sends the host its canvas color, and the host's
+    // `window-background` write can reach the store ahead of this client's
+    // own PUT. The domain push it causes still carries the OLD theme.
+    const { mirror, written } = mirrorSeeded("ironclad");
+    mirror.write("sloop");
+    expect(mirror.observe("ironclad")).toBe(false);
+    // The write's own echo, and nothing left to apply or write.
+    expect(mirror.observe("sloop")).toBe(false);
+    expect(written).toEqual(["sloop"]);
+    // With no write owed an echo, the old value IS an outside write.
+    expect(mirror.observe("ironclad")).toBe(true);
+  });
+
+  test("an outside write past a pending one settles it", () => {
+    const { mirror } = mirrorSeeded("ironclad");
+    mirror.write("sloop");
+    expect(mirror.observe("ketch")).toBe(true);
+    // `sloop` was overwritten before its echo could be told apart.
+    expect(mirror.observe("ironclad")).toBe(true);
+  });
 });

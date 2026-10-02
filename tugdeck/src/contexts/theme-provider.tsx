@@ -125,6 +125,25 @@ function finishThemeChange(theme: string, hostCanvasColor: string | null): void 
   }
   notifyThemeChange();
   themeMirror.write(theme);
+  settleThemeTransitions();
+}
+
+/**
+ * End every CSS transition the theme change started, in the task that made
+ * it. A theme change is a new value for nearly every color on the page, so
+ * each control with a `transition` on a color begins fading from the old
+ * theme on its own clock — hundreds of them — while everything without one
+ * has already changed: the old theme lingering in the buttons for a few
+ * frames. Finishing them lands the whole page on the new theme in one paint.
+ * `getAnimations` resolves style first, which is what starts them; it is the
+ * style pass the next frame would have run, not a second one.
+ */
+function settleThemeTransitions(): void {
+  if (typeof document.getAnimations !== "function") return;
+  if (typeof CSSTransition === "undefined") return;
+  for (const animation of document.getAnimations()) {
+    if (animation instanceof CSSTransition) animation.finish();
+  }
 }
 
 /**

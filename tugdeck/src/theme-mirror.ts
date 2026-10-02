@@ -16,6 +16,16 @@
  * on screen. Read as an outside write it would stamp `b` onto the workspace
  * the user just arrived in. So the mirror remembers its own writes in order
  * and an echo of one is recognised as such, however late it lands.
+ *
+ * A push can also be STALE. The domain is pushed whole whenever any key in it
+ * moves, and a theme change moves a second key by another road: the host
+ * writes `window-background` when it is sent the new canvas color. When that
+ * write beats this client's own PUT to the store, its push still carries the
+ * theme the key held BEFORE the write — and read as an outside write it puts
+ * the old theme back on screen, whose own canvas-color write then pushes the
+ * new theme and flips it forward again. So while a write is owed its echo, a
+ * push carrying the value the key held before it is a snapshot from before
+ * the write, and changes nothing.
  */
 
 import { putTheme } from "./settings-api";
@@ -28,6 +38,8 @@ export class ThemeMirror {
   private known: string | null = null;
   /** Own writes whose echo has not come back, oldest first. */
   private pending: string[] = [];
+  /** What the key held before the oldest pending write; null when none is. */
+  private before: string | null = null;
 
   constructor(private readonly put: (theme: string) => void) {}
 
@@ -46,6 +58,7 @@ export class ThemeMirror {
    */
   write(theme: string): void {
     if (theme === this.known) return;
+    if (this.pending.length === 0) this.before = this.known;
     this.known = theme;
     this.pending.push(theme);
     this.put(theme);
@@ -62,9 +75,15 @@ export class ThemeMirror {
     if (echoed !== -1) {
       // Pushes can coalesce, so an echo also settles every write before it.
       this.pending.splice(0, echoed + 1);
+      if (this.pending.length === 0) this.before = null;
       return false;
     }
     if (value === this.known) return false;
+    // A snapshot taken before this client's write reached the store.
+    if (this.pending.length > 0 && value === this.before) return false;
+    // Anything else is past every write still owed an echo.
+    this.pending = [];
+    this.before = null;
     this.known = value;
     return true;
   }
