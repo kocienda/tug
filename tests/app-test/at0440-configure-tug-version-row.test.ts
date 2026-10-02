@@ -28,6 +28,11 @@
  *      click. Whether that reading *releases* the wizard's claim on the app
  *      is a pure derivation, pinned in `configure-tug-copy.test.ts`; what
  *      this adds is that the wire carries it and the row says it.
+ *   5. A `claude_version_result` below `MIN_CLAUDE_CODE_VERSION` turns the
+ *      install row into the step the wizard waits on: the floor named, an
+ *      active dot, Update, and no check. The required claim itself is
+ *      suppressed under the harness, so the claim is pinned in
+ *      `configure-tug-copy.test.ts`; this pins that the row says it.
  *
  * Reached through Tug ▸ Configure Tug… (`dispatchControlAction("configure-tug")`,
  * the exact action the menu item posts), because the blocking wizard is
@@ -164,6 +169,61 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         const tail = app.tailLog(200);
         if (tail !== "") {
           process.stderr.write(`\n[at0440-configure-tug-version-row] log tail:\n${tail}\n`);
+        }
+        throw err;
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a Claude Code below the floor makes the update the step to take",
+    async () => {
+      const app = await launchTugApp({ testName: "at0440-configure-tug-too-old" });
+      try {
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.bindSession("A", { tugSessionId: `${SID}-too-old` });
+
+        await app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
+        );
+        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        // Let the real probe land first, or it overwrites the injected frame.
+        await app.waitForCondition<boolean>(
+          `/^Version \\d+\\.\\d+\\.\\d+/.test(${text(INSTALL_DETAIL)})`,
+          { timeoutMs: 20_000 },
+        );
+
+        await app.evalJS<null>(
+          `(window.tugdeck.lab.dispatch("claude_version_result", { installed: "2.1.200", latest: "2.1.290" }), null)`,
+        );
+        await app.waitForCondition<boolean>(
+          `${text(INSTALL_DETAIL)}.indexOf("Tug needs Claude Code") !== -1`,
+          { timeoutMs: 5000 },
+        );
+        const detail = await app.evalJS<string>(text(INSTALL_DETAIL));
+        const cta = await app.evalJS<string>(text(INSTALL_CTA));
+        const hasCheck = await app.evalJS<boolean>(present(INSTALL_CHECK));
+        const status = await app.evalJS<string>(
+          `document.querySelector(${JSON.stringify(INSTALL_ROW)}).getAttribute("data-status")`,
+        );
+        note(`at0440 too-old row: ${JSON.stringify({ detail, cta, status })}`);
+
+        expect(detail, "the row names the floor and the installed version").toBe(
+          "Tug needs Claude Code 2.1.285 or later. This Mac has 2.1.200 — update to continue.",
+        );
+        expect(cta.trim(), "the row offers the update").toBe("Update");
+        expect(hasCheck, "a too-old install is not a settled step").toBe(false);
+        expect(status, "the row is the step the wizard waits on").toBe("active");
+      } catch (err) {
+        const tail = app.tailLog(200);
+        if (tail !== "") {
+          process.stderr.write(`\n[at0440-configure-tug-too-old] log tail:\n${tail}\n`);
         }
         throw err;
       } finally {

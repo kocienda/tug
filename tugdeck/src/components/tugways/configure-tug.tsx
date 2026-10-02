@@ -22,8 +22,11 @@
  *      `tugcore::host_tools`.
  *   1. Claude Code — Tug-managed install + recheck, then the version it landed
  *      against the newest stable release, with an Update offer when it's
- *      behind. The updater IS the installer (the official installer always
- *      lands the newest stable build), so both live on one row. Tug fetches
+ *      behind. Below {@link MIN_CLAUDE_CODE_VERSION} the offer becomes the
+ *      step: the wizard claims the app, the rows after it hold, and the user
+ *      updates to continue. The updater IS the installer (the official
+ *      installer always lands the newest stable build), so both live on one
+ *      row. Tug fetches
  *      the release itself ([B08]) rather than piping the official script into
  *      bash, so the row draws a real bar with bytes, rate and time remaining,
  *      and the transfer can be paused and resumed ([B09]) — the partial file
@@ -145,6 +148,9 @@ import {
   subscriptionLabel,
   pendingOpenStepCopy,
   claudeInstalledCopy,
+  claudeTooOldCopy,
+  isClaudeBelowMinimum,
+  MIN_CLAUDE_CODE_VERSION,
   isLoginOnlyWizard,
   hostToolsCopy,
   returnHomeStepKey,
@@ -449,6 +455,12 @@ export function ConfigureTug(): ReactElement {
 
   const notReady = forced ? !forcedLoggedIn : loggedIn === false;
 
+  // Installed, but older than Tug runs against. The update is no longer an
+  // optional offer: the wizard claims the app until it lands, and the rows
+  // after the install row hold. An unknown version claims nothing.
+  const claudeTooOld =
+    !forced && !claudeMissing && isClaudeBelowMinimum(installed);
+
   // The macOS host's network-path hint ([L02] through the store's own hook).
   // A hint, believed in one direction only; `network-path-store.ts` carries
   // the argument and the two consumers below read it accordingly.
@@ -571,6 +583,7 @@ export function ConfigureTug(): ReactElement {
     notReady,
     needsFirstSession,
     probing,
+    claudeTooOld,
     reason: forcedReason,
     pathStatus,
   });
@@ -891,6 +904,17 @@ export function ConfigureTug(): ReactElement {
         cta: { label: "Retry", onClick: handleUpdate },
       };
     }
+    // Below the floor: the row is the step the wizard is waiting on, so it
+    // wears the active dot and the filled CTA rather than a settled check.
+    if (claudeTooOld && installed !== null) {
+      return {
+        key,
+        status: "active",
+        label: "Update Claude Code",
+        detail: claudeTooOldCopy(installed),
+        cta: { label: "Update", onClick: handleUpdate },
+      };
+    }
     // Installed and working. The row stays `done` even with an update on offer
     // — nothing is blocked by being a version behind — so the dot reads settled
     // and the Update button rides beside it in place of the success check.
@@ -909,6 +933,13 @@ export function ConfigureTug(): ReactElement {
   );
   const signInStep: Step = claudeMissing
     ? { key: "signin", status: "pending", label: "Log in to Claude" }
+    : claudeTooOld && !effectiveLoggedIn && !signingIn
+      ? {
+          key: "signin",
+          status: "pending",
+          label: "Log in to Claude",
+          detail: `Waiting for Claude Code ${MIN_CLAUDE_CODE_VERSION} or later.`,
+        }
     : signingIn
       ? {
           key: "signin",
@@ -1043,6 +1074,13 @@ export function ConfigureTug(): ReactElement {
       // logout-with-work case — this reads "Continue working" and re-login
       // auto-closes the wizard back to them, rather than nudging a new card.
       { key: "open", status: "pending", ...pendingOpenStepCopy(cardCount) }
+      : claudeTooOld
+        ? {
+            key: "open",
+            status: "pending",
+            label: "Start a session",
+            detail: `Waiting for Claude Code ${MIN_CLAUDE_CODE_VERSION} or later.`,
+          }
       : !projectDirSettled
         ? {
             key: "open",
@@ -1084,7 +1122,11 @@ export function ConfigureTug(): ReactElement {
   // happened. So the wizard shows only what it is actually asking about —
   // install and login — rather than re-presenting two rows the user cannot act
   // on while logged out. A first run still gets the whole checklist.
-  const loginOnly = isLoginOnlyWizard(effectiveLoggedIn, inFirstRun);
+  // A set-up app held only by a too-old Claude Code is the same shape: the
+  // question is the install row, not the first run's directory and session.
+  const loginOnly =
+    isLoginOnlyWizard(effectiveLoggedIn, inFirstRun) ||
+    (claudeTooOld && !inFirstRun);
 
   const steps: Step[] = transportDown
     ? reconnectingSteps

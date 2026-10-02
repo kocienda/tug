@@ -90,6 +90,36 @@ export function claudeInstalledCopy(
 }
 
 /**
+ * The oldest Claude Code Tug will run against. Below it the install row stops
+ * being an optional offer and becomes the step the wizard is waiting on: the
+ * wizard claims the app (see {@link deriveConfigureTugRequired}) and the rows
+ * after it hold until the update lands. Raise it when Tug starts depending on
+ * something a newer Claude Code introduced.
+ */
+export const MIN_CLAUDE_CODE_VERSION = "2.1.285";
+
+/**
+ * Whether the installed Claude Code is older than Tug's floor. An unknown
+ * version (`null` — not installed, or not probed yet) is not "too old": the
+ * missing install has its own row state, and an unanswered probe is not
+ * evidence of anything.
+ */
+export function isClaudeBelowMinimum(
+  installed: string | null,
+  minimum: string = MIN_CLAUDE_CODE_VERSION,
+): boolean {
+  return installed !== null && compareVersions(installed, minimum) < 0;
+}
+
+/** The install row's detail when the installed Claude Code is below the floor. */
+export function claudeTooOldCopy(
+  installed: string,
+  minimum: string = MIN_CLAUDE_CODE_VERSION,
+): string {
+  return `Tug needs Claude Code ${minimum} or later. This Mac has ${installed} — update to continue.`;
+}
+
+/**
  * Whether the wizard is asking a login question rather than a setup question:
  * the user is logged out on an app that is past its first run. That is the Log
  * Out gesture (and any relaunch with the login revoked), where the directory
@@ -367,6 +397,12 @@ export function deriveConfigureTugRequired(signals: {
   notReady: boolean;
   needsFirstSession: boolean;
   probing: boolean;
+  /**
+   * The installed Claude Code is below {@link MIN_CLAUDE_CODE_VERSION}. Not
+   * relaxed by the path hint: an app that cannot run the CLI it has is not
+   * made usable by getting out of the way.
+   */
+  claudeTooOld: boolean;
   /** The `reason` beside `loggedIn` — `"logged_out"` is the arm below. */
   reason: string | null;
   /** The host's last path report, or `null` for "nothing was reported". */
@@ -381,7 +417,8 @@ export function deriveConfigureTugRequired(signals: {
   return (
     (signals.notReady && !loggedOutOffline) ||
     signals.needsFirstSession ||
-    signals.probing
+    signals.probing ||
+    signals.claudeTooOld
   );
 }
 

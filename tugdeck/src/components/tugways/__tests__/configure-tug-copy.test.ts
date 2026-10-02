@@ -13,6 +13,9 @@ import {
   subscriptionLabel,
   pendingOpenStepCopy,
   claudeInstalledCopy,
+  claudeTooOldCopy,
+  isClaudeBelowMinimum,
+  MIN_CLAUDE_CODE_VERSION,
   compareVersions,
   isLoginOnlyWizard,
   hostToolsCopy,
@@ -106,6 +109,34 @@ describe("claudeInstalledCopy", () => {
       detail: "Claude Code is ready.",
       updatable: false,
     });
+  });
+});
+
+describe("minimum Claude Code version", () => {
+  test("the floor is 2.1.285", () => {
+    expect(MIN_CLAUDE_CODE_VERSION).toBe("2.1.285");
+  });
+
+  test("below the floor is too old; at or above it is not", () => {
+    expect(isClaudeBelowMinimum("2.1.284")).toBe(true);
+    expect(isClaudeBelowMinimum("2.0.999")).toBe(true);
+    expect(isClaudeBelowMinimum("2.1.285")).toBe(false);
+    expect(isClaudeBelowMinimum("2.1.300")).toBe(false);
+    expect(isClaudeBelowMinimum("2.2.0")).toBe(false);
+  });
+
+  test("a pre-release of the floor is still below it", () => {
+    expect(isClaudeBelowMinimum("2.1.285-rc.1")).toBe(true);
+  });
+
+  test("an unknown version is never too old", () => {
+    expect(isClaudeBelowMinimum(null)).toBe(false);
+  });
+
+  test("the row names the floor and what is installed", () => {
+    expect(claudeTooOldCopy("2.1.200")).toBe(
+      "Tug needs Claude Code 2.1.285 or later. This Mac has 2.1.200 — update to continue.",
+    );
   });
 });
 
@@ -321,6 +352,7 @@ describe("deriveConfigureTugRequired", () => {
     notReady: false,
     needsFirstSession: false,
     probing: false,
+    claudeTooOld: false,
     reason: null as string | null,
     pathStatus: null as string | null,
   };
@@ -345,6 +377,22 @@ describe("deriveConfigureTugRequired", () => {
     expect(deriveConfigureTugRequired({ ...base, needsFirstSession: true })).toBe(true);
   });
 
+  test("a Claude Code below the floor claims it", () => {
+    expect(deriveConfigureTugRequired({ ...base, claudeTooOld: true })).toBe(true);
+  });
+
+  test("no route does not relax a Claude Code below the floor", () => {
+    expect(
+      deriveConfigureTugRequired({
+        ...base,
+        claudeTooOld: true,
+        reason: "logged_out",
+        notReady: true,
+        pathStatus: "unsatisfied",
+      }),
+    ).toBe(true);
+  });
+
   test("suppression beats every other term", () => {
     expect(
       deriveConfigureTugRequired({
@@ -353,6 +401,7 @@ describe("deriveConfigureTugRequired", () => {
         notReady: true,
         needsFirstSession: true,
         probing: true,
+        claudeTooOld: true,
         reason: "logged_out",
         pathStatus: "unsatisfied",
       }),
@@ -370,6 +419,7 @@ describe("deriveConfigureTugRequired — the path hint's one use", () => {
     notReady: true,
     needsFirstSession: false,
     probing: false,
+    claudeTooOld: false,
     reason: "logged_out" as string | null,
     pathStatus: null as string | null,
   };
