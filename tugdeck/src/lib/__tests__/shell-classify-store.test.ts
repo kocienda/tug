@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect, jest, mock } from "bun:test";
 
 // Capture the SHELL_INPUT frames `request` sends. Mocked before importing the
-// store (the sibling side-question-store test's pattern). The transport
+// store. The transport
 // swallows frames so a request genuinely parks; `connected` off is the
 // no-transport posture. `setConnection` is the real setter, frozen before the
 // mock lands, so this file-wide mock cannot swallow another suite's call to it

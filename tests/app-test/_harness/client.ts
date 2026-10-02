@@ -1019,26 +1019,6 @@ export function ingestSessionMetadata(
   return caller.evalJS<null>(script, evalOpts).then(() => undefined);
 }
 
-/**
- * Settle a session card's `SideQuestionStore` via
- * `window.__tug.ingestSideQuestionAnswer` — feeds a decoded
- * `side_question_answer` payload as if a matching CODE_OUTPUT frame had
- * landed, so the `/btw` overlay renders its answer without a live claude
- * round-trip. The payload `request_id` must match a pending (loading)
- * exchange. Requires a prior `bindSession(cardId)`.
- */
-export function ingestSideQuestionAnswer(
-  caller: HarnessCaller,
-  cardId: string,
-  payload: unknown,
-  evalOpts?: EvalJsOptions,
-): Promise<void> {
-  const script = callSurface(
-    `(window.__tug.ingestSideQuestionAnswer(${lit(cardId)}, ${lit(payload)}), null)`,
-  );
-  return caller.evalJS<null>(script, evalOpts).then(() => undefined);
-}
-
 // ---------------------------------------------------------------------------
 // RPC-verb wrappers (native gestures, accessibility preflight,
 // Swift-computed screen bounds)

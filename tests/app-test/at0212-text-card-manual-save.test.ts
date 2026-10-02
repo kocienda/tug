@@ -4,9 +4,6 @@
  * default; this drives the classic document contract on real files through
  * real code paths — no mocks.
  *
- * (The plan numbered this at0211, but that id was taken by the /btw
- * overlay test landed since; this is the same suite under the next id.)
- *
  * ## Scenarios
  *
  * 1. **Edits stay off disk; menu gates + dynamic ⇧⌘S.** Open a real file

@@ -845,6 +845,33 @@ impl TestWs {
             .expect("send model_change frame");
     }
 
+    /// Send a `side_question` message — the `/btw` ask, byte-for-byte the
+    /// shape `SideQuestionStore.ask` (`tugdeck/src/lib/side-question-store.ts`)
+    /// sends. tugcode forwards it to claude as a `side_question` control
+    /// request and answers with a `side_question_answer` CODE_OUTPUT frame
+    /// carrying the same `request_id`.
+    pub async fn send_side_question(
+        &mut self,
+        tug_session_id: &str,
+        request_id: &str,
+        question: &str,
+    ) {
+        let payload = serde_json::json!({
+            "tug_session_id": tug_session_id,
+            "type": "side_question",
+            "request_id": request_id,
+            "question": question,
+        });
+        let bytes = serde_json::to_vec(&payload).expect("side_question json");
+        let frame = Frame::new(FeedId::CODE_INPUT, bytes);
+        self.sink
+            .lock()
+            .await
+            .send(Message::Binary(frame.encode().into()))
+            .await
+            .expect("send side_question frame");
+    }
+
     /// Send a `permission_mode` message. Per the "Inbound Message
     /// Types" catalog in transport-exploration.md, mode ∈
     /// {`"default"`, `"acceptEdits"`, `"bypassPermissions"`, ...}.
@@ -963,6 +990,18 @@ impl TestWs {
             .await?;
         let frame = self.buffer.remove(idx);
         Ok(frame.payload)
+    }
+
+    /// Whether a `CODE_OUTPUT` event of `event_type` for `tug_session_id`
+    /// has already arrived. Reads the buffer only — it never pulls from the
+    /// socket — so it answers "had this happened by now?", which is what an
+    /// ordering assertion needs.
+    pub fn has_buffered_code_output(&self, tug_session_id: &str, event_type: &str) -> bool {
+        self.buffer.iter().any(|f| {
+            f.feed_id == FeedId::CODE_OUTPUT
+                && f.payload["tug_session_id"] == tug_session_id
+                && f.payload["type"] == event_type
+        })
     }
 
     /// Non-consuming variant of [`await_code_output_event`]. Pumps

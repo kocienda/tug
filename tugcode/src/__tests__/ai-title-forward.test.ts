@@ -9,8 +9,7 @@
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../session.ts";
 
-// Capture writeLine() output (routes through Bun.write(Bun.stdout)). Mirrors
-// side-question-bridge.test.ts's helper.
+// Capture writeLine() output (routes through Bun.write(Bun.stdout)).
 async function captureIpcOutput(fn: () => void | Promise<void>): Promise<any[]> {
   const captured: any[] = [];
   const originalWrite = Bun.write;

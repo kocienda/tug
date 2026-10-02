@@ -332,15 +332,6 @@ export class SideQuestionStore {
 
   getSnapshot = (): SideQuestionSnapshot => this._snapshot;
 
-  /** Test seam — settle a pending exchange, bypassing the connection. @internal */
-  _ingestForTest(payload: unknown): void {
-    const parsed = parseSideQuestionAnswerPayload(payload);
-    if (parsed === null) {
-      throw new Error("SideQuestionStore._ingestForTest: malformed payload");
-    }
-    this._settle(parsed);
-  }
-
   dispose(): void {
     if (this._unsubscribeFeed) {
       this._unsubscribeFeed();

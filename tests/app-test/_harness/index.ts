@@ -1071,17 +1071,6 @@ export class App {
     return client.ingestSessionMetadata(this as HarnessCaller, cardId, payload);
   }
 
-  /**
-   * Settle a session card's `SideQuestionStore` with a decoded
-   * `side_question_answer` payload so the `/btw` overlay renders its answer
-   * without a live claude round-trip (and the transcript can be asserted
-   * clean). The payload `request_id` must match a pending ask. Requires a
-   * prior `bindSession(cardId)`.
-   */
-  ingestSideQuestionAnswer(cardId: string, payload: unknown): Promise<void> {
-    return client.ingestSideQuestionAnswer(this as HarnessCaller, cardId, payload);
-  }
-
   // -------------------------------------------------------------------
   // Accessibility preflight ([D03])
   // -------------------------------------------------------------------

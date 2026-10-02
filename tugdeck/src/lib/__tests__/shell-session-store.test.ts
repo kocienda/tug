@@ -1,8 +1,8 @@
 /**
  * ShellSessionStore — folds SHELL_OUTPUT into session state and mirrors each
  * exchange into CodeSessionStore ([P12]). Drives the real store's fold + the
- * real CodeSessionStore reducer via a minimal feed double (the sibling
- * side-question-store test's pattern) — no DOM, no mock-store assertions.
+ * real CodeSessionStore reducer via a minimal feed double — no DOM, no
+ * mock-store assertions.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 

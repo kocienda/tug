@@ -201,11 +201,11 @@ import {
  * app-tests assert internal splits without scraping the log stream.
  * Additive; major stays `1`.
  *
- * `1.14.0`: adds {@link TugTestSurface.ingestSideQuestionAnswer} — settles a
+ * `1.14.0`: adds `ingestSideQuestionAnswer` — settles a
  * session card's `SideQuestionStore` with a decoded `side_question_answer`
  * payload, so the `/btw` overlay app-test can render an answer (and assert the
  * transcript stays clean) without a live claude round-trip. Additive; major
- * stays `1`.
+ * stays `1`. **Removed in `2.25.0`.**
  *
  * `1.15.0`: adds {@link TugTestSurface.reprojectFocus} — asks the focus engine
  * to reproject its DOM marks from current state, so a test can prove the marks
@@ -415,8 +415,13 @@ import {
  * method is the forcing probe ([D5]): it plants a deliberate long task inside
  * the settle window so a reading that notices nothing can be told from a
  * sampler that stopped observing. Additive; major stays `2`.
+ *
+ * `2.25.0`: drops `ingestSideQuestionAnswer`. It settled a `/btw` answer
+ * without a claude round-trip, so the one test that used it proved nothing
+ * about the path a real ask takes; the test went with it. Major stays `2` for
+ * the reason `2.20.0` gives.
  */
-export const SURFACE_VERSION = "2.24.0" as const;
+export const SURFACE_VERSION = "2.25.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1548,15 +1553,6 @@ export interface TugTestSurface {
    * SESSION_SIDEBAND FeedStore, unreachable by `driveSession`.
    */
   ingestSessionMetadata(cardId: string, payload: unknown): void;
-
-  /**
-   * Settle a bound session card's `SideQuestionStore` with a decoded
-   * `side_question_answer` payload, as if a matching CODE_OUTPUT frame had
-   * landed — so the `/btw` overlay renders its answer without a live claude
-   * round-trip. The payload's `request_id` must match a pending (loading)
-   * exchange (i.e. a prior `/btw` ask). Requires a prior `bindSession`.
-   */
-  ingestSideQuestionAnswer(cardId: string, payload: unknown): void;
 
   /**
    * Read a bound session card's perf instrumentation: the
@@ -3043,17 +3039,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         );
       }
       services.sessionMetadataStore._ingestForTest(payload);
-    },
-
-    ingestSideQuestionAnswer(cardId: string, payload: unknown): void {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) {
-        throw new Error(
-          `ingestSideQuestionAnswer: card "${cardId}" has no bound session — ` +
-            `call bindSession("${cardId}") first`,
-        );
-      }
-      services.sideQuestionStore._ingestForTest(payload);
     },
 
     getSessionPerf(cardId: string): {
