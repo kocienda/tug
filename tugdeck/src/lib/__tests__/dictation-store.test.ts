@@ -306,6 +306,108 @@ describe("finishing", () => {
   });
 });
 
+describe("finishing and then sending (⇧⌘D)", () => {
+  it("finishes the mic and sends once the settled reading has landed", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    const handle = recordingHandle();
+    store.claim("composer-a", "card-a", handle);
+    store.onEvent({ id: "s1", kind: "ready" });
+    store.onEvent({ id: "s1", kind: "volatile", text: "hello wor" });
+
+    let sentAfter = null as string[] | null;
+    const owned = store.finishThen("composer-a", () => {
+      sentAfter = [...handle.calls];
+    });
+
+    expect(owned).toBe(true);
+    expect(transport.posts).toEqual(["start:s1", "finish:s1"]);
+    // Nothing is sent while the recogniser is still settling.
+    expect(sentAfter).toBeNull();
+
+    store.onEvent({ id: "s1", kind: "final", text: "hello world" });
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
+
+    // The send sees the span already closed, so the draft is the settled text.
+    expect(sentAfter).toEqual(["begin", "volatile:hello wor", "final:hello world", "end:promote"]);
+    expect(store.getSnapshot().claim).toBeNull();
+  });
+
+  it("joins a finish already in flight rather than asking twice", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    store.claim("composer-a", "card-a", recordingHandle());
+    store.onEvent({ id: "s1", kind: "ready" });
+    store.end("stopped");
+
+    let sent = 0;
+    store.finishThen("composer-a", () => {
+      sent += 1;
+    });
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
+
+    expect(transport.posts).toEqual(["start:s1", "finish:s1"]);
+    expect(sent).toBe(1);
+  });
+
+  it("does nothing for a composer that does not hold the mic", () => {
+    const transport = scriptedTransport();
+    const store = freshStore(transport);
+    store.claim("composer-a", "card-a", recordingHandle());
+
+    let sent = 0;
+    expect(store.finishThen("composer-b", () => (sent += 1))).toBe(false);
+    // The owner's mic is untouched: no finish was asked of the host.
+    expect(transport.posts).toEqual(["start:s1"]);
+    expect(store.getSnapshot().claim?.phase).toBe("starting");
+    expect(sent).toBe(0);
+  });
+
+  it.each([
+    ["Escape", (store: DictationStore) => store.end("escape")],
+    ["a submit that beat it", (store: DictationStore) => store.end("submitted")],
+    [
+      "a second composer's claim",
+      (store: DictationStore) => store.claim("composer-b", "card-b", recordingHandle()),
+    ],
+    [
+      "an involuntary host end",
+      (store: DictationStore) =>
+        store.onEvent({ id: "s1", kind: "ended", reason: "device-lost" }),
+    ],
+  ])("never sends after %s", (_label, interrupt) => {
+    const store = freshStore(scriptedTransport());
+    store.claim("composer-a", "card-a", recordingHandle());
+    store.onEvent({ id: "s1", kind: "ready" });
+
+    let sent = 0;
+    store.finishThen("composer-a", () => {
+      sent += 1;
+    });
+    interrupt(store);
+    // A late `ended` for the old session lands nowhere, and sends nothing.
+    store.onEvent({ id: "s1", kind: "ended", reason: "stopped" });
+
+    expect(sent).toBe(0);
+  });
+
+  it("does not carry a continuation into the next session", () => {
+    const store = freshStore(scriptedTransport());
+    store.claim("composer-a", "card-a", recordingHandle());
+    let sent = 0;
+    store.finishThen("composer-a", () => {
+      sent += 1;
+    });
+    store.end("escape");
+
+    store.claim("composer-a", "card-a", recordingHandle());
+    store.end("stopped");
+    store.onEvent({ id: "s2", kind: "ended", reason: "stopped" });
+
+    expect(sent).toBe(0);
+  });
+});
+
 describe("the three end shapes", () => {
   function endWith(reason: string): { calls: string[]; posts: string[] } {
     const transport = scriptedTransport();

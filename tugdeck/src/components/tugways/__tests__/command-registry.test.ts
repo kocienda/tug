@@ -274,6 +274,8 @@ describe("promoted commands", () => {
     [TUG_ACTIONS.FIRST_TURN, "go.firstTurn", "detach"],
     [TUG_ACTIONS.LAST_TURN, "go.lastTurn", "detach"],
     [TUG_ACTIONS.OPEN_COMMAND_PICKER, "session.commandPicker", "detach"],
+    [TUG_ACTIONS.TOGGLE_DICTATION, "session.dictate", "detach"],
+    [TUG_ACTIONS.STOP_DICTATION_AND_SEND, "session.dictateAndSend", "detach"],
     [TUG_ACTIONS.SHOW_DEVTOOLS, "maker.devTools", "keep"],
     [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, "window.columnSplit", "keep"],
     [`${TUG_ACTIONS.MOVE_IN_COLUMN}:up`, "window.columnMoveUp", "keep"],

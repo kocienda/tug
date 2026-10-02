@@ -1281,6 +1281,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // serves these chords exactly as it did before the items existed.
         sessionMenu.addItem(NSMenuItem(title: "Insert File…", action: #selector(insertFile(_:)), keyEquivalent: "").identified("session.insertFile"))
         sessionMenu.addItem(NSMenuItem(title: "Open Command Picker", action: #selector(openCommandPicker(_:)), keyEquivalent: "").identified("session.commandPicker"))
+        // Dictation's two doors, built the same way and for the same reason:
+        // ⌘D and ⇧⌘D come from the registry with each item's gate. Both gates
+        // are the deck's first-responder walk — Start Dictation is lit where a
+        // composer with a mic holds the keyboard (and reads Stop Dictation
+        // while that composer is dictating); Stop Dictation and Send is lit
+        // only while the focused composer owns the mic. Dark, each releases
+        // its chord to the web view rather than beeping.
+        sessionMenu.addItem(NSMenuItem(title: "Start Dictation", action: #selector(toggleDictation(_:)), keyEquivalent: "").identified("session.dictate"))
+        sessionMenu.addItem(NSMenuItem(title: "Stop Dictation and Send", action: #selector(stopDictationAndSend(_:)), keyEquivalent: "").identified("session.dictateAndSend"))
 
         sessionMenu.addItem(NSMenuItem.separator())
 
@@ -2031,6 +2040,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func openCommandPicker(_ sender: Any?) {
         sendControl("open-command-picker")
+    }
+
+    @objc private func toggleDictation(_ sender: Any?) {
+        sendControl("toggle-dictation")
+    }
+
+    @objc private func stopDictationAndSend(_ sender: Any?) {
+        sendControl("stop-dictation-and-send")
     }
 
     @objc private func keyboardFocus(_ sender: Any?) {

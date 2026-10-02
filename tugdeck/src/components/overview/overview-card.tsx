@@ -1617,6 +1617,9 @@ function OverviewComposer({
     },
     [bytesStore],
   );
+  // The composer's submit, which is rebuilt every render and defined below;
+  // ⇧⌘D's send fires after the host's `ended` and reads it here ([L07]).
+  const submitRef = useRef<() => void>(() => {});
   const { ResponderScope: ComposerResponderScope, responderRef } = useResponder({
     id: "overview-composer",
     actions: {
@@ -1637,6 +1640,17 @@ function OverviewComposer({
               const handle = overviewInsertTarget().dictation;
               if (handle === undefined) return;
               dictationStore.toggle(composerCardId, composerCardId, handle);
+            },
+          }
+        : {}),
+      // ⇧⌘D — finish the mic and send what it heard, registered only while
+      // this composer owns it, so the walk is the menu item's gate.
+      ...(dictationOwned && composerCardId !== null
+        ? {
+            [TUG_ACTIONS.STOP_DICTATION_AND_SEND]: (): void => {
+              dictationStore.finishThen(composerCardId, () => {
+                submitRef.current();
+              });
             },
           }
         : {}),
@@ -1976,6 +1990,7 @@ function OverviewComposer({
     // would keep every screenshot ever composed alive for the app's life.
     for (const id of sent) bytesStore.delete(id);
   };
+  submitRef.current = submit;
 
   return (
     // The scope is what puts this component on the chain between the preview

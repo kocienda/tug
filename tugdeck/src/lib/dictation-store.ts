@@ -203,6 +203,14 @@ export class DictationStore {
   /** Torn down with the claim, so an idle store observes nothing. */
   private unobserve: Array<() => void> = [];
 
+  /**
+   * What to do once a finish lands cleanly, keyed by the session it was asked
+   * of — {@link finishThen}'s continuation. Cleared by every close, so it can
+   * outlive neither its claim nor an end that was not the finish it waited on.
+   */
+  private afterFinish: { readonly sessionId: string; readonly then: () => void } | null =
+    null;
+
   private readonly transport: DictationTransport;
   private readonly mintId: () => string;
 
@@ -371,6 +379,14 @@ export class DictationStore {
     refusal: DictationRefusal | null,
   ): void {
     this.release();
+    // Only the host answering a finish both promotes and has already ended:
+    // that is the clean landing a continuation waits for.
+    const pending = this.afterFinish;
+    this.afterFinish = null;
+    const then =
+      pending !== null && pending.sessionId === claim.sessionId && promote && hostAlreadyEnded
+        ? pending.then
+        : null;
     claim.handle.end(promote);
     if (!hostAlreadyEnded) this.transport.stop(claim.sessionId);
     this.state = { claim: null, refusal };
@@ -378,6 +394,7 @@ export class DictationStore {
     if (DICTATION_LOG) {
       console.log(`[dictation] ${claim.sessionId} released: ${reason}`);
     }
+    then?.();
   }
 
   /**
@@ -388,6 +405,25 @@ export class DictationStore {
   endIfOwnedBy(composerId: string, reason: string): void {
     if (this.state.claim?.composerId !== composerId) return;
     this.end(reason);
+  }
+
+  /**
+   * Finish `composerId`'s session and run `then` once the recogniser's settled
+   * reading has landed — ⇧⌘D, ⌘D and then Return without the wait between.
+   *
+   * A claim already `finishing` keeps its wait and just gains the
+   * continuation. `then` runs only when the host's `ended` answers the finish
+   * cleanly, after the span has closed and the text is ordinary draft; any
+   * other end — Escape, a supersede, a refusal, a submit or clear that beat
+   * it, the composer going away — drops it, because none of them leaves a
+   * settled transcript to send. Returns whether the composer owned the mic.
+   */
+  finishThen(composerId: string, then: () => void): boolean {
+    const claim = this.state.claim;
+    if (claim === null || claim.composerId !== composerId) return false;
+    this.afterFinish = { sessionId: claim.sessionId, then };
+    if (claim.phase !== "finishing") this.beginFinish(claim, "stopped");
+    return true;
   }
 
   /** This composer's face, stable across updates that do not change it. */

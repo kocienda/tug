@@ -1811,14 +1811,56 @@ export const COMMANDS: readonly CommandEntry[] = [
     // nothing and the press does nothing.
     //
     // `preventDefault` because WebKit's own ⌘D (add bookmark) must never
-    // fire, whether or not a composer is there to handle the action. Not
-    // menu-eligible: a menu item's key equivalent is resolved by AppKit
-    // before the web view sees the keydown, which would take the chord out of
-    // the JS funnel the per-composer gate lives in.
+    // fire, whether or not a composer is there to handle the action.
+    //
+    // Menu-eligible, and the per-composer gate survives the promotion: the
+    // item's enablement IS the first-responder chain walk, so Session ▸ Start
+    // Dictation is lit exactly where the press would reach a mic. It detaches
+    // while dark, so a press over a surface with no mic falls through to the
+    // JS funnel and dies quietly rather than beeping at the menu bar. The
+    // host-menu publisher refreshes on every dictation-store change, which is
+    // what keeps the title's verb and the neighbour's gate current.
     id: TUG_ACTIONS.TOGGLE_DICTATION,
-    title: "Dictate",
+    title: "Start Dictation",
     routing: "first-responder",
-    bindings: [chord({ key: "KeyD", meta: true, label: "d" }, { preventDefault: true })],
+    menuItemId: "session.dictate",
+    bindings: [
+      chord(
+        { key: "KeyD", meta: true, label: "d" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+    disabledChord: "detach",
+    // Only the composer holding the mic registers the send, so the send's
+    // chain walk is the cheapest true answer to "is this composer dictating".
+    dynamicTitle: (chain) =>
+      chain.validateAction(TUG_ACTIONS.STOP_DICTATION_AND_SEND)
+        ? "Stop Dictation"
+        : "Start Dictation",
+  },
+  {
+    // ⇧⌘D — ⌘D and then Return, with the wait between them taken off the
+    // user's hands: the mic finishes, and the draft is submitted once the
+    // recogniser's settled reading has landed (`dictationStore.finishThen`).
+    // The ⇧ variant of the mic's own chord, because it is the mic's own
+    // gesture with one more step on the end.
+    //
+    // Registered by the owning composer alone, so the walk is the gate: lit
+    // while that composer is dictating or finishing, dark everywhere else.
+    // Detached while dark for the same reason ⌘D is.
+    id: TUG_ACTIONS.STOP_DICTATION_AND_SEND,
+    title: "Stop Dictation and Send",
+    routing: "first-responder",
+    menuItemId: "session.dictateAndSend",
+    bindings: [
+      chord(
+        { key: "KeyD", meta: true, shift: true, label: "d" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+    disabledChord: "detach",
   },
   {
     id: TUG_ACTIONS.TOGGLE_HISTORY_VIEW,

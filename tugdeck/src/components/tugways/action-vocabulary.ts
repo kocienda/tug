@@ -613,9 +613,21 @@ export const TUG_ACTIONS = {
   //                 that mount the button — a card id, a `dictation` handle on
   //                 the insert target, and the host's own handler — so a
   //                 composer that could not mount a mic claims no chord
-  //                 either, and the press is a silent no-op
-  //                 (`preventDefault` suppresses WebKit's own ⌘D).
+  //                 either: Session ▸ Start Dictation validates disabled, the
+  //                 chord detaches from it, and the press is a silent no-op
+  //                 in the JS funnel (`preventDefault` suppresses WebKit's
+  //                 own ⌘D).
   TOGGLE_DICTATION: "toggle-dictation",
+  // STOP_DICTATION_AND_SEND: payload — none. Finish the live mic and submit
+  //                 the draft once the recogniser's settled reading has
+  //                 landed — ⌘D then Return, without the wait between them.
+  //                 Bound ⇧⌘D, routed `first-responder`. Only the composer
+  //                 that owns the mic registers it, so the chain walk is the
+  //                 Session menu item's whole gate: lit while this composer
+  //                 is dictating (or finishing), dark otherwise. The send is
+  //                 the composer's own submit, so it does whatever Return
+  //                 would — queue behind a running turn, land in commit mode.
+  STOP_DICTATION_AND_SEND: "stop-dictation-and-send",
   // REVEAL_CHANGES: payload — none. Open this card's Changes shade, sent by a
   //                 surface that shows the card's arc after fronting the
   //                 card. Not a toggle and not a chord: an explicit reveal

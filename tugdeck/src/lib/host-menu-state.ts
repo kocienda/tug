@@ -57,6 +57,7 @@ import { keymapRegistry } from "../components/tugways/keymap-registry";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { chordCaptureState } from "../components/tugways/chord-capture-state";
 import { appModalStore } from "./app-modal-store";
+import { dictationStore } from "./dictation-store";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
 import { resolveColumnMenuFact } from "./layout-selection";
 import { focusTravelDirections } from "./directional-focus";
@@ -1359,6 +1360,13 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // view, and detaching is the only way through its scan).
   chordCaptureState.subscribe(() => {
     publisher.setCaptureArmed(chordCaptureState.isArmed());
+  });
+  // The two dictation items are gated on which composer registered which
+  // handler, and a claim moving re-registers handlers without bumping the
+  // chain's validation version — so the store's own emits republish. The
+  // flush runs after paint, by which time the composer has re-rendered.
+  dictationStore.subscribe(() => {
+    publisher.refresh();
   });
   // An app-modal wizard freezes the deck's card count ([B01]). The fact rides
   // the push twice — folded into the `changesCardCount` entries' gates, and

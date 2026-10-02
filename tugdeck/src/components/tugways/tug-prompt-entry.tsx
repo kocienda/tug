@@ -3367,6 +3367,21 @@ export const TugPromptEntry = React.forwardRef<
             },
           }
         : {}),
+      // ⇧⌘D — finish the mic and send what it heard. Spread in only while
+      // this composer owns the mic, so the chain walk is the menu item's gate
+      // and a press anywhere else claims nothing. The send is `performSubmit`,
+      // Return's own path, run once the settled reading has landed.
+      ...(dictationOwned
+        ? {
+            [TUG_ACTIONS.STOP_DICTATION_AND_SEND]: (_event: ActionEvent) => {
+              const cardId = composerCardIdRef.current;
+              if (cardId === null) return;
+              dictationStore.finishThen(cardId, () => {
+                void performSubmit();
+              });
+            },
+          }
+        : {}),
       // Escape / ⌘. — one ladder, in one place.
       //
       // It used to be two: this handler when a turn was in flight, and a raw

@@ -322,6 +322,8 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "first-turn": "command",
   "last-turn": "command",
   "open-command-picker": "command",
+  "toggle-dictation": "command",
+  "stop-dictation-and-send": "command",
   "next-keyboard-focus": "command",
   "previous-keyboard-focus": "command",
   "cycle-focus-mode": "command",
@@ -521,6 +523,9 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // crosses: no registry chord, no AppKit key equivalent, and `@codemirror/search`'s
   // own Mod-d is installed in the code view alone, never in a composer.
   ["⌘D", TUG_ACTIONS.TOGGLE_DICTATION],
+  // ⇧⌘D — the mic's own chord with one more step on the end: finish, then
+  // send once the settled reading has landed.
+  ["⇧⌘D", TUG_ACTIONS.STOP_DICTATION_AND_SEND],
   ["⌃⌘R", TUG_ACTIONS.TOGGLE_ARCS],
   ["⌃⌘W", TUG_ACTIONS.TOGGLE_CARDS],
   ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
