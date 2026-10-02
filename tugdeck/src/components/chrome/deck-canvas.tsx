@@ -72,6 +72,15 @@ import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { revealPaneFrame, usePaneOcclusionController } from "./pane-occlusion-controller";
 import {
+  RailWidthGestureContext,
+  useRailWidthDraft,
+} from "./rail-width-draft";
+import {
+  RAIL_TRAVEL_ATTR,
+  railTravelOf,
+  type RailTravelBand,
+} from "@/lib/rail-width";
+import {
   getAllRegistrations,
   getRegistration,
   getStackSizePolicy,
@@ -1136,6 +1145,12 @@ interface PlaceSeamProps {
    * commit needs is the LIVE one and only this entry came from the gesture.
    */
   onCommit: (place: SeamPlace, index: number, value: number) => void;
+  /**
+   * A column seam's {@link RAIL_TRAVEL_ATTR} — what its `frameStyle`'s `left`
+   * is a function of, so a rail width preview carries it with the frames it
+   * divides. A rail seam has none; the preview pins it with its rail.
+   */
+  railTravel?: string;
 }
 
 /**
@@ -1150,9 +1165,9 @@ interface PlaceSeamProps {
  * position while the frames tween to meet it. A seam is a boundary rather than
  * a card, and a boundary that slides is a fourth moving thing to track.
  *
- * The drag follows `handleSidebarResizeStart` member for member — pointer
- * capture, a move-threshold latch, one rAF-applied `setProperty` per frame,
- * zoom-corrected deltas, and the property left as the gesture set it so no
+ * The drag shares the rail width drag's grammar (`rail-width-draft.ts`) —
+ * pointer capture, a move-threshold latch, zoom-corrected deltas, and the
+ * record and the preview changing hands in one task at the release so no
  * frame reads a stale value — with **one deliberate divergence: no occlusion
  * bracket.** That bracket exists to keep a frame passing over another from
  * being stamped `data-occluded` mid-gesture. A seam drag resizes two members
@@ -1168,6 +1183,7 @@ function PlaceSeam({
   members,
   memberPaneIds,
   onCommit,
+  railTravel,
 }: PlaceSeamProps): React.ReactElement {
   const allocationRef = useRef(allocation);
   allocationRef.current = allocation;
@@ -1617,6 +1633,7 @@ function PlaceSeam({
       {...(place.kind === "rail"
         ? { "data-rail-seam": `${place.side}:${index}` }
         : { "data-column-seam": `${place.slot}:${index}` })}
+      {...(railTravel !== undefined ? { [RAIL_TRAVEL_ATTR]: railTravel } : {})}
       role="separator"
       aria-orientation="horizontal"
       onPointerDown={handlePointerDown}
@@ -2744,6 +2761,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * are rendered into. [D03]
    */
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The rail width drag's draft: this canvas owns the arrangement properties
+  // the drag previews, so it is the one writer of them for the gesture's
+  // length and the one party that rolls them back ([L10], [L32]). A rail's
+  // edge handle only emits the gesture into it. It reads the flow strip as
+  // this render arranged it, because a flow card's travel under the rail is
+  // clamped by the strip's length and the offset standing over it.
+  const flowTermsRef = useRef<RailTravelBand["flow"]>(null);
+  flowTermsRef.current =
+    flowStrip === null
+      ? null
+      : { offset: Math.round(flowOffset), strip: flowStrip.width };
+  const readFlowTerms = useCallback(() => flowTermsRef.current, []);
+  const railWidthDraft = useRailWidthDraft(containerRef, store, readFlowTerms);
 
   // Hook order: useDeckManager -> useSyncExternalStore -> useRef ->
   //             usePaneFocusController -> useRequiredResponderChain ->
@@ -3644,11 +3674,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   //
   // Each width is published as its side's `sidebarWidthProperty` and the insets
   // are written as expressions over it, so a rail frame's own pin and the band
-  // the chain rides read ONE number. A width drag rewrites that one property
-  // (`TugPane`'s `handleSidebarResizeStart`) and the whole arrangement
-  // re-resolves in the browser's next reflow: the rail grows off its own pinned
-  // edge and the cards re-impose live under the moving edge, which is the same
-  // response the deck already gives a window resize.
+  // the chain rides read ONE number. A rail width drag does NOT preview
+  // through it: the property is inherited, so a write per frame would restyle
+  // every card in the deck. The drag's draft (`rail-width-draft.ts`) moves
+  // each element by its own cheapest write instead, and writes this number
+  // once, at the release, on the canvas and the shown layer's wrapper — the
+  // same value this effect then writes again. No pane writes it.
   //
   // The SEAMS of a split rail ride here too, and for the same reason: a split
   // member's vertical pins are fractions of the run, so the fractions are the
@@ -6698,19 +6729,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         .map((pane) => clampSlot(impositionKind, pane.slot as number)),
     );
     const reserved = deckVacancyExtent(deckState);
-    const tiles: { slot: number; style: React.CSSProperties }[] = [];
+    const tiles: {
+      slot: number;
+      style: React.CSSProperties;
+      railTravel: string;
+    }[] = [];
     for (let slot = 0; slot < slotCount(impositionKind); slot += 1) {
       if (held.has(slot)) continue;
       const placement = resolvePlacement(impositionKind, slot);
       const stripLeft = flowStrip?.positions.get(slot);
+      const placed =
+        stripLeft === undefined ? placement : { ...placement, flow: { stripLeft } };
       tiles.push({
         slot,
-        style: imposeStyle(
-          stripLeft === undefined
-            ? placement
-            : { ...placement, flow: { stripLeft } },
-          reserved,
-        ),
+        style: imposeStyle(placed, reserved),
+        railTravel: railTravelOf(placed, reserved),
       });
     }
     return tiles;
@@ -7988,6 +8021,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           key={`vacancy:${vacancy.slot}`}
           className="tug-slot-vacancy"
           data-vacant-slot={vacancy.slot}
+          {...{ [RAIL_TRAVEL_ATTR]: vacancy.railTravel }}
           aria-hidden="true"
           style={vacancy.style}
         >
@@ -8037,6 +8071,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           shown layer's, and `LayerPanes` makes each inert at call time while
           its layer is hidden — withholding them changed a prop on every pane
           at every switch. */}
+      <RailWidthGestureContext.Provider value={railWidthDraft}>
       {spaceLayers.map((layer) => {
         // Each layer is arranged from its OWN deck ([B02]): the shown one
         // from the live `deckState`, a hidden one from its parked record. A
@@ -8073,6 +8108,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           </SpaceLayerWrapper>
         );
       })}
+      </RailWidthGestureContext.Provider>
 
       {/* One seam per gap of every split rail: the boundary between two
           members, and the handle that moves it. Rendered here rather than by
@@ -8145,6 +8181,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             place={{ kind: "column", slot: column.slot }}
             index={index}
             frameStyle={imposeStyle(placement, width)}
+            railTravel={railTravelOf(placement, width)}
             allocation={allocation}
             members={members}
             memberPaneIds={column.members}

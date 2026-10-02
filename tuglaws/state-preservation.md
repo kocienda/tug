@@ -299,7 +299,7 @@ Every path that changes a card's width opens an episode. There is no fourth path
 |------|------|--------|
 | `deck-canvas.tsx`'s FLIP settle (`arm()`, pre-commit) | Width chords (⌃⌘1/2/3), bullseye in and out, the deck-wide Card Width, any imposition change | The settle duration, scaled by `getTugTiming()` |
 | `tug-pane.tsx` — `handleResizeStart` | A drag on any of the eight edge handles, opened at **pointer-down** | Bounded by the user's hand; closed on pointer-up |
-| `tug-pane.tsx` — `handleSidebarResizeStart` | A rail drag, which re-widths the band every card rides | Same |
+| `rail-width-draft.ts` — the rail width draft `DeckCanvas` owns | A rail drag, which re-widths the band every card rides; opened at the press, closed on release or cancel | Same |
 
 The drag sites open at pointer-down rather than at the move latch because that is the last moment the pre-gesture layout is on screen. A gesture that turns out to be a click closes its episode having changed nothing.
 

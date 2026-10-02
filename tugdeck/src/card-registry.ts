@@ -496,6 +496,22 @@ export interface CardRegistration {
    * the allocator's input.
    */
   comfortWidth?: number;
+  /**
+   * How this card's content follows a rail width drag: `"live"` (the
+   * default) reflows every frame the edge moves; `"pause"` holds the content
+   * at the width it last laid out at, anchored to the rail's outer edge and
+   * clipped by the frame, and reflows it only once the hand rests (~80 ms
+   * without movement) and at the release.
+   *
+   * `"pause"` is for content whose reflow cannot fit a frame — the Overview,
+   * whose posts are prose and whose first frame alone has measured ~125 ms.
+   * The frame and its surface still track the hand; only the interior waits.
+   * A card whose reflow is cheap declares nothing.
+   *
+   * Read once, by the pane, into the frame's `data-rail-reflow`; the draft
+   * that holds the content (`rail-width-draft.ts`) reads only the attribute.
+   */
+  railReflow?: "live" | "pause";
 }
 
 /**

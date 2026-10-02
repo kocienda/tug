@@ -47,7 +47,7 @@ import type { SlotStackEntry } from "@/deck-store-selectors";
 import type { CardMeta, CardSizePolicy, LayoutRole } from "@/card-registry";
 import { DEFAULT_SIZE_POLICY, getRegistration } from "@/card-registry";
 import { computeSnap, computeResizeSnap } from "@/snap";
-import type { Rect, GuidePosition, SnapResult } from "@/snap";
+import type { Rect, SnapResult } from "@/snap";
 import {
   FLOW_STEP_TWEEN_MS,
   autoscrollDelta,
@@ -90,7 +90,6 @@ import {
   imposeStyle,
   type ColumnMemberPlacement,
   imposeSidebarStyle,
-  sidebarWidthProperty,
   type PinnedFrame,
   type ColumnMode,
   type PlaceStanding,
@@ -123,7 +122,10 @@ import {
   TugColumnBadge,
   columnBadgeCharacter,
 } from "@/components/tugways/tug-column-badge";
-import { beginResizeEpisode } from "@/lib/resize-episode";
+import {
+  GESTURE_EPISODE_WINDOW_MS,
+  beginResizeEpisode,
+} from "@/lib/resize-episode";
 import { composePaneTitleBarText } from "@/lib/pane-title";
 import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
 import {
@@ -162,9 +164,20 @@ import { useStoreDerived } from "@/lib/use-store-derived";
 import { CardFoldGlyph, useCardFoldFocus } from "@/components/chrome/card-fold-glyph";
 import type { SpacesSnapshot } from "@/spaces";
 import {
-  SHOWN_PANE_FRAMES,
   paneCanvasOf,
 } from "@/components/chrome/space-layer";
+import {
+  clearGuideElements,
+  measureGuideEdgeOffsets,
+  snapshotCardRects,
+  syncGuideElements,
+} from "@/components/chrome/snap-guides";
+import { useRailWidthGesture } from "@/components/chrome/rail-width-draft";
+import {
+  RAIL_REFLOW_ATTR,
+  RAIL_TRAVEL_ATTR,
+  railTravelOf,
+} from "@/lib/rail-width";
 
 // ===========================================================================
 // CardTitleBar (window title chrome)
@@ -1900,85 +1913,6 @@ export function useCardDirty(): () => void {
 function noop(): void {}
 
 // ---------------------------------------------------------------------------
-// snapshotCardRects
-// ---------------------------------------------------------------------------
-
-/**
- * Snapshot all `.tug-pane[data-pane-id]` elements as canvas-relative Rects.
- * Optionally excludes a pane by ID.
- *
- * `getBoundingClientRect` returns visual (post-`body { zoom }`) pixels, but card
- * frames are positioned with `style.left/top` in layout pixels. Dividing by
- * `zoom` yields layout-space rects so they line up with the moving frame's
- * position and size (which come from layout-space `style`/`offsetWidth`). All
- * snap math then runs in one consistent space.
- */
-/** Per-edge offset (layout px) from a card frame's measured box to its visible
- *  border. See measureGuideEdgeOffsets. */
-interface GuideEdgeOffsets {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-}
-
-const ZERO_EDGE_OFFSETS: GuideEdgeOffsets = { left: 0, right: 0, top: 0, bottom: 0 };
-
-/**
- * Measure how far each visible card edge (the `.tug-pane-chrome` border box) sits
- * from the measured `.tug-pane` frame box that snap geometry uses.
- *
- * The chrome is `border-box` with `width/height: 100%` + a 1px border, so its
- * border box normally coincides with the frame box and the offsets are zero.
- * Reading the actual delta (rather than assuming a box model) keeps snap guides
- * landing on the visible border exactly, whatever the border/box-sizing turns
- * out to be. All cards share this geometry, so one measurement per gesture
- * suffices. Returned in layout px (÷ zoom).
- */
-function measureGuideEdgeOffsets(frame: HTMLElement, zoom = 1): GuideEdgeOffsets {
-  const chrome = frame.querySelector(".tug-pane-chrome");
-  if (!chrome) return ZERO_EDGE_OFFSETS;
-  const f = frame.getBoundingClientRect();
-  const c = chrome.getBoundingClientRect();
-  return {
-    left: (c.left - f.left) / zoom,
-    right: (c.right - f.right) / zoom,
-    top: (c.top - f.top) / zoom,
-    bottom: (c.bottom - f.bottom) / zoom,
-  };
-}
-
-function snapshotCardRects(
-  canvasBounds: DOMRect | null,
-  excludeId?: string,
-  zoom = 1,
-): { id: string; rect: Rect }[] {
-  const results: { id: string; rect: Rect }[] = [];
-  // Every pane is a snap candidate — including a pinned rail. A free pane
-  // dragged with Option snaps its edge to the rail's edge just as it does to
-  // any other card, so a card can be abutted to it. A rail exposes the same
-  // `getBoundingClientRect` as any pane, so its rect needs no special case.
-  const els = document.querySelectorAll<HTMLElement>(
-    SHOWN_PANE_FRAMES,
-  );
-  els.forEach((el) => {
-    const paneId = el.getAttribute("data-pane-id");
-    if (!paneId || paneId === excludeId) return;
-    const domRect = el.getBoundingClientRect();
-    results.push({
-      id: paneId,
-      rect: {
-        x: (domRect.left - (canvasBounds ? canvasBounds.left : 0)) / zoom,
-        y: (domRect.top - (canvasBounds ? canvasBounds.top : 0)) / zoom,
-        width: domRect.width / zoom,
-        height: domRect.height / zoom,
-      },
-    });
-  });
-  return results;
-}
-
-// ---------------------------------------------------------------------------
 // Canvas padding for resize clamping
 //
 // Resize handles are hard-clamped to the canvas edges with this padding.
@@ -2000,13 +1934,6 @@ const TITLE_BAR_VISIBLE_MIN_X = 100;
 
 /** Minimum vertical px of title bar visible when card overhangs bottom. */
 const TITLE_BAR_VISIBLE_MIN_Y = CARD_TITLE_BAR_HEIGHT;
-
-/**
- * Width of a snap guide line in layout px. Must match the `border` width on
- * `.snap-guide-line-x` / `.snap-guide-line-y` in chrome.css so a right/bottom-edge
- * guide can be pulled back by exactly one line width to sit on the card's edge.
- */
-const SNAP_GUIDE_LINE_PX = 2;
 
 /**
  * How stale the last pointer sample may be and still count as the hand's
@@ -2370,16 +2297,6 @@ const NO_SPACES_VIEW: SpacesView = { spaces: [], ownSpaceId: undefined };
 type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
 const RESIZE_EDGES: ResizeEdge[] = ["n", "s", "e", "w", "nw", "ne", "sw", "se"];
-
-// Gutter reserved on the deck side so a rail can't be widened to cover
-// the whole viewport. The effective max width is `window.innerWidth - this`.
-const RAIL_MIN_GUTTER_PX = 80;
-
-// Safety net for a resize episode opened by a pointer gesture. Pointer-up is
-// the real end and always fires; this only covers a pane torn down mid-drag,
-// so it is sized to be unreachable by any drag a person actually performs
-// rather than to approximate one.
-const GESTURE_EPISODE_WINDOW_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // TugPane
@@ -3290,75 +3207,6 @@ function TugPaneImpl({
       if (pointerX < rect.left + rect.width / 2) return i;
     }
     return tabEls.length;
-  }
-
-  /**
-   * Render snap guide DOM elements from a list of guide positions. [D03]
-   * Creates or reuses <div> elements with .snap-guide-line CSS classes.
-   * Appends to container; removes excess guide elements.
-   * Works for both move-drag (dragGuideEls) and resize (resizeGuideEls).
-   */
-  function syncGuideElements(
-    guideRef: React.MutableRefObject<HTMLElement[]>,
-    guides: GuidePosition[],
-    container: HTMLElement,
-    edgeOffsets: GuideEdgeOffsets,
-  ): void {
-    // Guide positions are in layout space (snapshotCardRects divides the visual
-    // measurements by zoom). They reference the measured `.tug-pane` frame edge;
-    // `edgeOffsets` carries the measured delta to the visible `.tug-pane-chrome`
-    // border so the line lands on the edge the user actually sees. The visible
-    // border occupies a 1px band: at a left/top edge it runs forward from the
-    // border-box origin, so the line (a 1px border that paints forward) sits at
-    // the origin; at a right/bottom edge the band ends at the exclusive border-box
-    // edge, so the line is pulled back one line-width to cover the band.
-    for (let i = 0; i < guides.length; i++) {
-      const guide = guides[i];
-      let el = guideRef.current[i];
-      if (!el) {
-        el = document.createElement("div");
-        el.classList.add("snap-guide-line");
-        container.appendChild(el);
-        guideRef.current.push(el);
-      }
-      // Reset axis classes
-      el.classList.remove("snap-guide-line-x", "snap-guide-line-y");
-      if (guide.axis === "x") {
-        el.classList.add("snap-guide-line-x");
-        const left = guide.cardEdge === "right"
-          ? guide.position + edgeOffsets.right - SNAP_GUIDE_LINE_PX
-          : guide.position + edgeOffsets.left;
-        el.style.left = `${left}px`;
-        el.style.top = "";
-      } else {
-        el.classList.add("snap-guide-line-y");
-        const top = guide.cardEdge === "bottom"
-          ? guide.position + edgeOffsets.bottom - SNAP_GUIDE_LINE_PX
-          : guide.position + edgeOffsets.top;
-        el.style.top = `${top}px`;
-        el.style.left = "";
-      }
-    }
-    // Remove excess guide elements
-    while (guideRef.current.length > guides.length) {
-      const excess = guideRef.current.pop();
-      if (excess && excess.parentNode) {
-        excess.parentNode.removeChild(excess);
-      }
-    }
-  }
-
-  /**
-   * Remove all snap guide elements from the DOM and clear tracking ref. [D03]
-   * Works for both move-drag (dragGuideEls) and resize (resizeGuideEls).
-   */
-  function clearGuideElements(guideRef: React.MutableRefObject<HTMLElement[]>): void {
-    for (const el of guideRef.current) {
-      if (el.parentNode) {
-        el.parentNode.removeChild(el);
-      }
-    }
-    guideRef.current = [];
   }
 
   const handleDragStart = useCallback(
@@ -4530,193 +4378,91 @@ function TugPaneImpl({
     [id, onCardMoved, position.x, position.y, size.width, size.height],
   );
 
-  // Deck-facing-edge resize for a pinned rail. It stays pinned to its
-  // side, so only its width changes. For a right-side rail the exposed edge
-  // is the west one (dragging left grows it); for a left-side rail it is the
-  // east edge (dragging right grows it). Width-only keeps the derived pin
-  // intact (the generic handler would set left/top, fighting it). The commit
-  // writes `size.width` to the pane; the reopen-width mirror to `sidebarWidthStore`
-  // lives in the deck manager's card-moved handler, keeping this pane
-  // card-agnostic.
+  // Deck-facing-edge resize for a pinned rail: the EMITTER half of the rail
+  // width drag. The width is the RAIL's, not this pane's — same-side cards
+  // share one rail — so everything the drag does to the deck is done by the
+  // rail width draft `DeckCanvas` owns (`rail-width-draft.ts`): the bounds,
+  // the snap, the live preview, its rollback, and the one `setRailWidth` that
+  // commits every member of the side ([L10], [L32]). This handler translates
+  // the pointer into that draft's four calls and writes nothing else: no
+  // arrangement property, no canvas lookup, no clamp.
   //
-  // The width is written as `sidebarWidthProperty(side)` on the frames' container
-  // rather than onto this frame, because the width is not this frame's alone:
-  // a right-side rail is pinned by an expression that SUBTRACTS its width from
-  // the canvas, and the band the cards ride is inset by it. Writing the frame's
-  // own `width` moves only the dragged edge's box and leaves those two
-  // expressions on the width the last render baked in — the rail's pinned edge
-  // walks off the deck edge it is supposed to hold, and the cards do not learn
-  // the rail moved until pointer-up. One property write feeds all three, and
-  // the browser resolves them together: the pinned edge holds and the
-  // arrangement re-imposes under the moving edge, live ([L06]).
-  //
-  // The exposed edge snaps with Option held, exactly like any other pane
-  // edge: the rail is the moving side and every other pane is a snap target.
-  // Those targets are re-measured per frame rather than snapshotted at gesture
-  // start — under live re-imposition a card's edge moves as the rail grows, and
-  // a guide drawn from a start-of-gesture rect would mark an alignment that is
-  // no longer there. [D01, D03, D04]
+  // What it does own is the press itself — the pointer capture, its own
+  // listeners, and `data-gesture` on this frame — and it gives every one of
+  // them back on every way out: a release, a `pointercancel`, a lost capture,
+  // Escape, and the pane unmounting mid-drag. All but the release cancel the
+  // draft, which puts the deck back where the record says it stands ([L08],
+  // [L27]). Under the move threshold the press is a click: the draft is
+  // cancelled having written nothing, and nothing commits.
+  const railWidthGesture = useRailWidthGesture();
+  const endRailWidthPressRef = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => () => endRailWidthPressRef.current?.(), []);
   const handleSidebarResizeStart = useCallback(
     (event: React.PointerEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      if (!frameRef.current) return;
-      if (sidebarSide === undefined) return;
-      const frame: HTMLDivElement = frameRef.current;
-      const container = paneCanvasOf(frame);
-      if (!container) return;
+      const frame = frameRef.current;
+      if (frame === null || sidebarSide === undefined) return;
+      if (railWidthGesture === null) return;
+      endRailWidthPressRef.current?.();
 
-      // A rail drag is not one pane's resize: the property it writes insets
-      // the band every content pane rides, so the whole arrangement re-widths
-      // live under the moving edge. Every frame in the container gets an
-      // episode, the rail's own included.
-      const scrollEpisodes = [
-        ...container.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES),
-      ].map((paneFrame) =>
-        beginResizeEpisode(paneFrame, GESTURE_EPISODE_WINDOW_MS),
-      );
-      const endScrollEpisodes = (): void => {
-        for (const episode of scrollEpisodes) episode.end();
-      };
-
-      const widthProperty = sidebarWidthProperty(sidebarSide);
-      const zoom = getTugZoom() || 1;
+      const pointerId = event.pointerId;
       const startClientX = event.clientX;
-      const startWidth = size.width;
-      const minWidth = sizePolicy.min.width;
-      const maxWidth = Math.max(
-        minWidth,
-        window.innerWidth - RAIL_MIN_GUTTER_PX,
-      );
-      // A left rail's deck edge faces right (east): rightward motion
-      // grows it. A right rail's deck edge faces left (west): leftward
-      // motion grows it.
-      const growSign = sidebarSide === "left" ? 1 : -1;
-
-      // The pinned edge is measured rather than derived from `position`, which
-      // a pinned rail does not use. It is a fixed number for the gesture:
-      // the deck edge the rail holds is the one thing this drag may not move.
-      const canvasBounds = container.getBoundingClientRect();
-      const guideEdgeOffsets = measureGuideEdgeOffsets(frame, zoom);
-      const frameRect = frame.getBoundingClientRect();
-      const canvasLeft = canvasBounds.left;
-      const pinnedEdge =
-        sidebarSide === "left"
-          ? (frameRect.left - canvasLeft) / zoom
-          : (frameRect.right - canvasLeft) / zoom;
-
-      frame.setPointerCapture(event.pointerId);
-      frame.setAttribute("data-gesture", "resize");
-
-      let width = startWidth;
-      let latestX = startClientX;
-      let latestAlt = event.altKey;
-      let rafId: number | null = null;
-      let railResizeMoved = false;
-
-      // The deck-facing edge is a handle like any other: under the move
-      // threshold the press is a click, which states no width and commits
-      // nothing.
-      const latchSidebarResizeMove = (clientX: number): boolean => {
-        if (railResizeMoved) return true;
-        if (Math.abs(clientX - startClientX) < DRAG_MOVE_THRESHOLD_PX) return false;
-        railResizeMoved = true;
-        frame.setAttribute("data-pointer-owned", "true");
-        // A rail is a coverer like any other pane; a shrinking rail
-        // exposes what it hid, without a store commit until pointer-up.
-        paneOcclusionGesture.begin();
-        return true;
-      };
-
-      const computeWidth = (): number => {
-        // Convert the visual pointer delta to layout space via zoom, then
-        // apply the deck-facing grow direction.
-        const deltaLayout = (latestX - startClientX) / zoom;
-        let next = Math.min(
-          maxWidth,
-          Math.max(minWidth, startWidth + growSign * deltaLayout),
-        );
-
-        if (!latestAlt) {
-          clearGuideElements(resizeGuideEls);
-          return next;
+      let moved = false;
+      const latch = (clientX: number): boolean => {
+        if (!moved && Math.abs(clientX - startClientX) >= DRAG_MOVE_THRESHOLD_PX) {
+          moved = true;
         }
-
-        // The exposed edge is the only one being resized; the pinned edge
-        // never moves, so width follows directly from the snapped edge.
-        const exposedEdge = pinnedEdge + growSign * next;
-        const snapResult = computeResizeSnap(
-          sidebarSide === "left" ? { right: exposedEdge } : { left: exposedEdge },
-          snapshotCardRects(canvasBounds, id, zoom).map((r) => r.rect),
-          -IMPOSITION_GAP_PX,
-        );
-        const snapped = sidebarSide === "left" ? snapResult.right : snapResult.left;
-        if (snapped !== undefined) {
-          next = Math.min(
-            maxWidth,
-            Math.max(minWidth, growSign * (snapped - pinnedEdge)),
-          );
-        }
-
-        syncGuideElements(resizeGuideEls, snapResult.guides, container, guideEdgeOffsets);
-        return next;
+        return moved;
       };
 
-      const apply = (): void => {
-        rafId = null;
-        if (!latchSidebarResizeMove(latestX)) return;
-        width = computeWidth();
-        container.style.setProperty(widthProperty, `${width}px`);
-      };
-
-      const onPointerMove = (e: PointerEvent): void => {
-        latestX = e.clientX;
-        latestAlt = e.altKey;
-        if (rafId === null) rafId = requestAnimationFrame(apply);
-      };
-
-      const onPointerUp = (e: PointerEvent): void => {
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
+      // The listeners come off BEFORE the capture is released, so a release's
+      // own `lostpointercapture` is not read as the system taking the pointer.
+      const endPress = (): void => {
+        endRailWidthPressRef.current = null;
         frame.removeEventListener("pointermove", onPointerMove);
         frame.removeEventListener("pointerup", onPointerUp);
-        frame.releasePointerCapture(e.pointerId);
+        frame.removeEventListener("pointercancel", onCancel);
+        frame.removeEventListener("lostpointercapture", onCancel);
+        window.removeEventListener("keydown", onKeyDown, true);
         frame.removeAttribute("data-gesture");
-        frame.removeAttribute("data-pointer-owned");
-        latestX = e.clientX;
-        latestAlt = e.altKey;
-        if (!latchSidebarResizeMove(latestX)) {
-          clearGuideElements(resizeGuideEls);
-          endScrollEpisodes();
-          return;
-        }
-        // Close the occlusion bracket opened at the move latch.
-        paneOcclusionGesture.end();
-        // Final width with snap applied, THEN clear the guides. [D03]
-        width = computeWidth();
-        clearGuideElements(resizeGuideEls);
-        // The property stays as the gesture left it. The commit re-renders the
-        // rail at this width and `DeckCanvas` writes the same number back, so
-        // there is no frame where the deck reads the pre-gesture width.
-        container.style.setProperty(widthProperty, `${width}px`);
-        onCardMoved(id, position, { width, height: size.height });
-        endScrollEpisodes();
+        if (frame.hasPointerCapture(pointerId)) frame.releasePointerCapture(pointerId);
+      };
+      const onPointerMove = (e: PointerEvent): void => {
+        if (latch(e.clientX)) railWidthGesture.change(e.clientX, e.clientY, e.altKey);
+      };
+      const onPointerUp = (e: PointerEvent): void => {
+        endPress();
+        if (latch(e.clientX)) railWidthGesture.commit(e.clientX, e.altKey);
+        else railWidthGesture.cancel();
+      };
+      const onCancel = (): void => {
+        endPress();
+        railWidthGesture.cancel();
+      };
+      const onKeyDown = (e: KeyboardEvent): void => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
       };
 
+      frame.setPointerCapture(pointerId);
+      frame.setAttribute("data-gesture", "resize");
       frame.addEventListener("pointermove", onPointerMove);
       frame.addEventListener("pointerup", onPointerUp);
+      frame.addEventListener("pointercancel", onCancel);
+      frame.addEventListener("lostpointercapture", onCancel);
+      window.addEventListener("keydown", onKeyDown, true);
+      endRailWidthPressRef.current = onCancel;
+      railWidthGesture.begin({
+        side: sidebarSide,
+        frame,
+        clientX: startClientX,
+        clientY: event.clientY,
+      });
     },
-    [
-      id,
-      onCardMoved,
-      position,
-      size.width,
-      size.height,
-      sizePolicy.min.width,
-      sidebarSide,
-    ],
+    [sidebarSide, railWidthGesture],
   );
 
 
@@ -4909,6 +4655,22 @@ function TugPaneImpl({
             width: renderWidth,
             height: frameHeight,
           };
+  // What this frame's imposed `left` is a function of, stamped beside it so a
+  // rail width preview can carry the frame by transform instead of
+  // re-resolving the deck's styles every frame (`rail-width-draft.ts`). The
+  // same placement and slot width the `imposeStyle` call above took.
+  const railTravel = bullseye
+    ? railTravelOf({ slot: 0, count: 1 }, bullseyeWidth)
+    : sidebarSide === undefined && imposed && placement !== undefined
+      ? railTravelOf(placement, slotWidth)
+      : undefined;
+  // Whether this rail member's content follows a width drag live or waits
+  // for the hand to rest — the registration's call, stamped where the draft
+  // that holds it can read it (`rail-width-draft.ts`).
+  const railReflow =
+    sidebarStack !== undefined
+      ? getRegistration(sidebarStack.componentId)?.railReflow
+      : undefined;
 
   // Another pane is in bullseye, so this one leaves the canvas by the
   // horizontal edge it is already nearest. Overrides `left` alone: the
@@ -4998,6 +4760,8 @@ function TugPaneImpl({
       // `data-rail-side` is NOT the same bit: it carries which edge a rail is
       // pinned to, and a released rail has rail chrome with no side.
       {...(sidebarSide !== undefined ? { "data-rail-side": sidebarSide } : {})}
+      {...(railTravel !== undefined ? { [RAIL_TRAVEL_ATTR]: railTravel } : {})}
+      {...(railReflow === "pause" ? { [RAIL_REFLOW_ATTR]: railReflow } : {})}
       // A member of a rail that is currently divided rather than stacked — the
       // sibling bit to `data-rail-side`, and what the seam elements and the reorder
       // drag find their fellow members by.
@@ -5074,7 +4838,7 @@ function TugPaneImpl({
         // would hand the user a handle onto nothing.
         bullseye ? null : (
           <div
-            className={`tug-pane-resize tug-pane-resize-${sidebarSide === "left" ? "e" : "w"}`}
+            className={`tug-pane-resize tug-pane-rail-edge tug-pane-resize-${sidebarSide === "left" ? "e" : "w"}`}
             onPointerDown={handleSidebarResizeStart}
           />
         )

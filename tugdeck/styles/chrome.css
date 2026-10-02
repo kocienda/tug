@@ -288,7 +288,7 @@
  * tier (9000), the sash (9950), and the set-flash (9999) — so a guide is always
  * on top of the content it aligns against; it stays below the app banner/alert
  * tier (99980+) so a critical notice still wins. Keep the 2px width in sync with
- * SNAP_GUIDE_LINE_PX in tug-pane.tsx (the right/bottom edge pull-back offset). */
+ * SNAP_GUIDE_LINE_PX in snap-guides.ts (the right/bottom edge pull-back offset). */
 .snap-guide-line   { position: absolute; pointer-events: none; z-index: 99970; }
 .snap-guide-line-x { border-left: 2px solid var(--tug7-element-global-fill-normal-accent-rest); width: 0; top: 0; bottom: 0; }
 .snap-guide-line-y { border-top: 2px solid var(--tug7-element-global-fill-normal-accent-rest); height: 0; left: 0; right: 0; }

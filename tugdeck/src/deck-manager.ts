@@ -99,6 +99,12 @@ import { resolveCloseSuccessor } from "./lib/close-successor";
 import { fitHeights, railNaturalOf } from "./lib/rail-fit";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { sidebarWidthStore } from "./lib/sidebar-width-store";
+import {
+  clampRailWidth,
+  railWidthLimitsOf,
+  withRailWidth,
+  type RailWidthLimits,
+} from "./lib/rail-width";
 import { publishFlowOffset } from "./lib/imposer-gauges";
 import { TugConnection } from "./connection";
 import React from "react";
@@ -5654,8 +5660,8 @@ export class DeckManager implements IDeckManagerStore {
    * space allocator's rail solve, the width-preset applier, the imposition
    * freeze — and each of those must leave the pane exactly where the structure
    * put it. The sidebar's deck-facing edge is the one resize that does NOT
-   * evict, and it does not because it has its own handler
-   * (`handleSidebarResizeStart`) that never passes this.
+   * evict, and it does not reach here at all: it commits through
+   * {@link setRailWidth}, which writes the whole rail.
    */
   movePane(
     paneId: string,
@@ -5720,6 +5726,62 @@ export class DeckManager implements IDeckManagerStore {
       sidebarWidthStore.setWidth(sidebarComponentId, size.width);
     }
 
+    this.scheduleSave();
+  }
+
+  /**
+   * The widths the rail standing on `side` may be given, or `null` when no
+   * pinned rail stands there: its hard floor is the tightest member's, and its
+   * ceiling is the slim content width the allocator never grants past. The
+   * rail width drag reads these rather than deriving bounds of its own, so the
+   * hand meets exactly the bounds the allocator solves within.
+   */
+  railWidthLimits(side: SidebarSide): RailWidthLimits | null {
+    const state = this.deckState;
+    const policy = this._sidebarRails(state.panes, state.imposition).rails[side];
+    if (policy === undefined) return null;
+    return railWidthLimitsOf(policy.minWidth, CONTENT_WIDTH_SLIM_PX);
+  }
+
+  /**
+   * Commit the rail on `side` at `width`: every member of the side, in one
+   * state write and one notify. Same-side cards share one rail and the deck
+   * reads the rail as wide as its widest member, so writing only the member
+   * whose edge was dragged would leave its siblings holding the rail at the
+   * old width. Each member's width is mirrored to its card's own store as the
+   * width it reopens at ([P02]), as {@link movePane} does for one pane.
+   *
+   * The width is clamped to {@link railWidthLimits}. The space allocator does
+   * not run: the rail's width belongs to the hand ([D183]), and a drag is not
+   * one of the moments {@link retuneSidebarAllocation} answers.
+   */
+  setRailWidth(side: SidebarSide, width: number): void {
+    const limits = this.railWidthLimits(side);
+    if (limits === null) return;
+    const state = this.deckState;
+    const members = findSidebarPanes(state).filter(
+      ({ componentId }) =>
+        isSidebarPinned(state.imposition, componentId) &&
+        sidebarSide(state.imposition, componentId) === side,
+    );
+    const committed = clampRailWidth(width, limits);
+    const { panes, resized } = withRailWidth(
+      state.panes,
+      new Set(members.map(({ pane }) => pane.id)),
+      committed,
+    );
+    if (resized.length === 0) return;
+    for (const pane of resized) {
+      this.cardLifecycle.notifyCardWillResize(pane.activeCardId);
+    }
+    this.deckState = { ...state, panes };
+    this.notify("setRailWidth");
+    for (const pane of resized) {
+      this.cardLifecycle.notifyCardDidResize(pane.activeCardId);
+    }
+    for (const { componentId } of members) {
+      sidebarWidthStore.setWidth(componentId, committed);
+    }
     this.scheduleSave();
   }
 

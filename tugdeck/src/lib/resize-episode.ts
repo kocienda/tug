@@ -66,6 +66,14 @@ export const RESIZE_EPISODE_ATTR = "data-resize-episode";
 export const RESIZE_EPISODE_SLACK_MS = 400;
 
 /**
+ * The safety net for an episode opened by a pointer gesture. The gesture's
+ * own end — a release or a cancel — is the real close; this only covers a
+ * gesture torn down mid-drag, so it is sized to be unreachable by any drag a
+ * person actually performs rather than to approximate one.
+ */
+export const GESTURE_EPISODE_WINDOW_MS = 60_000;
+
+/**
  * How long a scroller with a settle of its own should keep re-landing its
  * anchor after the episode ends.
  *

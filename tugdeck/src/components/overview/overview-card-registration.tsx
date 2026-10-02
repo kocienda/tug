@@ -58,6 +58,10 @@ export function registerOverviewCard(): void {
     // `sizePolicy.min.width` below is the different, harder question of where
     // the card stops painting.
     comfortWidth: COMFORT_OVERVIEW_WIDTH_PX,
+    // Prose reflows too slowly to follow a rail width drag frame by frame,
+    // so the column holds its measure while the edge moves and rewraps once
+    // the hand rests.
+    railReflow: "pause",
     hidden: true,
     // A rail of buttons, walked by keyboard — engine stops all the way down
     // ([P10]).

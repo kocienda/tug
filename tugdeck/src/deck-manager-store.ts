@@ -24,6 +24,7 @@ import type { ComponentStatePreservationRegistry } from "./components/tugways/co
 import type { CardAssembler } from "./card-state-orchestrator";
 import type { CommitLanding, SaveCallbackSource } from "./deck-trace";
 import type { SlotAssignment } from "./deck-manager";
+import type { RailWidthLimits } from "./lib/rail-width";
 
 /**
  * Options on a pane-geometry commit. `evictSlot` releases an imposed pane back
@@ -247,6 +248,19 @@ export interface IDeckManagerStore {
     landing?: CommitLanding,
   ) => void;
   setFlowOffset: (offset: number, landing?: CommitLanding) => void;
+
+  /**
+   * The widths the rail on `side` may stand at — its tightest member's hard
+   * floor and the allocator's slim ceiling — or `null` when no pinned rail
+   * stands there. The one derivation the rail width drag reads.
+   */
+  railWidthLimits: (side: SidebarSide) => RailWidthLimits | null;
+  /**
+   * Commit the rail on `side` at `width`, clamped to its limits: every member
+   * of the side, mirrored to each card's reopen width, in one notify. The
+   * space allocator does not run.
+   */
+  setRailWidth: (side: SidebarSide, width: number) => void;
 
   /**
    * Commit the height a modal surface standing on `memberId` has stated it
