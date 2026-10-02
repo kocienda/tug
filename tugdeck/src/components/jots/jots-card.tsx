@@ -72,6 +72,7 @@ import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import { copyAtomTextWithOrigins, formatAtomTextForCopy } from "@/lib/atom-text";
 import type { TugTextSubstrate } from "@/lib/tug-text-types";
 import { animate } from "@/components/tugways/tug-animator";
+import { smartScrollForElement } from "@/lib/smart-scroll";
 import { annotationLinkExtension } from "@/components/tugways/tug-text-editor/annotation-links";
 import { TugListView } from "@/components/tugways/tug-list-view";
 import type {
@@ -507,6 +508,31 @@ function useJotAnnotationLinks(jot: Jot): Extension {
   );
 }
 
+/**
+ * Bring an opening jot into view in the card's one scroller (`.jots-card`).
+ *
+ * The whole jot, when it fits: a cell whose bottom runs past the port scrolls
+ * up by exactly enough to show it. When it does not fit, the most of it — the
+ * header goes to the top of the port and the body flows underneath, where the
+ * sticky header then holds. Not `revealFocusTarget`: that leaves a
+ * taller-than-port target alone as long as any of it shows, which is right for
+ * a focus move and wrong for an open, whose whole point is to read the jot.
+ */
+function revealOpeningJot(cell: HTMLElement): void {
+  const scroller = cell.closest<HTMLElement>(".jots-card");
+  if (scroller === null) return;
+  const portTop = scroller.getBoundingClientRect().top + scroller.clientTop;
+  const portHeight = scroller.clientHeight;
+  const rect = cell.getBoundingClientRect();
+  const delta =
+    rect.height >= portHeight || rect.top < portTop
+      ? rect.top - portTop
+      : Math.max(0, rect.bottom - (portTop + portHeight));
+  if (Math.abs(delta) < 1) return;
+  scroller.scrollTop += delta;
+  smartScrollForElement(scroller)?.noteExternalWrite();
+}
+
 function JotEditorRow({
   jot,
   store,
@@ -529,14 +555,31 @@ function JotEditorRow({
   // (an `overflow: hidden` ancestor would capture the sticky as its own scroll
   // context and the header would scroll away with the body). The header shows
   // at full height from the first frame; the well opens beneath it.
+  //
+  // The card's scroll rides the same growth: a ResizeObserver on the well
+  // reveals the opening jot after every layout the animation produces, so the
+  // list scrolls in step with the well rather than catching up once it lands.
+  //
+  // The slide waits out the mount. The commit that opens the jot also mounts
+  // CM6, and CM6 measures on the NEXT frame — where it writes the row height
+  // the well's four-row floor is computed from. A slide started here would run
+  // its fastest stretch (it decelerates in) through those two expensive
+  // frames, so the open read as a snap, and it would aim at a height measured
+  // before the floor existed, landing short and jumping the rest. So the well
+  // is held shut from the first paint, and the slide starts once both frames
+  // are behind it, measured against the settled editor.
   useLayoutEffect(() => {
     const el = wellRef.current;
     if (el === null) return;
-    const target = el.getBoundingClientRect().height;
-    if (target <= 0) return;
+    if (el.getBoundingClientRect().height <= 0) return;
     const prevOverflow = el.style.overflow;
     el.style.overflow = "hidden";
+    el.style.height = "0px";
+    el.style.opacity = "0";
+    let follow: ResizeObserver | null = null;
     const restore = (): void => {
+      follow?.disconnect();
+      follow = null;
       el.style.overflow = prevOverflow;
       // The animator commits the final keyframe as inline styles (`height`,
       // `opacity`). Release them so the well returns to auto height and keeps
@@ -544,19 +587,59 @@ function JotEditorRow({
       // would clamp the well at its open size.
       el.style.height = "";
       el.style.opacity = "";
+      // The settled geometry gets the last word: the well is back at its
+      // natural height, and that is the height the reveal has to satisfy.
+      if (wrapRef.current !== null && !closingRef.current) {
+        revealOpeningJot(wrapRef.current);
+      }
     };
-    animate(
-      el,
-      [
-        { height: "0px", opacity: 0 },
-        { height: `${target}px`, opacity: 1 },
-      ],
-      {
-        duration: "--tug-motion-duration-moderate",
-        easing: "cubic-bezier(0.2, 0, 0, 1)",
-        key: JOT_WELL_MOTION_SLOT,
-      },
-    ).finished.then(restore, restore);
+    const start = (): void => {
+      // A close that arrived while the well was held shut owns the well now.
+      if (closingRef.current) return;
+      el.style.height = "";
+      const target = el.getBoundingClientRect().height;
+      el.style.height = "0px";
+      if (target <= 0) {
+        restore();
+        return;
+      }
+      // Slide only as far as the card can show. A jot taller than the card
+      // would otherwise spend most of its travel below the fold, and the part
+      // the user sees would be over in a frame or two. The well can show at
+      // most the port less the header pinned above it; the rest of its height
+      // is released when the slide lands, out of sight.
+      const cell = wrapRef.current;
+      const scroller = cell?.closest<HTMLElement>(".jots-card") ?? null;
+      const header = cell?.querySelector<HTMLElement>(".jot-editor-header") ?? null;
+      const room =
+        scroller !== null && header !== null
+          ? scroller.clientHeight - header.getBoundingClientRect().height
+          : target;
+      const slideTo = room > 0 ? Math.min(target, room) : target;
+      follow = new ResizeObserver(() => {
+        if (wrapRef.current !== null) revealOpeningJot(wrapRef.current);
+      });
+      follow.observe(el);
+      animate(
+        el,
+        [
+          { height: "0px", opacity: 0 },
+          { height: `${slideTo}px`, opacity: 1 },
+        ],
+        {
+          duration: "--tug-motion-duration-moderate",
+          easing: "cubic-bezier(0.2, 0, 0, 1)",
+          key: JOT_WELL_MOTION_SLOT,
+        },
+      ).finished.then(restore, restore);
+    };
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(start);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      follow?.disconnect();
+    };
   }, []);
 
   // Slide the editor SHUT — the mirror of the open above, and the reason every
@@ -748,8 +831,28 @@ function JotEditorRow({
       // chrome pointerdown is that click's — keep the editor and restore the
       // caret. The window is closed by a non-chrome pointerdown / keydown, so a
       // genuine departure still commits.
+      //
+      // The restore holds the card's scroll where it was. Handing focus back
+      // re-applies the CM6 selection, and WebKit scrolls a selection into view
+      // whatever `preventScroll` says — so with the caret below the fold of a
+      // tall jot, a click on the header's ✕ would hurl the card down to the
+      // caret before the close even began. The caret never meant to move;
+      // neither does the card.
       if (Date.now() - chromeClickTsRef.current < 500) {
-        queueMicrotask(() => editorRef.current?.focus());
+        const scroller = wrapRef.current?.closest<HTMLElement>(".jots-card");
+        const held = scroller?.scrollTop;
+        queueMicrotask(() => {
+          editorRef.current?.focus();
+          if (
+            scroller !== null &&
+            scroller !== undefined &&
+            held !== undefined &&
+            scroller.scrollTop !== held
+          ) {
+            scroller.scrollTop = held;
+            smartScrollForElement(scroller)?.noteExternalWrite();
+          }
+        });
         return;
       }
       closeWithCollapse();
