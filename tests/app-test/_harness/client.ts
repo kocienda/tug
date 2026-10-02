@@ -187,6 +187,13 @@ function callSurface(script: string): string {
  * click sequence on the element matched by `selector`. Prefer this
  * over direct DOM clicks — production handlers condition on the full
  * sequence (not just `click`).
+ *
+ * **It resolves once the click's gesture scope has released.** The five
+ * events open a scope that holds every store-driven React update until
+ * after the next painted frame (or the scope's deadline in an occluded
+ * window), so on the dispatch's return the click's store-driven DOM is not
+ * there yet. Waiting on the scope here — a condition, not a sleep — means no
+ * test asserting straight after a click has to know about the hold.
  */
 export function click(
   caller: HarnessCaller,
@@ -197,7 +204,24 @@ export function click(
   const script = callSurface(
     `window.__tug.click(${lit(selector)}, ${lit(opts)})`,
   );
-  return caller.evalJS<void>(script, evalOpts);
+  return caller
+    .evalJS<void>(script, evalOpts)
+    .then(() => settleGestureScope(caller));
+}
+
+/**
+ * Wait for no gesture scope to be pending (SURFACE_VERSION 2.26.0).
+ *
+ * `click` already does this. Call it after any other way of dispatching a
+ * pointer gesture from the page — a `window.__tug` driver reached through
+ * `evalJS` — before asserting what the gesture's store change rendered.
+ */
+export function settleGestureScope(caller: HarnessCaller): Promise<void> {
+  return caller
+    .waitForCondition<boolean>(
+      callSurface(`!window.__tug.isGestureScopePending()`),
+    )
+    .then(() => undefined);
 }
 
 /**
@@ -1882,6 +1906,7 @@ function isNativeVerbMethod(method: string): boolean {
  */
 export type ClientMethodNames =
   | "click"
+  | "isGestureScopePending"
   | "type"
   | "focusElement"
   | "reset"

@@ -81,7 +81,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { afterGesture, useSyncExternalStore } from "@/lib/gesture-scope";
 import { EditorView } from "@codemirror/view";
 import { ArrowUp, Check, Folder } from "lucide-react";
 
@@ -1758,8 +1758,13 @@ function OverviewComposer({
         if (notice.sessionId !== OVERVIEW_CARD_ID) return;
         const excerpt =
           notice.text.length > 60 ? `${notice.text.slice(0, 60)}…` : notice.text;
-        setAttachmentError(
-          `Prompt history isn't saving — still retrying "${excerpt}".`,
+        // A failure notice is an event, not a store snapshot, so it cannot be
+        // read through the door's `useSyncExternalStore`; `afterGesture` keeps
+        // it out of a gesture's first frame should the two coincide.
+        afterGesture(() =>
+          setAttachmentError(
+            `Prompt history isn't saving — still retrying "${excerpt}".`,
+          ),
         );
       }),
     [],

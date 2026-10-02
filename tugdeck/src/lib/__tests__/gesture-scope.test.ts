@@ -1,12 +1,46 @@
 import { describe, expect, it } from "bun:test";
 
-import { GestureScope, installGestureScope, wrapSubscribe, wrappedSubscribeFor } from "../gesture-scope";
+import { AFTER_PAINT_DEADLINE_MS, type AfterPaintOptions } from "../after-paint";
+import {
+  flushThrough,
+  GestureScope,
+  installGestureScope,
+  wrapSubscribe,
+  wrappedSubscribeFor,
+} from "../gesture-scope";
 
-/** A scope whose release is captured rather than scheduled. */
+/**
+ * A scope whose release is captured rather than scheduled: `flushes[i]` is the
+ * i-th scheduled release, `frames[i]` fires its frame, `opts[i]` is what it was
+ * scheduled with, and `cancelled[i]` says whether the scope took it back.
+ */
 function harness(motion = true) {
   const flushes: Array<() => void> = [];
-  const scope = new GestureScope((flush) => flushes.push(flush), () => motion);
-  return { scope, flushes };
+  const frames: Array<() => void> = [];
+  const opts: AfterPaintOptions[] = [];
+  const cancelled: boolean[] = [];
+  const clock = { now: 0 };
+  const scope = new GestureScope(
+    (flush, o) => {
+      const i = flushes.length;
+      flushes.push(flush);
+      frames.push(() => o.onFrame?.());
+      opts.push(o);
+      cancelled.push(false);
+      return () => {
+        cancelled[i] = true;
+      };
+    },
+    () => motion,
+    () => clock.now,
+  );
+  return { scope, flushes, frames, opts, cancelled, clock };
+}
+
+function thrower(message: string): () => void {
+  return () => {
+    throw new Error(message);
+  };
 }
 
 describe("GestureScope", () => {
@@ -28,11 +62,59 @@ describe("GestureScope", () => {
     expect(scope.isPending()).toBe(false);
   });
 
-  it("joins a pending scope rather than scheduling a second release", () => {
+  it("joins a pending scope whose frame has not fired, rather than scheduling a second release", () => {
     const { scope, flushes } = harness();
     scope.open("pointer");
     scope.open("prelaunch");
     expect(flushes.length).toBe(1);
+  });
+
+  it("re-arms the release past the next paint when an open arrives after the frame, within the deadline", () => {
+    const { scope, flushes, frames, opts, cancelled, clock } = harness();
+    scope.open("pointer");
+    expect(opts[0].deadlineMs).toBe(AFTER_PAINT_DEADLINE_MS);
+    clock.now = 17;
+    frames[0]();
+    scope.open("pointer");
+
+    expect(flushes.length).toBe(2);
+    expect(cancelled).toEqual([true, false]);
+    // The deadline counts from the hold's first open, not this one.
+    expect(opts[1].deadlineMs).toBe(AFTER_PAINT_DEADLINE_MS - 17);
+
+    // The second release's frame has not fired, so a third open joins it.
+    scope.open("pointer");
+    expect(flushes.length).toBe(2);
+
+    const calls: string[] = [];
+    scope.tell(() => calls.push("cb"));
+    flushes[1]();
+    expect(calls).toEqual(["cb"]);
+    expect(scope.isPending()).toBe(false);
+  });
+
+  it("joins after the frame once the hold has spent its deadline, so React is not starved", () => {
+    const { scope, flushes, frames, cancelled, clock } = harness();
+    scope.open("pointer");
+    clock.now = AFTER_PAINT_DEADLINE_MS;
+    frames[0]();
+    scope.open("pointer");
+    expect(flushes.length).toBe(1);
+    expect(cancelled).toEqual([false]);
+  });
+
+  it("starts a fresh hold, with a fresh deadline, after a release", () => {
+    const { scope, flushes, frames, opts, clock } = harness();
+    scope.open("pointer");
+    frames[0]();
+    flushes[0]();
+    clock.now = 500;
+    scope.open("pointer");
+    expect(opts[1].deadlineMs).toBe(AFTER_PAINT_DEADLINE_MS);
+    frames[1]();
+    clock.now = 510;
+    scope.open("pointer");
+    expect(opts[2].deadlineMs).toBe(AFTER_PAINT_DEADLINE_MS - 10);
   });
 
   it("releases held callbacks and afterGesture work in insertion order", () => {
@@ -91,20 +173,89 @@ describe("GestureScope", () => {
     expect(flushes.length).toBe(0);
   });
 
-  it("drainHeld runs the held set but leaves the scope pending and the queue unrun", () => {
+  it("drain runs the held set and the queue but leaves the scope pending", () => {
     const { scope } = harness();
     const calls: string[] = [];
     scope.open("pointer");
     scope.tell(() => calls.push("a"));
     scope.enqueue(() => calls.push("q"));
-    scope.drainHeld();
-    expect(calls).toEqual(["a"]);
+    scope.drain();
+    expect(calls).toEqual(["a", "q"]);
     expect(scope.isPending()).toBe(true);
 
     scope.tell(() => calls.push("b"));
-    expect(calls).toEqual(["a"]);
+    expect(calls).toEqual(["a", "q"]);
+    scope.release();
+    expect(calls).toEqual(["a", "q", "b"]);
+  });
+
+  it("runs every held tell and queued body when one throws, then rethrows the first error", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    scope.open("pointer");
+    scope.tell(() => calls.push("a"));
+    scope.tell(thrower("first"));
+    scope.tell(() => calls.push("b"));
+    scope.enqueue(() => calls.push("q"));
+    expect(() => scope.release()).toThrow("first");
+    expect(calls).toEqual(["a", "b", "q"]);
+    expect(scope.isPending()).toBe(false);
+    // Nothing is left behind to run a second time.
     scope.release();
     expect(calls).toEqual(["a", "b", "q"]);
+  });
+
+  it("drain survives a throw the same way, and the scope stays pending", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    scope.open("pointer");
+    scope.enqueue(thrower("queued"));
+    scope.enqueue(() => calls.push("q"));
+    expect(() => scope.drain()).toThrow("queued");
+    expect(calls).toEqual(["q"]);
+    expect(scope.isPending()).toBe(true);
+    // The bypass unwound: a tell is held again.
+    scope.tell(() => calls.push("held"));
+    expect(calls).toEqual(["q"]);
+  });
+});
+
+describe("flushThrough", () => {
+  it("drains the held set and the afterGesture queue before the body, and leaves the scope pending", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    scope.open("pointer");
+    scope.tell(() => calls.push("tell"));
+    scope.enqueue(() => calls.push("queued"));
+    const result = flushThrough(scope, () => {
+      calls.push("body");
+      return 7;
+    });
+    expect(result).toBe(7);
+    expect(calls).toEqual(["tell", "queued", "body"]);
+    expect(scope.isPending()).toBe(true);
+  });
+
+  it("runs the body even when the drain throws, then rethrows the drain's error", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    scope.open("pointer");
+    scope.tell(thrower("drain"));
+    expect(() => flushThrough(scope, () => calls.push("body"))).toThrow("drain");
+    expect(calls).toEqual(["body"]);
+  });
+
+  it("lets the body's own error win over the drain's", () => {
+    const { scope } = harness();
+    scope.open("pointer");
+    scope.tell(thrower("drain"));
+    const original = console.error;
+    console.error = () => {};
+    try {
+      expect(() => flushThrough(scope, thrower("body"))).toThrow("body");
+    } finally {
+      console.error = original;
+    }
   });
 });
 

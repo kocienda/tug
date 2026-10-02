@@ -70,6 +70,7 @@
 import "../tug-menu.css";
 
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { afterGesture } from "@/lib/gesture-scope";
 import { Check, ChevronRight } from "lucide-react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { animate } from "@/components/tugways/tug-animator";
@@ -372,7 +373,13 @@ export function TugPopupMenu({
     if (!open || !manager) return;
     return manager.observeDispatch(() => {
       if (blinkingRef.current) return;
-      setOpen(false);
+      // The close is an event, not a store snapshot, so it cannot be read
+      // through the door's `useSyncExternalStore`. A clicked item's dispatch
+      // runs in the click's task, and a close committed there lands in the
+      // first frame of whatever motion that dispatch launched; `afterGesture`
+      // moves it into the gesture scope's release, and runs it inline when no
+      // gesture is pending (a keyboard-driven dispatch).
+      afterGesture(() => setOpen(false));
     });
   }, [open, manager]);
 

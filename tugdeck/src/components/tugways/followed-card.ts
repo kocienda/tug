@@ -17,8 +17,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
-  useState,
+  useRef,
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useFocusManager } from "@/components/tugways/use-focusable";
@@ -27,21 +26,32 @@ import { useFocusManager } from "@/components/tugways/use-focusable";
 export const FollowedCardContext = createContext<string | null>(null);
 
 /** Track the last key card that is not `selfCardId` ([P11]). Runs once, in the
- *  tracking card's content component. */
+ *  tracking card's content component.
+ *
+ *  The history lives beside the subscription that hears it, and the snapshot
+ *  is the remembered card — so a key change is one commit through the door,
+ *  where copying the key into state from an effect cost a second. */
 export function useTrackFollowedCard(selfCardId: string): string | null {
   const focusManager = useFocusManager();
-  const currentKey = useSyncExternalStore(
-    useCallback(
-      (cb: () => void) => focusManager?.subscribe(cb) ?? (() => {}),
-      [focusManager],
-    ),
-    useCallback(() => focusManager?.keyCard() ?? null, [focusManager]),
+  const lastRef = useRef<string | null>(null);
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      if (focusManager === null) return () => {};
+      const remember = (): void => {
+        const key = focusManager.keyCard();
+        if (key !== null && key !== selfCardId) lastRef.current = key;
+      };
+      // The key card at subscribe time is history too; React re-reads the
+      // snapshot after subscribing, so a mount-time key still renders.
+      remember();
+      return focusManager.subscribe(() => {
+        remember();
+        onStoreChange();
+      });
+    },
+    [focusManager, selfCardId],
   );
-  const [last, setLast] = useState<string | null>(null);
-  useEffect(() => {
-    if (currentKey !== null && currentKey !== selfCardId) setLast(currentKey);
-  }, [currentKey, selfCardId]);
-  return last;
+  return useSyncExternalStore(subscribe, () => lastRef.current);
 }
 
 /** Read the enclosing card's followed card id from context. */

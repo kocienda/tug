@@ -24,9 +24,25 @@ export const AFTER_PAINT_DEADLINE_MS = 50;
 /** Releases a scheduled after-paint callback; idempotent, and safe after it ran. */
 export type CancelAfterPaint = () => void;
 
+/** What a caller may ask of the door beyond the callback itself. */
+export interface AfterPaintOptions {
+  /**
+   * Called from the frame callback, before the paint the callback waits past.
+   * A caller that must know whether its frame has already gone — the gesture
+   * scope, deciding whether a new gesture can still join it — reads it here.
+   * Not called when the deadline wins.
+   */
+  onFrame?: () => void;
+  /** The deadline behind the deferral; defaults to {@link AFTER_PAINT_DEADLINE_MS}. */
+  deadlineMs?: number;
+}
+
 const NOOP_CANCEL: CancelAfterPaint = () => {};
 
-export function scheduleAfterPaint(fn: () => void): CancelAfterPaint {
+export function scheduleAfterPaint(
+  fn: () => void,
+  opts?: AfterPaintOptions,
+): CancelAfterPaint {
   if (typeof requestAnimationFrame !== "function") {
     fn();
     return NOOP_CANCEL;
@@ -47,7 +63,8 @@ export function scheduleAfterPaint(fn: () => void): CancelAfterPaint {
   frame = requestAnimationFrame(() => {
     frame = null;
     paintTimer = window.setTimeout(once, 0);
+    opts?.onFrame?.();
   });
-  deadlineTimer = window.setTimeout(once, AFTER_PAINT_DEADLINE_MS);
+  deadlineTimer = window.setTimeout(once, opts?.deadlineMs ?? AFTER_PAINT_DEADLINE_MS);
   return release;
 }

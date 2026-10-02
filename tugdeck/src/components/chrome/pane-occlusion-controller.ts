@@ -38,7 +38,9 @@
  * container space — so a mid-FLIP inverse transform never pollutes the
  * decision: occlusion always describes the committed arrangement. Z-order is
  * read back from each frame's inline `z-index`, which React renders from the
- * store's pane order in the same commit this controller's effect follows.
+ * store's pane order in the same commit this controller's effect follows —
+ * and which the canvas's `pane-raise` subscriber has already written in the
+ * store commit's own task, revealing a raised frame as it goes.
  *
  * Appearance-zone gestures (drag, resize, rail resize) move frames without
  * store commits, so the three gesture machines in `tug-pane.tsx` bracket
@@ -306,6 +308,20 @@ export const paneOcclusionGesture = {
     if (gestureDepth === 0) instance?.schedule();
   },
 };
+
+/**
+ * Reveal one frame now, ahead of the commit that will recompute the rest.
+ *
+ * For the canvas's pane-raise writer, which brings a frame forward from a
+ * synchronous store subscriber while React's commit — and this controller's
+ * apply pass behind it — is still deferred past the next paint. A raised
+ * frame that stayed stamped would come forward hidden for that frame, the
+ * one failure this module never allows. Revealing it is the conservative
+ * side of the asymmetry: the apply pass re-arms any hide it still deserves.
+ */
+export function revealPaneFrame(frame: HTMLElement): void {
+  if (frame.dataset.occluded === "true") delete frame.dataset.occluded;
+}
 
 export function usePaneOcclusionController(
   deckRootRef: React.RefObject<HTMLDivElement | null>,

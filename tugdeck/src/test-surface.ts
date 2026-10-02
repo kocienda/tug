@@ -49,6 +49,7 @@ import { getDeckStore } from "./lib/deck-store-registry";
 import { raiseCard, transferFocusForActivation } from "./focus-transfer";
 import { getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
+import { gestureScope } from "./lib/gesture-scope";
 import {
   _ingestOverviewFrameForTest,
   _ingestOverviewPageForTest,
@@ -420,8 +421,14 @@ import {
  * without a claude round-trip, so the one test that used it proved nothing
  * about the path a real ask takes; the test went with it. Major stays `2` for
  * the reason `2.20.0` gives.
+ *
+ * `2.26.0`: adds {@link TugTestSurface.isGestureScopePending}. A pointer
+ * gesture opens a scope that holds every store-driven React update until
+ * after the next painted frame, so a click's store-driven DOM is not there
+ * when the click returns; the harness's `click` waits this out instead of
+ * each test learning about the hold. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.25.0" as const;
+export const SURFACE_VERSION = "2.26.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -796,6 +803,17 @@ export interface TugTestSurface {
   click(selector: string, opts?: ClickOptions): void;
   type(selector: string, text: string): void;
   focusElement(selector: string): void;
+
+  /**
+   * Whether a gesture scope is holding React (SURFACE_VERSION 2.26.0).
+   *
+   * A pointer gesture — the five events {@link TugTestSurface.click}
+   * dispatches among them — opens a scope in `lib/gesture-scope.ts`, and
+   * every store-driven React update is held until it releases after the next
+   * painted frame, or at its deadline in an occluded window. So the click's
+   * store-driven DOM lands after `click` returns. `false` means it has landed.
+   */
+  isGestureScopePending(): boolean;
 
   // ---- State reads ----
   /**
@@ -2069,6 +2087,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // for paths where synthesized pointerdown cannot drive
       // browser-default focus. Matches [D09] fidelity limits.
       el.focus();
+    },
+
+    isGestureScopePending(): boolean {
+      return gestureScope.isPending();
     },
 
     // ---- state reads ----

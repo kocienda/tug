@@ -8,9 +8,11 @@
  *   - Reads: the store's `activePaneId` (snapshot-reactive via
  *     `useSyncExternalStore`) and the deck root ref.
  *   - Writes: `data-focused="true"` on the active pane's frame,
- *     `data-focused="false"` on every other pane's frame. Writes happen in
- *     `useLayoutEffect` post-commit so newly-mounted panes receive their
- *     attribute before paint — no flicker.
+ *     `data-focused="false"` on every other pane's frame. Writes happen twice:
+ *     from a synchronous store subscriber, in the commit's own task, so a
+ *     press whose React commit is deferred past the next paint still lights
+ *     its pane in that paint; and in `useLayoutEffect` post-commit so
+ *     newly-mounted panes receive their attribute before paint — no flicker.
  *   - React no longer renders `data-focused` from a prop; React's reconciler
  *     therefore never considers or clobbers this attribute.
  *
@@ -63,6 +65,13 @@ import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import { installGestureInterpreter } from "@/gesture-interpreter";
 import { SHOWN_PANE_FRAMES } from "./space-layer";
 
+function applyPaneFocus(root: HTMLElement | null, activePaneId: string | null): void {
+  if (root === null) return;
+  for (const pane of root.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
+    pane.dataset.focused = pane.dataset.paneId === activePaneId ? "true" : "false";
+  }
+}
+
 export function usePaneFocusController(
   deckRootRef: React.RefObject<HTMLDivElement | null>,
 ): void {
@@ -80,14 +89,7 @@ export function usePaneFocusController(
   // here.
   const applyFocusRef = useRef<() => void>(() => {});
   applyFocusRef.current = () => {
-    const root = deckRootRef.current;
-    if (!root) return;
-    for (const pane of root.querySelectorAll<HTMLElement>(
-      SHOWN_PANE_FRAMES,
-    )) {
-      pane.dataset.focused =
-        pane.dataset.paneId === activePaneId ? "true" : "false";
-    }
+    applyPaneFocus(deckRootRef.current, activePaneId);
   };
 
   // Reactive apply: runs after each React commit when the snapshot changes.
@@ -95,6 +97,18 @@ export function usePaneFocusController(
   useLayoutEffect(() => {
     applyFocusRef.current();
   }, [activePaneId, snapshot, deckRootRef]);
+
+  // Immediate apply: the commit's own task, read from the store rather than
+  // the rendered snapshot. A pane-chrome press defers React's commit past the
+  // next paint (`mayDeferCommit`), and the pane it activates is on screen
+  // already, so its title bar lights in the press's own frame ([L22]). The
+  // reactive apply above still runs for the panes the commit mounts.
+  useLayoutEffect(() => {
+    const apply = (): void => {
+      applyPaneFocus(deckRootRef.current, store.getSnapshot().activePaneId ?? null);
+    };
+    return store.subscribeSync?.(apply, "pane-focus") ?? (() => {});
+  }, [store, deckRootRef]);
 
   // The keyboard lands when a hidden arrival is revealed.
   //

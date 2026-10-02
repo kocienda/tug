@@ -24,6 +24,13 @@
 // stay comparable with `[F13]`–`[F16]` of the remaining-costs brief. It is
 // dispatched from a task (a zero timeout), never from inside a frame callback,
 // because a click delivered during a rendering update is a different gesture.
+//
+// It is two tasks, as a hand's click is two input events: the press
+// (`pointerdown`, `mousedown`) in one, and the release (`pointerup`,
+// `mouseup`, `click`) in the next. Dispatched from one task, the press's work
+// was counted in the click's task, and what the lead blocked on could not be
+// told apart from what the release did. The recorder names them `press` and
+// `click`; the click's time is the press's, since the gesture starts there.
 (function (args) {
   "use strict";
 
@@ -241,19 +248,23 @@
             queries.install();
             queries.start(click);
           }
-          var dispatch = function () {
+          var press = function () {
             target.dispatchEvent(new PointerEvent("pointerdown", o));
             target.dispatchEvent(new MouseEvent("mousedown", o));
-            o.buttons = 0;
-            target.dispatchEvent(new PointerEvent("pointerup", o));
-            target.dispatchEvent(new MouseEvent("mouseup", o));
-            target.dispatchEvent(new MouseEvent("click", o));
+          };
+          var release = function () {
+            var up = Object.assign({}, o, { buttons: 0 });
+            target.dispatchEvent(new PointerEvent("pointerup", up));
+            target.dispatchEvent(new MouseEvent("mouseup", up));
+            target.dispatchEvent(new MouseEvent("click", up));
           };
           if (args.tasks) {
             lead.arm();
-            lead.run("click", dispatch);
+            lead.run("press", press);
+            setTimeout(function () { lead.run("click", release); }, 0);
           } else {
-            dispatch();
+            press();
+            setTimeout(release, 0);
           }
           setTimeout(function () {
             done = true;

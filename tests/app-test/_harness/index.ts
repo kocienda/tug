@@ -602,9 +602,20 @@ export class App {
    * click sequence on the element matched by `selector`. Prefer this
    * over raw DOM clicks — production handlers condition on the whole
    * full synthetic click sequence.
+   *
+   * Resolves once the click's gesture scope has released, so the click's
+   * store-driven DOM is there to assert on.
    */
   click(selector: string, opts?: ClickOptions): Promise<void> {
     return client.click(this as HarnessCaller, selector, opts);
+  }
+
+  /**
+   * Wait for no gesture scope to be pending. `click` already does; call
+   * this after a pointer gesture dispatched any other way from the page.
+   */
+  settleGestureScope(): Promise<void> {
+    return client.settleGestureScope(this as HarnessCaller);
   }
 
   /**

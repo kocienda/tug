@@ -321,6 +321,7 @@ struct Recorded {
     tasks: Vec<TaskRow>,
     commits: Vec<CommitRow>,
     long_frames: Vec<LongFrameTag>,
+    press_task: ClickTask,
     click_task: ClickTask,
 }
 
@@ -355,7 +356,8 @@ fn record(port: u16, title: &str, queries: bool, tasks: bool) -> Result<Option<R
             queries: list(&raw, "queries"),
             tasks: task_rows(&raw_tasks),
             commits: commit_rows(&raw_commits, &raw_tasks, &raw_tells),
-            click_task: click_task_commits(&raw_commits, &raw_tasks, &raw_tells),
+            press_task: task_commits(&raw_commits, &raw_tasks, &raw_tells, "press"),
+            click_task: task_commits(&raw_commits, &raw_tasks, &raw_tells, "click"),
         }
     }))
 }
@@ -568,13 +570,19 @@ pub fn commit_timings(commits: &[RawCommit], tells: &[RawTell]) -> Vec<CommitTim
         .collect()
 }
 
-/// The click's own task: the dispatch itself, and every microtask or promise
-/// callback descended from it, which run before the task yields.
+/// The click's own task — the release's dispatch — and every microtask or
+/// promise callback descended from it, which run before the task yields.
 pub fn click_task(tasks: &[RawTask]) -> HashSet<usize> {
+    gesture_task(tasks, "click")
+}
+
+/// One of the gesture's own tasks — `press` or `click` — and every microtask
+/// or promise callback descended from it.
+pub fn gesture_task(tasks: &[RawTask], kind: &str) -> HashSet<usize> {
     let mut set: HashSet<usize> = tasks
         .iter()
         .enumerate()
-        .filter(|(_, t)| t.kind == "click")
+        .filter(|(_, t)| t.kind == kind)
         .map(|(i, _)| i)
         .collect();
     loop {
@@ -592,7 +600,7 @@ pub fn click_task(tasks: &[RawTask]) -> HashSet<usize> {
     }
 }
 
-/// The commits in one click's own task, summed.
+/// The commits in one of a click's own tasks, summed.
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Default)]
 pub struct ClickTask {
     pub commits: u64,
@@ -600,12 +608,13 @@ pub struct ClickTask {
     pub span_ms: f64,
 }
 
-pub fn click_task_commits(
+pub fn task_commits(
     commits: &[RawCommit],
     tasks: &[RawTask],
     tells: &[RawTell],
+    kind: &str,
 ) -> ClickTask {
-    let set = click_task(tasks);
+    let set = gesture_task(tasks, kind);
     let mut sum = ClickTask::default();
     for (c, timing) in commits.iter().zip(commit_timings(commits, tells)) {
         if usize::try_from(c.task).is_ok_and(|i| set.contains(&i)) {
@@ -962,6 +971,7 @@ pub fn run_slide(
     let mut task_rows = Vec::new();
     let mut commit_rows = Vec::new();
     let mut long_frames = Vec::new();
+    let mut press_task = ClickTask::default();
     let mut click_task = ClickTask::default();
     for _ in 0..count {
         for title in [&to, &from] {
@@ -976,6 +986,9 @@ pub fn run_slide(
             task_rows.extend(recorded.tasks);
             commit_rows.extend(recorded.commits);
             long_frames.extend(recorded.long_frames);
+            press_task.commits += recorded.press_task.commits;
+            press_task.react_ms += recorded.press_task.react_ms;
+            press_task.span_ms += recorded.press_task.span_ms;
             click_task.commits += recorded.click_task.commits;
             click_task.react_ms += recorded.click_task.react_ms;
             click_task.span_ms += recorded.click_task.span_ms;
@@ -994,13 +1007,15 @@ pub fn run_slide(
             round1(x / readings.len() as f64)
         }
     };
-    let click_task = tasks.then(|| {
+    let per_task = |t: ClickTask| {
         json!({
-            "commits_per_click": per_click(click_task.commits as f64),
-            "react_ms_per_click": per_click(click_task.react_ms),
-            "span_ms_per_click": per_click(click_task.span_ms),
+            "commits_per_click": per_click(t.commits as f64),
+            "react_ms_per_click": per_click(t.react_ms),
+            "span_ms_per_click": per_click(t.span_ms),
         })
-    });
+    };
+    let press_task = tasks.then(|| per_task(press_task));
+    let click_task = tasks.then(|| per_task(click_task));
     let processes = match samplers {
         Some(samplers) => {
             if !json_output {
@@ -1030,6 +1045,7 @@ pub fn run_slide(
                 "framesPerturbedByTasks": tasks,
                 "tasks": task_rows,
                 "commits": commit_rows,
+                "press_task": press_task,
                 "click_task": click_task,
                 "longFrames": (queries || tasks).then_some(&long_frames),
             }))
@@ -1045,7 +1061,7 @@ pub fn run_slide(
             print_queries(rows, readings.len());
         }
         if let (Some(tasks), Some(commits)) = (&task_rows, &commit_rows) {
-            print_tasks(tasks, commits, click_task.as_ref(), readings.len());
+            print_tasks(tasks, commits, press_task.as_ref(), click_task.as_ref(), readings.len());
         }
         if let Some(processes) = &processes {
             crate::commands::deck_motion_sample::print(processes, readings.len());
@@ -1290,6 +1306,7 @@ fn print_long_frames(frames: &[LongFrameTag], queries: bool, tasks: bool) {
 fn print_tasks(
     tasks: &[TaskRow],
     commits: &[CommitRow],
+    press_task: Option<&Value>,
     click_task: Option<&Value>,
     clicks: usize,
 ) {
@@ -1328,10 +1345,14 @@ fn print_tasks(
     let total: u64 = commits.iter().map(|r| r.count).sum();
     let in_lead: u64 = commits.iter().map(|r| r.lead_count).sum();
     println!();
-    if let Some(ct) = click_task {
+    for (name, task, what) in [
+        ("press task", press_task, "pointerdown and mousedown"),
+        ("click task", click_task, "pointerup, mouseup and click, a task after the press"),
+    ] {
+        let Some(ct) = task else { continue };
         let n = |k: &str| ct.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
         println!(
-            "click task: {:.1} commit(s) per click, {:.1} ms React, {:.1} ms span — the dispatch and the microtasks descended from it, which run before the task yields",
+            "{name}: {:.1} commit(s) per click, {:.1} ms React, {:.1} ms span — the {what}, and the microtasks descended from it, which run before the task yields",
             n("commits_per_click"),
             n("react_ms_per_click"),
             n("span_ms_per_click")
@@ -1754,10 +1775,34 @@ mod tests {
             {"t": 51.0, "task": 3, "renderStart": 50.0},
         ]))
         .unwrap();
-        let sum = click_task_commits(&commits, &tasks, &[]);
+        let sum = task_commits(&commits, &tasks, &[], "click");
         assert_eq!(sum.commits, 1);
         assert_eq!(sum.react_ms, 4.0);
         assert_eq!(sum.span_ms, 35.0);
+    }
+
+    #[test]
+    fn the_press_and_the_click_are_counted_apart() {
+        // The press runs first; the release is a task later.
+        let tasks = vec![
+            task("press", "press", "", -1, 0.0, 20.0),
+            task("microtask", "flush", "", 0, 20.0, 24.0),
+            task("click", "release", "", -1, 25.0, 30.0),
+            task("microtask", "flush", "", 2, 30.0, 31.0),
+        ];
+        let mut press: Vec<usize> = gesture_task(&tasks, "press").into_iter().collect();
+        press.sort_unstable();
+        assert_eq!(press, vec![0, 1]);
+        let mut click: Vec<usize> = click_task(&tasks).into_iter().collect();
+        click.sort_unstable();
+        assert_eq!(click, vec![2, 3]);
+
+        let commits: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 22.0, "task": 1, "renderStart": 21.0},
+        ]))
+        .unwrap();
+        assert_eq!(task_commits(&commits, &tasks, &[], "press").commits, 1);
+        assert_eq!(task_commits(&commits, &tasks, &[], "click").commits, 0);
     }
 
     #[test]

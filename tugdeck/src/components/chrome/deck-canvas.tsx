@@ -70,7 +70,7 @@ import { UpdatePill } from "./update-pill";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
-import { usePaneOcclusionController } from "./pane-occlusion-controller";
+import { revealPaneFrame, usePaneOcclusionController } from "./pane-occlusion-controller";
 import {
   getAllRegistrations,
   getRegistration,
@@ -410,6 +410,14 @@ function buildZIndexMap(
  *  Raising it would be a change with no caller asking for it, and would spend
  *  the one value a future canvas tier could have. */
 const SIDEBAR_PANE_ZINDEX_MAX_RANK = 8;
+
+/** A deck's pane z-order, as its arrangement renders it. */
+function paneZIndexMap(deck: DeckState): Map<string, number> {
+  return buildZIndexMap(
+    deck.panes,
+    new Set(findSidebarPanes(deck).map(({ pane }) => pane.id)),
+  );
+}
 
 /**
  * The seam between two split rail members, level with the frontmost rank a rail
@@ -2688,6 +2696,32 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const deckRootRef = useRef<HTMLDivElement | null>(null);
   usePaneFocusController(deckRootRef);
   usePaneOcclusionController(deckRootRef);
+
+  // The raise lands in the commit's own task. A press that brings a pane
+  // forward defers its React commit past the next paint (`mayDeferCommit`),
+  // and the rendered `zIndex` would follow it — so a pane pressed from under
+  // its neighbour would travel under it for a frame before popping forward.
+  // Stacking is appearance the user is looking straight at, so it is written
+  // here, from the store, as the flow offset is ([L22]); React's later commit
+  // renders the same values. A frame that comes forward is revealed with it,
+  // since the occlusion pass that would otherwise reveal it is behind the
+  // same deferral.
+  useLayoutEffect(() => {
+    const raise = (): void => {
+      const root = deckRootRef.current;
+      if (root === null) return;
+      const zIndexMap = paneZIndexMap(store.getSnapshot());
+      for (const frame of root.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
+        const z = zIndexMap.get(frame.dataset.paneId ?? "");
+        if (z === undefined) continue;
+        const was = parseInt(frame.style.zIndex, 10);
+        if (was === z) continue;
+        frame.style.zIndex = String(z);
+        if (!(was > z)) revealPaneFrame(frame);
+      }
+    };
+    return store.subscribeSync?.(raise, "pane-raise") ?? (() => {});
+  }, [store]);
 
   // ---------------------------------------------------------------------------
   // Refs for cycleCard closure (registered once on mount via useResponder)

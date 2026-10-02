@@ -74,7 +74,7 @@ export interface IDeckManagerStore {
    * `flushSync`, and the canvas then reads the deck's new snapshot and runs
    * the whole Last pass in the click task ([F05]).
    *
-   * The six subscribers, audited against that rule:
+   * The eight subscribers, audited against that rule:
    *
    * - `canvas-arm` (`deck-canvas.tsx`) — measures and writes the DOM, and
    *   keeps its own refs. It makes no React write of its own, but on a
@@ -85,6 +85,11 @@ export interface IDeckManagerStore {
    *   before paint.
    * - `selection-guard` (`selection-guard.ts`) — installs a `mousedown`
    *   interceptor and repaints its overlay. DOM only.
+   * - `pane-raise` (`deck-canvas.tsx`) and `pane-focus`
+   *   (`pane-focus-controller.ts`) — write each shown frame's inline
+   *   `z-index` and `data-focused` from the store, so a press whose React
+   *   commit is deferred brings its pane forward and lights it in the press's
+   *   own frame. DOM only; React later renders the same `z-index`.
    * - `destination-flip` (`deck-trace.ts`) — appends to the trace ring, which
    *   has no React subscribers.
    * - `test-surface` (`test-surface.ts`) — increments a local counter inside

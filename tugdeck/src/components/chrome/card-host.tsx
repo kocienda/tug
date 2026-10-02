@@ -722,12 +722,25 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
   // `deferred-engine`) and invokes the hook. This is the one
   // late-mount FOCUS settle path that survives — there is no
   // `deferred-dom` focus retry.
-  const [engineHooksVersion, setEngineHooksVersion] = useState(0);
-  useLayoutEffect(() => {
-    return store.subscribeEngineHooksChange(cardId, () => {
-      setEngineHooksVersion((v) => v + 1);
-    });
-  }, [cardId, store]);
+  //
+  // Read through the door's `useSyncExternalStore`, so a registration
+  // that lands inside a gesture is held with every other store's tell.
+  // The channel carries no snapshot of its own — a re-registration
+  // leaves `hasEngineHooks` unchanged — so the count of changes heard
+  // is the snapshot, kept beside the subscription that counts them.
+  const engineHooksChangesRef = useRef(0);
+  const subscribeEngineHooks = useCallback(
+    (onStoreChange: () => void) =>
+      store.subscribeEngineHooksChange(cardId, () => {
+        engineHooksChangesRef.current += 1;
+        onStoreChange();
+      }),
+    [cardId, store],
+  );
+  const engineHooksVersion = useSyncExternalStore(
+    subscribeEngineHooks,
+    () => engineHooksChangesRef.current,
+  );
 
 
   // Counts how many "real" (carrying `restorePendingRef`)

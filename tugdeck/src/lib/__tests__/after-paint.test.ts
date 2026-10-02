@@ -124,4 +124,24 @@ describe("scheduleAfterPaint", () => {
     cancel();
     expect(runs).toBe(1);
   });
+
+  test("onFrame reports the frame, and a shortened deadline is the one queued", () => {
+    let runs = 0;
+    let framed = 0;
+    scheduleAfterPaint(() => runs++, { onFrame: () => framed++, deadlineMs: 12 });
+    expect([...timers.values()].map((t) => t.ms)).toEqual([12]);
+    frame();
+    expect(framed).toBe(1);
+    expect(runs).toBe(0);
+    elapse(0);
+    expect(runs).toBe(1);
+  });
+
+  test("onFrame is not called when the deadline wins", () => {
+    let framed = 0;
+    scheduleAfterPaint(() => {}, { onFrame: () => framed++ });
+    elapse(AFTER_PAINT_DEADLINE_MS);
+    frame();
+    expect(framed).toBe(0);
+  });
 });

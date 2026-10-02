@@ -16,11 +16,23 @@
  * the deadline that keeps an occluded window from holding forever ([L32]).
  * `afterGesture` queues other React-facing work into the same release.
  *
+ * A gesture that opens while a scope is pending joins it only if the scope's
+ * frame has not yet gone: joining a scope one task from its release would let
+ * React into the new gesture's first frame, which is the thing the hold is
+ * for. After the frame, an `open` re-arms the release past the next paint
+ * instead — but never past the deadline counted from the hold's first `open`,
+ * so a run of gestures holds React no longer than one gesture could.
+ *
+ * A throwing callback takes nothing with it. Every held tell and queued body
+ * runs, guarded, and the first error is rethrown once all have run, so a
+ * fault is still loud and no component is left stale behind it.
+ *
  * Two bypasses. The wrapped `flushSync` is how code says "I need the DOM now":
- * it drains the held set inside react-dom's flush and runs its body unheld,
- * but leaves the scope pending, so a `flushSync` early in a gesture does not
- * end the hold for the rest of it. `tellReactNow` runs its body unheld without
- * a flush, for the deck store's own deliberate inline tells.
+ * it drains the held set and the queued `afterGesture` work inside react-dom's
+ * flush and runs its body unheld — whether or not the drain threw — but leaves
+ * the scope pending, so a `flushSync` early in a gesture does not end the hold
+ * for the rest of it. `tellReactNow` runs its body unheld without a flush, for
+ * the deck store's own deliberate inline tells.
  *
  * Why not a transition: react-dom enqueues every `useSyncExternalStore` change
  * at SyncLane whatever the transition context, and a transition-lane render
@@ -36,9 +48,34 @@ import { flushSync as reactFlushSync } from "react-dom";
 
 import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
 
-import { scheduleAfterPaint } from "./after-paint";
+import {
+  AFTER_PAINT_DEADLINE_MS,
+  type AfterPaintOptions,
+  type CancelAfterPaint,
+  scheduleAfterPaint,
+} from "./after-paint";
 
 type Subscribe = (onStoreChange: () => void) => () => void;
+
+/** How a scope schedules its release: `scheduleAfterPaint`'s shape. */
+export type ScheduleRelease = (flush: () => void, opts: AfterPaintOptions) => CancelAfterPaint;
+
+/**
+ * Run every fn once, each guarded; rethrow the first error after all have run.
+ * A later error is reported rather than dropped.
+ */
+function runGuarded(fns: ReadonlyArray<() => void>): void {
+  let first: { error: unknown } | null = null;
+  for (const fn of fns) {
+    try {
+      fn();
+    } catch (error) {
+      if (first === null) first = { error };
+      else console.error("[gesture-scope] a further callback threw", error);
+    }
+  }
+  if (first !== null) throw first.error;
+}
 
 /** The parts of the lead recorder (`tugdeck/index.html`) this module calls. */
 export interface TugLeadRecorder {
@@ -64,26 +101,60 @@ export type GestureScopeReason = "pointer" | "prelaunch";
 
 export class GestureScope {
   private pending = false;
+  /** The pending scope's frame has fired; its release is one task away. */
+  private frameFired = false;
+  /** When the pending hold's first `open` ran, for the deadline it may not pass. */
+  private openedAt = 0;
+  private cancelRelease: CancelAfterPaint | null = null;
   private bypass = 0;
   private held = new Set<() => void>();
   private queue: Array<() => void> = [];
-  private readonly schedule: (flush: () => void) => void;
+  private readonly schedule: ScheduleRelease;
   private readonly motionEnabled: () => boolean;
+  private readonly now: () => number;
 
   constructor(
-    schedule: (flush: () => void) => void = scheduleAfterPaint,
+    schedule: ScheduleRelease = scheduleAfterPaint,
     motionEnabled: () => boolean = isTugMotionEnabled,
+    now: () => number = () => performance.now(),
   ) {
     this.schedule = schedule;
     this.motionEnabled = motionEnabled;
+    this.now = now;
   }
 
-  /** Hold React until after the next paint. No-op with motion off; joins a pending scope. */
+  /**
+   * Hold React until after the next paint. No-op with motion off. Joins a
+   * pending scope whose frame has not fired; after it has, re-arms the release
+   * past the next paint, within the hold's deadline.
+   */
   open(_reason: GestureScopeReason): void {
     if (!this.motionEnabled()) return;
-    if (this.pending) return;
+    if (this.pending) {
+      if (!this.frameFired) return;
+      const remaining = AFTER_PAINT_DEADLINE_MS - (this.now() - this.openedAt);
+      // The hold has had its budget: join, rather than let a run of gestures starve React.
+      if (remaining <= 0) return;
+      this.cancelRelease?.();
+      this.arm(remaining);
+      return;
+    }
     this.pending = true;
-    this.schedule(() => this.release());
+    this.openedAt = this.now();
+    this.arm(AFTER_PAINT_DEADLINE_MS);
+  }
+
+  private arm(deadlineMs: number): void {
+    this.frameFired = false;
+    this.cancelRelease = null;
+    const cancel = this.schedule(() => this.release(), {
+      deadlineMs,
+      onFrame: () => {
+        this.frameFired = true;
+      },
+    });
+    // A schedule with no frame to wait for releases synchronously.
+    if (this.pending) this.cancelRelease = cancel;
   }
 
   isPending(): boolean {
@@ -113,28 +184,25 @@ export class GestureScope {
     this.queue.push(fn);
   }
 
-  /** Run every held callback once; the scope stays pending and the queue stays queued. */
-  drainHeld(): void {
-    if (this.held.size === 0) return;
-    const held = [...this.held];
-    this.held.clear();
-    this.withBypass(() => {
-      for (const cb of held) cb();
-    });
+  /** Run every held callback, then every queued fn, once; the scope stays pending. */
+  drain(): void {
+    this.runHeldAndQueued();
   }
 
-  /** Run every held callback and queued fn once, in insertion order, and end the scope. */
+  /** Run every held callback, then every queued fn, once, and end the scope. */
   release(): void {
     this.pending = false;
+    this.frameFired = false;
+    this.cancelRelease = null;
+    this.runHeldAndQueued();
+  }
+
+  private runHeldAndQueued(): void {
     if (this.held.size === 0 && this.queue.length === 0) return;
-    const held = [...this.held];
-    const queue = this.queue;
+    const fns = [...this.held, ...this.queue];
     this.held.clear();
     this.queue = [];
-    this.withBypass(() => {
-      for (const cb of held) cb();
-      for (const fn of queue) fn();
-    });
+    this.withBypass(() => runGuarded(fns));
   }
 
   withBypass<R>(fn: () => R): R {
@@ -205,15 +273,35 @@ export function useSyncExternalStore<T>(
   return reactUseSyncExternalStore(wrappedSubscribeFor(subscribe), readSnapshot, getServerSnapshot);
 }
 
-/** Drop-in for react-dom's: drains the held set (the scope stays pending), then runs `fn` unheld. */
+/**
+ * Drop-in for react-dom's: drains the held set and the queued work (the scope
+ * stays pending), then runs `fn` unheld. `fn` runs even if the drain threw; the
+ * drain's error is rethrown after it, and `fn`'s own error wins over it.
+ */
 export function flushSync<R>(fn: () => R): R {
   LEAD?.tell("flushSync", "");
-  return reactFlushSync(() =>
-    gestureScope.withBypass(() => {
-      gestureScope.drainHeld();
-      return fn();
-    }),
-  );
+  return reactFlushSync(() => flushThrough(gestureScope, fn));
+}
+
+/** Pure: the wrapped `flushSync`'s body inside react-dom's flush, against `scope`. */
+export function flushThrough<R>(scope: GestureScope, fn: () => R): R {
+  return scope.withBypass(() => {
+    let drainError: { error: unknown } | null = null;
+    try {
+      scope.drain();
+    } catch (error) {
+      drainError = { error };
+    }
+    let result: R;
+    try {
+      result = fn();
+    } catch (error) {
+      if (drainError !== null) console.error("[gesture-scope] the flushSync drain threw", drainError.error);
+      throw error;
+    }
+    if (drainError !== null) throw drainError.error;
+    return result;
+  });
 }
 
 /** Run `fn` with the hold bypassed and no flush. For the deck store's tells. */
