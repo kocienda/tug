@@ -29,7 +29,8 @@
 
 import "./skills-sheet.css";
 
-import React, { useCallback, useMemo, useSyncExternalStore } from "react";
+import React, { useCallback, useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Lock } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";

@@ -46,7 +46,8 @@
  * @module components/tugways/cards/compaction-progress-sheet
  */
 
-import React, { useEffect, useSyncExternalStore } from "react";
+import React, { useEffect } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";

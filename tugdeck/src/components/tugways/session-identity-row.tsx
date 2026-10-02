@@ -152,8 +152,8 @@ import React, {
   useEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";

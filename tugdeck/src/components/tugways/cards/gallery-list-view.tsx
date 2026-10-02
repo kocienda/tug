@@ -63,6 +63,7 @@
 import "./gallery.css";
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { PropertyStore } from "@/components/tugways/property-store";
 import {
@@ -313,7 +314,7 @@ function makeStreamingTextCell(
     // For this demo cell we DO want the React render path (small text
     // is cheap to re-render). The markdown-streaming cell uses the
     // [L22] direct-DOM path via `TugMarkdownBlock`'s internal observer.
-    const text = React.useSyncExternalStore(
+    const text = useSyncExternalStore(
       (cb) => streamingStore.observe(STREAMING_PATH, cb),
       () => (streamingStore.get(STREAMING_PATH) as string | undefined) ?? "",
     );
@@ -493,7 +494,7 @@ export function GalleryListView(
   // tracks live mutations. The list view itself subscribes
   // independently via `useSyncExternalStore`; this hook is for the
   // header bar's read-out.
-  const itemCount = React.useSyncExternalStore(
+  const itemCount = useSyncExternalStore(
     (cb) => dataSource.subscribe(cb),
     () => dataSource.numberOfItems(),
   );

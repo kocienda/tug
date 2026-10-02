@@ -28,7 +28,8 @@
 
 import "./hooks-sheet.css";
 
-import React, { useCallback, useMemo, useSyncExternalStore } from "react";
+import React, { useCallback, useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugLabel } from "@/components/tugways/tug-label";

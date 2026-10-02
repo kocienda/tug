@@ -31,7 +31,8 @@
  * @module lib/host-tools-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 export interface HostToolsSnapshot {
   /** The version `git --version` reported, or `null` when no git was reached. */

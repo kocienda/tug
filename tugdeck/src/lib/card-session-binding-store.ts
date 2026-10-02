@@ -20,7 +20,8 @@
  * @module lib/card-session-binding-store
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { sessionLineStore } from "./session-line-store";
 

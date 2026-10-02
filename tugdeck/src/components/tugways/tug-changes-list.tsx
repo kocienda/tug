@@ -44,8 +44,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { CornerDownLeft, CornerUpRight, SquareArrowOutUpRight } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";

@@ -14,7 +14,8 @@
  * @module lib/host-info-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 /** The host OS identity carried on the handshake response (Spec S03). */
 export interface HostInfo {

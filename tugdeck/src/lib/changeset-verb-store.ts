@@ -49,7 +49,8 @@
  * @module lib/changeset-verb-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";

@@ -13,7 +13,8 @@
  * @module lib/frontmost-project
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getDeckStore } from "./deck-store-registry";
 import {

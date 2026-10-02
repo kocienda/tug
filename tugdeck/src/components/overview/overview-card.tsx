@@ -80,8 +80,8 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { EditorView } from "@codemirror/view";
 import { ArrowUp, Check, Folder } from "lucide-react";
 

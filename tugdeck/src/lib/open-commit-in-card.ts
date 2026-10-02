@@ -28,7 +28,7 @@
  * @module lib/open-commit-in-card
  */
 
-import { transferFocusForActivation } from "@/focus-transfer";
+import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -69,6 +69,7 @@ export function openCommitInCard(
       incomingCardId: existing.cardId,
       store,
       commitMutation: () => store.activateCard(existing.cardId),
+      deferCommit: mayDeferCommit(store, existing.cardId),
     });
     // Re-point defensively — a same-commit open is a no-op re-request, which
     // is harmless and refreshes the record.

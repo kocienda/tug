@@ -35,7 +35,8 @@
  * @module components/tugways/cards/gallery-observable-props
  */
 
-import React, { useId, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import React, { useId, useLayoutEffect, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useRequiredResponderChain } from "@/components/tugways/responder-chain-provider";
 import { usePropertyStore } from "@/components/tugways/hooks/use-property-store";
 import type { PropertyChange, PropertyDescriptor } from "@/components/tugways/property-store";

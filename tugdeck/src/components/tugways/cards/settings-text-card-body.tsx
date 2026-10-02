@@ -18,7 +18,8 @@
  * @module components/tugways/cards/settings-text-card-body
  */
 
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TextCardControls } from "./text-card-controls";
 import { DefaultTextCardStore } from "@/lib/default-text-card-store";
 import type { TextCardSettings } from "@/lib/text-card-settings";

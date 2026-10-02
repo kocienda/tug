@@ -43,8 +43,8 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
   TugModalInputDialog,

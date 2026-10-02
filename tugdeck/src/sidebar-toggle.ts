@@ -41,7 +41,7 @@ import {
   type SidebarSide,
 } from "./lib/layout-imposer";
 import { findSidebarPanes } from "./deck-store-selectors";
-import { transferFocusForActivation } from "./focus-transfer";
+import { mayDeferCommit, transferFocusForActivation } from "./focus-transfer";
 
 /**
  * Run the three-state rail shortcut for `side` — the ⌃⌘ arrow pair.
@@ -88,6 +88,7 @@ export function toggleSidebarRail(
     incomingCardId,
     store,
     commitMutation: () => store.activateCard(incomingCardId),
+    deferCommit: mayDeferCommit(store, incomingCardId),
     modality: "keyboard",
   });
 }
@@ -175,6 +176,7 @@ export function toggleSidebarCard(
     incomingCardId,
     store,
     commitMutation: () => store.activateCard(incomingCardId),
+    deferCommit: mayDeferCommit(store, incomingCardId),
     modality: "keyboard",
   });
 }
@@ -203,6 +205,7 @@ export function revealSidebarCard(
     incomingCardId,
     store,
     commitMutation: () => store.activateCard(incomingCardId),
+    deferCommit: mayDeferCommit(store, incomingCardId),
     modality: "pointer",
   });
 }

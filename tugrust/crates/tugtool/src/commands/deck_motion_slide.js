@@ -260,6 +260,9 @@
             observer.disconnect();
             if (queries) queries.restore();
             var tasks = args.tasks ? lead.disarm() : null;
+            // Every store change React was told of, and every flushSync,
+            // read right after the disarm that ended the recording.
+            var tells = args.tasks ? lead.tells() : null;
             var rel = function (t) { return Math.round((t - click) * 10) / 10; };
             resolve({
               title: titleOf(row),
@@ -289,12 +292,19 @@
                   start: rel(e.start), end: rel(e.end),
                 };
               }),
+              tells: tells && tells.map(function (t) {
+                return { t: rel(t.t), kind: t.kind, stack: t.stack, task: t.task };
+              }),
               commits: tasks && window.__tugCommits
                 ? window.__tugCommits.since(click).map(function (c) {
                     return {
                       t: rel(c.t), ms: Math.round(c.ms * 10) / 10, task: c.task,
                       fibers: c.fibers, performed: c.performed,
                       origins: c.origins, top: c.top, hooks: c.hooks,
+                      // The first store read of the render, and the end of
+                      // the commit's passive effects; either may be absent.
+                      renderStart: c.renderStart == null ? null : rel(c.renderStart),
+                      post: c.post == null ? null : rel(c.post),
                     };
                   })
                 : null,

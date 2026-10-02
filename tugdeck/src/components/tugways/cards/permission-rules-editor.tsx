@@ -42,8 +42,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Trash2 } from "lucide-react";
 
 import { TugInput } from "@/components/tugways/tug-input";

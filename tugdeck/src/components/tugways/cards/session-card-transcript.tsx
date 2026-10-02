@@ -79,8 +79,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   AlarmClock,
   Milestone,
@@ -1192,7 +1192,7 @@ const StreamedTextGate: React.FC<StreamedTextGateProps> = ({
       streamingStore.observe(streamingPath, onStoreChange),
     [streamingStore, streamingPath],
   );
-  const hasText = React.useSyncExternalStore(subscribe, () => {
+  const hasText = useSyncExternalStore(subscribe, () => {
     const value = streamingStore.get(streamingPath);
     return typeof value === "string" && value.length > 0;
   });

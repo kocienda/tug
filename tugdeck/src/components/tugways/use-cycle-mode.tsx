@@ -42,8 +42,8 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
   BASE_FOCUS_MODE,

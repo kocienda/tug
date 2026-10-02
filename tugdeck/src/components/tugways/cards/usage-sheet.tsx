@@ -31,7 +31,8 @@
 
 import "./usage-sheet.css";
 
-import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugArcGauge } from "@/components/tugways/tug-arc-gauge";

@@ -20,7 +20,8 @@
  *     returns `fallback`. The cache subscribes the moment the client appears.
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getTugbankClient } from "./tugbank-singleton";
 import type { TaggedValue } from "./tugbank-client";

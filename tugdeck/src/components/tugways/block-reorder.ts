@@ -84,7 +84,8 @@
  */
 
 import React from "react";
-import { flushSync } from "react-dom";
+import { flushSync } from "@/lib/gesture-scope";
+
 
 import { group } from "@/components/tugways/tug-animator";
 

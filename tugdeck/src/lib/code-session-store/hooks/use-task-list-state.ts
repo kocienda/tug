@@ -42,7 +42,8 @@
  * @module lib/code-session-store/hooks/use-task-list-state
  */
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import {

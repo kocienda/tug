@@ -17,7 +17,8 @@
  * and `showComponentGallery`.
  */
 
-import React, { memo, useCallback, useMemo, useState, useEffect, useRef, useSyncExternalStore, useLayoutEffect } from "react";
+import React, { memo, useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect } from "react";
+import { gestureScope, useSyncExternalStore } from "@/lib/gesture-scope";
 import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
 import {
   beginResizeEpisode,
@@ -41,7 +42,7 @@ import { useResponder } from "@/components/tugways/use-responder";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { applyBagFocus, transferFocusForActivation } from "@/focus-transfer";
+import { applyBagFocus, mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import {
   deckTrace,
   type CommitLanding,
@@ -2729,6 +2730,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       incomingCardId,
       store,
       commitMutation: () => store.activateCard(incomingCardId),
+      deferCommit: mayDeferCommit(store, incomingCardId),
     });
     return true;
   };
@@ -2788,6 +2790,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId: nextId,
           store,
           commitMutation: () => store.activateCard(nextId),
+          deferCommit: mayDeferCommit(store, nextId),
         });
       },
       [TUG_ACTIONS.NEXT_TAB]: (_event: ActionEvent) => {
@@ -2803,6 +2806,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId: nextId,
           store,
           commitMutation: () => store.activateCard(nextId),
+          deferCommit: mayDeferCommit(store, nextId),
         });
       },
       // ⌘1..⌘9 — put the selected card at slot N of the active
@@ -2931,6 +2935,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId: target.cardId,
           store,
           commitMutation: () => store.activateCard(target.cardId),
+          deferCommit: mayDeferCommit(store, target.cardId),
         });
         flashCardPane(store, target.cardId);
       },
@@ -3182,6 +3187,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId,
           store,
           commitMutation: () => store.activateCard(incomingCardId),
+          deferCommit: mayDeferCommit(store, incomingCardId),
         });
       },
       // Answered HERE, at the chain root, for the reason `focus-pane` above
@@ -3299,6 +3305,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId,
           store,
           commitMutation: () => store.activateCard(incomingCardId),
+          deferCommit: mayDeferCommit(store, incomingCardId),
         });
       },
       [TUG_ACTIONS.SHOW_KEYBOARD_SHORTCUTS]: (_event: ActionEvent) => {
@@ -3318,6 +3325,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId,
           store,
           commitMutation: () => store.activateCard(incomingCardId),
+          deferCommit: mayDeferCommit(store, incomingCardId),
         });
       },
       [TUG_ACTIONS.SHOW_DEVTOOLS]: (_event: ActionEvent) => {
@@ -3337,6 +3345,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId,
           store,
           commitMutation: () => store.activateCard(incomingCardId),
+          deferCommit: mayDeferCommit(store, incomingCardId),
         });
       },
       // Show Jots / Show Cards / Show Overview — the three-state sidebar
@@ -3380,6 +3389,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           incomingCardId,
           store,
           commitMutation: () => store.activateCard(incomingCardId),
+          deferCommit: mayDeferCommit(store, incomingCardId),
           modality: "keyboard",
         });
         getJotsStore().createJot(null);
@@ -3415,6 +3425,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             incomingCardId,
             store,
             commitMutation: () => store.activateCard(incomingCardId),
+            deferCommit: mayDeferCommit(store, incomingCardId),
           });
         } else {
           // No gallery card anywhere — create one and activate its seed.
@@ -5060,6 +5071,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const settleMs = readSettleMs(el);
       settleDurationRef.current = settleMs;
       if (prelaunch) {
+        // Hold every store's React notify past the tween's first frame, so
+        // no commit later in this task lands in it.
+        gestureScope.open("prelaunch");
         // The strip's new place, written now on every reader so every pane's
         // `left` is at its destination in the frame the tween's inverse holds
         // it at its origin. The layer's own effect writes the same value after
@@ -6642,6 +6656,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         incomingCardId: entry.cardId,
         store,
         commitMutation: () => store.activateCard(entry.cardId),
+        deferCommit: mayDeferCommit(store, entry.cardId),
       });
     },
     [store],

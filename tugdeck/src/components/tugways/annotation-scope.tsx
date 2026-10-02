@@ -32,7 +32,8 @@
  */
 
 import React from "react";
-import { flushSync } from "react-dom";
+import { flushSync } from "@/lib/gesture-scope";
+
 
 import {
   annotateElement,

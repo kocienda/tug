@@ -34,7 +34,8 @@
  * @module components/cards/cards-data-source
  */
 
-import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getRegistration } from "@/card-registry";
 import type {

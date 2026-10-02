@@ -42,7 +42,8 @@
 
 import "./tug-markdown-text.css";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import React from "react";
 
 import { renderFilterHighlightSpans } from "@/components/tugways/filter-highlight";

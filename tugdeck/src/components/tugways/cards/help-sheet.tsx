@@ -30,7 +30,8 @@
 
 import "./help-sheet.css";
 
-import React, { useId, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useId, useMemo, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import {

@@ -23,7 +23,8 @@
  * @module lib/use-store-derived
  */
 
-import { useCallback, useRef, useSyncExternalStore } from "react";
+import { useCallback, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { deepEqual } from "./deep-equal";
 

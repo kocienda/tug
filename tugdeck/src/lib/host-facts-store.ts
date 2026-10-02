@@ -17,7 +17,8 @@
  * @module lib/host-facts-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 /** The host facts served by `GET /api/host` (Spec S01). */
 export interface HostFacts {

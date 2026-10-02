@@ -42,7 +42,8 @@
 
 import "./session-landing-progress-row.css";
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { ArcJoinRegisterView } from "../arc-join-register";
 import type { JoinModeController } from "@/lib/join-mode-controller";

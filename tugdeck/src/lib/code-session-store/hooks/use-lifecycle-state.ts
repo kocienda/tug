@@ -27,7 +27,8 @@
  * @module lib/code-session-store/hooks/use-lifecycle-state
  */
 
-import { useRef, useSyncExternalStore } from "react";
+import { useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
 

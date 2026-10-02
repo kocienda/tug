@@ -33,7 +33,7 @@
  * @module lib/open-file-in-card
  */
 
-import { transferFocusForActivation } from "@/focus-transfer";
+import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { getTugbankClient } from "./tugbank-singleton";
 import {
@@ -77,6 +77,7 @@ function openFileInViewerCard(
       incomingCardId: existing.cardId,
       store,
       commitMutation: () => store.activateCard(existing.cardId),
+      deferCommit: mayDeferCommit(store, existing.cardId),
     });
     flashCardPane(store, existing.cardId);
     return;
@@ -119,6 +120,7 @@ export function openFileInCard(
       incomingCardId: existing.cardId,
       store,
       commitMutation: () => store.activateCard(existing.cardId),
+      deferCommit: mayDeferCommit(store, existing.cardId),
     });
     if (line !== undefined) {
       existing.entry.revealLine(line, endLine, columns);

@@ -35,8 +35,8 @@ import React, {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { registerCard } from "@/card-registry";
 import type { CardIdentityFacts } from "@/card-registry";

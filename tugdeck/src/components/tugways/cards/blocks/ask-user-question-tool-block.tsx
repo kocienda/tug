@@ -81,6 +81,7 @@
 import "./ask-user-question-tool-block.css";
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { MessageCircle } from "lucide-react";
 
 import { TugDialogButton } from "@/components/tugways/tug-dialog-button";
@@ -409,7 +410,7 @@ export const AskUserQuestionToolBlock: React.FC<ToolBlockProps> = ({
   // the tool_use row share `tool_use_id`; the live wizard and the durable
   // record are now one block, so the asking surface is owned here in place
   // rather than handed to a foot-slot dialog.
-  const pendingQuestion = React.useSyncExternalStore(
+  const pendingQuestion = useSyncExternalStore(
     session?.subscribe ?? noopSubscribe,
     React.useCallback(
       () => session?.getSnapshot().pendingQuestion ?? null,

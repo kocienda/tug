@@ -39,6 +39,7 @@
  */
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
 
 import { EditorView, layer } from "@codemirror/view";
@@ -529,7 +530,7 @@ export function SessionDotPortals({
     (): readonly DotHost[] => (store === null ? NO_HOSTS : store.getSnapshot()),
     [store],
   );
-  const hosts = React.useSyncExternalStore(subscribe, getSnapshot);
+  const hosts = useSyncExternalStore(subscribe, getSnapshot);
   if (hosts.length === 0) return null;
   return (
     <>

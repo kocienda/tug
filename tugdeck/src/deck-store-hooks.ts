@@ -14,7 +14,8 @@
  * canvas does.
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import { useDeckManager } from "./deck-manager-context";
 import { isFocusDestination } from "./deck-store-selectors";

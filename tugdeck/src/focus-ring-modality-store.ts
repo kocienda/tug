@@ -24,7 +24,8 @@
  * subscribes here and pushes the policy into the manager.
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 import { putFocusRingModality } from "./settings-api";
 
 /**

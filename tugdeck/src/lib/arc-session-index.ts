@@ -24,7 +24,8 @@
  * conversation — see {@link buildArcSessionIndex} and {@link arcForSession}.
  */
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getChangesetAllStore, useChangesetAll } from "./changeset-all-store";
 import {

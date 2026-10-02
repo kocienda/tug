@@ -102,7 +102,8 @@ import { TugConnection } from "./connection";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { flushSync } from "react-dom";
+import { flushSync, tellReactNow } from "@/lib/gesture-scope";
+
 import { DeckCanvas } from "./components/chrome/deck-canvas";
 import { ConfigureTug } from "./components/tugways/configure-tug";
 import { TugLogout } from "./components/tugways/tug-logout";
@@ -252,6 +253,7 @@ import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
 import { mark as perfMark } from "@/lib/perf-marks";
 import type { CodeSessionStore } from "./lib/code-session-store";
 import {
+  mayDeferCommit,
   reactivateCurrentFocusDestination,
   transferFocusAfterMove,
   transferFocusForActivation,
@@ -1252,7 +1254,7 @@ export class DeckManager implements IDeckManagerStore {
       this.deferredNotify = null;
       pending.cancel();
       perfMark("tug:react-notify");
-      this.subscribers.forEach((cb) => cb(pending.landing));
+      tellReactNow(() => this.subscribers.forEach((cb) => cb(pending.landing)));
       perfMark("tug:react-notify-end");
     }
   };
@@ -1276,7 +1278,7 @@ export class DeckManager implements IDeckManagerStore {
     pending.cancel = scheduleAfterPaint(() => {
       this.deferredNotify = null;
       perfMark("tug:react-notify");
-      this.subscribers.forEach((cb) => cb(pending.landing));
+      tellReactNow(() => this.subscribers.forEach((cb) => cb(pending.landing)));
       perfMark("tug:react-notify-end");
     });
   }
@@ -2702,7 +2704,7 @@ export class DeckManager implements IDeckManagerStore {
     // same way: the residue it just handed back is only safe while the Last
     // pass follows it before anything paints.
     if (vote.flush || !isTugMotionEnabled()) {
-      this.subscribers.forEach((cb) => cb(landing));
+      tellReactNow(() => this.subscribers.forEach((cb) => cb(landing)));
       return;
     }
     this._scheduleDeferredNotify(landing);
@@ -3569,6 +3571,7 @@ export class DeckManager implements IDeckManagerStore {
         incomingCardId: card,
         store: this,
         commitMutation: () => this.activateCard(card),
+        deferCommit: mayDeferCommit(this, card),
       });
       return true;
     }

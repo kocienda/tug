@@ -42,9 +42,9 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type RefObject,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
   LANDING_WORDS,

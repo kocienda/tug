@@ -33,7 +33,8 @@
 
 import "./commit-presentation.css";
 
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";

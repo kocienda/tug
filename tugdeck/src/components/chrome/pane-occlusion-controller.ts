@@ -69,7 +69,8 @@
  * @module components/chrome/pane-occlusion-controller
  */
 
-import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { useDeckManager } from "@/deck-manager-context";
 import { SHOWN_PANE_FRAMES } from "./space-layer";

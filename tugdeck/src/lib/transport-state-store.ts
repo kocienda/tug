@@ -19,7 +19,8 @@
  * @module lib/transport-state-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 /** App-level transport health. */
 export type AppTransportState = "online" | "offline" | "reconnecting";

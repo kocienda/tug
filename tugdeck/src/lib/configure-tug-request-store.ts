@@ -18,7 +18,8 @@
  * @module lib/configure-tug-request-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 class ConfigureTugRequestStore {
   private _nonce = 0;

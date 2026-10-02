@@ -50,7 +50,8 @@
  * ([L02] external state reaches React through `useSyncExternalStore`).
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
   type CardModalHold,

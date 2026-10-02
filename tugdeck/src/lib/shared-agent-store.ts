@@ -19,7 +19,8 @@
  * @module lib/shared-agent-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import { getTugbankClient } from "./tugbank-singleton";
 import { getConnectionLifecycle } from "./connection-lifecycle";

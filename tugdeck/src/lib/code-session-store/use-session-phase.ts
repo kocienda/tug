@@ -38,7 +38,8 @@
  * @module lib/code-session-store/use-session-phase
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import {
   cardIdForSession,

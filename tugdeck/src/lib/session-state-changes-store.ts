@@ -14,7 +14,8 @@
  * ticks.
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 import type { TugConnection } from "@/connection";
 import {
   loadSessionStateChanges,

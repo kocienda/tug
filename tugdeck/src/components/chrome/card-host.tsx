@@ -73,7 +73,8 @@
  * @module components/chrome/card-host
  */
 
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { CardDataProvider } from "../tugways/hooks/use-card-data";
 import { CardPropertyContext } from "../tugways/hooks/use-property-store";

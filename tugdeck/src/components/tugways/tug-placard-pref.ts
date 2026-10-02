@@ -25,6 +25,7 @@
  */
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -82,7 +83,7 @@ export function usePlacardOffset(persistKey: string | undefined): number | null 
     return getPlacardOffset(persistKey);
   }, [persistKey]);
 
-  return React.useSyncExternalStore(subscribePlacardDomain, getSnapshot);
+  return useSyncExternalStore(subscribePlacardDomain, getSnapshot);
 }
 
 /**

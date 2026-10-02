@@ -33,7 +33,8 @@
  * @module lib/live-turns-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 import { cardServicesStore } from "./card-services-store";
 
 /**

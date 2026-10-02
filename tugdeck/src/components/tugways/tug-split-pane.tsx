@@ -82,6 +82,7 @@
 import "./tug-split-pane.css";
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   Group,
   type GroupImperativeHandle,
@@ -291,7 +292,7 @@ export const TugSplitPane = React.forwardRef<HTMLDivElement, TugSplitPaneProps>(
       if (!client) return null;
       return readSplitPaneLayout(client, storageKey);
     }, [storageKey]);
-    const storedLayout = React.useSyncExternalStore(
+    const storedLayout = useSyncExternalStore(
       subscribeSplitPaneDomain,
       getSnapshot,
     );

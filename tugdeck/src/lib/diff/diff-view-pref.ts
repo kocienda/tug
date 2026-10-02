@@ -21,6 +21,7 @@
  */
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 
@@ -87,7 +88,7 @@ export function useDiffViewMode(cardId: string | undefined): DiffViewMode | null
     return getDiffViewMode(cardId);
   }, [cardId]);
 
-  return React.useSyncExternalStore(subscribeDiffViewDomain, getSnapshot);
+  return useSyncExternalStore(subscribeDiffViewDomain, getSnapshot);
 }
 
 /**

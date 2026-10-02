@@ -22,7 +22,8 @@
  * @module components/tugways/cards/text-card-status-bar
  */
 
-import React, { useId, useSyncExternalStore } from "react";
+import React, { useId } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugPopupButton, type TugPopupButtonItem } from "../tug-popup-button";
 import { useResponderForm } from "../use-responder-form";

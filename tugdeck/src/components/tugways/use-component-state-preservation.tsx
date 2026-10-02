@@ -72,10 +72,10 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
-  useSyncExternalStore,
   type ReactNode,
   type RefObject,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { ComponentStatePreservationRegistry } from "./component-state-preservation-registry";
 import { isDevEnv } from "../../lib/dev-env";

@@ -52,8 +52,8 @@ import React, {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TextCardStore, type FilePositions } from "@/lib/text-card-store";
 import { describeFileReadError } from "@/lib/file-read-error-copy";

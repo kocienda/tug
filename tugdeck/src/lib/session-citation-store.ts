@@ -44,7 +44,8 @@
  * @module lib/session-citation-store
  */
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getConnection } from "@/lib/connection-singleton";
 import { getConnectionLifecycle } from "@/lib/connection-lifecycle";

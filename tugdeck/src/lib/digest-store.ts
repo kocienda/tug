@@ -19,7 +19,8 @@
  * process, and the deck never caches digest lines locally.
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import type { TugConnection } from "@/connection";
 import { stripAnsi } from "@/lib/ansi/strip-ansi";

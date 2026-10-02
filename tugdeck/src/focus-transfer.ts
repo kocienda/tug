@@ -121,7 +121,8 @@
  * @module focus-transfer
  */
 
-import { flushSync } from "react-dom";
+import { flushSync } from "@/lib/gesture-scope";
+
 
 import { getResponderChainManager } from "./action-dispatch";
 import { isEngineManagedCard } from "./card-registry";
@@ -888,18 +889,23 @@ export function transferFocusForActivation(
 
   // Step 2 — Commit the mutation.
   //
-  // `flushSync` forces React to apply the store-driven render
+  // With `deferCommit`, the caller has proved the incoming card is already
+  // on screen ([B05]), so steps 3–5 read no DOM the commit produces and the
+  // mutation runs bare. A `flushSync` here would buy nothing for this card
+  // and would commit every other pending update — the deck's sync
+  // subscribers' React tells, and whatever the gesture scope is holding —
+  // in the click's own task, in front of the first frame of the tween the
+  // mutation just launched. So that branch has no flush and no marks.
+  //
+  // Otherwise `flushSync` forces React to apply the store-driven render
   // synchronously inside this call, so by the time the resolver
   // runs in step 3 the incoming card's subtree has already
   // transitioned from `display: none` to `display: contents`
   // (intra-pane tab switch in `tug-pane.tsx#performSelectCard`)
   // and the host root is mounted (close-handoff in `_removeCard`).
-  // For callers that are outside React's event system already
-  // (document-level pointerdown listeners), `useSyncExternalStore`
-  // would force the same synchronous re-render even without
-  // `flushSync` — but wrapping unconditionally is harmless and
-  // keeps the contract uniform.
-  if (commitMutation !== undefined) {
+  if (commitMutation !== undefined && deferCommit === true) {
+    commitMutation();
+  } else if (commitMutation !== undefined) {
     perfMark("tug:flushSync-start");
     flushSync(() => {
       commitMutation();
@@ -907,11 +913,11 @@ export function transferFocusForActivation(
       // ([D204]), which would leave step 5's `.focus()`
       // landing on a still-`display: none` element on a tab switch or a
       // pane that has not mounted. Flush it here, inside the sandwich, so
-      // this contract holds — unless the caller has said it need not.
-      if (deferCommit !== true) store.flushPendingNotify?.();
+      // this contract holds.
+      store.flushPendingNotify?.();
     });
+    perfMark("tug:flushSync-end");
   }
-  perfMark("tug:flushSync-end");
 
   // Step 3 — Ask the engine whether this claim is permitted (Spec S03).
   //
@@ -1261,8 +1267,18 @@ export function reactivateCurrentFocusDestination(
  * incoming card's host on screen this instant — using the same predicate
  * that records the miss when one happens. A card with no mounted host
  * cannot defer either: the commit is what mounts it.
+ *
+ * Its callers are every `transferFocusForActivation` whose `commitMutation`
+ * only activates, reveals or reorders the incoming card: `raiseCard`, the
+ * pane-chrome click (`pane-focus-controller.ts`), the canvas's keyboard and
+ * menu activations (`deck-canvas.tsx`), a stack's previous-card rotation
+ * (`tug-pane.tsx`), a z-move to the front (`deck-manager.ts`), the sidebar
+ * shortcuts (`sidebar-toggle.ts`), and the re-raise of an already-open file,
+ * diff or commit card (`lib/open-*-in-card.ts`). A tab switch, a close
+ * hand-off, a move or a freshly added card never asks: its commit is what
+ * puts the card on screen.
  */
-function mayDeferCommit(store: IDeckManagerStore, cardId: string): boolean {
+export function mayDeferCommit(store: IDeckManagerStore, cardId: string): boolean {
   const pane = store
     .getSnapshot()
     .panes.find((p) => p.cardIds.includes(cardId));

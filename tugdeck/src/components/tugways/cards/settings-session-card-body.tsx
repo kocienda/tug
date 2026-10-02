@@ -38,7 +38,8 @@
  * @module components/tugways/cards/settings-session-card-body
  */
 
-import React, { useEffect, useId, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useId, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TugBox } from "../tug-box";
 import { TugChoiceGroup } from "../tug-choice-group";
 import { TugLabel } from "../tug-label";

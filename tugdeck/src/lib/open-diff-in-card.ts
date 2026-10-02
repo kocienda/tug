@@ -22,7 +22,7 @@
  * @module lib/open-diff-in-card
  */
 
-import { transferFocusForActivation } from "@/focus-transfer";
+import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { diffDescriptorKey, type DiffDescriptor } from "./git-diff-store";
 import { findDiffCardByKey } from "./diff-card-open-registry";
@@ -46,6 +46,7 @@ export function openDiffInCard(
       incomingCardId: existing.cardId,
       store,
       commitMutation: () => store.activateCard(existing.cardId),
+      deferCommit: mayDeferCommit(store, existing.cardId),
     });
     // Re-point defensively (a same-key open is a no-op re-request, which is
     // harmless and refreshes the diff).

@@ -26,6 +26,7 @@
 use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED, EvalOutcome, post_eval};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 
 /// The page half: one function expression, applied to a JSON argument object.
 const PAGE: &str = include_str!("deck_motion_slide.js");
@@ -305,6 +306,7 @@ struct Recorded {
     tasks: Vec<TaskRow>,
     commits: Vec<CommitRow>,
     long_frames: Vec<LongFrameTag>,
+    click_task: ClickTask,
 }
 
 fn record(port: u16, title: &str, queries: bool, tasks: bool) -> Result<Option<Recorded>, String> {
@@ -329,6 +331,7 @@ fn record(port: u16, title: &str, queries: bool, tasks: bool) -> Result<Option<R
         }
         let raw_tasks: Vec<RawTask> = list(&raw, "tasks");
         let raw_commits: Vec<RawCommit> = list(&raw, "commits");
+        let raw_tells: Vec<RawTell> = list(&raw, "tells");
         let query_calls: Vec<QueryCall> = list(&raw, "queryCalls");
         let reading = reduce(&raw);
         Recorded {
@@ -336,7 +339,8 @@ fn record(port: u16, title: &str, queries: bool, tasks: bool) -> Result<Option<R
             reading,
             queries: list(&raw, "queries"),
             tasks: task_rows(&raw_tasks),
-            commits: commit_rows(&raw_commits, &raw_tasks),
+            commits: commit_rows(&raw_commits, &raw_tasks, &raw_tells),
+            click_task: click_task_commits(&raw_commits, &raw_tasks, &raw_tells),
         }
     }))
 }
@@ -420,6 +424,182 @@ pub struct RawCommit {
     pub origins: Vec<(String, u64)>,
     #[serde(default)]
     pub hooks: Vec<String>,
+    /// The first store snapshot read since the previous commit — the
+    /// earliest the render is known to have been running. A lower bound:
+    /// production React exposes no render start of its own.
+    #[serde(default, rename = "renderStart")]
+    pub render_start: Option<f64>,
+    /// When the commit's passive effects finished.
+    #[serde(default)]
+    pub post: Option<f64>,
+}
+
+/// One store change React was told of, or one `flushSync`, as
+/// `lib/gesture-scope.ts` reported it to the lead recorder.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct RawTell {
+    pub t: f64,
+    /// `store` or `flushSync`.
+    pub kind: String,
+    #[serde(default)]
+    pub stack: String,
+    /// The recorded callback the tell came from, as an index.
+    #[serde(default = "no_index")]
+    pub task: i64,
+}
+
+/// One commit's durations and what caused it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct CommitTiming {
+    /// From the render's first store read to the commit hook.
+    pub react_ms: Option<f64>,
+    /// From the previous React boundary — the previous commit's passive
+    /// end, else its hook plus the census walk, else the click.
+    pub span_ms: f64,
+    /// From the commit hook (less the census walk) to the passive end.
+    pub passive_ms: Option<f64>,
+    /// The tells between the previous render start and this one, condensed.
+    pub causes: String,
+}
+
+impl CommitTiming {
+    /// The React time, or the span when the render read no store.
+    pub fn react_or_span(&self) -> f64 {
+        self.react_ms.unwrap_or(self.span_ms)
+    }
+}
+
+/// How many named frames a cause keeps.
+const CAUSE_FRAMES: usize = 3;
+
+/// A tell's stack as function names: each frame's `name@file:line:col` (or a
+/// bare `file:line:col`) cut to its name, the door's own frame and anonymous
+/// frames dropped, the first three kept.
+///
+/// The first frame is always the door's — `tugTellReact` for a store, the
+/// wrapped `flushSync` for a flush — so it is dropped by position: the release
+/// bundle's stacks carry minified identifiers (`keepNames` sets `.name`, which
+/// JavaScriptCore's stack does not read), and only method names survive.
+pub fn cause_label(kind: &str, stack: &str) -> String {
+    let names: Vec<&str> = stack
+        .split(" < ")
+        .skip(1)
+        .map(|frame| match frame.split_once('@') {
+            Some((name, _)) => name.trim(),
+            None => "",
+        })
+        .filter(|name| !name.is_empty() && *name != "tugTellReact")
+        .collect();
+    let label = if names.is_empty() {
+        "(no named frame)".to_string()
+    } else {
+        names
+            .iter()
+            .take(CAUSE_FRAMES)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" < ")
+    };
+    if kind == "flushSync" {
+        format!("flushSync: {label}")
+    } else {
+        label
+    }
+}
+
+/// The label for a commit no tell preceded.
+const LOCAL_STATE: &str = "(local state)";
+
+/// Each commit's durations and causes, in commit order.
+///
+/// Tells partition on render start, not on the commit: a store change made in
+/// commit N's layout effects lands after N's render began and before N+1's,
+/// and it is N+1 it caused.
+pub fn commit_timings(commits: &[RawCommit], tells: &[RawTell]) -> Vec<CommitTiming> {
+    let mut lower = f64::NEG_INFINITY;
+    let mut boundary = 0.0;
+    commits
+        .iter()
+        .map(|c| {
+            let upper = c.render_start.unwrap_or(c.t);
+            let mut labels: Vec<(String, u32)> = Vec::new();
+            for tell in tells.iter().filter(|t| t.t >= lower && t.t < upper) {
+                let label = cause_label(&tell.kind, &tell.stack);
+                match labels.iter_mut().find(|(l, _)| *l == label) {
+                    Some((_, n)) => *n += 1,
+                    None => labels.push((label, 1)),
+                }
+            }
+            let causes = if labels.is_empty() {
+                LOCAL_STATE.to_string()
+            } else {
+                labels
+                    .into_iter()
+                    .map(|(l, n)| if n > 1 { format!("{l} ×{n}") } else { l })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            };
+            let hook_end = c.t + c.ms;
+            let timing = CommitTiming {
+                react_ms: c.render_start.map(|s| round1(c.t - s)),
+                span_ms: round1(c.t - boundary),
+                passive_ms: c.post.map(|p| round1(p - hook_end)),
+                causes,
+            };
+            lower = upper;
+            boundary = c.post.unwrap_or(hook_end);
+            timing
+        })
+        .collect()
+}
+
+/// The click's own task: the dispatch itself, and every microtask or promise
+/// callback descended from it, which run before the task yields.
+pub fn click_task(tasks: &[RawTask]) -> HashSet<usize> {
+    let mut set: HashSet<usize> = tasks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.kind == "click")
+        .map(|(i, _)| i)
+        .collect();
+    loop {
+        let before = set.len();
+        for (i, t) in tasks.iter().enumerate() {
+            if (t.kind == "microtask" || t.kind == "promise")
+                && usize::try_from(t.parent).is_ok_and(|p| set.contains(&p))
+            {
+                set.insert(i);
+            }
+        }
+        if set.len() == before {
+            return set;
+        }
+    }
+}
+
+/// The commits in one click's own task, summed.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Default)]
+pub struct ClickTask {
+    pub commits: u64,
+    pub react_ms: f64,
+    pub span_ms: f64,
+}
+
+pub fn click_task_commits(
+    commits: &[RawCommit],
+    tasks: &[RawTask],
+    tells: &[RawTell],
+) -> ClickTask {
+    let set = click_task(tasks);
+    let mut sum = ClickTask::default();
+    for (c, timing) in commits.iter().zip(commit_timings(commits, tells)) {
+        if usize::try_from(c.task).is_ok_and(|i| set.contains(&i)) {
+            sum.commits += 1;
+            sum.react_ms += timing.react_or_span();
+            sum.span_ms += timing.span_ms;
+        }
+    }
+    sum
 }
 
 /// One kind of callback — the same kind, function and queueing site — in one
@@ -509,19 +689,31 @@ pub fn aggregate_tasks(rows: Vec<TaskRow>) -> Vec<TaskRow> {
     by_key
 }
 
-/// React commits with the same origins, run from the same kind of callback.
+/// React commits with the same origins and causes, run from the same kind of
+/// callback.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct CommitRow {
     /// The components that asked for the commit, most renders first.
     pub origins: String,
     /// The recorded callback the commit ran inside.
     pub ran_in: String,
+    /// The store changes and flushSyncs that preceded the render, condensed.
+    pub causes: String,
     pub count: u64,
     pub lead_count: u64,
+    /// How many ran in the click's own task.
+    pub click_task_count: u64,
     /// Fibers that performed work, summed.
     pub performed: u64,
     /// The census walk's own time, summed.
     pub walk_ms: f64,
+    /// React time, summed; a commit whose render read no store counts its
+    /// span instead.
+    pub react_ms: f64,
+    /// Time from the previous React boundary, summed.
+    pub span_ms: f64,
+    /// Passive-effect time, summed over the commits that reported it.
+    pub passive_ms: f64,
     /// Which hooks moved in the origins, from the first commit seen.
     pub hooks: String,
 }
@@ -550,34 +742,47 @@ fn origins_label(origins: &[(String, u64)]) -> String {
     names.join(", ")
 }
 
-/// Group one click's commits by who asked and where they ran.
-pub fn commit_rows(commits: &[RawCommit], tasks: &[RawTask]) -> Vec<CommitRow> {
+/// Group one click's commits by who asked, where they ran, and what caused them.
+pub fn commit_rows(commits: &[RawCommit], tasks: &[RawTask], tells: &[RawTell]) -> Vec<CommitRow> {
     let lead = f64::from(LEAD_MS);
+    let in_click = click_task(tasks);
     let mut rows: Vec<CommitRow> = Vec::new();
-    for c in commits {
+    for (c, timing) in commits.iter().zip(commit_timings(commits, tells)) {
         let origins = origins_label(&c.origins);
         let ran_in = match task_label(tasks, c.task) {
             label if label.is_empty() => "(outside any recorded callback)".to_string(),
             label => label,
         };
         let in_lead = u64::from(c.t < lead);
+        let in_click_task = u64::from(usize::try_from(c.task).is_ok_and(|i| in_click.contains(&i)));
+        let react_ms = timing.react_or_span();
+        let passive_ms = timing.passive_ms.unwrap_or(0.0);
         match rows
             .iter_mut()
-            .find(|r| r.origins == origins && r.ran_in == ran_in)
+            .find(|r| r.origins == origins && r.ran_in == ran_in && r.causes == timing.causes)
         {
             Some(r) => {
                 r.count += 1;
                 r.lead_count += in_lead;
+                r.click_task_count += in_click_task;
                 r.performed += c.performed;
                 r.walk_ms += c.ms;
+                r.react_ms += react_ms;
+                r.span_ms += timing.span_ms;
+                r.passive_ms += passive_ms;
             }
             None => rows.push(CommitRow {
                 origins,
                 ran_in,
+                causes: timing.causes,
                 count: 1,
                 lead_count: in_lead,
+                click_task_count: in_click_task,
                 performed: c.performed,
                 walk_ms: c.ms,
+                react_ms,
+                span_ms: timing.span_ms,
+                passive_ms,
                 hooks: c.hooks.join("; "),
             }),
         }
@@ -591,13 +796,17 @@ pub fn aggregate_commits(rows: Vec<CommitRow>) -> Vec<CommitRow> {
     for row in rows {
         match by_key
             .iter_mut()
-            .find(|r| r.origins == row.origins && r.ran_in == row.ran_in)
+            .find(|r| r.origins == row.origins && r.ran_in == row.ran_in && r.causes == row.causes)
         {
             Some(sum) => {
                 sum.count += row.count;
                 sum.lead_count += row.lead_count;
+                sum.click_task_count += row.click_task_count;
                 sum.performed += row.performed;
                 sum.walk_ms += row.walk_ms;
+                sum.react_ms += row.react_ms;
+                sum.span_ms += row.span_ms;
+                sum.passive_ms += row.passive_ms;
             }
             None => by_key.push(row),
         }
@@ -738,6 +947,7 @@ pub fn run_slide(
     let mut task_rows = Vec::new();
     let mut commit_rows = Vec::new();
     let mut long_frames = Vec::new();
+    let mut click_task = ClickTask::default();
     for _ in 0..count {
         for title in [&to, &from] {
             let Some(recorded) = record(port, title, queries, tasks)? else {
@@ -751,6 +961,9 @@ pub fn run_slide(
             task_rows.extend(recorded.tasks);
             commit_rows.extend(recorded.commits);
             long_frames.extend(recorded.long_frames);
+            click_task.commits += recorded.click_task.commits;
+            click_task.react_ms += recorded.click_task.react_ms;
+            click_task.span_ms += recorded.click_task.span_ms;
             std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
         }
     }
@@ -759,6 +972,20 @@ pub fn run_slide(
     let query_rows = queries.then(|| aggregate_queries(query_rows));
     let task_rows = tasks.then(|| aggregate_tasks(task_rows));
     let commit_rows = tasks.then(|| aggregate_commits(commit_rows));
+    let per_click = |x: f64| {
+        if readings.is_empty() {
+            0.0
+        } else {
+            round1(x / readings.len() as f64)
+        }
+    };
+    let click_task = tasks.then(|| {
+        json!({
+            "commits_per_click": per_click(click_task.commits as f64),
+            "react_ms_per_click": per_click(click_task.react_ms),
+            "span_ms_per_click": per_click(click_task.span_ms),
+        })
+    });
     let processes = match samplers {
         Some(samplers) => {
             if !json_output {
@@ -788,6 +1015,7 @@ pub fn run_slide(
                 "framesPerturbedByTasks": tasks,
                 "tasks": task_rows,
                 "commits": commit_rows,
+                "click_task": click_task,
                 "longFrames": (queries || tasks).then_some(&long_frames),
             }))
             .unwrap()
@@ -802,7 +1030,7 @@ pub fn run_slide(
             print_queries(rows, readings.len());
         }
         if let (Some(tasks), Some(commits)) = (&task_rows, &commit_rows) {
-            print_tasks(tasks, commits, readings.len());
+            print_tasks(tasks, commits, click_task.as_ref(), readings.len());
         }
         if let Some(processes) = &processes {
             crate::commands::deck_motion_sample::print(processes, readings.len());
@@ -1044,7 +1272,12 @@ fn print_long_frames(frames: &[LongFrameTag], queries: bool, tasks: bool) {
     }
 }
 
-fn print_tasks(tasks: &[TaskRow], commits: &[CommitRow], clicks: usize) {
+fn print_tasks(
+    tasks: &[TaskRow],
+    commits: &[CommitRow],
+    click_task: Option<&Value>,
+    clicks: usize,
+) {
     let per = |x: f64| if clicks > 0 { x / clicks as f64 } else { 0.0 };
     let lead: f64 = tasks.iter().map(|r| r.lead_ms).sum();
     let lead_runs: u64 = tasks.iter().map(|r| r.lead_count).sum();
@@ -1080,20 +1313,38 @@ fn print_tasks(tasks: &[TaskRow], commits: &[CommitRow], clicks: usize) {
     let total: u64 = commits.iter().map(|r| r.count).sum();
     let in_lead: u64 = commits.iter().map(|r| r.lead_count).sum();
     println!();
+    if let Some(ct) = click_task {
+        let n = |k: &str| ct.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        println!(
+            "click task: {:.1} commit(s) per click, {:.1} ms React, {:.1} ms span — the dispatch and the microtasks descended from it, which run before the task yields",
+            n("commits_per_click"),
+            n("react_ms_per_click"),
+            n("span_ms_per_click")
+        );
+    }
     println!(
         "react commits: {:.1} per click ({:.1} in the first {LEAD_MS} ms), by the components that asked",
         per(total as f64),
         per(in_lead as f64)
     );
-    println!("  /click  lead  fibers/click  ran in → origins");
+    println!("  /click  lead  task  fibers/click  ran in → origins");
     for r in commits.iter().take(COMMITS_SHOWN) {
+        let n = r.count.max(1) as f64;
         println!(
-            "  {:>6.1}  {:>4.1}  {:>12.1}  {} → {}",
+            "  {:>6.1}  {:>4.1}  {:>4.1}  {:>12.1}  {} → {}",
             per(r.count as f64),
             per(r.lead_count as f64),
+            per(r.click_task_count as f64),
             per(r.performed as f64),
             r.ran_in,
             r.origins
+        );
+        let causes: String = r.causes.chars().take(150).collect();
+        println!(
+            "            react {:.1} ms, span {:.1} ms, passive {:.1} ms ← {causes}",
+            r.react_ms / n,
+            r.span_ms / n,
+            r.passive_ms / n
         );
         let hooks: String = r.hooks.chars().take(150).collect();
         if !hooks.is_empty() {
@@ -1386,7 +1637,7 @@ mod tests {
             {"t": 20.0, "task": -1, "performed": 5, "origins": []},
         ]))
         .unwrap();
-        let rows = aggregate_commits(commit_rows(&raw, &tasks));
+        let rows = aggregate_commits(commit_rows(&raw, &tasks, &[]));
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].origins, "Pane×3, Badge");
         assert_eq!(rows[0].ran_in, "message work");
@@ -1397,6 +1648,143 @@ mod tests {
         assert_eq!(rows[0].hooks, "Pane hooks[2:true]");
         assert_eq!(rows[1].ran_in, "(outside any recorded callback)");
         assert!(rows[1].origins.starts_with("(no origin"));
+
+        // The same origins from the same callback, caused by different
+        // stores, stay apart.
+        let raw: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 10.0, "task": 0, "renderStart": 8.0, "origins": [["Pane", 1]]},
+            {"t": 30.0, "task": 0, "renderStart": 28.0, "origins": [["Pane", 1]]},
+        ]))
+        .unwrap();
+        let tells = vec![
+            tell(2.0, "store", "tugTellReact@d.js:1:1 < setA@a.js:1:1"),
+            tell(20.0, "store", "tugTellReact@d.js:1:1 < setB@b.js:1:1"),
+        ];
+        let rows = aggregate_commits(commit_rows(&raw, &tasks, &tells));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].causes, "setA");
+        assert_eq!(rows[1].causes, "setB");
+    }
+
+    fn tell(t: f64, kind: &str, stack: &str) -> RawTell {
+        RawTell {
+            t,
+            kind: kind.to_string(),
+            stack: stack.to_string(),
+            task: -1,
+        }
+    }
+
+    #[test]
+    fn commit_timings_partition_tells_on_render_start() {
+        // Commit 0 renders from 5 and hooks at 9; a store change at 7, inside
+        // its render, made in its layout effects or after its first read, is
+        // a cause of commit 1.
+        let commits: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 9.0, "ms": 1.0, "renderStart": 5.0},
+            {"t": 20.0, "ms": 1.0, "renderStart": 15.0},
+        ]))
+        .unwrap();
+        let tells = vec![
+            tell(1.0, "store", "tugTellReact@d.js:1:1 < setFirst@a.js:1:1"),
+            tell(7.0, "store", "tugTellReact@d.js:1:1 < setLate@b.js:2:2"),
+        ];
+        let timings = commit_timings(&commits, &tells);
+        assert_eq!(timings[0].causes, "setFirst");
+        assert_eq!(timings[1].causes, "setLate");
+        assert_eq!(timings[0].react_ms, Some(4.0));
+        assert_eq!(timings[1].react_ms, Some(5.0));
+    }
+
+    #[test]
+    fn a_commit_with_no_render_start_spans_from_the_previous_boundary() {
+        let commits: Vec<RawCommit> = serde_json::from_value(json!([
+            // From the click: no previous boundary.
+            {"t": 6.0, "ms": 1.0, "post": 10.0},
+            // From the previous commit's passive end.
+            {"t": 14.0, "ms": 2.0},
+            // From the previous commit's hook plus its walk: 14 + 2.
+            {"t": 25.0, "ms": 1.0},
+        ]))
+        .unwrap();
+        let timings = commit_timings(&commits, &[]);
+        assert_eq!(
+            timings.iter().map(|t| t.span_ms).collect::<Vec<_>>(),
+            vec![6.0, 4.0, 9.0]
+        );
+        assert!(timings.iter().all(|t| t.react_ms.is_none()));
+        assert_eq!(timings[0].react_or_span(), 6.0);
+        assert_eq!(timings[0].passive_ms, Some(3.0));
+        assert_eq!(timings[1].passive_ms, None);
+    }
+
+    #[test]
+    fn click_task_takes_microtasks_descended_from_the_click() {
+        let tasks = vec![
+            task("click", "", "", -1, 0.0, 30.0),
+            task("microtask", "flush", "", 0, 30.0, 40.0),
+            task("promise", "then", "", 1, 40.0, 41.0),
+            task("frame", "measure", "", 0, 50.0, 52.0),
+            // Queued by a frame callback: a later task's microtask.
+            task("microtask", "flush", "", 3, 52.0, 53.0),
+            task("timeout", "tick", "", 0, 60.0, 61.0),
+        ];
+        let set = click_task(&tasks);
+        let mut members: Vec<usize> = set.into_iter().collect();
+        members.sort_unstable();
+        assert_eq!(members, vec![0, 1, 2]);
+
+        let commits: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 35.0, "task": 1, "renderStart": 31.0},
+            {"t": 51.0, "task": 3, "renderStart": 50.0},
+        ]))
+        .unwrap();
+        let sum = click_task_commits(&commits, &tasks, &[]);
+        assert_eq!(sum.commits, 1);
+        assert_eq!(sum.react_ms, 4.0);
+        assert_eq!(sum.span_ms, 35.0);
+    }
+
+    #[test]
+    fn causes_condense_to_function_names() {
+        assert_eq!(
+            cause_label(
+                "store",
+                "tugTellReact@index-abc.js:1:200 < notify@index-abc.js:2:10 < setKeyCard@index-abc.js:3:4 < activateCard@x.js:9:9 < raiseCard@y.js:1:1"
+            ),
+            "notify < setKeyCard < activateCard"
+        );
+        assert_eq!(
+            cause_label(
+                "flushSync",
+                "flushSync@a.js:1:1 < transferFocusForActivation@b.js:2:2 < raiseCard@c.js:3:3"
+            ),
+            "flushSync: transferFocusForActivation < raiseCard"
+        );
+        // The release bundle: the door's frame is anonymous or minified, and
+        // so is every top-level function; only methods keep their names.
+        assert_eq!(
+            cause_label(
+                "store",
+                "@index-x.js:2:17528 < touch@index-x.js:3:70894 < setKeyCard@index-x.js:3:55610 < @index-x.js:78:1 < notify@index-x.js:327:3"
+            ),
+            "touch < setKeyCard < notify"
+        );
+        assert_eq!(
+            cause_label(
+                "flushSync",
+                "Wm@index-x.js:2:1 < Gs@index-x.js:3:1 < @index-x.js:323:2 < i@index-x.js:4:3"
+            ),
+            "flushSync: Gs < i"
+        );
+        let commits: Vec<RawCommit> =
+            serde_json::from_value(json!([{"t": 5.0, "renderStart": 3.0}])).unwrap();
+        assert_eq!(commit_timings(&commits, &[])[0].causes, "(local state)");
+        let tells = vec![
+            tell(1.0, "store", "tugTellReact@d.js:1:1 < notify@a.js:1:1"),
+            tell(2.0, "store", "tugTellReact@d.js:1:1 < notify@a.js:1:1"),
+        ];
+        assert_eq!(commit_timings(&commits, &tells)[0].causes, "notify ×2");
     }
 
     #[test]

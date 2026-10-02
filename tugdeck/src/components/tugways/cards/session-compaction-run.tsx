@@ -37,8 +37,8 @@ import React, {
   useCallback,
   useEffect,
   useRef,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type {
   CodeSessionSnapshot,

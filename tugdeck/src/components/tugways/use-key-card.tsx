@@ -20,7 +20,8 @@
  * across in-provider and standalone test mounts.
  */
 
-import { useCallback, useContext, useSyncExternalStore } from "react";
+import { useCallback, useContext } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { ResponderChainContext } from "./responder-chain";
 
 const NOOP_SUBSCRIBE = (): (() => void) => () => {};

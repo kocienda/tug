@@ -25,7 +25,8 @@
  * @module lib/session-activity-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import type { TugConnection } from "@/connection";
 import { FeedId, parseActivityFrame } from "@/protocol";

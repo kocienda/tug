@@ -55,7 +55,8 @@
 
 import "./slot-picker.css";
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { dispatchCommand } from "@/command-dispatch";
 import { getDeckStore } from "@/lib/deck-store-registry";

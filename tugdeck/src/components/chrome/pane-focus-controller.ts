@@ -54,11 +54,12 @@
  * @module components/chrome/pane-focus-controller
  */
 
-import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { useDeckManager } from "@/deck-manager-context";
 import { getFocusManager } from "@/components/tugways/focus-manager";
-import { transferFocusForActivation } from "@/focus-transfer";
+import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import { installGestureInterpreter } from "@/gesture-interpreter";
 import { SHOWN_PANE_FRAMES } from "./space-layer";
 
@@ -155,6 +156,7 @@ export function usePaneFocusController(
           incomingCardId,
           store,
           commitMutation: () => store.activateCard(incomingCardId, { reveal: false }),
+          deferCommit: mayDeferCommit(store, incomingCardId),
         });
       },
       // The click's other half: a release that travelled nowhere is when the

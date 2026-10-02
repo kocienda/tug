@@ -64,8 +64,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { blobUrl } from "@/lib/file-kinds";
 import {

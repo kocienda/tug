@@ -51,7 +51,8 @@
  * @module lib/session-identity
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
   cardSessionBindingStore,

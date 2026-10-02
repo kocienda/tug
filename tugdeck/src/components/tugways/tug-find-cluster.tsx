@@ -39,7 +39,8 @@
 
 import "./tug-find-cluster.css";
 
-import React, { useCallback, useId, useMemo, useSyncExternalStore } from "react";
+import React, { useCallback, useId, useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { CaseSensitive, Regex, WholeWord } from "lucide-react";
 
 import { TugBadge } from "@/components/tugways/tug-badge";

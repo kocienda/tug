@@ -17,7 +17,8 @@
  * @module components/tugways/cards/session-pending-context-strip
  */
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { MessageSquareShare, X } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";

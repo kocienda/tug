@@ -35,7 +35,8 @@
 
 import "./resume-sheet.css";
 
-import React, { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useMemo, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
   TugFilterField,

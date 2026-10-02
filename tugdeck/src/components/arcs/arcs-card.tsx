@@ -109,8 +109,8 @@ import React, {
   useCallback,
   useMemo,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { Trash2 } from "lucide-react";
 

@@ -48,14 +48,19 @@
         MutationObserver: window.MutationObserver
       };
       var armed = false, gen = 0, entries = [], current = -1, posts = [];
+      // Every store change React was told of and every flushSync, with where
+      // from; and the time of the first store snapshot read since the last
+      // commit, which stands in for the render's start (production React
+      // exposes none). A read made while React handles a tell is not one.
+      var tells = [], pendingRead = null, telling = false;
       // The queueing site: the stack without this script's own frames, which
       // are the ones left with no file once the origin is stripped.
-      function where() {
+      function where(depth) {
         return String(new Error().stack || "").split("\n").map(function (l) {
           return l.replace(/https?:\/\/[^/]+\/(?:assets\/)?/, "");
         }).filter(function (l) {
           return !/@:\d+:\d+$/.test(l);
-        }).slice(0, 4).join(" < ");
+        }).slice(0, depth || 4).join(" < ");
       }
       function ticket(kind, stack) {
         return { kind: kind, stack: stack, parent: current, queued: performance.now(), gen: gen };
@@ -148,8 +153,24 @@
         native: native,
         armed: function () { return armed; },
         current: function () { return current; },
-        arm: function () { gen += 1; entries = []; posts = []; current = -1; armed = true; },
+        arm: function () {
+          gen += 1; entries = []; posts = []; current = -1;
+          tells = []; pendingRead = null; telling = false; armed = true;
+        },
         disarm: function () { armed = false; var out = entries; entries = []; return out; },
+        tells: function () { return tells; },
+        // `lib/gesture-scope.ts` calls these three. `kind` is "store" or
+        // "flushSync".
+        tell: function (kind, label) {
+          if (!armed) return;
+          tells.push({ t: performance.now(), kind: kind, label: label, stack: where(6), task: current });
+        },
+        read: function () {
+          if (armed && pendingRead === null && !telling) pendingRead = performance.now();
+        },
+        telling: function (flag) { telling = flag; },
+        // The census takes the render start at each commit.
+        takeRead: function () { var t = pendingRead; pendingRead = null; return t; },
         // Run `fn` as a named entry — the verb's dispatch of the click itself.
         run: function (kind, fn) { return run(ticket(kind, ""), fn, null, []); }
       };
@@ -302,6 +323,15 @@
         sub: function () { return function () {}; },
         checkDCE: function () {}, setStrictMode: function () {},
         onCommitFiberUnmount: function () {}, onPostCommitRoot: function () {},
+        // After passive effects: when the commit's last work ended. The
+        // snapshot reads its subscription effects made are not a render
+        // start, so the pending read is dropped.
+        onPostCommitFiberRoot: function () {
+          if (!lead || !lead.armed()) return;
+          var last = commits[commits.length - 1];
+          if (last) last.post = performance.now();
+          lead.takeRead();
+        },
         onCommitFiberRoot: function (_id, root) {
           if (!testMode && !lead.armed()) return;
           var commit = census(root);
@@ -309,6 +339,10 @@
           // which recorded callback the commit ran inside.
           commit.ms = performance.now() - commit.t;
           commit.task = lead ? lead.current() : -1;
+          // The first store snapshot read since the last commit: a lower
+          // bound on where this commit's render began.
+          commit.renderStart = lead ? lead.takeRead() : null;
+          commit.post = null;
           commits.push(commit);
           if (commits.length > 400) commits.splice(0, commits.length - 400);
         }

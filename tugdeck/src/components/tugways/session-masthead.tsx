@@ -70,7 +70,8 @@
 import "./masthead-frame.css";
 import "./session-masthead.css";
 
-import React, { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
 import { FolderOpenDot, Summary } from "lucide-react";
 

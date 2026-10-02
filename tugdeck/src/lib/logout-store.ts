@@ -12,7 +12,8 @@
  * @module lib/logout-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 class LogoutStore {
   private _nonce = 0;

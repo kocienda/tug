@@ -30,7 +30,8 @@
  * @module lib/card-modal-hold-store
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 export interface CardModalHold {
   /**

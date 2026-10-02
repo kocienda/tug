@@ -48,7 +48,8 @@
 
 import "./arc-transport-control.css";
 
-import React, { useCallback, useSyncExternalStore } from "react";
+import React, { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Play, Square } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";

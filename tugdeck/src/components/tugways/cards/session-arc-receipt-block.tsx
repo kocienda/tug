@@ -43,7 +43,8 @@
  */
 
 import type React from "react";
-import { useCallback, useContext, useSyncExternalStore } from "react";
+import { useCallback, useContext } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { GitBranch } from "lucide-react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";

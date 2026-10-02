@@ -24,7 +24,8 @@
  * @module components/tugways/cards/side-question-overlay
  */
 
-import React, { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import React, { useLayoutEffect, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Bot, Check, CloudUpload, User, X } from "lucide-react";
 
 import type { AnnotationContext } from "@/lib/annotator/types";

@@ -84,7 +84,8 @@
 
 import "./tug-session-identity.css";
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { EyeOff } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";

@@ -38,7 +38,8 @@
 
 import "./session-route-indicator-badge.css";
 
-import React, { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TriangleAlert } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";

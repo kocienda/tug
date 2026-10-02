@@ -20,8 +20,8 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { AlertTriangle, Trash2 } from "lucide-react";
 

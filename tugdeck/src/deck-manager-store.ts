@@ -109,7 +109,9 @@ export interface IDeckManagerStore {
    *   with `this.setKeyCard(cardId)` — so the transfer writes the key card
    *   itself and never reads what this subscriber wrote.) It is a writer of
    *   structural focus state rather than of a deck view, and the cost it can
-   *   add to the flush is one focus-manager projection.
+   *   add to the flush is one focus-manager projection. Its React notify is
+   *   held by the gesture scope like any other store's, so only a
+   *   `flushSync` or `tellReactNow` releases it before the gesture's paint.
    */
   subscribeSync?: (callback: (landing: CommitLanding) => void, label?: string) => () => void;
 

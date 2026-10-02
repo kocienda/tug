@@ -31,8 +31,8 @@ import React, {
   useContext,
   useEffect,
   useRef,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { themeMirror } from "../theme-mirror";
 import { loadThemeLink, showThemeLink } from "../theme-links";
 import { registerThemeSetter, registerThemeGetter } from "../action-dispatch";

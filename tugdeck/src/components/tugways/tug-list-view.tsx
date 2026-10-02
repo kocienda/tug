@@ -86,6 +86,7 @@
 import "./tug-list-view.css";
 
 import React from "react";
+import { afterGesture, useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { currentGesture, targetRefusesFocus } from "@/gesture-interpreter";
 import {
@@ -2548,7 +2549,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       () => dataSource.getVersion(),
       [dataSource],
     );
-    React.useSyncExternalStore(subscribeWrapper, versionWrapper, versionWrapper);
+    useSyncExternalStore(subscribeWrapper, versionWrapper, versionWrapper);
 
     // `selectionRequired` — resolve the effective selected index from
     // the owned state + the live data source, then reconcile. The
@@ -7067,8 +7068,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           const committed = commitMultiSelect(index, intent);
           if (committed === null || committed === "pick") {
             delegateRef.current?.onSelect?.(index);
+            // The owned index is the row's `data-selected` look, which the
+            // gesture's first frame does not need: it lands with the rest of
+            // the gesture's React updates, after that frame has painted.
             if (selectionRequiredRef.current || focusEngineActiveRef.current) {
-              setSelectedIndex(index);
+              afterGesture(() => setSelectedIndex(index));
             }
           }
         } else {
@@ -7144,7 +7148,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // consumers that want both keep both. (The keyboard key-view promotion
         // + movement cursor ride the pointerdown handler above.)
         if (selectionRequiredRef.current || focusEngineActiveRef.current) {
-          setSelectedIndex(index);
+          afterGesture(() => setSelectedIndex(index));
         }
       };
       // Keyboard activation per [Q06] — cell wrappers are

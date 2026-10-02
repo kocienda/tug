@@ -37,6 +37,7 @@
  */
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TugTooltip, type TugTooltipProps } from "./tug-tooltip";
 import { commandShortcut, keymapRegistry } from "./keymap-registry";
 
@@ -91,5 +92,5 @@ export function TugActionTooltip({
  * repeat the three arguments at every site.
  */
 export function useSyncKeymap(): void {
-  React.useSyncExternalStore(keymapRegistry.subscribe, keymapRegistry.getSnapshot, () => 0);
+  useSyncExternalStore(keymapRegistry.subscribe, keymapRegistry.getSnapshot, () => 0);
 }

@@ -16,7 +16,8 @@
  * @module components/tugways/cards/use-session-card-services
  */
 
-import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { cardServicesStore, type CardServices } from "@/lib/card-services-store";
 import { sharedPromptHistoryStore } from "@/lib/prompt-history-store";
 import type { CompletionProvider } from "@/lib/tug-text-types";

@@ -25,8 +25,8 @@ import React, {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { cn } from "@/lib/utils";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { cardTitleTextFor } from "@/lib/pane-title";

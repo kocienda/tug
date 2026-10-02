@@ -27,7 +27,8 @@
  * @module lib/session-usage-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import type { SessionUsage } from "@/protocol";
 

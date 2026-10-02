@@ -20,7 +20,8 @@
  * @module lib/claude-version-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 export interface ClaudeVersionSnapshot {
   /** The locally installed version, or `null` when unknown / not installed. */

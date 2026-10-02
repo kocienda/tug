@@ -158,6 +158,7 @@
 import "./session-question-dialog.css";
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   ArrowLeft,
   ArrowRight,
@@ -2501,7 +2502,7 @@ function useSessionQuestionHost(
   // `respondQuestion` dispatches, the reducer clears `pendingQuestion` and
   // notifies synchronously, so this flips to `false` and the wizard renders
   // `null` without an async gap.
-  const isPending = React.useSyncExternalStore(
+  const isPending = useSyncExternalStore(
     session.subscribe,
     React.useCallback(
       () => session.getSnapshot().pendingQuestion?.request_id === requestId,

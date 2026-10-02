@@ -19,7 +19,8 @@
  * @module components/chrome/rate-limit-bulletin-bridge
  */
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { bulletin } from "@/components/tugways/tug-bulletin";
 import type { RateLimitStore } from "../../lib/rate-limit-store";

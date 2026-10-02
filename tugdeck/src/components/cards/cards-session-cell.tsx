@@ -39,6 +39,7 @@
  */
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { SlotPicker } from "./slot-picker";
 import { CardsColumnBadge } from "./cards-column-badge";
@@ -98,7 +99,7 @@ export function CardsSessionRow({
   // and the key is what scopes the file index the annotator's path resolver
   // consults. Read here rather than threaded as a prop: the cell is the one
   // that needs it, and its `cardId` is the whole address.
-  const workspaceKey = React.useSyncExternalStore(
+  const workspaceKey = useSyncExternalStore(
     cardSessionBindingStore.subscribe,
     React.useCallback(
       () => cardSessionBindingStore.getBinding(cardId)?.workspaceKey ?? "",

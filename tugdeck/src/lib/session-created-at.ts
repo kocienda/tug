@@ -30,7 +30,8 @@
  * @module lib/session-created-at
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 import { cardServicesStore } from "@/lib/card-services-store";
 import type { SessionRow } from "@/protocol";

@@ -31,7 +31,8 @@
 
 import "./session-changes-view.css";
 
-import React, { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useMemo, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { GitCommitHorizontal, LoaderCircle, X } from "lucide-react";
 
 import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";

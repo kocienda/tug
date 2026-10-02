@@ -18,7 +18,8 @@
  * @module lib/card-fold
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";

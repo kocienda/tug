@@ -9,7 +9,8 @@
  * appearance — so both the well's host and the picker resolve to one truth.
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 import type { TugColorSpec } from "./tugcolor";
 
 /** componentId of the standalone color-picker card the wells reveal/activate. */

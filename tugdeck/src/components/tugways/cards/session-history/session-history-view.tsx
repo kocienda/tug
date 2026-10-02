@@ -67,8 +67,8 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import type React from "react";
 import { History as HistoryIcon } from "lucide-react";
 

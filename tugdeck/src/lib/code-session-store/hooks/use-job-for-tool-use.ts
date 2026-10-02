@@ -16,7 +16,8 @@
  * @module lib/code-session-store/hooks/use-job-for-tool-use
  */
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { JobItem } from "@/lib/code-session-store/select-jobs";

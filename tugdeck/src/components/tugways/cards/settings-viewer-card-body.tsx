@@ -22,7 +22,8 @@
  * @module components/tugways/cards/settings-viewer-card-body
  */
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugLabel } from "../tug-label";
 import { ImageCardControls } from "./image-card-controls";

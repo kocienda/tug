@@ -27,7 +27,8 @@
 
 import "./memory-sheet.css";
 
-import React, { useCallback, useMemo, useSyncExternalStore } from "react";
+import React, { useCallback, useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { ExternalLink, FolderOpen } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";

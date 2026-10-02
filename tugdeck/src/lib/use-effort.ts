@@ -31,7 +31,8 @@
  *       the store (no stale render closure)
  */
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";

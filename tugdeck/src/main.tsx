@@ -6,6 +6,7 @@ import initTugmark from "../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 import wasmUrl from "../crates/tugmark-wasm/pkg/tugmark_wasm_bg.wasm?url";
 import { TugConnection } from "./connection";
 import { installDomForensics } from "./lib/dom-forensics";
+import { installGestureScope } from "./lib/gesture-scope";
 import { setConnection } from "./lib/connection-singleton";
 import { TugbankClient } from "./lib/tugbank-client";
 import { setTugbankClient } from "./lib/tugbank-singleton";
@@ -222,6 +223,10 @@ declare global {
 // Reload. See `lib/dom-forensics.ts` for the fault that made this
 // necessary.
 installDomForensics();
+
+// Every pointer gesture opens a gesture scope, which holds each store's React
+// notify until after the next painted frame. See `lib/gesture-scope.ts`.
+installGestureScope(window);
 
 // Determine WebSocket URL from current page location
 const wsUrl = `ws://${window.location.host}/ws`;

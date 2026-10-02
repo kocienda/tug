@@ -11,7 +11,8 @@
  * @module components/tugways/hooks/use-card-workspace-key
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 
 export function useCardWorkspaceKey(cardId: string): string | undefined {

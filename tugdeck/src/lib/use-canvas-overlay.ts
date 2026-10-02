@@ -31,7 +31,8 @@
  * @module lib/use-canvas-overlay
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import * as canvasOverlayRegistry from "./canvas-overlay-registry";
 

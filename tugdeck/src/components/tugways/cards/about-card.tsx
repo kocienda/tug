@@ -17,7 +17,8 @@
  * @module components/tugways/cards/about-card
  */
 
-import React, { useLayoutEffect, useSyncExternalStore } from "react";
+import React, { useLayoutEffect } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Ship } from "lucide-react";
 import { registerCard } from "@/card-registry";
 import { appInfoStore } from "@/lib/app-info-store";

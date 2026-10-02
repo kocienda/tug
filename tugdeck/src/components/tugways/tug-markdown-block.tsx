@@ -86,7 +86,8 @@
 import "./tug-markdown-block.css";
 
 import React from "react";
-import { flushSync } from "react-dom";
+import { flushSync } from "@/lib/gesture-scope";
+
 
 import type { PropertyStore } from "@/components/tugways/property-store";
 import { ensureParsed } from "@/lib/markdown/parse-cache";

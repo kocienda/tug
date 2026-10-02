@@ -50,8 +50,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 
 import { TugIconButton } from "@/components/tugways/tug-icon-button";

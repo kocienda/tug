@@ -11,7 +11,8 @@
 
 import "./tug-button.css";
 
-import React, { useContext, useSyncExternalStore } from "react";
+import React, { useContext } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Slot } from "@radix-ui/react-slot";
 import { cn } from "@/lib/utils";
 import { useResponderChain } from "../responder-chain-provider";

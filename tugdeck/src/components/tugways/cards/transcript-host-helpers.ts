@@ -18,7 +18,8 @@
  * @module components/tugways/cards/transcript-host-helpers
  */
 
-import React, { useCallback, useId, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import React, { useCallback, useId, useLayoutEffect, useMemo, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isKnownSlashCommandName } from "@/lib/slash-supported";
 import { formatContextualStamp } from "@/lib/contextual-stamp";

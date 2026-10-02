@@ -35,7 +35,8 @@
 
 import "./ai-chip.css";
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";

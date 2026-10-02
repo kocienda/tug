@@ -39,6 +39,7 @@
 import "./session-load-control-bar.css";
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugControlBar } from "@/components/tugways/tug-control-bar";
 import { TugLabel } from "@/components/tugways/tug-label";
@@ -134,7 +135,7 @@ function InkRestoreGapNotice({
 }: {
   shellSessionStore: ShellSessionStore;
 }): React.ReactElement | null {
-  const restore = React.useSyncExternalStore(
+  const restore = useSyncExternalStore(
     shellSessionStore.subscribe,
     () => shellSessionStore.getSnapshot().restore,
   );
@@ -198,7 +199,7 @@ export function SessionLoadOverlay({
   // `loadActive` drives the `modal` prop (region inert + scrim while a load
   // is actually in flight — not during the dwell tail). It enters React via
   // `useSyncExternalStore` ([L02]); the re-render is rare and cheap.
-  const loadActive = React.useSyncExternalStore(
+  const loadActive = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => readLoadActive(codeSessionStore.getSnapshot()),
   );
@@ -275,13 +276,13 @@ function ControlBarLoading({
   // progress numerator. One transcript entry is one committed turn (the
   // canonical unit, `tuglaws/turn-metric.md`), so the count is just the
   // window's entry count — matching the turns-sized denominator.
-  const turnsLoaded = React.useSyncExternalStore(
+  const turnsLoaded = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().transcript.length,
   );
   // Whether the cold restore is still streaming (vs. finished — the bar is
   // held through its dwell and must show the completed pose then).
-  const restoreActive = React.useSyncExternalStore(
+  const restoreActive = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => {
       const s = codeSessionStore.getSnapshot();
@@ -290,19 +291,19 @@ function ControlBarLoading({
   );
   // The window this resume requested — the restore progress denominator
   // (default N, or deeper for a faithful restore to an above-window anchor).
-  const restoreWindow = React.useSyncExternalStore(
+  const restoreWindow = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().restoreWindowTurns,
   );
-  const loadingPrevious = React.useSyncExternalStore(
+  const loadingPrevious = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().loadingPrevious,
   );
-  const loaded = React.useSyncExternalStore(
+  const loaded = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().loadingPreviousLoaded,
   );
-  const target = React.useSyncExternalStore(
+  const target = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().loadingPreviousTarget,
   );
@@ -419,11 +420,11 @@ function ControlBarMetadata({
   // Claude turns, not rows: shell exchanges ride the same transcript as
   // `#s` non-context ink ([D111]), while the `of Y` denominator is the
   // segmentation engine's Claude-turn count.
-  const claudeTurnsDisplayed = React.useSyncExternalStore(
+  const claudeTurnsDisplayed = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => countClaudeTurns(codeSessionStore.getSnapshot().transcript),
   );
-  const replayWindow = React.useSyncExternalStore(
+  const replayWindow = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().replayWindow,
   );

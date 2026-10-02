@@ -25,6 +25,7 @@
  */
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Layers } from "lucide-react";
 
 import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
@@ -49,7 +50,7 @@ export function SessionCompactionEntry({
    */
   inTurn?: boolean;
 }): React.ReactElement {
-  const compactionSeed = React.useSyncExternalStore(
+  const compactionSeed = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().compactionSeed,
   );

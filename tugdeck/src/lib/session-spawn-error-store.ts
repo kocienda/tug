@@ -18,7 +18,8 @@
  * @module lib/session-spawn-error-store
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 /** A rejected `spawn_session`, as surfaced to the card's banner. */
 export interface SpawnError {

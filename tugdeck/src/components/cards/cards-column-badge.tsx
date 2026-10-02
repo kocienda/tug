@@ -20,7 +20,8 @@
 
 import "./cards-column-badge.css";
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { columnBadgeFactsOf } from "@/deck-store-selectors";

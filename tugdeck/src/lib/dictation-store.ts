@@ -33,7 +33,8 @@
  * @module lib/dictation-store
  */
 
-import { useCallback, useLayoutEffect, useSyncExternalStore } from "react";
+import { useCallback, useLayoutEffect } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import type { RefObject } from "react";
 
 import {

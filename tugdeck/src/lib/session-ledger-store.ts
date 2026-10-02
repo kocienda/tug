@@ -32,7 +32,8 @@
  * @module lib/session-ledger-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 import type { TugConnection } from "../connection";
 import type { SessionRow } from "../protocol";
 import {

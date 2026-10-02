@@ -30,9 +30,9 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type CSSProperties,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   Blocks,
   CircleDot,
@@ -152,6 +152,7 @@ import * as paneFrameRegistry from "@/components/chrome/pane-frame-registry";
 import * as paneRootRegistry from "@/components/chrome/pane-root-registry";
 import {
   captureFocusForDragStart,
+  mayDeferCommit,
   transferFocusForActivation,
 } from "@/focus-transfer";
 import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
@@ -2741,6 +2742,7 @@ function TugPaneImpl({
             store.sendPaneBehind(stackId, bottom.paneId);
             store.activateCard(next.cardId);
           },
+          deferCommit: mayDeferCommit(store, next.cardId),
         });
       },
       [TUG_ACTIONS.SELECT_TAB]: (event: ActionEvent) => {

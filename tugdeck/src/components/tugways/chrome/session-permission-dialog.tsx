@@ -97,6 +97,7 @@
 import "./session-permission-dialog.css";
 
 import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { ShieldAlert } from "lucide-react";
 
 import { DiffBlock } from "@/components/tugways/body-kinds/diff-block";
@@ -758,7 +759,7 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({
   // `false` and the component returns `null` — leaving no post-decision
   // chrome behind. The tool block that follows is the only visible
   // artifact (see `#step-3-5`).
-  const isPending = React.useSyncExternalStore(
+  const isPending = useSyncExternalStore(
     session.subscribe,
     React.useCallback(
       () => session.getSnapshot().pendingApproval?.request_id === requestId,

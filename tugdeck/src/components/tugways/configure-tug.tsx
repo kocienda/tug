@@ -99,8 +99,8 @@ import {
   useEffect,
   useLayoutEffect,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { authStore, useAuth } from "@/lib/auth-store";
 import { useVersionGateOpen, deriveConfigureTugOpen } from "@/lib/macos-support";

@@ -11,7 +11,8 @@
  * names those rules and the sweeps below agree on ([L06]).
  */
 
-import { createContext, useContext, useSyncExternalStore } from "react";
+import { createContext, useContext } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
 

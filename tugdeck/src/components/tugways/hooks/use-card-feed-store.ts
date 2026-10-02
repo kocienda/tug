@@ -12,7 +12,8 @@
  * @module components/tugways/hooks/use-card-feed-store
  */
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { presentWorkspaceKey } from "@/card-registry";
 import { FeedStore, type FeedStoreFilter } from "@/lib/feed-store";

@@ -58,7 +58,8 @@
  * @module lib/update-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 /**
  * The states the host's driver reports, one for one with `UpdateStage` in

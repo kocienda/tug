@@ -54,8 +54,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Copy, Plus, X } from "lucide-react";
 import type { Extension } from "@codemirror/state";
 

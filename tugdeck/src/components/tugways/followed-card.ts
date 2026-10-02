@@ -19,8 +19,8 @@ import {
   useContext,
   useEffect,
   useState,
-  useSyncExternalStore,
 } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useFocusManager } from "@/components/tugways/use-focusable";
 
 /** The followed card id, or `null` when none has been focused. */

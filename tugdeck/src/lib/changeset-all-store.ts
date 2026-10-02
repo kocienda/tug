@@ -19,7 +19,8 @@
  * @module lib/changeset-all-store
  */
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";

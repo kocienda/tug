@@ -18,7 +18,8 @@
  * @module components/devtools/telemetry-inspector
  */
 
-import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Check, Copy } from "lucide-react";
 
 import { cardServicesStore } from "@/lib/card-services-store";

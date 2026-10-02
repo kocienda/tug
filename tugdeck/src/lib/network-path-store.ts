@@ -50,7 +50,8 @@
  * @module lib/network-path-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 /**
  * The path states the host reports, one for one with `NWPath.Status`.

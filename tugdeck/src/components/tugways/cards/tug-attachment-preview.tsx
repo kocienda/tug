@@ -62,6 +62,7 @@
 import "./tug-attachment-preview.css";
 
 import * as React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { AlertTriangle, File as FileIcon, ImageOff, X } from "lucide-react";
 
 import type { AtomSegment } from "@/lib/tug-atom-img";
@@ -466,7 +467,7 @@ export const TugAttachmentPreview = React.forwardRef<
     return candidate;
   }, [atoms, bytesStore]);
 
-  const tiles = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const tiles = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   // The strip owns the sheet: a tile click opens the full-resolution
   // preview on that atom, stepping across the rest with ←/→. The sheet is
@@ -675,7 +676,7 @@ function AttachmentPreviewTile({
   const quickLookPath = isFile && !isFailed && tile.path !== undefined
     ? tile.path
     : "";
-  const quickLook = React.useSyncExternalStore(
+  const quickLook = useSyncExternalStore(
     subscribeToOSThumbnails,
     () => osThumbnailFor(quickLookPath),
     () => null,
@@ -1015,7 +1016,7 @@ function AttachmentPreviewSheet({
     () => (atom !== undefined ? buildPreviewSnapshot(atom, bytesStore) : null),
     [atom, bytesStore],
   );
-  const dataUrl = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const dataUrl = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   // The node exists for identity — the sheet's trapped focus rests inside
   // this root — and handles nothing.

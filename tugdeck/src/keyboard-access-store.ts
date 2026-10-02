@@ -17,7 +17,8 @@
  * provider, which subscribes here and pushes the mode into the manager.
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 import { putKeyboardAccess } from "./settings-api";
 import type { KeyboardAccessMode } from "./components/tugways/focus-manager";
 

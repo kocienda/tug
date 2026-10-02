@@ -8,7 +8,8 @@
  * @module components/tugways/cards/gallery-context-menu
  */
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Scissors, Copy, Clipboard } from "lucide-react";
 import { TugContextMenu } from "@/components/tugways/tug-context-menu";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";

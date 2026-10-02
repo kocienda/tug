@@ -14,7 +14,8 @@
  * `useSyncExternalStore` sees a fresh reference on every change.
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
+
 
 export interface AuthAccount {
   email: string | null;

@@ -49,7 +49,8 @@
 
 import "./session-card-z1c.css";
 
-import React, { useCallback, useRef, useSyncExternalStore } from "react";
+import React, { useCallback, useRef } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import type { CodeSessionStore } from "@/lib/code-session-store";
