@@ -56,18 +56,18 @@ It is not. The drag is broken for the user, and the reason it broke is structura
 
 **[B10] Performance is proven with a pre-armed frame recorder.** A rAF recorder armed before pointer-down (the settle-frames row clocks too late) drives a scripted drag across a three-member left rail including Overview, and asserts p95 frame time under 8.3 ms with every frame over 16 ms recorded. It runs on a visible window. A separate end-state app-test narrows a three-member rail and asserts every member lands at the new width.
 
----
+**[B11] Expensive rail content reflows on a pause, not live.** Settled by the user. During the drag the rail's frame and surface track the hand while its content stays anchored to the rail's outer edge, clipped; the content reflows when the hand pauses (~80 ms without movement) and again at release. Overview's first frame has measured ~125 ms, which no live reflow can fit in a frame. A member whose reflow fits the frame budget — the [B10] recorder decides which — reflows live; the pause is for the members that cannot. The clipped, anchored content is appearance-zone ([L06]) and is part of the draft `DeckCanvas` owns and rolls back ([B02], [B03]).
 
-## Open Questions {#open-questions}
+**[B12] A width readout rides near the pointer.** Settled by the user. A small pill near the pointer shows the side's draft width while the drag moves, and fades ~400 ms after release or cancel. It is draft appearance, written and removed by the same owner as the rest of the preview ([B03], [L32]), and it shows the clamped value — at a limit it reads the floor or ceiling, not the hand's overshoot.
 
-- **Expensive rail content: live reflow, or reflow on pause?** Overview's first frame has measured ~125 ms. Recommended: the rail's frame and surface track the hand while its content stays anchored to the outer edge, clipped, and reflows on an ~80 ms pause and at release — with live reflow kept for any member that fits the frame budget. Needs the user's call; the [B10] recorder would show which members need it.
-- **A width readout near the pointer?** A small pill fading ~400 ms after release. Recommended against: the content strip moving under the hand is the readout. The user's call.
-- **Which soft stops, if any?** Candidates: the member's preferred width, the opposite rail's width (match the sides by feel), the slim ceiling; ~6px magnetic catch, Option bypasses. The user's call.
+**[B13] No soft stops.** Settled by the user. The edge follows the hand continuously between floor and ceiling with no magnetic catches — not at a member's preferred width, not at the opposite rail's width, not at the slim ceiling. The only places the edge resists are the limits ([B09]), and Option-held snap guides remain the one opt-in alignment.
 
 ---
 
 ## Non-goals {#non-goals}
 
+- **Soft stops.** Magnetic catches at a member's preferred width, at the opposite rail's width, or at the slim ceiling were proposed and rejected by the user ([B13]).
+- **Reflowing every rail's content live, whatever it costs.** Rejected for reflow-on-pause ([B11]); a live reflow that blows the frame budget is the jank this work exists to remove.
 - **Writing the width variable onto the shown layer wrapper as the fix.** It is one line and it would restore live motion, but it keeps two writers of one property ([F02]) and pays a whole-deck style recalculation per frame ([B07]). Rejected.
 - **Running the allocator on a hand drag.** [D183]: the hand owns a rail's sashes; [F07] records that it does not run today, and this work keeps it that way.
 - **Changing vertical seam drags or free-pane resizes.** `PlaceSeam` is the model, not the subject; the generic eight-handle resize is a different gesture.
@@ -85,4 +85,5 @@ First steps, in order:
 2. The side-level commit in `DeckManager` ([B04]) and allocator-read limits ([B06]).
 3. Move the draft into `DeckCanvas` as the single writer with its own rollback ([B02], [B03]); reduce `handleSidebarResizeStart` to an emitter with real cancel ([B05]); correct the stale docblocks.
 4. The graded preview ([B07]) and nothing-left-to-move release ([B08]), proven by the pre-armed recorder ([B10]).
-5. The designed feedback ([B09]), shaped by the answers to the open questions.
+5. Reflow-on-pause for the members that need it ([B11]), decided by the recorder's readings.
+6. The designed feedback ([B09]) and the width readout ([B12]); no soft stops ([B13]).
