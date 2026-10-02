@@ -1230,7 +1230,8 @@ pub struct WorkspacesChangesetSnapshot {
 /// terminal shows (limit gauges, reset times, and the "what's contributing"
 /// breakdown). The deck parses `text` into its graphical shape. `request_id`
 /// echoes the query's correlation id; `ok` is false (with `error` set) when the
-/// `claude` invocation failed or the user is logged out.
+/// `claude` invocation failed or the user is logged out. `account` names the
+/// login whose usage `text` is.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UsageSnapshot {
     /// Correlation id echoed from the request.
@@ -1242,6 +1243,24 @@ pub struct UsageSnapshot {
     /// Human-readable failure reason when `ok` is false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The account `claude` was signed in as for this fetch; `None` when the
+    /// auth probe reported no signed-in account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<UsageAccount>,
+}
+
+/// The Claude account a [`UsageSnapshot`] was fetched as, from `claude auth
+/// status --json` probed alongside the `/usage` run. Sessions and `/usage`
+/// share one login (`~/.claude.json`, auth env vars scrubbed), so this is also
+/// the account every session is running as.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UsageAccount {
+    /// The signed-in email address, when `claude` reports one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// The subscription tier (`max`, `pro`, …), when `claude` reports one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_type: Option<String>,
 }
 
 /// A single scored result from fuzzy file matching.

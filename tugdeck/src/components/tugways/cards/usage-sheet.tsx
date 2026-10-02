@@ -47,7 +47,7 @@ import {
   formatDurationMs,
   formatTokensCaps,
 } from "@/components/tugways/cards/session-card-telemetry-renderers";
-import type { UsageStore } from "@/lib/usage-store";
+import type { UsageAccount, UsageStore } from "@/lib/usage-store";
 import type {
   UsageData,
   UsagePeriod,
@@ -56,6 +56,7 @@ import type {
 } from "@/lib/usage-parse";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import { deriveSessionTotals } from "@/lib/code-session-store/telemetry";
+import { subscriptionLabel } from "@/components/tugways/configure-tug-copy";
 import { MODAL_REST_LINE } from "./modal-rest-line";
 
 /** Shared caution/danger fractions for the limit gauges. */
@@ -193,7 +194,7 @@ function UsageSheetBody({
       () =>
         usageStore
           ? usageStore.getSnapshot()
-          : ({ phase: "idle", requestId: null, data: null, rawText: null, error: null } as const),
+          : ({ phase: "idle", requestId: null, data: null, rawText: null, error: null, account: null } as const),
       [usageStore],
     ),
   );
@@ -266,6 +267,7 @@ function UsageSheetBody({
       }
     >
       <div className="usage-sheet-body">
+        <UsageAccountLine account={usage.account} />
         {loading ? (
           <p className="usage-sheet-notice" role="status">
             Loading usage…
@@ -282,6 +284,39 @@ function UsageSheetBody({
         )}
       </div>
     </TugSheetScaffold>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Account — whose usage this is
+// ---------------------------------------------------------------------------
+
+/**
+ * The account the panel was fetched as — "Signed in as user@example.com ·
+ * Claude Max plan". Sessions and `/usage` share one `claude` login, so this is
+ * also the account the session is running as. Omitted until a fetch reports one.
+ */
+function UsageAccountLine({
+  account,
+}: {
+  account: UsageAccount | null;
+}): React.ReactElement | null {
+  if (account === null) return null;
+  const plan = subscriptionLabel(account.subscriptionType);
+  return (
+    <div className="usage-sheet-account" data-testid="usage-account">
+      {account.email !== null ? (
+        <>
+          Signed in as{" "}
+          <span className="usage-sheet-account-email">{account.email}</span>
+        </>
+      ) : (
+        "Signed in"
+      )}
+      {plan !== undefined ? (
+        <span className="usage-sheet-account-plan"> · {plan}</span>
+      ) : null}
+    </div>
   );
 }
 

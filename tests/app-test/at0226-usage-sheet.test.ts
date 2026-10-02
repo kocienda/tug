@@ -50,6 +50,7 @@ const TABLE_NAME = `${SHEET} .usage-sheet-table-name`;
 const PERIOD_LABEL = `${SHEET} .usage-sheet-period-label`;
 const STAT_VALUE = `${SHEET} .usage-sheet-stat-value`;
 const DONE_BTN = `${SHEET} [data-testid="usage-done"]`;
+const ACCOUNT = `${SHEET} [data-testid="usage-account"]`;
 
 const USAGE_TEXT = [
   "You are currently using your subscription to power your Claude Code usage",
@@ -75,6 +76,9 @@ const USAGE_TEXT = [
   "  Top subagents: Explore 2%, general-purpose 1%",
   "  Top plugins: tugplug 32%",
 ].join("\n");
+
+/** The login `claude auth status` reported alongside the panel. */
+const USAGE_ACCOUNT = { email: "user@example.com", subscription_type: "max" };
 
 function deckShape() {
   return {
@@ -117,7 +121,7 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
 
         // Seed the account-global usage store as if `claude -p "/usage"` replied.
         await app.evalJS<null>(
-          `(window.__tug.ingestUsage(${JSON.stringify({ request_id: "usage-seed", ok: true, text: USAGE_TEXT })}), null)`,
+          `(window.__tug.ingestUsage(${JSON.stringify({ request_id: "usage-seed", ok: true, text: USAGE_TEXT, account: USAGE_ACCOUNT })}), null)`,
         );
 
         await runUsage(app);
@@ -149,6 +153,13 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
         expect(sheetText).toContain("69%"); // session hero
         expect(sheetText).toContain("Current session");
         expect(sheetText).toContain(">150k context");
+
+        // The account the panel was fetched as heads the sheet.
+        expect(
+          await app.evalJS<string>(
+            `(function(){ var e = document.querySelector(${JSON.stringify(ACCOUNT)}); return e ? (e.textContent || "") : ""; })()`,
+          ),
+        ).toBe("Signed in as user@example.com · Claude Max plan");
 
         const windowLabels = await app.evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(WINDOW_LABEL)})).map(function(e){ return e.textContent; })`,
@@ -215,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A");
         await app.evalJS<null>(
-          `(window.__tug.ingestUsage(${JSON.stringify({ request_id: "usage-seed", ok: true, text: USAGE_TEXT })}), null)`,
+          `(window.__tug.ingestUsage(${JSON.stringify({ request_id: "usage-seed", ok: true, text: USAGE_TEXT, account: USAGE_ACCOUNT })}), null)`,
         );
 
         await app.nativeKey("u", ["ctrl", "cmd"]);

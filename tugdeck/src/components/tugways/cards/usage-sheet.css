@@ -42,6 +42,19 @@
   margin: var(--tug-space-xl) 0;
 }
 
+/* Whose usage this is — a muted line above the gauges, the email in body ink. */
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.usage-sheet-account {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-xs);
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.usage-sheet-account-email {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-weight: var(--tug-font-weight-medium);
+}
+
 /* Mono, tabular figures for every number in the panel. */
 .usage-sheet-num {
   font-family: var(--tug-font-family-mono);

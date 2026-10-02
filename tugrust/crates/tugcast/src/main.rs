@@ -1144,12 +1144,28 @@ async fn main() {
                 .unwrap_or_default();
             let response_tx = usage_response_tx_loop.clone();
             tokio::spawn(async move {
-                let (ok, text, error) = crate::feeds::claude_usage::fetch_usage_text().await;
+                // Probe the login alongside the panel so the sheet can say
+                // whose usage it is showing; the probe is local and fast, so
+                // running it concurrently costs the fetch nothing.
+                let ((ok, text, error), auth) = tokio::join!(
+                    crate::feeds::claude_usage::fetch_usage_text(),
+                    crate::feeds::claude_auth::probe(),
+                );
+                let account = match auth {
+                    crate::feeds::claude_auth::AuthState::LoggedIn(info) => {
+                        Some(tugcast_core::types::UsageAccount {
+                            email: info.email,
+                            subscription_type: info.subscription_type,
+                        })
+                    }
+                    _ => None,
+                };
                 let snapshot = tugcast_core::types::UsageSnapshot {
                     request_id,
                     ok,
                     text,
                     error,
+                    account,
                 };
                 match serde_json::to_vec(&snapshot) {
                     Ok(json) => {

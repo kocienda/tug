@@ -37,6 +37,17 @@ export interface UsageStoreSnapshot {
   rawText: string | null;
   /** Human-readable error when `phase === "error"`. */
   error: string | null;
+  /**
+   * The account the last answered fetch ran as — whose usage `data` is. Kept
+   * across a reload, like `data`, so the line doesn't blink out on Refresh.
+   */
+  account: UsageAccount | null;
+}
+
+/** The Claude account a usage fetch ran as (from `claude auth status`). */
+export interface UsageAccount {
+  email: string | null;
+  subscriptionType: string | null;
 }
 
 const IDLE_SNAPSHOT: UsageStoreSnapshot = Object.freeze({
@@ -45,6 +56,7 @@ const IDLE_SNAPSHOT: UsageStoreSnapshot = Object.freeze({
   data: null,
   rawText: null,
   error: null,
+  account: null,
 });
 
 /** Wire shape of a `UsageSnapshot` frame (mirrors tugcast-core). */
@@ -53,6 +65,7 @@ interface UsageWireFrame {
   ok: boolean;
   text: string;
   error?: string;
+  account: UsageAccount | null;
 }
 
 function parseWire(payload: unknown): UsageWireFrame | null {
@@ -64,7 +77,20 @@ function parseWire(payload: unknown): UsageWireFrame | null {
     ok: p.ok === true,
     text: typeof p.text === "string" ? p.text : "",
     error: typeof p.error === "string" ? p.error : undefined,
+    account: parseAccount(p.account),
   };
+}
+
+function parseAccount(raw: unknown): UsageAccount | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const a = raw as Record<string, unknown>;
+  const email = typeof a.email === "string" && a.email.length > 0 ? a.email : null;
+  const subscriptionType =
+    typeof a.subscription_type === "string" && a.subscription_type.length > 0
+      ? a.subscription_type
+      : null;
+  if (email === null && subscriptionType === null) return null;
+  return { email, subscriptionType };
 }
 
 /** Re-fetch only when the last successful result is older than this. */
@@ -106,6 +132,7 @@ export class UsageStore {
         data: null,
         rawText: wire.text.length > 0 ? wire.text : null,
         error: wire.error ?? "Couldn't load usage.",
+        account: wire.account,
       });
       return;
     }
@@ -116,6 +143,7 @@ export class UsageStore {
       data: parseUsageText(wire.text),
       rawText: wire.text,
       error: null,
+      account: wire.account,
     });
   }
 
@@ -140,6 +168,7 @@ export class UsageStore {
       data: this._snapshot.data,
       rawText: this._snapshot.rawText,
       error: null,
+      account: this._snapshot.account,
     });
     const bytes = new TextEncoder().encode(JSON.stringify({ requestId }));
     this._connection.send(FeedId.USAGE_QUERY, bytes);
@@ -175,6 +204,7 @@ export class UsageStore {
         data: null,
         rawText: wire.text.length > 0 ? wire.text : null,
         error: wire.error ?? "Couldn't load usage.",
+        account: wire.account,
       });
       return;
     }
@@ -185,6 +215,7 @@ export class UsageStore {
       data: parseUsageText(wire.text),
       rawText: wire.text,
       error: null,
+      account: wire.account,
     });
   }
 
