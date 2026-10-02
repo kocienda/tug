@@ -1154,6 +1154,14 @@ pub enum DeckMotionCommands {
         /// and report each selector's calls, time, and caller.
         #[arg(long)]
         queries: bool,
+        /// Also attribute the click's lead from inside the page: every timer,
+        /// frame callback, microtask, promise reaction, port message and
+        /// observer callback that ran, how long, and what queued it — and
+        /// every React commit, by the components that asked for it. The
+        /// recorder has to be in the page before the deck's bundle loads, so
+        /// the first run on a page reloads the deck to install it.
+        #[arg(long)]
+        tasks: bool,
         #[command(flatten)]
         target: DeckTarget,
     },

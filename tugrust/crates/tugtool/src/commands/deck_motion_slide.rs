@@ -298,9 +298,16 @@ fn resolve(port: u16, name: &str) -> Result<Option<String>, String> {
     }
 }
 
-type Recorded = (ClickReading, Vec<QueryRow>);
+/// One click as recorded: the reading, and whatever the optional recorders saw.
+struct Recorded {
+    reading: ClickReading,
+    queries: Vec<QueryRow>,
+    tasks: Vec<TaskRow>,
+    commits: Vec<CommitRow>,
+    long_frames: Vec<LongFrameTag>,
+}
 
-fn record(port: u16, title: &str, queries: bool) -> Result<Option<Recorded>, String> {
+fn record(port: u16, title: &str, queries: bool, tasks: bool) -> Result<Option<Recorded>, String> {
     let raw = page(
         port,
         json!({
@@ -310,15 +317,27 @@ fn record(port: u16, title: &str, queries: bool) -> Result<Option<Recorded>, Str
             "leadMs": LEAD_MS,
             "prerollMs": PREROLL_MS,
             "queries": queries,
+            "tasks": tasks,
         }),
     )?;
     Ok(raw.map(|raw| {
-        let rows = raw
-            .get("queries")
-            .filter(|q| !q.is_null())
-            .and_then(|q| serde_json::from_value(q.clone()).ok())
-            .unwrap_or_default();
-        (reduce(&raw), rows)
+        fn list<T: serde::de::DeserializeOwned>(raw: &Value, key: &str) -> Vec<T> {
+            raw.get(key)
+                .filter(|v| !v.is_null())
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default()
+        }
+        let raw_tasks: Vec<RawTask> = list(&raw, "tasks");
+        let raw_commits: Vec<RawCommit> = list(&raw, "commits");
+        let query_calls: Vec<QueryCall> = list(&raw, "queryCalls");
+        let reading = reduce(&raw);
+        Recorded {
+            long_frames: tag_long_frames(&reading, &raw_tasks, &raw_commits, &query_calls),
+            reading,
+            queries: list(&raw, "queries"),
+            tasks: task_rows(&raw_tasks),
+            commits: commit_rows(&raw_commits, &raw_tasks),
+        }
     }))
 }
 
@@ -363,6 +382,276 @@ pub fn aggregate_queries(rows: Vec<QueryRow>) -> Vec<QueryRow> {
 /// How many selectors the text report lists.
 const QUERIES_SHOWN: usize = 15;
 
+/// One callback the lead recorder saw run, with times relative to the click.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct RawTask {
+    pub kind: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub stack: String,
+    /// The callback that was running when this one was queued, as an index
+    /// into the click's list; negative when none was, or it is not known.
+    #[serde(default = "no_index")]
+    pub parent: i64,
+    pub start: f64,
+    pub end: f64,
+}
+
+fn no_index() -> i64 {
+    -1
+}
+
+/// One React commit the census walked while the recorder was armed.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct RawCommit {
+    pub t: f64,
+    /// What the census walk itself cost — the instrument's time, not the deck's.
+    #[serde(default)]
+    pub ms: f64,
+    /// The recorded callback the commit ran inside, as an index.
+    #[serde(default = "no_index")]
+    pub task: i64,
+    #[serde(default)]
+    pub performed: u64,
+    /// The components that rendered on their own state, a store or a context
+    /// rather than because a parent did, with how many of each.
+    #[serde(default)]
+    pub origins: Vec<(String, u64)>,
+    #[serde(default)]
+    pub hooks: Vec<String>,
+}
+
+/// One kind of callback — the same kind, function and queueing site — in one
+/// click, or summed across clicks.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct TaskRow {
+    pub kind: String,
+    pub name: String,
+    /// Where it was queued from.
+    pub stack: String,
+    /// The callback that queued it, from the first run seen.
+    pub queued_by: String,
+    pub count: u64,
+    pub ms: f64,
+    pub lead_count: u64,
+    pub lead_ms: f64,
+    pub max_ms: f64,
+}
+
+fn task_label(tasks: &[RawTask], index: i64) -> String {
+    match usize::try_from(index).ok().and_then(|i| tasks.get(i)) {
+        Some(t) if t.name.is_empty() => t.kind.clone(),
+        Some(t) => format!("{} {}", t.kind, t.name),
+        None => String::new(),
+    }
+}
+
+/// The part of `[start, end]` inside the lead.
+fn in_lead(start: f64, end: f64) -> f64 {
+    (end.min(f64::from(LEAD_MS)) - start.max(0.0)).max(0.0)
+}
+
+/// Group one click's callbacks by kind, function and queueing site.
+pub fn task_rows(tasks: &[RawTask]) -> Vec<TaskRow> {
+    let lead = f64::from(LEAD_MS);
+    let mut rows: Vec<TaskRow> = Vec::new();
+    for t in tasks {
+        let ms = (t.end - t.start).max(0.0);
+        let in_lead_ms = in_lead(t.start, t.end);
+        let starts_in_lead = u64::from(t.start < lead);
+        match rows
+            .iter_mut()
+            .find(|r| r.kind == t.kind && r.name == t.name && r.stack == t.stack)
+        {
+            Some(r) => {
+                r.count += 1;
+                r.ms += ms;
+                r.lead_count += starts_in_lead;
+                r.lead_ms += in_lead_ms;
+                r.max_ms = r.max_ms.max(ms);
+            }
+            None => rows.push(TaskRow {
+                kind: t.kind.clone(),
+                name: t.name.clone(),
+                stack: t.stack.clone(),
+                queued_by: task_label(tasks, t.parent),
+                count: 1,
+                ms,
+                lead_count: starts_in_lead,
+                lead_ms: in_lead_ms,
+                max_ms: ms,
+            }),
+        }
+    }
+    rows
+}
+
+/// Sum each kind of callback across clicks, the lead's most expensive first.
+pub fn aggregate_tasks(rows: Vec<TaskRow>) -> Vec<TaskRow> {
+    let mut by_key: Vec<TaskRow> = Vec::new();
+    for row in rows {
+        match by_key
+            .iter_mut()
+            .find(|r| r.kind == row.kind && r.name == row.name && r.stack == row.stack)
+        {
+            Some(sum) => {
+                sum.count += row.count;
+                sum.ms += row.ms;
+                sum.lead_count += row.lead_count;
+                sum.lead_ms += row.lead_ms;
+                sum.max_ms = sum.max_ms.max(row.max_ms);
+            }
+            None => by_key.push(row),
+        }
+    }
+    by_key.sort_by(|a, b| b.lead_ms.total_cmp(&a.lead_ms).then(b.ms.total_cmp(&a.ms)));
+    by_key
+}
+
+/// React commits with the same origins, run from the same kind of callback.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct CommitRow {
+    /// The components that asked for the commit, most renders first.
+    pub origins: String,
+    /// The recorded callback the commit ran inside.
+    pub ran_in: String,
+    pub count: u64,
+    pub lead_count: u64,
+    /// Fibers that performed work, summed.
+    pub performed: u64,
+    /// The census walk's own time, summed.
+    pub walk_ms: f64,
+    /// Which hooks moved in the origins, from the first commit seen.
+    pub hooks: String,
+}
+
+/// How many origins name a commit.
+const ORIGINS_NAMED: usize = 4;
+
+fn origins_label(origins: &[(String, u64)]) -> String {
+    if origins.is_empty() {
+        return "(no origin: a root render or a parent's props)".to_string();
+    }
+    let mut names: Vec<String> = origins
+        .iter()
+        .take(ORIGINS_NAMED)
+        .map(|(name, n)| {
+            if *n > 1 {
+                format!("{name}×{n}")
+            } else {
+                name.clone()
+            }
+        })
+        .collect();
+    if origins.len() > ORIGINS_NAMED {
+        names.push(format!("+{} more", origins.len() - ORIGINS_NAMED));
+    }
+    names.join(", ")
+}
+
+/// Group one click's commits by who asked and where they ran.
+pub fn commit_rows(commits: &[RawCommit], tasks: &[RawTask]) -> Vec<CommitRow> {
+    let lead = f64::from(LEAD_MS);
+    let mut rows: Vec<CommitRow> = Vec::new();
+    for c in commits {
+        let origins = origins_label(&c.origins);
+        let ran_in = match task_label(tasks, c.task) {
+            label if label.is_empty() => "(outside any recorded callback)".to_string(),
+            label => label,
+        };
+        let in_lead = u64::from(c.t < lead);
+        match rows
+            .iter_mut()
+            .find(|r| r.origins == origins && r.ran_in == ran_in)
+        {
+            Some(r) => {
+                r.count += 1;
+                r.lead_count += in_lead;
+                r.performed += c.performed;
+                r.walk_ms += c.ms;
+            }
+            None => rows.push(CommitRow {
+                origins,
+                ran_in,
+                count: 1,
+                lead_count: in_lead,
+                performed: c.performed,
+                walk_ms: c.ms,
+                hooks: c.hooks.join("; "),
+            }),
+        }
+    }
+    rows
+}
+
+/// Sum each kind of commit across clicks, the most fibers first.
+pub fn aggregate_commits(rows: Vec<CommitRow>) -> Vec<CommitRow> {
+    let mut by_key: Vec<CommitRow> = Vec::new();
+    for row in rows {
+        match by_key
+            .iter_mut()
+            .find(|r| r.origins == row.origins && r.ran_in == row.ran_in)
+        {
+            Some(sum) => {
+                sum.count += row.count;
+                sum.lead_count += row.lead_count;
+                sum.performed += row.performed;
+                sum.walk_ms += row.walk_ms;
+            }
+            None => by_key.push(row),
+        }
+    }
+    by_key.sort_by(|a, b| b.performed.cmp(&a.performed));
+    by_key
+}
+
+/// How many callbacks and commits the text report lists.
+const TASKS_SHOWN: usize = 20;
+const COMMITS_SHOWN: usize = 15;
+
+/// How long a reloaded deck is given to come back with the recorder in it.
+const RELOAD_WAIT_S: u64 = 90;
+
+/// How long a reloaded deck is left to finish mounting before the first click.
+const RELOAD_SETTLE_MS: u64 = 8000;
+
+/// Make sure the page carries the lead recorder, reloading the deck to install
+/// it when it does not. `Ok(false)` when the eval door is shut.
+fn ensure_recorder(port: u16, quiet: bool) -> Result<bool, String> {
+    let installed = |value: &Value| value.get("installed").and_then(|v| v.as_bool()) == Some(true);
+    match page(port, json!({"op": "recorder"}))? {
+        None => return Ok(false),
+        Some(value) if installed(&value) => return Ok(true),
+        Some(_) => {}
+    }
+    if !quiet {
+        eprintln!(
+            "the lead recorder is not in this page — reloading the deck to install it (a relaunch sheds it)"
+        );
+    }
+    // The reload can take the reply with it; what matters is what comes back.
+    let _ = page(port, json!({"op": "install"}));
+    for _ in 0..RELOAD_WAIT_S {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if let Ok(Some(value)) = page(port, json!({"op": "recorder"}))
+            && installed(&value)
+            && let Ok(Some(census)) = page(port, json!({"op": "census"}))
+            && census
+                .get("panes")
+                .and_then(|p| p.as_array())
+                .is_some_and(|p| !p.is_empty())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(RELOAD_SETTLE_MS));
+            return Ok(true);
+        }
+    }
+    Err(format!(
+        "the deck did not come back with the lead recorder within {RELOAD_WAIT_S} s"
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_slide(
     port: u16,
     from: &str,
@@ -370,6 +659,7 @@ pub fn run_slide(
     count: u32,
     sample: bool,
     queries: bool,
+    tasks: bool,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || {
@@ -377,6 +667,9 @@ pub fn run_slide(
         Ok(EXIT_GATED)
     };
 
+    if tasks && !ensure_recorder(port, json_output)? {
+        return gated();
+    }
     let Some(census) = page(port, json!({"op": "census"}))? else {
         return gated();
     };
@@ -401,6 +694,11 @@ pub fn run_slide(
                 "note: the samplers stop WebContent to read its stacks, so the frame numbers below are perturbed — take frames from a run without --sample"
             );
         }
+        if tasks {
+            println!(
+                "note: the lead recorder takes a stack at every queueing and walks every React commit, so the frame and lead numbers below are perturbed — take them from a run without --tasks"
+            );
+        }
         println!(
             "slide '{from}' ⇄ '{to}', {count} click(s) each way, {WINDOW_MS} ms window per click"
         );
@@ -412,7 +710,7 @@ pub fn run_slide(
 
     // One unrecorded click onto the starting card, so the first recorded click
     // is a real slide rather than a click on the card already focused.
-    if record(port, &from, false)?.is_none() {
+    if record(port, &from, false, false)?.is_none() {
         return gated();
     }
     std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
@@ -437,22 +735,30 @@ pub fn run_slide(
 
     let mut readings = Vec::new();
     let mut query_rows = Vec::new();
+    let mut task_rows = Vec::new();
+    let mut commit_rows = Vec::new();
+    let mut long_frames = Vec::new();
     for _ in 0..count {
         for title in [&to, &from] {
-            let Some((reading, rows)) = record(port, title, queries)? else {
+            let Some(recorded) = record(port, title, queries, tasks)? else {
                 return gated();
             };
             if !json_output {
-                print_click(readings.len() + 1, &reading);
+                print_click(readings.len() + 1, &recorded.reading);
             }
-            readings.push(reading);
-            query_rows.extend(rows);
+            readings.push(recorded.reading);
+            query_rows.extend(recorded.queries);
+            task_rows.extend(recorded.tasks);
+            commit_rows.extend(recorded.commits);
+            long_frames.extend(recorded.long_frames);
             std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
         }
     }
 
     let summary = summarize(&readings);
     let query_rows = queries.then(|| aggregate_queries(query_rows));
+    let task_rows = tasks.then(|| aggregate_tasks(task_rows));
+    let commit_rows = tasks.then(|| aggregate_commits(commit_rows));
     let processes = match samplers {
         Some(samplers) => {
             if !json_output {
@@ -479,14 +785,24 @@ pub fn run_slide(
                 "samples": processes,
                 "framesPerturbedBySampling": sample,
                 "queries": query_rows,
+                "framesPerturbedByTasks": tasks,
+                "tasks": task_rows,
+                "commits": commit_rows,
+                "longFrames": (queries || tasks).then_some(&long_frames),
             }))
             .unwrap()
         );
     } else {
         println!();
         print_summary(&summary);
+        if queries || tasks {
+            print_long_frames(&long_frames, queries, tasks);
+        }
         if let Some(rows) = &query_rows {
             print_queries(rows, readings.len());
+        }
+        if let (Some(tasks), Some(commits)) = (&task_rows, &commit_rows) {
+            print_tasks(tasks, commits, readings.len());
         }
         if let Some(processes) = &processes {
             crate::commands::deck_motion_sample::print(processes, readings.len());
@@ -560,6 +876,230 @@ fn print_queries(rows: &[QueryRow], clicks: usize) {
 
 fn ms(value: Option<f64>) -> String {
     value.map_or("—".to_string(), |v| format!("{v:.0}"))
+}
+
+/// One selector query as the page half timed it: start relative to the click,
+/// duration, method, selector.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct QueryCall(pub f64, pub f64, pub String, pub String);
+
+/// A callback's share of one long frame.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct FrameShare {
+    pub label: String,
+    pub ms: f64,
+}
+
+/// One long frame with what the recorders saw run inside it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct LongFrameTag {
+    /// The row clicked.
+    pub to: String,
+    pub at_ms: f64,
+    pub gap_ms: f64,
+    /// Where the frame falls against the settle mark.
+    pub phase: String,
+    /// The recorded callbacks that overlapped the frame, the longest first.
+    pub callbacks: Vec<FrameShare>,
+    pub callback_ms: f64,
+    /// The React commits inside it, by origin and fibers.
+    pub commits: Vec<String>,
+    pub query_calls: usize,
+    pub query_ms: f64,
+    /// The selector with the most calls inside it.
+    pub top_query: Option<String>,
+}
+
+/// How many callbacks a long frame names.
+const FRAME_CALLBACKS_NAMED: usize = 4;
+
+fn settle_phase(at: f64, on: Option<f64>, off: Option<f64>) -> String {
+    match (on, off) {
+        (None, _) => "no settle".to_string(),
+        (Some(on), _) if at < on => format!("{:.0} ms before the settle", on - at),
+        (Some(_), Some(off)) if at >= off => format!("{:.0} ms after the settle ended", at - off),
+        (Some(on), Some(off)) => format!(
+            "{:.0} ms into the settle, {:.0} ms before its end",
+            at - on,
+            off - at
+        ),
+        (Some(on), None) => format!("{:.0} ms into a settle that did not end", at - on),
+    }
+}
+
+/// Tag each of a click's long frames with what ran between it and the next
+/// frame: the settle's phase, the recorded callbacks, the React commits and
+/// the selector queries. What the recorders were not asked for is empty.
+pub fn tag_long_frames(
+    reading: &ClickReading,
+    tasks: &[RawTask],
+    commits: &[RawCommit],
+    queries: &[QueryCall],
+) -> Vec<LongFrameTag> {
+    reading
+        .long_frames
+        .iter()
+        .map(|frame| {
+            let (start, end) = (frame.at_ms, frame.at_ms + frame.gap_ms);
+            let mut callbacks: Vec<FrameShare> = tasks
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| {
+                    let ms = t.end.min(end) - t.start.max(start);
+                    // A zero-length callback inside the frame still ran in it.
+                    let inside = t.start >= start && t.start < end;
+                    (ms > 0.0 || inside).then(|| {
+                        let site = t.stack.split(" < ").next().unwrap_or("");
+                        let mut label = task_label(tasks, i as i64);
+                        let by = task_label(tasks, t.parent);
+                        if !by.is_empty() {
+                            label.push_str(&format!(", queued by {by}"));
+                        }
+                        if !site.is_empty() {
+                            label.push_str(&format!(", from {site}"));
+                        }
+                        FrameShare {
+                            label,
+                            ms: ms.max(0.0),
+                        }
+                    })
+                })
+                .collect();
+            // Plus zero: an empty sum of floats is negative zero.
+            let callback_ms = callbacks.iter().map(|c| c.ms).sum::<f64>() + 0.0;
+            callbacks.sort_by(|a, b| b.ms.total_cmp(&a.ms));
+            callbacks.truncate(FRAME_CALLBACKS_NAMED);
+
+            let inside: Vec<&QueryCall> = queries
+                .iter()
+                .filter(|q| q.0 >= start && q.0 < end)
+                .collect();
+            let mut by_selector: Vec<(String, usize)> = Vec::new();
+            for q in &inside {
+                let key = format!("{}({})", q.2, q.3);
+                match by_selector.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, n)) => *n += 1,
+                    None => by_selector.push((key, 1)),
+                }
+            }
+            by_selector.sort_by(|a, b| b.1.cmp(&a.1));
+
+            LongFrameTag {
+                to: reading.to.clone(),
+                at_ms: frame.at_ms,
+                gap_ms: frame.gap_ms,
+                phase: settle_phase(frame.at_ms, reading.settle_on_ms, reading.settle_off_ms),
+                callbacks,
+                callback_ms,
+                commits: commits
+                    .iter()
+                    .filter(|c| c.t >= start && c.t < end)
+                    .map(|c| format!("{} ({} fibers)", origins_label(&c.origins), c.performed))
+                    .collect(),
+                query_calls: inside.len(),
+                query_ms: inside.iter().map(|q| q.1).sum::<f64>() + 0.0,
+                top_query: by_selector.first().map(|(key, n)| format!("{key} ×{n}")),
+            }
+        })
+        .collect()
+}
+
+fn print_long_frames(frames: &[LongFrameTag], queries: bool, tasks: bool) {
+    if frames.is_empty() {
+        return;
+    }
+    println!();
+    println!("long frames, by what ran between each and the next frame:");
+    for f in frames {
+        let to: String = f.to.chars().take(20).collect();
+        println!("  {:.0}:{:.0} → {to} — {}", f.at_ms, f.gap_ms, f.phase);
+        if tasks {
+            println!(
+                "      callbacks {:.1} ms of the {:.0}; {} commit(s){}",
+                f.callback_ms,
+                f.gap_ms,
+                f.commits.len(),
+                if f.commits.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", f.commits.join("; "))
+                }
+            );
+            for c in &f.callbacks {
+                let label: String = c.label.chars().take(170).collect();
+                println!("      {:>5.1} ms  {label}", c.ms);
+            }
+        }
+        if queries {
+            println!(
+                "      queries {:.1} ms across {} call(s){}",
+                f.query_ms,
+                f.query_calls,
+                f.top_query
+                    .as_ref()
+                    .map(|q| format!(", most often {}", q.chars().take(110).collect::<String>()))
+                    .unwrap_or_default()
+            );
+        }
+    }
+}
+
+fn print_tasks(tasks: &[TaskRow], commits: &[CommitRow], clicks: usize) {
+    let per = |x: f64| if clicks > 0 { x / clicks as f64 } else { 0.0 };
+    let lead: f64 = tasks.iter().map(|r| r.lead_ms).sum();
+    let lead_runs: u64 = tasks.iter().map(|r| r.lead_count).sum();
+    let walk: f64 = commits.iter().map(|r| r.walk_ms).sum();
+    println!();
+    println!(
+        "lead callbacks: {:.1} ms per click across {:.0} run(s) in the first {LEAD_MS} ms, of which {:.1} ms is the commit census's own walk — what is blocked beyond this is not a callback the recorder can see",
+        per(lead),
+        per(lead_runs as f64),
+        per(walk)
+    );
+    println!("  lead ms  runs  all ms  max ms  callback");
+    for r in tasks.iter().take(TASKS_SHOWN) {
+        println!(
+            "  {:>7.2}  {:>4.1}  {:>6.2}  {:>6.1}  {}{}{}",
+            per(r.lead_ms),
+            per(r.lead_count as f64),
+            per(r.ms),
+            r.max_ms,
+            r.kind,
+            if r.name.is_empty() { "" } else { " " },
+            r.name
+        );
+        let stack: String = r.stack.chars().take(150).collect();
+        match (r.queued_by.is_empty(), stack.is_empty()) {
+            (true, true) => {}
+            (true, false) => println!("            queued from {stack}"),
+            (false, true) => println!("            queued by {}", r.queued_by),
+            (false, false) => println!("            queued by {}, from {stack}", r.queued_by),
+        }
+    }
+
+    let total: u64 = commits.iter().map(|r| r.count).sum();
+    let in_lead: u64 = commits.iter().map(|r| r.lead_count).sum();
+    println!();
+    println!(
+        "react commits: {:.1} per click ({:.1} in the first {LEAD_MS} ms), by the components that asked",
+        per(total as f64),
+        per(in_lead as f64)
+    );
+    println!("  /click  lead  fibers/click  ran in → origins");
+    for r in commits.iter().take(COMMITS_SHOWN) {
+        println!(
+            "  {:>6.1}  {:>4.1}  {:>12.1}  {} → {}",
+            per(r.count as f64),
+            per(r.lead_count as f64),
+            per(r.performed as f64),
+            r.ran_in,
+            r.origins
+        );
+        let hooks: String = r.hooks.chars().take(150).collect();
+        if !hooks.is_empty() {
+            println!("            {hooks}");
+        }
+    }
 }
 
 fn print_click(index: usize, r: &ClickReading) {
@@ -732,6 +1272,131 @@ mod tests {
         assert_eq!(agg[1].max_ms, 1.0);
         // The first stack seen is the one kept.
         assert_eq!(agg[1].stack, "first");
+    }
+
+    fn task(kind: &str, name: &str, stack: &str, parent: i64, start: f64, end: f64) -> RawTask {
+        RawTask {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            stack: stack.to_string(),
+            parent,
+            start,
+            end,
+        }
+    }
+
+    #[test]
+    fn callbacks_group_by_kind_function_and_queueing_site() {
+        let tasks = vec![
+            task("click", "dispatch", "", -1, 0.0, 12.0),
+            task("microtask", "flush", "a.js:1", 0, 12.0, 30.0),
+            task("microtask", "flush", "a.js:1", 0, 250.0, 270.0),
+            task("microtask", "flush", "b.js:9", 1, 300.0, 301.0),
+        ];
+        let rows = task_rows(&tasks);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1].queued_by, "click dispatch");
+        assert_eq!(rows[1].count, 2);
+        assert_eq!(rows[1].ms, 38.0);
+        // The second run starts in the lead and straddles its end: counted,
+        // and only its ten milliseconds inside are the lead's.
+        assert_eq!(rows[1].lead_count, 2);
+        assert_eq!(rows[1].lead_ms, 28.0);
+        assert_eq!(rows[1].max_ms, 20.0);
+        // Past the lead entirely.
+        assert_eq!(rows[2].queued_by, "microtask flush");
+        assert_eq!(rows[2].lead_count, 0);
+        assert_eq!(rows[2].lead_ms, 0.0);
+    }
+
+    #[test]
+    fn callbacks_sum_across_clicks_and_sort_by_lead_time() {
+        let a = task_rows(&[
+            task("timeout", "tick", "t.js:1", -1, 0.0, 2.0),
+            task("message", "work", "s.js:4", -1, 5.0, 45.0),
+        ]);
+        let b = task_rows(&[task("timeout", "tick", "t.js:1", -1, 1.0, 4.0)]);
+        let agg = aggregate_tasks(a.into_iter().chain(b).collect());
+        assert_eq!(agg.len(), 2);
+        assert_eq!(agg[0].name, "work");
+        assert_eq!(agg[1].count, 2);
+        assert_eq!(agg[1].lead_ms, 5.0);
+        assert_eq!(agg[1].max_ms, 3.0);
+    }
+
+    #[test]
+    fn a_long_frame_is_tagged_with_what_ran_inside_it() {
+        let reading = reduce(&json!({
+            "title": "beta",
+            "frames": [300.0, 316.0, 346.0, 376.0, 392.0],
+            "beats": [],
+            "settle": [[40.0, true], [450.0, false]],
+            "moved": true,
+        }));
+        // Two long frames: 316→346 and 346→376.
+        let tasks = vec![
+            task("click", "", "", -1, 0.0, 40.0),
+            task("frame", "measure", "cm.js:1 < x.js:2", 0, 320.0, 338.0),
+            task("timeout", "tick", "", -1, 330.0, 330.0),
+            task("frame", "late", "", -1, 340.0, 350.0),
+        ];
+        let commits: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 325.0, "performed": 12, "origins": [["Pane", 2]]},
+            {"t": 500.0, "performed": 1, "origins": []},
+        ]))
+        .unwrap();
+        let queries = vec![
+            QueryCall(321.0, 1.0, "Element.closest".into(), ".a".into()),
+            QueryCall(322.0, 0.0, "Element.closest".into(), ".a".into()),
+            QueryCall(323.0, 2.0, "Document.querySelector".into(), ".b".into()),
+            QueryCall(400.0, 9.0, "Document.querySelector".into(), ".b".into()),
+        ];
+        let tags = tag_long_frames(&reading, &tasks, &commits, &queries);
+        assert_eq!(tags.len(), 2);
+        let first = &tags[0];
+        assert_eq!((first.at_ms, first.gap_ms), (316.0, 30.0));
+        assert_eq!(first.phase, "276 ms into the settle, 134 ms before its end");
+        // 18 ms of `measure`, the zero-length timer, and the six
+        // milliseconds of `late` that fall before the next frame.
+        assert_eq!(first.callback_ms, 24.0);
+        assert_eq!(
+            first.callbacks[0].label,
+            "frame measure, queued by click, from cm.js:1"
+        );
+        assert_eq!(first.callbacks[0].ms, 18.0);
+        assert_eq!(first.callbacks.len(), 3);
+        assert_eq!(first.commits, vec!["Pane×2 (12 fibers)".to_string()]);
+        assert_eq!(first.query_calls, 3);
+        assert_eq!(first.query_ms, 3.0);
+        assert_eq!(first.top_query.as_deref(), Some("Element.closest(.a) ×2"));
+        // The second frame holds only the rest of `late`.
+        assert_eq!(tags[1].callback_ms, 4.0);
+        assert!(tags[1].commits.is_empty());
+        assert_eq!(tags[1].query_calls, 0);
+    }
+
+    #[test]
+    fn commits_group_by_who_asked_and_where_they_ran() {
+        let tasks = vec![task("message", "work", "s.js:4", -1, 5.0, 45.0)];
+        let raw: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 10.0, "ms": 2.0, "task": 0, "performed": 40,
+             "origins": [["Pane", 3], ["Badge", 1]], "hooks": ["Pane hooks[2:true]"]},
+            {"t": 300.0, "ms": 1.0, "task": 0, "performed": 10,
+             "origins": [["Pane", 3], ["Badge", 1]], "hooks": []},
+            {"t": 20.0, "task": -1, "performed": 5, "origins": []},
+        ]))
+        .unwrap();
+        let rows = aggregate_commits(commit_rows(&raw, &tasks));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].origins, "Pane×3, Badge");
+        assert_eq!(rows[0].ran_in, "message work");
+        assert_eq!(rows[0].count, 2);
+        assert_eq!(rows[0].lead_count, 1);
+        assert_eq!(rows[0].performed, 50);
+        assert_eq!(rows[0].walk_ms, 3.0);
+        assert_eq!(rows[0].hooks, "Pane hooks[2:true]");
+        assert_eq!(rows[1].ran_in, "(outside any recorded callback)");
+        assert!(rows[1].origins.starts_with("(no origin"));
     }
 
     #[test]

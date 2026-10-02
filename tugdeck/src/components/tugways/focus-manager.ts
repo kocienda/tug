@@ -325,6 +325,27 @@ function cssEscapeId(id: string): string {
 }
 
 /**
+ * Clear a projection mark from every element in `marked` other than `keep`,
+ * forgetting each as it goes. Returns how many elements actually carried the
+ * mark — an element the engine marked and something else since unmarked (an
+ * unregistered default-ring node) costs a write it does not count.
+ */
+function clearStaleMarks(
+  marked: Set<HTMLElement>,
+  keep: HTMLElement | null,
+  attrs: readonly string[],
+): number {
+  let writes = 0;
+  for (const el of marked) {
+    if (el === keep) continue;
+    marked.delete(el);
+    if (attrs.some((a) => el.hasAttribute(a))) writes += 1;
+    for (const a of attrs) el.removeAttribute(a);
+  }
+  return writes;
+}
+
+/**
  * DOM projection of the current (top) focus mode, stamped on the document root.
  * Absent when the base mode is current; set to the active trap's scope id while
  * a floating surface's mode is pushed. The appearance/structure projection of
@@ -2522,14 +2543,8 @@ export class FocusContext {
 
   /** Resolve the DOM element carrying the current key view, or `null`. */
   keyViewElement(): HTMLElement | null {
-    if (typeof document === "undefined" || this.keyViewId === null) return null;
-    const escaped =
-      typeof CSS !== "undefined" && typeof CSS.escape === "function"
-        ? CSS.escape(this.keyViewId)
-        : this.keyViewId;
-    return document.querySelector<HTMLElement>(
-      `[data-responder-id="${escaped}"], [data-tug-focusable="${escaped}"]`,
-    );
+    if (this.keyViewId === null) return null;
+    return this.coord.elementForFocusKey(this.keyViewId);
   }
 
   /**
@@ -2594,6 +2609,18 @@ export class FocusManager {
 
   // ---- Chain attachment ----
   private chain: ResponderChainManager | null = null;
+
+  // ---- Projection bookkeeping ----
+  // The elements the projection has written each mark onto. The engine is the
+  // only writer of these attributes, so clearing a stale mark means clearing
+  // exactly what it wrote — no document-wide scan per projection, which is
+  // paid about nine times per activation and grows with the deck.
+  private readonly markedKeyView: Set<HTMLElement> = new Set();
+  private readonly markedKeyWithin: Set<HTMLElement> = new Set();
+  private readonly markedDefaultRing: Set<HTMLElement> = new Set();
+  // Focus-key lookups memoized for the length of one `computeProjection`
+  // pass, which reads the DOM without writing it; `null` outside a pass.
+  private focusKeyMemo: Map<string, HTMLElement | null> | null = null;
 
   constructor() {
     this.defaultContext = new FocusContext(this, null);
@@ -2811,13 +2838,23 @@ export class FocusManager {
     }
   }
 
-  /** The element carrying a focus key — a responder id or a focusable id. */
-  private elementForFocusKey(id: string): HTMLElement | null {
+  /**
+   * The element carrying a focus key — a responder id or a focusable id.
+   *
+   * Coordinator-facing: `FocusContext.keyViewElement` resolves through here,
+   * so a projection pass answers each key with one query however many of its
+   * fields ask.
+   */
+  elementForFocusKey(id: string): HTMLElement | null {
     if (typeof document === "undefined") return null;
+    const memo = this.focusKeyMemo;
+    if (memo !== null && memo.has(id)) return memo.get(id) ?? null;
     const esc = cssEscapeId(id);
-    return document.querySelector<HTMLElement>(
+    const el = document.querySelector<HTMLElement>(
       `[data-responder-id="${esc}"], [data-tug-focusable="${esc}"]`,
     );
+    memo?.set(id, el);
+    return el;
   }
 
   // ---- Chain attachment ----
@@ -3297,8 +3334,21 @@ export class FocusManager {
    * Because it derives from STATE rather than from a transition, any caller may
    * run it at any time and get the same answer — which is what makes a
    * transient key-card change recoverable instead of a wipe nothing restamps.
+   *
+   * Its element lookups are memoized for the pass: nothing in it writes the
+   * DOM, so the key view's element is the same element each time a field asks.
    */
   computeProjection(): FocusProjection {
+    if (this.focusKeyMemo !== null) return this.computeProjectionPass();
+    this.focusKeyMemo = new Map();
+    try {
+      return this.computeProjectionPass();
+    } finally {
+      this.focusKeyMemo = null;
+    }
+  }
+
+  private computeProjectionPass(): FocusProjection {
     const ctx = this.activeContext();
     const state = ctx.projectionState();
     const keyViewEl = ctx.keyViewElement();
@@ -3342,10 +3392,12 @@ export class FocusManager {
    *
    * Diff-then-write per mark: a mark is removed only from elements that should
    * not carry it and set only where it is missing, so a reprojection that
-   * changes nothing writes nothing. The clear pass is document-wide rather than
-   * scoped to the active context's own elements — that is what wipes a stale
-   * mark left behind by a just-deactivated context (a Done button keeping its
-   * ring after another pane took focus).
+   * changes nothing writes nothing. The clear pass covers every element the
+   * engine has marked rather than the active context's own elements — that is
+   * what wipes a stale mark left behind by a just-deactivated context (a Done
+   * button keeping its ring after another pane took focus). The engine is the
+   * marks' only writer, so the elements it marked are the elements that can
+   * carry one, and no document scan is needed to find them.
    *
    * Gated on having a document. The active-context gate lives in
    * {@link FocusContext.reproject}: contexts call through there, and the
@@ -3372,14 +3424,12 @@ export class FocusManager {
     const p = this.computeProjection();
     let writes = 0;
 
-    for (const el of document.querySelectorAll<HTMLElement>("[data-key-view]")) {
-      if (el !== p.keyViewEl) {
-        el.removeAttribute(KEY_VIEW_ATTRIBUTE);
-        el.removeAttribute("data-key-view-kbd");
-        writes += 1;
-      }
-    }
+    writes += clearStaleMarks(this.markedKeyView, p.keyViewEl, [
+      KEY_VIEW_ATTRIBUTE,
+      "data-key-view-kbd",
+    ]);
     if (p.keyViewEl !== null && p.keyViewId !== null) {
+      this.markedKeyView.add(p.keyViewEl);
       if (p.keyViewEl.getAttribute(KEY_VIEW_ATTRIBUTE) !== p.keyViewId) {
         p.keyViewEl.setAttribute(KEY_VIEW_ATTRIBUTE, p.keyViewId);
         writes += 1;
@@ -3394,28 +3444,26 @@ export class FocusManager {
       }
     }
 
-    for (const el of document.querySelectorAll<HTMLElement>(
-      `[${KEY_WITHIN_ATTRIBUTE}]`,
-    )) {
-      if (el !== p.keyWithinEl) {
-        el.removeAttribute(KEY_WITHIN_ATTRIBUTE);
+    writes += clearStaleMarks(this.markedKeyWithin, p.keyWithinEl, [
+      KEY_WITHIN_ATTRIBUTE,
+    ]);
+    if (p.keyWithinEl !== null) {
+      this.markedKeyWithin.add(p.keyWithinEl);
+      if (!p.keyWithinEl.hasAttribute(KEY_WITHIN_ATTRIBUTE)) {
+        p.keyWithinEl.setAttribute(KEY_WITHIN_ATTRIBUTE, "");
         writes += 1;
       }
-    }
-    if (p.keyWithinEl !== null && !p.keyWithinEl.hasAttribute(KEY_WITHIN_ATTRIBUTE)) {
-      p.keyWithinEl.setAttribute(KEY_WITHIN_ATTRIBUTE, "");
-      writes += 1;
     }
 
-    for (const el of document.querySelectorAll<HTMLElement>("[data-default-ring]")) {
-      if (el !== p.defaultRingEl) {
-        el.removeAttribute("data-default-ring");
+    writes += clearStaleMarks(this.markedDefaultRing, p.defaultRingEl, [
+      "data-default-ring",
+    ]);
+    if (p.defaultRingEl !== null) {
+      this.markedDefaultRing.add(p.defaultRingEl);
+      if (!p.defaultRingEl.hasAttribute("data-default-ring")) {
+        p.defaultRingEl.setAttribute("data-default-ring", "");
         writes += 1;
       }
-    }
-    if (p.defaultRingEl !== null && !p.defaultRingEl.hasAttribute("data-default-ring")) {
-      p.defaultRingEl.setAttribute("data-default-ring", "");
-      writes += 1;
     }
 
     const root = document.documentElement;

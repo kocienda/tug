@@ -8,6 +8,12 @@
 //   resolve — which Cards-card session rows a name matches
 //   record  — one row click, recorded from before it to `windowMs` after it
 //
+// and two for the lead recorder `--tasks` reads (`tugdeck/index.html`), which
+// has to be installed before the deck's bundle evaluates:
+//
+//   recorder — whether this page carries it
+//   install  — flag it for this page session and reload the deck
+//
 // `record` returns RAW times, relative to the click: every animation frame,
 // every zero-timer heartbeat in the lead, and every flip of the settle mark.
 // The shell end reduces them, so the reduction is unit-tested in Rust rather
@@ -88,6 +94,9 @@
   // never counted and the deck is left exactly as it was found.
   function queryRecorder(leadMs) {
     var table = {};
+    // Every call in order — [start, ms, method, selector] — so a long frame
+    // can be asked which queries ran inside it.
+    var calls = [];
     var origin = 0;
     var saved = [];
     var METHODS = [
@@ -118,6 +127,7 @@
             };
           }
           var d = t1 - t0;
+          calls.push([t0, d, owner + "." + name, String(selector)]);
           row.count += 1;
           row.ms += d;
           if (d > row.maxMs) row.maxMs = d;
@@ -148,10 +158,19 @@
           return r;
         });
       },
+      calls: function () { return calls; },
     };
   }
 
   if (args.op === "census") return census();
+
+  if (args.op === "recorder") return { installed: !!window.__tugLead };
+
+  if (args.op === "install") {
+    window.sessionStorage.setItem("tug-lead-recorder", "1");
+    setTimeout(function () { window.location.reload(); }, 50);
+    return { reloading: true };
+  }
 
   if (args.op === "resolve") {
     var found = findRows(args.name);
@@ -168,6 +187,16 @@
     }
     var row = found.hits[0];
     var target = row.querySelector(".tug-markdown-block") || row;
+    // With the lead recorder installed the page's schedulers are wrapped, and
+    // the verb's own heartbeat and frame chain must not be in what it records.
+    var lead = window.__tugLead || null;
+    if (args.tasks && !lead) {
+      resolve({ error: "the lead recorder is not installed in this page" });
+      return;
+    }
+    var setTimeout = lead ? lead.native.setTimeout : window.setTimeout.bind(window);
+    var requestAnimationFrame = lead ? lead.native.requestAnimationFrame : window.requestAnimationFrame.bind(window);
+    var MutationObserver = lead ? lead.native.MutationObserver : window.MutationObserver;
     var frames = [];
     var beats = [];
     var marks = [];
@@ -212,16 +241,25 @@
             queries.install();
             queries.start(click);
           }
-          target.dispatchEvent(new PointerEvent("pointerdown", o));
-          target.dispatchEvent(new MouseEvent("mousedown", o));
-          o.buttons = 0;
-          target.dispatchEvent(new PointerEvent("pointerup", o));
-          target.dispatchEvent(new MouseEvent("mouseup", o));
-          target.dispatchEvent(new MouseEvent("click", o));
+          var dispatch = function () {
+            target.dispatchEvent(new PointerEvent("pointerdown", o));
+            target.dispatchEvent(new MouseEvent("mousedown", o));
+            o.buttons = 0;
+            target.dispatchEvent(new PointerEvent("pointerup", o));
+            target.dispatchEvent(new MouseEvent("mouseup", o));
+            target.dispatchEvent(new MouseEvent("click", o));
+          };
+          if (args.tasks) {
+            lead.arm();
+            lead.run("click", dispatch);
+          } else {
+            dispatch();
+          }
           setTimeout(function () {
             done = true;
             observer.disconnect();
             if (queries) queries.restore();
+            var tasks = args.tasks ? lead.disarm() : null;
             var rel = function (t) { return Math.round((t - click) * 10) / 10; };
             resolve({
               title: titleOf(row),
@@ -239,6 +277,27 @@
               moved: focusedPaneId() !== before,
               visibility: document.visibilityState,
               queries: queries ? queries.rows() : null,
+              queryCalls: queries
+                ? queries.calls().map(function (c) { return [rel(c[0]), Math.round(c[1] * 100) / 100, c[2], c[3]]; })
+                : null,
+              // Every callback the lead recorder saw run, in order, with
+              // times relative to the click; `parent` indexes this list.
+              tasks: tasks && tasks.map(function (e) {
+                return {
+                  kind: e.kind, name: e.name, stack: e.stack, parent: e.parent,
+                  queued: e.queued === null ? null : rel(e.queued),
+                  start: rel(e.start), end: rel(e.end),
+                };
+              }),
+              commits: tasks && window.__tugCommits
+                ? window.__tugCommits.since(click).map(function (c) {
+                    return {
+                      t: rel(c.t), ms: Math.round(c.ms * 10) / 10, task: c.task,
+                      fibers: c.fibers, performed: c.performed,
+                      origins: c.origins, top: c.top, hooks: c.hooks,
+                    };
+                  })
+                : null,
             });
           }, args.windowMs);
         }, args.prerollMs);

@@ -20,21 +20,159 @@
 </head>
 <body style="margin:0;padding:0;overflow:hidden">
   <div id="deck-container"></div>
+  <!-- Lead recorder, for `tugtool deck motion slide --tasks`. It names what
+       runs on the main thread after a click: every timer, frame callback,
+       microtask, promise reaction, port message and observer callback, with
+       how long it ran, what queued it and from where. It has to be installed
+       here for the same reason the census below is: React and its scheduler
+       capture `queueMicrotask`, `setTimeout` and their MessageChannel when the
+       vendor chunk evaluates, so a wrapper installed afterwards never sees
+       them.
+
+       It is installed ONLY when the verb asked for it — a sessionStorage flag
+       the verb sets before reloading the deck, which a relaunch sheds. Off it,
+       none of this runs. On it and unarmed, every wrapper passes straight
+       through; the verb arms it for one click's window at a time.
+
+       What it cannot see is left unattributed rather than guessed: listeners
+       already registered for native events, `await` on a native promise, and
+       the rendering update's own style and layout. -->
+  <script>
+    (function () {
+      var wanted = false;
+      try { wanted = window.sessionStorage.getItem("tug-lead-recorder") === "1"; } catch (e) {}
+      if (!wanted) return;
+      var native = {
+        setTimeout: window.setTimeout.bind(window),
+        requestAnimationFrame: window.requestAnimationFrame.bind(window),
+        MutationObserver: window.MutationObserver
+      };
+      var armed = false, gen = 0, entries = [], current = -1, posts = [];
+      // The queueing site: the stack without this script's own frames, which
+      // are the ones left with no file once the origin is stripped.
+      function where() {
+        return String(new Error().stack || "").split("\n").map(function (l) {
+          return l.replace(/https?:\/\/[^/]+\/(?:assets\/)?/, "");
+        }).filter(function (l) {
+          return !/@:\d+:\d+$/.test(l);
+        }).slice(0, 4).join(" < ");
+      }
+      function ticket(kind, stack) {
+        return { kind: kind, stack: stack, parent: current, queued: performance.now(), gen: gen };
+      }
+      function run(t, fn, self, args) {
+        var rec = {
+          kind: t.kind, name: fn.name || "", stack: t.stack,
+          parent: t.gen === gen ? t.parent : -1,
+          queued: t.gen === gen ? t.queued : null,
+          start: performance.now(), end: 0
+        };
+        var prev = current;
+        current = entries.push(rec) - 1;
+        try { return fn.apply(self, args); }
+        finally { rec.end = performance.now(); current = prev; }
+      }
+      // A callback queued while armed, carrying where it was queued from.
+      function queuedCallback(kind, cb) {
+        if (typeof cb !== "function") return cb;
+        var t = ticket(kind, where());
+        return function () {
+          return armed ? run(t, cb, this, arguments) : cb.apply(this, arguments);
+        };
+      }
+      function wrapScheduler(owner, name, kind) {
+        var original = owner[name];
+        if (typeof original !== "function") return;
+        owner[name] = function (cb) {
+          if (!armed || typeof cb !== "function") return original.apply(this, arguments);
+          var args = Array.prototype.slice.call(arguments);
+          args[0] = queuedCallback(kind, cb);
+          return original.apply(this, args);
+        };
+      }
+      wrapScheduler(window, "setTimeout", "timeout");
+      wrapScheduler(window, "setInterval", "interval");
+      wrapScheduler(window, "requestAnimationFrame", "frame");
+      wrapScheduler(window, "requestIdleCallback", "idle");
+      wrapScheduler(window, "queueMicrotask", "microtask");
+
+      var then = Promise.prototype.then;
+      Promise.prototype.then = function (onFulfilled, onRejected) {
+        if (!armed) return then.call(this, onFulfilled, onRejected);
+        return then.call(this, queuedCallback("promise", onFulfilled), queuedCallback("promise", onRejected));
+      };
+
+      // A port's handler is set once, at load, and its messages are queued by
+      // `postMessage` on the entangled port — which the handler cannot name.
+      // The posts are kept in order and each message takes the oldest; the
+      // scheduler's own channel is the traffic that matters here.
+      var onmessage = Object.getOwnPropertyDescriptor(MessagePort.prototype, "onmessage");
+      if (onmessage && onmessage.set) {
+        Object.defineProperty(MessagePort.prototype, "onmessage", {
+          configurable: true, enumerable: onmessage.enumerable, get: onmessage.get,
+          set: function (handler) {
+            if (typeof handler !== "function") return onmessage.set.call(this, handler);
+            onmessage.set.call(this, function (event) {
+              if (!armed) return handler.call(this, event);
+              var t = posts.shift() || { kind: "message", stack: "", parent: -1, queued: null, gen: -1 };
+              return run(t, handler, this, [event]);
+            });
+          }
+        });
+        var post = MessagePort.prototype.postMessage;
+        MessagePort.prototype.postMessage = function () {
+          if (armed) posts.push(ticket("message", where()));
+          return post.apply(this, arguments);
+        };
+      }
+
+      function wrapObserver(name, kind) {
+        var Native = window[name];
+        if (typeof Native !== "function") return;
+        var Wrapped = function (cb, options) {
+          var t = { kind: kind, stack: "", parent: -1, queued: null, gen: -1 };
+          return new Native(function () {
+            return armed ? run(t, cb, this, arguments) : cb.apply(this, arguments);
+          }, options);
+        };
+        Wrapped.prototype = Native.prototype;
+        window[name] = Wrapped;
+      }
+      wrapObserver("MutationObserver", "mutation-observer");
+      wrapObserver("ResizeObserver", "resize-observer");
+      wrapObserver("IntersectionObserver", "intersection-observer");
+
+      window.__tugLead = {
+        // The unwrapped originals, for the verb's own heartbeat and frame
+        // recorder — which must not appear in what they measure.
+        native: native,
+        armed: function () { return armed; },
+        current: function () { return current; },
+        arm: function () { gen += 1; entries = []; posts = []; current = -1; armed = true; },
+        disarm: function () { armed = false; var out = entries; entries = []; return out; },
+        // Run `fn` as a named entry — the verb's dispatch of the click itself.
+        run: function (kind, fn) { return run(ticket(kind, ""), fn, null, []); }
+      };
+    })();
+  </script>
   <!-- React commit census ([B07]). The devtools-shaped hook must exist before
        react-dom evaluates, and a module import cannot promise that once the
        bundler hoists the vendor chunk, so it is installed here. Every commit
        is walked once for the fibers that performed work and recorded with a
        timestamp; read it with window.__tugCommits.since(t).
 
-       It is installed ONLY in test mode. The walk is a whole-tree diff on
-       every React commit — the most expensive instrument on the deck, and
-       one that runs on the shipping path for nobody. `__tugTestMode` is
-       written by a WKUserScript at atDocumentStart, so it is already there
-       when this runs; off it, the hook is never installed and react-dom
-       takes its ordinary no-devtools path. -->
+       It is installed ONLY in test mode, or beside the lead recorder above —
+       and there it walks only while the recorder is armed. The walk is a
+       whole-tree diff on every React commit — the most expensive instrument
+       on the deck, and one that runs on the shipping path for nobody.
+       `__tugTestMode` is written by a WKUserScript at atDocumentStart, so it
+       is already there when this runs; off both, the hook is never installed
+       and react-dom takes its ordinary no-devtools path. -->
   <script>
     (function () {
-      if (window.__tugTestMode !== true) return;
+      var testMode = window.__tugTestMode === true;
+      var lead = window.__tugLead;
+      if (!testMode && !lead) return;
       if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
       var commits = [];
       function nameOf(type) {
@@ -165,7 +303,13 @@
         checkDCE: function () {}, setStrictMode: function () {},
         onCommitFiberUnmount: function () {}, onPostCommitRoot: function () {},
         onCommitFiberRoot: function (_id, root) {
-          commits.push(census(root));
+          if (!testMode && !lead.armed()) return;
+          var commit = census(root);
+          // What the walk itself cost, so a reading can set it aside, and
+          // which recorded callback the commit ran inside.
+          commit.ms = performance.now() - commit.t;
+          commit.task = lead ? lead.current() : -1;
+          commits.push(commit);
           if (commits.length > 400) commits.splice(0, commits.length - 400);
         }
       };
