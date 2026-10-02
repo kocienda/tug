@@ -70,6 +70,8 @@ import {
 import { CARDS_CARD_ID } from "./lib/cards-card-id";
 import { ARCS_CARD_ID } from "./lib/arcs-card-id";
 import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
+import { JOTS_CARD_ID } from "./lib/jots-card-id";
+import { OVERVIEW_CARD_ID } from "./lib/overview-card-id";
 import {
   clearOpeningBidReport,
   noteOpeningBidMember,
@@ -464,46 +466,93 @@ function spliceCardFromStack(
 }
 
 /**
- * The cards a factory-fresh deck stands on its rail, top to bottom.
+ * The rails a factory-fresh deck stands, side by side: each side's members top
+ * to bottom, the share of the run each one takes, and the width every member
+ * of the side stands at.
  *
- * Read as the rail's vertical order and — reversed — as the order the panes
- * are appended in, which is what settles which one is frontmost; see
- * {@link factoryRailImposition} and `DeckManager._createFactoryRail`.
+ * Arcs, Jots and Overview divide the left rail with Overview taking the most
+ * of it; Workspaces and Layout divide the right with Workspaces taking the
+ * most. Shares are weights, so each side's sum to its member count — the
+ * scale a rail divided at equal shares stands at.
+ *
+ * The width is the side's, not each card's preferred one: a rail stands as
+ * wide as its widest pane, so one member at its own preferred width (Overview
+ * prefers its 64-character measure) would widen the whole side.
  */
-export const FACTORY_RAIL_ORDER: readonly string[] = [
-  CARDS_CARD_ID,
-  ARCS_CARD_ID,
-  LAYOUT_CARD_ID,
-];
+export const FACTORY_RAILS: Readonly<
+  Record<
+    SidebarSide,
+    {
+      order: readonly string[];
+      shares: Readonly<Record<string, number>>;
+      widthPx: number;
+    }
+  >
+> = {
+  left: {
+    order: [ARCS_CARD_ID, JOTS_CARD_ID, OVERVIEW_CARD_ID],
+    shares: { [ARCS_CARD_ID]: 0.47, [JOTS_CARD_ID]: 0.68, [OVERVIEW_CARD_ID]: 1.85 },
+    widthPx: 420,
+  },
+  right: {
+    order: [CARDS_CARD_ID, LAYOUT_CARD_ID],
+    shares: { [CARDS_CARD_ID]: 1.36, [LAYOUT_CARD_ID]: 0.64 },
+    widthPx: 395,
+  },
+};
 
 /**
- * The imposition a factory-fresh deck's rail stands under: all three cards
- * pinned, and the right side stacked in {@link FACTORY_RAIL_ORDER}.
+ * Every card a factory-fresh deck stands on its rails, frontmost first:
+ * Workspaces heads it, so it is the card the deck activates.
  *
- * The order is written explicitly rather than left absent because absent means
- * *registration* order to {@link effectiveRailOrder}, and `main.tsx` registers
- * jots, overview, arcs, cards, layout — not the order the factory
- * rail asks for. Pinning goes through {@link withSidebarPinned}, which resolves
- * each card's side through `sidebarSide` to {@link DEFAULT_SIDEBAR_SIDE}
- * (`"right"`) on a deck that has never placed it.
+ * Read reversed as the order the panes are appended in, which is what settles
+ * which one is frontmost; see `DeckManager._createFactoryRail`. The rails'
+ * vertical orders are a separate record, written by
+ * {@link factoryDeckImposition}.
+ */
+export const FACTORY_RAIL_ORDER: readonly string[] = [
+  ...FACTORY_RAILS.right.order,
+  ...FACTORY_RAILS.left.order,
+];
+
+/** The N-up rule a factory-fresh deck stands under. */
+export const FACTORY_IMPOSITION_KIND: ImpositionKind = "four-up";
+
+/** The width a factory-fresh deck opens its content cards at. */
+export const FACTORY_CONTENT_WIDTH: ContentWidth = "slim";
+
+/**
+ * The imposition a factory-fresh deck stands under: four-up flow at the slim
+ * content width, and every card of {@link FACTORY_RAILS} pinned to its side,
+ * in its order, at its share.
  *
- * Pure over the imposition — no registry, no DOM — so the rail's plan can be
+ * The orders are written explicitly rather than left absent because absent
+ * means *registration* order to {@link effectiveRailOrder}, and `main.tsx`
+ * registers jots, overview, arcs, cards, layout — not the order the factory
+ * rails ask for. Sides go through {@link withSidebarSide}, which pins as it
+ * places.
+ *
+ * Pure over the imposition — no registry, no DOM — so the deck's plan can be
  * read without a container.
  */
-export function factoryRailImposition(
+export function factoryDeckImposition(
   imposition: DeckImposition,
 ): DeckImposition {
-  const pinned = FACTORY_RAIL_ORDER.reduce(
-    (acc, componentId) => withSidebarPinned(acc, componentId, true),
-    imposition,
-  );
-  return {
-    ...pinned,
-    rails: {
-      ...pinned.rails,
-      right: { order: [...FACTORY_RAIL_ORDER] },
-    },
+  let next: DeckImposition = {
+    ...imposition,
+    kind: FACTORY_IMPOSITION_KIND,
+    contentWidth: FACTORY_CONTENT_WIDTH,
+    layout: "flow",
   };
+  const rails: NonNullable<DeckImposition["rails"]> = { ...next.rails };
+  for (const side of ["left", "right"] as const) {
+    const rail = FACTORY_RAILS[side];
+    for (const componentId of rail.order) {
+      next = withSidebarSide(next, componentId, side);
+    }
+    rails[side] = { order: [...rail.order], shares: { ...rail.shares } };
+  }
+  return { ...next, rails };
 }
 
 /**
@@ -2324,9 +2373,9 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * True when the boot honored the persisted boot state and found no layout
-   * at all — a factory-fresh install. The factory deck stands its whole rail
-   * open at its pin on {@link DEFAULT_SIDEBAR_SIDE} — all four cards of
-   * {@link FACTORY_RAIL_ORDER} — but not until it has a card to stand beside
+   * at all — a factory-fresh install. The factory deck stands both rails open
+   * at their pins — every card of {@link FACTORY_RAILS} — but not until it has
+   * a card to stand beside
    * ({@link factoryRailPending}). Stays false under the ordinary test-mode
    * boot, which discards the boot state and starts empty for the harness to
    * seed.
@@ -4225,24 +4274,25 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Stand every card of {@link FACTORY_RAIL_ORDER} on the rail, in a single
+   * Stand every card of {@link FACTORY_RAIL_ORDER} on the rails, in a single
    * state commit.
    *
-   * One commit rather than four calls to {@link _createSidebarPane}: four
-   * commits would be four notifies, four saves, and four first-responder
-   * flips, and the deck would be seen mid-rail three times on the way to a
-   * picture nobody arranged.
+   * One commit rather than a call to {@link _createSidebarPane} per card: one
+   * commit per card would be a notify, a save and a first-responder flip
+   * apiece, and the deck would be seen mid-rail on the way to a picture
+   * nobody arranged.
    *
    * The panes are appended in **reverse** of {@link FACTORY_RAIL_ORDER}, so
    * Cards lands last. `state.panes` is the deck's z-order and
    * `railFrontmostPaneId` in `components/chrome/deck-canvas.tsx` reads the
    * *last* matching entry, so appending Cards last is what makes it the member
-   * you see. The rail's vertical order is a separate record and is written by
-   * {@link factoryRailImposition}.
+   * you see. The rails' vertical orders are a separate record and are written
+   * by {@link factoryDeckImposition}.
    *
-   * Each pane takes its width, height and family policy exactly as
-   * {@link _createSidebarPane} does; on a factory-fresh install none of the
-   * four has a reopen width, so each resolves to its registered preferred one.
+   * Each pane takes its height and family policy exactly as
+   * {@link _createSidebarPane} does, but its width from its side of
+   * {@link FACTORY_RAILS} — never a reopen or preferred width, either of which
+   * would stand one member wider than the rest and widen its whole side.
    */
   private _createFactoryRail(): void {
     const seats: { card: CardState; pane: TugPaneState }[] = [];
@@ -4258,10 +4308,10 @@ export class DeckManager implements IDeckManagerStore {
         continue;
       }
       const sizePolicy = getSizePolicy(componentId);
-      const width = Math.max(
-        sizePolicy.min.width,
-        this._sidebarReopenWidth(componentId) ?? sizePolicy.preferred.width,
-      );
+      const side: SidebarSide = FACTORY_RAILS.left.order.includes(componentId)
+        ? "left"
+        : "right";
+      const width = Math.max(sizePolicy.min.width, FACTORY_RAILS[side].widthPx);
       const cardId = crypto.randomUUID();
       seats.push({
         card: {
@@ -4296,7 +4346,7 @@ export class DeckManager implements IDeckManagerStore {
           cards: [...this.deckState.cards, ...seats.map((seat) => seat.card)],
           panes: [...this.deckState.panes, ...seats.map((seat) => seat.pane)],
           activePaneId: front.pane.id,
-          imposition: factoryRailImposition(this.deckState.imposition),
+          imposition: factoryDeckImposition(this.deckState.imposition),
         };
         this.notify("_createFactoryRail");
         this.scheduleSave();

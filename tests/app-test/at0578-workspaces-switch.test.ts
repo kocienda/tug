@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         const standing = await app.evalJS<string[]>(
           `window.tugdeck.diag.getDeckState().cards.map(function (c) { return c.componentId; })`,
         );
-        expect([...standing].sort()).toEqual(["cards", "dashes", "layout"]);
+        expect([...standing].sort()).toEqual(["cards", "dashes", "jots", "layout", "overview"]);
         // And card A did not come along: it is parked in workspace one.
         expect(
           await app.evalJS<string[]>(`window.tugdeck.diag.listCardIds()`),

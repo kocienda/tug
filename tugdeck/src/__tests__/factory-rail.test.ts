@@ -1,83 +1,123 @@
 /**
- * factory-rail.test.ts — the rail a factory-fresh deck stands up.
+ * factory-rail.test.ts — the rails a factory-fresh deck stands up.
  *
  * A brand-new install has no persisted layout, so nothing tells the deck how
- * its rail is arranged: the arrangement is the factory's to write, and
- * `factoryRailImposition` is where it is written. Two facts are the whole of
- * it, and neither can be read off the card registry.
+ * its rails are arranged: the arrangement is the factory's to write, and
+ * `factoryDeckImposition` is where it is written. None of it can be read off
+ * the card registry.
  *
- * The **order is explicit** because absent means *registration* order to
+ * The **orders are explicit** because absent means *registration* order to
  * `effectiveRailOrder`, and `main.tsx` registers jots, overview, arcs,
- * cards, layout — a different vertical order from the one the factory
- * rail asks for. Leaving `order` off would look right at the type level and
- * stand the rail in the wrong sequence.
+ * cards, layout — a different vertical order from the ones the factory
+ * rails ask for. Leaving `order` off would look right at the type level and
+ * stand the rails in the wrong sequence.
  *
- * And the three cards are **pinned**, which is what puts them on
- * `DEFAULT_SIDEBAR_SIDE` on a deck that has never placed them.
+ * Every card is **pinned to its side**: Arcs, Jots and Overview on the left,
+ * Workspaces and Layout on the right, each side divided at the factory shares.
+ * And the deck stands four-up, flow, at the slim content width.
  *
  * Pure over the imposition — no registry, no DOM — which is why the plan the
- * rail commits lives in its own function rather than only inside
+ * rails commit lives in its own function rather than only inside
  * `DeckManager._createFactoryRail`.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { FACTORY_RAIL_ORDER, factoryRailImposition } from "../deck-manager";
+import {
+  FACTORY_RAILS,
+  FACTORY_RAIL_ORDER,
+  factoryDeckImposition,
+} from "../deck-manager";
 import type { DeckImposition } from "../lib/layout-imposer";
 
 /** A deck that has never placed anything — a factory-fresh imposition. */
 const FRESH: DeckImposition = { sidebars: {} };
 
-describe("factoryRailImposition", () => {
-  test("stands the right rail up in the factory order", () => {
-    const imposition = factoryRailImposition(FRESH);
+describe("factoryDeckImposition", () => {
+  test("stands each rail up in the factory order", () => {
+    const imposition = factoryDeckImposition(FRESH);
 
-    expect(imposition.rails?.right?.order).toEqual([
-      "cards",
+    expect(imposition.rails?.left?.order).toEqual([
       "dashes",
-      "layout",
+      "jots",
+      "overview",
     ]);
+    expect(imposition.rails?.right?.order).toEqual(["cards", "layout"]);
   });
 
-  test("the written order is FACTORY_RAIL_ORDER, and a copy of it", () => {
-    const imposition = factoryRailImposition(FRESH);
+  test("divides each rail at the factory shares, one weight per member", () => {
+    const imposition = factoryDeckImposition(FRESH);
 
-    expect(imposition.rails?.right?.order).toEqual([...FACTORY_RAIL_ORDER]);
-    // A copy, not the constant: the stored order is state the deck goes on to
-    // rewrite, and handing out the module's own array would let a rearranged
-    // rail change what "factory" means for the rest of the session.
-    expect(imposition.rails?.right?.order).not.toBe(FACTORY_RAIL_ORDER);
+    for (const side of ["left", "right"] as const) {
+      const shares = imposition.rails?.[side]?.shares ?? {};
+      expect(Object.keys(shares).sort()).toEqual(
+        [...FACTORY_RAILS[side].order].sort(),
+      );
+      const sum = Object.values(shares).reduce((a, b) => a + b, 0);
+      expect(sum).toBeCloseTo(FACTORY_RAILS[side].order.length, 6);
+    }
+    expect(imposition.rails?.left?.shares?.overview).toBeGreaterThan(1);
+    expect(imposition.rails?.right?.shares?.cards).toBeGreaterThan(1);
   });
 
-  test("pins all three cards, which puts them on the default side", () => {
-    const imposition = factoryRailImposition(FRESH);
+  test("the written orders and shares are copies, not the constants", () => {
+    const imposition = factoryDeckImposition(FRESH);
 
-    for (const componentId of FACTORY_RAIL_ORDER) {
-      expect(imposition.sidebars[componentId]).toEqual({
-        side: "right",
-        pinned: true,
-      });
+    // A copy, not the constant: the stored arrangement is state the deck goes
+    // on to rewrite, and handing out the module's own record would let a
+    // rearranged rail change what "factory" means for the rest of the session.
+    for (const side of ["left", "right"] as const) {
+      expect(imposition.rails?.[side]?.order).not.toBe(
+        FACTORY_RAILS[side].order,
+      );
+      expect(imposition.rails?.[side]?.shares).not.toBe(
+        FACTORY_RAILS[side].shares,
+      );
     }
   });
 
-  test("leaves every other axis of the imposition alone", () => {
-    const imposition = factoryRailImposition({
+  test("pins every card to its side", () => {
+    const imposition = factoryDeckImposition(FRESH);
+
+    expect(FACTORY_RAIL_ORDER.length).toBe(5);
+    for (const side of ["left", "right"] as const) {
+      for (const componentId of FACTORY_RAILS[side].order) {
+        expect(imposition.sidebars[componentId]).toEqual({
+          side,
+          pinned: true,
+        });
+      }
+    }
+  });
+
+  test("Workspaces heads the rail order, so it lands frontmost", () => {
+    expect(FACTORY_RAIL_ORDER[0]).toBe("cards");
+  });
+
+  test("stands four-up, flow, at the slim width", () => {
+    const imposition = factoryDeckImposition({
       kind: "two-up",
-      contentWidth: "slim",
-      sidebars: { jots: { side: "left" } },
-      rails: { left: { order: ["jots"] } },
+      contentWidth: "comfy",
+      layout: "fit",
+      sidebars: {},
     });
 
-    expect(imposition.kind).toBe("two-up");
+    expect(imposition.kind).toBe("four-up");
     expect(imposition.contentWidth).toBe("slim");
-    expect(imposition.sidebars.jots).toEqual({ side: "left" });
-    expect(imposition.rails?.left).toEqual({ order: ["jots"] });
+    expect(imposition.layout).toBe("flow");
+  });
+
+  test("leaves the columns alone", () => {
+    const columns = { 0: { mode: "stack" as const } };
+    const imposition = factoryDeckImposition({ sidebars: {}, columns });
+
+    expect(imposition.columns).toEqual(columns);
   });
 
   test("is pure — the imposition it was handed is untouched", () => {
     const before: DeckImposition = { sidebars: {} };
 
-    factoryRailImposition(before);
+    factoryDeckImposition(before);
 
     expect(before).toEqual({ sidebars: {} });
   });
