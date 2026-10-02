@@ -31,6 +31,10 @@
  *      already stands is not a move, so the press opens the whole run as a
  *      popup — how a reader reaches a place the window does not show, and the
  *      same surface the card's own masthead badge opens.
+ *   6. **A selected row moves its whole selection.** With several cards
+ *      selected in the Cards list, pressing a chip on one of their rows sends
+ *      every selected card to that place; a row outside the selection still
+ *      moves only its own card.
  *
  * Read from live geometry and `data-` attributes. Nothing here reads back a
  * declared style value.
@@ -172,6 +176,23 @@ async function pressPosition(
     `.children[${position}]`;
   await app.evalJS<boolean>(`(function () { ${selector}.click(); return true; })()`);
   await wait(500);
+}
+
+/** Every card's slot, read off the deck rather than off the rows. */
+async function slotsByCard(app: App): Promise<Record<string, number | null>> {
+  return app.evalJS<Record<string, number | null>>(
+    `(function () {
+      var deck = window.tugdeck.diag.getDeckState();
+      var out = {};
+      for (var i = 0; i < deck.panes.length; i += 1) {
+        var pane = deck.panes[i];
+        for (var j = 0; j < pane.cardIds.length; j += 1) {
+          out[pane.cardIds[j]] = pane.slot === undefined ? null : pane.slot;
+        }
+      }
+      return out;
+    })()`,
+  );
 }
 
 describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
@@ -357,6 +378,52 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
           ),
           "and the popup closed in the same act that moved it",
         ).toBe(0);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a chip on a selected row moves every selected card, and a row outside the selection moves only its own",
+    async () => {
+      const app = await launchTugApp({ testName: "at0470-slot-window" });
+      try {
+        await openDeck(app);
+        // A (slot 1) and C (slot 6) selected; B (slot 3) left out.
+        await app.evalJS<null>(
+          `(window.__tug.setLayoutSelection(["A", "C"]), null)`,
+        );
+        await wait(300);
+
+        const rows = await windows(app);
+        const row = rows.findIndex((r) => r.positions[0] === "1" && r.litAt === 0);
+        expect(row, "a row for card A in slot 1").toBeGreaterThanOrEqual(0);
+        // A's window is [1 2 3]; the chip saying 2 is a move, not the door.
+        await pressPosition(app, row, 1);
+
+        const grouped = await slotsByCard(app);
+        note(`after the group move: ${JSON.stringify(grouped)}`);
+        expect(grouped.A, "the pressed row's card went to position 2").toBe(1);
+        expect(grouped.C, "and so did the other selected card").toBe(1);
+        expect(grouped.B, "the unselected card stayed where it was").toBe(2);
+
+        // B's row is outside the selection: its press is B's alone.
+        const after = await windows(app);
+        const bRow = after.findIndex(
+          (r) => r.litAt >= 0 && r.positions[r.litAt] === "3",
+        );
+        expect(bRow, "a row for card B in slot 3").toBeGreaterThanOrEqual(0);
+        const fourAt = after[bRow]?.positions.indexOf("4") ?? -1;
+        expect(fourAt, "B's window shows position 4").toBeGreaterThanOrEqual(0);
+        await pressPosition(app, bRow, fourAt);
+
+        const single = await slotsByCard(app);
+        note(`after the single move: ${JSON.stringify(single)}`);
+        expect(single.B, "B moved to position 4").toBe(3);
+        expect(single.A, "A did not follow it").toBe(1);
+        expect(single.C, "nor did C").toBe(1);
       } finally {
         await app.close();
       }

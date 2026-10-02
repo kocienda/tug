@@ -41,6 +41,13 @@
  * the run instead. That popup is the same surface the card's own masthead
  * badge opens, so the gesture is learned once and works from either end.
  *
+ * **A selected row moves its selection.** When the row's card is one of
+ * several selected in the Cards list, a move — from the window or from the
+ * popup — carries every selected card to that place, the same group the
+ * ⌘-digit chord moves. A row outside the selection moves only its own card:
+ * pressing a chip is not a selection gesture, so it never reaches for cards
+ * the reader did not pick alongside this one.
+ *
  * Assigning always assigns *and* raises, even when another pane already holds
  * that slot: a slot is a vertical stack, and the Cards card list is the switching
  * surface. There is no toggle-off; a pane leaves its slot by being dragged out
@@ -62,6 +69,8 @@ import { dispatchCommand } from "@/command-dispatch";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
+import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
+import { cardsSelectionStore } from "./cards-selection-store";
 import { useSlotWindow } from "@/lib/slot-window-pref";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
@@ -96,6 +105,11 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
     deckStore?.subscribe ?? (() => () => {}),
     deckStore !== null ? deckStore.getSnapshot : () => null,
     () => null,
+  );
+  const selection = useSyncExternalStore(
+    cardsSelectionStore.subscribe,
+    cardsSelectionStore.getSnapshot,
+    cardsSelectionStore.getSnapshot,
   );
   const windowSize = useSlotWindow();
   const [jumpOpen, setJumpOpen] = React.useState(false);
@@ -162,8 +176,20 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
   // needs no guard of its own.
   const doorAt = held;
 
+  // The row speaks for its selection only when it is IN a selection of more
+  // than itself; otherwise it speaks for its own card.
+  const movesGroup = selection.ids.length > 1 && selection.ids.includes(cardId);
+  const groupSize = movesGroup ? selection.ids.length : 1;
+
   const assign = (slot: number): void => {
-    dispatchCommand("assign-slot", { cardId, slot });
+    // Resolved at press time, through the chord's own narrowing, so a rail in
+    // the selection drops out here exactly as it does for ⌘-digit.
+    const cardIds =
+      movesGroup && deckStore !== null
+        ? contentCardsInLayoutSelection(deckStore)
+        : [];
+    if (cardIds.length > 1) dispatchCommand("assign-slot", { cardIds, slot });
+    else dispatchCommand("assign-slot", { cardId, slot });
   };
 
   return (
@@ -187,8 +213,12 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
           // "Move to" says there is somewhere to move FROM. A card standing in
           // no place is being put somewhere for the first time.
           return held === undefined
-            ? `Put at position ${slot + 1}`
-            : `Move to position ${slot + 1}`;
+            ? groupSize > 1
+              ? `Put ${groupSize} cards at position ${slot + 1}`
+              : `Put at position ${slot + 1}`
+            : groupSize > 1
+              ? `Move ${groupSize} cards to position ${slot + 1}`
+              : `Move to position ${slot + 1}`;
         }}
         onSelectSlot={(slot, event) => {
           // Assigning is not a row activation — stop it reaching the cell.
@@ -232,7 +262,11 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
           count={count}
           states={states}
           focusGroup={JUMP_SLOT_FOCUS_GROUP}
-          slotLabel={(slot) => `Put at position ${slot + 1}`}
+          slotLabel={(slot) =>
+            groupSize > 1
+              ? `Put ${groupSize} cards at position ${slot + 1}`
+              : `Put at position ${slot + 1}`
+          }
           onSelectSlot={(slot, event) => {
             event?.stopPropagation();
             assign(slot);
