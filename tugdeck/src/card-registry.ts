@@ -76,6 +76,49 @@ export type LayoutRole = "content" | "sidebar";
 export const DEFAULT_LAYOUT_ROLE: LayoutRole = "content";
 
 /**
+ * The height every folded card stands at, in pixels ([P04], [B01]).
+ *
+ * One tier for every card type, so a wall of folded Session cards and folded
+ * documents packs on one row height and nothing ripples when a neighbour is a
+ * different kind. A card type that declares no `foldedSizePolicy` stands here
+ * through {@link getFoldedSizePolicy}; the Session card declares its folded
+ * policy at this same number. Under a 72px document masthead the band this
+ * leaves a card's own content is 73px.
+ *
+ * The number is the Session card's folded form, measured. The two bands of
+ * that form add up here: the masthead tier at `SESSION_MASTHEAD_HEIGHT` (88)
+ * plus its 1px bottom rule, and the Z2 status row alone under it. That row's
+ * built height is 53.8px — a fraction, because the cell stack's own boxes are
+ * — so the body's band is **54** and not the 53 the arithmetic reads off the
+ * tuning block. The fraction is what the tier has to clear, and rounding it
+ * down cost a pixel the strip then overflowed by: `.tug-pane-content` is
+ * `overflow: auto`, so a 0.8px overhang raised a real scrollbar, the scrollbar
+ * took 12px of the pane's inline size, and Z2's `@container` rungs read the
+ * narrower box and dropped the TIME cell — the folded card's instruments
+ * re-laid-out against a width nothing had changed. A folded card never scrolls
+ * (`tug-pane.css` holds that structurally now); this number is what keeps it
+ * from wanting to. It was 173 while the form carried a Show Transcript bar
+ * under Z2; retiring that band into a control at Z2's leading edge is what
+ * took 29px off the tier, and a 900px run now holds six folded cards where it
+ * held five.
+ * MEASURED, not derived: `at0552` reads the built app's own numbers and fails
+ * if Z2 overhangs the frame or leaves air under it, which is what caught the
+ * plan's starting 160 — the spike's 159 was measured without the pane frame
+ * around it — and what settled this number one pixel at a time.
+ *
+ * Pinned rather than a floor: it is BOTH `min.height` and `max.height` in a
+ * folded policy, which is what makes `TugPane` place the frame at the tier
+ * instead of filling its run, and what makes a wall of folded cards pack.
+ *
+ * It moved with the tier and back again: the masthead's description took a
+ * LOOSE type setting for one arc and the tier grew 14px to hold the pair in a
+ * band a commit pill is whole in, so the folded form grew by the same 14. Then
+ * the pill left the description line, the tier gave the 14 back, and so did
+ * this. Z2's band was untouched throughout.
+ */
+export const FOLDED_CARD_HEIGHT_PX = 145;
+
+/**
  * What a card holds, as its own registration reports it.
  *
  * The fields a resolver leaves out are the ones it has nothing to say about —
@@ -213,12 +256,20 @@ export interface CardRegistration {
    * `heightPinned`. The width is left unbounded: a folded card is as wide
    * as the slot it stands in.
    *
-   * Omitted by every card type that has no folded form, in which case
-   * `getStackSizePolicy({ folded: true })` falls back to that card's
-   * ordinary policy — the aggregate over a mixed stack is then the honest
-   * answer rather than a tier the other card cannot live at.
+   * Omitted by every card type whose folded form is the generic one — every
+   * type but the Session card today — in which case {@link getFoldedSizePolicy}
+   * composes one from the ordinary policy's width and
+   * {@link FOLDED_CARD_HEIGHT_PX} ([B01]).
    */
   foldedSizePolicy?: CardSizePolicy;
+  /**
+   * Whether this card type authors its own folded form. Omitted, the card
+   * host gives the card the generic one — its body, mounted, top-anchored and
+   * `inert` under the pane's clip, settled at the fold crossing's end
+   * (`lib/folded-body.ts`). The Session card sets it: its Z2 band, its control
+   * and its terminal-state effect are its own ([B08]).
+   */
+  ownsFoldedForm?: boolean;
   /**
    * The WIDTH this card type takes while the card is nothing but the sheet it
    * exists to raise ([P06]).
@@ -237,7 +288,7 @@ export interface CardRegistration {
    * whose `min.height` is `0` and whose `preferred.height` is the ordinary
    * policy's. Omitted by every card type with no such condition — every type
    * but the Session card today — in which case that accessor falls back to the
-   * card's ordinary policy exactly as the folded accessor does.
+   * card's ordinary policy.
    *
    * A card type declaring this and a card type declaring {@link openingForm}
    * are the same set; `src/lib/__tests__/opening-form-registry.test.ts` is the
@@ -508,19 +559,27 @@ export function getSizePolicy(componentId: string): CardSizePolicy {
 /**
  * The size policy for a registered card type in its FOLDED form ([P04]).
  *
- * Falls back to {@link getSizePolicy} — the card's ordinary policy — for a
- * card type that declares no folded form, which is every type but the
- * Session card today. The fallback is what keeps a mixed stack honest: a pane
- * hosting a Session tab and a Text tab is one box, and the box still has to
- * fit the Text card.
+ * A card type that declares no folded form still has one ([B01]): its
+ * ordinary policy's width, with the height pinned at
+ * {@link FOLDED_CARD_HEIGHT_PX}. Every content card folds to its masthead and
+ * a slit of its own body, and they all stand at the one tier, so a pane
+ * hosting a Session tab and a Text tab is still one box at one height. Rails
+ * never fold (`setPaneFolded` refuses them), so the default never reaches one.
  */
 export function getFoldedSizePolicy(componentId: string): CardSizePolicy {
   const registration = registry.get(componentId);
-  return (
-    registration?.foldedSizePolicy ??
-    registration?.sizePolicy ??
-    DEFAULT_SIZE_POLICY
-  );
+  if (registration?.foldedSizePolicy !== undefined) {
+    return registration.foldedSizePolicy;
+  }
+  const open = registration?.sizePolicy ?? DEFAULT_SIZE_POLICY;
+  return {
+    min: { width: open.min.width, height: FOLDED_CARD_HEIGHT_PX },
+    max: {
+      width: open.max?.width ?? Number.POSITIVE_INFINITY,
+      height: FOLDED_CARD_HEIGHT_PX,
+    },
+    preferred: { width: open.preferred.width, height: FOLDED_CARD_HEIGHT_PX },
+  };
 }
 
 /**
@@ -548,10 +607,10 @@ export interface OpeningForm {
 /**
  * The size policy for a registered card type in its UNBOUND form ([P06]).
  *
- * {@link getFoldedSizePolicy}'s twin, with the same fallback and for the same
- * reason: a card type that declares no unbound form reads as its ordinary
- * self, and a pane hosting an unbound Session tab beside a Text tab is still
- * one box that has to fit the Text card.
+ * {@link getFoldedSizePolicy}'s twin, with a different fallback: a card type
+ * that declares no unbound form reads as its ordinary self, because a pane
+ * hosting an unbound Session tab beside a Text tab is still one box that has
+ * to fit the Text card.
  *
  * What it composes from {@link CardRegistration.unboundWidthPolicy} is a
  * policy with a ZERO height floor. The unbound form contributes nothing to a
@@ -601,8 +660,8 @@ export function getUnboundSizePolicy(componentId: string): CardSizePolicy {
  *
  * `options.folded` resolves each id through {@link getFoldedSizePolicy}
  * instead ([P04]). Everything else is unchanged, including the aggregation —
- * a pane is still one box, and a folded Session card sharing a pane with a
- * Text tab still has to fit the Text tab.
+ * a pane is still one box. Every card type folds to the one tier ([B01]), so
+ * a folded Session card sharing a pane with a Text tab pins at it.
  *
  * `options.unbound` does the same through {@link getUnboundSizePolicy}
  * ([P02]). The two are forms of one card rather than independent flags, so

@@ -320,7 +320,7 @@ describe.skipIf(!SHOULD_RUN)("AT0558: a pane-modal sheet is wholly visible", () 
         await dismissSheet(app);
 
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord("p1").folded === true`,
@@ -348,7 +348,7 @@ describe.skipIf(!SHOULD_RUN)("AT0558: a pane-modal sheet is wholly visible", () 
         // route — and it is why the boxless-slot branch could be retired
         // instead of kept for this one case.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord("p1").folded === true`,

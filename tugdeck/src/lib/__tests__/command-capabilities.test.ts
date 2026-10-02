@@ -249,7 +249,6 @@ describe("computeCommandCapabilities", () => {
       hasTurns: false,
       changesVisible: false,
       historyVisible: false,
-      folded: false,
       commitReady: false,
       hasCustomName: false,
     };
@@ -310,7 +309,6 @@ describe("computeCommandCapabilities", () => {
       hasTurns: false,
       changesVisible: false,
       historyVisible: true,
-      folded: false,
       commitReady: false,
       hasCustomName: false,
     };
@@ -322,61 +320,30 @@ describe("computeCommandCapabilities", () => {
     expect(gates["session.toggleHistory"].title).toBe("Hide Commit History");
   });
 
-  test("Fold Session says what the gesture will do, and needs a bound session", () => {
-    // The card-scoped fold ([P02]). Two facts, one test, because they are
-    // the same claim from both sides: the item is a state display whose verb
-    // flips on the published flag, and it needs a BOUND session rather than
-    // merely a Session card. The form it produces — the masthead, the Z2 row,
-    // the bar — and the responder that answers the command are all
-    // `SessionCardBody`'s, and an unbound card renders the project picker
-    // instead; an item enabled there would do nothing, which is the same
-    // small lie Unname's gate below exists to refuse.
+
+  test("Fold Card says what the gesture will do, and follows the pane's fact", () => {
+    // The fold is the pane's ([B05]), so the item is gated and titled by the
+    // pane-level `cardFold` fact rather than by any card's block: live over
+    // a Text card exactly as over a bound Session card, and dark where the
+    // fact is null — nothing selected, a rail, or an unbound Session card,
+    // which the publisher narrows to null because the picker is the whole
+    // of it.
     const chain = new ResponderChainManager();
-    const session = {
-      sessionBound: true,
-      canInterrupt: false,
-      canChangeSettings: true,
-      permissionMode: "default",
-      aiSummary: "Opus 5 · High · Default",
-      hasAssistantMessage: false,
-      hasTurns: false,
-      changesVisible: false,
-      historyVisible: false,
-      folded: false,
-      commitReady: false,
-      hasCustomName: false,
-    };
 
     const open = computeCommandCapabilities(
-      source(chain, { sessionCardFrontmost: true, session }),
+      source(chain, { cardFold: { folded: false } }),
     );
-    expect(open["session.fold"].enabled).toBe(true);
-    expect(open["session.fold"].title).toBe("Fold Session");
+    expect(open["view.foldCard"].enabled).toBe(true);
+    expect(open["view.foldCard"].title).toBe("Fold Card");
 
     const folded = computeCommandCapabilities(
-      source(chain, {
-        sessionCardFrontmost: true,
-        session: { ...session, folded: true },
-      }),
+      source(chain, { cardFold: { folded: true } }),
     );
-    expect(folded["session.fold"].title).toBe("Unfold Session");
+    expect(folded["view.foldCard"].enabled).toBe(true);
+    expect(folded["view.foldCard"].title).toBe("Unfold Card");
 
-    // A Session card with no session bound: there is a pane, but nothing in it
-    // answers the command and nothing in it is the folded form.
-    const unbound = computeCommandCapabilities(
-      source(chain, {
-        sessionCardFrontmost: true,
-        session: { ...session, sessionBound: false },
-      }),
-    );
-    expect(unbound["session.fold"].enabled).toBe(false);
-
-    // A non-Session key card: the verb has nothing to act on, so the item
-    // dims and the chord beeps rather than reaching some other card's pane.
-    const dark = computeCommandCapabilities(
-      source(chain, { sessionCardFrontmost: false, session: null }),
-    );
-    expect(dark["session.fold"].enabled).toBe(false);
+    const dark = computeCommandCapabilities(source(chain, { cardFold: null }));
+    expect(dark["view.foldCard"].enabled).toBe(false);
   });
 
   test("Unname is enabled only when there is a name to clear", () => {
@@ -393,7 +360,6 @@ describe("computeCommandCapabilities", () => {
       hasTurns: false,
       changesVisible: false,
       historyVisible: false,
-      folded: false,
       commitReady: false,
       hasCustomName: false,
     };
@@ -700,7 +666,6 @@ describe("computeCommandCapabilities", () => {
           hasTurns: true,
           changesVisible: false,
           historyVisible: false,
-          folded: false,
           commitReady: false,
           hasCustomName: false,
         },

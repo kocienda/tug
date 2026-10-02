@@ -1254,6 +1254,13 @@ body {
   align-items: center;
 }
 
+/* The folded card's pinned fold glyph (`card-fold-glyph.tsx`) — outside the
+   rollup, standing at rest, a control of the cluster's own row. */
+.tug-pane-title-bar-fold-glyph {
+  display: inline-flex;
+  align-items: center;
+}
+
 /* ── The cluster's palette ────────────────────────────────────────────────
    Every control in this row is a ghost icon `TugButton`, and the row addresses
    them together so a hand-rolled one cannot arrive wearing a flat global muted
@@ -1717,7 +1724,7 @@ body {
  * folding and unfolding a card at the slim width shuffled its instruments.
  *
  * The tier has since been squared with what Z2 measures
- * (`SESSION_FOLDED_HEIGHT_PX`), so there is no overhang to clip today. This
+ * (`FOLDED_CARD_HEIGHT_PX`), so there is no overhang to clip today. This
  * rule is what makes that a pixel of slack rather than the only thing standing
  * between a type-metric change and a strip that re-lays-out on every fold. Z2
  * is `position: sticky` against this box, and `hidden` keeps it a scroll

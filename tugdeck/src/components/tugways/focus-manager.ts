@@ -2144,6 +2144,10 @@ export class FocusContext {
     const el = this.resolveFocusableElement(record);
     if (el === null) return true;
     if (el.matches(':disabled, [aria-disabled="true"]')) return false;
+    // A stop inside an `inert` subtree cannot take focus or a press — a folded
+    // card's body, a pane body under its banner — so the walk does not land
+    // there and leave the keyboard on something the browser refuses.
+    if (el.closest("[inert]") !== null) return false;
     if (
       typeof window !== "undefined" &&
       window.getComputedStyle(el).pointerEvents === "none"

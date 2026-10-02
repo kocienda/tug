@@ -1,6 +1,7 @@
 /**
- * card-fold.ts — the one gesture that opens a folded card for a surface the
- * user asked for.
+ * card-fold.ts — the fold's card-side gestures: the toggle every door lands
+ * on, the guard a card may set in front of it, and the one gesture that opens
+ * a folded card for a surface the user asked for.
  *
  * A folded card shows its masthead and its Z2 row and nothing else, and
  * everything it raises while folded comes out of that row ([B01] of the
@@ -25,6 +26,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { cardFoldedOf } from "@/deck-store-selectors";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { openFoldedBody } from "@/lib/folded-body";
 
 /**
  * Whether `cardId`'s pane is folded, read fresh off the deck store.
@@ -47,11 +49,81 @@ export function isCardFolded(cardId: string | null): boolean {
  * about to re-run under the open form, so doing the same thing twice is the
  * one mistake to avoid. `false` for a card that was already open, for no card
  * (a gallery or fixture render), and for no deck store.
+ *
+ * A card in the generic folded form is opened at once rather than at the
+ * unfold's commit, because the surface it was opened for focuses itself in
+ * this same gesture and an `inert` body would refuse it; and the unfold is
+ * marked as bidden, so the fold's own keyboard hand-back stands aside for the
+ * surface ({@link takeBiddenUnfold}).
  */
 export function unfoldCardForBiddenSurface(cardId: string | null): boolean {
   if (!isCardFolded(cardId)) return false;
+  if (cardId !== null) {
+    openFoldedBody(cardId);
+    biddenUnfolds.add(cardId);
+  }
   dispatchCommand(TUG_ACTIONS.SET_CARD_FOLDED, { cardId, folded: false });
   return true;
+}
+
+const biddenUnfolds = new Set<string>();
+
+/**
+ * Whether `cardId`'s current unfold was made for a bidden surface, clearing
+ * the mark. Read once, by the unfold's keyboard hand-back: a surface the user
+ * asked for places its own focus, and handing the keyboard to the card's
+ * content after it would take the caret straight back out of it.
+ */
+export function takeBiddenUnfold(cardId: string): boolean {
+  return biddenUnfolds.delete(cardId);
+}
+
+/**
+ * What a card says before its pane folds. Returns whether the fold may go
+ * ahead; on the way to `true` it does whatever closing the card's open form
+ * needs (a Session card drops its find bar, its sheet and its shade), and a
+ * `false` is a refusal the guard has already explained or that needs none.
+ */
+export type CardFoldGuard = () => boolean;
+
+const foldGuards = new Map<string, CardFoldGuard>();
+
+/**
+ * Register `cardId`'s fold guard, returning the unregister.
+ *
+ * The fold is the pane's ([B05]) and most cards have nothing to say before it:
+ * their body is clipped, not closed. A card that DOES — the Session card,
+ * whose open form has surfaces standing on a transcript about to fold away,
+ * and whose unbound form has nothing to fold — registers here, and
+ * {@link toggleCardFold} asks before it writes. Unregistering removes the
+ * guard only if it is still the one standing, so a card whose bound and
+ * unbound forms trade places in one commit cannot clear its successor's.
+ */
+export function registerCardFoldGuard(
+  cardId: string,
+  guard: CardFoldGuard,
+): () => void {
+  foldGuards.set(cardId, guard);
+  return () => {
+    if (foldGuards.get(cardId) === guard) foldGuards.delete(cardId);
+  };
+}
+
+/**
+ * Toggle `cardId`'s pane between its open and folded forms — the one body of
+ * `toggle-card-fold`, whichever door it came through.
+ *
+ * Folding asks the card's guard first; unfolding asks nothing, because what
+ * was closed on the way down was closed deliberately and re-opening it would
+ * be the card guessing. A rail is refused further down, by `setPaneFolded`.
+ */
+export function toggleCardFold(cardId: string): void {
+  const folded = isCardFolded(cardId);
+  if (!folded) {
+    const guard = foldGuards.get(cardId);
+    if (guard !== undefined && !guard()) return;
+  }
+  dispatchCommand(TUG_ACTIONS.SET_CARD_FOLDED, { cardId, folded: !folded });
 }
 
 /**

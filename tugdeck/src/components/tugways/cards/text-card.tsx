@@ -58,6 +58,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TextCardStore, type FilePositions } from "@/lib/text-card-store";
 import { describeFileReadError } from "@/lib/file-read-error-copy";
 import { saveText } from "@/lib/text-card-save-text";
+import { unfoldCardForBiddenSurface, useIsCardFolded } from "@/lib/card-fold";
 import { cardTitleStore } from "@/lib/card-title-store";
 import {
   paneTitleBarItemsStore,
@@ -281,7 +282,23 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   // Pane-modal sheet host for the manual save/close/conflict sheets.
   // `renderSheet()` is mounted once in the card body.
   const { showSheet, renderSheet } = useTugSheet();
-  const sheets = useFileSaveSheets(showSheet);
+  // Whether the card's pane is folded ([B10]) — read where the card has to
+  // ACT on it: the conflict surfaces wait for the unfold, and the masthead
+  // names the conflict while they do.
+  const folded = useIsCardFolded(cardId);
+  // Every sheet this card raises is presented over an OPEN card. A sheet the
+  // user asked for — Save, Revert, Reload, the close guard's — opens the fold
+  // first and then appears exactly where it does on an open card ([B09]); the
+  // conflict sheets, which nobody asked for, wait for the unfold instead
+  // (their effects below), so by the time they reach here this is a no-op.
+  const showSheetUnfolded = useCallback<typeof showSheet>(
+    (options) => {
+      unfoldCardForBiddenSurface(cardId);
+      return showSheet(options);
+    },
+    [cardId, showSheet],
+  );
+  const sheets = useFileSaveSheets(showSheetUnfolded);
 
   // Card-local editor settings, seeded from the deck-wide Text Card
   // defaults on first open, then owned by this card ([D07] pattern).
@@ -351,6 +368,9 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   const findSeedRef = useRef("");
 
   const openFindBar = useCallback(() => {
+    // Find is a surface the user asked for, so a folded card opens first and
+    // the bar then appears where it does on an open card ([B09]).
+    unfoldCardForBiddenSurface(cardId);
     // Fresh bar: it focuses its own field on mount. Already open: ⌘F must
     // still land the caret in the query field, unconditionally.
     //
@@ -365,13 +385,14 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     findSeedRef.current = "";
     setFindOpen(true);
     findBarRef.current?.focusQuery();
-  }, []);
+  }, [cardId]);
 
   // ⌘E — the editor's selection becomes the query and the search runs. Not a
   // toggle: an open bar is re-seeded in place, because "search for this" can
   // never mean "stop searching". The editor supplies the text (it owns the
   // selection) and gates the command; the card owns the bar.
   const findSelection = useCallback((query: string) => {
+    unfoldCardForBiddenSurface(cardId);
     // ⌘E means "find THIS", so the anchor is the selection itself — and it
     // is taken before either branch, while the selection is still live.
     // Because the cursor starts AT the anchor, the landing is the selected
@@ -386,7 +407,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     }
     findSeedRef.current = query;
     setFindOpen(true);
-  }, []);
+  }, [cardId]);
 
   const closeFindBar = useCallback(() => {
     setFindOpen(false);
@@ -746,6 +767,10 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     if (!isManual) return;
     const conflict = snapshot.conflict;
     if (conflict === null || conflictSheetUpRef.current) return;
+    // Unbidden: a folded card says the conflict on its masthead and raises
+    // the sheet when it opens ([B10]). `folded` is a dependency, so the unfold
+    // is what re-runs this.
+    if (folded) return;
     // A missing verdict raised over a CLEAN buffer had nothing at risk, so it
     // renders as the banner instead — a modal claiming unsaved changes are in
     // danger would be asserting a falsehood. The flag is latched in the store
@@ -821,6 +846,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     cardId,
     senderId,
     openCompareSheet,
+    folded,
   ]);
 
   // ---- Open-time aside conflict sheet ----
@@ -828,13 +854,15 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   useLayoutEffect(() => {
     const pending = snapshot.pendingAsideConflict;
     if (pending === null || asideConflictUpRef.current) return;
+    // Unbidden, like the conflict sheet above: it waits for the unfold.
+    if (folded) return;
     asideConflictUpRef.current = true;
     const fileName = snapshot.fileName ?? "Untitled";
     void sheets.presentOpenConflictSheet(fileName).then((choice) => {
       store.resolveAsideConflict(choice);
       asideConflictUpRef.current = false;
     });
-  }, [snapshot.pendingAsideConflict, snapshot.fileName, store, sheets]);
+  }, [snapshot.pendingAsideConflict, snapshot.fileName, store, sheets, folded]);
 
   // ---- Store lifecycle + final flush ----
 
@@ -897,6 +925,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       conflict: snapshot.conflict,
       lastSavedAt: snapshot.lastSavedAt,
       bound: isBoundFile,
+      folded,
     });
     if (snapshot.fileName === null) {
       cardTitleStore.set(cardId, "Untitled", {
@@ -939,6 +968,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     snapshot.lastSavedAt,
     isManual,
     isDirty,
+    folded,
   ]);
 
   // The chrome this card published goes away with the card, and only then
@@ -1058,7 +1088,16 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         revealInFinder();
       },
       [TUG_ACTIONS.SHOW_CARD_SETTINGS]: () => {
-        void presentCardSettingsSheet(showSheet, "text", cardId);
+        // Bidden, so a folded card opens first ([B09]).
+        void presentCardSettingsSheet(showSheetUnfolded, "text", cardId);
+      },
+      // ⌘F from anywhere in the card that is not the editor — the find bar's
+      // own field, or a folded card whose first responder is still that field
+      // — lands here and opens the bar, unfolding a folded card first ([B09]).
+      // The editor answers it itself on its way up, so this is only ever the
+      // fallback.
+      [TUG_ACTIONS.FIND]: () => {
+        openFindBar();
       },
       // ⌥⇥ toggles keyboard-focus-cycling ([P09]/[P10]). Registered on the
       // card-content responder for the same reason the Session card does it
@@ -1341,6 +1380,9 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         <TugPaneBanner
           visible={
             conflict !== null &&
+            // Held while folded: the masthead says it, and the banner presents
+            // on the unfold rather than over an `inert` slit ([B10]).
+            !folded &&
             (snapshot.saveMode === "automatic" ||
               // Manual mode's verdicts are modal — except a missing verdict
               // raised over a clean buffer, which the sheet effect declines

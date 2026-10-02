@@ -26,6 +26,13 @@ export interface SaveTextFacts {
    * a file yet; see the "Draft" rung below.
    */
   readonly bound: boolean;
+  /**
+   * Whether the card's pane is folded. A folded card holds its conflict
+   * banner until it opens, so in automatic mode too the masthead is where an
+   * external change is said meanwhile ([B10] of the every-card-folds brief).
+   * Omitted, the card is open.
+   */
+  readonly folded?: boolean;
 }
 
 /**
@@ -33,11 +40,12 @@ export interface SaveTextFacts {
  * ("Saving…" / "Unsaved" / "Saved"); manual mode is the classic document
  * wording ("Saving…" / "Edited" / "Saved"), and an unresolved external
  * change displaces both — a buffer whose file changed under it has nothing
- * useful to say about when it was last written.
+ * useful to say about when it was last written. Automatic mode says it here
+ * only while the card is folded; open, its banner says it.
  */
 export function saveText(facts: SaveTextFacts): string {
-  const { saveMode, saveState, conflict, lastSavedAt, bound } = facts;
-  if (saveMode === "manual" && conflict !== null) {
+  const { saveMode, saveState, conflict, lastSavedAt, bound, folded = false } = facts;
+  if (conflict !== null && (saveMode === "manual" || folded)) {
     return conflict.reason === "missing" ? "File deleted" : "File changed";
   }
   if (saveState === "writing") return "Saving…";

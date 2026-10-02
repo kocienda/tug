@@ -343,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)(
           await seed(app);
 
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+            `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
           );
           await app.waitForCondition<boolean>(
             `window.__tug.getPaneRecord("p1").folded === true`,
@@ -801,7 +801,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+            `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
           );
           await app.waitForCondition<boolean>(
             `window.__tug.getPaneRecord("p1").folded === true`,
@@ -850,7 +850,7 @@ describe.skipIf(!SHOULD_RUN)(
           // back — it tracks the pending state and holds no dismissal of its
           // own.
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+            `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
           );
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OCCUPANT)}) !== null`,

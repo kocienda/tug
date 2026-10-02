@@ -203,7 +203,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘S | `toggle-sidebars` | Hide Sidebars | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
 | ⌃⌘W | `toggle-cards` | Show Workspaces | menu bar (swept) |
-| ⌃⌘Y | `toggle-session-fold` | Fold Session | menu bar (swept) |
+| ⌃⌘Y | `toggle-card-fold` | Fold Card | menu bar (swept) |
 | ⌃⌘[ | `previous-turn` | Previous Turn | menu bar (swept) |
 | ⌃⌘] | `next-turn` | Next Turn | menu bar (swept) |
 | ⌃⌘{ | `first-turn` | First Turn | menu bar (swept) |
@@ -363,7 +363,6 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.dictateAndSend` | `stop-dictation-and-send` | first responder | registry gate |
 | `session.diff` | `run-slash-command:diff` | key card | registry gate |
 | `session.focusPrompt` | `focus-prompt` | key card | registry gate |
-| `session.fold` | `toggle-session-fold` | key card | registry gate |
 | `session.hooks` | `run-slash-command:hooks` | key card | registry gate |
 | `session.insertFile` | `insert-file` | first responder | registry gate |
 | `session.memory` | `run-slash-command:memory` | key card | registry gate |
@@ -386,6 +385,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `view.cardWidth.slim` | `set-pane-width:slim` | first responder | registry gate |
 | `view.cardWidth.wide` | `set-pane-width:wide` | first responder | registry gate |
 | `view.enterFullScreen` | `toggle-full-screen` | AppKit performs it | host tier |
+| `view.foldCard` | `toggle-card-fold` | first responder | registry gate |
 | `view.keyboardFocus` | `cycle-focus-mode` | registered handler | host tier |
 | `view.nextKeyboardFocus` | `next-keyboard-focus` | registered handler | host tier |
 | `view.nextTheme` | `next-theme` | registered handler | host tier |

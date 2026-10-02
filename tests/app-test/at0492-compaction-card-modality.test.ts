@@ -211,7 +211,7 @@ describe.skipIf(!SHOULD_RUN)(
           // door it actually admits. The chain resolves the cover to its card
           // now ([B02]); pinning here would stop anyone noticing if it stopped.
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+            `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
           );
           await app.waitForCondition<boolean>(
             `window.__tug.getPaneRecord("p1").folded === true`,
@@ -243,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the run opened. A panel nobody re-raises is what made the fold
           // look like a dismissal.
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+            `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
           );
           await app.waitForCondition<boolean>(
             `window.__tug.getPaneRecord("p1").folded === false`,

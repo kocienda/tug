@@ -3,7 +3,7 @@
  *
  * ## What this gates
  *
- * `SESSION_FOLDED_HEIGHT_PX` is a declared number that has to equal a
+ * `FOLDED_CARD_HEIGHT_PX` is a declared number that has to equal a
  * measured one ([P04]). The two bands of the folded form — the masthead
  * tier and the Z2 status row, whose leading edge carries the card's one
  * fold control ([B03]) — add up to whatever the built app's cascade says
@@ -62,7 +62,7 @@ const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
 const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"] button`;
 
 /**
- * `SESSION_FOLDED_HEIGHT_PX` from `session-card-registration.tsx`,
+ * `FOLDED_CARD_HEIGHT_PX` from `card-registry.ts`,
  * duplicated rather than imported: an app-test drives the BUILT app, and
  * importing the constant would assert the source against itself.
  *
@@ -147,7 +147,7 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the folded card's tier", () => {
         );
 
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,

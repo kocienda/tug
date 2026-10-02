@@ -755,7 +755,7 @@ export function initActionDispatch(
 
   // set-card-folded: write one card's pane into or out of the folded
   // form ([P02], Spec S01). Card-addressed rather than pane-addressed because
-  // every door — the Z2 fold control, Session ▸ Fold Session, and
+  // every door — the Z2 fold control, View ▸ Fold Card, and
   // ⌃⌘Y — knows which card it is about and not which pane holds it. The
   // validation shape is `set-card-width`'s: warn
   // and return rather than throw, because a malformed payload is a caller's

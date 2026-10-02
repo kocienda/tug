@@ -2,8 +2,8 @@
  * text-card-save-text.test.ts — the Text card's save-state wording.
  *
  * Seven wordings across two save contracts, and one displacement rule: an
- * unresolved conflict in manual mode outranks everything else the buffer
- * could say about itself.
+ * unresolved conflict in manual mode — or on a folded card in either mode —
+ * outranks everything else the buffer could say about itself.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -76,5 +76,17 @@ describe("saveText", () => {
     expect(text({ saveMode: "automatic", conflict: { reason: "hash" } })).toBe(
       "Saved",
     );
+  });
+
+  test("a folded card names the conflict in automatic mode, where its banner is held", () => {
+    // The banner waits for the unfold, so the masthead is the only surface
+    // still saying it — in automatic mode exactly as in manual.
+    expect(
+      text({ saveMode: "automatic", conflict: { reason: "hash" }, folded: true }),
+    ).toBe("File changed");
+    expect(
+      text({ saveMode: "automatic", conflict: { reason: "missing" }, folded: true }),
+    ).toBe("File deleted");
+    expect(text({ saveMode: "automatic", folded: true })).toBe("Saved");
   });
 });

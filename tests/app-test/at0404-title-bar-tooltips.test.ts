@@ -73,6 +73,7 @@ const BULLSEYE = `${PANE} [data-testid="tug-pane-title-bar-bullseye-button"]`;
 const REVEAL_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-reveal-card-file"]`;
 const OPTIONS_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-show-card-settings"]`;
 const WIDTH_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-width-button"]`;
+const FOLD_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-fold-button"]`;
 const MOVE_SPACE_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-move-space-button"]`;
 const CLOSE_BUTTON = `${PANE} [data-testid="tug-pane-close-button"]`;
 const WIDTH_MENU = '[data-testid="tug-pane-title-bar-width-menu"]';
@@ -382,6 +383,18 @@ describe.skipIf(!SHOULD_RUN)(
             "the gear opens the card's own view settings",
           ).toBe("Card Settings…");
 
+          // --- Fold: the act, plus ⌃⌘Y. ----------------------------------
+          // The pane's verb, like Move beside it — every content card folds —
+          // and the same command View ▸ Fold Card and the chord reach.
+          expect(
+            await hoverPhrase(app, FOLD_BUTTON),
+            "the fold glyph names the act",
+          ).toBe("Fold");
+          expect(
+            await chipText(app, FOLD_BUTTON),
+            "and the chord that folds without the mouse",
+          ).toBe("⌃⌘Y");
+
           // --- Move to Workspace: the act, and why it is dimmed. ----------
           // One workspace stands in this deck, so the trigger is disabled and
           // the phrase has to say so — which is the whole reason the bubble
@@ -415,15 +428,16 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await chipText(app, CLOSE_BUTTON), "with ⌘W beside it").toBe("⌘W");
 
           // --- The row's spine, right to left. ----------------------------
-          // Bullseye, card width, Move to Workspace, Reveal in Finder — the
-          // verbs more than one kind of card offers, at the end that holds
+          // Bullseye, card width, Move to Workspace, Fold, Reveal in Finder —
+          // the verbs more than one kind of card offers, at the end that holds
           // still. Only the leftmost positions belong to what a particular
           // card adds, which here is Card Settings.
           //
           // Move to Workspace is authored in the spine rather than published
           // through the items store, because a card of ANY kind moves and the
           // verb is therefore the pane's; it sits before card width so
-          // bullseye and width keep the two spots already learned.
+          // bullseye and width keep the two spots already learned. Fold is the
+          // pane's for the same reason and stands just before Move.
           //
           // The failure this catches is the one it was written for: a Text
           // card published Reveal then Settings and the Session masthead
@@ -444,6 +458,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toEqual([
             "Card Settings…",
             "Reveal in Finder",
+            "Fold",
             "Move to workspace",
             "Card width",
             "Bullseye",

@@ -482,13 +482,6 @@ export interface MenuStateSessionBlock {
   /** The History Shade is showing — drives the "Show/Hide History" verb. */
   historyVisible: boolean;
   /**
-   * The card's pane wears the folded form ([P01]) — drives Session ▸
-   * Fold Session's dynamic verb, "Unfold Session" when true. Read off the
-   * deck store rather than any card state: the flag is the pane's, and the
-   * card is only where the gesture is aimed from.
-   */
-  folded: boolean;
-  /**
    * Commit mode is active, the session is idle, the changeset is non-empty and
    * a message is written — every gate Session ▸ Commit Changes needs. Folded
    * into one boolean by `CommitModeController`, which owns all four facts;
@@ -644,6 +637,14 @@ export interface MenuStateDeckProjection {
    * the mirror carries the gates, so this never rides the wire.
    */
   bullseye: { on: boolean } | null;
+  /**
+   * The focused pane's fold, before the Session card's bound gate — the same
+   * two gates {@link MenuStateDeckProjection.cardWidth} uses, with the pane's
+   * own flag inside. The flush narrows it to `null` over an unbound Session
+   * card, which only the session block can say. Module-internal: the mirror
+   * carries the gates, so this never rides the wire.
+   */
+  cardFold: { folded: boolean } | null;
   /**
    * How many slots the deck can travel to — `slotCount(kind)` under flow, and 0
    * otherwise. Gates Go ▸ Go to Slot 1…6: a slot the arrangement does not
@@ -834,6 +835,15 @@ export function projectDeckState(
       ? null
       : { on: bullseyePaneIdOf(state) === focusedStack.id };
 
+  // The fold rides the same two gates: a pane is foldable when one is
+  // selected and it is not a rail, and `setPaneFolded` refuses a rail for the
+  // same reason the width row does not offer one a preset ([B05]). `folded`
+  // reads the pane's own flag, which is what the deck commit writes.
+  const cardFold =
+    state.activePaneId === undefined || focusedStack === null || focusedIsRail
+      ? null
+      : { folded: focusedStack.folded === true };
+
   // Every registered sidebar card, open or not. The set comes from the
   // registry rather than from the deck, because a hidden card's row still
   // has to draw itself and say "hidden"; registration is a boot step, so the
@@ -886,6 +896,7 @@ export function projectDeckState(
     focusedActiveCardId: focusedActiveCard?.id ?? null,
     cardWidth,
     bullseye,
+    cardFold,
     reachableSlots,
     sidebars,
   };
@@ -933,6 +944,7 @@ export class HostMenuStatePublisher {
     focusedActiveCardId: null,
     cardWidth: null,
     bullseye: null,
+    cardFold: null,
     reachableSlots: 0,
     sidebars: {},
   };
@@ -1183,6 +1195,7 @@ export class HostMenuStatePublisher {
       focusedActiveCardId,
       cardWidth,
       bullseye,
+      cardFold,
       reachableSlots,
       sidebars,
     } = this.deckProjection;
@@ -1226,7 +1239,6 @@ export class HostMenuStatePublisher {
               hasTurns: session.hasTurns,
               changesVisible: session.changesVisible,
               historyVisible: session.historyVisible,
-              folded: session.folded,
               commitReady: session.commitReady,
               hasCustomName: session.hasCustomName,
             },
@@ -1240,6 +1252,13 @@ export class HostMenuStatePublisher {
       stackDepth,
       cardWidth,
       bullseye,
+      // An unbound Session card is the one content card that does not fold:
+      // its picker is the whole of it. Its block says so, and a Session card
+      // with no block yet is treated the same way.
+      cardFold:
+        activeCard?.component === "session" && session?.sessionBound !== true
+          ? null
+          : cardFold,
       reachableSlots,
       sidebars,
       column: this.columnFactSource?.() ?? null,

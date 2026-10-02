@@ -839,7 +839,7 @@ export interface FoldLeg {
  * row rather than on a duration.
  *
  * The gesture is `set-card-folded`, which is the one door every fold reaches —
- * the Z2 control, Session ▸ Fold Session, ⌃⌘Y and `tugtool host tell` alike —
+ * the Z2 control, View ▸ Fold Card, ⌃⌘Y and `tugtool host tell` alike —
  * so the stamp [P02] puts on `setPaneFolded`'s committing path is the origin
  * the row measures from, and `commitDelayMs` says how much of the lead was
  * spent before the canvas armed at all.

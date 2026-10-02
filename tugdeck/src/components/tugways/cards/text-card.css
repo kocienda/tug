@@ -214,3 +214,21 @@
   margin: 0;
   word-break: break-all;
 }
+
+/* ---- Folded form ---- */
+
+/* The band is the document's text ([B04]). The status strip's cells are
+ * editing tools, and the asset strip and the find bar are read the same way,
+ * so all three leave layout once the card host's fold has settled
+ * (`lib/folded-body.ts`). Keyed on the settled mark rather than on the pane's
+ * `data-folded`, which flips on the fold's first frame: taking the strips out
+ * there would grow the editor under the moving edge. The editor keeps its
+ * `scrollTop` through the shorter box, so the slit shows where the reader was
+ * ([B03]). `display: none` rather than unmounting, so an open find bar keeps
+ * its query. The host prefix carries the asset strip past its own
+ * three-attribute selector above. */
+[data-card-host][data-card-fold="settled"] .text-card-status-bar,
+[data-card-host][data-card-fold="settled"] .text-card-asset-strip,
+[data-card-host][data-card-fold="settled"] .text-card-find-bar {
+  display: none;
+}

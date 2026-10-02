@@ -35,6 +35,7 @@ import React, {
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   Blocks,
+  ChevronsDownUp,
   CircleDot,
   MoreHorizontal,
   MoveHorizontal,
@@ -158,6 +159,7 @@ import {
 import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
 import { useSpaceLayerShownSource } from "@/components/chrome/space-layer";
 import { useStoreDerived } from "@/lib/use-store-derived";
+import { CardFoldGlyph, useCardFoldFocus } from "@/components/chrome/card-fold-glyph";
 import type { SpacesSnapshot } from "@/spaces";
 import {
   SHOWN_PANE_FRAMES,
@@ -448,6 +450,14 @@ export interface CardTitleBarProps {
    * @default false
    */
   folded?: boolean;
+  /**
+   * Whether the bar carries the fold's door for the active card ([B06]): a
+   * Fold row in the rollup while open, and the pinned {@link CardFoldGlyph}
+   * while folded. False on a rail, which does not fold, and on a card that
+   * owns its folded form — the Session card's door is its Z2 seat ([B08]).
+   * @default false
+   */
+  cardFold?: boolean;
   onClose?: () => void;
   onDragStart?: (event: React.PointerEvent) => void;
 }
@@ -532,6 +542,7 @@ function CardTitleBar({
   masthead = null,
   sidebar = false,
   folded = false,
+  cardFold = false,
   onClose,
   onDragStart,
 }: CardTitleBarProps, ref) {
@@ -1336,6 +1347,25 @@ function CardTitleBar({
               leaves the user exactly where they are ([B04]): a drag is a filing
               gesture, not a travel one, and the menu is the same gesture wearing
               a name. Drag remains the fast path; this is the named door. */}
+          {/* Fold. The pane's verb, like Move beside it — every content card
+              folds ([B05]) — and the open form's door onto the command the
+              pinned glyph below presses while folded ([B06]). Open only:
+              folded, the glyph outside the rollup is the door, and a second
+              copy of it behind a `⋯` would be one verb in two places. */}
+          {cardFold && !folded && (
+            <TugActionTooltip action={TUG_ACTIONS.TOGGLE_CARD_FOLD} content="Fold">
+              <TugButton
+                subtype="icon"
+                emphasis="ghost"
+                role="action"
+                size="sm"
+                icon={<ChevronsDownUp />}
+                aria-label="Fold"
+                data-testid="tug-pane-title-bar-fold-button"
+                onClick={() => dispatchCommand(TUG_ACTIONS.TOGGLE_CARD_FOLD)}
+              />
+            </TugActionTooltip>
+          )}
           {onMoveToSpace !== undefined && (
             <TugTooltip
               content={
@@ -1537,6 +1567,12 @@ function CardTitleBar({
               <MoreHorizontal />
             </span>
           </div>
+        )}
+        {/* The folded card's door, pinned OUTSIDE the rollup: a folded card's
+            body is `inert`, so this is its one live stop, its key view and its
+            Return-home ([B06], [B07]). See `card-fold-glyph.tsx`. */}
+        {cardFold && folded && activeCardId !== undefined && activeCardId !== null && (
+          <CardFoldGlyph cardId={activeCardId} />
         )}
         {/* THE PLACE PAIR, pinned against the trailing edge behind only the
             close box. Two controls that report where you are, reading
@@ -2085,6 +2121,12 @@ export interface TugPaneProps {
    */
   layoutRole?: LayoutRole;
   /**
+   * The active card's registry id, handed down for the same reason as
+   * {@link layoutRole}: a single-card pane has no `cards` array to read it
+   * from. The fold's title-bar door reads it ([B06]).
+   */
+  activeComponentId?: string;
+  /**
    * Minimum content area size (below title bar + accessory).
    * Total min-size = header + accessory + this region.
    */
@@ -2421,6 +2463,7 @@ function TugPaneImpl({
   stackState,
   meta,
   layoutRole,
+  activeComponentId,
   minContentSize: minContentSizeProp,
   accessory = null,
   cards,
@@ -2814,6 +2857,29 @@ function TugPaneImpl({
     ? activeCardRegistration.layoutRole
     : layoutRole;
   const isRail = effectiveLayoutRole === "sidebar";
+
+  // The fold's door on the title bar ([B06]), for every content card that does
+  // not author its own folded form. Read off `cards` for a stacked pane and
+  // the caller's `activeComponentId` for a single one.
+  const foldCardComponentId =
+    cards?.find((c) => c.id === activeCardId)?.componentId ??
+    activeComponentId ??
+    null;
+  const cardFold =
+    !isRail &&
+    foldCardComponentId !== null &&
+    getRegistration(foldCardComponentId)?.ownsFoldedForm !== true;
+  const readFirstResponderCardId = useCallback(
+    () => store.getFirstResponderCardId(),
+    [store],
+  );
+  useCardFoldFocus(
+    activeCardId ?? null,
+    foldCardComponentId,
+    folded,
+    cardFold,
+    readFirstResponderCardId,
+  );
 
   // Per-card title override (cardTitleStore) — the name a card takes once its
   // identity resolves: a Text card's filename, the Session card's bound
@@ -5117,6 +5183,7 @@ function TugPaneImpl({
             masthead={activeCardMasthead}
             sidebar={isRail}
             folded={folded}
+            cardFold={cardFold}
             onClose={handleTitleBarClose}
             onDragStart={handleDragStart}
           />

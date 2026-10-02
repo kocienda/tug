@@ -1323,20 +1323,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionMenu.addItem(NSMenuItem.separator())
 
         // The lifecycle group: what a session is, from resuming one to
-        // clearing it and folding the card it lives on.
+        // clearing it. Folding the card moved to View ▸ Fold Card, because
+        // every content card folds and the fold is the pane's.
         sessionMenu.addItem(sessionCommandItem("Resume Session…", "resume", "session.resume"))
         sessionMenu.addItem(sessionCommandItem("Rename Session…", "rename", "session.rename"))
         sessionMenu.addItem(sessionCommandItem("Unname Session", "unname", "session.unname"))
         sessionMenu.addItem(sessionCommandItem("Clear Session", "clear", "session.new"))
-        // Fold Session — the CARD's fold, on ⌃⌘Y. A posture of the card, kin
-        // to Resume and Clear rather than to Commit Changes, which is why it
-        // ends this group instead of the changes one above. Window ▸ Minimize
-        // keeps ⌘M and is untouched, and so is ⌃⌘M: the chord moved out of
-        // the ⌥ tier because AppKit claims ⌥⌘M, and Y is read as the shape of
-        // a fold drawn. The title's verb rides the registry gate's dynamic
-        // title on the menuState push ("Unfold Session" once the card is
-        // folded), the same way the two shade toggles above take theirs.
-        sessionMenu.addItem(NSMenuItem(title: "Fold Session", action: #selector(toggleSessionFold(_:)), keyEquivalent: "y", modifierMask: [.command, .control]).identified("session.fold"))
         sessionMenu.addItem(NSMenuItem.separator())
 
         // One door for model, reasoning effort, and permission mode — and a
@@ -2078,11 +2070,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl(view == "history" ? "toggle-history-view" : "toggle-changes-view")
     }
 
-    // Session ▸ Fold Session. One control name for the card-scoped verb;
-    // the frontend's `card-content` responder resolves which card it is about
-    // and lands the deck commit.
-    @objc private func toggleSessionFold(_ sender: NSMenuItem) {
-        sendControl("toggle-session-fold")
+    // View ▸ Fold Card. One control name for the pane-scoped verb; the key
+    // card's pane answers it on the frontend and lands the deck commit.
+    @objc private func toggleCardFold(_ sender: NSMenuItem) {
+        sendControl("toggle-card-fold")
     }
 
     // Edit ▸ Undo / Redo — two execution paths, matching the two
@@ -3076,6 +3067,15 @@ extension AppDelegate: NSMenuDelegate {
         // `applyCommandChords` writes it from the frontend's keymap, so it
         // stays rebindable end to end.
         menu.addItem(NSMenuItem(title: "Bullseye", action: #selector(toggleBullseye(_:)), keyEquivalent: "").identified("view.bullseye"))
+        // Fold Card — the focused pane's fold, on ⌃⌘Y: its masthead and a
+        // slit of its content at the shared folded tier. A posture of the
+        // pane, so it sits beside Bullseye; every content card folds, so it
+        // is View's rather than Session's. Window ▸ Minimize keeps ⌘M and
+        // ⌃⌘M stays the commit message. The verb rides the registry gate's
+        // dynamic title ("Unfold Card" once the pane is folded), and the key
+        // equivalent is left EMPTY like the rows above — `applyCommandChords`
+        // writes ⌃⌘Y from the frontend's keymap.
+        menu.addItem(NSMenuItem(title: "Fold Card", action: #selector(toggleCardFold(_:)), keyEquivalent: "").identified("view.foldCard"))
 
         // The two verbs about the rails AS RAILS, above the card rows they
         // act on: one takes both sides away and brings them back, the other

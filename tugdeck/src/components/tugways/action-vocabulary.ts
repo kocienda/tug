@@ -637,21 +637,22 @@ export const TUG_ACTIONS = {
   //                 must not slam the door.
   REVEAL_CHANGES: "reveal-changes",
   TOGGLE_HISTORY_VIEW: "toggle-history-view",
-  // TOGGLE_SESSION_FOLD: payload — none. Put the frontmost Session card into
-  //                      its folded form, or take it out — the masthead with
-  //                      its two-line beat, the Z2 status row, and the fold
-  //                      control at that row's trailing edge, with the
-  //                      transcript and composer folded away. Its three doors
-  //                      are that control, Session ▸ Fold Session, and ⌃⌘Y
-  //                      ([L11]: one action, three doors). The card's
-  //                      `card-content` responder handles it and dispatches
-  //                      SET_CARD_FOLDED with the negated flag. ⌘M is the
-  //                      window's MINIMIZE and ⌃⌘M is the commit message;
-  //                      neither is touched.
-  TOGGLE_SESSION_FOLD: "toggle-session-fold",
+  // TOGGLE_CARD_FOLD: payload — none. Put the key card's pane into its folded
+  //                   form, or take it out — the masthead and a slit of the
+  //                   card's own content at the shared tier, and for a
+  //                   Session card its masthead and Z2 row. Its doors are the
+  //                   Session card's Z2 fold control, View ▸ Fold Card, and
+  //                   ⌃⌘Y ([L11]: one action, many doors). Routed
+  //                   first-responder; the deck canvas answers it, resolving
+  //                   the key card's pane, and dispatches SET_CARD_FOLDED for
+  //                   the pane's active card with the negated flag after the
+  //                   card's fold guard has run
+  //                   (`lib/card-fold.ts`). ⌘M is the window's MINIMIZE and
+  //                   ⌃⌘M is the commit message; neither is touched.
+  TOGGLE_CARD_FOLD: "toggle-card-fold",
   // SET_CARD_FOLDED: payload — `{ cardId: string, folded: boolean }`. Write
   //                  one card's pane into or out of the folded form.
-  //                  Internal: its doors are TOGGLE_SESSION_FOLD and the Z2
+  //                  Internal: its doors are TOGGLE_CARD_FOLD and the Z2
   //                  fold control, and it is the one write path, so every
   //                  door lands the same deck commit. Handled in
   //                  `action-dispatch.ts` on the deck manager, the shape
@@ -794,10 +795,9 @@ export const TUG_ACTIONS = {
   //                         under its own id.
   // MINIMIZE:               payload — none. Window ▸ Minimize — the WINDOW's,
   //                         routed native on ⌘M. Nothing to do with a card:
-  //                         the card-scoped verb is TOGGLE_SESSION_FOLD
+  //                         the card-scoped verb is TOGGLE_CARD_FOLD
   //                         on ⌃⌘Y, which shares neither the key nor the
-  //                         modifiers: the fold sits in the Tug tier with
-  //                         the Session menu's own chords.
+  //                         modifiers: the fold sits in the Tug tier.
   // MAXIMIZE:               payload — none. Maximize the first card.
   // SHOW_COMPONENT_GALLERY: payload — none. Open or focus the gallery card.
   // SHOW_SETTINGS:          payload — none. Open the settings panel.

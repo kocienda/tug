@@ -281,6 +281,7 @@ import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { cardArrivingOf, cardFoldedOf } from "@/deck-store-selectors";
 import {
   isCardFolded,
+  registerCardFoldGuard,
   unfoldCardForBiddenSurface,
   useIsCardFolded,
 } from "@/lib/card-fold";
@@ -696,6 +697,15 @@ export function SessionCardContent({
         ),
       ),
     [cardId],
+  );
+  // An unbound card has nothing to fold: no masthead beat, no Z2 row, and
+  // the picker is the whole of it. So it refuses `toggle-card-fold` here, and
+  // the menu's gate dims View ▸ Fold Card over it for the same reason. Once
+  // the services land, the body's own guard stands in this one's place.
+  const unbound = services === null;
+  useLayoutEffect(
+    () => (unbound ? registerCardFoldGuard(cardId, () => false) : undefined),
+    [cardId, unbound],
   );
   if (services !== null) {
     return (
@@ -4226,6 +4236,71 @@ export function SessionCardBody({
     return new HighlightSelectionAdapter(root).getSelectedText().trim();
   }, []);
 
+  // What this card says before its pane folds ([B05], [B08]). The fold is
+  // the pane's — ⌃⌘Y, View ▸ Fold Card and the Z2 control all land on one
+  // `toggle-card-fold` — but the surfaces that stand on a transcript there
+  // is about to be none of are this card's to close, so the toggle asks
+  // here first ([P03]): the find bar, and whichever landing or shade is up.
+  // Exiting a landing rather than only hiding the shade is the
+  // `TOGGLE_CHANGES_VIEW` handler's own ladder, and a landing draft survives
+  // it because `CommitModeController.leave()` persists one. Showing asks
+  // nothing: what was closed on the way down was closed deliberately, and
+  // re-opening it would be the card guessing.
+  //
+  // Read through a ref so the guard registered once answers with whatever is
+  // mounted when it is asked ([L03]: registered in a layout effect, because a
+  // chord can land before a passive effect commits).
+  const foldGuardRef = useRef<() => boolean>(() => true);
+  useLayoutEffect(() => {
+    foldGuardRef.current = () => {
+      if (findBarOpenRef.current) closeFindBar();
+      // A card held by a modal run asks its holder before it folds, and
+      // the answer is the holder's rather than the fold's: a run takes
+      // `cardModalHoldStore` for as long as it needs the card, and every
+      // door that finds a hold stops and lets the holder say why ([L31]).
+      //
+      // The fold is the one door a holder may ADMIT ([B02]), because
+      // folding does not leave a run — it swaps the face the run is shown
+      // on, from the cover panel to the Z2 row, with the same Cancel on
+      // both. A holder that says `admitsFold` has a folded face to hand the
+      // run to; one that does not is refused here with every other door.
+      if (!cardModalHoldAdmitsFold(cardId)) {
+        if (refuseCardModalHold(cardId)) return false;
+      }
+      // A sheet standing over a folded card is the same contradiction as
+      // one raised on it ([B01]): the folded card is its masthead and its
+      // Z2 row, and a panel is neither. So whatever is up comes down here,
+      // beside the find bar and the shade, rather than being given
+      // somewhere to hang — which is what retired the anchor's
+      // boxless-slot branch ([B09]).
+      //
+      // An ADMITTED hold's cover does not reach this line either, and for
+      // a different reason: its stand-down is not the fold's to perform.
+      // The cover's presence is derived from the run and the fold flag, so
+      // standing it down here would be the fold doing by hand what the
+      // derivation is about to do anyway — and doing it first, with the
+      // wrong token and the wrong motion.
+      //
+      // So this closes the ordinary sheet — AI Settings, Usage, Rewind, a
+      // Z2 chip's panel. A refusing holder's cover was answered a step
+      // earlier in the holder's own words, and an admitting holder's cover
+      // comes down on its own clock.
+      if (!cardModalHoldAdmitsFold(cardId)) cardPickerSheet.closeSheet();
+      if (commitModeController.getSnapshot().active) {
+        commitModeController.exit();
+      } else if (joinModeController.getSnapshot().active) {
+        joinModeController.exit();
+      } else {
+        shadeViewController.hide();
+      }
+      return true;
+    };
+  });
+  useLayoutEffect(
+    () => registerCardFoldGuard(cardId, () => foldGuardRef.current()),
+    [cardId],
+  );
+
   const {
     ResponderScope: CardContentResponderScope,
     responderRef: cardContentResponderRef,
@@ -4427,69 +4502,6 @@ export function SessionCardBody({
       [TUG_ACTIONS.TOGGLE_HISTORY_VIEW]: (_event: ActionEvent) => {
         commitModeController.exit();
         shadeViewController.toggle("history");
-      },
-      // The Fold control at Z2's trailing edge, Session ▸ Fold Session, and
-      // ⌃⌘Y all land here ([P02]): the card is where the gesture knows which
-      // card it is about, and the deck commit is dispatched from one place so
-      // the three doors cannot drift apart.
-      //
-      // Folding closes the surfaces that stand on a transcript there is
-      // about to be none of ([P03]) — the find bar, and whichever landing or
-      // shade is up. Exiting a landing rather than only hiding the shade is
-      // the `TOGGLE_CHANGES_VIEW` handler's own ladder, and a landing draft
-      // survives it because `CommitModeController.leave()` persists one.
-      // Showing runs none of them: what was closed on the way down was closed
-      // deliberately, and re-opening it would be the card guessing.
-      [TUG_ACTIONS.TOGGLE_SESSION_FOLD]: (_event: ActionEvent) => {
-        const deckStore = getDeckStore();
-        if (deckStore === null) return;
-        const folded = cardFoldedOf(deckStore.getSnapshot(), cardId);
-        if (!folded) {
-          if (findBarOpenRef.current) closeFindBar();
-          // A card held by a modal run asks its holder before it folds, and
-          // the answer is the holder's rather than the fold's: a run takes
-          // `cardModalHoldStore` for as long as it needs the card, and every
-          // door that finds a hold stops and lets the holder say why ([L31]).
-          //
-          // The fold is the one door a holder may ADMIT ([B02]), because
-          // folding does not leave a run — it swaps the face the run is shown
-          // on, from the cover panel to the Z2 row, with the same Cancel on
-          // both. A holder that says `admitsFold` has a folded face to hand the
-          // run to; one that does not is refused here with every other door.
-          if (!cardModalHoldAdmitsFold(cardId)) {
-            if (refuseCardModalHold(cardId)) return;
-          }
-          // A sheet standing over a folded card is the same contradiction as
-          // one raised on it ([B01]): the folded card is its masthead and its
-          // Z2 row, and a panel is neither. So whatever is up comes down here,
-          // beside the find bar and the shade, rather than being given
-          // somewhere to hang — which is what retired the anchor's
-          // boxless-slot branch ([B09]).
-          //
-          // An ADMITTED hold's cover does not reach this line either, and for
-          // a different reason: its stand-down is not the fold's to perform.
-          // The cover's presence is derived from the run and the fold flag, so
-          // standing it down here would be the fold doing by hand what the
-          // derivation is about to do anyway — and doing it first, with the
-          // wrong token and the wrong motion.
-          //
-          // So this closes the ordinary sheet — AI Settings, Usage, Rewind, a
-          // Z2 chip's panel. A refusing holder's cover was answered a step
-          // earlier in the holder's own words, and an admitting holder's cover
-          // comes down on its own clock.
-          if (!cardModalHoldAdmitsFold(cardId)) cardPickerSheet.closeSheet();
-          if (commitModeController.getSnapshot().active) {
-            commitModeController.exit();
-          } else if (joinModeController.getSnapshot().active) {
-            joinModeController.exit();
-          } else {
-            shadeViewController.hide();
-          }
-        }
-        dispatchCommand(TUG_ACTIONS.SET_CARD_FOLDED, {
-          cardId,
-          folded: !folded,
-        });
       },
       // ⌃⌘A / ⌃⇧⌘A — the Changes shade's bulk verbs as chords. The composer
       // registers them (it is the surface holding focus under the passive

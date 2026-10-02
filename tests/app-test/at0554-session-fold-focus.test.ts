@@ -192,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the folded form", () => {
 
         // ── The fold moves the keyboard to the bar ──
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
@@ -216,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the folded form", () => {
         // this is the path a person takes with the mouse, and what it proves
         // is the reclaim gate in both directions rather than the walk.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === false`,
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the folded form", () => {
           { timeoutMs: 6000 },
         );
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
@@ -377,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the folded form", () => {
         );
 
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
@@ -421,7 +421,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the folded form", () => {
         // re-enters the walk — which is the same place a person who never
         // folded would be after clicking the transcript.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === false`,

@@ -114,6 +114,7 @@ import { CardPortal } from "./card-portal";
 import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
+import { holdFoldedBody } from "@/lib/folded-body";
 
 /**
  * How long the pre-restore opacity mask may wait for the child commit that
@@ -1703,6 +1704,17 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
       });
     };
   }, [cardId, rootEl, store, hostStackId]);
+
+  // The generic folded form ([B02]): `inert` and the settled mark on this
+  // host whenever its pane is folded, written by the observer in
+  // `lib/folded-body.ts` at the crossing's end, never by React state ([L06]).
+  // Re-keyed on the frame, so a card moved between panes is held by the pane
+  // it is in. A card that owns its folded form is left to it ([B08]).
+  const ownsFoldedForm = registration?.ownsFoldedForm === true;
+  useLayoutEffect(() => {
+    if (rootEl === null || hostPaneFrameEl === null || ownsFoldedForm) return;
+    return holdFoldedBody(hostPaneFrameEl, rootEl);
+  }, [rootEl, hostPaneFrameEl, ownsFoldedForm]);
 
   // No focusin listener here — the assembler preserves the previous
   // bag's `focus` axis when `document.activeElement` is outside this

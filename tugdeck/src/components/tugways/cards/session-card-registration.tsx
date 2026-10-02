@@ -11,7 +11,7 @@
  * @module components/tugways/cards/session-card-registration
  */
 
-import { registerCard } from "@/card-registry";
+import { FOLDED_CARD_HEIGHT_PX, registerCard } from "@/card-registry";
 import type { CardIdentityFacts } from "@/card-registry";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import {
@@ -76,41 +76,6 @@ function parkedSessionIdentity(cardId: string): CardIdentityFacts | null {
   };
 }
 
-/**
- * The height a folded Session card stands at, in pixels ([P04]).
- *
- * The two bands of the folded form add up here: the masthead tier at
- * `SESSION_MASTHEAD_HEIGHT` (88) plus its 1px bottom rule, and the Z2 status
- * row alone under it. That row's built height is 53.8px — a fraction, because
- * the cell stack's own boxes are — so the body's band is **54** and not the 53
- * the arithmetic reads off the tuning block. The fraction is what the tier has
- * to clear, and rounding it down cost a pixel the strip then overflowed by:
- * `.tug-pane-content` is `overflow: auto`, so a 0.8px overhang raised a real
- * scrollbar, the scrollbar took 12px of the pane's inline size, and Z2's
- * `@container` rungs read the narrower box and dropped the TIME cell — the
- * folded card's instruments re-laid-out against a width nothing had changed.
- * A folded card never scrolls (`tug-pane.css` holds that structurally now);
- * this number is what keeps it from wanting to. It was 173 while the form
- * carried a Show Transcript bar under Z2; retiring that band into a control at
- * Z2's leading edge ([B03], [B04]) is what took 29px off the tier, and a 900px
- * run now holds six folded cards where it held five.
- * MEASURED, not derived: `at0552` reads the built app's own numbers and fails
- * if Z2 overhangs the frame or leaves air under it, which is what caught the
- * plan's starting 160 — the spike's 159 was measured without the pane frame
- * around it — and what settled this number one pixel at a time.
- *
- * Pinned rather than a floor: it is BOTH `min.height` and `max.height` in the
- * folded policy, which is what makes `TugPane` place the frame at the tier
- * instead of filling its run, and what makes a wall of folded cards pack.
- *
- * It moved with the tier and back again: the masthead's description took a
- * LOOSE type setting for one arc and the tier grew 14px to hold the pair in a
- * band a commit pill is whole in, so the folded form grew by the same 14. Then
- * the pill left the description line, the tier gave the 14 back, and so did
- * this. Z2's band was untouched throughout.
- */
-export const SESSION_FOLDED_HEIGHT_PX = 145;
-
 export function registerSessionCard(): void {
   registerCard({
     componentId: "session",
@@ -154,18 +119,23 @@ export function registerSessionCard(): void {
     // on screen here. The width policy is unchanged — a folded card is as
     // wide as its slot — so `max.width` is declared unbounded rather than
     // omitted, which `CardSizePolicy` requires and which leaves `widthPinned`
-    // false where a finite width would have pinned it.
+    // false where a finite width would have pinned it. The tier is the one
+    // every folded card stands at ([B01]), and it is measured off this form,
+    // which is why `FOLDED_CARD_HEIGHT_PX` carries the Session card's account.
     foldedSizePolicy: {
-      min: { width: CONTENT_WIDTH_SLIM_PX, height: SESSION_FOLDED_HEIGHT_PX },
+      min: { width: CONTENT_WIDTH_SLIM_PX, height: FOLDED_CARD_HEIGHT_PX },
       max: {
         width: Number.POSITIVE_INFINITY,
-        height: SESSION_FOLDED_HEIGHT_PX,
+        height: FOLDED_CARD_HEIGHT_PX,
       },
       preferred: {
         width: CONTENT_WIDTH_COMFY_PX,
-        height: SESSION_FOLDED_HEIGHT_PX,
+        height: FOLDED_CARD_HEIGHT_PX,
       },
     },
+    // The folded FORM is the card's own too — Z2, the control, the
+    // terminal-state effect ([D185]) — so the host's generic one stands down.
+    ownsFoldedForm: true,
     takesContentWidth: true,
     // While this card is unbound it is its picker and nothing else, so what it
     // needs across is the picker's width and what it needs down is whatever

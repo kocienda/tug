@@ -5,8 +5,8 @@
  * ## What this gates
  *
  * The Session card's folded form has three ways in ([B03], [P02]) — the
- * control at Z2's trailing edge, Session ▸ Fold Session, and ⌃⌘Y — one
- * `toggle-session-fold` command rather than three handlers, so the state
+ * control at Z2's trailing edge, View ▸ Fold Card, and ⌃⌘Y — one
+ * `toggle-card-fold` command rather than three handlers, so the state
  * they read and the deck commit they land cannot drift apart. This file drives
  * the doors that exist at the vocabulary layer (the control frame the menu
  * item posts, and the item's own validated state) and reads the flag off the
@@ -15,19 +15,18 @@
  *
  * Three claims:
  *
- *   1. **The wire lands on the pane.** `toggle-session-fold` — byte for
+ *   1. **The wire lands on the pane.** `toggle-card-fold` — byte for
  *      byte what the Swift item sends — flips `getPaneRecord(pane).folded`,
  *      and flips it back. The toggle reads the live flag rather than a card's
  *      memory of it, so a second press is a show rather than a second
  *      fold.
- *   2. **The item says what the gesture will do.** `session.fold` reads
- *      enabled with the title `Fold Session` over an open card and `Unfold
- *      Session` over a folded one, and it carries ⌃⌘Y — the Tug tier the
- *      Session menu's own chords already sit in. ⌘M and ⌃⌘M are both
- *      untouched.
- *   3. **A non-Session key card disables it.** The verb has no pane to fold
- *      there, so the item dims and the chord beeps rather than reaching
- *      whatever pane happens to be frontmost.
+ *   2. **The item says what the gesture will do.** `view.foldCard` reads
+ *      enabled with the title `Fold Card` over an open card and `Unfold
+ *      Card` over a folded one, and it carries ⌃⌘Y — the Tug tier. ⌘M and
+ *      ⌃⌘M are both untouched.
+ *   3. **A non-Session key card enables it.** The fold is the pane's and
+ *      every content card takes it, so the item is live over a card that
+ *      is not a session — the reason it moved from Session to View.
  *
  * What this file deliberately does NOT read is the FORM — no folded
  * transcript, no tier arithmetic. That is at0551's subject. The one thing it
@@ -232,14 +231,14 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
 
         // ── The resting state ──
         expect(await paneFolded(app)).toBe(false);
-        const open = await waitMenuEnabled(app, "session.fold", true);
-        expect(open.found, "session.fold must exist").toBe(true);
+        const open = await waitMenuEnabled(app, "view.foldCard", true);
+        expect(open.found, "view.foldCard must exist").toBe(true);
         expect(open.enabled).toBe(true);
-        await waitMenuTitle(app, "session.fold", "Fold Session");
+        await waitMenuTitle(app, "view.foldCard", "Fold Card");
 
         // The chord is ⌃⌘Y — the Tug tier, carried on the item so the menu
         // bar is where the match happens.
-        const item = await app.menuItemState("session.fold");
+        const item = await app.menuItemState("view.foldCard");
         expect(item.found).toBe(true);
         if (item.found) {
           expect(item.keyEquivalent).toBe("y");
@@ -262,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
         // Focus the card first, so the key-card-scoped dispatch resolves it.
         await app.nativeClickAtElement(PROMPT_INPUT);
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
@@ -278,12 +277,12 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
           { timeoutMs: 8000 },
         );
         // The item's verb followed the flag — one published fact, two faces.
-        await waitMenuTitle(app, "session.fold", "Unfold Session");
+        await waitMenuTitle(app, "view.foldCard", "Unfold Card");
 
         // ── And back: the toggle reads the live flag, so a second press shows
         // rather than folding twice.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === false`,
@@ -298,7 +297,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
            })()`,
           { timeoutMs: 8000 },
         );
-        await waitMenuTitle(app, "session.fold", "Fold Session");
+        await waitMenuTitle(app, "view.foldCard", "Fold Card");
       } finally {
         await app.close();
       }
@@ -356,7 +355,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   );
 
   test(
-    "a non-Session key card disables the item",
+    "a non-Session key card enables the item",
     async () => {
       const app = await launchTugApp({ testName: "at0550-fold-gate" });
       try {
@@ -365,11 +364,12 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("B")`,
         );
 
-        // The verb has no pane to fold from here, so the item dims and the
-        // chord beeps rather than reaching the Session card next door.
-        const dark = await waitMenuEnabled(app, "session.fold", false);
-        expect(dark.found, "session.fold must exist").toBe(true);
-        expect(dark.enabled).toBe(false);
+        // Every content card folds ([B05]), so the item is live here too and
+        // says the same verb it says over a Session card.
+        const live = await waitMenuEnabled(app, "view.foldCard", true);
+        expect(live.found, "view.foldCard must exist").toBe(true);
+        expect(live.enabled).toBe(true);
+        await waitMenuTitle(app, "view.foldCard", "Fold Card");
       } finally {
         await app.close();
       }

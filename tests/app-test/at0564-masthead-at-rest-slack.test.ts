@@ -131,7 +131,7 @@ async function readSlack(app: App): Promise<Slack> {
 /** Flip the flag through the one command every door reaches ([P02]). */
 async function toggleFolded(app: App, want: boolean): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+    `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
   );
   await app.waitForCondition<boolean>(
     `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === ${want}`,

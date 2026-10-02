@@ -18,6 +18,7 @@ import {
   getFoldedSizePolicy,
   getUnboundSizePolicy,
   DEFAULT_SIZE_POLICY,
+  FOLDED_CARD_HEIGHT_PX,
   getLayoutRole,
   isSidebarCard,
   getGreedRank,
@@ -366,18 +367,40 @@ describe("getStackSizePolicy({ folded })", () => {
     expect(getStackSizePolicy(["session"]).max).toBeUndefined();
   });
 
-  it("aggregates a card with no folded policy at its ordinary floor", () => {
-    // A pane is one box: a Session tab folded beside a Text tab still has
-    // to fit the Text tab, so the tier does not win the aggregation and the
-    // pane is not pinned — `min.height` (420) and `max.height` (160) differ.
-    registerFoldable("session", OPEN_POLICY, FOLDED_POLICY);
+  it("pins a Text card and a file-view card at the shared tier", () => {
+    // Neither declares a folded form, and both fold all the same ([B01]): the
+    // 400px floors their open forms carry are not the folded card's truth.
+    registerSized("text", {
+      min: { width: 300, height: 400 },
+      preferred: { width: 400, height: 500 },
+    });
+    registerSized("file-view", {
+      min: { width: 320, height: 400 },
+      preferred: { width: 640, height: 800 },
+    });
+    for (const id of ["text", "file-view"]) {
+      const policy = getStackSizePolicy([id], { folded: true });
+      expect(policy.min.height).toBe(FOLDED_CARD_HEIGHT_PX);
+      expect(policy.max?.height).toBe(FOLDED_CARD_HEIGHT_PX);
+    }
+  });
+
+  it("pins a mixed stack at the one tier every card shares", () => {
+    // A pane is one box, and a Session tab folded beside a Text tab is a box
+    // both can live in, because every card folds to the same height.
+    const sessionFolded: CardSizePolicy = {
+      min: { width: 675, height: FOLDED_CARD_HEIGHT_PX },
+      max: { width: Number.POSITIVE_INFINITY, height: FOLDED_CARD_HEIGHT_PX },
+      preferred: { width: 900, height: FOLDED_CARD_HEIGHT_PX },
+    };
+    registerFoldable("session", OPEN_POLICY, sessionFolded);
     registerSized("text", {
       min: { width: 300, height: 420 },
       preferred: { width: 400, height: 500 },
     });
     const policy = getStackSizePolicy(["session", "text"], { folded: true });
-    expect(policy.min).toEqual({ width: 675, height: 420 });
-    expect(policy.max?.height === policy.min.height).toBe(false);
+    expect(policy.min).toEqual({ width: 675, height: FOLDED_CARD_HEIGHT_PX });
+    expect(policy.max?.height).toBe(policy.min.height);
   });
 });
 
@@ -479,19 +502,37 @@ describe("getFoldedSizePolicy", () => {
     expect(getFoldedSizePolicy("session")).toEqual(FOLDED_POLICY);
   });
 
-  it("falls back to the ordinary policy for a card with no folded form", () => {
+  it("pins a card with no folded form at the tier, keeping its open width", () => {
     registerSized("text", {
       min: { width: 300, height: 420 },
       preferred: { width: 400, height: 500 },
     });
-    expect(getFoldedSizePolicy("text").min).toEqual({
-      width: 300,
-      height: 420,
+    expect(getFoldedSizePolicy("text")).toEqual({
+      min: { width: 300, height: FOLDED_CARD_HEIGHT_PX },
+      max: { width: Number.POSITIVE_INFINITY, height: FOLDED_CARD_HEIGHT_PX },
+      preferred: { width: 400, height: FOLDED_CARD_HEIGHT_PX },
     });
   });
 
-  it("falls back to DEFAULT_SIZE_POLICY for an unregistered id", () => {
-    expect(getFoldedSizePolicy("ghost")).toEqual(DEFAULT_SIZE_POLICY);
+  it("carries a declared open max width through to the folded form", () => {
+    registerSized("file-view", {
+      min: { width: 320, height: 400 },
+      max: { width: 1200, height: 2000 },
+      preferred: { width: 640, height: 800 },
+    });
+    expect(getFoldedSizePolicy("file-view").max).toEqual({
+      width: 1200,
+      height: FOLDED_CARD_HEIGHT_PX,
+    });
+  });
+
+  it("pins an unregistered id at the tier, on the default width", () => {
+    const policy = getFoldedSizePolicy("ghost");
+    expect(policy.min).toEqual({
+      width: DEFAULT_SIZE_POLICY.min.width,
+      height: FOLDED_CARD_HEIGHT_PX,
+    });
+    expect(policy.max?.height).toBe(FOLDED_CARD_HEIGHT_PX);
   });
 });
 

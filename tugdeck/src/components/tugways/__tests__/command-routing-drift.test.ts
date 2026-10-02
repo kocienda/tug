@@ -147,11 +147,14 @@ describe("routing matches the pre-migration mechanism", () => {
     // Not in the pre-migration table above: neither command existed before
     // the migration, so there is no historical mechanism for them to have
     // drifted from. What CAN drift is the pair's own split — the user-facing
-    // toggle answered by the key card, and the setter it dispatches handled
-    // in the registry — and that split is the whole of why there are two.
-    const toggle = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_SESSION_FOLD);
-    expect(toggle?.routing).toBe("key-card");
-    expect(toggle?.menuItemId).toBe("session.fold");
+    // toggle answered at the root of the first responder's walk (the canvas,
+    // which every walk reaches, where only some card types register a
+    // `card-content` responder for a key-card walk to start at), and
+    // the setter it dispatches handled in the registry — and that split is the
+    // whole of why there are two.
+    const toggle = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_CARD_FOLD);
+    expect(toggle?.routing).toBe("first-responder");
+    expect(toggle?.menuItemId).toBe("view.foldCard");
     expect(toggle?.mirrored).toBe(true);
     expect(toggle?.internal ?? false).toBe(false);
 
@@ -169,7 +172,7 @@ describe("routing matches the pre-migration mechanism", () => {
     // free letter in the Tug tier, read as a shape. The two are asserted
     // together because the pair is the point — the fold must never be
     // rebound onto anything that would take the window's minimize with it.
-    const card = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_SESSION_FOLD);
+    const card = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_CARD_FOLD);
     expect(card?.bindings?.map((b) => formatChord(b.chord))).toEqual(["⌃⌘Y"]);
     expect(card?.bindings?.[0]?.menuEligible).toBe(true);
 
@@ -300,7 +303,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "cycle-permission-mode": "command",
   "toggle-history-view": "command",
   "toggle-changes-view": "command",
-  "toggle-session-fold": "command",
+  "toggle-card-fold": "command",
   undo: "command",
   redo: "command",
   "copy-as-plain-text": "command",
@@ -533,12 +536,11 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘O", TUG_ACTIONS.TOGGLE_OVERVIEW],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
-  // The card's fold, in the Tug tier beside the Session menu's own ⌃⌘C and
-  // ⌃⌘H. Y is a shape rather than an initial: two arms meeting and
-  // continuing as one stem is the open card's two regions closing onto its
-  // one bar. It is not ⌥⌘M — AppKit claims that — and not ⌃⌘M, which is the
-  // commit message.
-  ["⌃⌘Y", TUG_ACTIONS.TOGGLE_SESSION_FOLD],
+  // The card's fold, in the Tug tier. Y is a shape rather than an initial:
+  // two arms meeting and continuing as one stem is the open card closing onto
+  // its one bar. It is not ⌥⌘M — AppKit claims that — and not ⌃⌘M, which is
+  // the commit message.
+  ["⌃⌘Y", TUG_ACTIONS.TOGGLE_CARD_FOLD],
   // The slash bridges that earned a chord. The family is reachable by typing
   // its names, which is why the rest carry none; these two are reached often
   // enough that typing the name is the slow path.

@@ -364,6 +364,29 @@ describe("projectDeckState", () => {
     ).toBeNull();
   });
 
+  test("cardFold gates on selection and refuses a rail, and reads the pane's flag", () => {
+    const base = deck([card("a")], [pane("p1", ["a"])]);
+    expect(projectDeckState({ ...base, activePaneId: "p1" }).cardFold).toEqual({
+      folded: false,
+    });
+
+    const folded = deck([card("a")], [pane("p1", ["a"], { folded: true })]);
+    expect(projectDeckState({ ...folded, activePaneId: "p1" }).cardFold).toEqual({
+      folded: true,
+    });
+
+    // Deselected: no pane to fold.
+    expect(projectDeckState(base).cardFold).toBeNull();
+
+    // A rail never folds — `setPaneFolded` refuses it — so the row does not
+    // offer the press.
+    const rail = deck(
+      [card("s", { componentId: "menu-state-rail" })],
+      [pane("p1", ["s"])],
+    );
+    expect(projectDeckState({ ...rail, activePaneId: "p1" }).cardFold).toBeNull();
+  });
+
   test("bullseye reads off, not on, for a stale id whose pane lost focus", () => {
     // The tell that the fact reads the DERIVED id rather than the raw field:
     // a focus move ends bullseye without clearing anything, and the menu's
@@ -536,10 +559,42 @@ describe("HostMenuStatePublisher", () => {
     hasTurns: false,
     changesVisible: false,
     historyVisible: false,
-    folded: false,
     commitReady: false,
     hasCustomName: false,
     ...overrides,
+  });
+
+  test("cardFold is live over any content card and dark over an unbound Session card", async () => {
+    const publisher = new HostMenuStatePublisher(() => {});
+    const textDeck = deck([card("t", { componentId: "text" })], [pane("p1", ["t"])]);
+    publisher.setDeckProjection(
+      projectDeckState({ ...textDeck, activePaneId: "p1" }),
+    );
+    await settle();
+    expect(publisher.currentValidationSource().menu.cardFold).toEqual({
+      folded: false,
+    });
+
+    const sessionDeck = deck(
+      [card("s", { componentId: "session" })],
+      [pane("p1", ["s"])],
+    );
+    publisher.setDeckProjection(
+      projectDeckState({ ...sessionDeck, activePaneId: "p1" }),
+    );
+    // No block yet: the card is its picker or its restore placeholder.
+    await settle();
+    expect(publisher.currentValidationSource().menu.cardFold).toBeNull();
+
+    publisher.setSessionBlock("s", sessionBlock("s", { sessionBound: false }));
+    await settle();
+    expect(publisher.currentValidationSource().menu.cardFold).toBeNull();
+
+    publisher.setSessionBlock("s", sessionBlock("s"));
+    await settle();
+    expect(publisher.currentValidationSource().menu.cardFold).toEqual({
+      folded: false,
+    });
   });
 
   test("attaches the session block only for the focused pane's active session card", async () => {

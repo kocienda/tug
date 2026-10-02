@@ -46,8 +46,10 @@
  * arm, so the folded form's Return-home registration below still routes
  * Return here but draws no persistent mark on the button.
  *
- * The button is a plain door onto the same `toggle-session-fold` command
- * the toolbar button and the menu item reach ([P02], [L11]).
+ * The button is a plain door onto the same `toggle-card-fold` command
+ * View ▸ Fold Card and ⌃⌘Y reach ([P02], [L11]). The fold is the pane's —
+ * every content card folds — and this control is the Session card's seat for
+ * it; the card's own pre-fold work rides its fold guard, not this button.
  */
 
 import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
@@ -80,7 +82,7 @@ export function SessionFoldControl({
       data-slot="session-fold-control"
     >
       <TugActionTooltip
-        action={TUG_ACTIONS.TOGGLE_SESSION_FOLD}
+        action={TUG_ACTIONS.TOGGLE_CARD_FOLD}
         content={label}
       >
         <TugPushButton
@@ -101,7 +103,7 @@ export function SessionFoldControl({
               <ChevronsDownUp size={14} aria-hidden="true" />
             )
           }
-          onClick={() => dispatchCommand(TUG_ACTIONS.TOGGLE_SESSION_FOLD)}
+          onClick={() => dispatchCommand(TUG_ACTIONS.TOGGLE_CARD_FOLD)}
         />
       </TugActionTooltip>
     </div>

@@ -142,15 +142,6 @@ export interface CommandMenuFacts {
     readonly changesVisible: boolean;
     readonly historyVisible: boolean;
     readonly commitReady: boolean;
-    /**
-     * The frontmost session card's pane wears the folded form. Drives the
-     * Fold Session item's dynamic verb. An inline mirror of
-     * `MenuStateSessionBlock`'s own field rather than an import of it, which
-     * is how this block already stands — so the field is declared in three
-     * places, and missing any of them is a type error rather than a silent
-     * disagreement.
-     */
-    readonly folded: boolean;
     /** The bound session carries a user-set name — there is one to clear. */
     readonly hasCustomName: boolean;
   } | null;
@@ -199,6 +190,14 @@ export interface CommandMenuFacts {
    * "is there a content pane the selection is in".
    */
   readonly bullseye: { readonly on: boolean } | null;
+  /**
+   * Whether the focused pane can fold, and whether it already has. `null`
+   * when View ▸ Fold Card does not apply — nothing selected, the focused
+   * pane holds a rail, or its active card is a Session card with no session
+   * bound. Otherwise `folded` is the pane's own flag and drives the item's
+   * verb ([B05]).
+   */
+  readonly cardFold: { readonly folded: boolean } | null;
   /**
    * How many slots the deck can center on — the kind's slot count under flow,
    * and 0 otherwise. Gates the Go to Slot row.
@@ -332,6 +331,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   stackDepth: 0,
   cardWidth: null,
   bullseye: null,
+  cardFold: null,
   reachableSlots: 0,
   column: null,
   focusTravel: null,
@@ -1880,45 +1880,6 @@ export const COMMANDS: readonly CommandEntry[] = [
         ? "Hide Commit History"
         : "Show Commit History",
   },
-  {
-    // The card-scoped fold ([B04], [P02]). Its three doors are the control at
-    // Z2's trailing edge, this item, and ⌃⌘Y — one action, so the state the
-    // doors read and the commit they land are the same one ([L11]).
-    //
-    // ⌃⌘ is the Tug tier (`tuglaws/chord-tiers.md`), where this card's own
-    // menu neighbours already live, and Y is read as a shape: two arms meet
-    // and continue as one stem, which is the open card's two regions closing
-    // onto its one bar. ⌥⌘M was the derived chord and AppKit claims it;
-    // ⌃⌘M is the commit-message chord and is untouched. `menuEligible` puts
-    // the match at the menu bar, so the item's gate is what answers the chord
-    // too — a non-Session key card disables the item and beeps the chord,
-    // which is honest about a verb that has nothing to act on.
-    //
-    // Gated on a BOUND session, not merely on a Session card being frontmost.
-    // An unbound card renders `SessionProjectPicker` rather than
-    // `SessionCardBody`, and the responder that answers this command — along
-    // with the masthead, the Z2 row and the bar the folded form IS — lives
-    // in the body. Validating on the card type alone would leave the item
-    // enabled and the chord live over a card that can do nothing with either.
-    id: TUG_ACTIONS.TOGGLE_SESSION_FOLD,
-    title: "Fold Session",
-    routing: "key-card",
-    menuItemId: "session.fold",
-    bindings: [
-      chord(
-        { key: "KeyY", ctrl: true, meta: true, label: "y" },
-        { preventDefault: true, menuEligible: true },
-      ),
-    ],
-    mirrored: true,
-    validate: sessionBound,
-    // One command, two verbs — the item says what the gesture will do, the
-    // shape the two shade toggles above already take.
-    dynamicTitle: (chain) =>
-      (chain.menu.session?.folded ?? false)
-        ? "Unfold Session"
-        : "Fold Session",
-  },
   ...SLASH_BRIDGE_COMMANDS,
 
   // ---- View ----
@@ -2213,6 +2174,44 @@ export const COMMANDS: readonly CommandEntry[] = [
     validate: (chain) => chain.menu.bullseye !== null,
     state: (chain) => chain.menu.bullseye?.on === true,
   },
+  {
+    // The key card's fold ([B05]). Every content card folds, so the verb is
+    // the pane's and lives in View beside the other postures of the focused
+    // pane. Its doors are this item, ⌃⌘Y, and the Session card's control at
+    // Z2's trailing edge — one action, so the state the doors read and the
+    // commit they land are the same one ([L11]).
+    //
+    // ⌃⌘ is the Tug tier (`tuglaws/chord-tiers.md`), and Y is read as a
+    // shape: two arms meet and continue as one stem, which is the open card
+    // closing onto its one bar. ⌥⌘M was the derived chord and AppKit claims
+    // it; ⌃⌘M is the commit-message chord and is untouched. `menuEligible`
+    // puts the match at the menu bar, so the item's gate is what answers the
+    // chord too.
+    //
+    // Routed first-responder, answered by the deck canvas — the one responder
+    // every walk reaches — which resolves the key card's pane and toggles its
+    // active card. Not key-card: that walk starts at a `card-content`
+    // responder only some card types register, and a card without one could
+    // not fold.
+    // Gated on the published `cardFold` fact, which is null with nothing
+    // selected, over a rail (rails never fold), and over an unbound Session
+    // card (its picker is the whole of it, and there is nothing to fold to).
+    id: TUG_ACTIONS.TOGGLE_CARD_FOLD,
+    title: "Fold Card",
+    routing: "first-responder",
+    menuItemId: "view.foldCard",
+    bindings: [
+      chord(
+        { key: "KeyY", ctrl: true, meta: true, label: "y" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+    validate: (chain) => chain.menu.cardFold !== null,
+    // One command, two verbs — the item says what the gesture will do.
+    dynamicTitle: (chain) =>
+      chain.menu.cardFold?.folded === true ? "Unfold Card" : "Fold Card",
+  },
   ...SLOT_COMMANDS,
   ...NUDGE_SLOT_COMMANDS,
   ...COLUMN_SPLIT_COMMANDS,
@@ -2366,9 +2365,9 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are `toggle-session-fold` and the fold control at Z2's
-    // leading edge — both card-addressed gestures, and this is the one write
-    // path they share.
+    // Its doors are `toggle-card-fold` and a folded card's bidden surfaces —
+    // both card-addressed gestures, and this is the one write path they
+    // share.
     id: TUG_ACTIONS.SET_CARD_FOLDED,
     title: "Set Card Folded",
     routing: "registry",

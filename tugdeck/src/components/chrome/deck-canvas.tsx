@@ -76,6 +76,7 @@ import {
   getStackSizePolicy,
   isSidebarCard,
 } from "@/card-registry";
+import { toggleCardFold } from "@/lib/card-fold";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
@@ -1688,6 +1689,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.MOVE_IN_COLUMN,
   TUG_ACTIONS.SET_PANE_WIDTH,
   TUG_ACTIONS.TOGGLE_BULLSEYE,
+  TUG_ACTIONS.TOGGLE_CARD_FOLD,
   TUG_ACTIONS.NEW_TEXT_CARD,
   TUG_ACTIONS.OPEN_QUICKLY,
   TUG_ACTIONS.CLEAR_RECENT_DOCUMENTS,
@@ -2415,6 +2417,7 @@ const LayerPanes = memo(function LayerPanes({
             stackState={stackState}
             meta={registration.defaultMeta}
             layoutRole={registration.layoutRole}
+            activeComponentId={componentId}
             // A pane is one box shared by every tab in the stack, so
             // its resize floor must clear the widest card kind it
             // hosts — not just the active tab. `getStackSizePolicy`
@@ -3047,6 +3050,27 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const pane = deck.panes.find((p) => p.cardIds.includes(cardId));
         if (!pane) return;
         dispatchCommand(TUG_ACTIONS.SET_BULLSEYE, { paneId: pane.id });
+      },
+      // ⌃⌘Y, View ▸ Fold Card, and the Session card's Z2 control ([B05]).
+      // The fold is the key card's pane's, and the canvas answers it for the
+      // reason it answers bullseye: it is the one responder every walk
+      // reaches, wherever the keyboard is. That includes a portaled surface —
+      // a compacting card's cover, whose Cancel holds the key view and whose
+      // responder parent is not the pane — which `getKeyCard()` resolves
+      // back to its pane through the keyboard focus. The first responder's
+      // card is the fallback for a walk with no key card to name. The card's
+      // own guard runs inside the toggle.
+      [TUG_ACTIONS.TOGGLE_CARD_FOLD]: (_event: ActionEvent) => {
+        const deck = store.getSnapshot();
+        const keyPaneId = managerRef.current?.getKeyCard() ?? null;
+        const responderCardId = store.getFirstResponderCardId();
+        const pane =
+          deck.panes.find((p) => p.id === keyPaneId) ??
+          (responderCardId === null
+            ? undefined
+            : deck.panes.find((p) => p.cardIds.includes(responderCardId)));
+        if (pane === undefined) return;
+        toggleCardFold(pane.activeCardId);
       },
       // open-file / reveal-in-finder — deck-level file-reference
       // actions dispatched by context menus on transcript file refs.
