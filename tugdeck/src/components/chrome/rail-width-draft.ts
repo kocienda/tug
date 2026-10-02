@@ -60,9 +60,13 @@
  * translate comes off, in one task: the geometry the properties now resolve
  * to is the geometry the preview was showing, so no frame paints a jump. Only
  * then does `setRailWidth` commit, so whatever the settle measures as its
- * first rect is already the last. The member frames stay marked
- * `data-pointer-owned` until React has rendered that commit, so the settle
- * never treats a hand-placed rail as one it must carry.
+ * first rect is already the last. The member frames' `data-pointer-owned`
+ * comes off BEFORE the commit, as a seam drag's does: the settle looks for it
+ * twice — at the arm, inside the commit, and in the layout effect of the
+ * render the commit causes, which the gesture scope holds past the next
+ * paint — and a frame the arm skipped but the later look does not is read as
+ * an ARRIVAL, held invisible and faded back up. Cleared first, every member
+ * gets a First rect equal to its Last, and the settle carries it nowhere.
  *
  * **The rollback belongs to whoever wrote the draft** ([L32]). Every inline
  * style this writes is saved first and given back on cancel; every
@@ -484,7 +488,7 @@ class RailWidthDraft implements RailWidthGesture {
     }
     this.fadeReadout(draft, null);
     this.restore(draft);
-    this.release(draft, true);
+    this.release(draft);
   }
 
   /** The canvas is going: any open draft is cancelled and every readout,
@@ -501,7 +505,6 @@ class RailWidthDraft implements RailWidthGesture {
   /** The commit proper: the width property takes `width`, the preview comes
    *  off, and the store commits — in one task. */
   private land(draft: Draft, width: number): void {
-    let committed = false;
     try {
       // The hand-over: the property the arrangement resolves against takes
       // the width the preview was showing, and the preview comes off, in one
@@ -512,10 +515,12 @@ class RailWidthDraft implements RailWidthGesture {
         el.style.setProperty(property, `${width}px`);
       }
       this.restore(draft);
+      // Off before the commit, so the settle's arm measures the members where
+      // they now stand rather than skipping them (see the module docblock).
+      for (const el of draft.members) el.removeAttribute("data-pointer-owned");
       this.store.setRailWidth(draft.side, width);
-      committed = true;
     } finally {
-      this.release(draft, !committed);
+      this.release(draft);
     }
   }
 
@@ -594,14 +599,8 @@ class RailWidthDraft implements RailWidthGesture {
 
   /**
    * Every acquisition `begin` and the latch made, given back. Idempotent.
-   *
-   * The members' marks come off at once on a cancel, and only after React has
-   * rendered the commit otherwise: the settle the commit arms looks for them
-   * twice — before the render and in its layout effect after it — and a mark
-   * gone by the second look reads as a frame that arrived from nowhere. A
-   * task queued now runs after the microtask that render is flushed in.
    */
-  private release(draft: Draft, liftMarksNow: boolean): void {
+  private release(draft: Draft): void {
     if (this.draft !== draft) return;
     this.draft = null;
     if (draft.rafId !== null) {
@@ -619,11 +618,7 @@ class RailWidthDraft implements RailWidthGesture {
     }
     if (draft.readout !== null) this.fadeReadout(draft, null);
     if (draft.latched) {
-      const lift = (): void => {
-        for (const el of draft.members) el.removeAttribute("data-pointer-owned");
-      };
-      if (liftMarksNow) lift();
-      else setTimeout(lift, 0);
+      for (const el of draft.members) el.removeAttribute("data-pointer-owned");
       paneOcclusionGesture.end();
     }
     for (const episode of draft.episodes) episode.end();
