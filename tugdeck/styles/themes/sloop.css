@@ -97,7 +97,7 @@ body {
      ground (light-on-dark, like drafting paper), not a dark stroke. sunken/screen
      are recessed-within-card and tooltip surfaces, so they stay light and
      hold dark default text. */
-  --tug7-surface-global-primary-normal-canvas-rest: --tug-color(cerulean, l: 380, c: 20);
+  --tug7-surface-global-primary-normal-canvas-rest: --tug-color(indigo, l: 380, c: 20);
   --tug7-surface-global-primary-normal-content-rest: --tug-color(indigo, l: 985, c: 4);
   --tug7-surface-global-primary-normal-control-rest: var(--tug7-surface-control-primary-outlined-action-rest);
   --tug7-surface-global-primary-normal-default-rest: --tug-color(indigo, l: 985, c: 4);

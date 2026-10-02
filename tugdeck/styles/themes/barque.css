@@ -94,7 +94,7 @@ body {
   --tug7-surface-global-primary-normal-overlay-rest: --tug-color(grape, l: 310, c: 20);
   --tug7-surface-global-primary-normal-raised-rest: --tug-color(grape, l: 280, c: 20);
   --tug7-surface-global-primary-normal-screen-rest: --tug-color(grape, l: 330, c: 40);
-  --tug7-surface-global-primary-normal-sunken-rest: --tug-color(plum, l: 270, c: 20);
+  --tug7-surface-global-primary-normal-sunken-rest: --tug-color(grape, l: 270, c: 20);
 
   /* Element — Text */
   --tug7-element-global-text-normal-default-rest: --tug-color(grape, l: 930, c: 20);
@@ -713,7 +713,7 @@ body {
   --tug7-element-control-text-normal-plain-disabled: --tug-color(grape, l: 590, c: 40);
   --tug7-element-control-text-normal-selected-rest: --tug-color(purple, l: 930, c: 20);
   --tug7-surface-control-primary-normal-highlighted-rest: --tug-color(purple, l: 740, c: 240, a: 100);
-  --tug7-surface-control-primary-normal-plain-disabled: --tug-color(plum, l: 400, c: 20);
+  --tug7-surface-control-primary-normal-plain-disabled: --tug-color(grape, l: 400, c: 20);
   --tug7-surface-control-primary-normal-selected-disabled: --tug-color(purple, l: 740, c: 240, a: 100);
   --tug7-surface-control-primary-normal-selected-hover: --tug-color(purple, l: 740, c: 240, a: 240);
   --tug7-surface-control-primary-normal-selected-rest: --tug-color(purple, l: 740, c: 240, a: 180);
@@ -738,8 +738,8 @@ body {
   --tug7-element-field-text-normal-required-rest: --tug-color(red, l: 770, c: 340);
   --tug7-surface-field-primary-normal-plain-disabled: --tug-color(red, l: 210, c: 40);
   --tug7-surface-field-primary-normal-plain-focus: --tug-color(grape, l: 300, c: 60);
-  --tug7-surface-field-primary-normal-plain-hover: --tug-color(plum, l: 270, c: 20);
-  --tug7-surface-field-primary-normal-plain-readonly: --tug-color(plum, l: 270, c: 20);
+  --tug7-surface-field-primary-normal-plain-hover: --tug-color(grape, l: 270, c: 20);
+  --tug7-surface-field-primary-normal-plain-readonly: --tug-color(grape, l: 270, c: 20);
   --tug7-surface-field-primary-normal-plain-rest: --tug-color(grape, l: 290, c: 20);
 
   /* Indicator */
@@ -804,7 +804,7 @@ body {
   --tug7-surface-toggle-track-normal-on-disabled: --tug-color(purple, l: 670, c: 100);
   --tug7-surface-toggle-track-normal-on-hover: --tug-color(purple, l: 760, c: 260);
   --tug7-surface-toggle-track-normal-on-rest: --tug-color(purple, l: 670, c: 380);
-  --tug7-surface-toggle-track-normal-plain-disabled: --tug-color(plum, l: 400, c: 20);
+  --tug7-surface-toggle-track-normal-plain-disabled: --tug-color(grape, l: 400, c: 20);
   --tug7-surface-toggle-track-normal-accent-disabled: --tug-color(orange, l: 680, c: 80);
   --tug7-surface-toggle-track-normal-accent-hover: --tug-color(orange, l: 730, c: 360);
   --tug7-surface-toggle-track-normal-accent-rest: --tug-color(orange, l: 680, c: 320);
@@ -992,7 +992,7 @@ body {
   --tug7-element-atom-icon-normal-session-rest: --tug-color(plum, l: 770, c: 240);
 
   /* Skeleton */
-  --tug7-surface-skeleton-primary-normal-default-rest: --tug-color(plum, l: 350, c: 20);
+  --tug7-surface-skeleton-primary-normal-default-rest: --tug-color(grape, l: 350, c: 20);
   --tug7-surface-skeleton-primary-normal-default-active: --tug-color(grape, l: 370, c: 20);
 
   /* Other */
