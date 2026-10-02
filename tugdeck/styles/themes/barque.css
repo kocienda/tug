@@ -281,7 +281,7 @@ body {
   --tug7-element-tab-text-normal-plain-hover: --tug-color(grape, l: 910, c: 20);
   --tug7-element-tab-text-normal-plain-rest: --tug-color(grape, l: 790, c: 40);
   --tug7-element-tab-close-normal-plain-hover: --tug-color(grape, l: 910, c: 20);
-  --tug7-surface-tab-primary-normal-plain-active: --tug-color(grape, l: 320, c: 80);
+  --tug7-surface-tab-primary-normal-plain-active: --tug-color(grape, l: 320, c: 20);
   --tug7-surface-tab-primary-normal-plain-collapsed: --tug-color(grape, l: 310, c: 20);
   --tug7-surface-tab-primary-normal-plain-hover: --tug-color(white, a: 80);
   --tug7-surface-tab-primary-normal-plain-inactive: --tug-color(grape, l: 310, c: 20);
@@ -301,9 +301,9 @@ body {
   --tug7-element-split-icon-normal-grip-active: --tug-color(grape, l: 500, c: 440);
 
   /* Card — Title Bar */
-  --tug7-surface-card-primary-normal-titlebar-active: --tug-color(grape, l: 320, c: 80);
-  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(grape, l: 310, c: 33);
-  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(grape, l: 300, c: 24);
+  --tug7-surface-card-primary-normal-titlebar-active: --tug-color(grape, l: 320, c: 20);
+  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(grape, l: 310, c: 20);
+  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(grape, l: 300, c: 20);
 
   /* Card — Status Bar (Z2 placement zone at bottom of top split-panel) */
   --tug7-surface-card-primary-normal-status-rest: --tug-color(grape, l: 280, c: 20);
@@ -737,7 +737,7 @@ body {
   --tug7-element-field-text-normal-plain-rest: --tug-color(grape, l: 930, c: 20);
   --tug7-element-field-text-normal-required-rest: --tug-color(red, l: 770, c: 340);
   --tug7-surface-field-primary-normal-plain-disabled: --tug-color(red, l: 210, c: 40);
-  --tug7-surface-field-primary-normal-plain-focus: --tug-color(grape, l: 300, c: 60);
+  --tug7-surface-field-primary-normal-plain-focus: --tug-color(grape, l: 300, c: 20);
   --tug7-surface-field-primary-normal-plain-hover: --tug-color(grape, l: 270, c: 20);
   --tug7-surface-field-primary-normal-plain-readonly: --tug-color(grape, l: 270, c: 20);
   --tug7-surface-field-primary-normal-plain-rest: --tug-color(grape, l: 290, c: 20);
@@ -751,7 +751,7 @@ body {
      Hand-tune to taste. */
   --tug7-element-indicator-border-normal-plain-rest: --tug-color(grape, l: 500, c: 20);
   --tug7-element-indicator-text-normal-plain-rest: --tug-color(grape, l: 750, c: 20);
-  --tug7-surface-indicator-primary-normal-plain-rest: --tug-color(grape, l: 270, c: 80);
+  --tug7-surface-indicator-primary-normal-plain-rest: --tug-color(grape, l: 270, c: 20);
 
   /* Toggle */
   --tug7-element-checkmark-icon-normal-plain-mixed: --tug-color(grape, l: 910, c: 20);
