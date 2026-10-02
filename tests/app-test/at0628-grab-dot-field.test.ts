@@ -131,6 +131,14 @@ const PITCH = 4;
 const DOT = 1;
 const FIELD_BLOCK_SIZE = `${(ROWS - 1) * PITCH + DOT}px`;
 
+/**
+ * The handle's FLOOR — the run the field keeps however long the title, so the
+ * dots are always reserved. Counted in columns and derived the same way as the
+ * block-size: eight columns on a 4px pitch is 29px.
+ */
+const MIN_COLUMNS = 8;
+const FIELD_MIN_INLINE = (MIN_COLUMNS - 1) * PITCH + DOT;
+
 /** The rail's trailing stripe band — three 1px lines on a 3px pitch. */
 const STRIPE_BLOCK_SIZE = "7px";
 
@@ -577,6 +585,71 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
           );
           expect(after.titleRight, `${what}: nor its elision point`).toBe(before.titleRight);
         }
+
+        // ---- 4b. THE FLOOR IS ALWAYS RESERVED. A title too long for its line
+        // elides against the field's floor; it never squeezes the field away.
+        // The title's content is forced wider than any line, which is the
+        // longest name there could be, and every tier's handle must still hold
+        // the floor, its field must still fill it, and it must still stop
+        // short of the line's reserved trailing run.
+        await app.evalJS<null>(
+          `(function () {
+             var st = document.createElement("style");
+             st.id = "at0628-long-title";
+             st.textContent =
+               ".tug-list-row-title .tug-label-text > *, .tug-pane-title" +
+               " { inline-size: 4000px !important; max-inline-size: none !important; }";
+             document.head.appendChild(st);
+             return null;
+           })()`,
+        );
+        await wait(200);
+        const floors = await app.evalJS<
+          Array<{ what: string; handle: number; dots: number; overrun: number } | null>
+        >(
+          `(function (hosts) {
+             return hosts.map(function (h) {
+               var host = document.querySelector(h[1]);
+               var handle = host === null ? null : host.querySelector(".tug-pane-grab-handle");
+               if (handle === null) return null;
+               var dots = handle.querySelector(".tug-pane-grab-dots");
+               var hb = handle.getBoundingClientRect();
+               var cs = getComputedStyle(host);
+               var hostBox = host.getBoundingClientRect();
+               var contentRight = hostBox.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+               return {
+                 what: h[0],
+                 handle: +hb.width.toFixed(2),
+                 dots: dots === null ? 0 : +dots.getBoundingClientRect().width.toFixed(2),
+                 overrun: +(hb.right - contentRight).toFixed(2)
+               };
+             });
+           })(${JSON.stringify([
+             ["the utility tier", UTILITY_BAR],
+             ["the session tier", `${SESSION_FRAME} .tug-session-row-name-line`],
+             ["the document tier", `${DOC_FRAME} .tug-session-row-name-line`],
+           ])})`,
+        );
+        note(`under a too-long title: ${JSON.stringify(floors)}`);
+        for (const f of floors) {
+          expect(f, "the handle is mounted under a long title").not.toBeNull();
+          if (f === null) continue;
+          expect(f.handle, `${f.what}: the handle keeps its floor`).toBeGreaterThanOrEqual(
+            FIELD_MIN_INLINE - 0.5,
+          );
+          expect(f.dots, `${f.what}: and the field fills it`).toBeCloseTo(f.handle, 1);
+          expect(f.overrun, `${f.what}: and it stops short of the reserve`).toBeLessThanOrEqual(
+            0.5,
+          );
+        }
+        await app.evalJS<null>(
+          `(function () {
+             var st = document.getElementById("at0628-long-title");
+             if (st !== null && st.parentNode !== null) st.parentNode.removeChild(st);
+             return null;
+           })()`,
+        );
+        await wait(200);
 
         // ---- 5. Only the handle DRAGS, which is the claim the rest of this
         // file only describes.

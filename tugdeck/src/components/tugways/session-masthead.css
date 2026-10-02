@@ -87,8 +87,9 @@
    The consequence is accepted rather than unnoticed: a long callsign now
    elides against what the field leaves it rather than against the whole line,
    AT REST as much as on hover, because the field holds its space either way.
-   The field's own `min-inline-size` is the floor that keeps it from being
-   squeezed to a sliver that would read as dirt.
+   The handle's `min-inline-size` — `--tugx-pane-dot-min-columns` dots, in
+   `tug-pane.css` — is the floor the title elides against, so the field is
+   always reserved and never squeezed to a sliver that would read as dirt.
 
    Because the field lives on this line and this line reserves the cluster, it
    can never run under the controls however wide they measure — and it follows

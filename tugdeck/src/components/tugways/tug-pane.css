@@ -760,12 +760,18 @@ body {
 
    Declared on the PANE rather than on the bar, because the masthead tiers draw
    the field on their own name line — a descendant of the bar — from these same
-   knobs, and their rules live with their tiers. */
+   knobs, and their rules live with their tiers.
+
+   `--tugx-pane-dot-min-columns` is the field's FLOOR, in dots rather than
+   pixels: however long the title, the run never gives up fewer columns than
+   this. Counted in columns so the floor closes on a whole dot at any pitch —
+   the same `(n - 1) × pitch + dot` derivation the field's block-size takes. */
 .tug-pane {
   --tugx-pane-dot-size: 1px;
 
   --tugx-pane-dot-pitch: 4px;
   --tugx-pane-dot-rows: 3;
+  --tugx-pane-dot-min-columns: 8;
 }
 
 /* ── The stencil ──────────────────────────────────────────────────────────
@@ -855,7 +861,13 @@ body {
   display: flex;
   align-items: center;
   flex: 1 1 0;
-  min-inline-size: var(--tug-space-lg);
+  /* The floor is always reserved: the title elides before the dots go below
+     it. A 12px floor shipped first and was three dots — a sliver that read as
+     dirt rather than as a handle, and a mean target besides. */
+  min-inline-size: calc(
+    (var(--tugx-pane-dot-min-columns) - 1) * var(--tugx-pane-dot-pitch) +
+      var(--tugx-pane-dot-size)
+  );
   align-self: stretch;
   cursor: grab;
 }
