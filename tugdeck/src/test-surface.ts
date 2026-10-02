@@ -553,6 +553,9 @@ export interface SeedDeckStateArgs {
  *  - `interrupt` — `store.interrupt()`.
  *  - `transportClose` / `transportReconnect` — drive the transport
  *    overlay without touching the real shared connection.
+ *  - `transportSettled` — `store.notifyTransportSettled()`, the binding
+ *    re-ack that lifts `restoring` back to `online`. A harness bind never
+ *    enters the restore registry, so nothing else delivers it.
  *  - `loadPrevious` — `store.loadPrevious(amount)`; pages older turns above
  *    the loaded window (the response replay bracket is then injected via
  *    `ingestFrame`). Exercises backward paging and the prepend path.
@@ -578,6 +581,7 @@ export type SessionDriveAction =
   | { op: "interrupt" }
   | { op: "transportClose" }
   | { op: "transportReconnect" }
+  | { op: "transportSettled" }
   | { op: "loadPrevious"; amount: number | "all" }
   | {
       op: "shellExchange";
@@ -2961,6 +2965,9 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           return;
         case "transportReconnect":
           store._simulateTransportForTest("reconnect");
+          return;
+        case "transportSettled":
+          store.notifyTransportSettled();
           return;
         case "loadPrevious":
           store.loadPrevious(action.amount);

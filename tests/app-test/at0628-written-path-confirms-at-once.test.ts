@@ -5,24 +5,23 @@
  * This is [F23]'s shape, end to end against the real app. A brief-writing
  * turn names its path in a `Write` tool block, the annotator probes that path
  * *then* — before the bytes are on disk — and records `missing`. The verdict
- * is trusted for a minute. Then the same turn prints its hand-off line, the
- * reader right-clicks it, and `slashCommandFacts` reads a `missing` recorded
- * from before the write: both Run rows dim over a file that is really there.
+ * is trusted for a minute, so the path stays plain ink for a minute over a
+ * file that is really there.
  *
  * The repair is the resolver's third door. A live `Write` or `Edit` result,
  * and a `TUG-FILE-RECEIPT` on a shell result, are the session's own word that
  * a file landed, and the transcript hands those paths to the store as
  * confirmed rather than waiting out the retry. So:
  *
- *   1. The command line renders and the resolver answers `missing` — the
- *      brief is genuinely not on disk. Both Run rows are dimmed, which is the
- *      state this test exists to get out of.
+ *   1. The hand-off renders and the resolver answers `missing` — the brief is
+ *      genuinely not on disk, so its path is not a link. The Run rows are live
+ *      regardless: an offered run is never dimmed over its arguments.
  *   2. A live turn lands a `Write` naming that same path.
- *   3. The next right-click finds both Run rows live.
+ *   3. The brief's path becomes a link at once, not a minute later.
  *
  * **The file is never created on disk, deliberately.** That is what makes the
  * assertion discriminating: nothing but the tool result can account for the
- * rows coming back, so a green run cannot be a probe that happened to land or
+ * link appearing, so a green run cannot be a probe that happened to land or
  * a filesystem frame that happened to arrive. What is under test is that the
  * deck takes its own tool's word for a write it watched happen.
  *
@@ -151,6 +150,13 @@ const replayComplete = () => ({
 type App = Awaited<ReturnType<typeof launchTugApp>>;
 type Row = { action: string; disabled: boolean };
 
+/** How many paths in card A's prose the resolver has confirmed into links. */
+async function fileLinkCount(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `document.querySelectorAll('[data-card-id="A"] [data-tug-annotation="file-path"]').length`,
+  );
+}
+
 /** Right-click the command line, read every menu row, and dismiss the menu. */
 async function readMenuRows(app: App): Promise<Row[]> {
   await app.evalJS(
@@ -240,8 +246,9 @@ describe.skipIf(!SHOULD_RUN)("AT0628: a write the session watched", () => {
           `document.querySelector('[data-card-id="A"] [data-tug-annotation="file-path"]') !== null`,
           { timeoutMs: 15_000 },
         );
-        const dimmed = runRows(await readMenuRows(app));
-        expect(dimmed.map((r) => r.disabled)).toEqual([true, true]);
+        expect(await fileLinkCount(app)).toBe(1);
+        const before = runRows(await readMenuRows(app));
+        expect(before.map((r) => r.disabled)).toEqual([false, false]);
 
         // --- 2. A live turn writes the file ------------------------------
         // `send` opens a live turn — the `tool_result` below is then a live
@@ -265,7 +272,11 @@ describe.skipIf(!SHOULD_RUN)("AT0628: a write the session watched", () => {
         });
         await ingest(turnDone("m2"));
 
-        // --- 3. The same right-click, now live ---------------------------
+        // --- 3. The brief's path is a link now, and the rows still live ---
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll('[data-card-id="A"] [data-tug-annotation="file-path"]').length >= 2`,
+          { timeoutMs: 5_000 },
+        );
         const live = runRows(await readMenuRows(app));
         expect(live.length).toBe(2);
         expect(live.map((r) => r.disabled)).toEqual([false, false]);

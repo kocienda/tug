@@ -25,8 +25,10 @@
  *
  * The menu itself is the fifth thing under test: all three rows are present
  * on a live card, in the registry's order, with the runs ahead of the copies
- * ([B03]) — a menu whose height moves between right-clicks is the thing the
- * dim-don't-drop rule exists to prevent.
+ * ([B03]) — and an offered run is always live, even when the brief its
+ * argument names is not on disk: the run is what the reader asked for, and an
+ * argument it cannot use is the run's to report, not a reason to refuse the
+ * click.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -66,9 +68,7 @@ let projectDir = "";
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   projectDir = mkdtempSync(join(tmpdir(), "at0560-run-brief-"));
-  // The args name a real file, so the run rows are live rather than dimmed:
-  // a path the resolver looked for and did not find is one of the two things
-  // that dims them.
+  // The args name a real file — the menu test takes it away for its own run.
   mkdirSync(join(projectDir, "briefs"), { recursive: true });
   writeFileSync(join(projectDir, BRIEF), "# A thing\n");
 });
@@ -207,6 +207,8 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
   test(
     "the menu offers both runs ahead of the copies, live",
     async () => {
+      // No brief on disk: the rows must stay live regardless.
+      rmSync(join(projectDir, BRIEF), { force: true });
       const app = await seedCardWithCommandLine("at0560-run-brief-menu");
       try {
         await openCommandMenu(app);
@@ -226,8 +228,8 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         expect(actions.indexOf("run-command-here")).toBe(0);
         expect(actions.indexOf("run-command-in-new-session")).toBe(1);
         expect(actions.indexOf("copy-command")).toBe(2);
-        // A live card with a composer and a brief that is really there: both
-        // runs stand, which is what makes the dim state meaningful elsewhere.
+        // A live card with a composer: both runs stand, and the missing brief
+        // dims neither.
         expect(rows[0].disabled).toBe(false);
         expect(rows[1].disabled).toBe(false);
         process.stdout.write("VERDICT: PASS\n");
@@ -238,6 +240,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         throw err;
       } finally {
         await app.close();
+        writeFileSync(join(projectDir, BRIEF), "# A thing\n");
       }
     },
     TEST_TIMEOUT_MS,

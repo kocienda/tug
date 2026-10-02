@@ -133,19 +133,10 @@ export type AnnotationMenuFacts =
       kind: "slash-command";
       /**
        * A composer this surface could run the command in. False on a surface
-       * showing commands with nowhere to send one — the two runs are then
-       * dimmed rather than dropped, so the menu's height does not move
-       * between one right-click and the next.
+       * showing commands with nowhere to send one, and the two runs are then
+       * not offered at all.
        */
       hasComposer: boolean;
-      /**
-       * The args name a file path the surface asked about and did not find.
-       * False when they name no path at all, and false while an answer is
-       * still pending: a path resolves asynchronously, and dimming on a
-       * question nobody has answered yet would dim the row for the beat
-       * before the verdict lands.
-       */
-      argsPathMissing: boolean;
     };
 
 /**
@@ -432,12 +423,13 @@ const commandMenuEntries = (
  * unchanged and sits below a rule, which is the order every other kind's menu
  * takes — reach it, take it, send it.
  *
- * **The rows dim; they never vanish.** A surface with no composer cannot run
- * anything, and a command whose args name a file that is not there would run
- * against nothing — both are reasons a reader can act on, and both leave the
- * menu the same height. A surface that knows only the payload (`{ kind:
- * "none" }`) offers them live, which is the can-stand-behind form: it has been
- * told nothing that would stop the run.
+ * **An offered run is always live.** A surface with no composer cannot run
+ * anything, so it does not offer the rows at all; every surface that offers
+ * them can run them. Nothing about the command's arguments dims a row: the
+ * reader asked for the run, and an argument the run cannot use is the run's
+ * to report, not a reason to refuse the click. A surface that knows only the
+ * payload (`{ kind: "none" }`) offers them, which is the can-stand-behind
+ * form: it has been told nothing that would stop the run.
  *
  * The rows are general to every slash command rather than special-cased to
  * any one of them. `/arc` on a brief is the first customer, not the only one.
@@ -447,21 +439,17 @@ const slashCommandMenuEntries = (
   facts: AnnotationMenuFacts,
 ): AnnotationMenuEntry[] => {
   const known = facts.kind === "slash-command" ? facts : null;
-  const cannotRun =
-    known !== null && (!known.hasComposer || known.argsPathMissing);
+  const canRun = known === null || known.hasComposer;
   return buildEntityMenu(payload, {
-    act: [
-      {
-        action: TUG_ACTIONS.RUN_COMMAND_HERE,
-        label: "Run in This Session",
-        disabled: cannotRun,
-      },
-      {
-        action: TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
-        label: "Run in New Session",
-        disabled: cannotRun,
-      },
-    ],
+    act: canRun
+      ? [
+          { action: TUG_ACTIONS.RUN_COMMAND_HERE, label: "Run in This Session" },
+          {
+            action: TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
+            label: "Run in New Session",
+          },
+        ]
+      : [],
     copy: COMMAND_MENU_ENTRIES,
     send: [insertEntry(payload)],
   });

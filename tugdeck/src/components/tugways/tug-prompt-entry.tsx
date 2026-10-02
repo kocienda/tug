@@ -1851,6 +1851,14 @@ export const TugPromptEntry = React.forwardRef<
   // it directly for a seeded run.
   const pendingSubmitRef = useRef(false);
 
+  // Release a menu run's slot once its draft is taken — sent, dispatched as a
+  // local command, refused with a notice, or routed to the shell. Idempotent:
+  // a submit with no run behind it finds the slot already empty. See the
+  // command-insert effect below for why a run's slot outlives its seed.
+  const releaseRunSlot = useCallback((): void => {
+    codeSessionStore.consumePendingCommandInsert();
+  }, [codeSessionStore]);
+
   // Command insert ([P03]/[P04]). A click on a known slash command in the
   // transcript parks `{ name, args }` on the code-session store; this
   // effect observes the slot, seeds the editor with the atomized command —
@@ -1881,6 +1889,18 @@ export const TugPromptEntry = React.forwardRef<
   // The run is an explicit gesture, so it waits for `canSubmit` the way a
   // blocked Return does, and the flush effect below sends it.
   //
+  // **A run keeps its slot until it is taken.** The click's slot is consumed
+  // the moment it is seeded, because a seeded draft is the composer's to own.
+  // A run's is not: it is the record of a turn the reader asked for, and the
+  // composer is only where it waits. A fresh card is exactly where a seeded
+  // draft gets overwritten before it can send — the card host's one-shot
+  // content restore runs after this effect, and a remount brings up an
+  // instance that never saw the seed — and a run that lived only in the
+  // editor went with it, leaving an empty composer and nothing to say why.
+  // So the slot stays set until `performSubmit` takes the draft
+  // (`releaseRunSlot`), `onRestore` leaves the editor alone while it is set,
+  // and a remounted entry seeds it again on mount.
+  //
   // The args are atomized on the way in: `atomizeCommandArgs` mints the file
   // chip the `@` completion would have placed for each `@path` token, so a
   // clicked `/arc x @briefs/y.md` seeds the same substrate as the line typed
@@ -1905,8 +1925,10 @@ export const TugPromptEntry = React.forwardRef<
       ]),
     );
     editor.focus();
-    codeSessionStore.consumePendingCommandInsert();
-    if (!submit) return;
+    if (!submit) {
+      codeSessionStore.consumePendingCommandInsert();
+      return;
+    }
     const live = snapRef.current;
     if (live.canSubmit || live.canInterrupt) void performSubmitRef.current?.();
     else pendingSubmitRef.current = true;
@@ -2801,6 +2823,7 @@ export const TugPromptEntry = React.forwardRef<
           // recent entry, including this one.
           currentHistoryProviderRef.current.resetToDraft(EMPTY_EDIT_STATE);
           persistClearedDraft();
+          releaseRunSlot();
           return;
         }
       }
@@ -2853,6 +2876,7 @@ export const TugPromptEntry = React.forwardRef<
             });
             editor.clear();
             currentHistoryProviderRef.current.resetToDraft(EMPTY_EDIT_STATE);
+            releaseRunSlot();
             return;
           }
         }
@@ -2952,6 +2976,7 @@ export const TugPromptEntry = React.forwardRef<
     const shellStore = shellSessionStoreRef.current;
     const routeToShell = (line: string): void => {
       shellStore?.exec(line, { origin: "auto" });
+      releaseRunSlot();
       // Auto-routed submissions were typed as prompt input, so record the
       // raw line under the prompt route.
       const sessionId = snapRef.current.tugSessionId;
@@ -3118,6 +3143,7 @@ export const TugPromptEntry = React.forwardRef<
     }
 
     codeSessionStore.send(wireText, wireAtoms);
+    releaseRunSlot();
     // Record the submission in per-session history, keyed by the
     // session's id. The route field pins to Code so the Code provider
     // recalls it ([P11]). Captured before clear so the live state is
@@ -3196,6 +3222,7 @@ export const TugPromptEntry = React.forwardRef<
     attachmentBytesStore,
     registerAtomPathBackfill,
     setArbitrating,
+    releaseRunSlot,
   ]);
 
   // Live ref to `performSubmit` for the command-insert effect above, which
@@ -3661,7 +3688,11 @@ export const TugPromptEntry = React.forwardRef<
         rehydrateDraftAttachments(restored.attachmentBytes, attachmentBytesStore);
       }
       const editor = textEditorRef.current;
-      if (editor !== null) {
+      // A menu run waiting to send outranks a saved draft: restoring over it
+      // is how a fresh card lost the command it was opened to run.
+      const runPending =
+        codeSessionStore.getSnapshot().pendingCommandInsert?.submit === true;
+      if (editor !== null && !runPending) {
         if (restored.draft !== null) {
           // restoreState updates the substrate's doc + atoms +
           // selection without touching DOM Selection or focus

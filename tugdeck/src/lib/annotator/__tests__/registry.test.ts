@@ -145,11 +145,11 @@ describe("command kinds replace the standard menu block", () => {
   });
 
   /**
-   * [B08]/[F05]: a run a surface cannot perform right now is dimmed, never
-   * dropped — the menu is the same height on every right-click, and the
-   * reason it is dim is a fact the surface supplied rather than a guess.
+   * An offered run is always live. A surface with no composer to run in does
+   * not offer the rows; every surface that offers them can run them, and
+   * nothing about the command's arguments dims one.
    */
-  describe("the runs dim rather than vanish", () => {
+  describe("an offered run is always live", () => {
     const runs = (facts: Parameters<
       NonNullable<ReturnType<typeof annotationEntryFor>>["menuEntries"]
     >[1]) =>
@@ -159,42 +159,34 @@ describe("command kinds replace the standard menu block", () => {
 
     test("a surface that knows only the payload offers them live", () => {
       expect(runs({ kind: "none" }).map((e) => e.disabled)).toEqual([
-        false,
-        false,
+        undefined,
+        undefined,
       ]);
     });
 
-    test("a surface with a composer and a path that resolves offers them live", () => {
-      expect(
-        runs({
-          kind: "slash-command",
-          hasComposer: true,
-          argsPathMissing: false,
-        }).map((e) => e.disabled),
-      ).toEqual([false, false]);
-    });
-
-    test("no composer dims both, and both are still there", () => {
-      const entries = runs({
-        kind: "slash-command",
-        hasComposer: false,
-        argsPathMissing: false,
-      });
+    test("a surface with a composer offers both, live", () => {
+      const entries = runs({ kind: "slash-command", hasComposer: true });
       expect(entries.map((e) => e.label)).toEqual([
         "Run in This Session",
         "Run in New Session",
       ]);
-      expect(entries.map((e) => e.disabled)).toEqual([true, true]);
+      expect(entries.map((e) => e.disabled)).toEqual([undefined, undefined]);
     });
 
-    test("a path the surface could not find dims both", () => {
+    test("no composer offers neither, and the copies still lead the menu", () => {
+      expect(runs({ kind: "slash-command", hasComposer: false })).toEqual([]);
       expect(
-        runs({
-          kind: "slash-command",
-          hasComposer: true,
-          argsPathMissing: true,
-        }).map((e) => e.disabled),
-      ).toEqual([true, true]);
+        annotationEntryFor("slash-command")
+          ?.menuEntries(
+            { kind: "slash-command", name: "arc", args: "x @b.md" },
+            { kind: "slash-command", hasComposer: false },
+          )
+          .map((e) => e.action),
+      ).toEqual([
+        TUG_ACTIONS.COPY_COMMAND,
+        TUG_ACTIONS.COPY_COMMAND_AS_PLAIN_TEXT,
+        TUG_ACTIONS.INSERT_INTO_PROMPT,
+      ]);
     });
   });
 });

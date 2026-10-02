@@ -57,13 +57,11 @@ import type { ActionHandlerResult } from "@/components/tugways/responder-chain";
 import type { TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
 import { annotationFromEvent } from "@/lib/annotator/annotation-element";
-import { scanPathReferences } from "@/lib/annotator/detect-path-reference";
 import {
   annotationEntryFor,
   type AnnotationMenuEntry,
   type AnnotationMenuFacts,
 } from "@/lib/annotator/registry";
-import { pathResolutionStore } from "@/lib/annotator/path-resolution";
 import {
   annotationValue,
   type AnnotationPayload,
@@ -98,15 +96,6 @@ export interface UseAnnotationMenuOptions {
    * not offered at all, rather than offered and dead.
    */
   insertTarget?: PromptInsertTarget;
-  /**
-   * The directory a relative path in this surface's prose is counted from —
-   * the same one its annotation context resolves paths against. Read only to
-   * answer whether a command's `@path` argument is still there, which is one
-   * of the two reasons the run rows dim. Omitted by a surface with no cwd,
-   * and a relative path is then simply not an answer anybody has, which is
-   * not the same as a missing one.
-   */
-  cwd?: string | null;
 }
 
 export interface UseAnnotationMenuResult {
@@ -130,68 +119,17 @@ export interface UseAnnotationMenuResult {
 // ---------------------------------------------------------------------------
 
 /**
- * The file a command's arguments name, bare, or `null` when they name none.
+ * The live fact a slash command's menu reads, from what this surface knows.
  *
- * A command line is not a sentence to parse: the one thing worth knowing
- * here is whether the run would be aimed at a file that is gone, and the
- * argument that carries a file looks like one. What that looks like is the
- * annotator's own path grammar rather than a rule invented here: it peels
- * surrounding punctuation and a trailing `:14` citation, and it already
- * knows that a `scheme://` is a URL and a `~` prefix is a shape nothing
- * resolves. The `@` the composer's mention syntax puts in front is peeled
- * first — that is Tug's marker, not part of the path.
- *
- * **The grammar is permissive on purpose, and here that has a cost the
- * annotator does not pay.** In transcript ink an unresolved candidate simply
- * stays plain text; here it would DIM a row, so `/model vendor/name` would
- * be refused over a slash that never named a file. So a candidate has to
- * declare itself a file as well as look like a path: either the reader wrote
- * the `@` mention marker, or its last segment is a `name.ext` the same
- * grammar recognises. Anything else is a word the command means something by,
- * and this says nothing about it.
- *
- * Only the cwd-relative and absolute shape is answered, because
- * {@link pathResolutionStore} is the only resolver this asks: a bare
- * `name.ext` with no directory on it is the project file index's question,
- * and a run row is not worth a second resolver's plumbing.
- *
- * Exported for the pure-logic test suite.
- */
-export function argsFilePath(args: string): string | null {
-  for (const token of args.split(/\s+/)) {
-    const mentioned = token.startsWith("@");
-    const bare = mentioned ? token.slice(1) : token;
-    if (bare.length === 0) continue;
-    const [reference] = scanPathReferences(bare);
-    if (reference === undefined || reference.shape !== "path") continue;
-    if (mentioned) return reference.path;
-    const base = reference.path.slice(reference.path.lastIndexOf("/") + 1);
-    if (scanPathReferences(base)[0]?.shape === "name") return reference.path;
-  }
-  return null;
-}
-
-/**
- * The live facts a slash command's menu reads, from what this surface knows.
- *
- * Two things dim the run rows and nothing else does: no composer to run in,
- * and an argument naming a file the resolver has looked for and not found.
- * A path nobody has answered about yet is not missing — it is unanswered,
- * and a row that dimmed on it would dim for the beat before the verdict
- * lands and then quietly come back, which is worse than either state.
+ * One thing decides whether the run rows are offered: a composer to run in.
+ * Nothing dims them — a row this surface offers is a row it can run.
  */
 function slashCommandFacts(
-  payload: AnnotationPayload,
   target: PromptInsertTarget | undefined,
-  cwd: string | null,
 ): AnnotationMenuFacts {
-  const path =
-    payload.kind === "slash-command" ? argsFilePath(payload.args) : null;
   return {
     kind: "slash-command",
     hasComposer: target?.runCommand !== undefined,
-    argsPathMissing:
-      path !== null && pathResolutionStore.lookup(path, cwd).state === "missing",
   };
 }
 
@@ -231,7 +169,6 @@ function withOpenOrigin(
 export function useAnnotationMenu({
   originRef,
   insertTarget,
-  cwd = null,
 }: UseAnnotationMenuOptions = {}): UseAnnotationMenuResult {
   // The annotation the current right-click landed on, sampled by
   // `extraEntries` at menu-open time and read by the handlers when the user
@@ -499,13 +436,12 @@ export function useAnnotationMenu({
       const hit = annotationFromEvent(event);
       contextAnnotationRef.current = hit?.payload ?? null;
       if (hit === null) return [];
-      // A slash command is the one kind with facts this surface can answer
-      // for — whether it has a composer to run in, and whether the args
-      // still name a file that is there. Every other kind knows the entity
-      // and nothing else, which is what `{ kind: "none" }` says.
+      // A slash command is the one kind with a fact this surface can answer
+      // for — whether it has a composer to run in. Every other kind knows the
+      // entity and nothing else, which is what `{ kind: "none" }` says.
       const facts: AnnotationMenuFacts =
         hit.payload.kind === "slash-command"
-          ? slashCommandFacts(hit.payload, insertTarget, cwd)
+          ? slashCommandFacts(insertTarget)
           : { kind: "none" };
       const entries =
         annotationEntryFor(hit.payload.kind)?.menuEntries(hit.payload, facts) ??
@@ -522,7 +458,7 @@ export function useAnnotationMenu({
           e.action === TUG_ACTIONS.INSERT_INTO_PROMPT,
       );
     },
-    [insertTarget, cwd, cardId],
+    [insertTarget, cardId],
   );
 
   const hideStandardItems = useCallback((event: MouseEvent): boolean => {

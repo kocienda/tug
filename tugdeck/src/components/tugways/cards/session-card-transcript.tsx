@@ -562,7 +562,6 @@ const UserMessageCell = React.memo(function UserMessageCell({
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
     insertTarget,
-    sessionMetadataStore,
   });
   // The COPY chip's write. `copyText` is what an external app gets; a paste
   // back into Tug gets the substrate itself — text with its U+FFFC positions
@@ -833,7 +832,6 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     insertTarget,
-    sessionMetadataStore,
   });
   // One stable callback ref for both the responder registration and the menu /
   // Select All body anchor. Inline would mint a new function each render, and
@@ -1048,7 +1046,6 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
   const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     insertTarget,
-    sessionMetadataStore,
   });
   const cellRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -1882,7 +1879,6 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
     insertTarget,
-    sessionMetadataStore,
   });
 
   // A compaction-only turn (a `/compact`, or an auto-compact boundary) is not

@@ -259,13 +259,6 @@ export interface TranscriptCellMenuOptions {
    * fixture with no composer to send to; the item is then not offered.
    */
   insertTarget?: PromptInsertTarget;
-  /**
-   * The session whose cwd a relative path in this cell's prose is counted
-   * from. Read for one thing: whether a command's `@path` argument still
-   * names a file, which is what dims the menu's run rows. Omitted by a
-   * fixture, and a relative path is then an answer nobody has.
-   */
-  sessionMetadataStore?: SessionMetadataStore;
 }
 
 // Exported for the copy-wiring app-test fixture (`fixture-transcript-copy`),
@@ -274,7 +267,6 @@ export interface TranscriptCellMenuOptions {
 export function useTranscriptCellMenu({
   resolveCopyMarkdown,
   insertTarget,
-  sessionMetadataStore,
 }: TranscriptCellMenuOptions = {}): {
   ResponderScope: React.FC<{ children: React.ReactNode }>;
   cellProps: TranscriptCellProps;
@@ -288,10 +280,8 @@ export function useTranscriptCellMenu({
   // landed on rather than the cell's selection. Everything below is the
   // surface half — the selection Copy and Select All, which are the cell's
   // own and could not be shared.
-  const cwd = useSessionCwd(sessionMetadataStore);
   const annotation = useAnnotationMenu({
     originRef: bodyRef,
-    cwd,
     ...(insertTarget !== undefined ? { insertTarget } : {}),
   });
   // Live-ref the resolver ([L07]) so `handleCopy` keeps a stable
