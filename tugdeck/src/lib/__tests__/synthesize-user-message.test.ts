@@ -804,3 +804,54 @@ describe("synthesizeUserMessageFromBlocks — the `tug:session-refs` block", () 
     expect(synth.text).toBe("what does <!-- tug:session-refs --> mean?");
   });
 });
+
+describe("synthesizeUserMessageFromBlocks — the `tug:landings` block", () => {
+  const LANDINGS_BLOCK: ContentBlock = {
+    type: "text",
+    text:
+      "<!-- tug:landings -->\n"
+      + "Since your last turn (the user's acts; your view of the tree may be stale):\n"
+      + "- committed 302d43b5d1 · 1 file(s) · +3 −0 · \"Fix it\" — paths: `@session:x/y` — these changes are committed and no longer uncommitted in the working tree",
+  };
+
+  test("the block renders no text and mints no atom", () => {
+    // The fact sheet is tugcast's note to the model; even a path in it that
+    // looks like a marker must not become a chip in the user's row.
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "hello" }, LANDINGS_BLOCK],
+      store,
+    );
+    expect(synth.text).toBe("hello");
+    expect(synth.atoms).toEqual([]);
+  });
+
+  test("beside a session-refs block, both are stripped and the identity still lands", () => {
+    const ID = "0f3c1e5a-1111-2222-3333-444455556666";
+    const DIR = "/u/src/eucit";
+    const refs: ContentBlock = {
+      type: "text",
+      text:
+        "<!-- tug:session-refs -->\n"
+        + "Session references in this message:\n"
+        + `- @session:eucit/curly-apple — uuid ${ID}, project ${DIR}, verdict: here — read: tugtool session show ${ID}`,
+    };
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "see `@session:eucit/curly-apple`" }, refs, LANDINGS_BLOCK],
+      store,
+    );
+    expect(synth.text).toBe(`see ${C}`);
+    expect(synth.atoms).toHaveLength(1);
+    expect(synth.atoms[0].session).toEqual({ id: ID, projectDir: DIR });
+  });
+
+  test("prose that merely mentions the marker is still prose", () => {
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "what does <!-- tug:landings --> mean?" }],
+      store,
+    );
+    expect(synth.text).toBe("what does <!-- tug:landings --> mean?");
+  });
+});

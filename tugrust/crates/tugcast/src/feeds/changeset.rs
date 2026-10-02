@@ -2306,6 +2306,161 @@ pub(crate) fn format_push_summary(receipt: &PushReceipt) -> String {
     format!("{header}\n{}", receipt.subjects.join("\n"))
 }
 
+/// How many characters of a landing's subject the model is shown.
+const LANDING_SUBJECT_LEN: usize = 72;
+/// How many of a landing's paths the model is shown.
+const LANDING_PATHS_SHOWN: usize = 6;
+/// How many landings one block lists; older ones are counted, not listed.
+const LANDING_LINES_SHOWN: usize = 12;
+
+/// One landing, as the model reads it in the `tug:landings` block — derived
+/// from the `(command, output)` pair the shell ledger holds, by parsing the
+/// durable summaries the receipt writers above already persist.
+///
+/// The line is the receipt's header, the subject and a capped path list where
+/// the receipt has them, and the one consequence the model must update on,
+/// after a final ` — `. Every consequence starts with one of
+/// [`tugcore::session_transcript::LANDING_CONSEQUENCE_PREFIXES`], which is how
+/// `tugtool session show` tells a consequence from an em dash the user wrote.
+///
+/// `None` for a command that is not told, for an empty output, and for an
+/// arc picked back up, which is not an ending. A told command whose header is
+/// not the one its writer prints falls back to that first line, so a landing
+/// is never silently left out.
+pub(crate) fn landing_model_line(command: &str, output: &str) -> Option<String> {
+    let [committed, upstream, gone, finished] =
+        tugcore::session_transcript::LANDING_CONSEQUENCE_PREFIXES;
+    let mut lines = output.lines();
+    let header = lines.next().filter(|h| !h.trim().is_empty())?;
+    let rest: Vec<&str> = lines.collect();
+    let expected = match command {
+        "/commit" => "committed ",
+        "/push" => "pushed ",
+        "/arc-join" => "joined ",
+        "/arc-discard" => "discarded ",
+        "/arc-run" => "arc ",
+        _ => return None,
+    };
+    if !header.starts_with(expected) {
+        return Some(format!("- {header}"));
+    }
+    let line = match command {
+        "/commit" => {
+            let files = rest.first().and_then(|l| l.strip_prefix("files: "));
+            let message = if files.is_some() {
+                rest.get(1)
+            } else {
+                rest.first()
+            };
+            format!(
+                "- {header}{}{} — {committed} and no longer uncommitted in the working tree",
+                landing_subject(message.copied()),
+                landing_paths(files),
+            )
+        }
+        "/push" => format!("- {header} — {upstream} these commits"),
+        "/arc-join" => {
+            let files = rest.iter().find_map(|l| l.strip_prefix("files: "));
+            let message = rest.iter().copied().find(|l| {
+                !(l.starts_with("fit: ") || l.starts_with("arc: ") || l.starts_with("files: "))
+            });
+            let base = header
+                .split_once("→ ")
+                .and_then(|(_, after)| after.split_once(" · "))
+                .map(|(base, _)| base);
+            let consequence = match base {
+                Some(base) => format!("{gone}; its work is on {base}"),
+                None => gone.to_string(),
+            };
+            format!(
+                "- {header}{}{} — {consequence}",
+                landing_subject(message),
+                landing_paths(files),
+            )
+        }
+        "/arc-discard" => format!("- {header} — {gone} and its work was not landed"),
+        _ => {
+            if header.starts_with("arc picked back up") {
+                return None;
+            }
+            if header.starts_with("arc complete") {
+                format!(
+                    "- {header} — {finished}; the worktree and branch stay until the user joins or discards it"
+                )
+            } else if rest.contains(&"there is nothing to resume") {
+                format!("- {header} — there is nothing to resume")
+            } else {
+                format!("- {header}")
+            }
+        }
+    };
+    Some(line)
+}
+
+/// ` · "<subject>"`, cut to [`LANDING_SUBJECT_LEN`] characters, or nothing
+/// when the receipt carries no message line.
+fn landing_subject(message: Option<&str>) -> String {
+    let Some(subject) = message.map(str::trim).filter(|s| !s.is_empty()) else {
+        return String::new();
+    };
+    let subject = if subject.chars().count() > LANDING_SUBJECT_LEN {
+        let kept: String = subject.chars().take(LANDING_SUBJECT_LEN).collect();
+        format!("{kept}…")
+    } else {
+        subject.to_string()
+    };
+    format!(" · \"{subject}\"")
+}
+
+/// ` — paths: a, b (+K more)` from a receipt's `files: ` JSON, or nothing
+/// when there is no such line or it does not parse.
+fn landing_paths(files_json: Option<&str>) -> String {
+    #[derive(serde::Deserialize)]
+    struct ReceiptPath {
+        path: String,
+    }
+    let Some(files) = files_json
+        .and_then(|json| serde_json::from_str::<Vec<ReceiptPath>>(json).ok())
+        .filter(|files| !files.is_empty())
+    else {
+        return String::new();
+    };
+    let shown: Vec<&str> = files
+        .iter()
+        .take(LANDING_PATHS_SHOWN)
+        .map(|f| f.path.as_str())
+        .collect();
+    let mut out = format!(" — paths: {}", shown.join(", "));
+    if files.len() > LANDING_PATHS_SHOWN {
+        out.push_str(&format!(" (+{} more)", files.len() - LANDING_PATHS_SHOWN));
+    }
+    out
+}
+
+/// The `tug:landings` block for a line's untold rows, oldest first: the
+/// marker, the heading, then one line per landing — the newest
+/// [`LANDING_LINES_SHOWN`], after a count of any older ones. `None` when no
+/// row yields a line, so a message with nothing to tell carries no block.
+pub(crate) fn build_landings_block(
+    rows: &[crate::shell_ledger::ShellExchangeRow],
+) -> Option<String> {
+    use tugcore::session_transcript::{LANDINGS_HEADING, LANDINGS_MARKER};
+    let lines: Vec<String> = rows
+        .iter()
+        .filter_map(|row| landing_model_line(&row.command, &row.output))
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let mut block = vec![LANDINGS_MARKER.to_string(), LANDINGS_HEADING.to_string()];
+    let hidden = lines.len().saturating_sub(LANDING_LINES_SHOWN);
+    if hidden > 0 {
+        block.push(format!("- … and {hidden} earlier landing(s) not listed"));
+    }
+    block.extend(lines.into_iter().skip(hidden));
+    Some(block.join("\n"))
+}
+
 /// Run a git command at `dir`, returning trimmed stdout on success, `None`
 /// on any failure.
 pub(crate) async fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
@@ -5082,6 +5237,267 @@ Some context.
             added,
             deleted,
         }
+    }
+
+    // ── the model-facing landing line ────────────────────────────────────────
+
+    fn modified(path: &str) -> tugchanges_core::FileStat {
+        file_stat(path, "modified", Some(1), Some(0))
+    }
+
+    #[test]
+    fn landing_model_line_commit_caps_the_paths_at_six() {
+        let files: Vec<_> = (1..=8).map(|i| modified(&format!("f{i}.rs"))).collect();
+        let summary = format_commit_summary("302d43b5d1ffff", "Add the mic\n\nBody text.", &files);
+        assert_eq!(
+            landing_model_line("/commit", &summary).unwrap(),
+            "- committed 302d43b5d1 · 8 file(s) · +8 −0 · \"Add the mic\" — paths: f1.rs, f2.rs, f3.rs, f4.rs, f5.rs, f6.rs (+2 more) — these changes are committed and no longer uncommitted in the working tree"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_commit_cuts_a_long_subject_at_72_characters() {
+        let subject = "x".repeat(80);
+        let summary = format_commit_summary("0123456789ab", &subject, &[modified("a.rs")]);
+        let line = landing_model_line("/commit", &summary).unwrap();
+        assert!(
+            line.contains(&format!(" · \"{}…\" — paths: a.rs", "x".repeat(72))),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_commit_keeps_a_subject_carrying_an_em_dash_whole() {
+        let summary = format_commit_summary("0123456789ab", "Fold the rail — at last", &[]);
+        assert_eq!(
+            landing_model_line("/commit", &summary).unwrap(),
+            "- committed 0123456789 · 0 file(s) · +0 −0 · \"Fold the rail — at last\" — these changes are committed and no longer uncommitted in the working tree"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_commit_with_an_unrecognized_header_falls_back_to_it() {
+        assert_eq!(
+            landing_model_line("/commit", "something else\nfiles: not json").unwrap(),
+            "- something else"
+        );
+        assert_eq!(landing_model_line("/commit", ""), None);
+    }
+
+    #[test]
+    fn landing_model_line_join_reads_past_the_fit_and_record_lines() {
+        let fit = tugarc_core::log::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: true,
+        };
+        let record = arc_record();
+        let summary = format_join_summary(&JoinSummary {
+            sha: "9ac1e0f2aa1234",
+            arc: "dictation",
+            base: "main",
+            rounds: 3,
+            message: "Dictation stop and send\n\nThe body.",
+            files: &[modified("a.ts"), modified("b.ts")],
+            fit: Some(&fit),
+            record: Some(&record),
+        });
+        assert_eq!(
+            landing_model_line("/arc-join", &summary).unwrap(),
+            "- joined 9ac1e0f2aa · dictation → main · 3 round(s) · \"Dictation stop and send\" — paths: a.ts, b.ts — the arc's worktree and branch are gone; its work is on main"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_join_with_no_files_line_omits_the_paths() {
+        let summary = join_summary("9ac1e0f2aa1234", "lane", "trunk", 1, "Land it", &[], None);
+        assert_eq!(
+            landing_model_line("/arc-join", &summary).unwrap(),
+            "- joined 9ac1e0f2aa · lane → trunk · 1 round(s) · \"Land it\" — the arc's worktree and branch are gone; its work is on trunk"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_push_of_a_new_upstream() {
+        let summary = format_push_summary(&PushReceipt {
+            branch: "feature".to_string(),
+            upstream: "origin/feature".to_string(),
+            before: PUSH_BEFORE_NEW.to_string(),
+            after: "3333333333cccccccccc".to_string(),
+            commits: 4,
+            subjects: Vec::new(),
+        });
+        assert_eq!(
+            landing_model_line("/push", &summary).unwrap(),
+            "- pushed feature → origin/feature · 4 commit(s) · (new)..3333333333 — the upstream now has these commits"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_discard_with_only_a_header() {
+        let summary = format_discard_summary("lane", 0, 0, &[], None);
+        assert_eq!(
+            landing_model_line("/arc-discard", &summary).unwrap(),
+            "- discarded lane · 0 round(s) — the arc's worktree and branch are gone and its work was not landed"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_arc_run_tells_endings_and_not_pickups() {
+        assert_eq!(
+            landing_model_line("/arc-run", "arc complete · x\nopened on brief.md").unwrap(),
+            "- arc complete · x — its stages are finished; the worktree and branch stay until the user joins or discards it"
+        );
+        assert_eq!(
+            landing_model_line(
+                "/arc-run",
+                "arc picked back up · x · in implement · a step closed"
+            ),
+            None
+        );
+        assert_eq!(
+            landing_model_line(
+                "/arc-run",
+                "arc stopped · x · in review — the arc was discarded\nthere is nothing to resume"
+            )
+            .unwrap(),
+            "- arc stopped · x · in review — the arc was discarded — there is nothing to resume"
+        );
+        assert_eq!(
+            landing_model_line(
+                "/arc-run",
+                "arc stopped · x · in devise — the plan does not lint"
+            )
+            .unwrap(),
+            "- arc stopped · x · in devise — the plan does not lint"
+        );
+    }
+
+    #[test]
+    fn landing_model_line_of_an_untold_command_is_none() {
+        assert_eq!(landing_model_line("ls", "a\nb"), None);
+        assert_eq!(
+            landing_model_line("/arc-delete-documents", "deleted the documents for x"),
+            None
+        );
+    }
+
+    /// `session show` drops a line's tail only when it starts with one of the
+    /// writer's own prefixes. So every consequence must start with one, and no
+    /// `arc stopped` line's tail may — or a reason would be cut as a
+    /// consequence.
+    #[test]
+    fn landing_model_line_consequences_start_with_a_published_prefix() {
+        use tugcore::session_transcript::LANDING_CONSEQUENCE_PREFIXES as PREFIXES;
+        let tail = |line: &str| line.rsplit_once(" — ").map(|(_, t)| t.to_string()).unwrap();
+        let told = [
+            (
+                "/commit",
+                format_commit_summary("0123456789ab", "Subject", &[modified("a.rs")]),
+            ),
+            (
+                "/push",
+                format_push_summary(&PushReceipt {
+                    branch: "main".to_string(),
+                    upstream: "origin/main".to_string(),
+                    before: "1111111111aaaa".to_string(),
+                    after: "2222222222bbbb".to_string(),
+                    commits: 1,
+                    subjects: vec!["one".to_string()],
+                }),
+            ),
+            (
+                "/arc-join",
+                join_summary("0123456789ab", "a", "main", 1, "Msg", &[], None),
+            ),
+            (
+                "/arc-join",
+                "joined 0123456789 · unparsable header\nMsg".to_string(),
+            ),
+            (
+                "/arc-discard",
+                format_discard_summary("a", 2, 3, &["r1".to_string()], Some("x")),
+            ),
+            ("/arc-run", "arc complete · a".to_string()),
+        ];
+        for (command, output) in told {
+            let line = landing_model_line(command, &output).unwrap();
+            let tail = tail(&line);
+            assert!(
+                PREFIXES.iter().any(|p| tail.starts_with(p)),
+                "{command}: consequence {tail:?} starts with no published prefix"
+            );
+        }
+        for output in [
+            "arc stopped · a · in review — the arc was discarded\nthere is nothing to resume",
+            "arc stopped · a · in devise — the plan does not lint",
+        ] {
+            let line = landing_model_line("/arc-run", output).unwrap();
+            let tail = tail(&line);
+            assert!(
+                !PREFIXES.iter().any(|p| tail.starts_with(p)),
+                "a stopped line's tail {tail:?} would be cut as a consequence"
+            );
+        }
+    }
+
+    fn landing_row(id: i64, command: &str, output: &str) -> crate::shell_ledger::ShellExchangeRow {
+        crate::shell_ledger::ShellExchangeRow {
+            id,
+            tug_session_id: "s".to_string(),
+            line_id: "s".to_string(),
+            seq: id,
+            command: command.to_string(),
+            output: output.to_string(),
+            exit_code: Some(0),
+            cwd: "/proj".to_string(),
+            cwd_after: None,
+            started_at_ms: 0,
+            settled_at_ms: 0,
+            anchor_msg_id: None,
+        }
+    }
+
+    #[test]
+    fn build_landings_block_is_none_with_nothing_to_tell() {
+        assert_eq!(build_landings_block(&[]), None);
+        assert_eq!(
+            build_landings_block(&[landing_row(
+                1,
+                "/arc-run",
+                "arc picked back up · x · in a · b"
+            )]),
+            None
+        );
+    }
+
+    #[test]
+    fn build_landings_block_opens_with_the_marker_and_heading() {
+        let block = build_landings_block(&[
+            landing_row(1, "/push", "pushed main → origin/main · 1 commit(s) · a..b"),
+            landing_row(2, "/arc-run", "arc complete · x"),
+        ])
+        .unwrap();
+        let lines: Vec<&str> = block.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], tugcore::session_transcript::LANDINGS_MARKER);
+        assert_eq!(lines[1], tugcore::session_transcript::LANDINGS_HEADING);
+        assert!(lines[2].starts_with("- pushed main"));
+        assert!(lines[3].starts_with("- arc complete · x"));
+        assert!(!block.ends_with('\n'));
+    }
+
+    #[test]
+    fn build_landings_block_keeps_the_newest_twelve() {
+        let rows: Vec<_> = (1..=14)
+            .map(|i| landing_row(i, "/arc-run", &format!("arc complete · a{i}")))
+            .collect();
+        let block = build_landings_block(&rows).unwrap();
+        let lines: Vec<&str> = block.lines().collect();
+        assert_eq!(lines.len(), 2 + 1 + 12);
+        assert_eq!(lines[2], "- … and 2 earlier landing(s) not listed");
+        assert!(lines[3].starts_with("- arc complete · a3 "));
+        assert!(lines[14].starts_with("- arc complete · a14 "));
     }
 
     /// A join summary with no arc record — the shape every case written

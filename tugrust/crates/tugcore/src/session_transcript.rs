@@ -60,7 +60,35 @@ pub struct Transcript {
 /// Both are blocks the deck writes and the deck's own synthesizer swallows
 /// on replay; a reader of the raw JSONL has to know them, which is why they
 /// are named here and in `tugplug/session-references.md`.
+///
+/// The `tug:landings` block ([`LANDINGS_MARKER`]) is deliberately absent:
+/// it records what the user landed between turns, which a session read by
+/// reference should show where it happened, so `show` renders it as
+/// `[landing]` lines rather than dropping it.
 const SWALLOWED_MARKERS: &[&str] = &["<!-- tug:session-refs -->", "<!-- tug:compact-seed -->"];
+
+/// Opens the `tug:landings` block tugcast appends to a user message when the
+/// line holds landings its model has not been told. The deck strips the
+/// block on replay and tugcode splits it back out of a journal row; both keep
+/// a TypeScript copy of this string, and this is the source.
+pub const LANDINGS_MARKER: &str = "<!-- tug:landings -->";
+
+/// The block's second line, part of the wire contract: a reader keys on the
+/// marker, a newline and this heading together, so a user who types the bare
+/// marker in a sentence is never cut.
+pub const LANDINGS_HEADING: &str =
+    "Since your last turn (the user's acts; your view of the tree may be stale):";
+
+/// The opening words of every consequence clause a landing line ends with —
+/// what tugcast's formatter appends after a final ` — `. A reader drops a
+/// tail only when it starts with one of these, so a commit subject carrying
+/// its own em dash, or an `arc stopped` line's reason, is never cut.
+pub const LANDING_CONSEQUENCE_PREFIXES: [&str; 4] = [
+    "these changes are committed",
+    "the upstream now has",
+    "the arc's worktree and branch are gone",
+    "its stages are finished",
+];
 
 /// The keys a tool call's one-line summary is taken from, in order. The
 /// first one present wins; a tool whose input has none renders bare.
@@ -142,6 +170,12 @@ fn absorb_user(out: &mut Transcript, record: &serde_json::Value) {
                 }
                 saw_text_block = true;
                 let raw = block.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                if let Some(landings) = landing_lines(raw) {
+                    if !landings.is_empty() {
+                        parts.push(landings);
+                    }
+                    continue;
+                }
                 let kept = keep_user_text(raw);
                 if !kept.is_empty() {
                     parts.push(kept);
@@ -174,6 +208,51 @@ fn keep_user_text(raw: &str) -> String {
         return String::new();
     }
     trimmed.to_owned()
+}
+
+/// A `tug:landings` block as `show` prints it — one `[landing] …` line per
+/// landing, with the consequence clause the model needed and a reader does
+/// not dropped — or `None` when the block is not one.
+///
+/// A tail is cut only when it starts with one of the writer's own
+/// [`LANDING_CONSEQUENCE_PREFIXES`], so a subject carrying its own em dash and
+/// an `arc stopped` line's reason both survive whole.
+fn landing_lines(raw: &str) -> Option<String> {
+    if !raw.trim().starts_with(LANDINGS_MARKER) {
+        return None;
+    }
+    let lines: Vec<String> = raw
+        .lines()
+        .filter_map(|line| line.strip_prefix("- "))
+        .map(|landing| {
+            let shown = match landing.rsplit_once(" — ") {
+                Some((head, tail))
+                    if LANDING_CONSEQUENCE_PREFIXES
+                        .iter()
+                        .any(|prefix| tail.starts_with(prefix)) =>
+                {
+                    head
+                }
+                _ => landing,
+            };
+            format!("[landing] {shown}")
+        })
+        .collect();
+    Some(lines.join("\n"))
+}
+
+/// The user's own words from a flat text that may end in a `tug:landings`
+/// block — the text before the last marker-newline-heading, or the whole
+/// text when there is none. The journal stores a told submission's text
+/// with its block appended, and a reader listing what the user asked wants
+/// it without. The heading is part of the key, so a user who typed the bare
+/// marker in a sentence is never cut.
+pub fn without_landings_block(text: &str) -> &str {
+    let key = format!("{LANDINGS_MARKER}\n{LANDINGS_HEADING}");
+    match text.rfind(&key) {
+        Some(at) => &text[..at],
+        None => text,
+    }
 }
 
 /// An assistant record's prose and tool calls, appended to the open turn.
@@ -361,6 +440,74 @@ mod tests {
             t.last_timestamp.as_deref(),
             Some("2026-09-21T10:01:00.000Z")
         );
+    }
+
+    // ── the landings block ───────────────────────────────────────────────────
+
+    fn landings_block(lines: &[&str]) -> String {
+        let mut block = vec![LANDINGS_MARKER, LANDINGS_HEADING];
+        block.extend_from_slice(lines);
+        block.join("\n")
+    }
+
+    #[test]
+    fn a_landings_block_prints_as_landing_lines_under_its_turn() {
+        let block = landings_block(&[
+            "- committed 302d43b5d1 · 1 file(s) · +3 −0 · \"Fix it\" — paths: a.rs — these changes are committed and no longer uncommitted in the working tree",
+            "- joined 9ac1e0f2aa · lane → main · 3 round(s) — the arc's worktree and branch are gone; its work is on main",
+        ]);
+        let jsonl = [
+            user_blocks(serde_json::json!([
+                { "type": "text", "text": "next thing" },
+                { "type": "text", "text": block },
+            ])),
+            assistant(serde_json::json!([{ "type": "text", "text": "ok" }])),
+        ]
+        .join("\n");
+
+        let t = read_str(&jsonl);
+        assert_eq!(t.turns.len(), 1);
+        assert_eq!(
+            t.turns[0].user,
+            "next thing\n\n\
+             [landing] committed 302d43b5d1 · 1 file(s) · +3 −0 · \"Fix it\" — paths: a.rs\n\
+             [landing] joined 9ac1e0f2aa · lane → main · 3 round(s)"
+        );
+        assert!(!t.turns[0].user.contains(LANDINGS_MARKER));
+        assert!(!t.turns[0].user.contains(LANDINGS_HEADING));
+    }
+
+    #[test]
+    fn a_user_mentioning_the_landings_marker_is_kept_verbatim() {
+        let jsonl = user_blocks(serde_json::json!([
+            { "type": "text", "text": "what does <!-- tug:landings --> mean?" },
+        ]));
+        assert_eq!(
+            read_str(&jsonl).turns[0].user,
+            "what does <!-- tug:landings --> mean?"
+        );
+    }
+
+    #[test]
+    fn only_a_published_consequence_is_cut_from_a_landing_line() {
+        let block = landings_block(&[
+            "- committed 0123456789 · 0 file(s) · +0 −0 · \"Fold the rail — at last\" — these changes are committed and no longer uncommitted in the working tree",
+            "- arc stopped · x · in review — the arc was discarded",
+        ]);
+        let jsonl = user_blocks(serde_json::json!([{ "type": "text", "text": block }]));
+        assert_eq!(
+            read_str(&jsonl).turns[0].user,
+            "[landing] committed 0123456789 · 0 file(s) · +0 −0 · \"Fold the rail — at last\"\n\
+             [landing] arc stopped · x · in review — the arc was discarded"
+        );
+    }
+
+    #[test]
+    fn without_landings_block_keeps_only_the_users_words() {
+        let block = landings_block(&["- arc complete · x — its stages are finished"]);
+        assert_eq!(without_landings_block(&format!("hello{block}")), "hello");
+        let prose = "what does <!-- tug:landings --> mean?";
+        assert_eq!(without_landings_block(prose), prose);
     }
 
     #[test]

@@ -17,6 +17,12 @@
 //! [`MAX_EXCHANGES_PER_SESSION`]; the oldest rows past the cap are evicted on
 //! insert (logged, not silent). The cap bounds chatter only — a landing
 //! receipt ([`LANDING_RECEIPT_COMMANDS`]) is never evicted.
+//!
+//! Beside the rows sits one **landing watermark** per line
+//! (`landing_watermarks`): the highest row id whose landing the line's model
+//! has already been told. A told landing ([`TOLD_LANDING_COMMANDS`]) above it
+//! rides the line's next user message; the watermark was seeded past every
+//! receipt that existed when it was introduced, so nothing old is told.
 
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
@@ -35,9 +41,10 @@ pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 /// The `command` values a landing writes: a `/commit`, `/push`, `/arc-join`,
 /// or `/arc-discard` receipt.
 ///
-/// A receipt is the user's act rather than session chatter ([D111]), and it is
-/// the only record of that act the transcript will ever hold — Claude's JSONL
-/// never sees one. So the cap above does not apply to it: a line of work whose
+/// A receipt is the user's act rather than session chatter ([D111]), and the
+/// row is the transcript's only record of that act — the model is told of it
+/// through the landings block ([D205]), which the transcript never shows. So
+/// the cap above does not apply to it: a line of work whose
 /// ink was merged from a fork could otherwise cross the cap on its next `$`
 /// command and evict, oldest-first, exactly the historical receipts that merge
 /// existed to rescue.
@@ -71,6 +78,61 @@ static RECEIPT_COMMANDS_SQL: LazyLock<String> = LazyLock::new(|| {
         .map(|command| format!("'{command}'"))
         .join(", ")
 });
+
+/// The `command` values whose rows are **told** to the line's model on its
+/// next user message: the four live landings, plus `/arc-run`, the arc-ended
+/// receipt `AgentSupervisor::record_arc_receipt` writes.
+///
+/// Separate from [`LANDING_RECEIPT_COMMANDS`], which answers a different
+/// question — what the chatter cap may not evict. That list keeps the retired
+/// `/dash-*` spellings, which nothing writes and so nothing can tell; this one
+/// adds `/arc-run`, which is told but stays subject to the cap. Arc notes ride
+/// the same write gateway with the typed verb as their command, so exact
+/// equality keeps them out, and `/arc-delete-documents` is not a landing: the
+/// documents are untracked and the tree does not move.
+pub const TOLD_LANDING_COMMANDS: [&str; 5] =
+    ["/commit", "/push", "/arc-join", "/arc-discard", "/arc-run"];
+
+/// `TOLD_LANDING_COMMANDS` as a SQL value list, built the way
+/// [`RECEIPT_COMMANDS_SQL`] is.
+static TOLD_COMMANDS_SQL: LazyLock<String> = LazyLock::new(|| {
+    TOLD_LANDING_COMMANDS
+        .map(|command| format!("'{command}'"))
+        .join(", ")
+});
+
+/// The one-time pass that seeds every line's landing watermark past the
+/// receipts already on disk when the watermark was introduced.
+const LANDING_WATERMARK_SEED: &str = "landing-watermark-seed";
+
+/// Raise every line's landing watermark to at least its newest row, never
+/// lowering one.
+///
+/// Called once by the seed pass and again by [`ShellLedger::open`] after a
+/// quarantine salvage, whose rows all predate the fresh file and must not be
+/// told. The `WHERE` is load-bearing twice over: SQLite needs one on an
+/// `INSERT … SELECT` to parse the upsert's `ON CONFLICT`, and `''` is the
+/// pre-lines placeholder, which names no line.
+fn floor_landing_watermarks(conn: &Connection, now_ms: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO landing_watermarks (line_id, told_through_id, updated_at_ms)
+         SELECT line_id, MAX(id), ?1 FROM shell_exchanges
+         WHERE line_id != ''
+         GROUP BY line_id
+         ON CONFLICT(line_id) DO UPDATE SET
+             told_through_id = MAX(told_through_id, excluded.told_through_id),
+             updated_at_ms = excluded.updated_at_ms",
+        params![now_ms],
+    )?;
+    Ok(())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShellLedgerError {
@@ -169,6 +231,11 @@ impl ShellLedger {
                 &["shell_exchanges"],
                 "shell",
             );
+            // The salvaged rows all predate this file, but the seed already
+            // ran over it empty; floor again so none of them is told.
+            if let Err(err) = floor_landing_watermarks(&db, now_ms()) {
+                warn!(%err, "shell ledger: could not floor landing watermarks after salvage");
+            }
         }
         Ok(ledger)
     }
@@ -212,11 +279,45 @@ impl ShellLedger {
                 name       TEXT    PRIMARY KEY,
                 done_at_ms INTEGER NOT NULL
             );
+            -- Per line, the highest row id whose landing the line's model has
+            -- been told; a line with no row has told nothing (`0`).
+            CREATE TABLE IF NOT EXISTS landing_watermarks (
+                line_id         TEXT    PRIMARY KEY,
+                told_through_id INTEGER NOT NULL,
+                updated_at_ms   INTEGER NOT NULL
+            );
             ",
         )?;
+        Self::seed_landing_watermarks(&conn)?;
         Ok(Self {
             db: Mutex::new(conn),
         })
+    }
+
+    /// The one-time `landing-watermark-seed` pass: floor every line past the
+    /// receipts that existed before the watermark did, so an upgrade tells
+    /// nothing old. It cannot be lazy — a "no row means seed now" rule would
+    /// swallow a brand-new line's first landing — so it runs once, here, and
+    /// on a fresh database simply marks itself done.
+    fn seed_landing_watermarks(conn: &Connection) -> Result<(), ShellLedgerError> {
+        let done = conn
+            .query_row(
+                "SELECT 1 FROM backfills WHERE name = ?1",
+                params![LANDING_WATERMARK_SEED],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if done {
+            return Ok(());
+        }
+        let now = now_ms();
+        floor_landing_watermarks(conn, now)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO backfills (name, done_at_ms) VALUES (?1, ?2)",
+            params![LANDING_WATERMARK_SEED, now],
+        )?;
+        Ok(())
     }
 
     /// Self-healing add of `anchor_msg_id`.
@@ -509,6 +610,50 @@ impl ShellLedger {
             .query_map(params![line_id, since_ms], exchange_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// The line's told landings past its watermark, oldest first — what its
+    /// next user message carries to the model.
+    pub fn untold_landings(
+        &self,
+        line_id: &str,
+    ) -> Result<Vec<ShellExchangeRow>, ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        let told = &*TOLD_COMMANDS_SQL;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
+                    started_at_ms, settled_at_ms, anchor_msg_id
+             FROM shell_exchanges
+             WHERE line_id = ?1
+               AND command IN ({told})
+               AND id > COALESCE(
+                   (SELECT told_through_id FROM landing_watermarks WHERE line_id = ?1), 0)
+             ORDER BY id ASC"
+        ))?;
+        let rows = stmt
+            .query_map(params![line_id], exchange_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Record that the line's model has been told every landing through
+    /// `through_id`. Never moves a watermark backwards.
+    pub fn mark_landings_told(
+        &self,
+        line_id: &str,
+        through_id: i64,
+        now_ms: i64,
+    ) -> Result<(), ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        conn.execute(
+            "INSERT INTO landing_watermarks (line_id, told_through_id, updated_at_ms)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(line_id) DO UPDATE SET
+                 told_through_id = MAX(told_through_id, excluded.told_through_id),
+                 updated_at_ms = excluded.updated_at_ms",
+            params![line_id, through_id, now_ms],
+        )?;
+        Ok(())
     }
 
     /// Per-line ink census for `GET /api/ink-census` — rows, high-water
@@ -978,5 +1123,142 @@ mod tests {
         let rows = led.list_exchanges_since("s1", None).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01KEEP"));
+    }
+
+    // ── the landing watermark ────────────────────────────────────────────────
+
+    fn untold_commands(led: &ShellLedger, line: &str) -> Vec<String> {
+        led.untold_landings(line)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.command)
+            .collect()
+    }
+
+    #[test]
+    fn a_fresh_line_tells_every_landing() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        for command in ["/commit", "ls", "/arc-run", "/arc-delete-documents"] {
+            led.record_exchange(&ex("L", command, Some(0))).unwrap();
+        }
+        assert_eq!(untold_commands(&led, "L"), ["/commit", "/arc-run"]);
+    }
+
+    #[test]
+    fn marking_told_empties_the_read_and_never_moves_backwards() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        let first = led.record_exchange(&ex("L", "/commit", Some(0))).unwrap();
+        let newest = led.record_exchange(&ex("L", "/push", Some(0))).unwrap();
+        led.mark_landings_told("L", newest, 1).unwrap();
+        assert!(untold_commands(&led, "L").is_empty());
+
+        // A smaller id must not reopen what was told.
+        led.mark_landings_told("L", first, 2).unwrap();
+        let later = led.record_exchange(&ex("L", "/arc-join", Some(0))).unwrap();
+        let rows = led.untold_landings("L").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, later);
+    }
+
+    #[test]
+    fn lines_do_not_share_a_watermark() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        let a = led.record_exchange(&ex("A", "/commit", Some(0))).unwrap();
+        led.record_exchange(&ex("B", "/commit", Some(0))).unwrap();
+        led.mark_landings_told("A", a + 1, 1).unwrap();
+        assert!(untold_commands(&led, "A").is_empty());
+        assert_eq!(untold_commands(&led, "B"), ["/commit"]);
+    }
+
+    /// Today's `shell_exchanges` shape — `line_id` and the anchor present —
+    /// written by the binary before the watermark existed: no
+    /// `landing_watermarks` table and no seed row in `backfills`.
+    fn write_pre_watermark_file(path: &Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE shell_exchanges (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                tug_session_id TEXT    NOT NULL,
+                line_id        TEXT    NOT NULL DEFAULT '',
+                seq            INTEGER NOT NULL,
+                command        TEXT    NOT NULL,
+                output         TEXT    NOT NULL,
+                exit_code      INTEGER,
+                cwd            TEXT    NOT NULL,
+                cwd_after      TEXT,
+                started_at_ms  INTEGER NOT NULL,
+                settled_at_ms  INTEGER NOT NULL,
+                anchor_msg_id  TEXT
+            );
+            CREATE TABLE backfills (
+                name       TEXT    PRIMARY KEY,
+                done_at_ms INTEGER NOT NULL
+            );
+            INSERT INTO shell_exchanges
+                (tug_session_id, line_id, seq, command, output, exit_code, cwd,
+                 started_at_ms, settled_at_ms)
+            VALUES ('s1', 'L', 1, '/commit', 'committed old', 0, '/proj', 1, 2);
+            ",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn receipts_older_than_the_upgrade_are_never_told() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("shell_exchanges.db");
+        write_pre_watermark_file(&path);
+
+        let led = ShellLedger::open(&path).unwrap();
+        assert!(
+            untold_commands(&led, "L").is_empty(),
+            "a receipt from before the upgrade is not told"
+        );
+        led.record_exchange(&ex("L", "/commit", Some(0))).unwrap();
+        let rows = led.untold_landings("L").unwrap();
+        assert_eq!(rows.len(), 1, "a landing made after the upgrade is told");
+        assert_eq!(rows[0].output, "out:/commit\n");
+    }
+
+    #[test]
+    fn the_seed_runs_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("shell_exchanges.db");
+        write_pre_watermark_file(&path);
+
+        let led = ShellLedger::open(&path).unwrap();
+        let new = led.record_exchange(&ex("L", "/push", Some(0))).unwrap();
+        drop(led);
+
+        // A second seed would floor the line past the new landing.
+        let led = ShellLedger::open(&path).unwrap();
+        let rows = led.untold_landings("L").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, new);
+    }
+
+    #[test]
+    fn a_salvage_floor_tells_nothing_it_salvaged() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        let salvaged = led.record_exchange(&ex("L", "/commit", Some(0))).unwrap();
+        led.mark_landings_told("M", salvaged + 10, 1).unwrap();
+        led.record_exchange(&ex("M", "/commit", Some(0))).unwrap();
+
+        floor_landing_watermarks(&led.db.lock().unwrap(), 5).unwrap();
+
+        assert!(untold_commands(&led, "L").is_empty());
+        // `M` was already above its newest row; the floor does not lower it.
+        let told: i64 = led
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT told_through_id FROM landing_watermarks WHERE line_id = 'M'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(told, salvaged + 10);
     }
 }

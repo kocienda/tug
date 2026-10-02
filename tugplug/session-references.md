@@ -34,7 +34,7 @@ tugtool session show <uuid> --turn 12         # one turn
 tugtool session show <uuid> --grep <pattern>  # turns matching a pattern
 ```
 
-`show` prints a header — title, project, uuid, verdict, turn count, last update — and then the turns: each user message, and each assistant reply with its text and a one-line summary per tool call. Thinking blocks and tool output are not included.
+`show` prints a header — title, project, uuid, verdict, turn count, last update — and then the turns: each user message, and each assistant reply with its text and a one-line summary per tool call. A user message that told that session's model of a landing — a commit, push, join or discard the user made between turns — is followed by one `[landing] …` line per landing. Thinking blocks and tool output are not included.
 
 `find` exits 0 for `here` and `elsewhere`, 3 for `absent`, and 1 when the reference is not one it can parse. `show` exits 3 on `absent` too, so a script can branch on it.
 

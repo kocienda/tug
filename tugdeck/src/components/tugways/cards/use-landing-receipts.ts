@@ -4,8 +4,9 @@
  * One subscription over the app-level changeset verb store per Session card:
  * when a `changeset_commit` round-trip for this card's entry resolves, append
  * the server-formatted summary (S02) as a `/commit` row through the
- * shell-exchange ink mechanism ([D111] — the row records what the user did,
- * never what Claude knows; it is not session context). The server has already
+ * shell-exchange ink mechanism ([D111] — the row itself is ink, never session
+ * context; tugcast separately tells the model of the landing on the next
+ * message, [D205]). The server has already
  * persisted the same row to the shell ledger, so this live append is the
  * initiating client's copy; other decks pick it up on their next restore, and
  * the row survives reload + cold boot from the ledger.

@@ -103,6 +103,7 @@ fn two_turns() -> String {
             "message": { "role": "user", "content": [
                 { "type": "text", "text": "and the lexer" },
                 { "type": "text", "text": "<!-- tug:session-refs -->\n- @session:tug/curly-apple — verdict: here" },
+                { "type": "text", "text": "<!-- tug:landings -->\nSince your last turn (the user's acts; your view of the tree may be stale):\n- committed 302d43b5d1 · 1 file(s) · +3 −0 — these changes are committed and no longer uncommitted in the working tree" },
             ]},
         })
         .to_string(),
@@ -261,6 +262,13 @@ fn show_prints_a_header_and_the_turns() {
     // The model's scratch and Tug's own machinery are both swallowed.
     assert!(!stdout.contains("never printed"), "{stdout}");
     assert!(!stdout.contains("tug:session-refs"), "{stdout}");
+    // What the user landed shows where it happened; the block's plumbing
+    // does not.
+    assert!(
+        stdout.contains("[landing] committed 302d43b5d1 · 1 file(s) · +3 −0\n"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("tug:landings"), "{stdout}");
 }
 
 #[test]

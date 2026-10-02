@@ -270,6 +270,72 @@ describe("extractUserMessageTextCounts", () => {
 // ---------------------------------------------------------------------------
 
 describe("runReplay — pending-row injection", () => {
+  // tugcast journals a told submission's text *with* its trailing
+  // `tug:landings` block, and the JSONL records the two as separate text
+  // blocks. The match compares concatenations, so the row must be found;
+  // when it is not, the synthetic carries the block as its own block.
+  const LANDINGS_BLOCK =
+    "<!-- tug:landings -->\n" +
+    "Since your last turn (the user's acts; your view of the tree may be stale):\n" +
+    "- pushed main → origin/main · 1 commit(s) · aaaaaaaaaa..bbbbbbbbbb — the upstream now has these commits";
+
+  test("a told submission already in the JSONL emits NO synthetic", async () => {
+    const fx = freshFixture();
+    seedJournal(fx.sessionsDbPath, [
+      {
+        journal_id: "j-told",
+        session_id: fx.sessionId,
+        user_text: "hello" + LANDINGS_BLOCK,
+        created_at: 1_000,
+      },
+    ]);
+    const jsonl = [
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: "hello" },
+            { type: "text", text: LANDINGS_BLOCK },
+          ],
+        },
+      }),
+      assistantJsonlEntry({ msgId: "msg_01TOLD", text: "ack" }),
+    ].join("\n");
+    const manager = makeManager(fx, jsonl);
+
+    const { emitted } = await captureStdout(() => manager.runReplay());
+
+    const replays = emitted.filter(
+      (m): m is AddUserMessage => m.type === "add_user_message",
+    );
+    expect(replays).toHaveLength(1);
+  });
+
+  test("a told submission not yet in the JSONL emits a synthetic with the block split out", async () => {
+    const fx = freshFixture();
+    seedJournal(fx.sessionsDbPath, [
+      {
+        journal_id: "j-told-pending",
+        session_id: fx.sessionId,
+        user_text: "hello" + LANDINGS_BLOCK,
+        created_at: 1_000,
+      },
+    ]);
+    const manager = makeManager(fx, "");
+
+    const { emitted } = await captureStdout(() => manager.runReplay());
+
+    const synthetics = emitted.filter(
+      (m): m is AddUserMessage => m.type === "add_user_message",
+    );
+    expect(synthetics).toHaveLength(1);
+    expect(synthetics[0].content.map((b) => (b as any).text)).toEqual([
+      "hello",
+      LANDINGS_BLOCK,
+    ]);
+  });
+
   test("pending row whose user_text is NOT in JSONL emits a synthetic", async () => {
     const fx = freshFixture();
     seedJournal(fx.sessionsDbPath, [

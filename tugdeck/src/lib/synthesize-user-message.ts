@@ -42,6 +42,9 @@
  * no text and no atoms. What it carried is put back where it belongs: the
  * session atom the marker re-minted takes its `session` identity from the
  * matching line, so a replayed chip is as findable as the minted one was.
+ * A trailing `tug:landings` block — tugcast's note to the model of what the
+ * user committed, pushed, joined or discarded since its last turn — is
+ * stripped on the same terms and contributes nothing at all.
  *
  * The bytes-store side-effect is the documented seam: for each image
  * block, the synthesizer ensures the bytes-store has an entry at the
@@ -96,6 +99,7 @@ import {
 } from "./session-ref-block";
 import { commitAtomLabel } from "./commit-format";
 import { isCommitSha } from "./annotator/detect-commit-sha";
+import { isLandingsBlock } from "./landings-block";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -299,6 +303,7 @@ export function synthesizeUserMessageFromBlocks(
       }
       continue;
     }
+    if (block.type === "text" && isLandingsBlock(block.text)) continue;
     bodyBlocks.push(block);
   }
 

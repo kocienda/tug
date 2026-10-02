@@ -3888,6 +3888,18 @@ fn parse_permission_mode_selector(payload: &[u8]) -> Option<String> {
 /// The two spellings of the one door, as a prompt's first token.
 const ARC_DOOR_PREFIXES: [&str; 2] = ["/arc", "/tugplug:arc"];
 
+/// `payload` with one `{"type":"text","text":<text>}` block appended to its
+/// `content` array, re-serialized; `None` when the payload does not parse or
+/// has no `content` array, in which case the caller forwards it untouched.
+fn append_text_block(payload: &[u8], text: &str) -> Option<Vec<u8>> {
+    let mut value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    value
+        .get_mut("content")?
+        .as_array_mut()?
+        .push(serde_json::json!({ "type": "text", "text": text }));
+    serde_json::to_vec(&value).ok()
+}
+
 /// The arc a door prompt names, or `None` for every other prompt.
 ///
 /// A prompt whose first token is the door — `/arc`, or its `/tugplug:`
@@ -12032,7 +12044,7 @@ impl AgentSupervisor {
 
     /// Dispatch a single CODE_INPUT frame. Extracted from `dispatcher_task` so
     /// tests can exercise the routing logic without spinning up a task + mpsc.
-    pub async fn dispatch_one(&self, frame: Frame) {
+    pub async fn dispatch_one(&self, mut frame: Frame) {
         // Extract `tug_session_id` from the payload.
         let tug_session_id = match parse_tug_session_id(&frame.payload) {
             Some(id) => TugSessionId::new(id),
@@ -12069,7 +12081,16 @@ impl AgentSupervisor {
         //
         // For inbound `user_message` frames: mint an internal `journal_id`
         // and persist a pending row to the submission journal, then
-        // forward the frame **unchanged**. Order is load-bearing:
+        // forward the frame — **unchanged** unless the line holds landings
+        // its model has not been told, in which case exactly one trailing
+        // `tug:landings` text block is appended *before* the journal write.
+        // The journal text then carries the block too, which is the point:
+        // tugcode decides whether a pending row already reached the JSONL by
+        // comparing the row's text to the JSONL record's concatenated text
+        // blocks, and the two match only if both hold the block. A slash
+        // command carries no block — an extra block could change how claude
+        // parses it — and the landings wait for the next ordinary message.
+        // Order is load-bearing:
         // row-persisted-before-forwarded. A failure before the forward
         // drops the inbound frame (the supervisor emits a CONTROL error);
         // a forwarded frame with no row is structurally impossible because
@@ -12083,16 +12104,42 @@ impl AgentSupervisor {
         // past and stamped onto the entry, which alters the entry and never
         // the frame. See [DM08] / [Step 5.3](#step-5-3) in the
         // mid-turn-replay plan.
+        //
+        // `told` remembers the line and the newest landing row read, so the
+        // watermark can advance once the frame is accepted — and only then.
+        let mut told: Option<(String, i64)> = None;
         if let Some("user_message") = inspected.as_ref().and_then(|i| i.msg_type()) {
             let inspected = inspected.as_ref().expect("checked Some above");
             let user_text = inspected.text.clone().unwrap_or_default();
             let user_attachments = inspected.attachments.clone().unwrap_or_default();
+            let mut journal_text = user_text.clone();
+            if let Some(shell) = self.shell_ledger.as_ref()
+                && !user_text.trim_start().starts_with('/')
+                && inspected.content.is_some()
+            {
+                let line = self.resolve_ink_line(tug_session_id.as_str());
+                let rows = shell.untold_landings(&line).unwrap_or_else(|err| {
+                    warn!(%err, line = %line, "dispatcher: could not read untold landings");
+                    Vec::new()
+                });
+                if let Some(block) = super::changeset::build_landings_block(&rows)
+                    && let Some(bytes) = append_text_block(&frame.payload, &block)
+                {
+                    frame = Frame::new(FeedId::CODE_INPUT, bytes);
+                    journal_text.push_str(&block);
+                }
+                // Every row read is told, listed or not, so a row that formats
+                // to nothing is not read again forever.
+                if let Some(last) = rows.last() {
+                    told = Some((line, last.id));
+                }
+            }
             let journal_id = uuid::Uuid::new_v4().to_string();
             let now = crate::session_ledger::now_millis();
             match self.sessions_recorder.insert_pending_turn(
                 tug_session_id.as_str(),
                 &journal_id,
-                &user_text,
+                &journal_text,
                 &user_attachments,
                 now,
             ) {
@@ -12192,6 +12239,12 @@ impl AgentSupervisor {
         // Decide the routing action under the per-session lock. We extract
         // the decision and release the lock before doing any await-heavy
         // work (mpsc send, broadcast publish, spawn_session_worker).
+        //
+        // `accepted` is the honest "the frame will reach claude" signal the
+        // landing watermark waits on: `Decision::Drop` means both "queued
+        // while spawning" and "dropped in a terminal state", so the decision
+        // alone cannot say.
+        let mut accepted = false;
         let decision: Decision = {
             let mut entry = entry_arc.lock().await;
             match entry.spawn_state {
@@ -12205,7 +12258,7 @@ impl AgentSupervisor {
                     // we've bungled the invariant and the frame would be
                     // silently dropped — log loudly rather than panic.
                     match entry.queue.push(frame) {
-                        QueuePush::Ok => {}
+                        QueuePush::Ok => accepted = true,
                         QueuePush::Overflow => {
                             tracing::error!(
                                 session = %tug_session_id,
@@ -12218,7 +12271,10 @@ impl AgentSupervisor {
                 SpawnState::Spawning => {
                     // Buffer the frame until the worker drains.
                     match entry.queue.push(frame) {
-                        QueuePush::Ok => Decision::Drop,
+                        QueuePush::Ok => {
+                            accepted = true;
+                            Decision::Drop
+                        }
                         QueuePush::Overflow => Decision::Backpressure,
                     }
                 }
@@ -12258,13 +12314,22 @@ impl AgentSupervisor {
             Decision::Drop => {}
             Decision::Spawn => self.spawn_session_worker(&tug_session_id).await,
             Decision::Forward(tx, frame) => {
-                let _ = tx.send(frame).await;
+                accepted = tx.send(frame).await.is_ok();
             }
             Decision::Backpressure => {
                 let _ = self
                     .control_tx
                     .send(build_backpressure_frame(&tug_session_id));
             }
+        }
+        if accepted
+            && let Some((line, through_id)) = told
+            && let Some(shell) = self.shell_ledger.as_ref()
+            && let Err(err) =
+                shell.mark_landings_told(&line, through_id, crate::session_ledger::now_millis())
+        {
+            // The cost of a lost write is one landing told twice.
+            warn!(%err, line = %line, "dispatcher: could not advance the landing watermark");
         }
     }
 
@@ -23267,6 +23332,23 @@ mod tests {
         make_supervisor_for_ledger(ledger, None)
     }
 
+    /// [`make_supervisor_with_ledger`] with an in-memory shell ledger
+    /// attached, the way `main.rs` attaches it — what the landing tests need,
+    /// since `set_shell_ledger` cannot reach a supervisor already in an `Arc`.
+    fn make_supervisor_with_ledger_and_shell() -> (
+        Arc<AgentSupervisor>,
+        Arc<SessionLedger>,
+        Arc<crate::shell_ledger::ShellLedger>,
+        broadcast::Receiver<Frame>,
+    ) {
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let (sup, ledger, rx) =
+            make_supervisor_for_ledger_with_prompts(ledger, None, None, Some(Arc::clone(&shell)));
+        (sup, ledger, shell, rx)
+    }
+
     /// Harness variant for union/liveness tests: a ledger with a real
     /// tempdir claude-projects root, and an injectable terminal
     /// registry root. The default registry root is a nonexistent path
@@ -23279,15 +23361,16 @@ mod tests {
         Arc<SessionLedger>,
         broadcast::Receiver<Frame>,
     ) {
-        make_supervisor_for_ledger_with_prompts(ledger, terminal_registry_root, None)
+        make_supervisor_for_ledger_with_prompts(ledger, terminal_registry_root, None, None)
     }
 
-    /// [`make_supervisor_for_ledger`] with a prompt-history ledger attached,
-    /// the way `main.rs` attaches it.
+    /// [`make_supervisor_for_ledger`] with a prompt-history ledger and a shell
+    /// ledger attached, the way `main.rs` attaches them.
     fn make_supervisor_for_ledger_with_prompts(
         ledger: Arc<SessionLedger>,
         terminal_registry_root: Option<std::path::PathBuf>,
         prompts: Option<Arc<crate::prompt_ledger::PromptLedger>>,
+        shell: Option<Arc<crate::shell_ledger::ShellLedger>>,
     ) -> (
         Arc<AgentSupervisor>,
         Arc<SessionLedger>,
@@ -23324,6 +23407,9 @@ mod tests {
         );
         if let Some(prompts) = prompts {
             sup.set_prompt_ledger(prompts);
+        }
+        if let Some(shell) = shell {
+            sup.set_shell_ledger(shell);
         }
         tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
         (Arc::new(sup), ledger, control_rx)
@@ -24804,6 +24890,7 @@ mod tests {
             ledger_in(&tmp),
             None,
             Some(Arc::clone(&prompts)),
+            None,
         );
         let (a, b) = two_project_dirs(&tmp);
         let c = tmp.path().join("dir-c");
@@ -26110,6 +26197,193 @@ mod tests {
             queued.payload, original_payload,
             "dispatcher must forward user_message frames unchanged (Step 5.3 wire invariant)",
         );
+    }
+
+    // ── landings ride the next user message ──────────────────────────────────
+
+    /// Record a `/commit` receipt on the session's line — the session is its
+    /// own line in these tests, so `resolve_ink_line` returns its id.
+    fn record_commit_receipt(shell: &crate::shell_ledger::ShellLedger, session: &str) -> i64 {
+        shell
+            .record_exchange(&crate::shell_ledger::NewShellExchange {
+                tug_session_id: session.to_string(),
+                line_id: session.to_string(),
+                command: "/commit".to_string(),
+                output: super::super::changeset::format_commit_summary(
+                    "302d43b5d1ffff",
+                    "Add the mic",
+                    &[],
+                ),
+                exit_code: Some(0),
+                cwd: "/proj".to_string(),
+                cwd_after: None,
+                started_at_ms: 1,
+                settled_at_ms: 2,
+                anchor_msg_id: None,
+            })
+            .expect("record receipt")
+    }
+
+    fn content_payload(session: &str, text: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "tug_session_id": session,
+            "type": "user_message",
+            "content": [{"type": "text", "text": text}],
+        }))
+        .unwrap()
+    }
+
+    /// The queued frame's `content` text blocks, in order.
+    fn queued_text_blocks(frame: &Frame) -> Vec<String> {
+        let value: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        value["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["text"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn an_untold_landing_rides_the_next_user_message() {
+        let (sup, ledger, shell, _rx) = make_supervisor_with_ledger_and_shell();
+        let session = "sess-landing";
+        let entry_arc = insert_ledger_entry(&sup, &TugSessionId::new(session)).await;
+        seed_session_for_journal_test(&ledger, session);
+        record_commit_receipt(&shell, session);
+
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            content_payload(session, "hello"),
+        ))
+        .await;
+
+        let queued = entry_arc.lock().await.queue.pop().expect("frame queued");
+        let blocks = queued_text_blocks(&queued);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0], "hello");
+        assert!(
+            blocks[1].starts_with("<!-- tug:landings -->\n"),
+            "{}",
+            blocks[1]
+        );
+        assert!(
+            blocks[1].contains("- committed 302d43b5d1"),
+            "{}",
+            blocks[1]
+        );
+
+        // The journal holds what the JSONL will: every text block, joined
+        // with no separator — tugcode's pending-row match depends on it.
+        let rows = ledger.list_pending_turns_for_session(session).unwrap();
+        assert_eq!(rows[0].user_text, blocks.concat());
+        assert!(shell.untold_landings(session).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_message_with_nothing_untold_is_byte_identical() {
+        let (sup, ledger, _shell, _rx) = make_supervisor_with_ledger_and_shell();
+        let session = "sess-quiet";
+        let entry_arc = insert_ledger_entry(&sup, &TugSessionId::new(session)).await;
+        seed_session_for_journal_test(&ledger, session);
+        let payload = content_payload(session, "hello");
+
+        sup.dispatch_one(Frame::new(FeedId::CODE_INPUT, payload.clone()))
+            .await;
+
+        let queued = entry_arc.lock().await.queue.pop().expect("frame queued");
+        assert_eq!(queued.payload, payload);
+    }
+
+    #[tokio::test]
+    async fn a_told_landing_is_not_told_twice() {
+        let (sup, ledger, shell, _rx) = make_supervisor_with_ledger_and_shell();
+        let session = "sess-twice";
+        let entry_arc = insert_ledger_entry(&sup, &TugSessionId::new(session)).await;
+        seed_session_for_journal_test(&ledger, session);
+        record_commit_receipt(&shell, session);
+
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            content_payload(session, "one"),
+        ))
+        .await;
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            content_payload(session, "two"),
+        ))
+        .await;
+
+        let mut entry = entry_arc.lock().await;
+        assert_eq!(queued_text_blocks(&entry.queue.pop().unwrap()).len(), 2);
+        assert_eq!(queued_text_blocks(&entry.queue.pop().unwrap()), ["two"]);
+    }
+
+    #[tokio::test]
+    async fn a_slash_command_carries_no_block_and_leaves_the_landing_untold() {
+        let (sup, ledger, shell, _rx) = make_supervisor_with_ledger_and_shell();
+        let session = "sess-slash";
+        let entry_arc = insert_ledger_entry(&sup, &TugSessionId::new(session)).await;
+        seed_session_for_journal_test(&ledger, session);
+        record_commit_receipt(&shell, session);
+        let slash = content_payload(session, "/compact");
+
+        sup.dispatch_one(Frame::new(FeedId::CODE_INPUT, slash.clone()))
+            .await;
+        assert_eq!(entry_arc.lock().await.queue.pop().unwrap().payload, slash);
+        assert_eq!(shell.untold_landings(session).unwrap().len(), 1);
+
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            content_payload(session, "hello"),
+        ))
+        .await;
+        let blocks = queued_text_blocks(&entry_arc.lock().await.queue.pop().unwrap());
+        assert_eq!(blocks.len(), 2, "the next ordinary message carries it");
+    }
+
+    #[tokio::test]
+    async fn a_dropped_send_does_not_mark_the_landing_told() {
+        let (sup, ledger, shell, _rx) = make_supervisor_with_ledger_and_shell();
+        let session = "sess-dropped";
+        let entry_arc = insert_ledger_entry(&sup, &TugSessionId::new(session)).await;
+        seed_session_for_journal_test(&ledger, session);
+        record_commit_receipt(&shell, session);
+        entry_arc.lock().await.spawn_state = SpawnState::Closed;
+
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            content_payload(session, "hello"),
+        ))
+        .await;
+
+        assert_eq!(
+            shell.untold_landings(session).unwrap().len(),
+            1,
+            "a frame dropped in a terminal state told nobody"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_legacy_text_payload_is_left_alone() {
+        let (sup, ledger, shell, _rx) = make_supervisor_with_ledger_and_shell();
+        let session = "sess-legacy";
+        let entry_arc = insert_ledger_entry(&sup, &TugSessionId::new(session)).await;
+        seed_session_for_journal_test(&ledger, session);
+        record_commit_receipt(&shell, session);
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "tug_session_id": session,
+            "type": "user_message",
+            "text": "hello",
+            "attachments": [],
+        }))
+        .unwrap();
+
+        sup.dispatch_one(Frame::new(FeedId::CODE_INPUT, payload.clone()))
+            .await;
+
+        assert_eq!(entry_arc.lock().await.queue.pop().unwrap().payload, payload);
+        assert_eq!(shell.untold_landings(session).unwrap().len(), 1);
     }
 
     /// A server-injected turn is an ordinary turn on the server side: the same

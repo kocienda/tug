@@ -858,7 +858,13 @@ fn session_prompts(ctx: &OperatorContext, args: &Value) -> Result<Value, String>
         }
     }
     for turn in &pending {
-        push(&turn.user_text, turn.created_at, true);
+        // A told submission's journal text ends in its landings block;
+        // the prompt is the user's words alone.
+        push(
+            tugcore::session_transcript::without_landings_block(&turn.user_text),
+            turn.created_at,
+            true,
+        );
     }
     let mut out = json!({
         "session_id": session_id,

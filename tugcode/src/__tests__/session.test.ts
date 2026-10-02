@@ -1804,6 +1804,36 @@ describe("structured tool results and user message parsing (Step 2.3)", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildContentBlocksFromLegacyJournal", () => {
+  // tugcast's `tug:landings` block, as it appends it to a user message.
+  const LANDINGS_BLOCK =
+    "<!-- tug:landings -->\n" +
+    "Since your last turn (the user's acts; your view of the tree may be stale):\n" +
+    "- committed 302d43b5d1 · 0 file(s) · +0 −0 — these changes are committed and no longer uncommitted in the working tree";
+
+  const texts = (blocks: ReturnType<typeof buildContentBlocksFromLegacyJournal>) =>
+    blocks.map((b) => (b as ContentBlockText).text);
+
+  test("a landings block is split out after the user's text", () => {
+    const blocks = buildContentBlocksFromLegacyJournal("hello" + LANDINGS_BLOCK, []);
+    expect(texts(blocks)).toEqual(["hello", LANDINGS_BLOCK]);
+  });
+
+  test("a text that is only the landings block is one block", () => {
+    const blocks = buildContentBlocksFromLegacyJournal(LANDINGS_BLOCK, []);
+    expect(texts(blocks)).toEqual([LANDINGS_BLOCK]);
+  });
+
+  test("the bare marker mid-sentence, without the heading, is not cut", () => {
+    const text = "what does <!-- tug:landings --> mean here?";
+    const blocks = buildContentBlocksFromLegacyJournal(text, []);
+    expect(texts(blocks)).toEqual([text]);
+  });
+
+  test("a text with no marker is one block, as before", () => {
+    const blocks = buildContentBlocksFromLegacyJournal("plain words", []);
+    expect(texts(blocks)).toEqual(["plain words"]);
+  });
+
   test("text-only message produces single text block", () => {
     const blocks = buildContentBlocksFromLegacyJournal("hello world", []);
     expect(blocks).toHaveLength(1);

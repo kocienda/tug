@@ -515,6 +515,9 @@ pub(crate) fn user_submission_opens_turn(
 /// The marker opening the trailing block `buildWirePayload` writes when a
 /// message carries a session reference. It is addressed to the model and the
 /// user never sees it, so it is not part of what the user submitted.
+/// tugcast's own `tug:landings` block
+/// ([`tugcore::session_transcript::LANDINGS_MARKER`]) is the same kind of
+/// plumbing and is dropped beside it.
 const SESSION_REFS_MARKER: &str = "<!-- tug:session-refs -->";
 
 /// Extract the submission's display text: string content verbatim, or
@@ -529,10 +532,14 @@ pub(crate) fn submission_text(content: &serde_json::Value) -> String {
                 if o.get("type").and_then(|t| t.as_str()) == Some("text") {
                     o.get("text")
                         .and_then(|t| t.as_str())
-                        // The session-reference block is plumbing. Left in, it
-                        // would be the tail of every prompt preview and every
-                        // search of what the user wrote.
-                        .filter(|t| !t.starts_with(SESSION_REFS_MARKER))
+                        // The session-reference and landings blocks are
+                        // plumbing. Left in, they would be the tail of every
+                        // prompt preview and every search of what the user
+                        // wrote.
+                        .filter(|t| {
+                            !t.starts_with(SESSION_REFS_MARKER)
+                                && !t.starts_with(tugcore::session_transcript::LANDINGS_MARKER)
+                        })
                 } else {
                     None
                 }
@@ -1697,6 +1704,18 @@ mod tests {
             submission_text(&content),
             "what does <!-- tug:session-refs --> mean?"
         );
+    }
+
+    #[test]
+    fn submission_text_drops_the_landings_block() {
+        // tugcast's note to the model of what the user landed is not
+        // something the user wrote.
+        let content = serde_json::json!([
+            { "type": "text", "text": "next thing" },
+            { "type": "text",
+              "text": "<!-- tug:landings -->\nSince your last turn (the user's acts; your view of the tree may be stale):\n- pushed main → origin/main · 1 commit(s) · a..b — the upstream now has these commits" },
+        ]);
+        assert_eq!(submission_text(&content), "next thing");
     }
 
     // The sanitized golden-corpus contract (`scanner_turn_counts_match_golden_corpus`,

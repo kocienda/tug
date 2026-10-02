@@ -51,7 +51,7 @@ The old multi-agent orchestration — a swarm of clarifier/author/critic/conform
 
 ## The prompt files
 
-Six markdown files at the plugin's root are not documentation — they are **prompt**. `tugcode` reads them at every spawn, in the order `PLUGIN_PROMPT_FILES` names them, and appends each to the session's system prompt after the dev nudge. An absent file is a logged state rather than an error, and with none present the appended prompt is the nudge alone, byte for byte.
+Seven markdown files at the plugin's root are not documentation — they are **prompt**. `tugcode` reads them at every spawn, in the order `PLUGIN_PROMPT_FILES` names them, and appends each to the session's system prompt after the dev nudge. An absent file is a logged state rather than an error, and with none present the appended prompt is the nudge alone, byte for byte.
 
 - **`work-grammar.md`** — what passes between the user and the model: the artifact ladder (idea → sketch → brief → plan), the rule that "plan" names only the document, and the plan-mode policy that used to live in this file.
 - **`file-editing.md`** — how to edit a project's files so the change ledger can attribute the edit: the order of preference, the edit program, and the `edit`/`probe`/`run` verbs.
@@ -59,6 +59,7 @@ Six markdown files at the plugin's root are not documentation — they are **pro
 - **`tool-calls.md`** — what a tool call reports: the exit status is the only signal the block carries, so a probe whose expected answer is a non-zero exit must never set it.
 - **`ask-user-question.md`** — the shape a question must have to arrive: 1–4 questions per call, 2–4 options each.
 - **`session-references.md`** — what a session reference in a prompt means, the four verdicts, and the read-only verbs that resolve one.
+- **`landings.md`** — what the `tug:landings` block on a user message reports: the user's commits, pushes, joins and discards since the model's last turn, and that the model's picture of the tree is stale until it re-checks.
 
 **The rule they exist to serve: anything the model must know to drive Tug correctly ships in the bundle, and reaches the session through the system prompt or a skill.** The system prompt is the one channel that reaches every project the app opens, including the ones with no documentation of ours in them at all — so a rule that lives only in this checkout's `CLAUDE.md` is a rule that holds only here, which is the same as not holding. The test for any new paragraph in that file is one question: *would this be true in a project that is not Tug?* A yes means it belongs in a prompt file, and the checkout keeps only its residue — the crate, the path, the recipe that is true here alone — plus a pointer at the prompt file as the source. One contract, one home, and no second copy to drift.
 

@@ -886,6 +886,17 @@ function formatReplayValue(v: unknown): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * The `tug:landings` block's first two lines — copies of
+ * `LANDINGS_MARKER` and `LANDINGS_HEADING` in
+ * `tugrust/crates/tugcore/src/session_transcript.rs`, which is the
+ * source. tugcast appends the block to a user message when the line
+ * holds landings its model has not been told.
+ */
+const LANDINGS_MARKER = "<!-- tug:landings -->";
+const LANDINGS_HEADING =
+  "Since your last turn (the user's acts; your view of the tree may be stale):";
+
+/**
  * Build Anthropic-API content blocks from the tugcast journal's
  * legacy `(text, attachments)` shape — flat: `text` first (if
  * non-empty), then all attachments in order. Used on the never-drop
@@ -909,6 +920,16 @@ function formatReplayValue(v: unknown): string {
  *
  * Validates image types and sizes per PN-12 (#pn-image-limits).
  * Exported for unit testing.
+ *
+ * A journal text that ends in tugcast's `tug:landings` block is split
+ * back into two text blocks — the user's words, then the block. The
+ * journal stores one flat string (tugcast appends the block before it
+ * writes the row, so the row's text matches the JSONL's), and without
+ * the split the block would ride inside the user's own text block,
+ * where the deck's `startsWith` strip cannot see it and the user would
+ * read the model's fact sheet in their own row. The split keys on the
+ * marker, a newline and the heading together, so a user who types the
+ * bare marker in a sentence is never cut.
  */
 export function buildContentBlocksFromLegacyJournal(
   text: string,
@@ -916,8 +937,15 @@ export function buildContentBlocksFromLegacyJournal(
 ): ContentBlock[] {
   const blocks: ContentBlock[] = [];
 
-  // Text always comes first.
-  if (text.length > 0) {
+  // Text always comes first — the user's words, then any landings block.
+  const at = text.lastIndexOf(LANDINGS_MARKER + "\n" + LANDINGS_HEADING);
+  if (at >= 0) {
+    const own = text.slice(0, at);
+    if (own.length > 0) {
+      blocks.push({ type: "text", text: own });
+    }
+    blocks.push({ type: "text", text: text.slice(at) });
+  } else if (text.length > 0) {
     blocks.push({ type: "text", text });
   }
 
@@ -1003,8 +1031,9 @@ export interface ClaudeSpawnConfig {
  * grammar), then how to edit a project's files so the change stays attributed,
  * then the three rules about what the Session card does with the model's
  * output — how its prose is rendered, what a tool call's exit status tells the
- * reader, and the shape a question must have to arrive — and last, what a
- * session reference in a prompt means and how to read the session it names.
+ * reader, and the shape a question must have to arrive — then what a session
+ * reference in a prompt means and how to read the session it names, and what
+ * a landings block reports.
  */
 export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "work-grammar.md",
@@ -1013,6 +1042,7 @@ export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "tool-calls.md",
   "ask-user-question.md",
   "session-references.md",
+  "landings.md",
 ];
 
 /**
