@@ -285,3 +285,24 @@
   pointer-events: none;
 }
 
+/* The drag image of a jot dragged out of the card (`setJotDragImage` in
+   `lib/jot-drag.ts`). It lives in `body`, never in a pane, for the one task it
+   takes WebKit to snapshot it, and stands behind the deck so it is never seen
+   in place. The pill is what follows the pointer: the incipit on the popover
+   surface, so it reads over any card it crosses. */
+.jot-drag-preview {
+  position: absolute;
+  z-index: -1;
+  box-sizing: content-box;
+  padding: 4px 10px;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: 6px;
+  background: var(--tug7-surface-popover-primary-normal-default-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  pointer-events: none;
+}
+
+.jot-drag-preview > .jot-row-label {
+  cursor: default;
+}
+

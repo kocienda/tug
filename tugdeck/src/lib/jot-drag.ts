@@ -4,12 +4,13 @@
  *
  * The drag is the platform's own: the row's incipit is `draggable`, the payload
  * rides on the `DataTransfer` under a private MIME type (plus `text/plain` so a
- * jot also drops into any other text surface), and the drag image is the
- * OS-rendered snapshot of the dragged element. Escape mid-drag is therefore
- * handled by AppKit — it cancels the session and animates the drag image back
- * to the row it came from — and the drop target paints the same accept ring and
- * drop caret an image drag paints, because the prompt entry accepts both drags
- * through one set of `dragover` / `drop` handlers.
+ * jot also drops into any other text surface), and the drag image is an
+ * OS-rendered snapshot of a preview built for it (see `setJotDragImage`).
+ * Escape mid-drag is therefore handled by AppKit — it cancels the session and
+ * animates the drag image back to the row it came from — and the drop target
+ * paints the same accept ring and drop caret an image drag paints, because the
+ * prompt entry accepts both drags through one set of `dragover` / `drop`
+ * handlers.
  */
 
 import type { AtomSegment } from "./tug-atom-img";
@@ -48,6 +49,54 @@ export function jotDragStart(
   dt.effectAllowed = "copy";
   dt.setData(JOT_MIME, JSON.stringify({ text, atoms }));
   dt.setData("text/plain", formatAtomTextForCopy(text, atoms));
+  setJotDragImage(event);
+}
+
+/**
+ * Hand the drag an image of its own rather than letting WebKit snapshot the
+ * incipit in place.
+ *
+ * The incipit stands inside a pane, and every pane is a standing compositor
+ * layer ([B01]). WebKit's default drag image is a snapshot of the source node,
+ * and inside that layer the snapshot comes out empty: the drag ran, the drop
+ * landed, and nothing followed the pointer. So the preview is built outside
+ * every pane — a clone of the incipit in a pill, appended to `body` — and
+ * stood BEHIND the deck (`z-index: -1` in the stylesheet), which keeps it out
+ * of any layer the panes would promote it into by overlap and keeps it from
+ * ever being seen in place. WebKit snapshots it synchronously when this
+ * handler returns, so it is removed on the next task.
+ *
+ * The offset puts the press point of the pill under the pointer, the same
+ * grab the in-place snapshot would have had.
+ */
+function setJotDragImage(event: React.DragEvent): void {
+  const dt = event.dataTransfer;
+  if (typeof dt.setDragImage !== "function") return;
+  const source = event.currentTarget;
+  if (typeof HTMLElement === "undefined" || !(source instanceof HTMLElement)) {
+    return;
+  }
+  const rect = source.getBoundingClientRect();
+  const preview = document.createElement("div");
+  preview.className = "jot-drag-preview";
+  preview.style.left = `${rect.left}px`;
+  preview.style.top = `${rect.top}px`;
+  preview.style.maxWidth = `${rect.width}px`;
+  preview.style.font = getComputedStyle(source).font;
+  const clone = source.cloneNode(true) as HTMLElement;
+  clone.removeAttribute("draggable");
+  preview.appendChild(clone);
+  document.body.appendChild(preview);
+  // The pill's padding sits between its origin and the clone's, so the grab
+  // is measured from the clone as it landed, not from the pill.
+  const cloneRect = clone.getBoundingClientRect();
+  const previewRect = preview.getBoundingClientRect();
+  dt.setDragImage(
+    preview,
+    event.clientX - rect.left + (cloneRect.left - previewRect.left),
+    event.clientY - rect.top + (cloneRect.top - previewRect.top),
+  );
+  setTimeout(() => preview.remove(), 0);
 }
 
 /** True when `dataTransfer` carries a jot payload. */
