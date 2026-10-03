@@ -44,10 +44,12 @@
  * ## Throwing it back re-arms what it stood down
  *
  * Clearing the attribute is not the whole of `demote(false)`. A loop the deck
- * paused through the Web Animations API while demoted — a hidden workspace's
- * loop whose resume `space-layer-loops.ts` declined because the stylesheet
- * was holding it — is not resumed by the stylesheet letting go, because the
- * API outranks it. So the off edge tells its subscribers ({@link
+ * paused through the Web Animations API is not resumed by a stylesheet letting
+ * go, because the API outranks it. `space-layer-loops.ts` resumes a loop it
+ * paused once its layer is shown whether or not the demotion stands, so the
+ * demotion alone strands nothing; but a resume that module declined — a
+ * component's own `animation-play-state: paused` holding the loop — waits for
+ * the next pass. So the off edge tells its subscribers ({@link
  * MotionBreaker.onResume}), and the canvas runs the same loop pass a
  * workspace switch runs. A refusal re-arms; it does not just return ([L32]).
  *

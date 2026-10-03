@@ -5,8 +5,8 @@
  * The rule is pure over an animation's timing, its element's layer, and what
  * CSS says about its play state, so it is tested here over fakes; the canvas
  * hands it `root.getAnimations({ subtree: true })` and a real
- * `getComputedStyle`, and `at0641` is where that wiring is proved on the live
- * deck.
+ * `getComputedStyle`, and `at0641` and `at0682` are where that wiring is proved
+ * on the live deck.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -25,12 +25,12 @@ interface FakeLayer {
 }
 
 /** An element that knows which layer it is in, and nothing else. */
-function elementIn(layer: FakeLayer | null): Element {
+function elementIn(layer: FakeLayer | null, connected = true): Element {
   const layerEl =
     layer === null
       ? null
       : ({ hasAttribute: () => layer.shown } as unknown as Element);
-  return { closest: () => layerEl } as unknown as Element;
+  return { closest: () => layerEl, isConnected: connected } as unknown as Element;
 }
 
 interface FakeLoop extends LoopLike {
@@ -174,8 +174,77 @@ describe("stillLoops", () => {
   });
 });
 
-describe("the motion switch thrown back", () => {
-  test("a loop held by the demotion when its layer was shown resumes on the off edge", () => {
+describe("the record is the authority for a resume", () => {
+  /** A loop whose iteration count the test turns, as a demotion mark does. */
+  function demotable(layer: FakeLayer): { loop: FakeLoop; demote: (on: boolean) => void } {
+    let iterations = Infinity;
+    const loop = animation(elementIn(layer), Infinity);
+    (loop as { effect: AnimationEffect | null }).effect = {
+      target: elementIn(layer),
+      getTiming: () => ({ iterations }),
+    } as unknown as AnimationEffect;
+    return { loop, demote: (on) => void (iterations = on ? 0 : Infinity) };
+  }
+
+  test("a loop we stilled is resumed when its layer is shown, even demoted to zero iterations", () => {
+    // The off-screen mark, the understudy mark and the motion switch all
+    // resolve `--tug-loop-iterations` to zero. Playing a loop at zero moves
+    // nothing; not playing it strands it, because the pause outlives the mark.
+    const layer: FakeLayer = { shown: false };
+    const { loop, demote } = demotable(layer);
+    expect(reconcileLoop(loop, "hidden", never)).toBe("stilled");
+    demote(true);
+    layer.shown = true;
+    expect(reconcileLoop(loop, "shown", never)).toBe("resumed");
+    expect(loop.log).toEqual(["pause", "play"]);
+  });
+
+  test("a demoted hidden loop is not paused — it is not a loop while the mark stands", () => {
+    const layer: FakeLayer = { shown: false };
+    const { loop, demote } = demotable(layer);
+    demote(true);
+    expect(reconcileLoop(loop, "hidden", never)).toBe("left");
+    expect(loop.log).toEqual([]);
+  });
+
+  test("a pass resumes a stilled loop the engine's list leaves out", () => {
+    // `getAnimations()` does not report a loop demoted to zero iterations, so
+    // the switch pass is handed a list without it. The record still is.
+    const layer: FakeLayer = { shown: false };
+    const { loop, demote } = demotable(layer);
+    expect(stillLoops([loop], never)).toEqual({ stilled: 1, resumed: 0 });
+    demote(true);
+    layer.shown = true;
+    expect(stillLoops([], never)).toEqual({ stilled: 0, resumed: 1 });
+    expect(loop.log).toEqual(["pause", "play"]);
+    expect(loop.playState).toBe("running");
+  });
+
+  test("a loop both listed and recorded is reconciled once", () => {
+    const layer: FakeLayer = { shown: false };
+    const loop = animation(elementIn(layer), Infinity);
+    stillLoops([loop], never);
+    layer.shown = true;
+    expect(stillLoops([loop, loop], never)).toEqual({ stilled: 0, resumed: 1 });
+    expect(loop.log).toEqual(["pause", "play"]);
+  });
+
+  test("a record entry whose element left the document, or whose animation was cancelled, is forgotten", () => {
+    const layer: FakeLayer = { shown: false };
+    const gone = animation(elementIn(layer, false), Infinity);
+    const cancelled = animation(elementIn(layer), Infinity);
+    stillLoops([gone, cancelled], never);
+    expect(gone.log).toEqual(["pause"]);
+    cancelled.playState = "idle";
+    layer.shown = true;
+    expect(stillLoops([], never)).toEqual({ stilled: 0, resumed: 0 });
+    expect(gone.log).toEqual(["pause"]);
+    expect(cancelled.log).toEqual(["pause"]);
+  });
+});
+
+describe("the motion switch", () => {
+  test("a loop demoted when its layer is shown runs once the switch is thrown back", () => {
     // `<html>` as the switch sees it.
     const attrs = new Set<string>();
     const root = {
@@ -185,8 +254,6 @@ describe("the motion switch thrown back", () => {
     };
     const breaker = createMotionBreaker(() => root);
 
-    // The demotion resolves the loop's iteration count to zero, so while it
-    // stands the animation is not a loop at all.
     let iterations = Infinity;
     const layer: FakeLayer = { shown: false };
     const loop = animation(elementIn(layer), Infinity);
@@ -197,19 +264,21 @@ describe("the motion switch thrown back", () => {
 
     // The canvas's subscription: the same pass a workspace switch runs.
     const release = breaker.onResume(() => {
-      stillLoops([loop], never);
+      stillLoops([], never);
     });
 
-    // Stilled in the dark, then demoted, then its workspace shown: the switch
-    // pass declines to resume a loop the demotion is holding.
+    // Stilled in the dark, then demoted, then its workspace shown. The engine
+    // no longer lists the loop, and the switch pass resumes it off the record:
+    // under the demotion it runs zero times, so nothing moves.
     stillLoops([loop], never);
     breaker.demote(true);
     iterations = 0;
     layer.shown = true;
-    expect(stillLoops([loop], never)).toEqual({ stilled: 0, resumed: 0 });
-    expect(loop.playState).toBe("paused");
+    expect(stillLoops([], never)).toEqual({ stilled: 0, resumed: 1 });
+    expect(loop.playState).toBe("running");
 
-    // Thrown back: the stylesheet lets go, and the off edge's pass resumes it.
+    // Thrown back: the stylesheet lets go, the loop is already playing, and
+    // the off edge's pass has nothing left to hand back.
     iterations = Infinity;
     breaker.demote(false);
     expect(loop.log).toEqual(["pause", "play"]);

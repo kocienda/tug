@@ -7479,11 +7479,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       el.removeEventListener("animationstart", stillLoopOnStart);
     };
   }, []);
-  // And part three: the motion switch thrown back. A loop this canvas paused
-  // while the deck was demoted kept its record but was not resumed — the
-  // demotion was holding it — and the stylesheet letting go cannot resume a
-  // loop the Web Animations API paused. So the off edge runs the same pass a
-  // workspace switch runs, and the shown layer's loops come back ([L32]).
+  // And part three: the motion switch thrown back. The pass resumes every loop
+  // on its record whose layer is shown, demoted or not, so the off edge has
+  // only one kind left to hand back: a loop whose resume a component's own
+  // `animation-play-state: paused` declined. The stylesheet letting go cannot
+  // resume a loop the Web Animations API paused, so the off edge runs the same
+  // pass a workspace switch runs, and any declined resume is tried again ([L32]).
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (el === null) return;

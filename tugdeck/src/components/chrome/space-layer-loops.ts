@@ -34,17 +34,33 @@
  * canvas. Between them every loop under a hidden layer is paused, whenever it
  * began.
  *
- * **Resume touches only what this module paused**, kept in a `WeakSet` so a
- * loop whose element is gone is forgotten with it. A loop CSS is holding — the
- * motion switch's demotion (`data-tug-motion-demoted` on `<html>`, which
- * resolves its iteration count to zero, so it is not a loop while it stands),
- * or a component's own `animation-play-state: paused` — is not resumed over
- * that hold. **A declined resume keeps its record**, because this module is
- * the only thing that can ever hand the loop back: the pause was taken through
- * the API, so the stylesheet letting go does not resume it, and a loop dropped
- * from the set on the one pass that declined it is one no later pass will look
- * at again. The passes that look again are a workspace switch and the motion
- * switch's off edge, which the canvas subscribes to for exactly this.
+ * **Resume touches only what this module paused, and the record is the
+ * authority for it.** Every pass walks the record as well as the animations it
+ * was handed, because the engine does not report every loop this module
+ * paused. A loop demoted to zero iterations — the off-screen mark, the
+ * understudy mark, the motion switch, all one knob (`--tug-loop-iterations`)
+ * — is absent from `getAnimations()` while the mark stands, and when the mark
+ * lifts the engine brings back the SAME animation object, still paused
+ * through the API. A pass that read only the engine's list could not see it
+ * at the moment its layer was shown, and nothing would ever look at it again:
+ * that is how a Session card's wave and an Overview session dot stood still
+ * over a working turn (`at0682`). So a loop on the record is resumed when its
+ * layer is shown whatever its iteration count reads then — playing a loop
+ * demoted to zero moves nothing, and it runs the moment the mark lifts.
+ *
+ * The record is a `Set` rather than a `WeakSet` because it must be walked,
+ * so it must also be pruned: an entry whose element has left the document, or
+ * whose animation was cancelled, is forgotten by every pass and by every loop
+ * that starts in the dark. The second is what bounds it between switches — a
+ * Session card in a parked workspace mounts a fresh wave every turn, and
+ * without it each one would be held until the reader next switched.
+ *
+ * A loop a component's own stylesheet holds — `animation-play-state: paused`
+ * — is not resumed over that hold. **A declined resume keeps its record**,
+ * because this module is the only thing that can ever hand the loop back: the
+ * pause was taken through the API, so the stylesheet letting go does not
+ * resume it. The passes that look again are a workspace switch and the motion
+ * switch's off edge, which the canvas subscribes to.
  *
  * Nothing here is React state ([L06]): it is the Web Animations API on
  * elements the canvas already owns.
@@ -68,8 +84,18 @@ export type LayerState = "hidden" | "shown" | "none";
 /** What {@link reconcileLoop} did to one animation. */
 export type LoopVerdict = "stilled" | "resumed" | "left";
 
-/** The loops this module paused — and nothing anybody else did. */
-const stilled = new WeakSet<LoopLike>();
+/**
+ * The loops this module paused — and nothing anybody else did. Walked by every
+ * pass ({@link stillLoops}); pruned there and by {@link stillLoopOnStart}.
+ */
+const stilled = new Set<LoopLike>();
+
+/** Drop every record entry that is past resuming. */
+function forgetGone(): void {
+  for (const animation of [...stilled]) {
+    if (isForgotten(animation)) stilled.delete(animation);
+  }
+}
 
 /** The element an animation runs on, or `null` when it has none or is not a keyframe effect. */
 export function loopTarget(animation: LoopLike): Element | null {
@@ -98,24 +124,26 @@ export function layerStateOf(target: Element): LayerState {
 /**
  * Bring one animation into line with where its element stands.
  *
- * `cssPaused` is whether the element's computed `animation-play-state` says
- * paused — the switch's demotion, or a component's own rule — and it is only
- * consulted on the resume side: a hidden loop is paused whatever CSS says, and
- * a shown one is resumed only if CSS is not holding it.
+ * Under a hidden layer, a running infinite loop is paused and recorded. Out
+ * from under one — shown, or outside every layer — a loop on the record is
+ * resumed, and the iteration count is NOT consulted on that side: a loop
+ * demoted to zero iterations when its layer is shown is still this module's
+ * pause, and playing it is what lets it run once the demotion lifts.
  *
- * A declined resume LEAVES THE RECORD STANDING, so the next pass over a shown
- * layer tries again. Dropping it there would be final: the loop is paused
- * through the Web Animations API, which outranks `animation-play-state`, so
- * the switch being thrown back does not resume it and nothing else ever would.
+ * `cssPaused` is whether the element's computed `animation-play-state` says
+ * paused — a component's own rule — and it is only consulted on the resume
+ * side. A resume it declines LEAVES THE RECORD STANDING, so the next pass
+ * tries again. Dropping it there would be final: the loop is paused through
+ * the Web Animations API, which outranks `animation-play-state`, so the
+ * stylesheet letting go does not resume it and nothing else ever would.
  */
 export function reconcileLoop(
   animation: LoopLike,
   state: LayerState,
   cssPaused: () => boolean,
 ): LoopVerdict {
-  if (!isLoop(animation)) return "left";
   if (state === "hidden") {
-    if (animation.playState !== "running") return "left";
+    if (!isLoop(animation) || animation.playState !== "running") return "left";
     animation.pause();
     stilled.add(animation);
     return "stilled";
@@ -134,26 +162,46 @@ export interface StillReading {
 }
 
 /**
- * One pass over a set of animations: pause every loop under a hidden layer,
- * resume every loop this module paused whose layer is now shown.
+ * Whether a record entry is past resuming: its animation was cancelled, or its
+ * element has left the document.
+ */
+function isForgotten(animation: LoopLike): boolean {
+  if (animation.playState === "idle") return true;
+  const target = loopTarget(animation);
+  if (target === null) return true;
+  return (target as { isConnected?: boolean }).isConnected === false;
+}
+
+/**
+ * One pass: pause every loop under a hidden layer, resume every loop this
+ * module paused whose layer is no longer hidden.
  *
  * The canvas passes `root.getAnimations({ subtree: true })`; a test passes
- * whatever it likes.
+ * whatever it likes. The record is walked after them, whatever was passed,
+ * because the engine's list leaves out a paused loop that is demoted to zero
+ * iterations — and that loop is exactly the one a pass reading only the list
+ * would strand. Each animation is reconciled once per pass.
  */
 export function stillLoops(
   animations: Iterable<LoopLike>,
   cssPausedOf: (target: Element) => boolean,
 ): StillReading {
   const reading: StillReading = { stilled: 0, resumed: 0 };
-  for (const animation of animations) {
+  forgetGone();
+  const seen = new Set<LoopLike>();
+  const visit = (animation: LoopLike): void => {
+    if (seen.has(animation)) return;
+    seen.add(animation);
     const target = loopTarget(animation);
-    if (target === null) continue;
+    if (target === null) return;
     const verdict = reconcileLoop(animation, layerStateOf(target), () =>
       cssPausedOf(target),
     );
     if (verdict === "stilled") reading.stilled += 1;
     else if (verdict === "resumed") reading.resumed += 1;
-  }
+  };
+  for (const animation of animations) visit(animation);
+  for (const animation of [...stilled]) visit(animation);
   return reading;
 }
 
@@ -188,6 +236,7 @@ export function stillLoopOnStart(event: AnimationEvent): void {
   if (!(target instanceof Element)) return;
   if (layerStateOf(target) !== "hidden") return;
   if (typeof target.getAnimations !== "function") return;
+  forgetGone();
   for (const animation of target.getAnimations()) {
     const named = animation as Animation & { animationName?: string };
     if (named.animationName !== event.animationName) continue;
