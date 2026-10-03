@@ -87,4 +87,28 @@ describe("FocusManager first-responder restore on mode pop", () => {
     // No dangling restore: the engine only reinstates a still-registered responder.
     expect(chain.getFirstResponder()).toBe("popover");
   });
+
+  test("a card's pop does not reclaim first responder once another card is key", () => {
+    const chain = new ResponderChainManager();
+    const fm = new FocusManager();
+    fm.attach(chain);
+    chain.register({ id: "session-editor", parentId: null, actions: {} });
+    chain.register({ id: "commit-card", parentId: null, actions: {} });
+    chain.makeFirstResponder("session-editor");
+    fm.setKeyCard("session");
+
+    // A context menu over the session card's transcript pushes its trap on
+    // that card's context, capturing the session editor as first responder…
+    const ctx = fm.contextFor("session");
+    ctx.pushFocusMode("menu", { trapped: true, kbf: false });
+    // …and its Open Commit item raises the Commit card, which takes key and
+    // first responder before the menu closes.
+    fm.setKeyCard("commit");
+    chain.makeFirstResponder("commit-card");
+
+    // The menu closes. Restoring would route ⌘W to the session card while
+    // the Commit card still looks active.
+    ctx.popFocusMode("menu");
+    expect(chain.getFirstResponder()).toBe("commit-card");
+  });
 });

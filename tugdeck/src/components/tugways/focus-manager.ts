@@ -742,6 +742,19 @@ export class FocusContext {
     return this.coord.isActiveContext(this);
   }
 
+  /**
+   * Whether a pop may hand the chain's first responder back to the one captured
+   * at push. Not when this is a CARD's context and that card is no longer key:
+   * the surface's gesture raised another card (Open Commit from an annotation
+   * menu), and restoring would route first-responder actions — ⌘W among them —
+   * to a card the user has left while the raised card still looks active. The
+   * deck-level default context pops over whichever card is key, so it keeps
+   * restoring as before.
+   */
+  private mayRestoreFirstResponder(): boolean {
+    return this.cardId === null || this.isActive();
+  }
+
   // ---- Focusable registry ----
 
   /**
@@ -1717,7 +1730,12 @@ export class FocusContext {
       // responder), so the engine must not reinstate the prior one. A chain-head
       // change fires no focus event, so it cannot disturb the key view restored
       // above; a responder key view re-promotes itself through `focusKeyView` below.
-      if (restoreFirstResponder && entry.restoreFirstResponder !== null) {
+      // Skipped when this card is no longer key ({@link mayRestoreFirstResponder}).
+      if (
+        restoreFirstResponder &&
+        entry.restoreFirstResponder !== null &&
+        this.mayRestoreFirstResponder()
+      ) {
         this.coord.restoreFirstResponder(entry.restoreFirstResponder);
       }
       // Re-project the restored key view onto the DOM (move focus to it) when the
@@ -1824,7 +1842,7 @@ export class FocusContext {
     // on the cycle's resting responder. A chain-head change fires no focus event,
     // so the key view restored above stands. Complements the cycle consumer's
     // `restingFocus` reclaim.
-    if (host.restoreFirstResponder !== null) {
+    if (host.restoreFirstResponder !== null && this.mayRestoreFirstResponder()) {
       this.coord.restoreFirstResponder(host.restoreFirstResponder);
     }
     if (host.restoreKeyView !== null && host.restoreKeyViewKeyboard) {
