@@ -223,7 +223,7 @@ arc-UI one.
 
 ### Reading the output
 
-**`just app-test` is quiet by default.** It prints the `APP-TEST SUMMARY` block and nothing else — no per-file `bun test` stream. The summary is meant to be complete enough that piping it through `grep` or truncating it with `head` has nothing left to find:
+**`just app-test` reports each file as it finishes, then summarizes.** Every file gets one line the moment it lands — `n/N`, elapsed run time, `[PASS]`/`[FAIL]`/`[ERR]`/`[SKIP]`, test counts, seconds — and a red file adds its first failing test's title and the first line of its message. That happens whether stdout is a terminal or a captured file, so a long run tailed from a background job is never blind. The per-file `bun test` stream stays off. The closing `APP-TEST SUMMARY` block is meant to be complete enough that piping it through `grep` or truncating it with `head` has nothing left to find:
 
 - **`Per-file results:`** — every file's status and test counts.
 - **`Diagnostics:`** — whatever the tests reported with `note()`, printed for **passing** files as well as failing ones. This is where a probe value belongs; a green run is usually where you want to read one.

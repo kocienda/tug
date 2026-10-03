@@ -1944,12 +1944,15 @@ app-test *FILES:
     # restores it verbatim.
     STREAM="${TUG_APPTEST_STREAM:-}"
 
-    # A quiet core-tier run is two minutes with nothing on screen, which reads
-    # as a hang to a person and is exactly right for a captured one. So the
-    # per-file progress line is conditional on stdout being a terminal: a human
-    # sees motion, and a run piped into a file or a model's context does not.
+    # Every file reports the moment it finishes — status, counts, seconds, its
+    # place in the run, and for a red file the first failure — whether stdout is
+    # a terminal, a file, or a model's context. A full-corpus run is an hour, and
+    # an hour with nothing on the wire is indistinguishable from a hang; a
+    # captured run is exactly the one somebody is tailing. The finished summary
+    # still follows, complete on its own. Off only under STREAM, which prints
+    # its own `---- file ----` framing.
     PROGRESS=""
-    if [ -z "$STREAM" ] && [ -t 1 ]; then PROGRESS=1; fi
+    [ -z "$STREAM" ] && PROGRESS=1
 
     # bun prints a failing test's error block BEFORE its `(fail) <title>` line,
     # so each block is read forward and emitted when its title arrives. Only the
@@ -2112,17 +2115,42 @@ app-test *FILES:
             fi
         fi
         printf '%s\n' "$status:$f:$passed:$total:$secs" > "$out.row"
+        report_progress "$f" "$status" "$passed" "$total" "$secs" "$out.fails"
+    }
+
+    # One line per finished file, printed from inside the job that ran it, so a
+    # concurrent batch reports each file as it lands rather than when the batch's
+    # slowest file does. `nth` counts the rows already written — two files that
+    # finish in the same instant can share a number, which costs nothing. The
+    # whole report is one printf, so concurrent jobs never interleave mid-line.
+    report_progress() {
+        [ -n "$PROGRESS" ] || return 0
+        local f="$1" status="$2" passed="$3" total="$4" secs="$5" fails="$6"
+        local nth elapsed detail="" first title msg
+        nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
+        elapsed=$(( $(date +%s) - START_EPOCH ))
+        # The first record's title and the first line of its message: enough to
+        # know which test went red and why without waiting for the summary.
+        if { [ "$status" = FAIL ] || [ "$status" = ERR ]; } && [ -s "$fails" ]; then
+            first="$(head -n 1 "$fails")"
+            title="${first%%"$US"*}"
+            msg="${first#*"$US"}"
+            msg="${msg%%"$US"*}"
+            detail="$(printf '\n          ↳ %s\n            %s' "${title:0:140}" "${msg:0:160}")"
+        fi
+        printf '%3d/%-3d %02d:%02d  %-6s %-56s (%d/%d)  %4ds%s\n' \
+            "$nth" "${#FILES[@]}" $((elapsed / 60)) $((elapsed % 60)) \
+            "[$status]" "$f" "$passed" "$total" "$secs" "$detail"
     }
 
     # Fold one finished file's $RUNDIR output into the arrays the summary reads.
     collect_file() {
         local f="$1"
         local out="$RUNDIR/$(printf '%s' "$f" | tr '/' '_')"
-        local row status rpassed rtotal
+        local row
         [ -f "$out.row" ] || return 0
         row="$(cat "$out.row")"
         RESULT_ROWS+=("$row")
-        IFS=':' read -r status _ rpassed rtotal _ <<< "$row"
         if [ -f "$out.notes" ]; then
             while IFS= read -r ln; do
                 [ -n "$ln" ] && NOTE_ROWS+=("$f$US$ln")
@@ -2133,11 +2161,10 @@ app-test *FILES:
                 [ -n "$rec" ] && FAIL_DETAILS+=("$f$US$rec")
             done < "$out.fails"
         fi
-        [ -n "$PROGRESS" ] && printf '  %-6s %-56s (%d/%d)  %4ds\n' \
-            "[$status]" "$f" "$rpassed" "$rtotal" "$(echo "$row" | awk -F: '{print $5}')"
     }
 
     START_EPOCH="$(date +%s)"
+    [ -n "$PROGRESS" ] && echo "==> running ${#FILES[@]} file(s), $JOBS at a time; each reports as it finishes."
 
     # The background tier, JOBS at a time. Batched rather than a rolling pool:
     # macOS ships bash 3.2, which has no `wait -n` to retire one job at a time.
@@ -2169,7 +2196,8 @@ app-test *FILES:
         if [ "$FG_DECISION" = "skip" ]; then
             [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
             RESULT_ROWS+=("SKIP:$f:0:0:0")
-            [ -n "$PROGRESS" ] && printf '  %-6s %-56s (skipped — takes the screen)\n' "[SKIP]" "$f"
+            [ -n "$PROGRESS" ] && printf '%3d/%-3d %5s  %-6s %-56s (skipped — takes the screen)\n' \
+                "${#RESULT_ROWS[@]}" "${#FILES[@]}" "" "[SKIP]" "$f"
             continue
         fi
         TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f"
