@@ -602,6 +602,29 @@ describe("rowAt produces a descriptor consumers can narrow on", () => {
     expect(row.kind).toBe("ghost");
     expect(row.queued?.text).toBe("later");
   });
+
+  test("liveForIndex names the in-flight assistant row, wherever later rows push it", () => {
+    // The Z1C wave rides the in-flight turn's last assistant row. A queued
+    // send's ghost and a shell row run after submit both land after it, so
+    // the list view's `:last-child` opt-out no longer covers it — the data
+    // source must name it, or the wave judders while the send is held.
+    const snap = snapshotWith({
+      transcript: [normalTurn("t1", "hi", "yo"), shellTurn("s1", "ls", 100)],
+      activeTurn: activeTurn({ turnKey: "L", isWake: false, withText: "go", submitAt: 50 }),
+      queuedSends: [{ turnKey: "Q", text: "later", atoms: [], origin: "user", queuedAt: 150, held: false }],
+    });
+    const ds = new SessionTranscriptDataSource(storeWith(snap));
+    const kinds = Array.from({ length: ds.numberOfItems() }, (_, i) => ds.kindForIndex(i));
+    expect(kinds).toEqual(["user", "assistant", "user", "assistant", "shell", "ghost"]);
+    const live = kinds.map((_, i) => ds.liveForIndex(i));
+    expect(live).toEqual([false, false, false, true, false, false]);
+  });
+
+  test("liveForIndex is false everywhere once nothing is in flight", () => {
+    const snap = snapshotWith({ transcript: [normalTurn("t1", "hi", "yo")] });
+    const ds = new SessionTranscriptDataSource(storeWith(snap));
+    expect([0, 1].map((i) => ds.liveForIndex(i))).toEqual([false, false]);
+  });
 });
 
 // ---------------------------------------------------------------------------

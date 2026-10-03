@@ -342,6 +342,19 @@ export interface TugListViewDataSource {
   enabledForIndex?(index: number): boolean;
 
   /**
+   * Whether the row at `index` carries live motion that must keep running
+   * — an in-flight progress indicator. Optional; when omitted every row
+   * is `false`. Only meaningful under `offscreenSkip`: a live row's
+   * wrapper carries `data-cv-live` and is exempt from
+   * `content-visibility: auto`, because a subtree the engine may skip
+   * does not run its animations, whatever `will-change` asked for. The
+   * tail cell is exempt by position already; this exempts a live row
+   * that something else has been appended after (a queued send, a shell
+   * row run after submit). Re-read on every render.
+   */
+  liveForIndex?(index: number): boolean;
+
+  /**
    * Subscribe to data-source changes. Listener fires on every change
    * that should re-window. Returns an unsubscribe callback.
    */
@@ -5587,6 +5600,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       kind: string;
       role: TugListViewCellRole;
       enabled: boolean;
+      live: boolean;
     }> = [];
     // Defensive against a data-source shrink mid-render: if itemCount
     // dropped below the previously-computed window, skip indices that
@@ -5599,6 +5613,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         kind: dataSource.kindForIndex(i),
         role: dataSource.roleForIndex?.(i) ?? DEFAULT_CELL_ROLE,
         enabled: dataSource.enabledForIndex?.(i) ?? true,
+        live: dataSource.liveForIndex?.(i) ?? false,
       });
     }
 
@@ -7380,7 +7395,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         <ScrollerProvider scroller={scrollerFacadeRef.current}>
         <TugListRowLayoutProvider value={rowLayoutValue}>
         <div className="tug-list-view-window" ref={listWindowElRef}>
-          {renderedRange.map(({ index, id, kind, role, enabled }) => {
+          {renderedRange.map(({ index, id, kind, role, enabled, live }) => {
             // Role-aware wrapper attributes:
             //  - `tabIndex` is `0` for cells (focusable, in tab order)
             //    and `-1` for headers/footers (not focusable). See
@@ -7481,6 +7496,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
                 data-list-cell-role={wrapperRoleAttr}
                 data-selected={wrapperSelectedAttr}
                 data-disabled={wrapperDisabledAttr}
+                data-cv-live={live ? "" : undefined}
                 aria-disabled={enabled ? undefined : true}
                 role={itemRole}
                 tabIndex={wrapperTabIndex}

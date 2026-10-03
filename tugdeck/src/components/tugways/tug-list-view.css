@@ -421,8 +421,15 @@ body {
    the engine declines to render does not run its animations at all,
    whatever `will-change` asked for. Leaving the tail cell skippable
    stalls the in-flight indicator's transform loop under main-thread
-   load. `:last-child` keeps the opt-out to one cheap selector. */
-.tug-list-view[data-offscreen-skip] .tug-list-view-cell[data-cv-ready]:last-child {
+   load. `:last-child` keeps the opt-out to one cheap selector.
+
+   Position is not enough on its own: a queued send's ghost row, or a
+   shell row run after submit, lands after the in-flight row and takes
+   `:last-child` from it — and the wave judders for as long as the send
+   is held. So a row the data source names live (`liveForIndex`) opts
+   out by identity, wherever it sits. */
+.tug-list-view[data-offscreen-skip] .tug-list-view-cell[data-cv-ready]:last-child,
+.tug-list-view[data-offscreen-skip] .tug-list-view-cell[data-cv-ready][data-cv-live] {
   content-visibility: visible;
 }
 

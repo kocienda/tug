@@ -1107,6 +1107,18 @@ export class SessionTranscriptDataSource implements TugListViewDataSource {
   }
 
   /**
+   * The in-flight turn's last assistant row is live: it hosts the Z1C
+   * wave, which a skippable cell stalls. Named here rather than left to
+   * the list view's `:last-child` opt-out because a queued send's ghost
+   * row (or a shell row run after submit) lands after it and takes the
+   * tail position for as long as the send is held.
+   */
+  liveForIndex(index: number): boolean {
+    const slot = this.layout(this._codeSessionStore.getSnapshot()).slots[index];
+    return slot.active && slot.cellKind === "assistant" && slot.isLastAssistantOfTurn;
+  }
+
+  /**
    * Typed row descriptor for `index`. Cell renderers call this from
    * inside `useSyncExternalStore`-bound props rather than peeking at
    * the snapshot themselves so the adapter remains the single seam
