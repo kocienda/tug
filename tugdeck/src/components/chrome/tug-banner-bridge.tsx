@@ -49,10 +49,11 @@ function bannerStateStore(connection: TugConnection | null): {
           // Stash the latest disconnect state so the timer always applies current info.
           latestDisconnectedState = state;
 
-          // Start a single delay timer on first disconnect. The timer stays active
-          // for the entire disconnect period — subsequent callbacks just update
-          // latestDisconnectedState above. This prevents stale timers from
-          // overwriting a reconnected state.
+          // One delay timer at a time. While it is pending, further callbacks
+          // only update latestDisconnectedState above, so it shows the latest
+          // state when it fires; it clears itself as it fires, so a callback
+          // after the banner is up arms a fresh one. A reconnect cancels a
+          // pending timer below, so a stale timer never overwrites it.
           if (showTimer === null) {
             showTimer = window.setTimeout(() => {
               showTimer = null;

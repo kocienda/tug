@@ -1,5 +1,5 @@
 /**
- * at0675-rail-width-drag-readout-and-limits.test.ts — a rail width drag says
+ * at0680-rail-width-drag-readout-and-limits.test.ts — a rail width drag says
  * where it will land, gives at its limits, and springs back to them.
  *
  * While the hand drags a rail's edge, a readout pill rides beside the pointer
@@ -131,7 +131,7 @@ async function armSampler(app: App): Promise<void> {
   await app.evalJS<null>(
     `(function () {
       var rec = { samples: [], down: false, running: true };
-      window.__at0675 = rec;
+      window.__at0680 = rec;
       window.addEventListener("pointerdown", function () { rec.down = true; }, true);
       window.addEventListener("pointerup", function () { rec.down = false; }, true);
       var tick = function () {
@@ -149,7 +149,7 @@ async function armSampler(app: App): Promise<void> {
 function takeSamples(app: App): Promise<{ down: boolean; width: number }[]> {
   return app.evalJS<{ down: boolean; width: number }[]>(
     `(function () {
-      var rec = window.__at0675;
+      var rec = window.__at0680;
       rec.running = false;
       return rec.samples;
     })()`,
@@ -215,13 +215,13 @@ const readoutWidth = (text: string | null): number =>
   text === null ? NaN : parseFloat(text);
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0675 — a rail width drag shows where it will land, and springs back from its limits",
+  "at0680 — a rail width drag shows where it will land, and springs back from its limits",
   () => {
     test(
       "between the limits the readout reads the width, and the release lands with no spring",
       async () => {
         const app = await launchTugApp({
-          testName: "at0675-rail-width-readout",
+          testName: "at0680-rail-width-readout",
           foreground: true,
         });
         try {
@@ -277,7 +277,7 @@ describe.skipIf(!SHOULD_RUN)(
       "past the ceiling the edge gives, the readout reads the ceiling, and the release springs back to it",
       async () => {
         const app = await launchTugApp({
-          testName: "at0675-rail-width-limit",
+          testName: "at0680-rail-width-limit",
           foreground: true,
         });
         try {

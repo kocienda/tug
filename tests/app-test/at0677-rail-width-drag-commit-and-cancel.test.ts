@@ -1,5 +1,5 @@
 /**
- * at0672-rail-width-drag-commit-and-cancel.test.ts — a rail width drag lands
+ * at0677-rail-width-drag-commit-and-cancel.test.ts — a rail width drag lands
  * the whole rail, and a drag that loses its pointer gives everything back.
  *
  * A rail is as wide as its widest member: the deck reads a side's width as the
@@ -223,12 +223,12 @@ function count(app: App, selector: string): Promise<number> {
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0672 — a rail width drag lands the whole rail, and a lost pointer cancels it",
+  "at0677 — a rail width drag lands the whole rail, and a lost pointer cancels it",
   () => {
     test(
       "narrowing a three-member rail lands every member at the new width",
       async () => {
-        const app = await launchTugApp({ testName: "at0672-rail-width-commit" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-commit" });
         try {
           await seed(app);
           expectEveryMember(await memberWidths(app), RAIL_WIDTH, "at rest");
@@ -255,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a release with no move before it still commits the width it landed at",
       async () => {
-        const app = await launchTugApp({ testName: "at0672-rail-width-bare-release" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-bare-release" });
         try {
           await seed(app);
           // A press and a release 60px apart, with nothing between them —
@@ -286,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a drag whose pointer capture is lost releases everything it took",
       async () => {
-        const app = await launchTugApp({ testName: "at0672-rail-width-cancel" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-cancel" });
         try {
           await seed(app);
           await app.waitForCondition<boolean>(
@@ -298,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)(
           // below names the capture the gesture actually took.
           await app.evalJS<null>(
             `(window.addEventListener("pointerdown", function (e) {
-               window.__at0672PointerId = e.pointerId;
+               window.__at0677PointerId = e.pointerId;
              }, { capture: true, once: true }), null)`,
           );
 
@@ -325,7 +325,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ── The moment: the capture is lost. ─────────────────────────────
           const delivery = await app.evalJS<string>(
             `(function () {
-              var id = window.__at0672PointerId;
+              var id = window.__at0677PointerId;
               if (typeof id !== "number") return "no-pointer-id";
               var holder = null;
               document.querySelectorAll(".tug-pane, .tug-pane *").forEach(function (el) {
@@ -387,7 +387,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "Escape mid-drag cancels it, and the release that follows commits nothing",
       async () => {
-        const app = await launchTugApp({ testName: "at0672-rail-width-escape" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-escape" });
         try {
           await seed(app);
           await app.waitForCondition<boolean>(

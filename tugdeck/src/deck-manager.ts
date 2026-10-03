@@ -4866,6 +4866,19 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * The band's width with no floor — zero or negative when the rails meet or
+   * overlap. {@link getBandEdges} answers `null` there, which is right for a
+   * reader that needs somewhere to put a card; the rail width drag needs the
+   * signed width instead, because the imposed `left` expressions it previews
+   * evaluate exactly this and clamp it themselves, and a rail that has covered
+   * the deck is the one that most needs to be narrowed back.
+   */
+  getBandSpan(): number {
+    const state = this.deckState;
+    return this._flowBandWidth(state.panes, state.imposition);
+  }
+
+  /**
    * The slot a fresh card opens into, and whether it lands in a wall — the
    * deck's one answer to where a new card goes, for every opener.
    *

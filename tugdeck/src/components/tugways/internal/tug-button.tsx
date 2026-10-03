@@ -11,7 +11,7 @@
 
 import "./tug-button.css";
 
-import React, { useContext } from "react";
+import React, { useContext, useMemo } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Slot } from "@radix-ui/react-slot";
 import { cn } from "@/lib/utils";
@@ -658,11 +658,18 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
 
   // useSyncExternalStore() called unconditionally on every render. [L02]
   // When the chain is inactive (no manager, or no action prop), use the
-  // module-level NOOP constants so React sees stable function references
-  // and never triggers unnecessary re-subscriptions.
+  // module-level NOOP constants. Either way the references are memoized on
+  // the manager, so a chain-active button subscribes once rather than on
+  // every render — a fresh `bind` each render is a new `subscribe`, and
+  // `useSyncExternalStore` resubscribes whenever that changes.
   const chainActive = manager !== null && action !== undefined;
-  const subscribe = chainActive ? manager.subscribe.bind(manager) : NOOP_SUBSCRIBE;
-  const getSnapshot = chainActive ? manager.getValidationVersion.bind(manager) : NOOP_SNAPSHOT;
+  const [subscribe, getSnapshot] = useMemo(
+    () =>
+      chainActive
+        ? [manager.subscribe.bind(manager), manager.getValidationVersion.bind(manager)] as const
+        : [NOOP_SUBSCRIBE, NOOP_SNAPSHOT] as const,
+    [chainActive, manager],
+  );
   useSyncExternalStore(subscribe, getSnapshot);
 
   // ---- Chain-action validation (computed from hook results) ----

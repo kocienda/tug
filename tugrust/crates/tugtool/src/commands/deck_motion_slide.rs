@@ -1061,7 +1061,13 @@ pub fn run_slide(
             print_queries(rows, readings.len());
         }
         if let (Some(tasks), Some(commits)) = (&task_rows, &commit_rows) {
-            print_tasks(tasks, commits, press_task.as_ref(), click_task.as_ref(), readings.len());
+            print_tasks(
+                tasks,
+                commits,
+                press_task.as_ref(),
+                click_task.as_ref(),
+                readings.len(),
+            );
         }
         if let Some(processes) = &processes {
             crate::commands::deck_motion_sample::print(processes, readings.len());
@@ -1347,7 +1353,11 @@ fn print_tasks(
     println!();
     for (name, task, what) in [
         ("press task", press_task, "pointerdown and mousedown"),
-        ("click task", click_task, "pointerup, mouseup and click, a task after the press"),
+        (
+            "click task",
+            click_task,
+            "pointerup, mouseup and click, a task after the press",
+        ),
     ] {
         let Some(ct) = task else { continue };
         let n = |k: &str| ct.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);

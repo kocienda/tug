@@ -305,6 +305,7 @@ lint: tugplug-lint
     cd tugdeck && bun run audit:visibility
     cd tugdeck && bun run audit:motion
     cd tugdeck && bun run audit:type-alignment
+    cd tugdeck && bun run audit:tokens lint
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
 

@@ -1,5 +1,5 @@
 /**
- * at0673-rail-width-drag-frames.test.ts — a rail width drag costs a frame
+ * at0678-rail-width-drag-frames.test.ts — a rail width drag costs a frame
  * less than half a frame to draw.
  *
  * Dragging a rail's edge moves the whole deck: the rail's own members, the
@@ -146,7 +146,7 @@ async function armFrames(app: App): Promise<void> {
   await app.evalJS<null>(
     `(function () {
       var rec = { all: [], downAt: null, down: false, running: true };
-      window.__at0673 = rec;
+      window.__at0678 = rec;
       window.addEventListener("pointerdown", function () {
         if (rec.downAt === null) rec.downAt = performance.now();
         rec.down = true;
@@ -179,7 +179,7 @@ async function armFrames(app: App): Promise<void> {
 async function takeFrames(app: App): Promise<FrameRecord> {
   return app.evalJS<FrameRecord>(
     `(function () {
-      var rec = window.__at0673;
+      var rec = window.__at0678;
       rec.running = false;
       var inside = rec.all;
       return {
@@ -234,7 +234,7 @@ async function armRelease(app: App): Promise<void> {
   await app.evalJS<null>(
     `(function () {
       var rec = { frames: 0, minOpacity: 1, widths: {}, released: false, running: true };
-      window.__at0673release = rec;
+      window.__at0678release = rec;
       window.addEventListener("pointerup", function () { rec.released = true; }, true);
       var tick = function () {
         if (!rec.running) return;
@@ -261,7 +261,7 @@ async function armRelease(app: App): Promise<void> {
 async function takeRelease(app: App): Promise<ReleaseSample> {
   return app.evalJS<ReleaseSample>(
     `(function () {
-      var rec = window.__at0673release;
+      var rec = window.__at0678release;
       rec.running = false;
       return { frames: rec.frames, minOpacity: rec.minOpacity, widths: rec.widths };
     })()`,
@@ -282,13 +282,13 @@ async function seedRail(app: App): Promise<void> {
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0673 — a rail width drag over a three-member rail stays inside half a frame",
+  "at0678 — a rail width drag over a three-member rail stays inside half a frame",
   () => {
     test(
       "a pre-armed recorder reads p95 frame cost under 8.3 ms across the drag",
       async () => {
         const app = await launchTugApp({
-          testName: "at0673-rail-width-drag-frames",
+          testName: "at0678-rail-width-drag-frames",
           foreground: true,
         });
         try {
@@ -354,7 +354,7 @@ describe.skipIf(!SHOULD_RUN)(
       "every member stays opaque and at the released width on every frame after the release",
       async () => {
         const app = await launchTugApp({
-          testName: "at0673-rail-width-drag-release",
+          testName: "at0678-rail-width-drag-release",
           foreground: true,
         });
         try {

@@ -25,6 +25,15 @@
  * Read three times alone on 2026-10-01; every leg was red at least once and
  * none was green all three times, so none has earned its way back to `at0622`.
  *
+ * Read again alone on 2026-10-02 at the graphics-audit-three-fixups tree:
+ * 0/5 on four runs. The warm flip could not be read at all on those — its
+ * pin demanded the activation's `flushSync` marks, and since the gesture
+ * hold an on-screen activation commits bare with no flush — so the pin now
+ * asserts the flush is absent. With that, the warm flip went green on one
+ * run of three and red on two; one green is a note, not a move. The other
+ * four held their reds: unfold gap 2.65–2.71 frames (fold lead 22 ms once),
+ * departure 2.06–2.35, showing the rail 2.88–3.12, column split 2.35–2.71.
+ *
  * - **The warm flip across the band, at four and eight cards.** The gap now
  *   holds its bar (1.18–1.53 frames against 2, four-up and eight-up alike);
  *   what rotates is the four-up move lead, the first painted frame 18–23 ms

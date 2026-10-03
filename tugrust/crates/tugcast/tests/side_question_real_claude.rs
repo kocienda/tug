@@ -99,7 +99,10 @@ async fn await_answer(ws: &mut TestWs, sess: &str, request_id: &str) -> String {
     let answer = frame["answer"]
         .as_str()
         .unwrap_or_else(|| panic!("answer must be a string, got: {frame}"));
-    assert!(!answer.trim().is_empty(), "answer must not be empty: {frame}");
+    assert!(
+        !answer.trim().is_empty(),
+        "answer must not be empty: {frame}"
+    );
     answer.to_string()
 }
 
@@ -113,7 +116,8 @@ async fn test_side_question_answered_when_idle() {
     let sess = sess.as_str();
 
     live_session(&mut ws, &tc, "card-btw-idle", sess).await;
-    ws.send_code_input(sess, "Reply with just the word: ready").await;
+    ws.send_code_input(sess, "Reply with just the word: ready")
+        .await;
     ws.collect_code_output(sess, TURN_TIMEOUT)
         .await
         .expect("first turn completes");
@@ -125,7 +129,10 @@ async fn test_side_question_answered_when_idle() {
     )
     .await;
     let answer = await_answer(&mut ws, sess, "btw-1").await;
-    assert!(answer.contains("51"), "expected 51 in the answer, got: {answer:?}");
+    assert!(
+        answer.contains("51"),
+        "expected 51 in the answer, got: {answer:?}"
+    );
 
     // A side question is overlay-only: it must not start a turn.
     for event in ["assistant_text", "turn_complete"] {

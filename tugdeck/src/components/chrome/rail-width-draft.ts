@@ -50,8 +50,10 @@
  * pointer showing the width the release would commit. Past a limit the edge
  * keeps following with diminishing returns (`aimRailWidth`), the members are
  * marked `data-rail-limit` and the readout reads the limit, and the release
- * springs the edge back to it — the one motion a release makes, and run
- * through the same preview, so it still lands with nothing left to move.
+ * springs the edge back to it — the one motion a release makes, a TugAnimator
+ * tween of the same elements the preview moves, ending on the pose the commit
+ * stands them at, so it still lands with nothing left to move. Its commit
+ * carries a deadline, so a window whose frames have stopped still lands it.
  * There are no catches between the limits ([B13]). The readout fades once the
  * hand lets go, and is removed by this owner however the drag ended.
  *
@@ -117,6 +119,8 @@ import {
   type ResizeEpisodeHandle,
 } from "@/lib/resize-episode";
 import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
+import { group } from "@/components/tugways/tug-animator";
+import { landByDeadline } from "@/lib/land-by-deadline";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_CLASS,
@@ -183,11 +187,21 @@ const HELD_ATTR = "data-rail-held";
 const LIMIT_ATTR = "data-rail-limit";
 /** The readout pill beside the pointer. */
 const READOUT_CLASS = "tug-rail-readout";
-/** How long the readout takes to fade once the hand lets go. Matches the
- *  stylesheet's transition. */
+/** How long the readout takes to fade once the hand lets go, at a timing of
+ *  1. Stated here only: the readout carries it as `--tugx-rail-readout-fade`,
+ *  which the stylesheet's transition reads and scales by `--tug-timing`. */
 const READOUT_FADE_MS = 400;
 /** How long a release past a limit takes to spring back to it. */
 const LIMIT_SPRING_MS = 220;
+/** The spring's curve: a cubic ease-out, `1 - (1 - t)³`. */
+const LIMIT_SPRING_EASING = "cubic-bezier(0.33, 1, 0.68, 1)";
+/** How far past the spring's scaled duration its commit waits before landing
+ *  anyway, for a window whose frames have stopped. */
+const LIMIT_SPRING_DEADLINE_SLACK_MS = 100;
+/** How many steps a carried element's spring is sampled in. Its travel is
+ *  piecewise linear in the rail's width, so a two-keyframe tween would cut
+ *  across the kinks a clamp puts in it. */
+const LIMIT_SPRING_SAMPLES = 8;
 
 /** The inline properties the preview writes, saved as it found them. */
 const PINNED_PROPERTIES = ["width", "left", "contain"] as const;
@@ -256,7 +270,7 @@ interface Draft {
   shown: number;
   limit: RailWidthAim["limit"];
   /** A release past a limit springing back, and the width it lands. */
-  spring: { rafId: number; width: number } | null;
+  spring: { width: number; landNow: () => void } | null;
   readout: HTMLElement | null;
 }
 
@@ -280,10 +294,18 @@ class RailWidthDraft implements RailWidthGesture {
   begin({ side, frame, clientX, clientY }: RailWidthGestureBegin): void {
     this.cancel();
     const container = this.canvasRef.current;
-    if (container === null) return;
     const limits = this.store.railWidthLimits(side);
-    const edges = this.store.getBandEdges();
-    if (limits === null || edges === null) return;
+    // Neither can be missing while a hand presses a rail's edge: the canvas
+    // renders every pane that has one, and a pane exposes the edge only while
+    // the deck stands it on `side`. A press that finds either missing is a
+    // broken deck, and says so rather than holding the pointer over nothing
+    // ([L31]).
+    if (container === null) {
+      throw new Error("rail width drag: pressed a rail edge with no deck canvas mounted");
+    }
+    if (limits === null) {
+      throw new Error(`rail width drag: pressed the ${side} rail's edge, but the deck stands no rail there`);
+    }
 
     // Opened at pointer-down, while the pre-gesture layout is still on
     // screen: the band every card rides is inset by this width, so every
@@ -374,7 +396,10 @@ class RailWidthDraft implements RailWidthGesture {
       pinnedEdge,
       canvasBounds,
       guideEdgeOffsets: measureGuideEdgeOffsets(frame, zoom),
-      band: { band: edges.end - edges.start, flow: this.readFlow() },
+      // Signed: a rail widened until the rails cover the canvas leaves a band
+      // of no width, and that rail must still narrow back. The travel terms
+      // clamp a band below zero exactly as the `left` expressions do.
+      band: { band: this.store.getBandSpan(), flow: this.readFlow() },
       memberIds: new Set(
         members
           .map((el) => el.getAttribute("data-pane-id"))
@@ -482,8 +507,7 @@ class RailWidthDraft implements RailWidthGesture {
     // The hand already let go of a springing edge: what it released is owed
     // its commit, whatever interrupts the spring.
     if (draft.spring !== null) {
-      cancelAnimationFrame(draft.spring.rafId);
-      this.land(draft, draft.spring.width);
+      draft.spring.landNow();
       return;
     }
     this.fadeReadout(draft, null);
@@ -524,25 +548,52 @@ class RailWidthDraft implements RailWidthGesture {
     }
   }
 
-  /** The edge sprung back from where it was drawn to `width`, then landed. */
+  /**
+   * The edge sprung back from where it was drawn to `width`, then landed.
+   *
+   * Programmatic motion with a completion, so it is TugAnimator's ([L13]):
+   * every pinned and carried element is tweened from the pose the preview
+   * left it in to the pose `width` gives it. The commit lands on whichever
+   * comes first of the spring finishing, the spring being cancelled, a
+   * deadline just past its duration, or `cancel()` — so the store write, the
+   * lifted marks and the closed brackets never wait on a frame that does not
+   * come ([L31], [L32]). On every path but a natural finish the tweens are
+   * stopped where they stand before the commit takes the preview off.
+   */
   private springTo(draft: Draft, width: number): void {
     const from = draft.shown;
-    const duration = LIMIT_SPRING_MS * getTugTiming();
-    const start = performance.now();
-    const step = (now: number): void => {
-      if (this.draft !== draft || draft.spring === null) return;
-      const t = Math.min(1, (now - start) / duration);
-      if (t >= 1) {
+    // The limit's caution comes off as the edge starts back.
+    this.preview(draft, { width, shown: from, limit: null });
+    const motion = group({ duration: LIMIT_SPRING_MS, easing: LIMIT_SPRING_EASING });
+    for (const p of draft.pinned) {
+      motion.animate(
+        p.el,
+        [from, width].map((w): Keyframe =>
+          draft.side === "right"
+            ? { width: `${w}px`, left: `${p.left0 - (w - draft.startWidth)}px` }
+            : { width: `${w}px` },
+        ),
+      );
+    }
+    for (const c of draft.carried) {
+      const frames: Keyframe[] = [];
+      for (let i = 0; i <= LIMIT_SPRING_SAMPLES; i++) {
+        const w = from + ((width - from) * i) / LIMIT_SPRING_SAMPLES;
+        frames.push({ translate: `${carriedShift(draft, c, w - draft.startWidth)}px 0px` });
+      }
+      motion.animate(c.el, frames);
+    }
+    const landNow = landByDeadline(
+      motion.finished,
+      LIMIT_SPRING_MS * getTugTiming() + LIMIT_SPRING_DEADLINE_SLACK_MS,
+      (cause) => {
+        if (this.draft !== draft) return;
+        if (cause !== "finished") motion.cancel("hold-at-current");
         draft.spring = null;
         this.land(draft, width);
-        return;
-      }
-      const eased = 1 - (1 - t) ** 3;
-      const shown = from + (width - from) * eased;
-      this.preview(draft, { width, shown, limit: null });
-      draft.spring = { rafId: requestAnimationFrame(step), width };
-    };
-    draft.spring = { rafId: requestAnimationFrame(step), width };
+      },
+    );
+    draft.spring = { width, landNow };
   }
 
   /** The press has become a drag: the acquisitions a drag makes beyond a
@@ -565,6 +616,7 @@ class RailWidthDraft implements RailWidthGesture {
     // The readout rides beside the pointer for as long as the hand drags.
     const readout = document.createElement("div");
     readout.className = READOUT_CLASS;
+    readout.style.setProperty("--tugx-rail-readout-fade", `${READOUT_FADE_MS}ms`);
     readout.setAttribute("aria-hidden", "true");
     draft.container.appendChild(readout);
     draft.readout = readout;
@@ -647,11 +699,7 @@ class RailWidthDraft implements RailWidthGesture {
       if (p.contain) p.el.style.contain = "layout";
     }
     for (const c of draft.carried) {
-      const shift =
-        c.travel === null
-          ? draft.growSign * growth
-          : railTravelShift(c.travel, draft.side, draft.band, growth);
-      c.el.style.translate = `${shift}px 0px`;
+      c.el.style.translate = `${carriedShift(draft, c, growth)}px 0px`;
     }
   }
 
@@ -685,7 +733,7 @@ class RailWidthDraft implements RailWidthGesture {
         this.leaving.delete(readout);
         readout.remove();
       },
-      READOUT_FADE_MS * (getTugTiming() || 1) + 50,
+      READOUT_FADE_MS * getTugTiming() + 50,
     );
     this.leaving.set(readout, timer);
   }
@@ -730,6 +778,15 @@ class RailWidthDraft implements RailWidthGesture {
     );
     return { width: landed, shown: landed, limit: null };
   }
+}
+
+/** How far a carried element stands from its own place when the rail has
+ *  grown by `growth`: a shadow strip moves with the edge, an imposed element
+ *  by what its own `left` expression gives. */
+function carriedShift(draft: Draft, c: Carried, growth: number): number {
+  return c.travel === null
+    ? draft.growSign * growth
+    : railTravelShift(c.travel, draft.side, draft.band, growth);
 }
 
 /**

@@ -4402,8 +4402,12 @@ function TugPaneImpl({
       event.preventDefault();
       event.stopPropagation();
       const frame = frameRef.current;
-      if (frame === null || sidebarSide === undefined) return;
-      if (railWidthGesture === null) return;
+      // The edge renders only on a mounted rail frame inside a deck that
+      // provides the gesture, so none of these can be missing at a press. One
+      // that is is a broken pane, and says so ([L31]).
+      if (frame === null || sidebarSide === undefined || railWidthGesture === null) {
+        throw new Error("rail edge pressed outside a mounted rail in a deck canvas");
+      }
       endRailWidthPressRef.current?.();
 
       const pointerId = event.pointerId;
@@ -4447,6 +4451,15 @@ function TugPaneImpl({
         onCancel();
       };
 
+      // The draft opens before the press takes anything, so a draft that
+      // refuses a broken deck throws with no capture, mark or listener left
+      // holding the pointer over nothing ([L31]).
+      railWidthGesture.begin({
+        side: sidebarSide,
+        frame,
+        clientX: startClientX,
+        clientY: event.clientY,
+      });
       frame.setPointerCapture(pointerId);
       frame.setAttribute("data-gesture", "resize");
       frame.addEventListener("pointermove", onPointerMove);
@@ -4455,12 +4468,6 @@ function TugPaneImpl({
       frame.addEventListener("lostpointercapture", onCancel);
       window.addEventListener("keydown", onKeyDown, true);
       endRailWidthPressRef.current = onCancel;
-      railWidthGesture.begin({
-        side: sidebarSide,
-        frame,
-        clientX: startClientX,
-        clientY: event.clientY,
-      });
     },
     [sidebarSide, railWidthGesture],
   );
@@ -4836,7 +4843,11 @@ function TugPaneImpl({
         // offers the verb on a sidebar card. The guard stays because this is
         // geometry reading a posture field, and a stale id it read as true
         // would hand the user a handle onto nothing.
-        bullseye ? null : (
+        //
+        // Outside a deck canvas there is no draft to drive, so there is no
+        // edge either — a handle the hand can grip and nothing answers is the
+        // silence [L31] forbids.
+        bullseye || railWidthGesture === null ? null : (
           <div
             className={`tug-pane-resize tug-pane-rail-edge tug-pane-resize-${sidebarSide === "left" ? "e" : "w"}`}
             onPointerDown={handleSidebarResizeStart}

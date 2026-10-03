@@ -35,6 +35,8 @@
  * | --tugx-pane-scrim-bg                             | (card surface)                                    | overlay       | .tug-pane-scrim (background-color)    |
  * | --tugx-rail-readout-fg                           | --tugx-rail-readout-bg                            | informational | .tug-rail-readout (color)             |
  * | --tugx-rail-readout-limit-fg                     | --tugx-rail-readout-bg                            | informational | .tug-rail-readout[data-limit] (color) |
+ * | --tugx-rail-edge-held                            | --tug7-surface-global-primary-normal-default-rest | informational | .tug-pane[data-rail-held] .tug-pane-chrome (border) |
+ * | --tugx-rail-edge-limit                           | --tug7-surface-global-primary-normal-default-rest | informational | .tug-pane[data-rail-held][data-rail-limit] .tug-pane-chrome (border) |
  */
 
 
@@ -527,6 +529,8 @@ body {
   background-color: var(--tugx-rail-edge-held);
 }
 
+/* The held border sits where the chrome's own border does, against the deck. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .tug-pane[data-rail-held] .tug-pane-chrome {
   border-color: var(--tugx-rail-edge-held);
 }
@@ -535,13 +539,15 @@ body {
   background-color: var(--tugx-rail-edge-limit);
 }
 
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .tug-pane[data-rail-held][data-rail-limit] .tug-pane-chrome {
   border-color: var(--tugx-rail-edge-limit);
 }
 
 /* The width readout [B12]: written into the canvas beside the pointer by the
  * draft, which places it and removes it; it fades here once `data-leaving`
- * is set, over the 400ms the draft waits before removing it. */
+ * is set, over the duration the draft states on it as
+ * `--tugx-rail-readout-fade` and waits out before removing it. */
 .tug-rail-readout {
   position: absolute;
   z-index: 99971;
@@ -558,9 +564,10 @@ body {
   white-space: nowrap;
   box-shadow: 0 1px 4px var(--tug7-element-global-shadow-normal-md-rest);
   opacity: 1;
-  transition: opacity 400ms ease-out;
+  transition: opacity calc(var(--tugx-rail-readout-fade) * var(--tug-timing, 1)) ease-out;
 }
 
+/* @tug-renders-on: --tugx-rail-readout-bg */
 .tug-rail-readout[data-limit] {
   color: var(--tugx-rail-readout-limit-fg);
   border-color: var(--tugx-rail-edge-limit);

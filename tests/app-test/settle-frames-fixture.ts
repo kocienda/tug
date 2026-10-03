@@ -1304,12 +1304,14 @@ export function reportLastPassOrder(
  * which is the shape the ordering is asserting and the reason the clause is
  * `>=` rather than `>`.
  *
- * **The flush marks are ASSERTED PRESENT, not read if present ([B06]).** The
- * in-flush clause used to sit behind an `if` on both marks being there, so a
- * change that stopped emitting them — a rename, a gate that swallowed them,
- * a `flushSync` removed from the path — skipped the pin in silence and the
- * leg stayed green having checked nothing. A missing mark is now the failure
- * it always was: the pin cannot be read, so the pin is red.
+ * **The flush is now ASSERTED ABSENT.** An activation whose card already
+ * stands on screen commits its mutation bare (`transferFocusForActivation`'s
+ * `deferCommit` branch): no `flushSync`, so no flush marks, and no Last pass
+ * can run inside a flush that does not happen. That is a stronger claim than
+ * the in-flush clause it replaces, and it is asserted rather than inferred
+ * from missing marks — a flush that came back onto this path is red here,
+ * where a pin read only "if the marks are present" would skip itself in
+ * silence ([B06]).
  */
 export function expectLastPassAfterNotify(
   leg: string,
@@ -1343,25 +1345,12 @@ export function expectLastPassAfterNotify(
   ).toBeGreaterThanOrEqual(notify[0]);
 
   expect(
-    flushStart.length > 0 && flushEnd.length > 0,
-    `${leg}: the activation's flushSync left both of its marks in the ` +
-      `window — start ${JSON.stringify(flushStart)}, end ` +
-      `${JSON.stringify(flushEnd)}. Without them the clause below cannot be ` +
-      `read, and a pin that quietly skips itself is worse than one that ` +
-      `fails: every leg that carries it would stay green having checked ` +
-      `nothing ([B06])`,
-  ).toBe(true);
-
-  const inFlush = lastPass.filter(
-    (t) => t >= flushStart[0] && t <= flushEnd[flushEnd.length - 1],
-  );
-  expect(
-    inFlush,
-    `${leg}: and no Last pass runs inside the activation's flushSync — ` +
-      `the flush spans ${flushStart[0]}..` +
-      `${flushEnd[flushEnd.length - 1]}ms and these landed in it: ` +
-      `[${inFlush.join(", ")}]`,
-  ).toEqual([]);
+    { start: flushStart, end: flushEnd },
+    `${leg}: and the activation commits bare — a card already on screen ` +
+      `takes no flushSync, so nothing the flush would pull into the click's ` +
+      `task (the Last pass among it) can run there. A flush in this window ` +
+      `is React back in the click task`,
+  ).toEqual({ start: [], end: [] });
 }
 
 /**

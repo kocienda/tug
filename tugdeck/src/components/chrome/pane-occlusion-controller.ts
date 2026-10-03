@@ -43,7 +43,8 @@
  * store commit's own task, revealing a raised frame as it goes.
  *
  * Appearance-zone gestures (drag, resize, rail resize) move frames without
- * store commits, so the three gesture machines in `tug-pane.tsx` bracket
+ * store commits, so the gesture machines that move them — drag and resize in
+ * `tug-pane.tsx`, the rail width drag in `rail-width-draft.ts` — bracket
  * their moves with `paneOcclusionGesture.begin()` / `.end()`: begin reveals
  * every pane immediately and blocks hides for the duration; end re-arms the
  * settle pass. The commit at gesture end then recomputes from final geometry.

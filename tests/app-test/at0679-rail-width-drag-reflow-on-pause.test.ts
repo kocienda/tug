@@ -1,5 +1,5 @@
 /**
- * at0674-rail-width-drag-reflow-on-pause.test.ts — content that cannot
+ * at0679-rail-width-drag-reflow-on-pause.test.ts — content that cannot
  * reflow in a frame waits for the hand to rest.
  *
  * A rail width drag moves the rail's frames every frame, and a member whose
@@ -117,7 +117,7 @@ async function armSampler(app: App): Promise<void> {
   await app.evalJS<null>(
     `(function () {
       var rec = { samples: [], down: false, lastMove: performance.now(), running: true };
-      window.__at0674 = rec;
+      window.__at0679 = rec;
       window.addEventListener("pointerdown", function () { rec.down = true; }, true);
       window.addEventListener("pointerup", function () { rec.down = false; }, true);
       window.addEventListener("pointermove", function () { rec.lastMove = performance.now(); }, true);
@@ -147,7 +147,7 @@ async function armSampler(app: App): Promise<void> {
 async function takeSamples(app: App): Promise<Sample[]> {
   return app.evalJS<Sample[]>(
     `(function () {
-      var rec = window.__at0674;
+      var rec = window.__at0679;
       rec.running = false;
       return rec.samples;
     })()`,
@@ -164,13 +164,13 @@ async function grip(app: App): Promise<{ x: number; y: number }> {
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0674 — a rail member whose content cannot reflow in a frame waits for the hand to rest",
+  "at0679 — a rail member whose content cannot reflow in a frame waits for the hand to rest",
   () => {
     test(
       "the Overview holds its measure while the edge moves, and reflows on a rest and at the release",
       async () => {
         const app = await launchTugApp({
-          testName: "at0674-rail-width-drag-reflow-on-pause",
+          testName: "at0679-rail-width-drag-reflow-on-pause",
           foreground: true,
         });
         try {

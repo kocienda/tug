@@ -96,3 +96,21 @@ The audit was taken at `88edca520` on 2026-10-02. Typecheck, the tugdeck unit te
 ## Exit {#exit}
 
 **An arc.** The full app-test run comes first (`[B01]`), with the harness's scope settle (`[B02]`), because it says whether the hold broke anything and gives every later step a baseline. Then the scope's own fixes (`[B03]`–`[B06]`), which are small and unit-tested in `gesture-scope.test.ts`. Then the two readings: click latency (`[B07]`), which may narrow the scope and decides `[B08]`'s urgency, and the lead attribution (`[B10]`). The brief update (`[B09]`) lands once those readings exist. The fold (`[B11]`) is last and is the one piece of design: establish whether its target is computable at `arm`, and build the pre-launch only if it is.
+
+---
+
+## Run 4968's reds, read alone (2026-10-02) {#reds-read-alone-2026-10-02}
+
+Every file in run 4968's fail list (434 files at `68fcd01c4`, 36 red) was run once alone at `50ebad6a8`, the graphics-audit-three-fixups tree, and sorted by `tugtool apptest history`. The full corpus was not re-run.
+
+**Green alone (contention):** `at0019`, `at0334`, `at0335`, `at0493`.
+
+**Red and pre-existing (last green before the hold reached main at `85f697274`, or red since before it):** `at0017` (last green `29521f696`, 08-29), `at0043` (`a6e0e37a9`, 08-28), `at0277` (no green on record; red since `e122906e8`, 10-01), `at0339` (`cc239bb76`, 08-29), `at0347` (`858a40e4f`, 08-28), `at0430` (`e88601699`, 08-30), `at0454` (`858a40e4f`, 08-28), `at0456` (`858a40e4f`, 08-28), `at0497` (`f0f227ccc`, 08-29), `at0537` (red since `8989802e3`, 09-30), `at0541` (red since `babe567f9`, 09-30), `at0549` (red since `8989802e3`), `at0559` (red since `07475295e`), `at0566` (red since `588780c5a`, 09-30), `at0571` (`7eb709553`, 09-30), `at0580` (`3bb2c7bfc`, 10-01), `at0594` (red since `184bab3d4`), `at0597` (red since `c9b4c88c3`, 10-01), `at0605` (red since `588780c5a`), `at0613` (red since `f3e47bcd9`, 09-30), `at0626` (red since `babe567f9`), `at0643` (`9cf36fd9f`, 09-30), `at0645` (`9cf36fd9f`), `at0652` (`0fab58f2f`, 10-01; red twice alone since — one rendering update over the 2 ms floor while the wave runs, an idle second the scope never opens on), `at0654` (the standing reds; see its header).
+
+**Unclassified — no green on record, first recorded at run 4968:** `at0369` (open-file slot wait times out), `at0405` (arc lane never renders), `at0443` (no-git notice never appears), `at0561` (citation 15.6 px against 15.4), `at0631` (zoom rectangles not lit on the way out), `at0632` (two sash members still marked after release). History cannot say whether these predate the hold. A run with the hold disabled would settle it; it was not taken.
+
+**A real defect of the hold, fixed:** `at0654`'s warm-flip pin required the activation's `flushSync` marks, and since the hold an on-screen activation commits with no flush, so the leg could never be read. The pin in `settle-frames-fixture.ts` now asserts the flush is absent.
+
+**`at0622`:** red once alone at `50ebad6a8` on the resize-to-fit retune (2.18 frames against 2); last green `f720a4e43`. Not re-read.
+
+**The rail-width tests, alone:** `at0677`–`at0680` green, and green alone before and after each change in the arc; `at0680` red once on the first run after a rebuild (the drag read at the floor), then 3/3 green.

@@ -180,6 +180,13 @@ export interface IDeckManagerStore {
    * the band begins under a left rail.
    */
   getBandEdges: () => FlowBandEdges | null;
+  /**
+   * The band's width as the rails leave it, never `null`: zero or negative
+   * when the rails meet or overlap across the canvas. The rail width drag
+   * reads it, because a rail widened over the deck must still narrow back,
+   * and the imposed `left` expressions clamp a band of no width themselves.
+   */
+  getBandSpan: () => number;
   getColumnRunHeight: () => number | null;
   /** The same run under the other place's name — a rail and a column divide
    *  one vertical extent. */

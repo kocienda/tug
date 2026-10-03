@@ -5244,8 +5244,10 @@ impl AgentSupervisor {
         let root = self.session_ledger.as_ref()?.claude_projects_root();
         let (dir, _canonical) =
             crate::session_ledger::claude_project_dir(root, &parent_project_dir);
-        if crate::external_sessions::stat_size_mtime(&dir.join(format!("{parent_session_id}.jsonl")))
-            .is_none()
+        if crate::external_sessions::stat_size_mtime(
+            &dir.join(format!("{parent_session_id}.jsonl")),
+        )
+        .is_none()
         {
             return unwritten_origin;
         }
@@ -6114,7 +6116,10 @@ impl AgentSupervisor {
         };
         // The prompt history follows a move before the move is acknowledged:
         // the ack re-binds the card, and its composer asks for history at once.
-        if let Some(from) = relocate_from.as_ref().filter(|from| **from != tug_session_id) {
+        if let Some(from) = relocate_from
+            .as_ref()
+            .filter(|from| **from != tug_session_id)
+        {
             self.record_relocated_prompt_lineage(from, &tug_session_id);
         }
         let ack = serde_json::json!({

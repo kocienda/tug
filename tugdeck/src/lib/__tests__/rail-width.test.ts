@@ -184,4 +184,31 @@ describe("railTravelShift", () => {
     expect(railTravelShift({ kind: "flow" }, "right", start, 60)).toBe(0);
     expect(railTravelShift({ kind: "flow" }, "right", start, -60)).toBe(40);
   });
+
+  // A rail widened until the rails cover the canvas leaves a band of no width
+  // — 200px overlapped here — and a press on its edge must still narrow it
+  // back. The drag starts from that signed band; the travel terms clamp it.
+  describe("from a band of no width", () => {
+    const covered = { band: -200, flow: null };
+
+    test("a fit card stays put until the band reopens past its slot", () => {
+      const travel = { kind: "fit", fraction: 0.5, slotWidth: 300 } as const;
+      // Narrowed by 100: the band is still -100, so there is no slack yet.
+      expect(railTravelShift(travel, "right", covered, -100)).toBe(0);
+      // Narrowed by 600: the band is 400, 100px of slack, half of it this card's.
+      expect(railTravelShift(travel, "right", covered, -600)).toBe(50);
+    });
+
+    test("a left rail still carries a slot-0 card by the whole of its narrowing", () => {
+      const travel = { kind: "fit", fraction: 0, slotWidth: 300 } as const;
+      expect(railTravelShift(travel, "left", covered, -600)).toBe(-600);
+    });
+
+    test("on flow, the offset holds until the band reopens past the clamp", () => {
+      const start = { band: -200, flow: { offset: 380, strip: 1400 } };
+      expect(railTravelShift({ kind: "flow" }, "right", start, -600)).toBe(0);
+      // Narrowed by 1300: the band is 1100, the clamp is 300, 80px given back.
+      expect(railTravelShift({ kind: "flow" }, "right", start, -1300)).toBe(80);
+    });
+  });
 });
