@@ -1,18 +1,15 @@
 /**
- * `useArcRowMenu` — the rare verbs an arc row offers, behind one opener.
+ * `useArcRowMenu` — an Arcs card row's housekeeping verbs, as a right-click
+ * menu.
  *
- * Bind/Unbind, Discard, and Replay. The first two used to stand on the row as
- * text buttons, beside the pop-out and the fold cue. Standing there they read as peers of the acts a
- * reader performs constantly, which they are not: a card binds an arc once and
- * discards one almost never, and the row's whole job in between is to be read.
- * So they move behind a `⋯`, which is where a suite puts a verb that is real,
- * reachable, and rare.
+ * Bind/Unbind, Discard, and Replay. Every one of them stands on the row's verb
+ * row, on every arc surface; this menu is a second door to the same verbs on
+ * the Arcs card, never the only one — a shortcut over buttons already visible.
+ * The Changes lane, which once hid them behind a `⋯`, has no menu at all.
  *
- * The join is not among them, and that is the point of the arc: joining is a
- * decision made in the composer, on Z5, so a menu here offering it would be a
- * second door to a gesture that has one. What is left is exactly the set that
- * has nowhere else to live — none is a chord, because none names a target a
- * chord could reach ("the arc this row is").
+ * The join is not among them: on a ready arc it leads the verb row as the
+ * arc's next step, not a housekeeping verb. None of these is a chord, because
+ * none names a target a chord could reach ("the arc this row is").
  *
  * Replay joined them last, and it is the one verb here the machine usually
  * performs by itself: the base-motion engine replays an arc whenever the base
@@ -98,13 +95,10 @@ export interface ArcRowMenuOptions {
 export interface ArcRowMenuResult {
   /** Render beside the row; holds the menu portal. Null with no chain. */
   menu: React.ReactNode;
-  /** Open the menu under `anchor` — the opener button. */
-  openMenu: (anchor: HTMLElement | null) => void;
   /**
-   * Open the menu at a viewport point — the right-click path, for a surface
-   * that carries no opener of its own. The Arcs card's Arcs rows are that
-   * surface: the verbs are the same set, reached by the gesture every other
-   * list row in the app answers.
+   * Open the menu at a viewport point — the right-click path. The verbs are
+   * the row's own, reached by the gesture every other list row in the app
+   * answers.
    */
   openMenuAt: (x: number, y: number) => void;
 }
@@ -171,17 +165,6 @@ export function useArcRowMenu({
     },
   });
 
-  const openMenu = React.useCallback(
-    (anchor: HTMLElement | null): void => {
-      if (manager === null || anchor === null) return;
-      // Under the opener's bottom-left corner, in viewport coordinates — the
-      // menu flips itself against the viewport edges from there.
-      const rect = anchor.getBoundingClientRect();
-      setOpenAt({ x: rect.left, y: rect.bottom });
-    },
-    [manager],
-  );
-
   const openMenuAt = React.useCallback(
     (x: number, y: number): void => {
       if (manager === null) return;
@@ -237,5 +220,5 @@ export function useArcRowMenu({
       </ResponderScope>
     ) : null;
 
-  return { menu, openMenu, openMenuAt };
+  return { menu, openMenuAt };
 }

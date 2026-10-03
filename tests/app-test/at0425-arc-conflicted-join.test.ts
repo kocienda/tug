@@ -336,7 +336,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // ledger row), so the send reaches a real engine and the turn ends
         // when the reply does — on the model's clock, not this file's. A
         // reading is therefore taken only inside a turn the prompt entry
-        // still calls live once the menu has been read: a reply that landed
+        // still calls live once the row's verbs have been read: a reply that landed
         // during the read leaves a reading that spans the turn's end and
         // proves nothing either way, so the send is made again.
         //
@@ -348,9 +348,9 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // conflicted one's escape hatch is no longer a button anybody can
         // find locked behind a turn.
         //
-        // And the refusal is READABLE. A disabled item takes no pointer
-        // events, so a tooltip on one never fires and a `title` can never be
-        // read — the reason rides the item's own label ([L31]).
+        // And the refusal is READABLE. A refused verb is never DOM-disabled,
+        // so its tooltip fires, and the reason rides the verb's own label
+        // ([L31]).
         const turnLive = `document.querySelector(${JSON.stringify(PROMPT_ENTRY)})?.getAttribute("data-can-interrupt") === "true"`;
         const turnOver = `document.querySelector(${JSON.stringify(PROMPT_ENTRY)})?.getAttribute("data-can-interrupt") === "false"`;
         let midTurn: Awaited<ReturnType<typeof readArcRowMenu>> | null = null;
@@ -361,17 +361,17 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
           if (await app.evalJS<boolean>(turnLive)) midTurn = reading;
           await app.waitForCondition<boolean>(turnOver, { timeoutMs: 120_000 });
         }
-        if (midTurn === null) throw new Error("no menu reading fell wholly inside a live turn");
+        if (midTurn === null) throw new Error("no reading of the row's verbs fell wholly inside a live turn");
         expect(midTurn.discard.disabled, "a live turn holds the discard").toBe(true);
         expect(
           midTurn.discard.label,
-          "and the item itself says what is holding it",
+          "and the verb itself says what is holding it",
         ).toContain("turn");
         expect(
           midTurn.bind.disabled,
           "taking an arc on is not destroying it, so the turn does not gate it",
         ).toBe(false);
-        note(`at0425 mid-turn menu: ${JSON.stringify(midTurn.discard.label)}`);
+        note(`at0425 mid-turn Discard: ${JSON.stringify(midTurn.discard.label)}`);
 
         // The turn has ended on its own above — the rest of the file is an
         // idle-state story, and Bind below would otherwise be read against a
@@ -382,10 +382,10 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         ).toBe(false);
 
         // ── Bind: the real round trip ─────────────────────────────────────
-        // The flip is read from the menu rather than from the fronting: this
-        // row is already fronted and unbound, which is the designed state the
-        // incident misread as a contradiction. What the bind changes is which
-        // complement the menu carries.
+        // The flip is read from the row's verbs rather than from the
+        // fronting: this row is already fronted and unbound, which is the
+        // designed state the incident misread as a contradiction. What the
+        // bind changes is which complement the row carries.
         await pressArcRowMenuItem(app, ROW, "bind-arc");
         let bound = false;
         const boundBy = Date.now() + 20_000;
@@ -393,8 +393,8 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
           await settle(500);
           bound = (await readArcRowMenu(app, ROW)).unbind.present;
         }
-        expect(bound, "bind_arc_ok flipped the menu's complement to Unbind").toBe(true);
-        note("Bind round-tripped: the menu now offers Unbind");
+        expect(bound, "bind_arc_ok flipped the row's complement to Unbind").toBe(true);
+        note("Bind round-tripped: the row now offers Unbind");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

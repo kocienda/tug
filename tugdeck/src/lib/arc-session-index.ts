@@ -40,7 +40,12 @@ import type {
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
 import { documentArcTrackModel } from "./document-arc-entry";
-import { type ArcMetaFact, arcMetaFacts } from "./arc-meta-facts";
+import {
+  type ArcBranchFacts,
+  type ArcMetaFact,
+  arcBranchFacts,
+  arcMetaFacts,
+} from "./arc-meta-facts";
 import { sessionLineStore } from "./session-line-store";
 import {
   type ArcTrackModel,
@@ -62,6 +67,8 @@ export interface ArcSessionFact {
   readonly review: string | null;
   /** The owning project's directory (`project_dir` from the snapshot). */
   readonly projectDir: string;
+  /** The key the project's verb traffic is addressed by (`workspace_key`). */
+  readonly workspaceKey: string;
   /** The step being worked, or null when the sender declared no counters.
    *  Plan-absolute — what the ring draws its segments from. */
   readonly stepCurrent: number | null;
@@ -112,6 +119,12 @@ export interface ArcSessionFact {
    * wrote.
    */
   readonly steps: readonly ArcStep[];
+  /** Whether a join message is drafted for the arc — what a Join from a row
+   *  would land. Always false for an arc that is documents alone. */
+  readonly hasDraft: boolean;
+  /** The arc's standing against its base, or null for an arc that is
+   *  documents alone — what the verb row's Replay and Diff read. */
+  readonly branch: ArcBranchFacts | null;
 }
 
 /**
@@ -159,6 +172,7 @@ export function buildArcSessionIndex(
         arc: entry.arc ?? null,
         review: entry.review ?? null,
         projectDir: project.project_dir,
+        workspaceKey: project.workspace_key,
         stepCurrent: entry.step_current ?? null,
         stepTotal: entry.step_total ?? null,
         runPosition: entry.run_position ?? null,
@@ -170,6 +184,8 @@ export function buildArcSessionIndex(
         documents: entry.documents,
         boundSession,
         steps: entry.steps ?? [],
+        hasDraft: entry.draft !== undefined,
+        branch: arcBranchFacts(entry),
       };
       claim(boundSession, fact);
     }
@@ -192,6 +208,7 @@ export function buildArcSessionIndex(
         arc: arc.arc ?? null,
         review: arc.review ?? null,
         projectDir: project.project_dir,
+        workspaceKey: project.workspace_key,
         stepCurrent: null,
         stepTotal: arc.step_total,
         runPosition: null,
@@ -207,6 +224,8 @@ export function buildArcSessionIndex(
         documents: arc.documents,
         boundSession,
         steps: [],
+        hasDraft: false,
+        branch: null,
       };
       claim(boundSession, fact);
     }

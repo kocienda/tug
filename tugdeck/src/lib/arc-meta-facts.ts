@@ -280,3 +280,32 @@ export function arcStepsComplete(entry: ArcChangesetEntry): boolean {
   return arcWalkComplete(entry.stage, glance?.current, glance?.total);
 }
 
+/**
+ * An arc's standing against its base, as the verb row reads it — whether a
+ * replay has anything to do, and whether there is a range to diff. Null for
+ * an arc that is documents alone, which has no base to stand against.
+ */
+export interface ArcBranchFacts {
+  base: string;
+  base_ahead?: number;
+  worktree_dirty: boolean;
+  replay_conflict_paths?: string[];
+  /** Whether there is anything past the base to diff. */
+  hasRange: boolean;
+}
+
+/** {@link ArcBranchFacts} off a wire entry. */
+export function arcBranchFacts(entry: ArcChangesetEntry): ArcBranchFacts {
+  return {
+    base: entry.base,
+    ...(entry.base_ahead !== undefined ? { base_ahead: entry.base_ahead } : {}),
+    worktree_dirty: entry.worktree_dirty,
+    ...(entry.replay_conflict_paths !== undefined
+      ? { replay_conflict_paths: entry.replay_conflict_paths }
+      : {}),
+    // An arc with nothing past its base and a clean worktree has no range: a
+    // diff of it would open an empty card.
+    hasRange: entry.rounds > 0 || entry.worktree_dirty,
+  };
+}
+

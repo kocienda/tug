@@ -20,8 +20,9 @@
  * before a step is walked, so a kind derived on the wrong side of the wire is
  * silent for a whole stage.
  *
- * @covers tugdeck/src/components/tugways/arc-transport-control.tsx
+ * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
  * @covers tugdeck/src/lib/arc-transport.ts
+ * @covers tugdeck/src/lib/arc-verbs.ts
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugrust/crates/tugcast/src/arc_api.rs
  * @covers tugrust/crates/tugarc-core/src/ops.rs
@@ -56,7 +57,8 @@ const SECTION = ".arcs-section";
 /** A document-only arc: a brief, no plan, no branch. */
 const ARC_NAME = "at0524-start";
 const ROW = `${SECTION} [data-slot="arc-document-row"][data-arc="${ARC_NAME}"]`;
-const TRANSPORT = `${ROW} [data-slot="arc-transport"]`;
+/** The row's transport — its verb row's first slot — whatever face it wears. */
+const TRANSPORT = `${ROW} [data-slot="arc-verb"]:is([data-verb="start"], [data-verb="stop"], [data-verb="resume"])`;
 const transportWith = (verb: string): string => `${TRANSPORT}[data-verb="${verb}"]`;
 /** The bound card's mini atom in the row's eyebrow. */
 const WORKER = `${ROW} [data-slot="tug-arc-lifecycle-worker"]`;
@@ -172,7 +174,7 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
           { timeoutMs: 30_000 },
         );
 
-        // ── The row's one trailing thing is a Start ───────────────────────
+        // ── The row's first verb is a Start ───────────────────────────────
         //
         // And no fold cue beside it: [D176] left plan rows out of the fold,
         // because the ledger a fold opens is one a waiting document does not
@@ -184,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
         const offered = await app.evalJS<string>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
-             const button = row.querySelector('[data-slot="arc-transport"]');
+             const button = row.querySelector('[data-slot="arc-verb"]');
              return JSON.stringify({
                verb: button.getAttribute("data-verb"),
                refused: button.getAttribute("data-refused"),

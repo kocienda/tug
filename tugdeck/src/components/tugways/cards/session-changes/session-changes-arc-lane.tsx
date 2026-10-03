@@ -8,8 +8,9 @@
  * and one worker atom per bound session; line 2 is what the arc is doing —
  * track · fraction · note · divergence. The row keeps its per-row fold, and no
  * claim, disclaim, or hunk-election affordance appears anywhere inside it. The
- * lane's one diff affordance is the whole-range pop-out, because the server's
- * range diff takes no pathspec and the arc is the unit anyway.
+ * lane's one diff affordance is the row's Diff verb, the whole-range pop-out,
+ * because the server's range diff takes no pathspec and the arc is the unit
+ * anyway.
  *
  * **The lane lists this card's arc and the unbound arcs, and no other.** The
  * card's own arc renders first and expanded; the arcs no live session holds
@@ -63,16 +64,16 @@
  * gesture on work a card never touched. Binding is how a card comes to touch
  * it.
  *
- * Binding and Discard both live behind the row's `⋯` ({@link useArcRowMenu})
- * rather than standing on it. They are rare — a card binds an arc once and
- * discards one almost never — and standing beside the pop-out and the fold cue
- * they read as peers of acts a reader performs constantly. Every row is
- * otherwise a thing to read.
+ * Every verb stands on the row's {@link ArcVerbRow}, under the block, in the
+ * one order and form every arc surface shares: the arc's next step (Start,
+ * Stop or Resume), Diff, then Bind or Unbind, Replay and Discard at the
+ * trailing edge. A Start or a Resume no card holds falls through to this
+ * shade's own card. The fold cue alone stays on the block's line.
  *
  * Laws: [L02] the lane takes its data as props from the view's
  * `useSyncExternalStore` reads; [L06] tone and state paint through CSS and
  * data attributes; [L19] the row composes `ArcLifecycleBlock` / `TugListRow`
- * / `BlockFoldCue` / `PopOutDiffButton` rather than hand-rolling chrome.
+ * / `BlockFoldCue` / `ArcVerbRow` rather than hand-rolling chrome.
  *
  * @module components/tugways/cards/session-changes/session-changes-arc-lane
  */
@@ -80,13 +81,9 @@
 import "./session-changes-arc-lane.css";
 
 import React, { useEffect, useRef, useState } from "react";
-import { EllipsisVertical } from "lucide-react";
 
-import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
-import { replayDisabledReason, useArcRowMenu } from "./arc-row-menu";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
-import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { SessionChangesArcDocuments } from "./session-changes-arc-documents";
 import { SessionChangesArcBrief } from "./session-changes-arc-brief";
@@ -94,7 +91,21 @@ import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
-import { arcMetaFacts } from "@/lib/arc-meta-facts";
+import { arcBranchFacts, arcMetaFacts } from "@/lib/arc-meta-facts";
+import { arcVerbs, discardConfirm, NO_JOIN_GATE } from "@/lib/arc-verbs";
+import { pressArcJoin, sessionEntryKey } from "@/lib/arc-join-press";
+import {
+  useChangesetDeleteDocuments,
+  useChangesetJoin,
+} from "@/lib/changeset-verb-store";
+import type { FollowedCardFacts } from "@/lib/arc-transport";
+import {
+  ArcVerbRow,
+  type ArcSurfaceVerbKind,
+} from "@/components/tugways/arc-verb-row";
+import { dispatchCommand } from "@/command-dispatch";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { compareArcEntries } from "@/lib/arc-order";
 import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
 import { useChangesetJoinLand, useChangesetJoinResolve } from "@/lib/changeset-join-store";
@@ -242,6 +253,19 @@ export interface ArcLaneDiscard {
   disabledReason: string | null;
 }
 
+/**
+ * Discard for the branchless bound arc — the documents' delete, since an arc
+ * with no branch has nothing else to lose ([B07]). Null leaves that row
+ * without Discard.
+ */
+interface ArcLaneDeleteDocuments {
+  /** Send `changeset_delete_documents`. Called by the confirm, never a button. */
+  deleteDocuments: (entry: DocumentArcEntry) => void;
+  /** Why it is unavailable right now, or null — the same two gates as
+   *  {@link ArcLaneDiscard.disabledReason}. */
+  disabledReason: string | null;
+}
+
 export interface ArcLaneReplay {
   /** Send `changeset_replay` for this row's arc. */
   replay: (entry: ArcChangesetEntry) => void;
@@ -352,6 +376,7 @@ function ArcRow({
   discard,
   replay,
   onRequestDiscard,
+  followed,
 }: {
   entry: ArcChangesetEntry;
   projectRoot: string;
@@ -376,6 +401,9 @@ function ArcRow({
    *  unmount under its own popover, which is the shape `TugConfirmPopover`'s
    *  docblock warns about. */
   onRequestDiscard: (entry: ArcChangesetEntry, anchor: HTMLElement | null) => void;
+  /** This shade's own card, as the transport reads it — where a Start or a
+   *  Resume no card holds falls through to. */
+  followed: FollowedCardFacts | null;
 }): React.ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
   // The beats of a join in flight on THIS arc ([L02], [P03]). Subscribed per
@@ -412,43 +440,85 @@ function ArcRow({
     base: entry.base,
     branch: arcBranchRef(entry),
   };
-  // An arc with nothing past its base and a clean worktree has no range to
-  // show; offering the pop-out would open an empty card.
-  const hasRange = entry.rounds > 0 || entry.worktree_dirty;
   // Absent, not disabled, when this shade has no business discarding this arc.
   const canDiscard = discard !== null && discard.canDiscard(entry);
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const rowMenu = useArcRowMenu({
-    binding:
-      binding === null
-        ? null
-        : {
-            bound,
-            disabledReason: binding.disabledReason,
-            perform: () => (bound ? binding.unbind() : binding.bind(entry)),
-          },
-    discard: !canDiscard
-      ? null
-      : {
-          disabledReason: discard.disabledReason,
-          // The lane's one confirm, armed against the ROW rather than the
-          // opener: the opener is inside a menu that closes on activation, and
-          // a popover anchored to an element that unmounts under it is the
-          // shape `TugConfirmPopover`'s docblock warns about.
-          perform: () => onRequestDiscard(entry, rowRef.current),
-        },
-    // Offered on every row on identical terms, bound or not: the automatic
-    // engine's gate never reads boundness either, so a bound diverged arc is
-    // exactly as stuck as an unbound one ({@link replayDisabledReason}).
-    replay:
-      replay === null
-        ? null
-        : {
-            label: `Replay onto ${entry.base}`,
-            disabledReason: replay.disabledReason ?? replayDisabledReason(entry),
-            perform: () => replay.replay(entry),
-          },
+  // The card the diff's card opens beside.
+  const hostCardId = useCardId();
+  const boundSession = entry.bound_session ?? null;
+  // The bound card's join round trip, which a Join from this row rides.
+  const joinVerb = useChangesetJoin(sessionEntryKey(boundSession ?? ""));
+  const verbs = arcVerbs({
+    surface: "changes",
+    arc: entry.display_name,
+    projectDir: projectRoot,
+    run: entry.arc ?? null,
+    documents: entry.documents,
+    boundSession,
+    // The lane drops every arc another live session holds, so a holder here
+    // is this shade's own card — open, because the reader is looking at it.
+    boundCardOpen: boundSession !== null,
+    stage: entry.stage,
+    draft: entry.draft?.message ?? null,
+    joinGate: {
+      state: entry.join ?? null,
+      // The holder's busy bit, which this card's own turn sets.
+      holderBusy: entry.holders_busy === true,
+      turnInProgress: false,
+      pending: joinVerb.phase === "pending",
+    },
+    branch: arcBranchFacts(entry),
+    followed,
+    reach: {
+      binding:
+        binding === null ? null : { bound, refusal: binding.disabledReason },
+      // Offered on every row on identical terms, bound or not: the automatic
+      // engine's gate never reads boundness either, so a bound diverged arc
+      // is exactly as stuck as an unbound one.
+      replay: replay === null ? null : { refusal: replay.disabledReason },
+      discard: canDiscard ? { refusal: discard.disabledReason } : null,
+    },
   });
+  const onVerb = (kind: ArcSurfaceVerbKind): void => {
+    switch (kind) {
+      case "diff":
+        dispatchCommand(TUG_ACTIONS.OPEN_DIFF, {
+          descriptor,
+          ...(hostCardId !== null ? { originCardId: hostCardId } : {}),
+        });
+        return;
+      case "bind":
+        binding?.bind(entry);
+        return;
+      case "unbind":
+        binding?.unbind();
+        return;
+      case "replay":
+        replay?.replay(entry);
+        return;
+      case "discard":
+        // The lane's one confirm, armed against the ROW: a verb's button
+        // re-renders with every feed push, and a popover anchored to an
+        // element that unmounts under it is the shape `TugConfirmPopover`'s
+        // docblock warns about.
+        onRequestDiscard(entry, rowRef.current);
+        return;
+      case "join":
+        // The composer's own `changeset_join`, for the bound session with the
+        // arc's draft ([B05]); offered unrefused only when both exist.
+        if (boundSession !== null && entry.draft !== undefined) {
+          pressArcJoin({
+            workspaceKey,
+            arc: entry.display_name,
+            boundSession,
+            message: entry.draft.message,
+            candidate: entry.join?.candidate,
+          });
+        }
+        return;
+      default:
+        return;
+    }
+  };
   const model = arcTrackModelFromEntry(entry);
   // What is in the arc's way, derived once and shown twice: as the line's
   // mark, and in full under the block.
@@ -487,31 +557,6 @@ function ArcRow({
           // ([B06]) — on the rail-width row where the elision was worst.
           troublePlacement="mark"
           trailing={
-          <span className="session-changes-arc-row-trailing">
-            {/* The row's rare verbs, behind one opener. Bind/Unbind and
-                Discard are real and reachable and almost never pressed, and
-                standing on the row they read as peers of the acts a reader
-                performs constantly. The join is deliberately not among them:
-                it is a decision, made in the composer. */}
-            {rowMenu.menu !== null ? (
-              <TugPushButton
-                ref={menuButtonRef}
-                size="2xs"
-                subtype="icon"
-                emphasis="ghost"
-                aria-label={`Actions for arc ${entry.display_name}`}
-                data-slot="session-changes-arc-row-menu-open"
-                icon={<EllipsisVertical size={14} />}
-                onClick={() => rowMenu.openMenu(menuButtonRef.current)}
-              />
-            ) : null}
-            {rowMenu.menu}
-            {hasRange ? (
-              <PopOutDiffButton
-                descriptor={descriptor}
-                label={`Open the ${entry.display_name} arc diff in a card`}
-              />
-            ) : null}
             <BlockFoldCue
               collapsed={!expanded}
               onToggle={(nextCollapsed) => onToggle(!nextCollapsed)}
@@ -523,10 +568,19 @@ function ArcRow({
               stabilizeScroll={false}
               data-slot="session-changes-arc-fold"
             />
-          </span>
           }
         />
       </TugListRow>
+      {/* The verbs, under the block ([B01]): the next step, Diff, then the
+          housekeeping verbs at the trailing edge. */}
+      <span className="session-changes-arc-verbs">
+        <ArcVerbRow
+          arc={entry.display_name}
+          verbs={verbs}
+          voice={followed?.tugSessionId ?? boundSession}
+          onVerb={onVerb}
+        />
+      </span>
       {/* And what is in the arc's way, in full, under the block — NEVER
           behind the fold ([B08]). These facts are about the checkout's
           standing against the base, which is the subject of the join, and
@@ -623,22 +677,65 @@ function ArcRow({
  * planning phase, on the card that is working it.
  *
  * It is deliberately not a {@link ArcRow}: a branchless arc has no worktree,
- * no base, no rounds and no files, so the diff, the join and the discard
- * affordances would every one of them be a control over nothing. What it does
- * have is an identity, an arc, and its documents, and those are what it shows.
- * Unbind stands because binding is the one thing a card can still undo here.
+ * no base, no rounds and no files, so the diff, the join and the replay would
+ * every one of them be a control over nothing. What it does have is an
+ * identity, an arc, and its documents, and those are what it shows. Its verb
+ * row carries the arc's next step, Unbind, and Discard — which on an arc with
+ * no branch is the documents' delete ([B07]), the same act the ARC popup and
+ * the Arcs card offer for it.
  */
 function DocumentArcRow({
   entry,
+  projectRoot,
   binding,
+  deleteDocuments,
+  onRequestDelete,
+  followed,
 }: {
   entry: DocumentArcEntry;
+  projectRoot: string;
   binding: ArcLaneBinding | null;
+  deleteDocuments: ArcLaneDeleteDocuments | null;
+  /** Arm the lane's confirm against this row's element. */
+  onRequestDelete: (entry: DocumentArcEntry, anchor: HTMLElement | null) => void;
+  followed: FollowedCardFacts | null;
 }): React.ReactElement {
+  const rowRef = useRef<HTMLDivElement | null>(null);
   const model = documentArcTrackModel(entry);
+  const boundSession = entry.bound_session ?? null;
+  const verbs = arcVerbs({
+    surface: "changes",
+    arc: entry.display_name,
+    projectDir: projectRoot,
+    run: entry.arc ?? null,
+    documents: entry.documents,
+    boundSession,
+    boundCardOpen: boundSession !== null,
+    stage: undefined,
+    draft: null,
+    joinGate: NO_JOIN_GATE,
+    branch: null,
+    followed,
+    reach: {
+      binding:
+        binding === null
+          ? null
+          : { bound: true, refusal: binding.disabledReason },
+      replay: null,
+      discard:
+        deleteDocuments === null
+          ? null
+          : { refusal: deleteDocuments.disabledReason },
+    },
+  });
+  const onVerb = (kind: ArcSurfaceVerbKind): void => {
+    if (kind === "unbind") binding?.unbind();
+    if (kind === "discard") onRequestDelete(entry, rowRef.current);
+  };
 
   return (
     <div
+      ref={rowRef}
       className="session-changes-arc-row"
       data-slot="session-changes-arc-row"
       data-arc={entry.display_name}
@@ -659,21 +756,16 @@ function DocumentArcRow({
           // `arcMetaFacts` derives is about the checkout's standing against a
           // base, and this arc has no base, no worktree and no changed files.
           // There is nothing for [B08]'s placement rule to place.
-          trailing={
-            binding !== null ? (
-              <TugPushButton
-                size="2xs"
-                emphasis="ghost"
-                data-slot="session-changes-arc-unbind"
-                aria-label={`Unbind the arc ${entry.display_name}`}
-                onClick={() => binding.unbind()}
-              >
-                Unbind
-              </TugPushButton>
-            ) : undefined
-          }
         />
       </TugListRow>
+      <span className="session-changes-arc-verbs">
+        <ArcVerbRow
+          arc={entry.display_name}
+          verbs={verbs}
+          voice={followed?.tugSessionId ?? boundSession}
+          onVerb={onVerb}
+        />
+      </span>
       <div className="session-changes-arc-detail">
         <SessionChangesArcDocuments
           documents={entry.documents}
@@ -729,6 +821,9 @@ export interface SessionChangesArcLaneProps {
   /** The bound arc when it has documents and no branch yet — the planning
    *  phase. Fronted in place of an arc row, since there is no branch to show. */
   documentArc?: DocumentArcEntry | null;
+  /** This shade's own card, as the transport verbs read it ({@link
+   *  useCardTransportFacts}); null when it holds no session. */
+  ownCard?: FollowedCardFacts | null;
 }
 
 export function SessionChangesArcLane({
@@ -743,6 +838,7 @@ export function SessionChangesArcLane({
   discard,
   replay,
   documentArc,
+  ownCard,
 }: SessionChangesArcLaneProps): React.ReactElement | null {
   // Per-arc expansion overrides. The default is "expanded exactly when this
   // is the card's own arc", so a bind that arrives while the shade is open
@@ -755,16 +851,46 @@ export function SessionChangesArcLane({
   // One popover instance serves every row — the documented in-list confirmation
   // shape — which is what makes widening Discard past the fronted row cost no
   // per-row state.
-  const [pendingDiscard, setPendingDiscard] = useState<{
-    entry: ArcChangesetEntry;
-    anchor: HTMLElement | null;
-  } | null>(null);
+  //
+  // A branchless arc's Discard is the documents' delete ([B07]), armed through
+  // the same popover in its own words.
+  const [pendingDiscard, setPendingDiscard] = useState<
+    | { kind: "discard"; entry: ArcChangesetEntry; anchor: HTMLElement | null }
+    | { kind: "delete"; entry: DocumentArcEntry; anchor: HTMLElement | null }
+    | null
+  >(null);
   const requestDiscard = (
     entry: ArcChangesetEntry,
     anchor: HTMLElement | null,
   ): void => {
-    setPendingDiscard({ entry, anchor });
+    setPendingDiscard({ kind: "discard", entry, anchor });
   };
+  const requestDelete = (
+    entry: DocumentArcEntry,
+    anchor: HTMLElement | null,
+  ): void => {
+    setPendingDiscard({ kind: "delete", entry, anchor });
+  };
+  // The documents' delete, on Discard's own terms: offered wherever this lane
+  // may discard at all, refused for Discard's reasons, and recorded in this
+  // card's round-trip slot — the one its Changes shade already reads.
+  const deleteVerb = useChangesetDeleteDocuments(
+    sessionEntryKey(ownTugSessionId ?? ""),
+  );
+  const deleteDocuments: ArcLaneDeleteDocuments | null =
+    discard === undefined || ownTugSessionId === undefined
+      ? null
+      : {
+          deleteDocuments: (entry) =>
+            deleteVerb.deleteDocuments(
+              workspaceKey,
+              entry.display_name,
+              ownTugSessionId,
+            ),
+          disabledReason:
+            discard.disabledReason ??
+            (deleteVerb.phase === "pending" ? "A discard is in flight" : null),
+        };
 
   const { fronted, rest } = orderArcLane(
     arcs,
@@ -797,7 +923,11 @@ export function SessionChangesArcLane({
           <DocumentArcRow
             key={documentArc.owner_id}
             entry={documentArc}
+            projectRoot={projectRoot}
             binding={binding ?? null}
+            deleteDocuments={deleteDocuments}
+            onRequestDelete={requestDelete}
+            followed={ownCard ?? null}
           />
         </>
       ) : null}
@@ -824,6 +954,7 @@ export function SessionChangesArcLane({
             discard={discard ?? null}
             replay={replay ?? null}
             onRequestDiscard={requestDiscard}
+            followed={ownCard ?? null}
           />
         </>
       ) : null}
@@ -848,6 +979,7 @@ export function SessionChangesArcLane({
               discard={discard ?? null}
               replay={replay ?? null}
               onRequestDiscard={requestDiscard}
+              followed={ownCard ?? null}
             />
           ))}
         </>
@@ -859,15 +991,21 @@ export function SessionChangesArcLane({
         open={pendingDiscard !== null}
         anchorEl={pendingDiscard?.anchor ?? null}
         message={
-          pendingDiscard !== null ? discardConfirmMessage(pendingDiscard.entry) : ""
+          pendingDiscard === null
+            ? ""
+            : pendingDiscard.kind === "discard"
+              ? discardConfirmMessage(pendingDiscard.entry)
+              : discardConfirm(pendingDiscard.entry.display_name, true).message
         }
-        confirmLabel="Discard"
+        confirmLabel={pendingDiscard?.kind === "delete" ? "Delete" : "Discard"}
         confirmRole="danger"
         side="top"
         onConfirm={() => {
           const armed = pendingDiscard;
           setPendingDiscard(null);
-          if (armed !== null) discard?.discard(armed.entry);
+          if (armed === null) return;
+          if (armed.kind === "discard") discard?.discard(armed.entry);
+          else deleteDocuments?.deleteDocuments(armed.entry);
         }}
         onCancel={() => setPendingDiscard(null)}
       />

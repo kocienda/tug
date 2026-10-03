@@ -1,6 +1,6 @@
 /**
- * at0525-arc-transport-resume-z2.test.ts — the `ARC` placard's footer carries
- * the transport, and Resume there picks the arc back up.
+ * at0525-arc-transport-resume-z2.test.ts — the `ARC` placard's footer is the
+ * arc's verb row, and Resume there picks the arc back up.
  *
  * ## Why this exists
  *
@@ -8,18 +8,20 @@
  * the Z2 work cell. It was a reading and nothing else: its one exit was
  * `Show in Changes`, so a user looking straight at a stopped arc had to leave
  * the placard, find the shade, and read a receipt to get back into the work.
- * [D178] puts the same control the Arcs card's row wears into the footer, in
- * the word form the footer's cluster is set in, and this file is the claim
- * that the second surface really is the first one: one component, one
- * derivation, two mounts.
+ * [D178] puts the transport the Arcs card's row wears into the footer, and the
+ * verb row puts the rest of the arc's verbs beside it in the same order and
+ * form — the next step, Changes, then Unbind and Discard — and this file is
+ * the claim that the second surface really is the first one: one component,
+ * one derivation, every mount.
  *
  * Resume rather than Stop, because Resume is the face that proves the actor
  * rule. A stopped arc keeps its binding ([F10]), so the press acts as the
  * bound card — which is this card — and the placard never has to reach for a
  * followed card it does not have.
  *
- * @covers tugdeck/src/components/tugways/arc-transport-control.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
+ * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
+ * @covers tugdeck/src/lib/arc-verbs.ts
  * @covers tugdeck/src/lib/arc-transport.ts
  * @covers tugdeck/src/lib/arc-press-store.ts
  * @covers tugrust/crates/tugcast/src/arc_api.rs
@@ -59,7 +61,8 @@ const CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="tasks"]`;
 /** The placard's own frame, which is where its footer lives — the body slot
  *  is the scroller above it and does not contain the cluster. */
 const PLACARD = ".session-arc-popover";
-const TRANSPORT = `${PLACARD} [data-slot="arc-transport"]`;
+/** The footer's transport — its verb row's first slot. */
+const TRANSPORT = `${PLACARD} [data-slot="arc-verb"]:is([data-verb="start"], [data-verb="stop"], [data-verb="resume"])`;
 const transportWith = (verb: string): string => `${TRANSPORT}[data-verb="${verb}"]`;
 
 const ARC_NAME = "at0525-resume";
@@ -214,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
           { timeoutMs: 30_000 },
         );
 
-        // ── And its footer carries the transport, wearing Resume ──────────
+        // ── And its footer is the verb row, led by Resume ─────────────────
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("resume"))}) !== null`,
           { timeoutMs: 30_000 },
@@ -224,15 +227,16 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
              const footer = document.querySelector(${JSON.stringify(
                `${PLACARD} [data-slot="tug-popup-list-footer"]`,
              )});
-             const button = footer.querySelector('[data-slot="arc-transport"]');
+             const verbs = Array.from(
+               footer.querySelectorAll('[data-slot="arc-verb"]'),
+             );
+             const button = verbs[0];
              // The exit, which the transport leads: the act on the arc, then
-             // the room where every other decision about it lives. Found by
-             // its own slot rather than by position, since the transport is a
-             // push button too and wears a slot of its own.
-             const exit = footer.querySelector('[data-slot="tug-push-button"]');
+             // the room where every other decision about it lives.
+             const exit = footer.querySelector('[data-slot="arc-verb"][data-verb="changes"]');
              return JSON.stringify({
+               kinds: verbs.map((b) => b.getAttribute("data-verb")),
                verb: button.getAttribute("data-verb"),
-               form: button.getAttribute("data-form"),
                refused: button.getAttribute("data-refused"),
                text: (button.textContent || "").trim(),
                exitText: (exit.textContent || "").trim(),
@@ -245,20 +249,22 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         );
         note("at0525 the placard's footer control", offered);
         const face = JSON.parse(offered) as {
+          kinds: string[];
           verb: string;
-          form: string;
           refused: string | null;
           text: string;
           exitText: string;
           leads: boolean;
         };
         expect(face.verb).toBe("resume");
-        // A word here, where the row wears an icon: the footer is a cluster of
-        // words and a lone glyph in it would be the odd one out.
-        expect(face.form).toBe("word");
         expect(face.text).toBe("Resume");
-        expect(face.exitText).toBe("Show in Changes");
+        expect(face.exitText).toBe("Changes");
         expect(face.leads).toBe(true);
+        // The order every arc surface keeps ([B02]): the next step, the view,
+        // then the housekeeping verbs — and this card holds the arc, so its
+        // binding verb reads Unbind. Discard closes the row.
+        expect(face.kinds.slice(0, 3)).toEqual(["resume", "changes", "unbind"]);
+        expect(face.kinds[face.kinds.length - 1]).toBe("discard");
         // The arc kept its binding through the stop, so the bound card is this
         // card and there is nothing to refuse.
         expect(face.refused).toBeNull();

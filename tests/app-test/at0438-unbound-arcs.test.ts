@@ -9,9 +9,10 @@
  * bind changes is the row's EYEBROW: the Bind and Discard verbs give way to
  * the worker's mini atom (the session's display name behind its live dot —
  * no callsign, no arc run, because the row already names the arc), and an
- * unbind takes it away again. The verbs themselves live behind the row's `⋯`,
- * in the Changes shade's own menu grammar, so what a bind changes in the menu
- * is whether Bind is offered at all.
+ * unbind takes it away again. The verbs themselves stand in the verb row under
+ * the block, and again on the row's right-click in the Changes shade's own
+ * menu grammar, so what a bind changes on both doors is the binding verb's
+ * word: Bind on an unbound row, Unbind on a bound one.
  *
  * That is what this drives, as one round trip against the real app: bind, and
  * the row STAYS — card, row, and all — wearing the worker's atom, while the
@@ -36,6 +37,7 @@
  * @covers tugdeck/src/components/tugways/arc-sigil.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx
+ * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -79,6 +81,10 @@ const ROW_ATOM = `${ROW} [data-slot="tug-arc-lifecycle-name"]`;
    right-click, and the one button in the eyebrow is [D176]'s fold cue. */
 const EYEBROW_VERBS = `${ROW} [data-slot="tug-arc-lifecycle-eyebrow"] button:not([data-slot="arcs-steps-fold"])`;
 const WORKER = `${ROW} [data-slot="tug-arc-lifecycle-worker"]`;
+/** The row's verbs, under the block, as their kinds in order. */
+const VERB_KINDS = `Array.from(document.querySelectorAll(${JSON.stringify(
+  `${ROW} [data-slot="arc-verb"]`,
+)})).map((b) => b.getAttribute("data-verb"))`;
 
 const CARDS = '.cards-card';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
@@ -237,6 +243,12 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         // freshly created arc is current with its base.
         expect(unboundMenu.replay.present).toBe(true);
         expect(unboundMenu.replay.label).toContain("already current with");
+        // The verb row under the block offers the same binding verb, in the
+        // same word, beside the rest of the set.
+        const unboundVerbs = await app.evalJS<string[]>(VERB_KINDS);
+        note("at0438 unbound verbs", JSON.stringify(unboundVerbs));
+        expect(unboundVerbs).toContain("bind");
+        expect(unboundVerbs).not.toContain("unbind");
         // And the session is NOT working it, so no title cluster on its row.
         expect(await count(app, PROGRESS)).toBe(0);
         note("at0438 arcs card, unbound register", (await app.screenshot()).path);
@@ -294,15 +306,18 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         );
         note("at0438 bound row", JSON.stringify(bound));
         expect(bound.rows).toBe(1);
-        // The eyebrow stays the identities alone, held or not — and the menu
-        // the row's right-click opens offers no Bind now that the arc is
-        // held. Unbind is deliberately not here either: it belongs to the
-        // worker's own shade.
+        // The eyebrow stays the identities alone, held or not — and both
+        // doors now offer Unbind in Bind's place, the binding verb in the
+        // word every arc surface reads it in.
         expect(bound.eyebrowButtons).toBe(0);
         const boundMenu = await readArcRowMenu(app, ROW);
         note("at0438 bound menu", JSON.stringify(boundMenu));
         expect(boundMenu.bind.present).toBe(false);
-        expect(boundMenu.unbind.present).toBe(false);
+        expect(boundMenu.unbind.present).toBe(true);
+        const boundVerbs = await app.evalJS<string[]>(VERB_KINDS);
+        note("at0438 bound verbs", JSON.stringify(boundVerbs));
+        expect(boundVerbs).toContain("unbind");
+        expect(boundVerbs).not.toContain("bind");
         expect(bound.boundFlag).toBe("true");
         expect(bound.workerDots).toBe(1);
         expect(bound.workerArcRuns).toBe(0);

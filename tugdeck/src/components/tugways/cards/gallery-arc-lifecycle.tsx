@@ -68,8 +68,14 @@ import { ArcPhaseMark } from "@/components/tugways/arc-phase-mark";
 import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
 import { SessionChangesArcJoin } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import { SessionChangesArcBrief } from "@/components/tugways/cards/session-changes/session-changes-arc-brief";
+import { ArcVerbRow } from "@/components/tugways/arc-verb-row";
+import { arcVerbs, type ArcVerbSet, type ArcVerbSurface } from "@/lib/arc-verbs";
 
-import { arcEntryGlanceFraction, arcMetaFacts } from "@/lib/arc-meta-facts";
+import {
+  arcBranchFacts,
+  arcEntryGlanceFraction,
+  arcMetaFacts,
+} from "@/lib/arc-meta-facts";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 
@@ -635,6 +641,7 @@ function factFor(m: Moment): ArcSessionFact {
     arc: e.arc ?? null,
     review: e.review ?? null,
     projectDir: ROOT,
+    workspaceKey: ROOT,
     stepCurrent: e.step_current ?? null,
     stepTotal: e.step_total ?? null,
     runPosition: e.run_position ?? null,
@@ -646,6 +653,8 @@ function factFor(m: Moment): ArcSessionFact {
     documents: e.documents,
     boundSession: e.bound_session ?? "",
     steps: e.steps ?? [],
+    hasDraft: e.draft !== undefined,
+    branch: m.branched ? arcBranchFacts(e) : null,
   };
 }
 
@@ -716,6 +725,81 @@ function LineTrailingFrame(): React.ReactElement {
         />
       }
     />
+  );
+}
+
+/**
+ * The verb row one moment offers on one surface — the real derivation over the
+ * moment's wire entry, with every housekeeping verb in reach.
+ *
+ * `followed` is null on purpose: a Start or Resume pressed in a gallery must
+ * not open a real arc on whatever card the deck happens to be following, so
+ * those read refused here with the sentence they would show on a card-less
+ * deck. The ready moment's entry carries the `draft-ready` word the register
+ * frames above want; the row reads the joinable `ready` word the server
+ * derives once the audit signs off, so Join stands in the first slot.
+ */
+function verbsFor(m: Moment, surface: ArcVerbSurface): ArcVerbSet {
+  const e = m.entry;
+  const bound = e.bound_session ?? null;
+  return arcVerbs({
+    surface,
+    arc: e.display_name,
+    projectDir: ROOT,
+    run: e.arc ?? null,
+    documents: e.documents,
+    boundSession: bound,
+    boundCardOpen: bound !== null,
+    stage: m.key === "ready" ? "ready" : e.stage,
+    draft: e.draft?.message ?? null,
+    joinGate: {
+      // A moment with no join state reads as a clean merge — the gallery
+      // shows the row's shape, not a preview the server never ran.
+      state: e.join ?? { phase: "previewed" },
+      holderBusy: false,
+      turnInProgress: false,
+      pending: false,
+    },
+    branch: m.branched ? arcBranchFacts(e) : null,
+    followed: null,
+    reach: {
+      binding: { bound: bound !== null, refusal: null },
+      replay: { refusal: null },
+      discard: { refusal: null },
+    },
+  });
+}
+
+const NO_VERB = (): void => {};
+
+/** One surface's block with the verb row under it ([B01]). */
+function VerbRowFrame({
+  m,
+  surface,
+  title,
+}: {
+  m: Moment;
+  surface: ArcVerbSurface;
+  title: string;
+}): React.ReactElement {
+  return (
+    <div className="cg-arc-surface">
+      <span className="cg-arc-surface-name">{title}</span>
+      <ArcLifecycleBlock
+        name={m.entry.display_name}
+        worker={m.worker}
+        model={arcTrackModelFromEntry(m.entry)}
+        stepTitle={m.entry.step_title ?? null}
+        facts={arcMetaFacts(m.entry)}
+        troublePlacement="mark"
+      />
+      <ArcVerbRow
+        arc={m.entry.display_name}
+        verbs={verbsFor(m, surface)}
+        voice={null}
+        onVerb={NO_VERB}
+      />
+    </div>
   );
 }
 
@@ -990,6 +1074,26 @@ export function GalleryArcLifecycle(): React.ReactElement {
             </div>
           </div>
         </Stage>
+      </section>
+
+      <section className="cg-section">
+        <TugLabel className="cg-section-title">
+          The verb row — one set, one order, one form, on every surface
+        </TugLabel>
+        {MOMENTS.map((m) => (
+          <Stage
+            key={m.key}
+            caption={`${m.caption}. The next step leads, outlined; the view follows; the housekeeping verbs stand at the trailing edge. Every verb is an icon and a word, and a refused one keeps its hover`}
+          >
+            <div className="cg-arc-surfaces">
+              <VerbRowFrame m={m} surface="arcs" title="Arcs card" />
+              <VerbRowFrame m={m} surface="changes" title="Changes lane" />
+              {m.worker !== null ? (
+                <VerbRowFrame m={m} surface="popover" title="ARC popup" />
+              ) : null}
+            </div>
+          </Stage>
+        ))}
       </section>
 
       <section className="cg-section">

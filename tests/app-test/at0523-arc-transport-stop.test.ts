@@ -4,8 +4,9 @@
  *
  * ## Why this exists
  *
- * [D178] puts one transport control on every surface that shows a whole arc,
- * and the hardest of its three faces to reach any other way is Stop: an arc
+ * [D178] puts the transport on every surface that shows a whole arc — the
+ * first verb of the arc's verb row — and the hardest of its three faces to
+ * reach any other way is Stop: an arc
  * that is running is precisely the one whose card is busy, so the row that
  * merely *routed* to that card was routing you at the moment routing helps
  * least. The claim is end to end and nothing short of the real app can make
@@ -27,10 +28,11 @@
  * fan-out, which a claim already covered elsewhere is not worth widening.
  * `arc_api.rs` is where this press's server-side decision actually lives.
  *
- * @covers tugdeck/src/components/tugways/arc-transport-control.tsx
- * @covers tugdeck/src/components/tugways/arc-transport-control.css
+ * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
+ * @covers tugdeck/src/components/tugways/arc-verb-row.css
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugdeck/src/lib/arc-transport.ts
+ * @covers tugdeck/src/lib/arc-verbs.ts
  * @covers tugdeck/src/lib/arc-press-store.ts
  * @covers tugrust/crates/tugcast/src/arc_api.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
@@ -68,8 +70,8 @@ const SECTION = ".arcs-section";
 
 const ARC_NAME = "at0523-stop";
 const ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
-/** The row's transport, whatever face it is wearing. */
-const TRANSPORT = `${ROW} [data-slot="arc-transport"]`;
+/** The row's transport — its verb row's first slot — whatever face it wears. */
+const TRANSPORT = `${ROW} [data-slot="arc-verb"]:is([data-verb="start"], [data-verb="stop"], [data-verb="resume"])`;
 const transportWith = (verb: string): string => `${TRANSPORT}[data-verb="${verb}"]`;
 
 const BRIEF_BODY = "# A brief\n\nSome prose the arc opens on.\n";
@@ -210,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         // The arc runs for real, through the card's own shell route.
         await shellUntil(app, `${cli} arc run ${ARC_NAME}`, "is bound to it");
 
-        // ── And the row's one button is now Stop ──────────────────────────
+        // ── And the row's first verb is now Stop ──────────────────────────
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("stop"))}) !== null`,
           { timeoutMs: 30_000 },
@@ -220,7 +222,8 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
              const button = document.querySelector(${JSON.stringify(TRANSPORT)});
              return JSON.stringify({
                verb: button.getAttribute("data-verb"),
-               form: button.getAttribute("data-form"),
+               lead: button === document.querySelector(${JSON.stringify(`${ROW} [data-slot="arc-verb"]`)}),
+               word: (button.textContent || "").trim(),
                refused: button.getAttribute("data-refused"),
                label: button.getAttribute("aria-label"),
              });
@@ -229,12 +232,14 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         note("at0523 the row's control while the arc runs", before);
         const stopFace = JSON.parse(before) as {
           verb: string;
-          form: string;
+          lead: boolean;
+          word: string;
           refused: string | null;
           label: string;
         };
-        // An icon, not a word — the row's trailing column is a glyph column.
-        expect(stopFace.form).toBe("icon");
+        // The row's first verb, an icon and a word ([B02], [B03]).
+        expect(stopFace.lead).toBe(true);
+        expect(stopFace.word).toBe("Stop");
         // The bound card is this card, so nothing refuses.
         expect(stopFace.refused).toBeNull();
         // And the reader with no eyes still learns which arc it is.

@@ -109,6 +109,7 @@ import { useSessionStateChanges } from "@/lib/session-state-changes-store";
 import {
   ContextPopoverContent,
   ArcPopoverContent,
+  useArcPopoverVerbs,
   JobsPopoverContent,
   StateChangeLogPopoverContent,
   TasksPopoverContent,
@@ -1393,6 +1394,15 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       phase: "discrete",
     });
   }, [chain, cardId]);
+  // The placard's verbs, and the confirm Discard arms — hosted here, on the
+  // status row, because the placard closes under the press that answers it.
+  const arcVerbs = useArcPopoverVerbs({
+    fact: arcFact,
+    idle: snap.phase === "idle",
+    cardKey: cardId ?? snap.tugSessionId,
+    onShowInChanges: revealChanges,
+    anchor: rowRef,
+  });
 
   // TIME cell: live in-flight clock when a turn is in flight; after
   // commit, the last turn's activeMs extended across its background
@@ -1665,12 +1675,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     <TasksPopoverContent state={taskListState} idle={isIdle} />
   );
   const arcPopover =
-    arcFact === null ? null : (
+    arcFact === null || arcVerbs.verbs === null ? null : (
       <ArcPopoverContent
         fact={arcFact}
         tasks={taskListState.tasks}
         idle={isIdle}
-        onShowInChanges={revealChanges}
+        verbs={arcVerbs.verbs}
+        onVerb={arcVerbs.onVerb}
       />
     );
   const jobsPopover = (
@@ -1838,6 +1849,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       {foldedForm && placardEl !== null
         ? createPortal(placardEl, paneFrameEl as HTMLElement)
         : placardEl}
+      {arcVerbs.confirm}
       <TugStatusCell
         priority="state"
         label="STATE"

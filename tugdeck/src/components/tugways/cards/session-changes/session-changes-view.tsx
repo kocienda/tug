@@ -75,6 +75,7 @@ import type { JoinOutcome } from "@/lib/join-mode-controller";
 import { useChangesetLandingArcs } from "@/lib/changeset-join-store";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { useCardTransportFacts } from "@/components/tugways/use-card-transport-facts";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { getConnection } from "@/lib/connection-singleton";
@@ -199,6 +200,9 @@ export function SessionChangesView({
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().canInterrupt === true,
   );
+  // This card, as the arc lane's transport verbs read it: where a Start or a
+  // Resume no card holds falls through to.
+  const ownCard = useCardTransportFacts(cardId);
 
   // The claim round trip's state ([L02]). The failure detail is surfaced by the
   // shade's own notice band, `SessionChangesNotice`, which reads this same slot
@@ -704,6 +708,7 @@ export function SessionChangesView({
         discard={laneDiscard}
         replay={laneReplay}
         documentArc={documentArc}
+        ownCard={ownCard}
       />
     </div>,
     headerActions,

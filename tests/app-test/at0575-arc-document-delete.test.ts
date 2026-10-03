@@ -12,8 +12,9 @@
  * only remedy.
  *
  * This drives the remedy that replaced it, as one round trip against the real
- * app: the row wears a delete button beside its transport, the press arms the
- * card's one confirm rather than acting, the message says the brief is
+ * app: the row's verb row carries Discard — the same word a live arc's
+ * discard wears, on an arc that has nothing but documents to lose — the press
+ * arms the card's one confirm rather than acting, the message says the brief is
  * untracked so git will not give it back, and the confirm removes the
  * directory on disk while the arc beside it keeps its own.
  *
@@ -28,6 +29,8 @@
  *
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugdeck/src/components/arcs/arcs-card.css
+ * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
+ * @covers tugdeck/src/lib/arc-verbs.ts
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugrust/crates/tugarc-core/src/ops.rs
  */
@@ -66,7 +69,7 @@ const KEEPER = "at0575-keeper";
 const rowFor = (arc: string): string =>
   `${SECTION} [data-slot="arc-document-row"][data-arc="${arc}"]`;
 const ROW = rowFor(ARC_NAME);
-const DELETE = `${ROW} [data-slot="arc-document-delete"]`;
+const DELETE = `${ROW} [data-slot="arc-verb"][data-verb="discard"]`;
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_MESSAGE = '[data-slot="tug-confirm-message"]';
 const CONFIRM_BUTTON = '[data-slot="tug-confirm-confirm"]';
@@ -177,13 +180,14 @@ describe.skipIf(!SHOULD_RUN)("AT0575: deleting a paperwork row's documents", () 
           { timeoutMs: 30_000 },
         );
 
-        // ── The row wears a delete beside its transport ───────────────────
+        // ── The row's verbs carry Discard, after its transport ────────────
         const trailing = await app.evalJS<string>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
-             const del = row.querySelector('[data-slot="arc-document-delete"]');
+             const del = row.querySelector('[data-slot="arc-verb"][data-verb="discard"]');
              return JSON.stringify({
-               transports: row.querySelectorAll('[data-slot="arc-transport"]').length,
+               transports: row.querySelectorAll('[data-slot="arc-verb"][data-verb="start"]').length,
+               word: del === null ? null : (del.textContent || "").trim(),
                label: del === null ? null : del.getAttribute("aria-label"),
              });
            })()`,
@@ -191,10 +195,12 @@ describe.skipIf(!SHOULD_RUN)("AT0575: deleting a paperwork row's documents", () 
         note("at0575 the document row's trailing", trailing);
         const controls = JSON.parse(trailing) as {
           transports: number;
+          word: string | null;
           label: string | null;
         };
         expect(controls.transports).toBe(1);
-        expect(controls.label).toBe(`Delete the documents for arc ${ARC_NAME}`);
+        expect(controls.word).toBe("Discard");
+        expect(controls.label).toBe(`Discard arc ${ARC_NAME}`);
 
         // ── The press arms the confirm; it does not delete ────────────────
         await app.nativeClickAtElement(DELETE);

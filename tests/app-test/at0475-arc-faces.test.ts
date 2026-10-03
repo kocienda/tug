@@ -242,15 +242,15 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         // carried the git stage once, which read as a gerund spelling of the
         // very phase on the lifecycle line; the stage reaches the eye at the
         // Changes lane's join register instead, where a decision turns on it.
-        // What it does carry is the two acts a stopped arc offers: the
-        // transport's word first — `Resume`, since this arc is stopped — and
-        // the navigation after it. `677cfa414` put the transport on every
-        // surface that shows an arc, and this footer is one of them.
+        // What it does carry is the arc's verb row: the transport first —
+        // `Resume`, since this arc is stopped — and the navigation after it,
+        // then the housekeeping verbs. The transport stands on every surface
+        // that shows an arc, and this footer is one of them.
         expect(
-          await app.evalJS<string>(
-            `(document.querySelector('[data-slot="tug-popup-list-footer"]')?.textContent ?? "").trim()`,
+          await app.evalJS<string[]>(
+            `Array.from(document.querySelectorAll('[data-slot="tug-popup-list-footer"] [data-slot="arc-verb"]')).slice(0, 2).map((b) => (b.textContent ?? "").trim())`,
           ),
-        ).toBe("ResumeShow in Changes");
+        ).toEqual(["Resume", "Changes"]);
 
         // The stop says where it got to, which is what a resume needs and what
         // a cleared field would have thrown away. The cell's sentence carries

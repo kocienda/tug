@@ -221,9 +221,9 @@ describe.skipIf(!SHOULD_RUN)("AT0627: a shade refusal speaks in the shade", () =
         note(`at0627 the shade's bottom edge before the refusal: ${JSON.stringify(before)}`);
 
         // ── The press ────────────────────────────────────────────────────
-        // Discard lives behind the row's `⋯` and asks before it destroys, so
-        // the gesture is two acts: the menu item arms the confirm, the confirm
-        // sends the verb.
+        // Discard stands on the row's verb row and asks before it destroys,
+        // so the gesture is two acts: the verb arms the confirm, the confirm
+        // sends it.
         await pressArcRowMenuItem(app, ROW, "request-discard-arc");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,

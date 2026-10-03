@@ -114,7 +114,8 @@ const ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
  * which is where every assertion below reads it.
  */
 const ANY_ROW = `${SECTION} [data-arc="${ARC_NAME}"]`;
-const TRANSPORT = `${ROW} [data-slot="arc-transport"]`;
+/** The row's transport — its verb row's first slot — whatever face it wears. */
+const TRANSPORT = `${ROW} [data-slot="arc-verb"]:is([data-verb="start"], [data-verb="stop"], [data-verb="resume"])`;
 const transportWith = (verb: string): string =>
   `${TRANSPORT}[data-verb="${verb}"]`;
 

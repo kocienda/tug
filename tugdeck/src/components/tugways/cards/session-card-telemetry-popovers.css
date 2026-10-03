@@ -358,6 +358,13 @@
   font-size: var(--tug-font-size-sm);
 }
 
+/* The footer is the arc's verb row ([B01]). It takes the footer's whole width
+   so the row's spacer can push the housekeeping verbs to the trailing edge. */
+.session-arc-popover-verbs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .session-arc-popover-head {
   display: flex;
   flex-direction: column;

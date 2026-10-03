@@ -88,7 +88,21 @@ import {
 import { TugLabel } from "@/components/tugways/tug-label";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
-import { ArcTransportControl } from "@/components/tugways/arc-transport-control";
+import {
+  ArcVerbRow,
+  type ArcSurfaceVerbKind,
+} from "@/components/tugways/arc-verb-row";
+import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
+import { arcVerbs, discardConfirm, type ArcVerbSet } from "@/lib/arc-verbs";
+import { pressArcJoin, sessionEntryKey } from "@/lib/arc-join-press";
+import { useChangesetAll } from "@/lib/changeset-all-store";
+import { getConnection } from "@/lib/connection-singleton";
+import {
+  useChangesetDeleteDocuments,
+  useChangesetDiscard,
+  useChangesetJoin,
+  useChangesetReplay,
+} from "@/lib/changeset-verb-store";
 import {
   TugProgressIndicator,
   type TugProgressIndicatorState,
@@ -1408,14 +1422,14 @@ export function JobsPopoverContent({
  * that have just said what the arc is doing. `None` answered a question the
  * reader had not asked and denied the reading directly above it.
  *
- * The footer carries the transport and then `Show in Changes`: the act on the
- * arc, then the exit to the room where every other decision about it lives.
- * The transport is the reason a placard that is otherwise a reading carries a
- * verb at all — this is the card holding the arc, so it is the one surface
- * from which stopping it is a local act rather than a search ([D178]). It
- * reads `Stop` while the arc runs and `Resume` after somebody stopped it, in
- * the word form the footer's cluster is set in; Start never appears here,
- * because the placard exists only for the arc the card is already bound to.
+ * The footer is the arc's verb row ([B01]) — the same set, order and form the
+ * Arcs card and the Changes shade wear: the arc's next step, then Changes,
+ * the exit to the room where every other decision about it lives, then
+ * Unbind, Replay and Discard. This is the card holding the arc, so it is the
+ * one surface from which stopping it is a local act rather than a search
+ * ([D178]); Start never appears here, because the placard exists only for the
+ * arc the card is already bound to. The verbs are derived by the host's
+ * {@link useArcPopoverVerbs}, which also owns Discard's confirm.
  *
  * `/tasks` still opens the TASKS placard while this one is reachable by click.
  * Two readings from one cell is intended: the click asks what the arc is
@@ -1425,12 +1439,16 @@ export function ArcPopoverContent({
   fact,
   tasks,
   idle,
-  onShowInChanges,
+  verbs,
+  onVerb,
 }: {
   fact: ArcSessionFact;
   tasks: TaskListState["tasks"];
   idle: boolean;
-  onShowInChanges: () => void;
+  /** The arc's verbs, from {@link useArcPopoverVerbs}. */
+  verbs: ArcVerbSet;
+  /** Perform a verb, from {@link useArcPopoverVerbs}. */
+  onVerb: (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null) => void;
 }): React.ReactElement {
   // Everything this placard draws comes off the fact already derived, by the
   // builder the arc's own shape calls for. There is no wire entry to reach
@@ -1458,25 +1476,15 @@ export function ArcPopoverContent({
         // already says the phase, and the git stage under it was the same
         // reading spelled as a gerund.
         <TugPopupListFooter>
-          <ArcTransportControl
-            arc={fact.name}
-            projectDir={fact.projectDir}
-            run={fact.arc}
-            documents={fact.documents}
-            boundSession={fact.boundSession}
-            surface="popover"
-            followed={null}
-            size="2xs"
-            form="word"
-          />
-          <TugPushButton
-            size="2xs"
-            emphasis="ghost"
-            aria-label="Show this arc in Changes"
-            onClick={onShowInChanges}
-          >
-            Show in Changes
-          </TugPushButton>
+          <span className="session-arc-popover-verbs">
+            <ArcVerbRow
+              arc={fact.name}
+              verbs={verbs}
+              // A refusal speaks on this card's own bulletin.
+              voice={fact.boundSession}
+              onVerb={onVerb}
+            />
+          </span>
         </TugPopupListFooter>
       }
     >
@@ -1514,4 +1522,161 @@ export function ArcPopoverContent({
       </TugPopupListScroller>
     </TugPopupListFrame>
   );
+}
+
+/**
+ * The `ARC` popup's verbs, derived for the card hosting it — and the confirm
+ * its Discard arms.
+ *
+ * The confirm lives here, in the host, rather than in the placard. The placard
+ * closes on any pointerdown outside its panel, and a confirm portals outside
+ * every panel, so a confirm mounted inside the placard would be torn down by
+ * the very press that answers it. Hosted beside the placard and anchored to an
+ * element that outlives it — the status row — the confirm survives the
+ * placard closing under it.
+ *
+ * The reach is this card's: it is the one holding the arc, so the binding
+ * verb reads Unbind and Discard is this card's to perform ([B09]). Discard and
+ * Replay fold the same gates the Changes shade's lane does — a round trip
+ * already in flight, and for Discard a turn still running.
+ */
+export function useArcPopoverVerbs({
+  fact,
+  idle,
+  cardKey,
+  onShowInChanges,
+  anchor,
+}: {
+  /** The arc this card holds, or null when it holds none. */
+  fact: ArcSessionFact | null;
+  /** Whether this card's session is between turns. */
+  idle: boolean;
+  /** A key unique to the hosting card — the verb stores' round-trip slot. */
+  cardKey: string;
+  /** Reveal this card's Changes shade. */
+  onShowInChanges: () => void;
+  /** The element Discard's confirm hangs off. */
+  anchor: React.RefObject<HTMLElement | null>;
+}): {
+  verbs: ArcVerbSet | null;
+  onVerb: (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null) => void;
+  confirm: React.ReactNode;
+} {
+  const verbKey = `arc-popover:${cardKey}`;
+  const discardVerb = useChangesetDiscard(verbKey);
+  const deleteVerb = useChangesetDeleteDocuments(verbKey);
+  const replayVerb = useChangesetReplay(verbKey);
+  // The bound card's join round trip — this card's, since it holds the arc.
+  const joinVerb = useChangesetJoin(sessionEntryKey(fact?.boundSession ?? ""));
+  // The arc's own feed entry, for what the join gate reads that the fact does
+  // not carry: the draft's words, the join state, and whether a holder works.
+  const snapshot = useChangesetAll();
+  const entry =
+    fact === null
+      ? undefined
+      : snapshot.projects
+          .flatMap((project) => project.changesets)
+          .find(
+            (candidate) =>
+              candidate.kind === "arc" && candidate.owner_id === fact.ownerId,
+          );
+  const arcEntry = entry?.kind === "arc" ? entry : null;
+  const draft = arcEntry?.draft?.message ?? null;
+  const [armed, setArmed] = React.useState(false);
+
+  if (fact === null) {
+    return { verbs: null, onVerb: () => {}, confirm: null };
+  }
+
+  const discardRefusal =
+    discardVerb.phase === "pending" || deleteVerb.phase === "pending"
+      ? "A discard is in flight"
+      : idle
+        ? null
+        : "Wait for the turn to finish";
+  const verbs = arcVerbs({
+    surface: "popover",
+    arc: fact.name,
+    projectDir: fact.projectDir,
+    run: fact.arc,
+    documents: fact.documents,
+    boundSession: fact.boundSession,
+    // This card is the bound card, and it is open: it is hosting the popup.
+    boundCardOpen: true,
+    stage: fact.stage ?? undefined,
+    draft,
+    joinGate: {
+      state: arcEntry?.join ?? null,
+      holderBusy: arcEntry?.holders_busy === true,
+      turnInProgress: !idle,
+      pending: joinVerb.phase === "pending",
+    },
+    branch: fact.branch,
+    followed: null,
+    reach: {
+      binding: { bound: true, refusal: null },
+      replay: {
+        refusal: replayVerb.phase === "pending" ? "A replay is in flight" : null,
+      },
+      discard: { refusal: discardRefusal },
+    },
+  });
+
+  const onVerb = (kind: ArcSurfaceVerbKind): void => {
+    switch (kind) {
+      case "changes":
+        onShowInChanges();
+        return;
+      case "unbind":
+        // Unbinding names no arc: the frame carries the holding session.
+        getConnection()?.sendControlFrame("unbind_arc", {
+          tug_session_id: fact.boundSession,
+        });
+        return;
+      case "replay":
+        replayVerb.replay(fact.workspaceKey, fact.name, fact.boundSession);
+        return;
+      case "discard":
+        setArmed(true);
+        return;
+      case "join":
+        // Offered unrefused only with a draft to land ([B05]); the guard
+        // restates that for the type.
+        if (draft === null) return;
+        pressArcJoin({
+          workspaceKey: fact.workspaceKey,
+          arc: fact.name,
+          boundSession: fact.boundSession,
+          message: draft,
+          candidate: arcEntry?.join?.candidate,
+        });
+        return;
+      default:
+        return;
+    }
+  };
+
+  const sentence = discardConfirm(fact.name, fact.branch === null);
+  const confirm = (
+    <TugConfirmPopover
+      open={armed}
+      anchorEl={armed ? anchor.current : null}
+      message={sentence.message}
+      confirmLabel={sentence.confirmLabel}
+      // Default focus on Cancel, so a reflexive Return destroys nothing.
+      confirmRole="danger"
+      side="top"
+      onConfirm={() => {
+        setArmed(false);
+        if (fact.branch === null) {
+          deleteVerb.deleteDocuments(fact.workspaceKey, fact.name, fact.boundSession);
+        } else {
+          discardVerb.discard(fact.workspaceKey, fact.name, fact.boundSession);
+        }
+      }}
+      onCancel={() => setArmed(false)}
+    />
+  );
+
+  return { verbs, onVerb, confirm };
 }

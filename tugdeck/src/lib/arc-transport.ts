@@ -87,8 +87,9 @@ export interface TransportActorInput {
   face: ArcTransportFace;
   /** The one live session holding the arc, or null. */
   boundSession: string | null;
-  /** Which surface is asking — the Arcs card's row, or a card's own popover. */
-  surface: "arcs" | "popover";
+  /** Which surface is asking — the Arcs card's row, a card's own popover, or
+   *  a Changes shade's arc lane. */
+  surface: "arcs" | "popover" | "changes";
   /** The Arcs card's followed card, or null when it follows none. */
   followed: FollowedCardFacts | null;
   /** The project this arc belongs to. */

@@ -1,0 +1,39 @@
+/* arc-verb-row.css — the arc's verbs, one run under the block.
+
+   The row wraps rather than truncating ([B11]): at the sidebar's width the
+   housekeeping verbs break onto a second line, and every verb keeps its word.
+   The spacer is what pushes the housekeeping verbs to the trailing edge
+   ([B02]); on a wrapped line it collapses to nothing and they start at the
+   leading edge, which is what a wrapped run of buttons should do.
+
+   Refused and pending are `data-*` and `aria-disabled` alone ([L06]) — a
+   refused verb must stay pressable, because its hover is what says why. */
+
+.tug-arc-verb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  min-width: 0;
+}
+
+.tug-arc-verb-row-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.tug-arc-verb {
+  flex: 0 0 auto;
+}
+
+/* Muted, never hidden: a refused verb that vanished would leave no way to
+   find out why the act is unavailable. */
+.tug-arc-verb[data-refused="true"] {
+  opacity: 0.55;
+}
+
+/* The frame is out and a second press would be a second act. */
+.tug-arc-verb[data-pending="true"] {
+  opacity: 0.4;
+  cursor: progress;
+}

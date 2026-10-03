@@ -35,12 +35,6 @@
   gap: var(--tug-space-sm);
 }
 
-.session-changes-arc-row-trailing {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-}
-
 /* Where the lines OUTSIDE the block start.
 
    The join register and the fold's detail are siblings of the list row, not
@@ -83,6 +77,19 @@ body {
 }
 
 .session-changes-arc-register:empty {
+  display: none;
+}
+
+/* The arc's verbs, under the block on the same indent as the lines below
+   it. `ArcVerbRow` renders nothing for an arc with no verbs, and the box
+   collapses with it. */
+.session-changes-arc-verbs {
+  display: block;
+  min-width: 0;
+  padding-inline-start: var(--tugx-arc-stack-indent);
+}
+
+.session-changes-arc-verbs:empty {
   display: none;
 }
 

@@ -1,21 +1,22 @@
 /**
- * arc-row-menu-fixture.ts — driving an arc row's verb menu from an app-test.
+ * arc-row-menu-fixture.ts — driving an arc row's housekeeping verbs from an
+ * app-test.
  *
- * Bind, Unbind and Discard used to be buttons standing on the row, which made
- * them one `querySelector` away. They are menu items now ([P08]), and a menu
- * item exists only while its menu is open — so a test that asks "does this row
- * offer Discard?" has to open the menu to find out, and close it again so the
- * next assertion is not made through a modal layer.
+ * Bind, Unbind, Replay and Discard stand on every arc row's verb row, and the
+ * Arcs card's rows answer a right-click with the same verbs as a menu — a
+ * second door. This fixture reads and presses them through one API whichever
+ * surface a test is on:
  *
- * Four files were reading those buttons directly. One shared way to drive the
- * menu rather than four, because the interesting failures here are all timing
- * — a portal that has not mounted, a coordinate read between recomposes — and
- * four copies of a retry is three chances for one of them to be subtly wrong.
+ * - **A Changes shade's lane row** has no menu; its verbs are the row's own
+ *   `arc-verb` buttons, read in place.
+ * - **An Arcs card row** is driven through its right-click menu. A menu item
+ *   exists only while its menu is open, so a reading opens it, reads, and
+ *   closes it again so the next assertion is not made through a modal layer.
  *
- * The two surfaces open it differently, which {@link openArcRowMenu} hides:
- * the Changes shade's lane has a `⋯` opener, the Arcs card's rows have none
- * (their eyebrow is the identities alone) and answer a right-click on the row.
- * Same menu, same items, one way to drive it.
+ * One shared way to drive them rather than one per file, because the
+ * interesting failures here are all timing — a portal that has not mounted, a
+ * coordinate read between recomposes — and copies of a retry are chances for
+ * one of them to be subtly wrong.
  *
  * The menu portals to `document.body`, so its items are queried globally
  * rather than under the row. That is not a leak in the selector: only one row
@@ -34,11 +35,25 @@ export type ArcRowMenuAction =
   | "request-replay-arc";
 
 /**
- * The `⋯` opener on a row, for the surface that has one. `row` is the row's
- * own selector; the Arcs card's rows match nothing here and are right-clicked.
+ * The menu verb each action names, as the verb row's `data-verb` spells it.
  */
-export const arcRowMenuOpener = (row: string): string =>
-  `${row} [data-slot="session-changes-arc-row-menu-open"]`;
+const VERB_FOR: Record<ArcRowMenuAction, string> = {
+  "bind-arc": "bind",
+  "unbind-arc": "unbind",
+  "request-discard-arc": "discard",
+  "request-replay-arc": "replay",
+};
+
+/** One verb button on a row's verb row. */
+export const arcRowVerb = (row: string, action: ArcRowMenuAction): string =>
+  `${row} [data-slot="arc-verb"][data-verb="${VERB_FOR[action]}"]`;
+
+/** Whether `row` is a Changes shade lane row — verbs in place, no menu. */
+async function isLaneRow(app: App, row: string): Promise<boolean> {
+  return app.evalJS<boolean>(
+    `document.querySelector(${JSON.stringify(row)})?.matches('[data-slot="session-changes-arc-row"]') === true`,
+  );
+}
 
 /** The open menu itself, wherever the portal put it. */
 export const ARC_ROW_MENU = '[data-slot="tug-editor-context-menu"]';
@@ -58,38 +73,27 @@ export const arcRowMenuItem = (
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Open a row's menu, retrying a missed press.
+ * Open an Arcs card row's menu with a right-click, retrying a missed press.
  *
- * The retry is the same one the lane's other affordances need: the shade's
- * last block sits over an aggregate that recomposes on its own schedule, so a
- * coordinate read can go stale between aiming and clicking. A missed click
- * opens nothing, which is what makes the retry a retry rather than a
- * double-open.
- *
- * A row with no opener is opened by its own right-click — the Arcs card's grammar.
+ * The list recomposes on its own schedule, so a coordinate read can go stale
+ * between aiming and clicking. A missed click opens nothing, which is what
+ * makes the retry a retry rather than a double-open.
  */
 export async function openArcRowMenu(
   app: App,
   row: string,
   attempts = 5,
 ): Promise<void> {
-  const opener = arcRowMenuOpener(row);
   for (let i = 0; i < attempts; i += 1) {
-    const target = (await app.evalJS<boolean>(
-      `document.querySelector(${JSON.stringify(opener)}) !== null`,
-    ))
-      ? opener
-      : row;
     await app.evalJS<null>(
       `(() => {
-         const el = document.querySelector(${JSON.stringify(target)});
+         const el = document.querySelector(${JSON.stringify(row)});
          if (el !== null) el.scrollIntoView({ block: "center" });
          return null;
        })()`,
     );
     await settle(250);
-    if (target === opener) await app.nativeClickAtElement(opener);
-    else await app.nativeRightClickAtElement(row);
+    await app.nativeRightClickAtElement(row);
     try {
       await app.waitForCondition<boolean>(
         `document.querySelector(${JSON.stringify(ARC_ROW_MENU)}) !== null`,
@@ -127,7 +131,10 @@ export async function closeArcRowMenu(app: App): Promise<void> {
   );
 }
 
-/** What one item in the open menu is: present, and blocked or not. */
+/**
+ * What one verb is: present, and refused or not. `label` is the bare word for
+ * an available verb and carries the refusal when there is one ([L31]).
+ */
 export interface ArcRowMenuVerbState {
   present: boolean;
   disabled: boolean;
@@ -143,14 +150,41 @@ export interface ArcRowMenuState {
 }
 
 /**
- * Open the row's menu, read every verb, and close it again.
+ * Read every housekeeping verb the row offers, from one moment.
  *
- * One opening for all of them: the state of the menu is a fact about one
- * moment, and reading the verbs across separate openings would let the
- * aggregate recompose between them — which is precisely how a test comes to assert a
- * bind and a discard that were never on screen together.
+ * One reading for all of them: reading the verbs across separate moments
+ * would let the aggregate recompose between them — which is precisely how a
+ * test comes to assert a bind and a discard that were never on screen
+ * together. A lane row is read in place; an Arcs card row's menu is opened
+ * once, read, and closed.
  */
 export async function readArcRowMenu(app: App, row: string): Promise<ArcRowMenuState> {
+  if (await isLaneRow(app, row)) {
+    return app.evalJS<ArcRowMenuState>(
+      `(() => {
+         const read = (sel) => {
+           const el = document.querySelector(sel);
+           const refused = el !== null && el.getAttribute("data-refused") === "true";
+           return {
+             present: el !== null,
+             disabled: refused,
+             label:
+               el === null
+                 ? ""
+                 : refused
+                   ? (el.getAttribute("aria-label") || "")
+                   : (el.textContent || ""),
+           };
+         };
+         return {
+           bind: read(${JSON.stringify(arcRowVerb(row, "bind-arc"))}),
+           unbind: read(${JSON.stringify(arcRowVerb(row, "unbind-arc"))}),
+           discard: read(${JSON.stringify(arcRowVerb(row, "request-discard-arc"))}),
+           replay: read(${JSON.stringify(arcRowVerb(row, "request-replay-arc"))}),
+         };
+       })()`,
+    );
+  }
   await openArcRowMenu(app, row);
   const state = await app.evalJS<ArcRowMenuState>(
     `(() => {
@@ -175,16 +209,34 @@ export async function readArcRowMenu(app: App, row: string): Promise<ArcRowMenuS
 }
 
 /**
- * Open the row's menu and press one of its verbs.
+ * Press one of a row's housekeeping verbs.
  *
- * The press closes the menu itself — every item activation dismisses — so
- * there is no close here to pair with the open.
+ * A lane row's verb is pressed in place. On an Arcs card row the menu is
+ * opened first, and the press closes it — every item activation dismisses —
+ * so there is no close here to pair with the open.
  */
 export async function pressArcRowMenuItem(
   app: App,
   row: string,
   action: ArcRowMenuAction,
 ): Promise<void> {
+  if (await isLaneRow(app, row)) {
+    const verb = arcRowVerb(row, action);
+    expect(
+      await app.evalJS<boolean>(
+        `(() => {
+           const el = document.querySelector(${JSON.stringify(verb)});
+           if (el === null) return false;
+           el.scrollIntoView({ block: "center" });
+           return true;
+         })()`,
+      ),
+      `arc-row-menu: ${action} is not on this row`,
+    ).toBe(true);
+    await settle(250);
+    await app.nativeClickAtElement(verb);
+    return;
+  }
   await openArcRowMenu(app, row);
   const item = arcRowMenuItem(action);
   expect(

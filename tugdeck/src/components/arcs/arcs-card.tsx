@@ -57,18 +57,22 @@
  * projection of it and nothing more. Rows key on the arc's **owner key**, which makes two
  * incarnations of a reused name distinct for free.
  *
- * The verbs live on the row's right-click, composed from the Changes shade's own
- * {@link useArcRowMenu} so the two arc-row surfaces speak one grammar. Bind
- * mates an unbound arc to the card's followed card, or carries its refusal in
- * the item's own label ([L31]); Discard destroys it behind a confirm anchored
- * to the row element; Replay moves the arc's rounds onto a base that has
- * advanced, on the same terms for every row. None is on row activation ([D142]).
+ * The verbs stand under the block, in the one {@link ArcVerbRow} every arc
+ * surface wears ([B01]): the arc's next step, then Changes — the row
+ * activation's own destination, drawn as a button — then Bind or Unbind,
+ * Replay and Discard. Bind mates an unbound arc to the card's followed card, or
+ * carries its refusal on the hover ([L31]); Unbind releases the bound card's
+ * hold, so the binding verb reads the same here as on every other surface
+ * ([B09]); Discard destroys the arc behind a confirm anchored to the row
+ * element; Replay moves the arc's rounds onto a base that has advanced, on the
+ * same terms for every row. The row's right-click stays as a second door onto
+ * the same housekeeping verbs ([B08]), composed from the Changes shade's own
+ * {@link useArcRowMenu} — never the only door.
  *
  * Both destructive verbs destroy the surface they are pressed on — the success
  * path, not an edge case — so Bind reports nothing locally: a refusal arrives on
  * the card-level bind-error surface, which outlives the row, and a replay's
- * outcome on its sibling. Unbind is not here at all: it stays the fronted shade
- * row's verb, and a bound row's job is to route you to that shade.
+ * outcome on its sibling.
  *
  * Rows are totally ordered: nearest-to-done first, then freshest first, then
  * by name. Stage leads because a `draft-ready` arc is one gesture from
@@ -82,14 +86,11 @@
  * while the front half was a file only `ls` could find. A plan row is the same
  * two-line block one tone quieter, and that is the whole of it.
  *
- * **A plan row carries one control: the transport.** It is not the button
- * that was removed. That one wore a word — Devise, Review, Implement — and
- * composed a `/tugplug:…` line into the followed card: a label where a control
- * should be, offering a gesture that is one sentence to type. This one is an
- * icon, it performs a server verb rather than writing a prompt, and where the
- * old button silently made the row about the followed card, this one says so
- * before it is pressed — a Start that has nowhere to land wears its reason and
- * speaks it ([D178], [L31]).
+ * **A plan row wears the same verb row.** Its next step is the transport — a
+ * server verb, never a composed `/tugplug:…` line — and a Start that has
+ * nowhere to land wears its reason and speaks it ([D178], [L31]). Its Discard is
+ * the documents' delete, the same act on an arc that has nothing else to lose
+ * ([B07]), and a bound plan row offers Unbind as a live one does.
  *
  * Live work outranks waiting paperwork, so arcs come first and plans follow;
  * plans are listed for every open project, exactly as arcs are.
@@ -112,18 +113,25 @@ import React, {
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { Trash2 } from "lucide-react";
-
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
-import { arcMetaFacts } from "@/lib/arc-meta-facts";
+import { arcBranchFacts, arcMetaFacts } from "@/lib/arc-meta-facts";
 import { compareArcEntries } from "@/lib/arc-order";
 import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import { ArcJoinRegisterView } from "@/components/tugways/arc-join-register";
-import { ArcTransportControl } from "@/components/tugways/arc-transport-control";
+import {
+  ArcVerbRow,
+  type ArcSurfaceVerbKind,
+} from "@/components/tugways/arc-verb-row";
+import {
+  arcVerbs,
+  discardConfirm,
+  NO_JOIN_GATE,
+  type ArcVerbSet,
+} from "@/lib/arc-verbs";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { arcJoinRegister } from "@/lib/arc-join-register";
@@ -138,8 +146,6 @@ import type {
   TugListViewDelegate,
 } from "@/components/tugways/tug-list-view";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
-import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   FollowedCardContext,
   useFollowedCard,
@@ -156,12 +162,13 @@ import {
 } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
-import { arcSessionIndex } from "@/lib/arc-session-index";
-import { isLiveRun, type FollowedCardFacts } from "@/lib/arc-transport";
-import { sessionDisplayTitle, useSessionIdentity } from "@/lib/session-identity";
+import type { FollowedCardFacts } from "@/lib/arc-transport";
+import { useCardTransportFacts } from "@/components/tugways/use-card-transport-facts";
+import { pressArcJoin, sessionEntryKey } from "@/lib/arc-join-press";
 import {
   useChangesetDeleteDocuments,
   useChangesetDiscard,
+  useChangesetJoin,
   useChangesetReplay,
 } from "@/lib/changeset-verb-store";
 import {
@@ -499,7 +506,7 @@ export function resolveBindTarget(input: {
  * simply has no room to open. That is what makes the row inert, and what the
  * row's own affordance has to advertise.
  */
-function useWorkerCard(entry: ArcChangesetEntry): string | null {
+function useWorkerCard(entry: { bound_session?: string }): string | null {
   const boundSession = entry.bound_session ?? null;
   // Called unconditionally on every row, bound or not — hooks have no branch.
   // The empty string is never any card's session, so an unbound arc's answer
@@ -544,37 +551,12 @@ function useBindTarget(row: ArcRow): BindTarget {
 }
 
 /**
- * The card the Arcs card is following, as the transport control reads it —
- * or null when there is no followed card, or it holds no session.
- *
- * The control's own resolution is pure ({@link resolveTransportActor}, Table
- * T02), so everything live is gathered here: which card is followed, the
- * session and project its binding names, the name a refusal would call it by,
- * and the arc it is already running. `runningArc` is a **live** reading — an
- * arc that is done, or one somebody stopped, is not work this card is doing,
- * and the server's own `bind` would bind over either — so a card sitting on a
- * stopped arc still accepts a Start.
+ * The card the Arcs card is following, as the transport verbs read it — or
+ * null when there is no followed card, or it holds no session
+ * ({@link useCardTransportFacts}).
  */
 function useFollowedCardFacts(): FollowedCardFacts | null {
-  const followedCardId = useFollowedCard();
-  const bindings = useSyncExternalStore(
-    cardSessionBindingStore.subscribe,
-    cardSessionBindingStore.getSnapshot,
-  );
-  const binding =
-    followedCardId !== null ? bindings.get(followedCardId) : undefined;
-  const identity = useSessionIdentity(binding?.tugSessionId ?? null);
-  const index = arcSessionIndex(useChangesetAll());
-  if (followedCardId === null || binding === undefined) return null;
-  const fact = index.get(binding.tugSessionId) ?? null;
-  return {
-    cardId: followedCardId,
-    tugSessionId: binding.tugSessionId,
-    projectDir: binding.projectDir,
-    cardName:
-      identity !== null ? sessionDisplayTitle(identity) : binding.tugSessionId,
-    runningArc: fact !== null && isLiveRun(fact.arc) ? fact.name : null,
-  };
+  return useCardTransportFacts(useFollowedCard());
 }
 
 /** What a row may ask of the section around it. */
@@ -597,103 +579,221 @@ interface ArcVerbs {
 const ArcVerbsContext = React.createContext<ArcVerbs | null>(null);
 
 /**
- * The row's rare verbs, on the row's own right-click — the same set the Changes
- * shade's arc lane offers, composed from the same hook ({@link useArcRowMenu}).
+ * Open an arc's room: front the card working it and reveal that card's Changes
+ * shade, which is where every decision about an arc already lives ([D152]).
+ * The row's activation and its Changes verb are one act, so both call this.
  *
- * They used to stand here as Bind and Discard text buttons, then behind a `⋯`
- * on the eyebrow. Both spent the eyebrow's right end on verbs a reader almost
- * never presses: an arc is bound once, discarded almost never, and replayed
- * only when the automatic engine's gates have skipped it. The eyebrow is now
- * the identities alone — the arc, the hairline, the worker — and the verbs are
- * where a list row's rare verbs live everywhere else in the app, under the
- * pointer's second button.
+ * The raise comes FIRST and unconditionally, exactly as a click on this
+ * session's Cards row would: front the pane, promote the chain, flash the
+ * header once. It is not the reveal's tail — a card whose content responder is
+ * momentarily absent (mid-mount, mid-rotation) used to swallow the whole
+ * gesture, which is a dead click on a control that advertised itself as a
+ * door.
+ */
+function openArcRoom(
+  chain: ReturnType<typeof useResponderChain>,
+  boundSession: string | null,
+): void {
+  if (boundSession === null) return;
+  // `cardIdForSession`, which answers for the line rather than for a spawn
+  // address a rotation has left behind. Read live here rather than through
+  // the hook, because a press is an event and the binding may have moved
+  // since render.
+  const cardId = cardIdForSession(boundSession);
+  if (cardId === null) return;
+  dispatchCommand("focus-session-card", { cardId });
+  // The card-content scope, not the bare card id: `sendToTarget` walks upward
+  // from its target, the bare id is `card-host`'s, and the session card's
+  // handlers live one scope beneath it — a miss there fails silently. The
+  // guard doubles as the liveness check, since only a mounted session card
+  // registers this responder.
+  const target = `${cardId}-card-content`;
+  if (chain === null || !chain.hasResponder(target)) return;
+  chain.sendToTarget(target, {
+    action: TUG_ACTIONS.REVEAL_CHANGES,
+    phase: "discrete",
+  });
+}
+
+/**
+ * The list cell an element sits in — the anchor every confirm on this card
+ * hangs off. Never the pressed control: the confirm outlives the press, and a
+ * recycled cell would strand a popover hung off a control inside it.
+ */
+function cellOf(element: HTMLElement | null): HTMLElement | null {
+  return (element?.closest(".tug-list-view-cell") as HTMLElement | null) ?? null;
+}
+
+/**
+ * Release the hold a card has on an arc. Unbinding names no arc: the frame
+ * carries the holding session, and the server drops whatever it holds — the
+ * same frame the Changes shade's lane sends for its own card.
+ */
+function sendUnbind(boundSession: string | null): void {
+  if (boundSession === null) return;
+  getConnection()?.sendControlFrame("unbind_arc", {
+    tug_session_id: boundSession,
+  });
+}
+
+/**
+ * An arc row's verbs — the {@link ArcVerbRow} under its block, and the
+ * right-click menu that is a second door onto the same housekeeping verbs
+ * ([B08]), composed from the Changes shade's own {@link useArcRowMenu}.
  *
- * Bind's refusals arrive here as the item's own disabled reason, verbatim from
- * {@link resolveBindTarget} ([L31]). Unbind is deliberately absent: it stays the
- * fronted shade row's verb, and an Arcs card row routes you there.
+ * Both doors perform through the same callbacks, so they cannot drift. Bind's
+ * refusals arrive verbatim from {@link resolveBindTarget} ([L31]); a bound row
+ * offers Unbind instead, the binding verb in the word the arc's state reads
+ * ([B09]).
  *
  * The press reports **nothing locally** for a bind: on success the worker's atom
  * arrives on the eyebrow, so a pending state would be reporting into a control
- * that is about to leave. A server-side refusal arrives on the card-level
+ * that is about to change. A server-side refusal arrives on the card-level
  * `arc-bind-error-store` surface, which outlives the row — and a replay's
  * outcome on its sibling, for the same reason.
  */
-function useArcRowVerbsMenu(row: ArcRow): {
+function useArcRowVerbs(
+  row: ArcRow,
+  workerCardOpen: boolean,
+): {
+  set: ArcVerbSet;
+  voice: string | null;
+  onVerb: (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null) => void;
   onContextMenu: (event: React.MouseEvent) => void;
   menu: React.ReactNode;
 } {
   const verbs = React.useContext(ArcVerbsContext);
   const target = useBindTarget(row);
   const followedSessionId = useFollowedSessionId();
+  const followed = useFollowedCardFacts();
+  const chain = useResponderChain();
   const entry = row.entry;
   const name = entry.display_name;
-  const bound = entry.bound_session !== undefined;
+  const bound = entry.bound_session ?? null;
   const rowRef = React.useRef<HTMLElement | null>(null);
+  // The bound card's join round trip, which a Join from this row rides.
+  const joinVerb = useChangesetJoin(sessionEntryKey(bound ?? ""));
+
+  const bind = (): void => {
+    if (target.tugSessionId === null) return;
+    // The same frame the Changes shade's lane sends, so there is one binding
+    // path. `bind_arc_ok` stays the only mover of `cardSessionBindingStore`:
+    // a refused bind leaves the card bound to whatever it was.
+    getConnection()?.sendControlFrame("bind_arc", {
+      tug_session_id: target.tugSessionId,
+      project_dir: row.projectDir,
+      arc: name,
+    });
+  };
+  const unbind = (): void => sendUnbind(bound);
+  const bindingRefusal = bound !== null ? null : target.reason;
+  const replayRefusal = verbs?.replayDisabledReason ?? null;
+  // The outcome reports on the followed card — the same card a Bind from this
+  // row aims at, so the section's verbs answer in one place rather than
+  // sending the reader hunting.
+  const replay = (): void => verbs?.requestReplay(row, followedSessionId);
 
   const rowMenu = useArcRowMenu({
-    // Bind only, and only while nobody holds the arc: Unbind belongs to the
-    // shade, and a bound row's binding item would offer a verb this surface
-    // has decided not to carry.
-    binding: bound
-      ? null
-      : {
-          bound: false,
-          disabledReason: target.reason,
-          perform: () => {
-            if (target.tugSessionId === null) return;
-            // The same frame the Changes shade's lane sends, so there is one
-            // binding path. `bind_arc_ok` stays the only mover of
-            // `cardSessionBindingStore`: a refused bind leaves the card bound
-            // to whatever it was.
-            getConnection()?.sendControlFrame("bind_arc", {
-              tug_session_id: target.tugSessionId,
-              project_dir: row.projectDir,
-              arc: name,
-            });
-          },
-        },
+    binding: {
+      bound: bound !== null,
+      disabledReason: bindingRefusal,
+      perform: bound !== null ? unbind : bind,
+    },
     discard:
       verbs === null
         ? null
         : {
             disabledReason: null,
-            // The anchor is the ROW cell, never the menu item: the confirm
-            // outlives the press, and the menu unmounts on selection, so a
-            // popover anchored to the item would be destroyed as it opened.
-            perform: () =>
-              verbs.requestDiscard(
-                row,
-                rowRef.current?.closest(
-                  ".tug-list-view-cell",
-                ) as HTMLElement | null,
-              ),
+            // The menu unmounts on selection, so the anchor is the row's cell.
+            perform: () => verbs.requestDiscard(row, cellOf(rowRef.current)),
           },
     replay:
       verbs === null
         ? null
         : {
             label: `Replay onto ${entry.base}`,
-            disabledReason:
-              verbs.replayDisabledReason ?? replayDisabledReason(entry),
-            // The outcome reports on the followed card — the same card a Bind
-            // from this row aims at, so the section's two verbs answer in one
-            // place rather than sending the reader hunting.
-            perform: () => verbs.requestReplay(row, followedSessionId),
+            disabledReason: replayRefusal ?? replayDisabledReason(entry),
+            perform: replay,
           },
   });
 
-  const onContextMenu = React.useCallback(
-    (event: React.MouseEvent): void => {
-      if (rowMenu.menu === null) return;
-      event.preventDefault();
-      event.stopPropagation();
-      rowRef.current = event.currentTarget as HTMLElement;
-      rowMenu.openMenuAt(event.clientX, event.clientY);
+  const set = arcVerbs({
+    surface: "arcs",
+    arc: name,
+    projectDir: row.projectDir,
+    run: entry.arc ?? null,
+    documents: entry.documents,
+    boundSession: bound,
+    boundCardOpen: workerCardOpen,
+    stage: entry.stage,
+    draft: entry.draft?.message ?? null,
+    joinGate: {
+      state: entry.join ?? null,
+      holderBusy: entry.holders_busy === true,
+      // The bound card's turn is not visible from here; its holder's busy
+      // bit, which a turn sets, is.
+      turnInProgress: false,
+      pending: joinVerb.phase === "pending",
     },
-    [rowMenu],
-  );
+    branch: arcBranchFacts(entry),
+    followed,
+    reach: {
+      binding: { bound: bound !== null, refusal: bindingRefusal },
+      replay: verbs === null ? null : { refusal: replayRefusal },
+      discard: verbs === null ? null : { refusal: null },
+    },
+  });
+
+  const onVerb = (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null): void => {
+    switch (kind) {
+      case "changes":
+        openArcRoom(chain, bound);
+        return;
+      case "bind":
+        bind();
+        return;
+      case "unbind":
+        unbind();
+        return;
+      case "replay":
+        replay();
+        return;
+      case "discard":
+        verbs?.requestDiscard(row, cellOf(anchor));
+        return;
+      case "join":
+        // Offered unrefused only with a bound card open and a draft to land
+        // ([B05]); the guard restates that for the type.
+        if (bound !== null && entry.draft !== undefined) {
+          pressArcJoin({
+            workspaceKey: row.workspaceKey,
+            arc: name,
+            boundSession: bound,
+            message: entry.draft.message,
+            candidate: entry.join?.candidate,
+          });
+        }
+        return;
+      default:
+        // Diff is the lane's view, never offered here.
+        return;
+    }
+  };
+
+  const onContextMenu = (event: React.MouseEvent): void => {
+    if (rowMenu.menu === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    rowRef.current = event.currentTarget as HTMLElement;
+    rowMenu.openMenuAt(event.clientX, event.clientY);
+  };
 
   return {
+    set,
+    // The bulletin a refused transport press speaks on — the followed card,
+    // or the card working the arc when this card follows none.
+    voice: followed?.tugSessionId ?? bound,
+    onVerb,
     onContextMenu,
     menu:
       rowMenu.menu === null ? null : (
@@ -706,6 +806,68 @@ function useArcRowVerbsMenu(row: ArcRow): {
         </span>
       ),
   };
+}
+
+/**
+ * A plan row's verb row: the transport, Changes, Unbind on a bound row, and
+ * Discard — the documents' delete ([B07]).
+ *
+ * Discard arms the card's one {@link TugConfirmPopover} rather than acting: the
+ * delete destroys a brief permanently, and `.tug/` is excluded from git, so
+ * there is nothing to undo it with. A branchless arc offers no Bind: Start is
+ * what seats it on a card.
+ */
+function PlanVerbRow({ row }: { row: DocumentArcRow }): React.ReactElement {
+  const verbs = React.useContext(ArcVerbsContext);
+  const followed = useFollowedCardFacts();
+  const chain = useResponderChain();
+  const entry = row.entry;
+  const bound = entry.bound_session ?? null;
+  const workerCardOpen = useWorkerCard(entry) !== null;
+  const set = arcVerbs({
+    surface: "arcs",
+    arc: entry.display_name,
+    projectDir: row.projectDir,
+    run: entry.arc ?? null,
+    documents: entry.documents,
+    boundSession: bound,
+    boundCardOpen: workerCardOpen,
+    stage: undefined,
+    draft: null,
+    joinGate: NO_JOIN_GATE,
+    branch: null,
+    followed,
+    reach: {
+      binding: bound === null ? null : { bound: true, refusal: null },
+      replay: null,
+      discard: verbs === null ? null : { refusal: null },
+    },
+  });
+  const onVerb = (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null): void => {
+    switch (kind) {
+      case "changes":
+        openArcRoom(chain, bound);
+        return;
+      case "unbind":
+        sendUnbind(bound);
+        return;
+      case "discard":
+        verbs?.requestDeleteDocuments(row, cellOf(anchor));
+        return;
+      default:
+        return;
+    }
+  };
+  return (
+    <span className="arcs-verb-row">
+      <ArcVerbRow
+        arc={entry.display_name}
+        verbs={set}
+        voice={followed?.tugSessionId ?? bound}
+        onVerb={onVerb}
+      />
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -746,11 +908,9 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       ? `${steps.length} step${steps.length === 1 ? "" : "s"}`
       : "what is in the way";
   const expanded = dataSource.expanded.has(row.ownerId);
-  // Bind / Discard / Replay, on the row's second button — the eyebrow carries
-  // no opener of its own any more.
-  const verbsMenu = useArcRowVerbsMenu(row);
-  // And the one control that acts on the arc rather than navigating to it.
-  const followed = useFollowedCardFacts();
+  // Every verb the arc offers, in the row under the block — and the same
+  // housekeeping verbs again on the row's second button ([B08]).
+  const verbs = useArcRowVerbs(row, activatable);
   // What this arc's JOIN is doing, in the one shared sentence — the same
   // derivation the shade and the composer call. The `useSyncExternalStore`
   // read is here rather than in a child because the property that mattered was
@@ -797,7 +957,7 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       data-join-word={register?.word}
       data-bound={worker !== null ? "true" : undefined}
       data-activatable={activatable ? "true" : undefined}
-      onContextMenu={verbsMenu.onContextMenu}
+      onContextMenu={verbs.onContextMenu}
     >
       <span className="arcs-block">
         {/* The arc's whole life in the one block: line one the identities,
@@ -837,27 +997,12 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
                 ),
               }
             : {})}
-          // The controls ride the LINE's trailing slot rather than the
-          // eyebrow's: at the sidebar's width the eyebrow could not hold two
-          // names and two controls, and the names were what elided. The
-          // eyebrow's right end is the worker's atom and nothing else again,
-          // and the transport and cue stand in one column on line two.
+          // The cue rides the LINE's trailing slot rather than the eyebrow's:
+          // at the sidebar's width the eyebrow could not hold two names and a
+          // control, and the names were what elided. The verbs stand in their
+          // own row under the block.
           lineTrailing={
             <>
-              {/* The transport, before the cue: the act on the arc leads the
-                  view of it. It draws nothing at all on an arc there is no
-                  verb for ([D178]). */}
-              <ArcTransportControl
-                arc={entry.display_name}
-                projectDir={row.projectDir}
-                run={entry.arc ?? null}
-                documents={entry.documents}
-                boundSession={worker}
-                surface="arcs"
-                followed={followed}
-                size="xs"
-                form="icon"
-              />
               {/* The tool-call header's own cue, in the slot the block
                   reserved for it: same icon pair, same `xs` icon-only shape,
                   and the default scroll stabilization, because this list
@@ -891,7 +1036,17 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             </>
           }
         />
-        {verbsMenu.menu}
+        {/* The verbs, under the block ([B01]): the next step, Changes, then
+            the housekeeping verbs at the trailing edge. */}
+        <span className="arcs-verb-row">
+          <ArcVerbRow
+            arc={entry.display_name}
+            verbs={verbs.set}
+            voice={verbs.voice}
+            onVerb={verbs.onVerb}
+          />
+        </span>
+        {verbs.menu}
         {/* And what its JOIN is doing, in the one shared register — the same
             sentence the shade and the composer show, because all three call
             one derivation. Renders nothing until there is a join, and nothing
@@ -931,72 +1086,17 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
 };
 
 /**
- * A paperwork row's Delete — the one gesture that can remove a `.tug/arcs/`
- * directory nothing else will.
- *
- * **A visible button, not a context-menu item**, and that is the exception
- * rather than the house idiom: {@link useArcRowVerbsMenu} argues at length
- * against spending a row's trailing end on verbs nobody presses, and a
- * paperwork row's trailing end already holds the transport ([D142]). The
- * exception is earned by what the row is. A ghost row is litter — a discarded
- * arc's brief, an abandoned door's empty directory — and litter the reader
- * wants gone is exactly the case where a hidden verb is a verb that does not
- * exist. `ArcCell`'s verbs are reachable another way; this one was reachable
- * nowhere at all ([F06]).
- *
- * The press arms the card's one {@link TugConfirmPopover} rather than acting:
- * the delete destroys a brief permanently, and `.tug/` is excluded from git,
- * so there is nothing to undo it with. The anchor is the row **cell**, never
- * this button — the confirm outlives the press, and a recycled cell would
- * strand a popover hung off a control inside it.
- */
-function PlanDeleteButton({ row }: { row: DocumentArcRow }): React.ReactElement {
-  const verbs = React.useContext(ArcVerbsContext);
-  const ref = React.useRef<HTMLButtonElement | null>(null);
-  const name = row.entry.display_name;
-  const label = `Delete the documents for arc ${name}`;
-  return (
-    <TugTooltip content={label}>
-      <TugPushButton
-        ref={ref}
-        data-slot="arc-document-delete"
-        className="arcs-document-delete"
-        size="xs"
-        emphasis="ghost"
-        subtype="icon"
-        icon={<Trash2 />}
-        aria-label={label}
-        onClick={(event) => {
-          // The row underneath is not a door, but a press here is this
-          // button's own gesture either way.
-          event?.stopPropagation();
-          event?.preventDefault();
-          verbs?.requestDeleteDocuments(
-            row,
-            ref.current?.closest(".tug-list-view-cell") as HTMLElement | null,
-          );
-        }}
-      />
-    </TugTooltip>
-  );
-}
-
-/**
  * A waiting plan document, in the section's own two-line grammar: an eyebrow
  * naming the document and carrying its affordances, over a meta line saying
  * what it is and how far it goes.
  *
- * The affordances are the transport control and the delete, never row
- * activation ([D142]): a plan row has no room to open, and pressing anywhere
- * on it must not start anything. The control is a Start — an arc that exists
- * only as documents has no run to stop or resume — and pressing it opens the
- * arc on the followed card through the server's own `arc_run`. The press names
- * no kind: the server derives that from the arc's documents at the opening
- * ([D178] as amended, [P03]). A press that cannot land is not disabled: it
- * stays pressable and speaks its reason ([L31], [P07]).
- *
- * Beside it, {@link PlanDeleteButton} — the second control on a row [D142]
- * describes as having room for one, and the exception is argued there.
+ * The affordances are the verb row under the block ({@link PlanVerbRow}),
+ * never row activation ([D142]): a plan row has no room to open, and pressing
+ * anywhere on it must not start anything. Its first verb is the transport, and
+ * pressing Start opens the arc on the followed card through the server's own
+ * `arc_run`. The press names no kind: the server derives that from the arc's
+ * documents at the opening ([D178] as amended, [P03]). A press that cannot land
+ * is not disabled: it stays pressable and speaks its reason ([L31], [P07]).
  *
  * No fold cue beside either: [D176] left the plan rows out of the fold,
  * because the ledger a fold opens is one a waiting document's entry does not
@@ -1007,7 +1107,6 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   dataSource,
 }: TugListViewCellProps<CockpitRowsDataSource>) => {
   const row = dataSource.planAt(index);
-  const followed = useFollowedCardFacts();
   if (row === undefined) return null;
   const entry = row.entry;
   const begun = documentArcIsBegun(entry);
@@ -1042,27 +1141,8 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           // No mark here: a plan row has no fold and nothing below it, so the
           // sentence stays on the line rather than being demoted to a hover
           // with nowhere to land ([B06]).
-          // The transport and the delete ride the line's trailing slot here
-          // too, so every row's transport stands in one column whether the
-          // row is a branch or its paperwork, and a waiting brief's name has
-          // the same eyebrow to itself that a live arc's does.
-          lineTrailing={
-            <>
-              <ArcTransportControl
-                arc={entry.display_name}
-                projectDir={row.projectDir}
-                run={entry.arc ?? null}
-                documents={entry.documents}
-                boundSession={entry.bound_session ?? null}
-                surface="arcs"
-                followed={followed}
-                size="xs"
-                form="icon"
-              />
-              <PlanDeleteButton row={row} />
-            </>
-          }
         />
+        <PlanVerbRow row={row} />
         {waiting !== null ? (
           <span className="arcs-waiting" data-slot="arcs-row-waiting">
             {waiting}
@@ -1186,6 +1266,15 @@ function ArcsBody(): React.ReactElement {
     [replayVerb],
   );
 
+  // What the armed confirm says — the sentence every surface's Discard shares.
+  const confirm =
+    pendingConfirm === null
+      ? null
+      : discardConfirm(
+          pendingConfirm.row.entry.display_name,
+          pendingConfirm.kind === "delete",
+        );
+
   // The opening key view lands on a real row, never on emptiness: an empty list
   // is not a focus stop, and `useSeedKeyView` re-arms while the key is null, so
   // the first arc to arrive takes the cursor ([P02]).
@@ -1194,7 +1283,7 @@ function ArcsBody(): React.ReactElement {
   // Activation opens the arc's ROOM: it fronts the card working the arc and
   // reveals that card's Changes shade, which is where every decision about a
   // arc already lives ([D152]). Navigation, never a verb — the mutating acts
-  // stay on the row's context menu, because status is not a control ([D142]).
+  // stay on the row's own buttons, because status is not a control ([D142]).
   //
   // Click and Enter are the same act here, unlike the Cards card's split:
   // there, a click both selects and fronts, so the two doors differ. An arc row
@@ -1207,32 +1296,7 @@ function ArcsBody(): React.ReactElement {
     const activate = (index: number): void => {
       const row = dataSource.rows[index];
       if (row === undefined) return;
-      const boundSession = row.entry.bound_session ?? null;
-      if (boundSession === null) return;
-      // The same walk the row's own affordance made — `cardIdForSession`,
-      // which answers for the line rather than for a spawn address a rotation
-      // has left behind. Read live here rather than through the hook, because
-      // an activation is an event and the binding may have moved since render.
-      const cardId = cardIdForSession(boundSession);
-      if (cardId === null) return;
-      // The raise comes FIRST and unconditionally, exactly as a click on this
-      // session's Cards row would: front the pane, promote the chain, flash
-      // the header once. It is not the reveal's tail — a card whose content
-      // responder is momentarily absent (mid-mount, mid-rotation) used to
-      // swallow the whole gesture, which is a dead click on a row that
-      // advertised itself as a door.
-      dispatchCommand("focus-session-card", { cardId });
-      // The card-content scope, not the bare card id: `sendToTarget` walks
-      // upward from its target, the bare id is `card-host`'s, and the session
-      // card's handlers live one scope beneath it — a miss there fails
-      // silently. The guard doubles as the liveness check, since only a
-      // mounted session card registers this responder.
-      const target = `${cardId}-card-content`;
-      if (chain === null || !chain.hasResponder(target)) return;
-      chain.sendToTarget(target, {
-        action: TUG_ACTIONS.REVEAL_CHANGES,
-        phase: "discrete",
-      });
+      openArcRoom(chain, row.entry.bound_session ?? null);
     };
     return { onSelect: activate, onActivate: activate };
   }, [chain, dataSource]);
@@ -1285,17 +1349,8 @@ function ArcsBody(): React.ReactElement {
         <TugConfirmPopover
           open={pendingConfirm !== null}
           anchorEl={pendingConfirm?.anchor ?? null}
-          message={
-            pendingConfirm === null
-              ? ""
-              : pendingConfirm.kind === "discard"
-                ? `Discard ${pendingConfirm.row.entry.display_name}? Its branch and worktree go; uncommitted work returns to the base checkout.`
-                : // One clause for what goes, one for why nothing can put it
-                  // back: `.tug/` is excluded from git, so the brief is in no
-                  // commit and no reflog ([B04]).
-                  `Delete the documents for ${pendingConfirm.row.entry.display_name}? They are untracked — git will not give them back.`
-          }
-          confirmLabel={pendingConfirm?.kind === "delete" ? "Delete" : "Discard"}
+          message={confirm?.message ?? ""}
+          confirmLabel={confirm?.confirmLabel ?? "Discard"}
           confirmRole="danger"
           side="top"
           onConfirm={() => {

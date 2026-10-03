@@ -41,10 +41,9 @@
  * slot leaves, so the reading holds its relation to line one's centre, and
  * the slot stands in the column the eyebrow's trailing slot occupies, so a
  * cue in either slot lands on one x-position. The Arcs card is the surface
- * that fills it, with the `ArcTransportControl` — Start, Resume or Stop,
- * whichever the arc's own state names ([D178]) — and then, on a live arc's
- * row, the tool-call header's fold cue, which folds open to the plan's own
- * steps ([D176]). A host that passes nothing gets the DOM it always had: the
+ * that fills it, on a live arc's row, with the tool-call header's fold cue,
+ * which folds open to the plan's own steps ([D176]); the arc's verbs stand in
+ * their own row under the block. A host that passes nothing gets the DOM it always had: the
  * row wrapper exists only when there is something to seat in it ([D200]).
  *
  * **Two layouts, one block.** `stack` is the default and the shape everything

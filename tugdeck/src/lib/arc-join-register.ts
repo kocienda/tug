@@ -47,7 +47,11 @@ export interface ArcJoinRegister {
  * A test against one of them alone leaves the register dark on the other two
  * while the join modal fires.
  */
-const JOINABLE_STAGES = new Set(["ready", "built", "audited"]);
+export const JOINABLE_STAGES: ReadonlySet<string> = new Set([
+  "ready",
+  "built",
+  "audited",
+]);
 
 /**
  * The register's word for an arc that can be joined.

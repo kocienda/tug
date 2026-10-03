@@ -50,12 +50,11 @@
  * plan, not for running a test, so no fixture ever cuts one in the checkout.
  *
  * The lane's two binding gestures live here too, and are driven for real —
- * through the row's `⋯` menu, which is where they moved ([P08]): Unbind on the
- * fronted row sends `unbind_arc`, Bind on a non-fronted row sends `bind_arc`,
- * and the lane's fronting moves on the broadcast that comes back rather than on
- * the press. The menu is also where a blocked verb states its block, since a
- * disabled item takes no pointer events and a `title` on one can never be read
- * ([L31]).
+ * through the row's verb row, under the block: Unbind on the fronted row sends
+ * `unbind_arc`, Bind on a non-fronted row sends `bind_arc`, and the lane's
+ * fronting moves on the broadcast that comes back rather than on the press. A
+ * refused verb states its block in its label and tooltip, and is never
+ * DOM-disabled ([L31]).
  *
  * What the masthead says about the binding is NOT asserted here, and that is
  * deliberate. The arc rides the title's own grammar now, derived from the
@@ -76,6 +75,9 @@
  * @covers tugdeck/src/lib/arc-file-clusters.ts
  * @covers tugdeck/src/lib/landing-message.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx
+ * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
+ * @covers tugdeck/src/lib/arc-verbs.ts
+ * @covers tugdeck/src/components/tugways/use-card-transport-facts.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
@@ -109,7 +111,6 @@ import {
   type ArcScratchRepo,
 } from "./arc-fixture";
 import {
-  arcRowMenuOpener,
   pressArcRowMenuItem,
   readArcRowMenu,
 } from "./arc-row-menu-fixture";
@@ -146,10 +147,10 @@ const ROW_FOLD = `${ROW} [data-slot="session-changes-arc-fold"]`;
  *  is still a row. */
 const ARCS_ROW = `.arcs-section [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
 /**
- * The row's three rare verbs live behind its `⋯` now ([P08]), so every
- * question about them is asked of an opened menu rather than of the row.
+ * The row's verbs, under the block — every one of them stands here; the
+ * lane has no menu.
  */
-const ROW_MENU_OPENER = arcRowMenuOpener(ROW);
+const ROW_VERBS = `${ROW} [data-slot="arc-verb-row"]`;
 
 /**
  * The chrome the fold hosts but does not author, excluded from the two-sizes
@@ -480,14 +481,20 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
           "the other-arcs fold no longer exists",
         ).toBe(0);
 
-        // The rare verbs are behind the `⋯` and nowhere else: standing on the
-        // row they read as peers of the acts a reader performs constantly.
+        // Every verb stands on the row's one verb row, and the `⋯` that once
+        // hid the rare ones is gone.
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(ROW_MENU_OPENER)}).length`,
+            `document.querySelectorAll(${JSON.stringify(ROW_VERBS)}).length`,
           ),
-          "the row carries one opener for its rare verbs",
+          "the row carries one verb row",
         ).toBe(1);
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(`${ROW} [data-slot="session-changes-arc-row-menu-open"]`)}).length`,
+          ),
+          "and no `⋯` opener",
+        ).toBe(0);
         // Discard reaches an unbound arc. No live session is mated to this one,
         // so it is nobody's to protect and this shade may clean it up — the
         // whole point of widening the gesture past the fronted row.
@@ -505,7 +512,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
           badge: string;
           phase: string | null;
           note: string;
-          popOuts: number;
+          diffs: number;
           claimish: number;
         }>(
           `(() => {
@@ -517,7 +524,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
                badge: (row.querySelector('[data-slot="tug-arc-lifecycle-name"]')?.textContent ?? "").trim(),
                phase: track?.getAttribute("data-phase") ?? null,
                note: (noteEl?.textContent ?? "").trim(),
-               popOuts: row.querySelectorAll('[data-testid="tug-changes-list-diff-popout"]').length,
+               diffs: row.querySelectorAll('[data-slot="arc-verb"][data-verb="diff"]').length,
                claimish: lane.querySelectorAll(
                  '[data-testid^="tug-changes-list-claim"], [data-testid^="tug-changes-list-disclaim"], .tug-changes-list-claim, .tug-changes-list-disclaim',
                ).length,
@@ -540,7 +547,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // The join phase reads `Finished`: the work is over and the join is
         // what is left, which the register one line below is what says ([B01]).
         expect(row.note).toBe("Finished");
-        expect(row.popOuts).toBe(1);
+        // The range pop-out is the row's Diff verb now.
+        expect(row.diffs).toBe(1);
         // The lane is read-only by construction: no claim grammar reaches it.
         expect(row.claimish).toBe(0);
 
@@ -867,7 +875,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         ).toBeGreaterThan(1);
 
         // ── The complement rule ───────────────────────────────────────────
-        // Unbind on the fronted row, Bind on none of it — a menu carrying both
+        // Unbind on the fronted row, Bind on none of it — a row carrying both
         // at once would say the card can take on and put down the same arc.
         const affordances = await readArcRowMenu(app, ROW);
         expect(affordances.unbind.present).toBe(true);
@@ -885,7 +893,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
 
         // ── Bind: and back again, the same way ────────────────────────────
         // The row stays on screen when it stops being fronted — it moves into
-        // the rest group, which hides nothing — so its menu is reachable
+        // the rest group, which hides nothing — so its verbs are reachable
         // without a fold click first.
         await pressArcRowMenuItem(app, ROW, "bind-arc");
         await app.waitForCondition<boolean>(
