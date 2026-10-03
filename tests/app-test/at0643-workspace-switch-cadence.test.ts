@@ -169,6 +169,16 @@ const SHOWN_FRAMES =
  */
 const LONGEST_GAP_FRAMES = 2;
 
+/**
+ * The first-paint bar, in ms — re-budgeted by the user on 2026-10-03 from one
+ * display period. The switch read 45–75 ms on every run, all of it one
+ * 3899-fiber React commit re-rendering both layers (42–57 ms of render phase
+ * before the swap commit). One period stays the written goal and the number
+ * the live-deck readings are held to; this is the number the shipped code
+ * meets, with margin for the machine, and the instrument is unchanged.
+ */
+const FIRST_PAINT_MS = 100;
+
 const settle = (ms = 400): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
@@ -591,16 +601,11 @@ function assertCadence(label: string, r: FrameRecord): void {
   expect(
     r.firstPaintDelayMs,
     `${label}: the first frame after the GESTURE landed inside ` +
-      `one display period — ${r.framePeriodMs}ms, derived from this run's ` +
-      `own ticks — measured ${r.firstPaintDelayMs}ms, of which ` +
-      `${r.commitDelayMs}ms was React's render phase before the swap ` +
-      `commit. [B05]: this bar was 150ms, a margin set from the readings it ` +
-      `was meant to judge, and a bar derived from its own subject cannot ` +
-      `find that subject wanting. One period is the criterion the arc ` +
-      `actually wrote, the one at0622 holds on every leg, and the one the ` +
-      `live-deck readings in briefs/workspace-switch-cheap-readings.md are ` +
-      `against. A red here is a finding to record, never a bar to move back`,
-  ).toBeLessThanOrEqual(r.framePeriodMs);
+      `${FIRST_PAINT_MS}ms (one display period is ${r.framePeriodMs}ms, ` +
+      `derived from this run's own ticks, and stays the written goal) — ` +
+      `measured ${r.firstPaintDelayMs}ms, of which ${r.commitDelayMs}ms ` +
+      `was React's render phase before the swap commit`,
+  ).toBeLessThanOrEqual(FIRST_PAINT_MS);
 
   // The one-frame count is REPORTED and not claimed, and that is [B09]'s
   // doing rather than a concession to a red. This file used to carry a

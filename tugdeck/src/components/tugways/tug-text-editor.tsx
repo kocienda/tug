@@ -106,6 +106,7 @@ import {
   undoDepth,
 } from "@codemirror/commands";
 import { cn } from "@/lib/utils";
+import { cm6FocusKeepsPlace } from "@/lib/cm6-focus-keeps-place";
 import { quoteMarkdown, stripMarkdown } from "@/lib/paste-transforms";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
@@ -1171,6 +1172,10 @@ function buildExtensions(
     // than on release — otherwise the whole range stays painted for as
     // long as the button is held. See `press-collapses-selection.ts`.
     pressCollapsesSelection,
+    // A focus grant never moves the field's scroll: WebKit reveals the caret
+    // it restores on focus despite `preventScroll`. See
+    // `cm6-focus-keeps-place.ts`.
+    cm6FocusKeepsPlace(),
     // Host-supplied extensions are layered first so they sit BELOW the
     // substrate's keymap / theme precedence. A compound component that
     // wants its own keymap or `Prec.highest` rules can wrap them in

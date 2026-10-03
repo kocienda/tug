@@ -120,6 +120,7 @@ import {
 } from "@codemirror/search";
 
 import { cn } from "@/lib/utils";
+import { cm6FocusKeepsPlace } from "@/lib/cm6-focus-keeps-place";
 import { cm6ScrollAnchor } from "@/lib/cm6-scroll-anchor";
 import { minimalTextChanges } from "@/lib/minimal-text-changes";
 import {
@@ -1095,6 +1096,9 @@ export const TugTextCardEditor = React.forwardRef<
         // publishes it for the cross-mount save path. A pixel offset means
         // nothing after a re-wrap; a line does.
         cm6ScrollAnchor(),
+        // A focus grant never moves the reader's place (WebKit reveals a
+        // restored caret despite `preventScroll`).
+        cm6FocusKeepsPlace(),
         revealFlashField,
         // ⌘-click intra-document link/anchor navigation (plain click still
         // edits). Jumps via the live `revealLine` through a ref so the

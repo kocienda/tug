@@ -79,9 +79,9 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000425";
-const FEED_CODE_OUTPUT = 0x40;
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
+const PROMPT_ENTRY = `${CARD} [data-slot="tug-prompt-entry"]`;
 const TOOLBAR = `${CARD} .tug-prompt-entry-toolbar`;
 const ROUTE_GROUP = `${TOOLBAR} .tug-prompt-entry-route-group`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
@@ -331,9 +331,14 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         expect(claimsReady, "a conflicted arc must not read as ready").toBe(false);
 
         // ── The turn narrows Discard, and says so where the press is ──────
-        // Hold a real turn open, driven through the real store wire path (the
-        // at0099 send + ingestFrame pattern) rather than simulated on the
-        // component.
+        // A real turn, sent through the real store wire path rather than
+        // simulated on the component. The session is SPAWNED (Adopt needs its
+        // ledger row), so the send reaches a real engine and the turn ends
+        // when the reply does — on the model's clock, not this file's. A
+        // reading is therefore taken only inside a turn the prompt entry
+        // still calls live once the menu has been read: a reply that landed
+        // during the read leaves a reading that spans the turn's end and
+        // proves nothing either way, so the send is made again.
         //
         // What the turn gates is Discard, because Discard destroys the arc.
         // Everything else the row offers is unaffected — the narrowing was
@@ -346,9 +351,17 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // And the refusal is READABLE. A disabled item takes no pointer
         // events, so a tooltip on one never fires and a `title` can never be
         // read — the reason rides the item's own label ([L31]).
-        await app.driveSession("A", { op: "send", text: "hold the turn open" });
-        await settle(1200);
-        const midTurn = await readArcRowMenu(app, ROW);
+        const turnLive = `document.querySelector(${JSON.stringify(PROMPT_ENTRY)})?.getAttribute("data-can-interrupt") === "true"`;
+        const turnOver = `document.querySelector(${JSON.stringify(PROMPT_ENTRY)})?.getAttribute("data-can-interrupt") === "false"`;
+        let midTurn: Awaited<ReturnType<typeof readArcRowMenu>> | null = null;
+        for (let attempt = 0; attempt < 3 && midTurn === null; attempt += 1) {
+          await app.driveSession("A", { op: "send", text: "hold the turn open" });
+          await app.waitForCondition<boolean>(turnLive, { timeoutMs: 10_000 });
+          const reading = await readArcRowMenu(app, ROW);
+          if (await app.evalJS<boolean>(turnLive)) midTurn = reading;
+          await app.waitForCondition<boolean>(turnOver, { timeoutMs: 120_000 });
+        }
+        if (midTurn === null) throw new Error("no menu reading fell wholly inside a live turn");
         expect(midTurn.discard.disabled, "a live turn holds the discard").toBe(true);
         expect(
           midTurn.discard.label,
@@ -360,14 +373,9 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         ).toBe(false);
         note(`at0425 mid-turn menu: ${JSON.stringify(midTurn.discard.label)}`);
 
-        // Close the turn — the rest of the file is an idle-state story, and
-        // Bind below would otherwise be read against a live turn.
-        await app.driveSession("A", {
-          op: "ingestFrame",
-          feedId: FEED_CODE_OUTPUT,
-          decoded: { tug_session_id: SID, type: "turn_complete", msg_id: "m1", result: "success" },
-        });
-        await settle(1200);
+        // The turn has ended on its own above — the rest of the file is an
+        // idle-state story, and Bind below would otherwise be read against a
+        // live turn.
         expect(
           (await readArcRowMenu(app, ROW)).discard.disabled,
           "and the hold lifts with the turn",

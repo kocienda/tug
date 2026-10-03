@@ -134,10 +134,20 @@ export async function openFixtureSession(
   return { openedAt };
 }
 
+/** How long the transcript's height must stand still to count as settled. */
+const SETTLED_HEIGHT_HOLD_MS = 500;
+
 /**
  * Wait until the resumed transcript has settled: replay done, scroller
- * mounted, content scrollable (scrollHeight exceeds the viewport), and
- * pinned at the bottom (the resumed list follows the bottom).
+ * mounted, content scrollable (scrollHeight exceeds the viewport), and its
+ * height held still for a beat.
+ *
+ * Scrollable is not settled. Rows go on measuring after the list first
+ * overflows, and a scroll written into that window has the rows above it grow
+ * under it: the scroller keeps the reader's place, so `scrollTop` moves by
+ * the growth, and a test holding the number it wrote is holding a place the
+ * reader no longer has. The height standing unchanged for
+ * {@link SETTLED_HEIGHT_HOLD_MS} is what says the layout is done.
  */
 export async function waitForTranscriptSettled(
   app: App,
@@ -149,7 +159,14 @@ export async function waitForTranscriptSettled(
       if (host === null || host.hasAttribute("data-replaying")) return false;
       var el = document.querySelector(${JSON.stringify(SCROLLER)});
       if (el === null) return false;
-      return el.scrollHeight > el.clientHeight + 200;
+      if (el.scrollHeight <= el.clientHeight + 200) return false;
+      var now = performance.now();
+      var seen = window.__tugTranscriptHeightSeen;
+      if (seen === undefined || seen.el !== el || seen.height !== el.scrollHeight) {
+        window.__tugTranscriptHeightSeen = { el: el, height: el.scrollHeight, at: now };
+        return false;
+      }
+      return now - seen.at >= ${SETTLED_HEIGHT_HOLD_MS};
     })()`,
     { timeoutMs },
   );

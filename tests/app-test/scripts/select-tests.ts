@@ -257,7 +257,13 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // exists BECAUSE the manager stands it off the arrival's own end, and a
     // test that named only the door it came through would leave that rule
     // covered by nothing.
-    "tugdeck/src/deck-manager.ts": 22,
+    //
+    // Raised to 23 for at0681 (the deck's content width lands on its preset).
+    // `setContentWidth` builds every content pane's width inline and re-solves
+    // the rails in the same commit, and both halves are this manager's; a test
+    // that named only the imposer's clamp would leave the landing covered by
+    // nothing.
+    "tugdeck/src/deck-manager.ts": 23,
 
     // The Session card. Every session surface the app has — picker, transcript
     // host, composer wiring, the card's own close policy — hangs off this one

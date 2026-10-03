@@ -271,6 +271,14 @@ const diamondSetupJs = (shift: number): string => `(function () {
     return n.querySelector('.tug-progress-pulsing-dot[data-shape="diamond"]') !== null;
   }).forEach(function (n, i) {
     var clone = n.cloneNode(true);
+    // The motion guard's marks ride along with the clone, and nothing
+    // watches the panel to lift them. The gallery's own diamonds sit below
+    // the fold of the pinned launch window, so they arrive marked
+    // off-screen, which stills their loops and leaves the pulse unlit.
+    [clone].concat(Array.from(clone.querySelectorAll('*'))).forEach(function (e) {
+      e.removeAttribute('data-tug-offscreen');
+      e.removeAttribute('data-tug-understudy');
+    });
     if (i === 0) {
       var g = clone.querySelector('.tug-progress-pulsing-dot');
       g.style.setProperty('--tugx-progress-pulsing-dot-size', '12px');

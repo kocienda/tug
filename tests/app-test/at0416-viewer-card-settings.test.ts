@@ -389,6 +389,12 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("show-card", { component: "settings" }), null)`,
         );
+        // The dispatch returns before the Settings card's body has committed,
+        // so its sidebar is waited for rather than assumed.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="tug-tab-view-tab-viewerCard"]') !== null`,
+          { timeoutMs: 10_000 },
+        );
         await app.click('[data-testid="tug-tab-view-tab-viewerCard"]');
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-testid="settings-viewer-card"]') !== null`,

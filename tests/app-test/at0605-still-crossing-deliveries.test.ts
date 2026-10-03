@@ -238,6 +238,28 @@ async function census(app: App, dispatch: string): Promise<Census> {
       state.armed = true;
       var t0 = performance.now();
       var tick = function () {
+        // One sample is one instant: the engine can step a running tween's
+        // clock inside a single callback, so a frame read before its composer
+        // can disagree with it by however far the edge moved in between —
+        // which claim 3 then reports as the composer leaving the edge. The
+        // frames are read again after the sample, and a sample whose frames
+        // moved while it was being taken is taken again.
+        for (var attempt = 0; attempt < 5; attempt += 1) {
+          var sample = take();
+          if (stable(sample)) break;
+        }
+        state.samples.push(sample);
+        if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
+      };
+      var stable = function (sample) {
+        return Object.keys(sample.panes).every(function (card) {
+          var frame = document.querySelector('.tug-pane[data-pane-id="' + panes[card] + '"]');
+          if (frame === null) return false;
+          var r = frame.getBoundingClientRect();
+          return r.height === sample.panes[card].height && r.bottom === sample.panes[card].bottom;
+        });
+      };
+      var take = function () {
         var sample = { t: performance.now(), panes: {} };
         Object.keys(panes).forEach(function (card) {
           var frame = document.querySelector('.tug-pane[data-pane-id="' + panes[card] + '"]');
@@ -253,8 +275,7 @@ async function census(app: App, dispatch: string): Promise<Census> {
             bottomAnchored: root !== null && root.getAttribute("data-still-anchor") === "bottom",
           };
         });
-        state.samples.push(sample);
-        if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
+        return sample;
       };
       requestAnimationFrame(tick);
       return null;

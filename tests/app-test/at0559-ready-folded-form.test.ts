@@ -93,8 +93,18 @@ const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
 const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"]`;
 /** Z2's ARC cell reading — a fraction while the arc walks, a word when it is ready. */
 const ARC_VALUE = `${STATUS_BAR} [data-slot="session-telemetry-arc-value"]`;
-/** The masthead's phase dot, which carries its key as `data-phase`. */
-const DOT = `${PANE} .session-masthead-row .tug-session-row-dot [data-phase]`;
+/**
+ * The masthead's phase dot. It carries no phase key — it reads the visual
+ * triple, and `data-phase` was dropped from it so a phase flip stops
+ * invalidating its subtree (`session-phase-dot.tsx`). Ready is the one phase
+ * that is `{ role: success, state: running }`, so that pair is the dot saying
+ * Ready.
+ */
+const DOT = `${PANE} .session-masthead-row .tug-session-row-dot [data-slot="tug-progress-indicator"]`;
+const DOT_SAYS_READY = `(function () {
+  var el = document.querySelector(${JSON.stringify(DOT)});
+  return el !== null && el.getAttribute("data-role") === "success" && el.getAttribute("data-state") === "running";
+})()`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 
@@ -273,13 +283,6 @@ function clearStaleAppModal(app: App): Promise<string> {
   );
 }
 
-/** The dot's phase key, or null when there is no dot. */
-function dotPhase(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
-    `document.querySelector(${JSON.stringify(DOT)})?.getAttribute("data-phase") ?? null`,
-  );
-}
-
 /** Z2's ARC cell reading, flattened. */
 function arcCellReading(app: App): Promise<string> {
   return app.evalJS<string>(
@@ -326,10 +329,9 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // Waited on rather than merely asserted: this is the arc reaching
         // ready, which is also the moment a reveal would have fired.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DOT)})?.getAttribute("data-phase") === "ready"`,
+          DOT_SAYS_READY,
           { timeoutMs: 240000 },
         );
-        note("at0559 dot", (await dotPhase(app)) ?? "none");
 
         // The dot is the one green on the session's mark, and it breathes:
         // a live wait on a person, not a settled session ([B03]).

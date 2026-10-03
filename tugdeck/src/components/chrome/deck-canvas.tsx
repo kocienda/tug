@@ -1467,12 +1467,24 @@ function PlaceSeam({
       // writes EVERY seam, because a cascade moves the boundaries below the
       // one under the pointer too, and a frame still reading its old seam
       // would overlap the member that had just given room up.
+      //
+      // On the shown layer too, not the canvas alone. The layer carries its
+      // own copy of every arrangement variable and its frames inherit from it,
+      // so a write to the canvas alone put every member back at the division
+      // the layer last rendered — the pre-gesture one — the moment the pins
+      // came off, and the commit's settle then carried them from there to
+      // where the hand had left them: a snap back and a slide forward at
+      // every release. `applyScroll` meets the same shadow the same way.
+      const shownLayer = container.querySelector<HTMLElement>(
+        `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
+      );
+      const setArrangement = (name: string, value: string): void => {
+        container.style.setProperty(name, value);
+        shownLayer?.style.setProperty(name, value);
+      };
       const publish = (height: number): void => {
         if (overflowing) {
-          container.style.setProperty(
-            property,
-            `${Math.round(valueOf(height))}px`,
-          );
+          setArrangement(property, `${Math.round(valueOf(height))}px`);
           return;
         }
         const heights = cascadedHeights(
@@ -1484,7 +1496,7 @@ function PlaceSeam({
         let top = 0;
         for (let k = 0; k < heights.length - 1; k += 1) {
           top += heights[k];
-          container.style.setProperty(
+          setArrangement(
             seamPropertyOf(place, k),
             String((top + seamPx / 2) / run),
           );
@@ -6231,7 +6243,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // the delay's length shares the document timeline with the beat it
       // announces, so it resolves on the beat's own first active frame and
       // never after it.
-      const whenBeatBegins = (delayMs: number, begin: () => void): void => {
+      //
+      // `stale` runs instead of `begin` when a later arm has superseded this
+      // settle by the time the beat would have begun: the beat never runs,
+      // and whatever it launched that nothing else owns is the caller's to
+      // take back.
+      const whenBeatBegins = (
+        delayMs: number,
+        begin: () => void,
+        stale?: () => void,
+      ): void => {
         if (delayMs <= 0) {
           begin();
           return;
@@ -6243,7 +6264,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         beatMarkers.push(marker);
         void marker.finished.then(
           () => {
-            if (settleGenerationRef.current !== generation) return;
+            if (settleGenerationRef.current !== generation) {
+              stale?.();
+              return;
+            }
             begin();
           },
           () => {
@@ -6449,6 +6473,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                   restores,
                 });
               }
+            }
+          }, () => {
+            // Superseded before the beat began, so no record owns these
+            // fades: the frame was never handed to `settleTweensRef`, and
+            // the pending map has either let it go (a workspace switch swept
+            // it, hold handed back) or carried it into the settle that
+            // superseded this one, which launches a fade of its own. Left to
+            // run, the fade lands anyway, and TugAnimator commits its end
+            // value — an inline `opacity: 1` nothing will ever take off, or
+            // written over the replacement's hold. Cancelled raw, so nothing
+            // is committed. The frames' fades only: the rail strips' slides
+            // are on their own `settleTweensRef` entries, which the
+            // superseding arm has already answered for.
+            if (kind !== "arrive") return;
+            for (const anim of fades.slice(0, arrivals.length)) {
+              anim.raw.cancel();
             }
           });
           return Promise.allSettled(fades.map((anim) => anim.finished)).then(
@@ -7321,7 +7361,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             target.kind === "column"
               ? columnOffsetProperty(target.slot ?? 0)
               : railOffsetProperty(target.side ?? "left");
-          el.style.setProperty(property, `${Math.round(offset)}px`);
+          const value = `${Math.round(offset)}px`;
+          el.style.setProperty(property, value);
+          // The shown layer carries its own copy of every arrangement
+          // variable, and its frames inherit from it rather than from the
+          // canvas — so a write here alone moves the canvas's seams and
+          // leaves every frame standing at the committed offset until the
+          // drop re-renders the layer. The flow offset reaches its readers
+          // through `writeCanvasFlowOffset` for the same reason.
+          el.querySelector<HTMLElement>(
+            `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
+          )?.style.setProperty(property, value);
         }
         // The same number, in the same frame, to every instrument listening
         // ([P08]). The band the strip slides under is the target's own, so the

@@ -99,17 +99,21 @@ describe.skipIf(!SHOULD_RUN)("m19: _closePane flushes every card before destruct
       await app.evalJS<void>(`window.__tug.closePane("p1")`);
 
       // Every card must have produced a save-callback (close-handoff)
-      // event — proves _closePane's flush loop iterated each card.
+      // event — proves _closePane's flush loop iterated each card. The
+      // unmount is React's commit, which the deck store tells after the
+      // next paint, so it is waited for too rather than read on return.
       await app.waitForCondition<boolean>(
         `(function(){
           var t = window.__tug.getDeckTrace({since: ${markClose}});
           var saved = {};
+          var unmounted = false;
           for (var i = 0; i < t.length; i++) {
             if (t[i].kind === "save-callback" && t[i].source === "close-handoff") {
               saved[t[i].cardId] = true;
             }
+            if (t[i].kind === "card-host-unmount") unmounted = true;
           }
-          return saved.A && saved.B && saved.C;
+          return saved.A && saved.B && saved.C && unmounted;
         })()`,
         { timeoutMs: 2000 },
       );

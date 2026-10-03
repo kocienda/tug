@@ -26,7 +26,8 @@
  *      commit, through the same `transferFocusForActivation` a Cards row click
  *      or a ⌘N slot assignment takes.
  *
- *   4. Cmd-click on a title bar opens the same picker and does NOT raise the
+ *   4. Cmd-click on a title bar's grab handle — the one surface a content card
+ *      is pressed by since the grab dots — opens the same picker and does NOT raise the
  *      pane it landed on. The meta modifier already means "interact with a
  *      background window without raising it", and this inherits that: the
  *      un-raised state is the feedback that the click was a look, not a touch.
@@ -85,6 +86,10 @@ const frame = (paneId: string): string =>
   `.tug-pane[data-pane-id="${paneId}"]`;
 const titleBar = (paneId: string): string =>
   `${frame(paneId)} [data-testid="tug-pane-title-bar"]`;
+/** The dots a content card is pressed by: a press anywhere else on the bar
+ *  starts no gesture, so the no-travel Cmd branch is reached only here. */
+const grabHandle = (paneId: string): string =>
+  `${titleBar(paneId)} .tug-pane-grab-handle`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -399,7 +404,7 @@ describe.skipIf(!SHOULD_RUN)(
           // --- Cmd-click a title bar: opens the picker, raises nothing. ----
           // Background-safe: the no-travel branch runs on pointerup and has no
           // dependence on a frame ever being served.
-          await app.click(titleBar("p1"), { metaKey: true });
+          await app.click(grabHandle("p1"), { metaKey: true });
           await waitForMenu(app, true);
           expect(await app.getFocusedCardId(), "Cmd-click looks without touching — Z stays in front").toBe("Z");
 
@@ -426,6 +431,12 @@ describe.skipIf(!SHOULD_RUN)(
           // closing here would be the bug: it would snatch the menu out from
           // under a hand reaching for "Split Vertically".
           await app.evalJS<null>(`(window.__tug.closePane("p0"), null)`);
+          // The close commits after the next paint, so the depth is waited
+          // for rather than read on return.
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(frame("p1"))})?.getAttribute("data-stack-depth") === "1"`,
+            { timeoutMs: 5_000 },
+          );
           expect(await stackDepthAttr(app, "p1"), "the surviving pane stands alone in its slot").toBe("1");
           expect(await count(app, `${frame("p1")} ${BADGE}`), "and keeps its badge, because it keeps its slot").toBe(1);
           expect(await badgeText(app, "p1"), "now reading one of one").toBe("1");

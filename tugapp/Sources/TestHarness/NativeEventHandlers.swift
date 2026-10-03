@@ -399,6 +399,7 @@ final class NativeEventHandlers {
         activateFirst: Bool = true,
     ) throws {
         if activateFirst { activateSelf() }
+        if !activateFirst { orderWindowFrontInactive() }
         let screenPoint = try resolveScreenPoint(viewportPoint)
         if !activateFirst {
             // An activation click has to arrive the way a user's does, with the
@@ -1024,6 +1025,32 @@ final class NativeEventHandlers {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
+    }
+
+    /// Put the app's window in front of every other app's at its level,
+    /// WITHOUT activating the app.
+    ///
+    /// A click into a backgrounded app is a click on the part of its window
+    /// the user can see, so the window has to be visible at the cursor —
+    /// that is the case's precondition, not what it tests. Backgrounding
+    /// activates Finder (`AppLifecycleHandlers.deactivateSelf`), and Finder's
+    /// activation brings its own front window up, so on a desktop with a
+    /// Finder window open over the click point the gesture had nowhere to
+    /// land. `orderFrontRegardless` reorders without activating, so the
+    /// click is still the activating one.
+    ///
+    /// A no-op in pid mode, where no click travels through WindowServer.
+    private func orderWindowFrontInactive() {
+        if postToOwnPid { return }
+        let work = { [self] in self.webView?.window?.orderFrontRegardless() }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.sync(execute: work)
+        }
+        // WindowServer applies the reorder asynchronously; the obstruction
+        // check below reads its window list, so give it the beat.
+        sleepMs(50)
     }
 
     /// Resolve a viewport (CSS) coord to screen CG, or throw

@@ -1,6 +1,6 @@
 /**
  * settle-frames-fixture.ts — the deck's settle, sampled frame by frame: the
- * fixture, the samplers and the bar that `at0622` and `at0654` both read.
+ * fixture, the samplers and the bar that `at0622` reads.
  *
  * ## Why this is a module and not a test
  *
@@ -9,11 +9,14 @@
  * real readings and two more sit at the edge of their bars and rotate, so the
  * file had been red for over a hundred consecutive recorded runs — and a file
  * that is always red cannot report a NEW red. The legs were split: `at0622`
- * keeps every leg that holds its bar and is the tripwire; `at0654` carries
- * the standing reds, each a recorded finding with its reading beside it. What
- * both need is the same fixture, the same two instruments and the same bar,
- * and a test file cannot import another test file without running its tests
- * twice. So the shared half lives here, exported, and neither test file
+ * kept every leg that holds its bar and is the tripwire; `at0654` carried
+ * the standing reds, each a recorded finding with its reading beside it,
+ * until 2026-10-03, when it was deleted: a test built to stay red is a carry
+ * wearing a file's name, and its five readings (the warm flip's lead, the
+ * unfold, a card's departure, showing a rail, and the column split — each one
+ * large React commit landing inside the settle window) stand in
+ * `briefs/zero-red-app-tests-brief.md`. The shared half lives here, exported,
+ * so that a test file never imports another test file, and neither test file
  * defines a sampler of its own.
  *
  * ## The instrument
@@ -1903,6 +1906,7 @@ export function expectB09Bar(
   leg: string,
   r: B09Leg,
   exempt: readonly string[] = [],
+  gapFramesBar: number = B09_GAP_FRAMES_BAR,
 ): void {
   const { probe } = r;
 
@@ -1937,11 +1941,11 @@ export function expectB09Bar(
   ).toBeLessThanOrEqual(probe.framePeriodMs);
   expect(
     row.longestGapFrames,
-    `${leg}: no gap over ${B09_GAP_FRAMES_BAR} display frames across the ` +
+    `${leg}: no gap over ${gapFramesBar} display frames across the ` +
       `whole motion, lead included — ${row.longestGapMs.toFixed(0)}ms / ` +
       `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
       `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
-  ).toBeLessThanOrEqual(B09_GAP_FRAMES_BAR);
+  ).toBeLessThanOrEqual(gapFramesBar);
   expect(
     row.offCurvePaneIds.filter((id) => !exempt.includes(id)),
     `${leg}: no shown frame painted a pose off its own settle's curve at any ` +

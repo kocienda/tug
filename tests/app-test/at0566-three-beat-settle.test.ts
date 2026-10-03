@@ -154,6 +154,16 @@ interface Sample {
  * the record. Every geometric number is a `getBoundingClientRect()` read —
  * the viewport's own coordinates, where a translate shows up — and the
  * inline values are read off `el.style`, which is where a beat's holds live.
+ *
+ * One sample is one instant, and that has to be made true rather than
+ * assumed. While a move beat's transform runs, the engine advances the
+ * animation's clock inside a single callback: a frame read twice in one tick,
+ * with no write between, was measured 5.7px apart. A frame read first and its
+ * interior read after could then disagree by the distance the tween covered
+ * in between, and claims 2 and 4 rotated red on exactly that — on whichever
+ * frame of whichever beat the clock happened to step under. So the frames are
+ * read again after the cards, and a sample whose frames moved while it was
+ * being taken is taken again.
  */
 async function census(app: App, dispatch: string): Promise<Sample[]> {
   await app.evalJS<null>(
@@ -167,6 +177,24 @@ async function census(app: App, dispatch: string): Promise<Sample[]> {
         return el === null ? null : el.getBoundingClientRect();
       };
       var tick = function () {
+        for (var attempt = 0; attempt < 5; attempt += 1) {
+          var sample = take();
+          if (stable(sample)) break;
+        }
+        window.__at0566.push(sample);
+        if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
+      };
+      var stable = function (sample) {
+        return panes.every(function (pane) {
+          var was = sample.panes[pane];
+          if (was === undefined) return true;
+          var el = document.querySelector('.tug-pane[data-pane-id="' + pane + '"]');
+          if (el === null) return false;
+          var r = el.getBoundingClientRect();
+          return r.top === was.top && r.left === was.left && r.height === was.height;
+        });
+      };
+      var take = function () {
         var canvas = document.querySelector("[data-imposer-settling]");
         var sample = {
           t: performance.now() - t0,
@@ -200,8 +228,7 @@ async function census(app: App, dispatch: string): Promise<Sample[]> {
             z2Top: z2 === null ? -1 : z2.top,
           };
         });
-        window.__at0566.push(sample);
-        if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
+        return sample;
       };
       requestAnimationFrame(tick);
       return null;

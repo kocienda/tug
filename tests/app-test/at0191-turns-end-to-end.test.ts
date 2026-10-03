@@ -153,9 +153,15 @@ describe.skipIf(!SHOULD_RUN)(
         // looking. Reading both ends is what a reader would do — and it is
         // what the numbering claim is actually about: the marker a row
         // carries when it IS on screen.
+        //
+        // The move goes up as a reader's does: a wheel-up first, which is
+        // what releases the transcript from following its bottom, then the
+        // position. A bare `scrollTop` write is a scroll nobody caused, and
+        // the follow-bottom pin that lands after a prepend takes it back.
         const readAddrsAt = async (frac: number): Promise<string[]> => {
           await app.evalJS<number>(`(function () {
   var el = document.querySelector('[data-card-id="A"] [data-tug-scroll-key="session-card-transcript"]');
+  el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
   el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * ${frac});
   return el.scrollTop;
 })()`);

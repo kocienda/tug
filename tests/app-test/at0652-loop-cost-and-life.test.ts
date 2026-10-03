@@ -493,6 +493,18 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- Each loop's own cost, against the idle floor ([B05]). ----
           //
+          // Every clause below allows TEN updates a second over the idle
+          // reading — re-budgeted on 2026-10-03 under the user's decision to
+          // move these bars to the measured numbers. `rest()` counts every
+          // main-thread wakeup on the machine for one second, so against an
+          // idle of 0 the loops read 1 on a quiet run and 3–5 with a build
+          // or another test's teardown beside them, and which clause the
+          // strays land on rotates run to run. The claim is the one the
+          // message states: a loop the main thread owned would read at the
+          // display rate, sixty a second. Ten is well under that and above
+          // anything the engine's own noise has read, and one bar says so.
+          const NOISE_UPDATES = 10;
+          //
           // [F05]: the reading below used to be ONE rest() with the dot and
           // the wave both up. An aggregate under the floor says the pair
           // costs nothing; it does not say either one does, and a loop that
@@ -553,7 +565,7 @@ describe.skipIf(!SHOULD_RUN)(
               `${restWave.busyMsPerSecond.toFixed(1)}ms busy; the same card ` +
               `idle carried ${restQuiet.updatesPerSecond}, ` +
               `${restQuiet.busyMsPerSecond.toFixed(1)}ms busy`,
-          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond);
+          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond + NOISE_UPDATES);
           expect(
             restDot.updatesPerSecond,
             `the phase dot wakes the main thread for no rendering update ` +
@@ -563,7 +575,7 @@ describe.skipIf(!SHOULD_RUN)(
               `${restDot.busyMsPerSecond.toFixed(1)}ms busy; the same card ` +
               `idle carried ${restQuiet.updatesPerSecond}, ` +
               `${restQuiet.busyMsPerSecond.toFixed(1)}ms busy`,
-          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond);
+          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond + NOISE_UPDATES);
 
           // ---- And the pair together, which is the deck as shipped. -----
           //
@@ -593,7 +605,7 @@ describe.skipIf(!SHOULD_RUN)(
               `the engine rather than about the loops. A loop the ` +
               `compositor owns adds nothing here; one it does not own wakes ` +
               `the thread every frame and would read at the display rate`,
-          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond);
+          ).toBeLessThanOrEqual(restQuiet.updatesPerSecond + NOISE_UPDATES);
         } finally {
           await app.close();
         }

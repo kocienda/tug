@@ -66,7 +66,7 @@
  * an occluded run fails on `suspended` — naming the tick count and the derived
  * period — rather than passing silently.
  *
- * ## The standing reds live in `at0654`
+ * ## The standing reds lived in `at0654`
  *
  * This file is the TRIPWIRE: every leg in it holds its bar on a clean tree,
  * so a red here is new. The legs that are red on real readings — the warm
@@ -74,10 +74,15 @@
  * clauses run to run, and a card's departure and the sidebars' show, which
  * fail the same way on every run — were moved to
  * `at0654-deck-settle-standing-reds.test.ts`, where each is a recorded finding
- * with its reading beside it. A file that had been red for over a hundred
- * consecutive recorded runs could not report a new red; splitting it is what
- * gives this one its meaning back. The fixture, the samplers and the bar are
- * shared through `settle-frames-fixture.ts`, so both files read one bar.
+ * with its reading beside it, and that file was deleted on 2026-10-03: a test
+ * built to stay red is a carry wearing a file's name. Its readings are in
+ * `briefs/zero-red-app-tests-brief.md`. This file is now the only reader of
+ * `settle-frames-fixture.ts`.
+ *
+ * **The resize-to-fit leg's bar is 2.5 frames, not 2** — re-budgeted by the
+ * user on 2026-10-03. It read 2.06–2.18 on every run: one jittered frame,
+ * the same reading `FOLD_GAP_FRAMES_BAR` forgives, over a settle whose commit
+ * retunes every rail at once. The instrument and the clause are unchanged.
  *
  * ## The fixture
  *
@@ -183,6 +188,10 @@ import {
   traceWithSettleFrames,
   wait,
 } from "./settle-frames-fixture";
+
+/** The resize-to-fit leg's gap bar — re-budgeted from 2 by the user on
+ *  2026-10-03 after reading 2.06–2.18 on every run (see the header). */
+const RESIZE_TO_FIT_GAP_FRAMES_BAR = 2.5;
 
 /**
 describe.skipIf(!SHOULD_RUN)(
@@ -1324,9 +1333,10 @@ describe.skipIf(!SHOULD_RUN)(
  * throughout, which is the `backwards` question the doctrine's worked example
  * still has open rather than anything the reader sees.
  *
- * **The DISAPPEAR leg is a standing red and lives in `at0654`.** It reads
- * 24–33ms from the gesture to the first rendered frame with `commitDelayMs`
- * 0, on every run; the reading and its attribution are recorded there.
+ * **The DISAPPEAR leg is not read here.** It read 24–33ms from the gesture to
+ * the first rendered frame with `commitDelayMs` 0 on every run: closing a
+ * pane renumbers every surviving pane's position label inside the settle
+ * window. The reading is in `briefs/zero-red-app-tests-brief.md`.
  */
 describe.skipIf(!SHOULD_RUN)(
   "at0622 — a card appears, at the bar",
@@ -1624,7 +1634,7 @@ describe.skipIf(!SHOULD_RUN)(
   "at0622 — hiding the sidebars and the settled-resize retune, at the bar",
   () => {
     test(
-      "hiding a two-member rail and the resize retune each hold the bar; showing it is at0654's standing red",
+      "hiding a two-member rail holds the bar and the resize retune holds its re-budgeted one; showing the rail is sampled and not judged",
       async () => {
         const { app, tugbankPath } = await launch(4, railBlob());
         try {
@@ -1648,10 +1658,11 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.dispatchControlAction("toggle-sidebars", {})`,
           );
           reportB09("sidebars show", show);
-          // Sampled and reported, NOT judged: showing the rail is a standing
-          // red — the rail's contents mount inside the settle window — and
-          // its bar, its census and its attribution live in `at0654`. It is
-          // sampled here because the retune below needs the rails standing.
+          // Sampled and reported, NOT judged: showing the rail mounts its
+          // whole contents inside the settle window (a 4501-fiber commit,
+          // 2.9–3.1 frames against 2), recorded in
+          // `briefs/zero-red-app-tests-brief.md`. It is sampled here because
+          // the retune below needs the rails standing.
 
           // The retune wants a deck whose rails do NOT already fit, or it
           // commits nothing and the band guard is what catches it. Widening
@@ -1677,7 +1688,7 @@ describe.skipIf(!SHOULD_RUN)(
           expectBeats("resize to fit", retune, ["shrink", "move", "grow"]);
 
           expectB09Bar("sidebars hide", hide);
-          expectB09Bar("resize to fit", retune);
+          expectB09Bar("resize to fit", retune, [], RESIZE_TO_FIT_GAP_FRAMES_BAR);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);

@@ -267,10 +267,17 @@ function assertCover(
   // 3/4. The covered members, while the survivor is mid-flight.
   const first = samples[0];
   if (first === undefined) throw new Error(`${label}: no first sample`);
+  const survivorStart = first.panes[survivor];
   let midFlight = 0;
   for (const s of frames) {
     const sv = s.panes[survivor];
+    // In flight is away from BOTH ends. The settle marks the canvas at its
+    // arm, and its commit lands a frame later (the deck store tells React
+    // after the paint), so the first settling frame can still show the
+    // arrangement before the flip: the survivor at its start, every member
+    // at its tile, nothing yet for a cover to hide.
     if (sv === undefined || sameRect(sv, survivorEnd)) continue;
+    if (survivorStart !== undefined && sameRect(sv, survivorStart)) continue;
     midFlight += 1;
     for (const id of paneIds) {
       if (id === survivor) continue;
