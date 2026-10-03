@@ -183,11 +183,12 @@ const SHEET_PANEL = '[data-slot="tug-sheet"].tug-sheet-content';
 
 /**
  * The tier a folded `hello` pane stands at: the card registers no folded
- * policy, so the folded form falls back to its `sizePolicy.min.height`
- * (`hello-world-card.tsx`). Copied for the reason every other constant here
- * is, and a copy that drifts fails the roomy test rather than passing quietly.
+ * policy, so the folded form is the shared tier every such card folds to
+ * (`FOLDED_CARD_HEIGHT_PX` in `card-registry.ts`). Copied for the reason every
+ * other constant here is, and a copy that drifts fails the roomy test rather
+ * than passing quietly.
  */
-const SITTER_FOLDED_TIER_PX = 150;
+const SITTER_FOLDED_TIER_PX = 145;
 
 /**
  * How long each sampler runs. The arrival at the default tune is a shrink beat
@@ -976,7 +977,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         // The sitter folds first, which is what makes the column roomy: a
         // folded member pins at its tier and asks for no share of the run
         // ([P05]), so once it has somebody to divide with, everything below
-        // its 150px is room nothing has claimed. This is the screenshot's
+        // its 145px is room nothing has claimed. This is the screenshot's
         // arrangement, and until the one-rule change the arrival stood at its
         // declared height with that room left empty beneath it ([F01]).
         await app.evalJS<null>(`(${setCardFolded("A", true)}, null)`);
@@ -992,9 +993,14 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "roomy column",
           `sitter folded at ${before[SITTER].height.toFixed(1)} of run ${run.toFixed(1)}`,
         );
+        // A folded card stands at its tier wherever it is, alone in its column
+        // included: the fold is the pane's, and floor and ceiling are both the
+        // tier ([D185], amended when every content card gained a fold). So the
+        // room is already there before anybody arrives — what this case pins is
+        // who takes it once somebody does.
         expect(
-          Math.abs(before[SITTER].height - run),
-          "alone in its column the folded sitter is still the whole run — there is nothing yet to divide with",
+          Math.abs(before[SITTER].height - SITTER_FOLDED_TIER_PX),
+          "alone in its column the folded sitter stands at its tier",
         ).toBeLessThanOrEqual(EPSILON);
 
         await app.evalJS<null>(`(${addSessionCard}, null)`);
@@ -1044,10 +1050,8 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "and it stands at everything the folded sitter's tier did not claim",
         ).toBeLessThanOrEqual(EPSILON);
 
-        // ── And the sitter claims its TIER and nothing more. It came down
-        //    from the whole run, which is the fold taking effect rather than
-        //    a yield: what a folded member is worth is its tier as soon as it
-        //    has anyone to divide with, and every pixel past it went to the
+        // ── And the sitter claims its TIER and nothing more: what a folded
+        //    member is worth is its tier, and every pixel past it went to the
         //    newcomer instead of standing as a band ([B05]). ──
         expect(
           Math.abs(after[SITTER].height - SITTER_FOLDED_TIER_PX),

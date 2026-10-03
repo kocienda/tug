@@ -275,11 +275,15 @@ class CardDragCoordinator {
     tabElement.addEventListener("pointerup", this.boundOnPointerUp);
     tabElement.addEventListener("pointercancel", this.boundOnPointerCancel);
 
-    // Document-level Escape listener (cancels drag; capture phase).
-    // Capture phase so the cancel decision lands before any nested
-    // dialog or popover keydown handler can consume the event. The
-    // listener lives only for the drag's lifetime (cleanup removes
-    // it) so it cannot leak across gestures.
+    // Window-level Escape listener (cancels drag; capture phase).
+    // On WINDOW, not `document`: the responder chain's key listeners are
+    // document-capture listeners registered at mount, so a document-capture
+    // listener added here runs after them, and the chain's act-dispatch stage
+    // stops an Escape before it arrives — the drag then committed on release.
+    // Window capture runs before every document listener, the way the pane
+    // drag (`tug-pane.tsx`) and `block-reorder.ts` register theirs. The
+    // listener lives only for the drag's lifetime (cleanup removes it) so it
+    // cannot leak across gestures.
     //
     // Substrate-local, not a command: this Escape is part of a pointer
     // gesture — take-back for a drag that is in the user's hand right now —
@@ -287,7 +291,7 @@ class CardDragCoordinator {
     // a durable claim on the chord for a claim that lasts a few hundred
     // milliseconds, and `resolveChord` would have to report a chord that is
     // taken only mid-drag, which is not a fact the keymap models.
-    document.addEventListener("keydown", this.boundOnDocumentKeydown, true);
+    window.addEventListener("keydown", this.boundOnDocumentKeydown, true);
 
     // Snapshot initial position for RAF frame.
     this.latestPointerX = event.clientX;
@@ -822,9 +826,9 @@ class CardDragCoordinator {
       this.sourceTabElement.removeAttribute("data-dragging");
     }
 
-    // Remove document-level Escape listener. Symmetrically paired with the addEventListener
+    // Remove window-level Escape listener. Symmetrically paired with the addEventListener
     // call in startDrag — capture-phase, true.
-    document.removeEventListener("keydown", this.boundOnDocumentKeydown, true);
+    window.removeEventListener("keydown", this.boundOnDocumentKeydown, true);
 
     // Remove ghost element.
     if (this.ghostElement) {

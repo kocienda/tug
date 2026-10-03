@@ -240,6 +240,14 @@ body {
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
+/* A citation drawn as a mention (`session-citation-portals.tsx`) is a run of
+   the prose it was annotated in, so it takes that prose's size, as the commit
+   mention beside it does. At the line tier's own 13px it stood 15.6px tall
+   in the masthead's 12px narration line, taller than the band it sits in. */
+[data-tug-annotation="session"] .tug-session-identity[data-tier="line"] {
+  font-size: inherit;
+}
+
 /* ── Citation: the session atom. A rounded pill, deliberately not the
       squared house badge, painted in text ink — the dot is the pill's
       only color. ───────────────────────────────────────────────────── */

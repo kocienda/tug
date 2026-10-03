@@ -30,7 +30,7 @@
  * figures per live session is bounded by what is on screen, and it is one.
  *
  * `list()` inside the card says the same thing from the census's side: one
- * dot's three loops for a column of hundreds of references.
+ * dot's three loops for a column of over a hundred references.
  *
  * ## Occlusion
  *
@@ -68,8 +68,14 @@ const CARD = '[data-testid="overview-card"]';
 const SCROLLER = `${CARD} .overview-transcript`;
 const CHIPS = `${CARD} .overview-post-refs [data-slot="tug-session-identity"]`;
 
-/** How many posts the column is filled with — well over a screen of them. */
-const POST_COUNT = 240;
+/**
+ * How many posts the column is filled with — well over a screen of them, and
+ * under the Overview's row ceiling (`OVERVIEW_MAX_ROWS`, 150, in
+ * `lib/overview-store.ts`). The store trims the column to that ceiling, so a
+ * fill past it never mounts one chip per post and the count below waits for
+ * a column that cannot exist.
+ */
+const POST_COUNT = 120;
 
 function deckShape() {
   return {

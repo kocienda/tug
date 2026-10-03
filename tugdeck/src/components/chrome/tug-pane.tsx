@@ -4127,10 +4127,10 @@ function TugPaneImpl({
       // The responder chain's own key listener is a window-capture listener
       // (`responder-chain-provider.tsx`), and capture descends outward-in — so
       // a document-capture listener runs AFTER it and never sees a key the
-      // chain stopped. `tugways/block-reorder.ts` registers its drag's Escape the
-      // same way, for the same reason; `card-drag-coordinator.ts` uses
-      // `document` and gets away with it only because nothing swallows the keys
-      // it cares about first.
+      // chain stopped. `tugways/block-reorder.ts` and `card-drag-coordinator.ts`
+      // register their drags' Escape the same way, for the same reason — the
+      // tab drag's sat on `document` once, and the chain's act-dispatch stage
+      // swallowed its Escape, so an aborted tab drag committed on release.
       frame.addEventListener("pointercancel", onPointerCancel);
       window.addEventListener("keydown", onGestureKeyDown, true);
       window.addEventListener("keyup", onGestureKeyUp, true);

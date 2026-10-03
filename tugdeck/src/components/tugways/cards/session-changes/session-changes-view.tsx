@@ -392,22 +392,6 @@ export function SessionChangesView({
     </>
   );
 
-  // A machine with no usable git has no changeset at all, and cannot `git
-  // init` its way out either — so this reading comes before the non-repo one,
-  // which would otherwise offer an Initialize button that cannot work.
-  if (shouldShowNoGitNotice(hostTools)) {
-    return shell(<TugNoGitNotice />);
-  }
-
-  if (project.no_repo) {
-    return shell(
-      <TugNonRepoNotice
-        projectDir={projectDir ?? project.project_dir}
-        turnInProgress={turnInProgress}
-      />,
-    );
-  }
-
   const sessionItem: TugChangesListEntry | null =
     snap.entry !== null
       ? { kind: "session", id: changesController.entryKey, project, entry: snap.entry }
@@ -461,7 +445,27 @@ export function SessionChangesView({
   const isAwaitingScan = isEmpty && !snap.composed;
   // The scanning spinner runs for as long as the view waits on the first
   // scan (`session-changes-view.css`), and the motion registry hears it ([D7]).
-  useMotionHold(isAwaitingScan);
+  // Only the list render draws it, so the two notices below hold nothing —
+  // but the hook itself runs here, above them, on every render.
+  useMotionHold(
+    isAwaitingScan && !shouldShowNoGitNotice(hostTools) && !project.no_repo,
+  );
+
+  // A machine with no usable git has no changeset at all, and cannot `git
+  // init` its way out either — so this reading comes before the non-repo one,
+  // which would otherwise offer an Initialize button that cannot work.
+  if (shouldShowNoGitNotice(hostTools)) {
+    return shell(<TugNoGitNotice />);
+  }
+
+  if (project.no_repo) {
+    return shell(
+      <TugNonRepoNotice
+        projectDir={projectDir ?? project.project_dir}
+        turnInProgress={turnInProgress}
+      />,
+    );
+  }
 
   // The head entries (session + unattributed) the banner controls act on.
   // Every diffable file across them yields one expand key; the whole-view Diff

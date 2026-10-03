@@ -220,6 +220,9 @@ describe.skipIf(!SHOULD_RUN)("at0277 — sidebar row accessories answer the keyb
           // neither an outline nor a background layer, in the within state any
           // more than in the key-view one. The list is still `data-key-within`,
           // so this is the suppression holding, not the attribute being absent.
+          // The outline is read through its style: WebKit reports the computed
+          // `outline-width` as `medium` (3px) under `outline-style: none`, so
+          // the raw width says nothing about whether a ring is drawn.
           const descended = await app.evalJS<{
             within: boolean;
             wash: string;
@@ -232,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — sidebar row accessories answer the keyb
               return {
                 within: list !== null && list.hasAttribute('data-key-within'),
                 wash: cs === null ? 'none' : cs.backgroundImage,
-                outlineWidth: cs === null ? '0px' : cs.outlineWidth,
+                outlineWidth: cs === null || cs.outlineStyle === 'none' ? '0px' : cs.outlineWidth,
                 cursorRows: document.querySelectorAll(${JSON.stringify(CURSOR_ROW)}).length,
               };
             })()`,

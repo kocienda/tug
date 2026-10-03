@@ -291,10 +291,12 @@ describe.skipIf(!SHOULD_RUN)(
             ).toBe("abc");
 
             // ---- Scenario 2: mixed (text + atom) ----
-            // Reset, type "x", insert "file" atom (doc = `x` + `￼`),
-            // re-focus the editor, select all, ⌘C. Bridge text should
-            // be `"x" + atom.label` because `serializeClipboard`
-            // substitutes labels for U+FFFC in the `fallback` payload.
+            // Reset, type "x", insert "file" atom (doc = `x ￼` — an atom
+            // inserted against a word is padded with the space that keeps
+            // it off the word, by design), re-focus the editor, select all,
+            // ⌘C. Bridge text should be `"x " + atom.label` because
+            // `serializeClipboard` substitutes labels for U+FFFC in the
+            // `fallback` payload.
             await clearEditor(app);
             await app.nativeType("x");
             await app.waitForCondition<boolean>(
@@ -322,7 +324,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               mixedClip.text,
               "mixed ⌘C: bridge text payload (plain spelling substituted for U+FFFC)",
-            ).toBe(`x${FILE_ATOM_PLAIN}`);
+            ).toBe(`x ${FILE_ATOM_PLAIN}`);
 
             // ---- Scenario 3: atom-only ----
             // Reset, insert "file" atom, shift-arrow-left to select it,

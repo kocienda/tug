@@ -90,7 +90,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
@@ -185,9 +184,12 @@ const ROUND_SUBJECT = "at0405(round): the lane lists this subject";
 const DRAFT_MESSAGE = "at0405 join draft\n\n- the lane renders this read-only";
 
 /** The launch's private changes ledger — the same path the harness stamps into
- *  the app's `TUG_CHANGES_DB`. */
+ *  the app's `TUG_CHANGES_DB`. Every launch here hands the app this fixture's
+ *  own `TUG_DATA_DIR`, which moves the whole data root to `<it>/Tug`, so the
+ *  instance's ledger lives under it and not under the home directory: a draft
+ *  written to the home-directory path lands in a ledger the app never reads. */
 const instanceChangesDb = (instanceId: string): string =>
-  join(homedir(), "Library/Application Support/Tug/instances", instanceId, "changes.db");
+  join(scratch?.dataRoot ?? "", "Tug/instances", instanceId, "changes.db");
 
 /** Arc owner key, captured from `arc create` — the id `bind_arc_ok` carries
  *  and the lane fronts on. */

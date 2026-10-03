@@ -218,8 +218,8 @@ const FIND_ORDER_PREVIOUS = 10;
 const FIND_ORDER_NEXT = 11;
 const EDITOR_ORDER = 19;
 
-/** Backspaces `clearComposer` presses — comfortably over the longest string
- *  this suite types into the composer. */
+/** Backspaces, and then forward Deletes, `clearComposer` presses — comfortably
+ *  over the longest string this suite types into the composer. */
 const COMPOSER_CLEAR_KEYSTROKES = 20;
 
 /** The authored `group:order` of whatever currently holds the keyboard. */
@@ -231,13 +231,19 @@ const queryFieldHasCaret = `(() => {
     (input.contains(document.activeElement) || input === document.activeElement);
 })()`;
 
-/** Empty the composer, whatever it holds. */
 /**
- * Empty the composer with plain Backspaces rather than ⌘A. ⌘A is a
- * chain-routed action and does not reliably reach this editor from a headless
- * gesture (the at0287 chain-first-responder limit); Backspace is a bare key
- * the focused substrate always gets, and an extra one on an empty doc is a
- * no-op — so a bounded run is deterministic where the chord is not.
+ * Empty the composer, whatever it holds, with plain Backspaces and forward
+ * Deletes rather than ⌘A.
+ * ⌘A is a chain-routed action and does not reliably reach this editor from a
+ * headless gesture (the at0287 chain-first-responder limit); both are bare
+ * keys the focused substrate always gets, and an extra one on an empty doc is
+ * a no-op — so a bounded run is deterministic where the chord is not.
+ *
+ * Both directions, because the click puts the caret wherever the editor's
+ * centre falls, not at the document's end. Return in this composer inserts a
+ * newline (the editor setting's default since the submit-key settings), so
+ * step 5's typed probe leaves a two-line document, and a caret on its first
+ * line backspaced the text but left the newline after it standing.
  */
 async function clearComposer(app: App): Promise<void> {
   await app.nativeClickAtElement(EDITOR);
@@ -245,8 +251,9 @@ async function clearComposer(app: App): Promise<void> {
   for (let i = 0; i < COMPOSER_CLEAR_KEYSTROKES; i++) {
     await app.nativeKey("Backspace");
   }
-  // The entry root's `data-empty` bridge is the designed emptiness probe —
-  // an empty editor still renders placeholder text into `textContent`.
+  for (let i = 0; i < COMPOSER_CLEAR_KEYSTROKES; i++) {
+    await app.nativeKey("Delete");
+  }
   // The entry root's `data-empty` bridge is the designed emptiness probe — an
   // empty editor still renders placeholder text into `textContent`.
   await app.waitForCondition<boolean>(
@@ -402,7 +409,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         await new Promise((r) => setTimeout(r, 800));
         expect(
           await activeMatchRow(app),
-          "Return in the composer submits; it must not walk the search",
+          "Return in the composer is the composer's; it must not walk the search",
         ).toBe(firstRow);
         await app.nativeClickAtElement(FIND_INPUT);
         await app.waitForCondition<boolean>(queryFieldHasCaret, {

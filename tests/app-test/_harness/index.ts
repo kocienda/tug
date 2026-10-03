@@ -193,6 +193,22 @@ const GESTURE_SETTLE_MS = (() => {
 })();
 
 /**
+ * The window content every launch starts at. The corpus's fixtures are laid
+ * out against this canvas — a rail of five sidebar cards overflows it, a
+ * six-up flow puts its last card across the band's edge — so it is a fixed
+ * fact of the harness rather than whatever the window last was.
+ *
+ * It has to be pinned, not inherited: AppKit's frame autosave
+ * (`setFrameAutosaveName` in `MainWindow.swift`) writes the app-test
+ * identity's window frame to its defaults and re-applies it on the next
+ * launch, so one test that sizes its window (`setWindowContentSize`) used to
+ * hand that size to every test after it, on that machine, for good. The size
+ * is still clamped to the screen, so a smaller display gets the largest
+ * window it can show.
+ */
+const LAUNCH_CONTENT_SIZE = { width: 1659, height: 1051 } as const;
+
+/**
  * Settle after the big state transitions — launch handshake,
  * `seedDeckState`, `bindSession` — before the harness lets ANY further
  * driving happen. A person cannot act on an app that is still painting its
@@ -1991,7 +2007,7 @@ export async function launchTugApp(
     await new Promise<void>((r) => setTimeoutNative(r, STATE_SETTLE_MS));
   }
 
-  return new App({
+  const launched = new App({
     rpc,
     version: String(serverVersion),
     socketPath: resolved.socketPath,
@@ -2004,6 +2020,8 @@ export async function launchTugApp(
     instanceId: resolved.instanceId,
     resolvedLaunch: resolved,
   });
+  await launched.setWindowContentSize(LAUNCH_CONTENT_SIZE);
+  return launched;
 }
 
 // ---------------------------------------------------------------------------

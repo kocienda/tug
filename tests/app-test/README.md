@@ -388,6 +388,8 @@ in a comment.
 
 ## Adding a new test
 
+**Every launch starts at a 1659×1051 window content.** `launchTugApp` pins it (`LAUNCH_CONTENT_SIZE` in `_harness/index.ts`), clamped to the screen, so a fixture's geometry is written against one canvas on every machine. A test that needs another size asks for it with `app.setWindowContentSize` and states its fixture against the size it reports back; the next launch is pinned again, so the ask never reaches another test. Before the pin, AppKit's frame autosave carried one test's window into every launch after it.
+
 Canonical test shape:
 
 ```ts

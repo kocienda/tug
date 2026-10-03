@@ -19,11 +19,20 @@
  *    monotonically from the pill's rect to the panel's, none remain once the
  *    panel is visible, and the reverse holds on Close.
  * 2. **The reduced case, at timing 0.** No rectangle is ever planted, and the
- *    panel is visible on the first frame after the click. This is the half that
- *    keeps [B09] honest: the run is decoration, the reveal is CSS keyed on
- *    `data-zoom`, and a run that plants nothing must also leave the attribute
- *    off — otherwise the delay applies with no rectangles to justify it and the
- *    surface simply arrives late.
+ *    panel is fully visible on the first frame it is committed in, no later
+ *    than the second frame after the click. This is the half that keeps [B09]
+ *    honest: the run is decoration, the reveal is CSS keyed on `data-zoom`, and
+ *    a run that plants nothing must also leave the attribute off — otherwise
+ *    the delay applies with no rectangles to justify it and the surface simply
+ *    arrives late.
+ *
+ *    Why the second frame and not the first: the click is a pointer gesture,
+ *    and the gesture scope (`lib/gesture-scope.ts`) holds every React commit
+ *    past the gesture's first painted frame, so the census's frame 0 — the
+ *    rendering update of the click's own task — always predates the wizard's
+ *    mount. That is a one-frame hold by design. A delay standing in for the
+ *    run is a run's length (200 ms, about twelve frames), so the bar still
+ *    catches it.
  *
  * The timing scale is **set by this file rather than inherited**, on both cases,
  * so neither depends on what the harness happens to default to.
@@ -493,15 +502,20 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
           "no rectangle is ever planted when the timing scale is zero",
         ).toBe(true);
 
-        // The panel is up on the first frame after the click, with no delay
+        // The panel is up by the second frame after the click — the first is
+        // the gesture scope's held frame (see the header) — with no delay
         // standing in for the run that did not happen. If `data-zoom` were set
-        // anyway, the reveal would be held off for a run's length and this
-        // frame would read 0.
+        // anyway, the reveal would be held off for a run's length and its
+        // mount frame would read 0.
         const firstPanel = zero.findIndex((s) => s.panelOpacity >= 0);
-        expect(firstPanel, "the panel mounted during the census").toBe(0);
+        expect(firstPanel, "the panel mounted during the census").toBeGreaterThanOrEqual(0);
         expect(
-          zero[0].panelOpacity,
-          "the panel is fully visible on the first frame after the click",
+          firstPanel,
+          "the panel mounted no later than the gesture scope's one held frame",
+        ).toBeLessThanOrEqual(1);
+        expect(
+          zero[firstPanel].panelOpacity,
+          "the panel is fully visible on the first frame it is committed in",
         ).toBe(1);
         expect(
           await app.evalJS<boolean>(

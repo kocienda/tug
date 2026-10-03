@@ -51,6 +51,8 @@
 
 import { paneCanvasOf } from "@/components/chrome/space-layer";
 import type { IDeckManagerStore } from "@/deck-manager-store";
+import { afterGesture } from "@/lib/gesture-scope";
+import { scheduleAfterPaint } from "@/lib/after-paint";
 import { IMPOSER_SETTLE_END } from "./settle-notice";
 
 const FLASH_CLASS = "tug-pane-flash";
@@ -170,6 +172,23 @@ function runFlash(
   activeFlash = { el, end };
 }
 
+/**
+ * Run `fn` one task after the commit that puts a new pane on screen.
+ *
+ * Two deferrals stand between a store change and that commit: the deck store
+ * tells React past the next paint ([D204]), and a pointer gesture holds every
+ * tell past its own first frame (`gesture-scope.ts`). So the retry joins the
+ * gesture's release, waits past the next paint behind the store's own
+ * deferral, and then one task more for React's flush of the tell.
+ */
+function retryAfterCommit(fn: () => void): void {
+  afterGesture(() => {
+    scheduleAfterPaint(() => {
+      window.setTimeout(fn, 0);
+    });
+  });
+}
+
 /** The frame holding this pane, or `null` if the DOM does not hold it yet. */
 function paneFrame(paneId: string): HTMLElement | null {
   const el = document.querySelector(
@@ -186,12 +205,15 @@ function paneFrame(paneId: string): HTMLElement | null {
  * on screen until React commits, and the flash belongs on the pane the card
  * ends up in. The retry does not retry again — a second miss is a pane that
  * never rendered, not one still on its way.
+ *
+ * The retry waits for that commit ({@link retryAfterCommit}) rather than
+ * running one task after this call, which is before React has heard of it.
  */
 export function flashPaneBorder(paneId: string, allowRetry = true): void {
   if (typeof document === "undefined") return;
   const paneEl = paneFrame(paneId);
   if (paneEl === null) {
-    if (allowRetry) window.setTimeout(() => flashPaneBorder(paneId, false), 0);
+    if (allowRetry) retryAfterCommit(() => flashPaneBorder(paneId, false));
     return;
   }
   runFlash(paneEl, FLASH_CLASS, FLASH_ANIMATION_NAME, () =>
@@ -251,7 +273,7 @@ export function flashPaneBorderOnSettle(paneId: string, allowRetry = true): void
     // The same one-shot retry {@link flashPaneBorder} takes, and for the same
     // reason: the pane is in the store and not yet in the DOM.
     if (allowRetry) {
-      window.setTimeout(() => flashPaneBorderOnSettle(paneId, false), 0);
+      retryAfterCommit(() => flashPaneBorderOnSettle(paneId, false));
     }
     return;
   }

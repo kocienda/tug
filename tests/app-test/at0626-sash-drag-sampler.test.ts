@@ -30,11 +30,15 @@
  *     interval plus one timer period is a frame that fit; a gap of one and a
  *     half intervals is a frame that did not;
  *   - the frame's rendering cost, taken with the motion guard's own
- *     `sampleFrame` through `window.__tugMotion.cost(1)` — the interval from
- *     a rAF callback to the first task after it, which brackets style, layout
- *     and compositing. The same gauge `tugtool deck motion cost` reads on a
- *     release deck, so the number here and the number the user takes on their
- *     own deck are one reading;
+ *     `sampleFrame` reading (`lib/motion-guard/render-cost-probe.ts`) — the
+ *     interval from a rAF callback to the first task after it, which brackets
+ *     style, layout and compositing. The same reading `tugtool deck motion
+ *     cost` takes on a release deck, so the number here and the number the
+ *     user takes on their own deck are one reading. It is taken in the page
+ *     in `sampleFrame`'s own shape rather than through
+ *     `window.__tugMotion.cost(1)`, because `cost` follows every burst with a
+ *     one-second at-rest window, which would leave a drag of a few seconds
+ *     with two or three samples;
  *   - every `pointermove` a capture listener of ours sees, against the number
  *     of `mouseDragged` events the trail posted — what WebKit's event merger
  *     coalesced, observed rather than avoided;
@@ -580,12 +584,19 @@ async function arm(app: App): Promise<void> {
       };
       setTimeout(beat, 0);
       // The gauge's own reading, back to back for as long as the record is
-      // armed: each sample is two frames and reports the second.
+      // armed: each sample is two frames and reports the second — the shape of
+      // sampleFrame in render-cost-probe.ts, from a rAF callback to the first
+      // task after it.
       var costLoop = function () {
         if (!state.armed) { state.costLoopDone = true; return; }
-        window.__tugMotion.cost(1).then(function (reading) {
-          state.costs.push({ t: performance.now(), costMs: reading.burst[0] });
-          costLoop();
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            var start = performance.now();
+            setTimeout(function () {
+              state.costs.push({ t: performance.now(), costMs: performance.now() - start });
+              costLoop();
+            }, 0);
+          });
         });
       };
       costLoop();

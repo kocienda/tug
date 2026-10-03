@@ -73,6 +73,7 @@
 import "./zoom-rects.css";
 
 import * as canvasOverlayRegistry from "@/lib/canvas-overlay-registry";
+import { afterGesture } from "@/lib/gesture-scope";
 
 import { animate } from "../tugways/tug-animator";
 import { getTugTiming, isTugMotionEnabled } from "../tugways/scale-timing";
@@ -154,7 +155,8 @@ export interface ZoomRect {
 // ---------------------------------------------------------------------------
 
 let stashedRect: ZoomRect | null = null;
-let sweepTimer: ReturnType<typeof setTimeout> | null = null;
+/** Bumped by every stash and claim, so a sweep only clears the stash it was armed for. */
+let stashGeneration = 0;
 
 /** Measure `el` and stash its rect for whichever side arrives next ([B03]). */
 export function stashZoomRect(el: Element): void {
@@ -165,13 +167,19 @@ export function stashZoomRect(el: Element): void {
     width: box.width,
     height: box.height,
   };
-  if (sweepTimer !== null) clearTimeout(sweepTimer);
-  // One task later, not one microtask: the claimant's layout effect runs inside
-  // React's flush of the very event that stashed, and a microtask would beat it.
-  sweepTimer = setTimeout(() => {
-    sweepTimer = null;
-    stashedRect = null;
-  }, 0);
+  const generation = ++stashGeneration;
+  // One task after the gesture's held React tells are released, not one task
+  // after the stash: a pointer gesture holds the claimant's commit past the
+  // next paint (`gesture-scope.ts`), so a sweep timed from the stash fires
+  // before the claimant mounts and its claim finds nothing. Under no pending
+  // scope `afterGesture` runs inline and this is one task, as before — not one
+  // microtask, because the claimant's layout effect runs inside React's flush
+  // of the event that stashed, and a microtask would beat it.
+  afterGesture(() => {
+    setTimeout(() => {
+      if (generation === stashGeneration) stashedRect = null;
+    }, 0);
+  });
 }
 
 /**
@@ -182,10 +190,7 @@ export function stashZoomRect(el: Element): void {
 export function claimZoomRect(): ZoomRect | null {
   const claimed = stashedRect;
   stashedRect = null;
-  if (sweepTimer !== null) {
-    clearTimeout(sweepTimer);
-    sweepTimer = null;
-  }
+  stashGeneration += 1;
   return claimed;
 }
 

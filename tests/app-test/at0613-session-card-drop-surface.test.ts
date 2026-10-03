@@ -240,7 +240,9 @@ describe.skipIf(!SHOULD_RUN)(
         expect(
           await readDraftText(app, "A"),
           "axis caret: the atom lands at the caret, with the draft intact either side",
-        ).toBe(`A${ATOM_CHAR}B`);
+          // An atom dropped between two letters is padded off both of them,
+          // by design — the drop is a smart insert like any other.
+        ).toBe(`A ${ATOM_CHAR} B`);
 
         // ── An inactive card accepts, and raises itself ──────────────
         await app.bindSession("B");

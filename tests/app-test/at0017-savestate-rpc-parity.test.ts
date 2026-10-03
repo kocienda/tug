@@ -120,12 +120,12 @@ describe.skipIf(!SHOULD_RUN)("m17: saveState RPC captures same axes as will-phas
       expect(bagAfterSaveState).not.toBeNull();
       expect(JSON.stringify(bagAfterSaveState)).toContain("parity-probe");
 
-      // The two bags should be byte-identical for steady state.
-      // Any axis present in one and not the other is the [AT0017]
-      // gap.
-      expect(JSON.stringify(bagAfterSaveState)).toEqual(
-        JSON.stringify(bagAfterWindowBlur),
-      );
+      // The two bags should hold the same axes and the same values for
+      // steady state. Any axis present in one and not the other is the
+      // [AT0017] gap. Compared as values, not as serialized strings: the
+      // two paths build their objects in different key orders, and key
+      // order is not part of what a bag says.
+      expect(bagAfterSaveState).toEqual(bagAfterWindowBlur);
     } catch (err) {
       const tail = app.tailLog(200);
       if (tail !== "") {
