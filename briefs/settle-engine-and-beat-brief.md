@@ -18,11 +18,13 @@ Three audits later (2026-10-01 to 2026-10-02) the settle architecture is in good
 
 This is the first. It pairs the two because they are both behaviour-preserving, the extraction creates the module the Beat's callers live in, and they share one reading.
 
+Updated 2026-10-03 after three more arcs landed (`c7b4ae09e`, `0a16691e8`, `a6232e3ac`): `at0654` is deleted and its readings live in `briefs/zero-red-app-tests-brief.md`; three bars were re-budgeted on the user's word; the canvas grew two more settle writers. A third brief, `briefs/settle-window-commit-brief.md`, now carries the large commit inside the settle window, and this one is written to run before it.
+
 ---
 
 ## Evidence {#evidence}
 
-**[F01] `DeckCanvas` is 8,291 lines, 27 top-level functions and 17 banner sections, and one ~5,600-line component function.** `wc -l` and `grep` at `7b216491d`. Its concerns, by banner: the z-order map and sidebar ranks, the pane-raise and pane-focus subscribers, the settle (`arm` at `deck-canvas.tsx:5250`, the Last pass, `BEAT_RECIPE` at `:936`, the ghosts at `:6045` and `:6116`, the sweep, `drainArrivals`, the inline restorer), the workspace layers and their loops, the overlays, the responder registrations, and the imposer's flow offset. **(verified, read)**
+**[F01] `DeckCanvas` is 8,291 lines, 27 top-level functions and 17 banner sections, and one ~5,600-line component function.** `wc -l` and `grep` at `7b216491d`. Its concerns, by banner: the z-order map and sidebar ranks, the pane-raise and pane-focus subscribers, the settle (`arm` at `deck-canvas.tsx:5250`, the Last pass, `BEAT_RECIPE` at `:936`, the ghosts at `:6045` and `:6116`, the sweep, `drainArrivals`, the inline restorer), the workspace layers and their loops, the overlays, the responder registrations, and the imposer's flow offset. `a6232e3ac` added two more settle writers to it on 2026-10-03: every arrangement variable is now written to the shown layer as well as the canvas (`setArrangement`), and `whenBeatBegins` takes a `stale` arm that cancels an arrival's fades when a later `arm` supersedes the settle. Both belong to the engine and move with it. **(verified, read)**
 
 **[F02] The rail-width-drag arc showed the extraction shape that works here.** `8295073f6` took 440 lines out of `tug-pane.tsx` into `chrome/rail-width-draft.ts`, a draft owner the canvas instantiates once and provides through context; the pane became an emitter of begin/change/commit/cancel. `space-layer-loops.ts` and `pane-occlusion-controller.ts` are the same shape, already beside the canvas. **(verified, read from the commit)**
 
@@ -48,7 +50,7 @@ This is the first. It pairs the two because they are both behaviour-preserving, 
 
 **[B04] The group API stays, and is not the lint's target.** `g.animate(` is how TugAnimator makes a tween; the twenty sites in `[F04]` are correct uses of it. Turning every opacity fade in a sheet into a Beat is not this work. A Beat is for motion that moves a layer the deck arranges; a group is for everything else.
 
-**[B05] Both halves land only with the unit tests and `at0622` and `at0654` read the same before and after, alone, at HEAD.** A behaviour-preserving refactor's reading is that nothing moved: 10,001 unit tests, `at0622` 8 of 8, `at0654` at whatever its current standing is (1 of 5 at `f720a4e43`), the fixtures' numbers within their recorded ranges. `ACCEPTED_FANOUT` pays down for `deck-canvas.tsx` by whatever the extraction earns, and the new modules take `@covers` lines from the tests that exercise them.
+**[B05] Both halves land only with the unit tests and the settle app-tests read the same before and after, alone, at HEAD.** A behaviour-preserving refactor's reading is that nothing moved: the unit tests, `at0622` at its 2026-10-03 budgets (resize-to-fit 2.5 frames), `at0566`, `at0605` and `at0643` as corrected and re-budgeted that day, the fixtures' numbers within their recorded ranges. `at0654` no longer exists; the five readings it carried are in `briefs/zero-red-app-tests-brief.md` and are not this arc's to move. `ACCEPTED_FANOUT` pays down for `deck-canvas.tsx` by whatever the extraction earns, and the new modules take `@covers` lines from the tests that exercise them.
 
 ---
 
@@ -62,7 +64,7 @@ This is the first. It pairs the two because they are both behaviour-preserving, 
 
 ## Non-goals {#non-goals}
 
-- **The `departing` mark, height by translation, and one hold.** `briefs/departing-and-height-crossing-brief.md` and a later brief. This arc makes them legible; it does not build them.
+- **The `departing` mark, height by translation, the large commit in the settle window, and one hold.** `briefs/departing-and-height-crossing-brief.md`, `briefs/settle-window-commit-brief.md` and a later brief. This arc makes them legible; it does not build them. In particular the canvas's whole-snapshot `useSyncExternalStore` moves into the engine as it is; narrowing it to selector reads is the commit brief's [B03].
 - **Changing any recipe, duration or curve.** Behaviour-preserving throughout.
 - **Making every group animation a Beat.** `[B04]`.
 - **Breaking up `tug-pane.tsx` (5,138 lines).** Real, and a different file with a different set of concerns.
