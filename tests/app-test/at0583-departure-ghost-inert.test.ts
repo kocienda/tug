@@ -43,12 +43,11 @@
  * ghost, in a `note()`. On a blank tile that list is empty and the note says so,
  * which is the cheapest possible reading of the rule this file holds.
  *
- * `deck-canvas.tsx` is what plants a ghost and is not in the `@covers` list, on
- * at0587's precedent: it is already recorded at the selection ceiling in
- * `select-tests.ts`, and the ratchet lets recorded debt be paid down rather
- * than refinanced in place. `tug-pane.css` carries the ghost's whole styling,
- * including the `pointer-events: none` this file reads computed.
+ * `settle-engine.ts` is what plants a ghost. `tug-pane.css` carries the
+ * ghost's whole styling, including the `pointer-events: none` this file reads
+ * computed.
  *
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  */
 import { describe, expect, test } from "bun:test";

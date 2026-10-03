@@ -49,14 +49,13 @@
  *      rather than a collapse running on past it, which is the user's own
  *      requirement and the thing the old show got wrong by 300ms.
  *
- * `@covers` cannot name `deck-canvas.tsx`, which is where the signature term
- * lives: it stands at its recorded fan-out of 21 and recorded debt may be paid
- * down, never refinanced. It names the stylesheet that carries the frame's own
- * transition — the [D07] ease that had to stand down for the settle to own the
- * height — the card stylesheet that holds the interior still against the
- * imposer's mark, and the module that owns the mark every claim here is read
- * over.
+ * `@covers` names the settle engine, which is where the signature term lives;
+ * the stylesheet that carries the frame's own transition — the [D07] ease that
+ * had to stand down for the settle to own the height — the card stylesheet that
+ * holds the interior still against the imposer's mark, and the module that owns
+ * the mark every claim here is read over.
  *
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/styles/chrome.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  * @covers tugdeck/src/lib/fold-crossing.ts
@@ -224,7 +223,7 @@ function firstSampleAfter(
 
 /**
  * The beat the frame's window is read against — the settle's own duration,
- * scaled by the same `--tug-timing` `deck-canvas.tsx` scales by.
+ * scaled by the same `--tug-timing` `settle-engine.ts` scales by.
  *
  * It used to be read off the entry region's `transition-duration`, which was
  * the same number by construction. That construction is gone: the card carries

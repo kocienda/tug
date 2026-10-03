@@ -56,7 +56,7 @@
  * pane's held-height rule, where claim 1 goes red.
  *
  * @covers tugdeck/src/lib/fold-crossing.ts
- * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  */

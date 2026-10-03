@@ -28,7 +28,7 @@
  * per-pane bookkeeping on both ends for a fact neither end distinguishes. One
  * dispatch, one listener per sheet.
  *
- * This module is the one writer of it. `deck-canvas.tsx` calls
+ * This module is the one writer of it. `settle-engine.ts` calls
  * `dispatchImposerSettleEnd` at every point it takes `data-imposer-settling`
  * off, so "the settle is over" and "the notice went out" are one condition
  * rather than two that can disagree.

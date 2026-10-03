@@ -297,7 +297,7 @@ Every path that changes a card's width opens an episode. There is no fourth path
 
 | Site | When | Window |
 |------|------|--------|
-| `deck-canvas.tsx`'s FLIP settle (`arm()`, pre-commit) | Width chords (⌃⌘1/2/3), bullseye in and out, the deck-wide Card Width, any imposition change | The settle duration, scaled by `getTugTiming()` |
+| `settle-engine.ts`'s FLIP settle (`arm()`, pre-commit) | Width chords (⌃⌘1/2/3), bullseye in and out, the deck-wide Card Width, any imposition change | The settle duration, scaled by `getTugTiming()` |
 | `tug-pane.tsx` — `handleResizeStart` | A drag on any of the eight edge handles, opened at **pointer-down** | Bounded by the user's hand; closed on pointer-up |
 | `rail-width-draft.ts` — the rail width draft `DeckCanvas` owns | A rail drag, which re-widths the band every card rides; opened at the press, closed on release or cancel | Same |
 

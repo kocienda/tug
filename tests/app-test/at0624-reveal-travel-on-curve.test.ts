@@ -75,7 +75,7 @@
  * @covers tugdeck/src/lib/open-file-in-card.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/lib/settle-frame-probe.ts
- * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  */
 
 import { describe, expect, test } from "bun:test";

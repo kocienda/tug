@@ -121,7 +121,7 @@
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/scripts/audit-motion.ts
  * @covers tuglaws/animation-doctrine.md
- * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/flash-pane-border.ts
  * @covers tugdeck/src/action-dispatch.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css

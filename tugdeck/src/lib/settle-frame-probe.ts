@@ -975,7 +975,7 @@ function ownEffectsOf(frame: Element): ResolvedEffect[] {
  * pending read, and now the curve pose. Resolving once per effect and handing
  * the array around keeps the per-tick cost flat as the readers multiply, which
  * matters because the in-product record ({@link
- * SettleFrameReading} via `deck-canvas.tsx`) pays it inside the one window
+ * SettleFrameReading} via `settle-engine.ts`) pays it inside the one window
  * [D9] forbids main-thread work in. The readers below each stay a named
  * function saying what it measures; none of them touches the DOM again.
  */
@@ -1167,7 +1167,7 @@ function movePendingOf(effects: readonly ResolvedEffect[]): boolean {
  * seeded cards that is nothing; on a real deck of loaded sessions it is the
  * largest main-thread term inside the settle window, which is the one window
  * [D9] forbids main-thread work in. The in-product record ({@link
- * SettleFrameReading} via `deck-canvas.tsx`) reads none of it — Spec S03's
+ * SettleFrameReading} via `settle-engine.ts`) reads none of it — Spec S03's
  * row carries no `fixedDescendants` field — so it asks for the reading
  * without it, and the probe the app-test drives asks for it by name.
  *

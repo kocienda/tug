@@ -38,7 +38,7 @@
  * mouse-made one.
  *
  * The second half is the batch. A multi-card move must be ONE arrangement, not
- * N: the FLIP settle in `deck-canvas.tsx` measures where the frames were on the
+ * N: the FLIP settle in `settle-engine.ts` measures where the frames were on the
  * store event and where they landed after React's commit, so a gesture that
  * notifies once per card offers that measurement a half-moved deck each time
  * and re-arms the settle window on every one of them. That failure is invisible

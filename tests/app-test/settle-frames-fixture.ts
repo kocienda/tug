@@ -1444,6 +1444,28 @@ export const settleFrameRows = (
      })`,
   );
 
+/** A beat's own row: one per beat, written by the beat at its landing. */
+export interface SettleBeatRow {
+  readonly recipe: string;
+  readonly targets: number;
+  readonly durationMs: number;
+  /** Planning to the beat's first running frame; `-1` if it never ran. */
+  readonly startDelayMs: number;
+  readonly declares: readonly string[];
+  readonly landing: "finished" | "cut";
+}
+
+/** Every `settle-beat` row the window carried, in the order the beats landed. */
+export const settleBeatRows = (
+  app: App,
+  mark: number,
+): Promise<readonly SettleBeatRow[]> =>
+  app.evalJS<readonly SettleBeatRow[]>(
+    `window.__deckTrace.since(${mark}).filter(function (e) {
+       return e.kind === "settle-beat";
+     })`,
+  );
+
 /**
  * Every `settle-retarget` the canvas recorded in the window, as
  * `paneId:mode:beat`.
@@ -1763,6 +1785,8 @@ export interface B09Leg {
   readonly before: string;
   readonly after: string;
   readonly beats: readonly string[];
+  /** The rows the beats wrote themselves, beside the settle's own row. */
+  readonly beatRows: readonly SettleBeatRow[];
   /** The runtime [D9] guard's report, as `paneId:property`. */
   readonly violations: readonly string[];
 }
@@ -1818,6 +1842,7 @@ export async function sampleB09Gesture(
   await app.disarmSettleFrameProbe();
   const rows = await settleFrameRows(app, mark);
   const beats = await readBeatCensus(app);
+  const beatRows = await settleBeatRows(app, mark);
   const violations = await motionViolationRows(app, mark);
   const after = await bandCensus(app);
   return {
@@ -1827,6 +1852,7 @@ export async function sampleB09Gesture(
     before,
     after,
     beats,
+    beatRows,
     violations,
   };
 }
@@ -1857,6 +1883,7 @@ export function reportB09(leg: string, r: B09Leg): void {
     `at0622 ${leg} beats: ${JSON.stringify(r.beats)}; violations ` +
       `${JSON.stringify(r.violations)}`,
   );
+  note(`at0622 ${leg} beat rows: ${JSON.stringify(r.beatRows)}`);
   note(`at0622 ${leg} band: ${r.before} -> ${r.after}`);
 }
 
@@ -1875,6 +1902,11 @@ export function reportB09(leg: string, r: B09Leg): void {
  * imposer names them and the order IS the choreography: `["shrink","move"]`
  * and `["move","shrink"]` are two different gestures. A leg whose beats stop
  * matching is a finding to record, never a bar to loosen.
+ *
+ * And every beat wrote its own row, in the same order: carrying frames, its
+ * clock started, run out to its time. That is the settle's window told by the
+ * beats that made it rather than by the container's attribute, additive to the
+ * settle's own row, which every bar below still reads.
  */
 export function expectBeats(leg: string, r: B09Leg, expected: readonly string[]): void {
   expect(
@@ -1884,6 +1916,18 @@ export function expectBeats(leg: string, r: B09Leg, expected: readonly string[])
       `${JSON.stringify(r.beats)}. Every other clause of the bar passes on a ` +
       `settle that arrived on time along the wrong path`,
   ).toEqual([...expected]);
+  expect(
+    r.beatRows.map((row) => row.recipe),
+    `${leg}: every beat wrote its own row, in order — saw ${JSON.stringify(r.beatRows)}`,
+  ).toEqual([...expected]);
+  for (const row of r.beatRows) {
+    expect(row.targets, `${leg}: the ${row.recipe} beat carried no layers`).toBeGreaterThan(0);
+    expect(row.landing, `${leg}: the ${row.recipe} beat was cut short`).toBe("finished");
+    expect(
+      row.startDelayMs,
+      `${leg}: the ${row.recipe} beat's clock never started`,
+    ).toBeGreaterThanOrEqual(0);
+  }
 }
 
 /**

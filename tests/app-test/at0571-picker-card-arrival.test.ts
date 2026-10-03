@@ -89,25 +89,24 @@
  * the empty slot, picker and all.
  *
  * `@covers` names the planner that partitions a settle's terms into beats, the
+ * settle engine that plans and launches every beat asserted here, the
  * lifecycle channel the card's activation runs through, the settle-end notice
  * the clamp measures from, and the allocator that divides the column — the
  * arrival's own weight is derived there ({@link arrivalSharesOf}), and the
  * roomy claim below is a claim about what that division does.
  *
- * Two modules this file is unmistakably about are deliberately NOT named, for
- * the same reason and by the same precedent. `deck-canvas.tsx`, which plans
- * and launches every beat asserted here, stands at its recorded fan-out of 21,
- * one past the selection budget; so does `session-card.tsx`, where the picker
- * is raised. Recorded debt may be paid down but never refinanced, so naming
- * either would be refused outright on the commit that did it — which is
- * exactly the call `at0563` made about the same two modules, and `at0569`
- * about the second. What stands in their place are the seams each reaches this
- * choreography through: `pane-flip.ts` owns the beat order and the partition
- * the canvas launches, and `card-lifecycle.ts` owns the channel the picker's
- * presentation rides. An edit that changes which beats run, or when a card is
- * said to have activated, selects this file through one of those.
+ * One module this file is unmistakably about is deliberately NOT named.
+ * `session-card.tsx`, where the picker is raised, stands at its recorded
+ * fan-out, one past the selection budget, and recorded debt may be paid down
+ * but never refinanced, so naming it would be refused outright on the commit
+ * that did it — which is exactly the call `at0563` and `at0569` made about it.
+ * What stands in its place is the seam it reaches this choreography through:
+ * `card-lifecycle.ts` owns the channel the picker's presentation rides, so an
+ * edit that changes when a card is said to have activated selects this file
+ * through it.
  *
  * @covers tugdeck/src/lib/pane-flip.ts
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/card-lifecycle.ts
  * @covers tugdeck/src/lib/settle-notice.ts
  * @covers tugdeck/src/lib/layout-imposer.ts

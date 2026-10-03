@@ -77,7 +77,7 @@ export interface IDeckManagerStore {
    *
    * The eight subscribers, audited against that rule:
    *
-   * - `canvas-arm` (`deck-canvas.tsx`) — measures and writes the DOM, and
+   * - `canvas-arm` (`settle-engine.ts`) — measures and writes the DOM, and
    *   keeps its own refs. It makes no React write of its own, but on a
    *   RETARGET it calls `flushPendingNotify` ([B01]), which votes the commit
    *   it is being told about undeferred so React is told inline at the end of
@@ -86,7 +86,7 @@ export interface IDeckManagerStore {
    *   before paint.
    * - `selection-guard` (`selection-guard.ts`) — installs a `mousedown`
    *   interceptor and repaints its overlay. DOM only.
-   * - `pane-raise` (`deck-canvas.tsx`) and `pane-focus`
+   * - `pane-raise` (`pane-stacking.ts`) and `pane-focus`
    *   (`pane-focus-controller.ts`) — write each shown frame's inline
    *   `z-index` and `data-focused` from the store, so a press whose React
    *   commit is deferred brings its pane forward and lights it in the press's

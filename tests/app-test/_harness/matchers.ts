@@ -272,6 +272,17 @@ export type DeckTraceEventShape = {
       violations: readonly string[];
     }
   | {
+      /** One beat's own row, written by the beat at its landing. */
+      kind: "settle-beat";
+      recipe: string;
+      targets: number;
+      durationMs: number;
+      /** Planning to the beat's first running frame; `-1` if it never ran. */
+      startDelayMs: number;
+      declares: readonly ("height" | "width")[];
+      landing: "finished" | "cut";
+    }
+  | {
       /** [D9]'s runtime guard: a frame animating a non-compositor property
        *  while the settling mark was on. One row per pane per property. */
       kind: "settle-motion-violation";
@@ -365,6 +376,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-retarget",
   "settle-release",
   "settle-frames",
+  "settle-beat",
   "settle-motion-violation",
   "opening-bid-mismatch",
   "session-lifecycle",
@@ -635,6 +647,12 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
         `over1=${e.gapsOverOneFrame} firstPaint=${e.firstPaintDelayMs}ms ` +
         `commit=${e.commitDelayMs}ms movePaint=${e.moveFirstPaintDelayMs}ms ` +
         `violations=[${e.violations.join(", ")}]`
+      );
+    case "settle-beat":
+      return (
+        `settle-beat ${e.recipe} targets=${e.targets} dur=${e.durationMs}ms ` +
+        `start=${e.startDelayMs}ms ${e.landing}` +
+        (e.declares.length > 0 ? ` declares=[${e.declares.join(", ")}]` : "")
       );
     case "settle-motion-violation":
       return `settle-motion-violation ${e.paneId}:${e.property}`;

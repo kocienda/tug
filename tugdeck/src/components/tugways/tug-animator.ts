@@ -7,6 +7,11 @@
  *   - Duration token resolution from tug.css base values, scaled by getTugTiming()
  *   - Reduced-motion awareness via isTugMotionEnabled()
  *   - Animation groups via group()
+ *   - Beats via planBeat(): motion that moves a layer the deck arranges, with
+ *     its start pose, its transform/opacity contract, one landing and its own
+ *     record row (see the Beat section below)
+ *   - Timeline marks via timelineMark(): a clock on the document timeline that
+ *     animates nothing
  *
  * Singleton module export pattern matching scale-timing.ts convention.
  * Callers: import { animate, group } from './tug-animator'
@@ -551,6 +556,332 @@ export function group(options?: {
   };
 
   return g;
+}
+
+// ---------------------------------------------------------------------------
+// Timeline mark
+// ---------------------------------------------------------------------------
+
+/**
+ * A clock on the document timeline: an empty effect of `durationMs` on `el`,
+ * whose `finished` resolves on the first frame its time is up.
+ *
+ * It animates nothing. What it is for is timing a callback against effects
+ * that share the same timeline — a delayed beat's first active frame — where a
+ * `setTimeout` of the same length fires whenever the task queue gets to it,
+ * which under a settle's own load is tens of ms late. `durationMs` is raw and
+ * scaled by getTugTiming(), as animate()'s is. The caller owns the returned
+ * animation and cancels it when the thing it times is called off.
+ */
+export function timelineMark(el: Element, durationMs: number): Animation {
+  return el.animate(null, {
+    duration: Math.max(1, durationMs * getTugTiming()),
+    fill: "none",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Beat
+// ---------------------------------------------------------------------------
+//
+// One object above `animate()` for motion that moves a layer the deck
+// arranges. A group (above) is how everything else tweens; a Beat is the
+// group's stricter sibling, and it owns five things no caller has to remember:
+//
+//  1. **The start pose, written when the beat is planned.** Each target's pose
+//     goes into its inline style before any effect exists, so the DOM says
+//     where the frame starts before there is a clock to ask.
+//  2. **A start tied to a painted frame, never to a task.** The effects are
+//     created synchronously when the beat is planned, so their start time
+//     resolves at the rendering update the planning task ends in — the frame
+//     the pose is painted in. A beat planned inside a gesture's task starts in
+//     that task's own frame, which is what launching ahead of React relies on.
+//  3. **Transform and opacity only, on layers that already stand.** Every
+//     target must be in the document when the beat is planned, and every
+//     keyframe may move only `transform` and `opacity`. A beat that carries a
+//     known breach of that rule — a division's `height`, a width past the
+//     raster cap — declares it, so the record names which beat paid; an
+//     undeclared one is refused when the beat is planned.
+//  4. **One landing.** `land` is idempotent and is the only place the end of
+//     the beat is handled: the effects' own completion calls it, and so may
+//     anybody who finds them already over. Whoever arrives second does nothing.
+//  5. **Its own row.** At its landing the beat writes one row carrying its
+//     recipe name, how many layers it moved, when its clock started against
+//     when it was planned, and what it declared.
+//
+// **Where the start pose comes from.** A beat takes a pose — a set of inline
+// style values per target — and not a function that produces one. The two
+// callers derive their poses differently: the pre-launched move from the
+// store's delta, the Last pass from what it measured on either side of the
+// commit. Both are derivations the settle owns, and both have to finish before
+// anything is written, because a measurement taken after a write reads a
+// layout somebody dirtied. So the caller derives the pose and the beat writes
+// it, and the beat is the one place a start pose is ever written.
+//
+// **Why the row goes through a recorder.** The animator sits below the deck and
+// imports nothing of it; the deck's trace pulls in the store and its
+// selectors. So the caller hands the beat the sink its row goes to, and the
+// beat composes the row and calls it exactly once.
+
+/** The CSS properties a beat may animate without declaring anything. */
+const BEAT_PROPERTIES: ReadonlySet<string> = new Set(["transform", "opacity"]);
+
+/** Keyframe keys that are timing and composition, not animated properties. */
+const KEYFRAME_META_KEYS: ReadonlySet<string> = new Set([
+  "offset",
+  "easing",
+  "composite",
+]);
+
+/** A property a beat animates knowing it breaks the transform/opacity rule. */
+export type BeatDeclaredProperty = "height" | "width";
+
+/**
+ * The properties a keyframe list animates, sorted. Timing and composition keys
+ * (`offset`, `easing`, `composite`) are not properties and are left out.
+ */
+export function beatAnimatedProperties(
+  keyframes: Keyframe[] | PropertyIndexedKeyframes,
+): string[] {
+  const props = new Set<string>();
+  const frames = Array.isArray(keyframes) ? keyframes : [keyframes];
+  for (const frame of frames) {
+    for (const key of Object.keys(frame)) {
+      if (!KEYFRAME_META_KEYS.has(key)) props.add(key);
+    }
+  }
+  return [...props].sort();
+}
+
+/**
+ * The properties in `keyframes` a beat may not animate: anything but
+ * `transform` and `opacity` that the beat has not declared. Empty is the
+ * answer a beat must get before it is planned.
+ */
+export function undeclaredBeatProperties(
+  keyframes: Keyframe[] | PropertyIndexedKeyframes,
+  declares: readonly BeatDeclaredProperty[],
+): string[] {
+  const declared = new Set<string>(declares);
+  return beatAnimatedProperties(keyframes).filter(
+    (prop) => !BEAT_PROPERTIES.has(prop) && !declared.has(prop),
+  );
+}
+
+/** How a beat came to land. */
+export type BeatLanding =
+  /** Every effect ran out its time. */
+  | "finished"
+  /** Landed while an effect was still running — cancelled, or handed back
+   *  early by a settle that superseded it. */
+  | "cut";
+
+/** The row a beat writes at its landing. */
+export interface BeatRow {
+  /** The recipe the beat ran, by name. */
+  recipe: string;
+  /** How many layers the beat moved. */
+  targets: number;
+  /** The beat's scaled duration, in ms. */
+  durationMs: number;
+  /**
+   * Planning to the first frame the beat's clock ran in, in ms, from the
+   * effects' own resolved start time. `-1` when no effect's clock ever started
+   * — a beat landed before its first frame.
+   */
+  startDelayMs: number;
+  /** The breaches of the transform/opacity rule this beat carries. */
+  declares: readonly BeatDeclaredProperty[];
+  landing: BeatLanding;
+}
+
+/**
+ * Compose a beat's row from what it knows at its landing. Pure: `plannedAt` and
+ * `startTimes` are document-timeline milliseconds, and a `null` start time is
+ * an effect whose clock never started.
+ */
+export function beatRow(args: {
+  recipe: string;
+  targets: number;
+  durationMs: number;
+  declares: readonly BeatDeclaredProperty[];
+  plannedAt: number | null;
+  startTimes: readonly (number | null)[];
+  allFinished: boolean;
+}): BeatRow {
+  const started = args.startTimes.filter((t): t is number => t !== null);
+  const startDelayMs =
+    args.plannedAt === null || started.length === 0
+      ? -1
+      : Math.max(0, Math.round(Math.min(...started) - args.plannedAt));
+  return {
+    recipe: args.recipe,
+    targets: args.targets,
+    durationMs: Math.round(args.durationMs),
+    startDelayMs,
+    declares: [...args.declares],
+    landing: args.allFinished ? "finished" : "cut",
+  };
+}
+
+/** One layer a beat moves. */
+export interface BeatTarget {
+  el: HTMLElement;
+  /** The motion, from the start pose to rest. */
+  keyframes: Keyframe[] | PropertyIndexedKeyframes;
+  /**
+   * The start pose: inline style values written to `el` when the beat is
+   * planned, by CSS property name (`transform-origin`, not `transformOrigin`).
+   */
+  pose?: Readonly<Record<string, string>>;
+  /** This target's slot, when it is not the beat's: a layer that rides the
+   *  beat beside another one, on a slot of its own. */
+  key?: string;
+}
+
+/** What a beat is planned from. */
+export interface BeatOptions {
+  /** The recipe's name, carried on the beat's row. */
+  recipe: string;
+  targets: readonly BeatTarget[];
+  /** Raw (unscaled) duration in ms; scaled by getTugTiming() like animate()'s. */
+  durationMs: number;
+  /** Raw (unscaled) delay in ms before the active phase. Default 0. */
+  delayMs?: number;
+  easing?: string;
+  fill?: FillMode;
+  composite?: CompositeOperation;
+  /** The named slot each target's effect takes, as animate()'s `key`. */
+  key?: string;
+  slotCancelMode?: "snap-to-end" | "hold-at-current";
+  /** Known breaches of the transform/opacity rule this beat carries. */
+  declares?: readonly BeatDeclaredProperty[];
+  /** Called once, at the landing, before the row is written. */
+  onLand?: (landing: BeatLanding) => void;
+  /** Where the beat's row goes. */
+  record?: (row: BeatRow) => void;
+}
+
+/** A planned beat. */
+export interface Beat {
+  readonly recipe: string;
+  /** Each target with the effect the beat made for it, in target order. */
+  readonly entries: readonly { el: HTMLElement; anim: TugAnimation }[];
+  /** Every effect the beat made, in target order. */
+  readonly anims: readonly TugAnimation[];
+  /** `performance.now()` when the beat was planned. */
+  readonly plannedAt: number;
+  /** Whether every effect has run out its time. Answered from the timeline
+   *  alone, so it is true the instant the last effect stops contributing —
+   *  a promise hop before its completion lands. False for a beat with none. */
+  isOver(): boolean;
+  /** Land the beat. Idempotent: the first call lands, every later one is a
+   *  no-op. */
+  land(): void;
+}
+
+/**
+ * Plan a beat: write every target's start pose, then create every effect.
+ *
+ * Throws, before writing anything, when a target is not in the document or a
+ * target's keyframes animate an undeclared property — both are a caller's
+ * error, and a beat that started anyway would break the rule it exists to keep.
+ */
+export function planBeat(options: BeatOptions): Beat {
+  const declares = options.declares ?? [];
+  for (const target of options.targets) {
+    if (!target.el.isConnected) {
+      throw new Error(
+        `TugAnimator: beat "${options.recipe}" planned on a layer that is not in the document`,
+      );
+    }
+    const undeclared = undeclaredBeatProperties(target.keyframes, declares);
+    if (undeclared.length > 0) {
+      throw new Error(
+        `TugAnimator: beat "${options.recipe}" animates ${undeclared.join(", ")} ` +
+          `without declaring it; a beat moves only transform and opacity`,
+      );
+    }
+  }
+
+  // The pose first, for every target, and only then the effects: nothing is
+  // created against a layer whose start pose is not yet in its style.
+  for (const target of options.targets) {
+    if (target.pose === undefined) continue;
+    for (const [prop, value] of Object.entries(target.pose)) {
+      target.el.style.setProperty(prop, value);
+    }
+  }
+
+  const plannedAt = performance.now();
+  const plannedTimeline = document.timeline.currentTime;
+  const entries = options.targets.map((target) => ({
+    el: target.el,
+    anim: animate(target.el, target.keyframes, {
+      duration: options.durationMs,
+      delay: options.delayMs,
+      easing: options.easing,
+      fill: options.fill,
+      composite: options.composite,
+      key: target.key ?? options.key,
+      slotCancelMode: options.slotCancelMode,
+    }),
+  }));
+  const anims = entries.map((entry) => entry.anim);
+
+  // Each effect's start time, once its clock resolves. A cancelled effect's
+  // `ready` rejects, and it then simply has no start time to report.
+  const startTimes: (number | null)[] = anims.map(() => null);
+  anims.forEach((anim, i) => {
+    anim.raw.ready.then(
+      () => {
+        const t = anim.raw.startTime;
+        startTimes[i] = typeof t === "number" ? t : null;
+      },
+      () => {
+        /* cancelled before its first frame */
+      },
+    );
+  });
+
+  const isOver = (): boolean =>
+    anims.length > 0 && anims.every((anim) => anim.raw.playState === "finished");
+
+  let landed = false;
+  const landAs = (allFinished: boolean): void => {
+    if (landed) return;
+    landed = true;
+    options.onLand?.(allFinished ? "finished" : "cut");
+    options.record?.(
+      beatRow({
+        recipe: options.recipe,
+        targets: entries.length,
+        durationMs: options.durationMs * getTugTiming(),
+        declares,
+        plannedAt: typeof plannedTimeline === "number" ? plannedTimeline : null,
+        startTimes,
+        allFinished,
+      }),
+    );
+  };
+  // The effects' own completion. Read from the promises rather than from
+  // `playState`: animate() commits and cancels an effect as it finishes, so
+  // by the time this lands a finished effect reads `idle`. A rejection is an
+  // effect that was cancelled mid-flight.
+  void Promise.allSettled(anims.map((anim) => anim.finished)).then((results) =>
+    landAs(results.every((r) => r.status === "fulfilled")),
+  );
+  // Anybody else who lands the beat finds it over or not from the timeline.
+  const land = (): void => landAs(isOver());
+
+  return {
+    recipe: options.recipe,
+    entries,
+    anims,
+    plannedAt,
+    isOver,
+    land,
+  };
 }
 
 // ---------------------------------------------------------------------------

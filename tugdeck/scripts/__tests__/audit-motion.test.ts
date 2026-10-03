@@ -16,16 +16,26 @@
  * `@keyframes` wrapper's name at all, so the keyframe half of rule 2 resolved
  * nothing for as long as it existed. It resolves now, and this is what says so.
  *
+ * Rule 5 reads different text — calls and `@keyframes` names rather than
+ * declarations — so its fixtures go through its own two scanners, and the
+ * carve-out list is checked against the files it names.
+ *
  * Run: `cd tugdeck && bun test ./scripts/__tests__` — the path is explicit
  * because `bunfig.toml` pins `[test] root = "src"`, so a bare `bun test` never
  * discovers a file outside it.
  */
 
+import fs from "fs";
+import path from "path";
+
 import { describe, expect, test } from "bun:test";
 
 import {
   collectMotionContext,
+  MOTION_CARVE_OUTS,
   scanCss,
+  scanEntranceKeyframes,
+  scanRawAnimate,
   scanTs,
   type Hit,
   type Source,
@@ -787,5 +797,151 @@ describe("rule 2 — nothing but transform and opacity animates on a frame", () 
         .tug-pane { animation: tug-pane-slide 200ms ease-out; }
       `),
     ).toEqual([]);
+  });
+});
+
+describe("rule 5 — motion goes through the animator", () => {
+  /** Rule 5's stylesheet half over one fixture, with the fixture as corpus. */
+  function entrances(css: string, rel = "fixture.css"): Hit[] {
+    const self: Source = { path: rel, text: css, kind: "css" };
+    return scanEntranceKeyframes(css, rel, collectMotionContext([self]));
+  }
+
+  test("an element's own `.animate(` is a hit, on its line", () => {
+    const hits = scanRawAnimate(
+      `const x = 1;\nconst a = panel.animate([{ opacity: 0 }], 200);\n`,
+      "fixture.ts",
+    );
+    expect(rules(hits)).toEqual([5]);
+    expect(hits[0].line).toBe(2);
+    expect(hits[0].selector).toBe("panel.animate(");
+  });
+
+  test("an empty effect used as a clock is still a raw call", () => {
+    // The settle's beat marker was this shape before `timelineMark()`.
+    expect(
+      rules(scanRawAnimate(`const m = el.animate(null, { duration: 10 });`, "fixture.ts")),
+    ).toEqual([5]);
+  });
+
+  test("a call through a ref or a chain names its last receiver", () => {
+    const hits = scanRawAnimate(`ref.current?.animate(frames, 100);`, "fixture.ts");
+    expect(hits.map((hit) => hit.selector)).toEqual(["current.animate("]);
+  });
+
+  test("a group's `.animate(` is the animator's own API", () => {
+    expect(
+      scanRawAnimate(
+        `const g = group({ duration: 100 });\ng.animate(el, [{ opacity: 0 }], {});\n`,
+        "fixture.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  test("a receiver is a group only where this file binds it", () => {
+    // `g` is a group in some other file; here it could be anything.
+    expect(rules(scanRawAnimate(`g.animate(el, [], {});`, "fixture.ts"))).toEqual([5]);
+  });
+
+  test("a call in a comment or a string is not a call", () => {
+    expect(
+      scanRawAnimate(
+        `// el.animate(null, {})\n/* panel.animate( */\nconst js = "el.animate(k)";\nconst t = \`x.animate(\${y})\`;\n`,
+        "fixture.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  test("the animator's own verbs are not raw calls", () => {
+    expect(
+      scanRawAnimate(
+        `animate(el, [{ opacity: 0 }], {});\nconst m = timelineMark(el, 120);\n`,
+        "fixture.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  test("a carved-out file is not read", () => {
+    const carveOuts = new Map([["fixture.ts", "the fixture's reason"]]);
+    expect(scanRawAnimate(`el.animate(null, {});`, "fixture.ts", carveOuts)).toEqual([]);
+  });
+
+  test("an `@keyframes` named for an entrance is a hit", () => {
+    for (const name of ["x-enter", "x-fade-in", "x-arrive", "x-appear-down"]) {
+      const hits = entrances(
+        `@keyframes ${name} {\n  from { transform: scale(0.9); }\n  to { transform: none; }\n}\n`,
+      );
+      expect(hits.map((hit) => hit.selector)).toEqual([`@keyframes ${name}`]);
+    }
+  });
+
+  test("a fade up from nothing is an entrance whatever its name", () => {
+    const hits = entrances(`
+      @keyframes x-show {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+    `);
+    expect(rules(hits)).toEqual([5]);
+    expect(hits[0].line).toBe(2);
+  });
+
+  test("a flash opens and closes invisible, and is not an entrance", () => {
+    expect(
+      entrances(`
+        @keyframes x-refusal-flash {
+          0% { opacity: 0; }
+          8% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+      `),
+    ).toEqual([]);
+  });
+
+  test("a word that merely contains `in` is not the word", () => {
+    expect(
+      entrances(`
+        @keyframes x-inner-spin {
+          from { transform: rotate(0); }
+          to { transform: rotate(360deg); }
+        }
+      `),
+    ).toEqual([]);
+  });
+
+  test("a loop's keyframes are exempt by name, and the file's others are not", () => {
+    const hits = entrances(`
+      @keyframes x-breathe-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      .glyph { animation: x-breathe-in 1s ease-in-out var(--tug-loop-iterations, infinite); }
+      @keyframes x-badge-enter {
+        from { transform: scale(0.8); }
+        to { transform: none; }
+      }
+    `);
+    expect(hits.map((hit) => hit.selector)).toEqual(["@keyframes x-badge-enter"]);
+  });
+
+  test("a carved-out stylesheet is not read", () => {
+    const css = `@keyframes x-enter { from { opacity: 0; } to { opacity: 1; } }`;
+    const self: Source = { path: "radix.css", text: css, kind: "css" };
+    expect(
+      scanEntranceKeyframes(
+        css,
+        "radix.css",
+        collectMotionContext([self]),
+        new Map([["radix.css", "[L14]"]]),
+      ),
+    ).toEqual([]);
+  });
+
+  test("every carve-out names a file that exists, and says why", () => {
+    const repoRoot = path.resolve(import.meta.dir, "../../..");
+    for (const [rel, reason] of MOTION_CARVE_OUTS) {
+      expect(fs.existsSync(path.join(repoRoot, rel)), rel).toBe(true);
+      expect(reason.trim().length, rel).toBeGreaterThan(0);
+    }
   });
 });

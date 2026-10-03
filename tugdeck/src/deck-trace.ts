@@ -81,6 +81,7 @@
 
 import { getDeckStore } from "./lib/deck-store-registry";
 import type { BeatKind } from "./lib/pane-flip";
+import type { BeatRow } from "./components/tugways/tug-animator";
 import { isFocusDestination } from "./deck-store-selectors";
 
 // ---------------------------------------------------------------------------
@@ -786,6 +787,14 @@ export type DeckTraceEvent = {
       longestOffCurveRunOffsetMs: number;
       violations: readonly string[];
     }
+  | ({
+      // One beat's own row, written by the beat at its landing — the recipe
+      // it ran, how many layers it moved, how long after planning its clock
+      // first ran, and any breach of [D9] it declared. The settle's frame
+      // record above is per settle; this is what says which beat a settle's
+      // window was made of, and which of them paid for a declared breach.
+      kind: "settle-beat";
+    } & BeatRow)
   | {
       // [D9]'s runtime guard. One row per pane per offending property, from
       // the same per-settle sampler, whenever a frame is running an effect
@@ -981,6 +990,7 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-release" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-frames" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-beat" }>, StampedFields>
   | Omit<
       Extract<DeckTraceEvent, { kind: "settle-motion-violation" }>,
       StampedFields

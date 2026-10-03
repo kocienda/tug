@@ -8,7 +8,7 @@
  * removal commit, so by the time there is an animation to run there is no
  * element to run it on. The canvas plants a `.tug-pane-exit-ghost` at the
  * frame's last measured rect instead, fades it, and takes it away
- * (`deck-canvas.tsx`, "The departures"). It is a BLANK TILE: for one day it
+ * (`settle-engine.ts`, "The departures"). It is a BLANK TILE: for one day it
  * also carried a FACE — a `cloneNode(true)` of the whole `.tug-pane` subtree,
  * taken on `cardWillBeginDestruction` while the frame still existed — and that
  * clone is retired, because a copy of a card leaves behind everything about the
@@ -48,12 +48,10 @@
  * was planted in it, which is the difference between a failure that says what
  * to fix and one that says only that something is there.
  *
- * `deck-canvas.tsx` plants the ghost and is not in the `@covers` list, on
- * at0587's precedent: it is already recorded at the selection ceiling in
- * `select-tests.ts`, and the ratchet lets recorded debt be paid down rather
- * than refinanced in place. `tug-pane.css` is the ghost's whole styling and is
- * where the face's two rules were taken out.
+ * `settle-engine.ts` plants the ghost. `tug-pane.css` is the ghost's whole
+ * styling and is where the face's two rules were taken out.
  *
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  */
 import { describe, expect, test } from "bun:test";

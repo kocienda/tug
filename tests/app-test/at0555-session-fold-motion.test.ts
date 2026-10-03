@@ -28,7 +28,7 @@
  *      not, and the stylesheet's own comment says not to put one back. The
  *      band the windows below are read against is taken from
  *      `--tugx-imposer-settle-duration` scaled by `--tug-timing` — the same
- *      product `deck-canvas.tsx` hands the settle's tweens — so a retune
+ *      product `settle-engine.ts` hands the settle's tweens — so a retune
  *      anywhere up the tree retimes the assertion with the motion.
  *   2. **One clock, observed.** Sampling every frame through a show and then a
  *      fold: the subject FRAME's own height and the sibling below it run as
@@ -73,13 +73,14 @@
  *
  * `@covers` names the stylesheet that IS the motion, the module that owns the
  * clock both halves read, and the module that owns the crossing claim 4 is
- * about. `session-card.tsx` (the terminal-state effect)
- * and `deck-canvas.tsx` (the settle that writes the property) are deliberately
- * NOT named: both stand at their recorded fan-out of 21, and recorded debt may
- * be paid down but never refinanced. at0551 drives the same effect's output
- * from a narrower file, which is where a break in it would surface.
+ * about, and the settle engine that writes the property. `session-card.tsx`
+ * (the terminal-state effect) is deliberately NOT named: it stands at its
+ * recorded fan-out, and recorded debt may be paid down but never refinanced.
+ * at0551 drives the same effect's output from a narrower file, which is where
+ * a break in it would surface.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.css
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  */
@@ -374,7 +375,7 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
           "the entry region declares no transition of its own",
         ).toBe(0);
         // The band every window below is read against: the settle's own
-        // duration, scaled by the same `--tug-timing` `deck-canvas.tsx` scales
+        // duration, scaled by the same `--tug-timing` `settle-engine.ts` scales
         // by. It used to be read off the entry region's `transition-duration`,
         // which was the same number by construction — and that construction is
         // what claim 1 now refuses, so the band has to come from the property

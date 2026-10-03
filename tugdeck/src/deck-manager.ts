@@ -7934,7 +7934,7 @@ export class DeckManager implements IDeckManagerStore {
    * could open gaps at every seam and stand there.
    *
    * ONE COMMIT, deliberately — the widths, the record, and the rails together,
-   * rather than a notify per pane. The settle is FLIP: `deck-canvas.tsx` reads
+   * rather than a notify per pane. The settle is FLIP: `settle-engine.ts` reads
    * where the frames are on the store event and where they landed after the
    * commit React makes of it, so a gesture that notifies once per pane offers
    * that measurement a half-changed deck each time and re-arms the window on

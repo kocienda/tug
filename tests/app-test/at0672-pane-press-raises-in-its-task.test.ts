@@ -17,14 +17,12 @@
  * React notify could run. Then, a frame later, the rendered state is read
  * again to show React agrees with what was written.
  *
- * `deck-canvas.tsx` is deliberately NOT declared, though the `pane-raise`
- * subscriber that writes the `z-index` lives there: that file sits at its
- * recorded fan-out ceiling in `ACCEPTED_FANOUT`, and the ratchet only pays
- * down. An edit to `pane-raise` or `paneZIndexMap` should run this file by
- * name.
+ * `pane-stacking.ts` is declared because the `pane-raise` subscriber that
+ * writes the `z-index`, and the `paneZIndexMap` it writes from, live there.
  *
  * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
  * @covers tugdeck/src/components/chrome/pane-occlusion-controller.ts
+ * @covers tugdeck/src/components/chrome/pane-stacking.ts
  */
 
 import { describe, expect, test } from "bun:test";

@@ -19,6 +19,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { animate } from "@/components/tugways/tug-animator";
 import type { FindSession } from "@/lib/find-session";
 import "./find-wrap-overlay.css";
 
@@ -72,7 +73,8 @@ function showWrapGraphic(
     window.setTimeout(() => panel.remove(), SHOW_MS);
     return;
   }
-  const animation = panel.animate(
+  const animation = animate(
+    panel,
     [
       { opacity: 0, transform: "translate(-50%, -50%) scale(0.8)" },
       { opacity: 1, transform: "translate(-50%, -50%) scale(1)", offset: 0.18 },
@@ -81,7 +83,8 @@ function showWrapGraphic(
     ],
     { duration: SHOW_MS, easing: "ease-out" },
   );
-  animation.onfinish = () => panel.remove();
+  const remove = (): void => panel.remove();
+  void animation.finished.then(remove, remove);
 }
 
 export function FindWrapOverlay({

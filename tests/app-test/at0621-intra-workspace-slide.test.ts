@@ -85,7 +85,7 @@
  * running its restorers leaves its frame invisible for the life of the canvas,
  * which a mid-flight sampler cannot tell from a hold about to be handed back.
  *
- * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/chrome/space-layer.ts
  */
 

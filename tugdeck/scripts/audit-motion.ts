@@ -2,10 +2,11 @@
 /**
  * audit-motion.ts — the deck's stylesheet motion tripwire.
  *
- * Three rules, two of them about the settle window and one about every loop
- * that runs for as long as the deck is up. They share a scanner because they
- * ask the same question of the same text: what does this declaration put on
- * the main thread, and for how long.
+ * Five rules: two about the settle window, two about every loop that runs for
+ * as long as the deck is up, and one about who makes the deck's motion at all.
+ * The first four share a scanner because they ask the same question of the
+ * same text: what does this declaration put on the main thread, and for how
+ * long.
  *
  * **Rule 1 — no `position: fixed` on anything inside a pane frame.**
  *
@@ -134,6 +135,27 @@
  * loops live in six files under `internal/` and the one owner that holds
  * for five of them is `tug-progress-indicator.tsx`, a level up. A rule that
  * guessed by basename would pass the wrong file and fail the right one.
+ *
+ * **Rule 5 — motion goes through the animator.**
+ *
+ * TugAnimator is where the deck's programmatic motion is timed, scaled,
+ * stilled and recorded, so motion made beside it is motion none of those reach.
+ * The rule has two halves. In TypeScript, a `.animate(` call is a hit unless
+ * its receiver is one of the animator's groups — an identifier the same file
+ * binds with `= group(` — because `g.animate(` is how the animator makes a
+ * tween and `element.animate(` is how code goes around it. In a stylesheet, an
+ * entrance `@keyframes` is a hit: one whose name says it brings something in
+ * (`enter`, `in`, `arrive`, `appear` as a hyphenated word), or whose opening
+ * stop starts from `opacity: 0` without its closing stop ending there. A
+ * keyframes a long-running loop plays is a loop, not an entrance, and is
+ * exempt by name.
+ *
+ * Everything else that animates outside the animator is declared in
+ * {@link MOTION_CARVE_OUTS}, by file, with its reason: the animator itself,
+ * the instruments, the Radix-bound stylesheets [L14] gives to Presence, and the
+ * standing CSS entrances not yet moved. A clock that animates nothing is the
+ * animator's too — `timelineMark()` — so the settle's beat markers are not an
+ * exception to carve out.
  *
  * **What rule 3 cannot see, and who sees it instead.** The census flags an
  * animation whose target is an SVG element as never accelerated; this cannot,
@@ -290,7 +312,7 @@ export interface Hit {
   readonly path: string;
   readonly line: number;
   readonly selector: string;
-  readonly rule: 1 | 2 | 3 | 4;
+  readonly rule: 1 | 2 | 3 | 4 | 5;
   readonly detail: string;
 }
 
@@ -742,6 +764,8 @@ export interface MotionContext {
   readonly animationsBySelector: Map<string, string[]>;
   /** Every TypeScript file that takes a motion hold, by corpus path. */
   readonly holdOwners: Set<string>;
+  /** Every `@keyframes` name a long-running loop plays (rule 5's exemption). */
+  readonly loopKeyframes: Set<string>;
 }
 
 export function collectMotionContext(
@@ -838,7 +862,10 @@ export function collectMotionContext(
     }
   }
 
-  return {
+  // The keyframes the loops play, read once every selector's animations are
+  // known — a loop's name and its count may live in two blocks.
+  const loopKeyframes = new Set<string>();
+  const context: MotionContext = {
     keyframeProperties,
     keyframeEasings,
     stoodDown,
@@ -846,7 +873,17 @@ export function collectMotionContext(
     variables,
     animationsBySelector,
     holdOwners,
+    loopKeyframes,
   };
+  for (const source of sources) {
+    for (const block of blocksOf(source)) {
+      if (keyframesOwner(block) !== null || !isLongRunning(block.body)) continue;
+      for (const name of animationNames(block, selectorsOf(block), context)) {
+        loopKeyframes.add(name);
+      }
+    }
+  }
+  return context;
 }
 
 /**
@@ -1222,6 +1259,180 @@ export function scanTs(
 }
 
 // ---------------------------------------------------------------------------
+// Rule 5
+// ---------------------------------------------------------------------------
+
+/**
+ * The files rule 5 does not read, each with the reason it may animate outside
+ * the animator. Repository-relative, exact.
+ *
+ * A path here is a declaration, not a convenience: adding one says the file's
+ * motion has an owner other than TugAnimator and names it. Registered loops
+ * are not listed — a `@keyframes` a long-running loop plays is exempt by name,
+ * so a loop file's other keyframes are still read.
+ */
+export const MOTION_CARVE_OUTS: ReadonlyMap<string, string> = new Map([
+  [
+    "tugdeck/src/components/tugways/tug-animator.ts",
+    "the animator: the one owner of `element.animate()`",
+  ],
+  [
+    "tugdeck/src/lib/settle-frame-probe.ts",
+    "an instrument: it reads the settle's motion and makes none",
+  ],
+  // [L14]: Radix Presence owns enter and exit for these surfaces through CSS
+  // `@keyframes` and `data-state`, because it waits on `animationend`, which
+  // WAAPI does not fire.
+  ["tugdeck/src/components/tugways/tug-accordion.css", "[L14] Radix Accordion"],
+  ["tugdeck/src/components/tugways/tug-alert.css", "[L14] Radix AlertDialog"],
+  ["tugdeck/src/components/tugways/tug-menu.css", "[L14] Radix menus"],
+  ["tugdeck/src/components/tugways/tug-popover.css", "[L14] Radix Popover"],
+  ["tugdeck/src/components/tugways/tug-tooltip.css", "[L14] Radix Tooltip"],
+  ["tugdeck/src/components/tugways/update-tug.css", "[L14] Radix AlertDialog"],
+  // Entrances React mounts with a CSS animation and no exit to coordinate.
+  // They predate this rule and are declared here rather than moved: each is a
+  // one-shot on an element whose insertion the code controls, which is the
+  // animator's side of [L14]'s line, and moving one is its own change.
+  [
+    "tugdeck/src/components/chrome/update-pill.css",
+    "the update pill's zoom-in on appearance",
+  ],
+  [
+    "tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.css",
+    "the Z2 occupant's arrival on a fold handoff",
+  ],
+  [
+    "tugdeck/src/components/tugways/cards/session-card.css",
+    "the restoring panel's fade-in",
+  ],
+  [
+    "tugdeck/src/components/tugways/tug-control-bar.css",
+    "the control bar's locking scrim fade-in",
+  ],
+  [
+    "tugdeck/src/components/tugways/tug-editor-context-menu.css",
+    "the editor context menu's grow from the click point (not Radix)",
+  ],
+  [
+    "tugdeck/src/components/tugways/tug-placard.css",
+    "the placard's rise into the status strip",
+  ],
+]);
+
+/** A receiver bound to the animator's group: `const g = group(…)`. */
+const GROUP_BINDING = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*group\s*\(/g;
+
+/** `<receiver>.animate(`, where the receiver is an identifier or a call's end. */
+const ANIMATE_CALL = /([A-Za-z_$][\w$]*|[)\]])\s*\??\.\s*animate\s*\(/g;
+
+/** A `@keyframes` name that says it brings something in. */
+const ENTRANCE_NAME = /(?:^|-)(?:enter|in|arrive|appear)(?:-|$)/;
+
+/**
+ * A source with its comments and string and template literals blanked to
+ * spaces, so a call quoted in prose or carried as data is not read as one,
+ * and every offset still maps to its line.
+ */
+function codeOnly(source: string): string {
+  let out = "";
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    let end = -1;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      end = i + 1;
+      while (end < source.length && source[end] !== ch) {
+        if (source[end] === "\\") end += 1;
+        end += 1;
+      }
+    } else if (ch === "/" && source[i + 1] === "/") {
+      end = source.indexOf("\n", i);
+      if (end < 0) end = source.length;
+      end -= 1;
+    } else if (ch === "/" && source[i + 1] === "*") {
+      end = source.indexOf("*/", i + 2);
+      end = end < 0 ? source.length : end + 1;
+    }
+    if (end < 0) {
+      out += ch;
+      continue;
+    }
+    out += source.slice(i, end + 1).replace(/[^\n]/g, " ");
+    i = end;
+  }
+  return out;
+}
+
+/**
+ * Rule 5's TypeScript half: every `.animate(` call whose receiver is not one
+ * of the animator's groups. Pure over the file's text.
+ */
+export function scanRawAnimate(
+  raw: string,
+  rel: string,
+  carveOuts: ReadonlyMap<string, string> = MOTION_CARVE_OUTS,
+): Hit[] {
+  if (carveOuts.has(rel)) return [];
+  const code = codeOnly(raw);
+  const groups = new Set(
+    Array.from(code.matchAll(GROUP_BINDING), (match) => match[1]),
+  );
+  const hits: Hit[] = [];
+  for (const match of code.matchAll(ANIMATE_CALL)) {
+    if (groups.has(match[1])) continue;
+    hits.push({
+      path: rel,
+      line: lineAt(code, match.index ?? 0),
+      selector: `${match[1]}.animate(`,
+      rule: 5,
+      detail: "`element.animate()` outside the animator",
+    });
+  }
+  return hits;
+}
+
+/**
+ * Rule 5's stylesheet half: every entrance `@keyframes` — one whose name says
+ * it brings something in, or whose opening stop starts from `opacity: 0` and
+ * whose closing stop does not end there (a flash both opens and closes
+ * invisible, and is not an entrance) — that no long-running loop plays. Pure
+ * over the file's text; `context` is the corpus.
+ */
+export function scanEntranceKeyframes(
+  raw: string,
+  rel: string,
+  context: MotionContext,
+  carveOuts: ReadonlyMap<string, string> = MOTION_CARVE_OUTS,
+): Hit[] {
+  if (carveOuts.has(rel)) return [];
+  const css = stripComments(raw);
+  const opensInvisible = new Set<string>();
+  const closesInvisible = new Set<string>();
+  for (const block of cssBlocks(css)) {
+    const owner = keyframesOwner(block);
+    if (owner === null) continue;
+    const stops = block.prelude.split(",").map((stop) => stop.trim());
+    if (valueOf(block.body, "opacity") !== "0") continue;
+    if (stops.includes("from") || stops.includes("0%")) opensInvisible.add(owner);
+    if (stops.includes("to") || stops.includes("100%")) closesInvisible.add(owner);
+  }
+  const hits: Hit[] = [];
+  for (const match of css.matchAll(/@keyframes\s+"?([A-Za-z0-9_-]+)"?/g)) {
+    const name = match[1];
+    if (context.loopKeyframes.has(name)) continue;
+    const fadesIn = opensInvisible.has(name) && !closesInvisible.has(name);
+    if (!ENTRANCE_NAME.test(name) && !fadesIn) continue;
+    hits.push({
+      path: rel,
+      line: lineAt(css, match.index ?? 0),
+      selector: `@keyframes ${name}`,
+      rule: 5,
+      detail: "an entrance `@keyframes` outside the animator",
+    });
+  }
+  return hits;
+}
+
+// ---------------------------------------------------------------------------
 // The filesystem, which only `main()` reads
 // ---------------------------------------------------------------------------
 
@@ -1264,8 +1475,14 @@ function main(): void {
   const context = collectMotionContext(sources);
   const hits = sources.flatMap((source) =>
     source.kind === "css"
-      ? scanCss(source.text, source.path, context)
-      : scanTs(source.text, source.path, context),
+      ? [
+          ...scanCss(source.text, source.path, context),
+          ...scanEntranceKeyframes(source.text, source.path, context),
+        ]
+      : [
+          ...scanTs(source.text, source.path, context),
+          ...scanRawAnimate(source.text, source.path),
+        ],
   );
 
   if (hits.length > 0) {
@@ -1291,6 +1508,9 @@ function main(): void {
         `instrument can see it. Name the file that takes its motion hold with ` +
         `\`${HOLD_ANNOTATION} <path>\` in a comment, and have that file call ` +
         `\`useMotionHold(\` or \`acquireMotionHold(\`.\n` +
+        `  rule 5: motion goes through TugAnimator — \`animate()\`, a \`group()\`, a Beat, ` +
+        `or \`timelineMark()\` for a clock. A surface whose motion genuinely belongs ` +
+        `elsewhere is declared in \`MOTION_CARVE_OUTS\` with its reason.\n` +
         `  A hit is a finding to read, not a reason to loosen the rule.`,
     );
     process.exit(1);

@@ -58,7 +58,7 @@ import { IMPOSER_SETTLE_END } from "./settle-notice";
 const FLASH_CLASS = "tug-pane-flash";
 const FLASH_ANIMATION_NAME = "tug-pane-border-flash";
 
-/** The canvas mark that says a settle is running. `deck-canvas.tsx` owns it. */
+/** The canvas mark that says a settle is running. `settle-engine.ts` owns it. */
 const SETTLING_ATTRIBUTE = "data-imposer-settling";
 
 /**

@@ -535,6 +535,15 @@ const EVENT_FIXTURES: Record<
     moveFirstPaintDelayMs: 0,
     violations: [],
   },
+  "settle-beat": {
+    kind: "settle-beat",
+    recipe: "move",
+    targets: 4,
+    durationMs: 400,
+    startDelayMs: 17,
+    declares: [],
+    landing: "finished",
+  },
   "settle-motion-violation": {
     kind: "settle-motion-violation",
     paneId: "p1",

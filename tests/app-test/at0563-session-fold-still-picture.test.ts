@@ -62,14 +62,15 @@
  * cascade and the imposer rather than about how much text is in it.
  *
  * `@covers` names the module that owns the mark and the held height, and the
- * stylesheet that reads them. `deck-canvas.tsx`, which detects the crossing,
- * and `session-card.tsx`, which lands the terminal state on it, are
- * deliberately NOT named: both stand at their recorded fan-out of 21, and
- * recorded debt may be paid down but never refinanced — the same reason at0555
- * leaves them out. A break in either surfaces here, through the mark.
+ * stylesheet that reads them, and the settle engine, which detects the
+ * crossing. `session-card.tsx`, which lands the terminal state on it, is
+ * deliberately NOT named: it stands at its recorded fan-out, and recorded debt
+ * may be paid down but never refinanced — the same reason at0555 leaves it
+ * out. A break in it surfaces here, through the mark.
  *
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.css
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  */
 
 import { describe, expect, test } from "bun:test";

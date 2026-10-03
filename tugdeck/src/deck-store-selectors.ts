@@ -1018,3 +1018,79 @@ export function columnMoveOrder(
 export function countWorkCards(state: DeckState): number {
   return state.cards.filter((c) => !isSidebarCard(c.componentId)).length;
 }
+
+/** One member of a side's rail, in the rail's own vertical order: the order the
+ *  imposition records, falling back to registration order — never z-order. */
+export interface SidebarRailMember {
+  componentId: string;
+  paneId: string;
+}
+
+/**
+ * A side's rail: the pinned sidebar panes standing on it, the width they share,
+ * and how they stand against one another.
+ *
+ * They divide the run at `seams`, always, and every one is visible ([B01]).
+ */
+export interface SidebarRail {
+  side: SidebarSide;
+  width: number;
+  members: readonly SidebarRailMember[];
+  /** Where the gaps fall, as fractions of the run: `members.length - 1`
+   *  values. */
+  seams: readonly number[];
+  /** How the rail divides its run among its members, or `null` on a canvas
+   *  with no measured run. */
+  allocation: PlaceAllocation | null;
+}
+
+/**
+ * The rails standing on the deck's edges, at most one per side — the picture
+ * the band is inset from, and the order each side's members stand in.
+ *
+ * Same-side cards share ONE rail, so a side contributes one width however many
+ * cards stand on it: the widest member's render width, since a rail narrower
+ * than a member would run the chain under the edge that member paints.
+ *
+ * The componentIds are sorted into **registration** order before the
+ * imposition's stored order is applied. That is `effectiveRailOrder`'s caller
+ * contract, and it cannot be met by accident: `findSidebarPanes` walks
+ * `state.panes`, the array `activateCard` reorders, so handing its order
+ * straight in would make a split rail with no stored order follow the last
+ * raise — click the lower member and the two would swap places. Registration is
+ * a boot step, so the order this sorts into is fixed for the session.
+ */
+export function sidebarRailsOf(
+  state: DeckState,
+  runs: PlaceRuns,
+): readonly SidebarRail[] {
+  const paneById = new Map(state.panes.map((pane) => [pane.id, pane]));
+  const rails: SidebarRail[] = [];
+  for (const side of ["left", "right"] as const) {
+    const order = railMembersOf(state, side);
+    if (order.length === 0) continue;
+    let width = 0;
+    const members: SidebarRailMember[] = [];
+    for (const { componentId, paneId } of order) {
+      const pane = paneById.get(paneId);
+      if (pane === undefined) continue;
+      width = Math.max(width, paneRenderWidthOf(state, pane));
+      members.push({ componentId, paneId: pane.id });
+    }
+    if (members.length === 0) continue;
+    const shares = state.imposition.rails?.[side]?.shares;
+    const allocation = railAllocationOf(state, side, runs.rail);
+    rails.push({
+      side,
+      width,
+      members,
+      allocation,
+      seams:
+        placeSeamFractions(
+          allocation,
+          members.map((member) => member.componentId),
+        ),
+    });
+  }
+  return rails;
+}

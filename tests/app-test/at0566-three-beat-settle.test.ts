@@ -47,12 +47,12 @@
  * The transcripts' own length is deliberately not staged: what is under test
  * is which kind of thing moves when, not how much text rides along.
  *
- * `@covers` names the canvas that plans and launches the beats, the planner
- * that partitions a frame's terms into them, and the recipe table each beat's
- * curve is cut from. The fold's own reading of a resize beat is at0563's and
- * at0555's and is not restated here ([B05]).
+ * `@covers` names the settle engine that plans and launches the beats, the
+ * planner that partitions a frame's terms into them, and the recipe table each
+ * beat's curve is cut from. The fold's own reading of a resize beat is
+ * at0563's and at0555's and is not restated here ([B05]).
  *
- * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/imposer-motion.ts
  */

@@ -7,7 +7,7 @@
  * moving frame on every frame of the motion — but FLIP: the new geometry is
  * committed in one layout pass and each moved frame is tweened by a transform
  * that starts at the inverse of the move and ends at nothing
- * (`deck-canvas.tsx`, `lib/pane-flip.ts`).
+ * (`settle-engine.ts`, `lib/pane-flip.ts`).
  *
  * Three things have to hold, and the third is the one with teeth.
  *
@@ -83,7 +83,7 @@
  * `deck-manager.ts` is deliberately NOT a `@covers` line here: it is at its
  * fan-out budget, and the width applier's own contract is `at0357`'s.
  *
- * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
@@ -395,7 +395,7 @@ async function railWidth(app: App): Promise<number> {
   );
 }
 
-/** The resolved stacking order of a frame — the number `deck-canvas` derives
+/** The resolved stacking order of a frame — the number `pane-stacking` derives
  *  from the pane's place in the store array. */
 async function frameZIndex(app: App, paneId: string): Promise<number> {
   return app.evalJS<number>(

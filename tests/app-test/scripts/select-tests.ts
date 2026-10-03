@@ -195,7 +195,13 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // layout effect inside the same component. `deck-trace.ts`, which at0644
     // also names, carries the kind and the gate but not the boundary; naming only
     // it would leave the one prop list the zero depends on covered by nothing.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 29,
+    //
+    // 29 → 22, paid down when the settle left this file for `settle-engine.ts`:
+    // the seven tests whose subject is the settle — its beats, its frame record,
+    // its covers, its still crossings, its arrivals and its reveal — name the
+    // engine now, and what they still need of the canvas (the arrangement it
+    // renders) is pinned by the arrangement tests that stay here.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 22,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that

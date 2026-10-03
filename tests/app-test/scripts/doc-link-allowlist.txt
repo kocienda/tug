@@ -21,7 +21,7 @@ tugcode/src/__tests__/fixtures/compact-native/0967f3f0-013d-4849-b967-4b66dc7021
 tugcode/src/__tests__/fixtures/subagent-foreground/main.jsonl references/palette.md
 tugcode/src/context-breakdown.ts cwd/CLAUDE.md
 tugdeck/src/__tests__/session-wake-fixture-replay.test.ts arc/tugplan-session-wake.md
-tugdeck/src/components/chrome/deck-canvas.tsx arc/jul30-perf-brief.md
+tugdeck/src/components/chrome/settle-engine.ts arc/jul30-perf-brief.md
 tugdeck/src/components/chrome/tug-pane.tsx arc/layout-imposer-polish.md
 tugdeck/src/components/tugways/__tests__/focus-route.test.ts arc/keyboard-as-engine-state.md
 tugdeck/src/components/tugways/__tests__/kbf-derivation.test.ts arc/kbf-mode.md
