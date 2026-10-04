@@ -190,6 +190,8 @@ import {
   deckFlowStrip,
   deckSlotStrip,
   type DeckColumn,
+  isSidebarParked,
+  isSidebarStanding,
   railAllocationOf,
   railMembersOf,
 } from "@/deck-store-selectors";
@@ -432,19 +434,39 @@ function railsFor(
  * slide, the strip's offset and the marked slot, are read by the two small
  * components that draw them ({@link CommittedMiniature},
  * {@link CommittedFlowStrip}) and by nothing above them.
+ *
+ * **A parked card reads nothing.** This card is a rail member, and a rail
+ * hidden whole PARKS it: mounted, hidden, inert. While parked every reading
+ * holds the value it last had standing, so the deck changing under a card
+ * nobody can see renders nothing — and the show that stands it again rereads
+ * a deck whose picture is the one it held, so that renders nothing either.
+ * The rails the hide took away are back, which is exactly the picture this
+ * card drew before it went.
  */
 function useDeckDerived<T>(
   derive: (deck: DeckState | null, store: IDeckManagerStore | null) => T,
 ): T {
   const store = getDeckStore();
-  return useStoreDerived<DeckState, T>(store, (deck) => derive(deck, store));
+  const standing = useRef<{ value: T } | null>(null);
+  return useStoreDerived<DeckState, T>(store, (deck) => {
+    const held = standing.current;
+    if (held !== null && deck !== null && isSidebarParked(deck, LAYOUT_CARD_ID)) {
+      return held.value;
+    }
+    const value = derive(deck, store);
+    standing.current = { value };
+    return value;
+  });
 }
 
-/** The componentIds of the sidebar cards that are OPEN — presence is the open
- *  state ([P02]), so this is a read of the deck's card list ([L02]). */
+/** The componentIds of the sidebar cards that are OPEN — on the deck and not
+ *  parked by a rail hide — read off the deck's card list ([L02]). */
 function useOpenSidebarIds(): ReadonlySet<string> {
   const ids = useDeckDerived((deck) =>
-    (deck?.cards ?? []).map((card) => card.componentId).sort(),
+    (deck?.cards ?? [])
+      .map((card) => card.componentId)
+      .filter((componentId) => deck !== null && isSidebarStanding(deck, componentId))
+      .sort(),
   );
   return useMemo(() => new Set(ids), [ids]);
 }

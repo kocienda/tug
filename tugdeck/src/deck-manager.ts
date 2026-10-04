@@ -87,6 +87,8 @@ import {
   deckColumnsOf,
   deckFlowStrip,
   findSidebarPanes,
+  isSidebarParked,
+  railMembersToPark,
   workspacePanes,
   paneRenderWidthOf,
   railAllocationOf,
@@ -154,6 +156,7 @@ import {
   clampSlot,
   slotCount,
   isSidebarPinned,
+  isSidebarSeated,
   sidebarSide,
   railHiddenMembers,
   withRailHidden,
@@ -2104,6 +2107,12 @@ export class DeckManager implements IDeckManagerStore {
     opts?: { reveal?: boolean },
   ): void => {
     const reveal = opts?.reveal ?? true;
+    // A parked rail card cannot hold the keyboard — its frame is hidden and
+    // inert — so activating one shows its rail first, and its whole side: a
+    // rail never stands half-parked. Every door that names a parked card
+    // (a sidebar card's own chord, a reveal link, the Layout card's row)
+    // arrives here.
+    this._unparkCard(cardId);
     this._flipFirstResponder(
       cardId,
       () => this._commitStandardFirstResponderFlip(cardId, reveal),
@@ -3288,6 +3297,7 @@ export class DeckManager implements IDeckManagerStore {
       (c) => c.componentId === componentId,
     );
     if (existing) {
+      // A parked card is unparked by the activation (`activateCard`).
       this.activateCard(existing.id);
       return existing.id;
     }
@@ -3308,65 +3318,131 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Show `side`'s rail: reopen the members it held when it was last hidden
-   * whole, or — with no such memory — the one card that belongs there.
+   * Show `side`'s rail: unpark the members it held when it was last hidden
+   * whole, or — with no such memory — open the one card that belongs there.
    * Returns the card id of the member left z-frontmost, or `null` when the
    * side has nothing to show.
    *
-   * The memory is z-ordered, back to front ({@link RailArrangement.hidden}),
-   * and the panes are reopened in that order, so the member that was in front
-   * when the rail went away is in front when it comes back. Vertical order is
-   * not this method's business at all: it lives in the side's `order` and
-   * survives the round trip untouched.
+   * A hide parks its members ({@link hideSidebarRail}), so the members a
+   * memory names are still on the deck, mounted, and showing them is clearing
+   * the memory: ONE reimpose, nothing minted, so the show beat moves a layer
+   * that already stands. A remembered member that is no longer present — a
+   * deck saved before parking, or a member closed while parked — is reopened
+   * as before.
    *
-   * Consuming the memory is part of showing. A record left standing would be
-   * re-read by the next show, and by then it describes a rail the user has
-   * since rearranged.
+   * The memory is z-ordered, back to front ({@link RailArrangement.hidden}),
+   * so the member that was in front when the rail went away is in front when
+   * it comes back. Vertical order lives in the side's `order` and survives the
+   * round trip untouched.
    */
   showSidebarRail(side: SidebarSide): string | null {
     const remembered = railHiddenMembers(
       this.deckState.imposition,
       side,
     ).filter((componentId) => isSidebarCard(componentId));
-    const opening =
-      remembered.length > 0 ? remembered : this._defaultRailMembers(side);
+    if (remembered.length === 0) {
+      let frontmost: string | null = null;
+      for (const componentId of this._defaultRailMembers(side)) {
+        const cardId = this.showSidebarPane(componentId);
+        if (cardId !== null) frontmost = cardId;
+      }
+      return frontmost;
+    }
+    const cardOf = (componentId: string): string | undefined =>
+      this.deckState.cards.find((c) => c.componentId === componentId)?.id;
+    const absent = remembered.filter((componentId) => cardOf(componentId) === undefined);
+    this._reimpose(withRailHidden(this.deckState.imposition, side, []));
+    for (const componentId of absent) this.showSidebarPane(componentId);
     let frontmost: string | null = null;
-    for (const componentId of opening) {
-      const cardId = this.showSidebarPane(componentId);
-      if (cardId !== null) frontmost = cardId;
-    }
-    if (remembered.length > 0) {
-      this._reimpose(withRailHidden(this.deckState.imposition, side, []));
-    }
+    for (const componentId of remembered) frontmost = cardOf(componentId) ?? frontmost;
     return frontmost;
   }
 
   /**
-   * Hide `side`'s rail: record which members were standing on it and close
-   * every one of them.
+   * Hide `side`'s rail: PARK its members. The memory names them, and that is
+   * the whole of the hide: their panes and cards stay in the deck, mounted,
+   * and the imposer seats none of them, so the band's insets are as if the
+   * rail were absent. The canvas keeps each frame at its pinned box, hidden
+   * and inert ([L23]'s third class, as for a parked workspace), and its loops
+   * pause. A show clears the memory and the same frames stand again.
    *
-   * The record is written BEFORE the closes, in its own commit, because each
-   * close rewrites the imposition — writing it after would be writing it onto
-   * a deck the closes had already moved on from.
+   * The keyboard leaves first, the way a close hands it on: if the first
+   * responder or the active pane is a member, it goes to the card the close
+   * successor names, reckoned while the rail still stands.
    */
   hideSidebarRail(side: SidebarSide): void {
-    const members = this._railMembersInZOrder(side);
+    const members = railMembersToPark(this.deckState, side);
     if (members.length === 0) return;
+    // Hiding a sidebar settles the factory rail, as closing one did.
+    this.factoryRailPending = false;
+    this._handOnFromParking(side);
     this._reimpose(withRailHidden(this.deckState.imposition, side, members));
-    for (const componentId of members) this.hideSidebarPane(componentId);
   }
 
-  /** The sidebar componentIds standing pinned on `side`, back to front — the
-   *  panes array's own order, which is the deck's z-order. */
-  private _railMembersInZOrder(side: SidebarSide): readonly string[] {
+  /**
+   * Move the keyboard off `side`'s seated members before they park, the way
+   * {@link _closePane} moves it off a closing pane: to the close successor of
+   * the member holding it, never to another member being parked, and to
+   * nobody when only rail cards stand.
+   */
+  private _handOnFromParking(side: SidebarSide): void {
     const imposition = this.deckState.imposition;
-    return findSidebarPanes(this.deckState)
-      .filter(
-        ({ componentId }) =>
-          isSidebarPinned(imposition, componentId) &&
-          sidebarSide(imposition, componentId) === side,
-      )
-      .map(({ componentId }) => componentId);
+    const parking = new Set(
+      findSidebarPanes(this.deckState)
+        .filter(
+          ({ componentId }) =>
+            isSidebarSeated(imposition, componentId) &&
+            sidebarSide(imposition, componentId) === side,
+        )
+        .map(({ pane }) => pane.id),
+    );
+    const activePaneId = this.deckState.activePaneId;
+    if (activePaneId === undefined || !parking.has(activePaneId)) return;
+    const currentFR = this.getFirstResponderCardId();
+    const successor = this._closeSuccessorCardId(activePaneId);
+    const host =
+      successor === null
+        ? undefined
+        : this.deckState.panes.find(
+            (p) => !parking.has(p.id) && p.cardIds.includes(successor),
+          );
+    const newFR = host === undefined ? null : successor;
+    const flipCommit = (): void => {
+      this.deckState = {
+        ...this.deckState,
+        ...(host !== undefined && newFR !== null
+          ? {
+              panes: this.deckState.panes.map((p) =>
+                p.id === host.id ? { ...p, activeCardId: newFR } : p,
+              ),
+            }
+          : {}),
+        activePaneId: host?.id,
+      };
+      this.notify("hideSidebarRail");
+      this.scheduleSave();
+      if (newFR !== null) this.putFocusedCardIdGuarded(newFR);
+    };
+    if (newFR !== null) {
+      transferFocusForActivation({
+        outgoingCardId: currentFR,
+        incomingCardId: newFR,
+        store: this,
+        commitMutation: () => {
+          this._flipFirstResponder(newFR, flipCommit, "hideSidebarRail");
+        },
+      });
+    } else {
+      this._flipFirstResponder(newFR, flipCommit, "hideSidebarRail");
+    }
+  }
+
+  /** Clear the hidden memory of the side `cardId` is parked on, if it is. */
+  private _unparkCard(cardId: string): void {
+    const card = this.deckState.cards.find((c) => c.id === cardId);
+    if (card === undefined || !isSidebarParked(this.deckState, card.componentId)) return;
+    const side = sidebarSide(this.deckState.imposition, card.componentId);
+    this._reimpose(withRailHidden(this.deckState.imposition, side, []));
   }
 
   /**
@@ -3435,7 +3511,7 @@ export class DeckManager implements IDeckManagerStore {
       panes === undefined ? this.deckState : { ...this.deckState, panes };
     const standing = new Set(
       findSidebarPanes(state)
-        .filter(({ componentId }) => isSidebarPinned(imposition, componentId))
+        .filter(({ componentId }) => isSidebarSeated(imposition, componentId))
         .map(({ componentId }) => componentId),
     );
     const registered = [...getAllRegistrations().keys()].filter((componentId) =>
@@ -3794,7 +3870,7 @@ export class DeckManager implements IDeckManagerStore {
     const panesBySide = new Map<SidebarSide, TugPaneState[]>();
     const state = { ...this.deckState, panes: [...panes] };
     for (const { componentId, pane } of findSidebarPanes(state)) {
-      if (!isSidebarPinned(imposition, componentId)) continue;
+      if (!isSidebarSeated(imposition, componentId)) continue;
       const side = sidebarSide(imposition, componentId);
       const held = panesBySide.get(side) ?? [];
       held.push(pane);

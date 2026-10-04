@@ -40,9 +40,12 @@ import {
   effectiveColumnOrder,
   effectiveRailOrder,
   IMPOSITION_GAP_PX,
+  isRailRemembered,
   isSidebarPinned,
+  isSidebarSeated,
   RAIL_SEAM_PX,
   railWeightOf,
+  sidebarSide,
   stripPositions,
   impositionLayout,
   resolveContentWidthPx,
@@ -148,6 +151,78 @@ export function findSidebarPanes(
 export function workspacePanes(state: DeckState): readonly TugPaneState[] {
   const rail = new Set(findSidebarPanes(state).map(({ pane }) => pane.id));
   return state.panes.filter((pane) => !rail.has(pane.id));
+}
+
+/**
+ * `isSidebarParked(state, componentId)` — the card is on the deck, pinned, and
+ * named in its side's hidden memory: a rail hidden whole keeps its members
+ * mounted and seats none of them ({@link isRailRemembered}).
+ */
+export function isSidebarParked(state: DeckState, componentId: string): boolean {
+  return (
+    state.cards.some((card) => card.componentId === componentId) &&
+    isSidebarPinned(state.imposition, componentId) &&
+    isRailRemembered(state.imposition, componentId)
+  );
+}
+
+/**
+ * `isSidebarStanding(state, componentId)` — the sidebar card is open: on the
+ * deck and not parked.
+ *
+ * **Presence alone is not "open".** A rail hidden whole parks its members, so
+ * a sidebar card can be present and hidden. Every reader asking whether a
+ * sidebar card is showing — the Window menu's marks, the Layout card's open
+ * set, the toggles' "is it standing" — asks this. A reader asking whether the
+ * card EXISTS (a find-or-mint, the workspace's own panes) keeps presence.
+ */
+export function isSidebarStanding(state: DeckState, componentId: string): boolean {
+  return (
+    state.cards.some((card) => card.componentId === componentId) &&
+    !isSidebarParked(state, componentId)
+  );
+}
+
+/** The ids of the panes hosting a parked sidebar card. */
+export function parkedSidebarPaneIds(state: DeckState): ReadonlySet<string> {
+  const parked = new Set<string>();
+  for (const { componentId, pane } of findSidebarPanes(state)) {
+    if (
+      isSidebarPinned(state.imposition, componentId) &&
+      isRailRemembered(state.imposition, componentId)
+    ) {
+      parked.add(pane.id);
+    }
+  }
+  return parked;
+}
+
+/**
+ * `railMembersToPark(state, side)` — what a hide of `side` writes into its
+ * memory: every pinned member on the side, seated or already parked, back to
+ * front in the deck's z-order. Empty when nothing on the side is seated, since
+ * then there is nothing to hide.
+ *
+ * Already-parked members are named too. A card can come to stand beside a
+ * parked rail — summoned by its own chord, or dropped on the vacancy the
+ * parked rail leaves open — and a memory naming only that newcomer would stop
+ * remembering the parked members, which would then STAND at the very hide
+ * meant to put the side away.
+ */
+export function railMembersToPark(
+  state: DeckState,
+  side: SidebarSide,
+): readonly string[] {
+  const imposition = state.imposition;
+  const pinned = findSidebarPanes(state).filter(
+    ({ componentId }) =>
+      isSidebarPinned(imposition, componentId) &&
+      sidebarSide(imposition, componentId) === side,
+  );
+  if (!pinned.some(({ componentId }) => isSidebarSeated(imposition, componentId))) {
+    return [];
+  }
+  return pinned.map(({ componentId }) => componentId);
 }
 
 /**
@@ -746,7 +821,7 @@ export function railMembersOf(
   side: SidebarSide,
 ): readonly { componentId: string; paneId: string }[] {
   const pinned = findSidebarPanes(state).filter(({ componentId }) =>
-    isSidebarPinned(state.imposition, componentId),
+    isSidebarSeated(state.imposition, componentId),
   );
   if (pinned.length === 0) return [];
   const paneByComponentId = new Map(

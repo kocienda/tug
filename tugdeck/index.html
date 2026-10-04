@@ -230,7 +230,9 @@
         var why = [];
         var origins = new Map();
         var hookNotes = [];
-        var fibers = 0, performed = 0;
+        // `mounted` counts the performed fibers with no alternate: a mount,
+        // which `performed` alone cannot tell from a re-render.
+        var fibers = 0, performed = 0, mounted = 0;
         // A subtree React did not visit is the SAME object in both trees, and
         // its fibers keep the flags of whatever commit last rendered them —
         // so the walk carries the old tree beside the new one and stops where
@@ -243,6 +245,7 @@
           fibers += 1;
           if (o === null || (f.flags & 1)) {
             performed += 1;
+            if (o === null) mounted += 1;
             var n = nameOf(f.type);
             counts.set(n, (counts.get(n) || 0) + 1);
             if (/^(TugButton|TugPushButton|TugConfirmPopover|TugPopover|TugTooltip|ResponderScope)/.test(n) && f.memoizedProps) {
@@ -310,7 +313,7 @@
           }
         }
         var top = Array.from(counts.entries()).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12);
-        return { t: t, fibers: fibers, performed: performed, top: top, labels: labels.slice(0, 24), why: why.slice(0, 32),
+        return { t: t, fibers: fibers, performed: performed, mounted: mounted, top: top, labels: labels.slice(0, 24), why: why.slice(0, 32),
           origins: Array.from(origins.entries()).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12),
           hooks: hookNotes };
       }

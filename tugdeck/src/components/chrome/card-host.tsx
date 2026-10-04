@@ -618,22 +618,6 @@ function useHostStackFrameElement(hostStackId: string): HTMLDivElement | null {
 }
 
 /**
- * NOT memoized, and the reason is written down because the memo was tried.
- * Its four props are primitives and a `memo` here is correct by construction
- * — everything a card body reacts to arrives through a context or its own
- * subscription — and it was measured as part of the switch's memo boundary
- * (`LayerPanes` in `deck-canvas.tsx`). It came out because the card bodies
- * carry per-commit effects that were doing real work on the canvas's commits
- * reaching them: `tug-list-view.tsx` has ten `useLayoutEffect`s with no
- * dependency array, and with the host memoized a transcript's late settle
- * (a 65 px growth) ran on the reader's first scroll instead of on the
- * commits after mount, moving the position under them (`at0580`). Until
- * those effects are driven by what they actually depend on, the canvas's
- * commits are part of what a card body is owed, and this host passes them
- * through. The layer boundary above holds for parked workspaces, whose
- * cards get those commits again the moment the layer is shown.
- */
-/**
  * Memoized on its four props, all primitives. The layer renders one of these
  * per card on every deck commit, and a `CardHost` that re-rendered re-rendered
  * the card under it — every transcript on the deck, for a fold of one card.

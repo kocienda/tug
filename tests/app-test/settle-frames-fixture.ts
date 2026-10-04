@@ -137,8 +137,10 @@ export const FORCED_STALL_MS = 200;
  */
 export const STALL_PLANTED_AT_MS = 60;
 
+/** The frames on screen: the shown layer's, less a parked rail's — the
+ *  product's `SHOWN_PANE_FRAMES`, spelled for a sweep from the document. */
 export const SHOWN_FRAMES =
-  "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]";
+  "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]:not([data-rail-parked])";
 
 export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -1430,6 +1432,126 @@ export const reactCommits = (app: App): Promise<unknown> =>
          .map(function (c) { return { t: Math.round((c.t - origin) * 10) / 10, fibers: c.fibers, performed: c.performed, top: c.top.slice(0, 6), labels: c.labels, why: c.why, origins: c.origins, hooks: c.hooks }; });
      })()`,
   );
+
+/**
+ * How far either side of a settle window a commit still counts as in it — the
+ * margin `tugtool deck motion settle` uses, so the two instruments agree on
+ * which commits are a gesture's.
+ */
+export const WINDOW_MARGIN_MS = 60;
+
+/**
+ * The span a workspace switch is read over. A switch arms no settle and so
+ * writes no `settle-frames` row; its frames are sampled for this long from
+ * the swap (`SPACE_SWITCH_FRAME_WINDOW_MS`), and its commits are read over the
+ * same span from the gesture.
+ */
+export const SWITCH_WINDOW_MS = 600;
+
+/** One React commit inside a settle window, as the census recorded it. */
+export interface WindowCommit {
+  /** Relative to the window's start. */
+  readonly t: number;
+  readonly fibers: number;
+  readonly performed: number;
+  /** Performed fibers with no alternate: mounts, not re-renders. */
+  readonly mounted: number;
+  readonly top: readonly (readonly [string, number])[];
+  readonly origins: readonly (readonly [string, number])[];
+  readonly why: readonly string[];
+  /** For the commit's first origins, which hook slots or contexts moved. */
+  readonly hooks: readonly string[];
+  /** From the render's first store read to the commit; only with the lead recorder. */
+  readonly reactMs: number | null;
+}
+
+/** A settle window and the commits inside it. */
+export interface WindowReading {
+  /** Page time, `performance.now()`, of the window's start and end. */
+  readonly from: number;
+  readonly to: number;
+  readonly commits: readonly WindowCommit[];
+}
+
+/**
+ * The commits inside a gesture's settle window (Spec S02), `WINDOW_MARGIN_MS`
+ * either side.
+ *
+ * The window is the last `settle-frames` row written since `mark` — written at
+ * the release — back to the last armed `settle-arm` before it, both stamped on
+ * the page clock the census stamps commits with. A switch writes neither, so
+ * it passes `fixed`: the page time it was driven at and the span to read.
+ * Resolves `null` when there is no census in the page or no window to read.
+ */
+export const windowCommits = (
+  app: App,
+  mark: number,
+  fixed?: { readonly from: number; readonly ms: number },
+): Promise<WindowReading | null> =>
+  app.evalJS<WindowReading | null>(
+    `(function () {
+       var api = window.__tugCommits;
+       if (!api) return null;
+       var fixed = ${JSON.stringify(fixed ?? null)};
+       var from, to;
+       if (fixed) {
+         from = fixed.from;
+         to = fixed.from + fixed.ms;
+       } else {
+         var rows = window.__deckTrace.since(${mark});
+         var end = -1;
+         for (var i = rows.length - 1; i >= 0; i -= 1) {
+           if (rows[i].kind === "settle-frames") { end = i; break; }
+         }
+         if (end < 0) return null;
+         var start = -1;
+         for (var j = end; j >= 0; j -= 1) {
+           if (rows[j].kind === "settle-arm" && rows[j].armed) { start = j; break; }
+         }
+         if (start < 0) return null;
+         from = rows[start].timestamp;
+         to = rows[end].timestamp;
+       }
+       var margin = ${WINDOW_MARGIN_MS};
+       var commits = api.since(from - margin)
+         .filter(function (c) { return c.t <= to + margin; })
+         .map(function (c) {
+           return {
+             t: Math.round((c.t - from) * 10) / 10,
+             fibers: c.fibers, performed: c.performed, mounted: c.mounted || 0,
+             top: c.top.slice(0, 8), origins: c.origins, why: c.why,
+             hooks: c.hooks || [],
+             reactMs: c.renderStart == null ? null : Math.round((c.t - c.renderStart) * 10) / 10,
+           };
+         });
+       return { from: from, to: to, commits: commits };
+     })()`,
+  );
+
+/** The commit with the most fibers performed; a tie goes to the earliest. */
+export function largestCommit(commits: readonly WindowCommit[]): WindowCommit | null {
+  let best: WindowCommit | null = null;
+  for (const c of commits) {
+    if (best === null || c.performed > best.performed) best = c;
+  }
+  return best;
+}
+
+/**
+ * Install the lead recorder (`tugdeck/index.html`) and wait for it.
+ *
+ * It has to be in the page before the deck's bundle evaluates, so it is
+ * flagged for this page session and the deck reloaded — the same door
+ * `deck motion slide --tasks` takes on a release deck. With it, the census
+ * gains each commit's render start, and so `reactMs`.
+ */
+export async function installLeadRecorder(app: App): Promise<void> {
+  await app.evalJS<null>(
+    `(window.sessionStorage.setItem("tug-lead-recorder", "1"), null)`,
+  );
+  await app.appReload({ timeoutMs: 30_000 });
+  await app.waitForCondition<boolean>(`!!window.__tugLead`, { timeoutMs: 30_000 });
+}
 
 export const traceMark = (app: App): Promise<number> =>
   app.evalJS<number>(`window.__deckTrace.since(0).length`);

@@ -24,13 +24,19 @@ interface FakeLayer {
   shown: boolean;
 }
 
-/** An element that knows which layer it is in, and nothing else. */
-function elementIn(layer: FakeLayer | null, connected = true): Element {
+/** An element that knows which layer it is in — and, given `parked`,
+ *  that it stands inside a parked rail frame — and nothing else. */
+function elementIn(layer: FakeLayer | null, connected = true, parked = false): Element {
   const layerEl =
     layer === null
       ? null
       : ({ hasAttribute: () => layer.shown } as unknown as Element);
-  return { closest: () => layerEl, isConnected: connected } as unknown as Element;
+  const frameEl = parked ? ({} as Element) : null;
+  return {
+    closest: (selector: string) =>
+      selector.includes("data-rail-parked") ? frameEl : layerEl,
+    isConnected: connected,
+  } as unknown as Element;
 }
 
 interface FakeLoop extends LoopLike {
@@ -74,6 +80,11 @@ describe("layerStateOf", () => {
     expect(layerStateOf(elementIn({ shown: false }))).toBe("hidden");
     expect(layerStateOf(elementIn({ shown: true }))).toBe("shown");
     expect(layerStateOf(elementIn(null))).toBe("none");
+  });
+
+  test("inside a parked rail frame is in the dark, whatever its layer", () => {
+    expect(layerStateOf(elementIn({ shown: true }, true, true))).toBe("hidden");
+    expect(layerStateOf(elementIn(null, true, true))).toBe("hidden");
   });
 });
 

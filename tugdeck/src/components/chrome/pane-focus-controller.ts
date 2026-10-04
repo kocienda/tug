@@ -57,7 +57,8 @@
  */
 
 import { useLayoutEffect, useRef } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { useStoreDerived } from "@/lib/use-store-derived";
+import type { DeckState } from "@/layout-tree";
 
 import { useDeckManager } from "@/deck-manager-context";
 import { getFocusManager } from "@/components/tugways/focus-manager";
@@ -72,12 +73,35 @@ function applyPaneFocus(root: HTMLElement | null, activePaneId: string | null): 
   }
 }
 
+/**
+ * What the focus controller's effects read: the active pane, the pane set
+ * (a newly mounted frame needs its `data-focused` written), and the hidden
+ * arrivals whose reveal lands the keyboard. A commit that moves none of them
+ * runs no effect here.
+ */
+interface FocusFacts {
+  activePaneId: string | null;
+  paneKey: string;
+  arriving: DeckState["arriving"];
+}
+
+function focusFacts(snapshot: DeckState | null): FocusFacts {
+  return {
+    activePaneId: snapshot?.activePaneId ?? null,
+    paneKey: snapshot === null ? "" : snapshot.panes.map((p) => p.id).join("\u0000"),
+    arriving: snapshot?.arriving,
+  };
+}
+
+function focusFactsEqual(a: FocusFacts, b: FocusFacts): boolean {
+  return a.activePaneId === b.activePaneId && a.paneKey === b.paneKey && a.arriving === b.arriving;
+}
+
 export function usePaneFocusController(
   deckRootRef: React.RefObject<HTMLDivElement | null>,
 ): void {
   const store = useDeckManager();
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const activePaneId = snapshot.activePaneId ?? null;
+  const { activePaneId, paneKey, arriving } = useStoreDerived(store, focusFacts, focusFactsEqual);
 
   // `applyFocusRef.current` is rewritten on every render so it closes over the
   // current `activePaneId`. The reactive useLayoutEffect calls
@@ -96,7 +120,7 @@ export function usePaneFocusController(
   // Handles pane add / remove, activation, and deselect.
   useLayoutEffect(() => {
     applyFocusRef.current();
-  }, [activePaneId, snapshot, deckRootRef]);
+  }, [activePaneId, paneKey, deckRootRef]);
 
   // Immediate apply: the commit's own task, read from the store rather than
   // the rendered snapshot. A pane-chrome press defers React's commit past the
@@ -134,16 +158,16 @@ export function usePaneFocusController(
   // direct store observer would fire before the frame can take focus. The
   // write has to follow React's commit, and a layout effect is the one
   // place that is guaranteed to ([L03]).
-  const arrivingRef = useRef(snapshot.arriving);
+  const arrivingRef = useRef(arriving);
   useLayoutEffect(() => {
     const previous = arrivingRef.current;
-    arrivingRef.current = snapshot.arriving;
-    if (previous === undefined || previous === snapshot.arriving) return;
+    arrivingRef.current = arriving;
+    if (previous === undefined || previous === arriving) return;
     const revealed = Object.keys(previous).some(
-      (paneId) => snapshot.arriving?.[paneId] !== true,
+      (paneId) => arriving?.[paneId] !== true,
     );
     if (revealed) getFocusManager()?.focusKeyView();
-  }, [snapshot]);
+  }, [arriving]);
 
   // Install the gesture interpreter and consume its activation/deselect
   // decisions. This effect owns the registration slot the interpreter needs:

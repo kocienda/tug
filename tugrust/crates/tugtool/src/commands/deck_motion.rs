@@ -114,6 +114,7 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         DeckMotionCommands::Enable { .. }
         | DeckMotionCommands::Disable { .. }
         | DeckMotionCommands::Slide { .. }
+        | DeckMotionCommands::Settle { .. }
         | DeckMotionCommands::Walk { .. } => return None,
     })
 }
@@ -134,6 +135,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Chains { target, .. }
         | DeckMotionCommands::Gesture { target, .. }
         | DeckMotionCommands::Slide { target, .. }
+        | DeckMotionCommands::Settle { target, .. }
         | DeckMotionCommands::Walk { target, .. }
         | DeckMotionCommands::Enable { target }
         | DeckMotionCommands::Disable { target } => target,
@@ -166,6 +168,30 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             count,
             sample,
             queries,
+            tasks,
+            json_output,
+        ),
+        DeckMotionCommands::Settle {
+            gesture,
+            card,
+            pane,
+            slot,
+            mode,
+            space,
+            count,
+            tasks,
+            ..
+        } => crate::commands::deck_motion_settle::run_settle(
+            port,
+            &gesture,
+            crate::commands::deck_motion_settle::GestureArgs {
+                card,
+                pane,
+                slot,
+                mode,
+                space,
+            },
+            count,
             tasks,
             json_output,
         ),
@@ -310,6 +336,7 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Enable { .. }
         | DeckMotionCommands::Disable { .. }
         | DeckMotionCommands::Slide { .. }
+        | DeckMotionCommands::Settle { .. }
         | DeckMotionCommands::Walk { .. } => fallback(value),
     }
 }

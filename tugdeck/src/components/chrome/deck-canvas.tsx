@@ -59,6 +59,8 @@ import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { usePaneOcclusionController } from "./pane-occlusion-controller";
+import { canvasDeck, canvasDeckEqual } from "./canvas-deck-fields";
+import { useStoreDerived } from "@/lib/use-store-derived";
 import {
   buildZIndexMap,
   CARD_ZINDEX_BASE,
@@ -109,8 +111,6 @@ import {
 } from "@/deck-store-selectors";
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import { stepCardRing } from "@/lib/card-ring";
-import { cardTitleStore } from "@/lib/card-title-store";
-import { paneTitleBarTextFor } from "@/lib/pane-title";
 import type { DeckState, TugPaneState } from "@/layout-tree";
 import { useDeckManager } from "@/deck-manager-context";
 import { cardDragCoordinator } from "@/card-drag-coordinator";
@@ -198,8 +198,10 @@ import "./rail-vacancy.css";
 import "./margin-cap.css";
 import "./rail-shadow.css";
 import {
+  isRailRemembered,
   isSidebarPinned,
   sidebarSide,
+  withRailHidden,
   isContentWidth,
   resolvePlacement,
   resolveContentWidthPx,
@@ -543,6 +545,9 @@ interface PlaceSeamProps {
    * divides. A rail seam has none; the preview pins it with its rail.
    */
   railTravel?: string;
+  /** The seam of a PARKED rail: mounted, hidden (`data-rail-parked`), and
+   *  inert, so the show that stands its rail again mounts nothing. */
+  parked?: boolean;
 }
 
 /**
@@ -576,6 +581,7 @@ function PlaceSeam({
   memberPaneIds,
   onCommit,
   railTravel,
+  parked = false,
 }: PlaceSeamProps): React.ReactElement {
   const allocationRef = useRef(allocation);
   allocationRef.current = allocation;
@@ -1038,6 +1044,7 @@ function PlaceSeam({
         ? { "data-rail-seam": `${place.side}:${index}` }
         : { "data-column-seam": `${place.slot}:${index}` })}
       {...(railTravel !== undefined ? { [RAIL_TRAVEL_ATTR]: railTravel } : {})}
+      {...(parked && place.kind === "rail" ? { "data-rail-parked": place.side } : {})}
       role="separator"
       aria-orientation="horizontal"
       onPointerDown={handlePointerDown}
@@ -1191,9 +1198,22 @@ interface LayerArrangement {
   readonly railWidthOf: (side: SidebarSide) => number;
   readonly vacantRails: readonly { side: SidebarSide; style: React.CSSProperties }[];
   readonly stackByPaneId: ReadonlyMap<string, SidebarStackStanding>;
+  /** The side each PARKED rail member is parked on — its rail hidden whole.
+   *  Such a pane is in no rail (`stackByPaneId` lacks it) and keeps its frame
+   *  mounted, hidden, at its pinned box. */
+  readonly parkedRailSideByPaneId: ReadonlyMap<string, SidebarSide>;
+  /** The sides whose rail is PARKED — hidden whole, its members on the deck. */
+  readonly parkedRailSides: ReadonlySet<SidebarSide>;
+  /** The rails as they would stand with every hide's memory cleared: the
+   *  standing rails, plus each parked side's. A parked side's chrome — its
+   *  shadow, its seams, the vacancy held open opposite it — is drawn from
+   *  these, hidden, so the show that stands it again mounts none of it. */
+  readonly pictureRails: readonly SidebarRail[];
+  /** {@link vacantRails} reckoned over {@link pictureRails}: the held-open
+   *  edges the deck would draw were every parked rail standing. */
+  readonly pictureVacantRails: readonly { side: SidebarSide; style: React.CSSProperties }[];
   readonly sortedStacks: readonly TugPaneState[];
   readonly zIndexMap: ReturnType<typeof buildZIndexMap>;
-  readonly slotStackByPaneId: ReadonlyMap<string, readonly SlotStackEntry[]>;
   readonly hostStackIdByCardId: ReadonlyMap<string, string>;
   readonly cardsById: ReadonlyMap<string, DeckState["cards"][number]>;
   readonly impositionKind: DeckState["imposition"]["kind"];
@@ -1204,16 +1224,36 @@ interface LayerArrangement {
 }
 
 /**
- * Derive a deck's arrangement. Pure over its inputs; `cardTitleVersion` is an
- * input because the slot-stack picker names its rows with the title bar's
- * own text, which folds a per-card override in that the deck cannot see.
+ * The held-open deck edge: one tile for the side with no rail while the other
+ * side has one, at the rail's anchor and the width a rail card landing there
+ * would take.
+ */
+function railVacanciesOf(
+  rails: readonly SidebarRail[],
+): { side: SidebarSide; style: React.CSSProperties }[] {
+  if (rails.length !== 1) return [];
+  const standing = rails[0];
+  const side: SidebarSide = standing.side === "left" ? "right" : "left";
+  return [
+    {
+      side,
+      style: imposeSidebarStyle(side, standing.width, {
+        widthProperty: sidebarWidthProperty(standing.side),
+      }),
+    },
+  ];
+}
+
+/**
+ * Derive a deck's arrangement. Pure over its inputs. A pane's place in its
+ * run — the badge's count, band and picker rows — is not here: the badge
+ * reads it itself (`pane-place-facts.ts`), so a member coming or going
+ * re-renders no other member's frame.
  */
 function deriveLayerArrangement(
   deck: DeckState,
   placeRuns: PlaceRuns,
-  cardTitleVersion: number,
 ): LayerArrangement {
-  void cardTitleVersion;
   const panes = deck.panes;
   const cards = deck.cards;
   const imposition = deck.imposition;
@@ -1276,17 +1316,7 @@ function deriveLayerArrangement(
   }
   const railWidthOf = (side: SidebarSide): number =>
     sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
-  const vacantRails: { side: SidebarSide; style: React.CSSProperties }[] = [];
-  if (sidebarRails.length === 1) {
-    const standing = sidebarRails[0];
-    const side: SidebarSide = standing.side === "left" ? "right" : "left";
-    vacantRails.push({
-      side,
-      style: imposeSidebarStyle(side, standing.width, {
-        widthProperty: sidebarWidthProperty(standing.side),
-      }),
-    });
-  }
+  const vacantRails = railVacanciesOf(sidebarRails);
   const stackByPaneId = new Map<string, SidebarStackStanding>();
   for (const rail of sidebarRails) {
     const strip = stripCoordinatesOf(rail.allocation);
@@ -1302,62 +1332,25 @@ function deriveLayerArrangement(
     });
   }
 
+  const parkedRailSideByPaneId = new Map<string, SidebarSide>();
+  for (const { componentId, pane } of findSidebarPanes(deck)) {
+    if (isSidebarPinned(imposition, componentId) && isRailRemembered(imposition, componentId)) {
+      parkedRailSideByPaneId.set(pane.id, sidebarSide(imposition, componentId));
+    }
+  }
+  const parkedRailSides = new Set(parkedRailSideByPaneId.values());
+  let pictureRails: readonly SidebarRail[] = sidebarRails;
+  if (parkedRailSides.size > 0) {
+    let cleared = imposition;
+    for (const side of parkedRailSides) cleared = withRailHidden(cleared, side, []);
+    pictureRails = sidebarRailsOf({ ...deck, imposition: cleared }, placeRuns);
+  }
+  const pictureVacantRails = railVacanciesOf(pictureRails);
+
   // Stable ID order: no DOM reordering on focus change. Z-index from the
   // store's array position (first = lowest), rails above every free pane.
   const sortedStacks = [...panes].sort((a, b) => a.id.localeCompare(b.id));
   const zIndexMap = buildZIndexMap(panes, sidebarPaneIds);
-
-  const slotStackByPaneId = ((): Map<string, readonly SlotStackEntry[]> => {
-    const cardsForTitles = new Map(cards.map((c) => [c.id, c]));
-    const rails = sidebarRailsOf(deck, UNMEASURED_RUNS);
-    const railSideOf = new Map<string, SidebarSide>();
-    for (const { componentId, pane } of findSidebarPanes(deck)) {
-      if (!isSidebarPinned(imposition, componentId)) continue;
-      railSideOf.set(pane.id, sidebarSide(imposition, componentId));
-    }
-    const byPlace = new Map<string, TugPaneState[]>();
-    for (const pane of panes) {
-      const railSide = railSideOf.get(pane.id);
-      const place =
-        railSide !== undefined
-          ? `rail:${railSide}`
-          : pane.slot === undefined
-            ? undefined
-            : `slot:${pane.slot}`;
-      if (place === undefined) continue;
-      const members = byPlace.get(place);
-      if (members) members.push(pane);
-      else byPlace.set(place, [pane]);
-    }
-    const paneById = new Map(panes.map((pane) => [pane.id, pane]));
-    const map = new Map<string, readonly SlotStackEntry[]>();
-    for (const [place, members] of byPlace.entries()) {
-      const splitRail = rails.find((rail) => `rail:${rail.side}` === place);
-      const ordered =
-        splitRail === undefined
-          ? // Topmost first, matching the host menu-state convention.
-            [...members].reverse()
-          : splitRail.members
-              .map((member) => paneById.get(member.paneId))
-              .filter((pane): pane is TugPaneState => pane !== undefined);
-      const entries: SlotStackEntry[] = ordered.map((pane, i) => {
-        const activeCard = cardsForTitles.get(pane.activeCardId);
-        const icon = activeCard
-          ? getRegistration(activeCard.componentId)?.defaultMeta.icon
-          : undefined;
-        return {
-          paneId: pane.id,
-          cardId: pane.activeCardId,
-          title: paneTitleBarTextFor(pane, cardsForTitles),
-          ...(icon === undefined ? {} : { icon }),
-          selected:
-            splitRail === undefined ? i === 0 : pane.id === deck.activePaneId,
-        };
-      });
-      for (const pane of members) map.set(pane.id, entries);
-    }
-    return map;
-  })();
 
   const hostStackIdByCardId = new Map<string, string>();
   for (const s of panes) {
@@ -1429,9 +1422,12 @@ function deriveLayerArrangement(
     railWidthOf,
     vacantRails,
     stackByPaneId,
+    parkedRailSideByPaneId,
+    parkedRailSides,
+    pictureRails,
+    pictureVacantRails,
     sortedStacks,
     zIndexMap,
-    slotStackByPaneId,
     hostStackIdByCardId,
     cardsById,
     impositionKind,
@@ -1451,27 +1447,24 @@ function deriveLayerArrangement(
  */
 const parkedArrangements = new WeakMap<
   DeckState,
-  { rail: PlaceRuns["rail"]; column: PlaceRuns["column"]; titles: number; value: LayerArrangement }
+  { rail: PlaceRuns["rail"]; column: PlaceRuns["column"]; value: LayerArrangement }
 >();
 function arrangementOfParkedDeck(
   deck: DeckState,
   placeRuns: PlaceRuns,
-  cardTitleVersion: number,
 ): LayerArrangement {
   const hit = parkedArrangements.get(deck);
   if (
     hit !== undefined &&
     hit.rail === placeRuns.rail &&
-    hit.column === placeRuns.column &&
-    hit.titles === cardTitleVersion
+    hit.column === placeRuns.column
   ) {
     return hit.value;
   }
-  const value = deriveLayerArrangement(deck, placeRuns, cardTitleVersion);
+  const value = deriveLayerArrangement(deck, placeRuns);
   parkedArrangements.set(deck, {
     rail: placeRuns.rail,
     column: placeRuns.column,
-    titles: cardTitleVersion,
     value,
   });
   return value;
@@ -1899,7 +1892,6 @@ const LayerPanes = memo(function LayerPanes({
                 : undefined
             }
             contentWidthPx={arr.contentWidthPx}
-            slotStack={arr.slotStackByPaneId.get(stackState.id)}
             columnMember={arr.columnMemberByPaneId.get(stackState.id)}
             columnMode={arr.columnModeByPaneId.get(stackState.id)}
             arriving={arr.arrivingSeatByPaneId.get(stackState.id)}
@@ -1916,6 +1908,7 @@ const LayerPanes = memo(function LayerPanes({
             //
             onMoveToSpace={callbacks.onMoveToSpace}
             sidebarStack={arr.stackByPaneId.get(stackState.id)}
+            railParked={arr.parkedRailSideByPaneId.get(stackState.id)}
             isSidebarPane={arr.sidebarPaneIds.has(stackState.id)}
             onCardMoved={store.handlePaneMoved}
             onClose={callbacks.onClose}
@@ -1982,17 +1975,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // Named `store` (not `manager`) to avoid collision with the ResponderChainManager
   // variable below.
   const store = useDeckManager();
-  const deckState = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // Every field but `CANVAS_UNREAD_FIELDS` commits; a window focus or blur,
+  // which moves only `hasFocus`, does not.
+  const deckState = useStoreDerived(store, canvasDeck, canvasDeckEqual);
   const panes = deckState.panes;
   const cards = deckState.cards;
   const imposition = deckState.imposition;
-  // Per-card title overrides are not deck state, so the deck subscription
-  // above cannot see one land. The slot-stack picker names its rows with the
-  // title bar's own text, which folds an override in, so it needs this too.
-  const cardTitleVersion = useSyncExternalStore(
-    cardTitleStore.subscribe,
-    cardTitleStore.version,
-  );
   // Whether a layout selection stands — read as a boolean, so the canvas
   // re-renders when the set goes empty or non-empty and not on every change
   // within it. The root responder's `CANCEL_DIALOG` entry is registered off
@@ -2071,10 +2059,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     column: store.getColumnRunHeight(),
   };
   const shownArrangement = useMemo(
-    () => deriveLayerArrangement(deckState, placeRuns, cardTitleVersion),
+    () => deriveLayerArrangement(deckState, placeRuns),
     // `placeRuns` is minted per render; its two numbers are the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deckState, placeRuns.rail, placeRuns.column, cardTitleVersion],
+    [deckState, placeRuns.rail, placeRuns.column],
   );
   const {
     sidebarPaneIds,
@@ -2089,10 +2077,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     arrivingSeatByPaneId,
     railWidthOf,
     vacantRails,
+    parkedRailSides,
+    pictureRails,
+    pictureVacantRails,
     stackByPaneId,
     sortedStacks,
     zIndexMap,
-    slotStackByPaneId,
     hostStackIdByCardId,
     cardsById,
     impositionKind,
@@ -3954,6 +3944,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       el.removeEventListener("animationstart", stillLoopOnStart);
     };
   }, []);
+  // And a rail hidden whole: its members park (`data-rail-parked`) rather
+  // than close, so their loops are stilled in the commit that parks them and
+  // resumed in the one that stands them again — the same pass, keyed on which
+  // panes are parked.
+  const parkedPaneKey = [...shownArrangement.parkedRailSideByPaneId.keys()].sort().join(" ");
+  useLayoutEffect(() => {
+    const root = containerRef.current;
+    if (root !== null) stillHiddenLayerLoops(root);
+  }, [parkedPaneKey]);
   // And part three: the motion switch thrown back. The pass resumes every loop
   // on its record whose layer is shown, demoted or not, so the off edge has
   // only one kind left to hand back: a loop whose resume a component's own
@@ -4562,15 +4561,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           the other side has one, at the rail's anchor and the width a rail
           card landing there would take. Inert and empty — a measurement the
           drop-zone engine reads, and a hairline while a card is in the air. */}
-      {vacantRails.map((vacancy) => (
-        <div
-          key={`rail-vacancy:${vacancy.side}`}
-          className="tug-rail-vacancy"
-          data-vacant-rail={vacancy.side}
-          aria-hidden="true"
-          style={vacancy.style}
-        />
-      ))}
+      {/* A vacancy only the PICTURE has — the one a parked rail would hold
+          open — is drawn too, hidden and without `data-vacant-rail`, so the
+          drop-zone engine never reads it and the show mounts nothing. One
+          array, so a vacancy turning real keeps its element. */}
+      {pictureVacantRails
+        .filter((v) => !vacantRails.some((real) => real.side === v.side))
+        .map((vacancy) => ({ vacancy, parked: true }))
+        .concat(vacantRails.map((vacancy) => ({ vacancy, parked: false })))
+        .map(({ vacancy, parked }) => (
+          <div
+            key={`rail-vacancy:${vacancy.side}`}
+            className="tug-rail-vacancy"
+            {...(parked
+              ? { "data-rail-parked": vacancy.side }
+              : { "data-vacant-rail": vacancy.side })}
+            aria-hidden="true"
+            style={vacancy.style}
+          />
+        ))}
       {/* One wrapper per MOUNTED workspace ([B06], (#canvas-shape)).
 
           The shown wrapper renders exactly what this canvas has always
@@ -4605,7 +4614,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // switch moves nothing — see `LayerArrangement`.
         const arr = layer.shown
           ? shownArrangement
-          : arrangementOfParkedDeck(layer.deck, placeRuns, cardTitleVersion);
+          : arrangementOfParkedDeck(layer.deck, placeRuns);
         return (
           <SpaceLayerWrapper
             key={layer.spaceId}
@@ -4649,9 +4658,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           zero-sum in px rather than in fractions of a run ([B06], [P04]). The
           handle is the same object either way; only the property it writes
           changes. */}
-      {sidebarRails.flatMap((rail) => {
+      {pictureRails.flatMap((rail) => {
         const allocation = rail.allocation;
         if (allocation === null || allocation.ids.length < 2) return [];
+        // A PARKED rail's seams stay mounted, hidden, for its show.
+        const parked = parkedRailSides.has(rail.side);
         const ids = rail.members.map((member) => member.componentId);
         const members = placeMembers(
           deckState,
@@ -4671,6 +4682,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             members={members}
             memberPaneIds={rail.members.map((member) => member.paneId)}
             onCommit={handleSeamCommit}
+            parked={parked}
           />
         ));
       })}
@@ -4771,8 +4783,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       {(["left", "right"] as const).map((side) => {
         // The same `railWidthOf` the inset effect reads, so the shadow and
         // the band can never disagree about where the rail's inner edge is.
-        // No rail on this side, nothing to cast a shadow.
-        if (railWidthOf(side) === 0) return null;
+        // No rail on this side, nothing to cast a shadow — unless it is a
+        // PARKED rail's, which is kept mounted and hidden for its show.
+        const parked = railWidthOf(side) === 0 && parkedRailSides.has(side);
+        if (railWidthOf(side) === 0 && !parked) return null;
         const innerEdge =
           `calc(${RAIL_EDGE_INSET} + var(${sidebarWidthProperty(side)}, 0px))`;
         return (
@@ -4780,6 +4794,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             key={`rail-shadow:${side}`}
             className={`tug-rail-shadow tug-rail-shadow--${side}`}
             data-rail-shadow={side}
+            {...(parked ? { "data-rail-parked": side } : {})}
             aria-hidden="true"
             style={{
               ...(side === "left" ? { left: innerEdge } : { right: innerEdge }),

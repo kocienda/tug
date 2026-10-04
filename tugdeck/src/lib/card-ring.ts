@@ -25,7 +25,7 @@
  */
 
 import type { DeckState, TugPaneState } from "@/layout-tree";
-import { findSidebarPanes } from "@/deck-store-selectors";
+import { findSidebarPanes, parkedSidebarPaneIds } from "@/deck-store-selectors";
 import { isSidebarPinned, sidebarSide } from "@/lib/layout-imposer";
 
 /** Every visible card position, in ring order. */
@@ -34,7 +34,11 @@ export function visibleCardRing(state: DeckState): readonly string[] {
   // or nothing. Same place taxonomy as the slot-stack picker's. A sidebar
   // dragged off its pin has no rail entry and falls through to `free`, which
   // is right — off the pin it is an ordinary pane.
+  //
+  // A PARKED rail member — its rail hidden whole — is on no rail and in no
+  // slot, and it is not visible, so it is in the ring nowhere.
   const railSideOf = new Map<string, "left" | "right">();
+  const parked = parkedSidebarPaneIds(state);
   for (const { componentId, pane } of findSidebarPanes(state)) {
     if (!isSidebarPinned(state.imposition, componentId)) continue;
     railSideOf.set(pane.id, sidebarSide(state.imposition, componentId));
@@ -44,6 +48,7 @@ export function visibleCardRing(state: DeckState): readonly string[] {
   const frontOfPlace = new Map<string, TugPaneState>();
   const free: TugPaneState[] = [];
   for (const pane of state.panes) {
+    if (parked.has(pane.id)) continue;
     const railSide = railSideOf.get(pane.id);
     const place =
       railSide !== undefined

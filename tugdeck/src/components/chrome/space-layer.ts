@@ -96,9 +96,13 @@ export const SPACE_SWITCHING_ATTRIBUTE = "data-space-switching";
  * at. Under the old `display: none` the same mistake read as a stack of zero
  * rects at the origin; now it reads as plausible geometry, which is worse,
  * and is why this clause is load-bearing rather than defensive.
+ *
+ * A PARKED rail member (`data-rail-parked`) keeps its box for the same reason
+ * and is left out for the same reason: its rail was hidden whole, and it
+ * stands nowhere a reader can see.
  */
 export const SHOWN_PANE_FRAMES =
-  `.tug-pane[data-pane-id]:not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
+  `.tug-pane[data-pane-id]:not([data-rail-parked]):not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
 
 /**
  * Whether the workspace a card is mounted in is the one on screen.

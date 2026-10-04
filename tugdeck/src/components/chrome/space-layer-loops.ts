@@ -114,8 +114,13 @@ export function isLoop(animation: LoopLike): boolean {
   return effect.getTiming().iterations === Infinity;
 }
 
-/** Which layer, if any, an element stands in. */
+/**
+ * Which layer, if any, an element stands in. An element inside a PARKED rail
+ * frame (`data-rail-parked` — its rail hidden whole) is in the dark exactly
+ * as one under a hidden workspace is, whatever its layer says.
+ */
 export function layerStateOf(target: Element): LayerState {
+  if (target.closest(".tug-pane[data-rail-parked]") !== null) return "hidden";
   const layer = target.closest(`.${SPACE_LAYER_CLASS}`);
   if (layer === null) return "none";
   return layer.hasAttribute(SPACE_SHOWN_ATTRIBUTE) ? "shown" : "hidden";

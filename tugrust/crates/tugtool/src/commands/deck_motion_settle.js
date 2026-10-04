@@ -1,0 +1,185 @@
+// The page half of `tugtool deck motion settle`, posted through `/api/eval`.
+//
+// One function over one argument object, like `deck_motion_slide.js`, whose
+// `census`, `recorder` and `install` ops the shell end reuses. Three ops here:
+//
+//   where  — the active workspace and the focused card, so a repeated
+//            `switch` or `flip` can go back where it came from
+//   rest   — the deck's at-rest reading beside the budget it is read against
+//   record — one gesture, driven through `window.tugdeck.lab.drive`, recorded
+//            from just before it until the settle mark has gone off and
+//            `tailMs` more, or `capMs` if it never does
+//
+// `record` returns RAW times relative to the drive: every animation frame,
+// every zero-timer heartbeat, every flip of the settle mark, and every React
+// commit the census walked. The shell end finds the settle window and keeps
+// the commits inside it, so that reduction is unit-tested in Rust.
+//
+// The drive is made from a task (a zero timeout), never from inside a frame
+// callback, for the reason `slide` gives: a gesture delivered during a
+// rendering update is a different gesture. With `tasks` it runs inside
+// `lead.run("gesture", …)`, so the recorder names the gesture's own task.
+(function (args) {
+  "use strict";
+
+  var SETTLE = "data-imposer-settling";
+
+  if (args.op === "where") {
+    var diag = window.tugdeck && window.tugdeck.diag;
+    if (!diag) return { error: "this deck has no window.tugdeck.diag" };
+    var deck = diag.getDeckState();
+    var pane = deck && deck.panes
+      ? deck.panes.find(function (p) { return p.id === deck.activePaneId; })
+      : null;
+    return {
+      spaceId: diag.getSpaces().activeSpaceId,
+      cardId: pane ? pane.activeCardId : null,
+    };
+  }
+
+  if (args.op === "rest") {
+    var motion = window.__tugMotion;
+    if (!motion) return { error: "this deck has no window.__tugMotion" };
+    // The budget is the probe's calibrated at-rest reference; absent on a
+    // deck that predates it, which the shell end reports as unknown.
+    var budget = motion.probe ? motion.probe().restBudgetPerSecond : undefined;
+    return motion.rest().then(function (rest) {
+      return { rest: rest, budgetPerSecond: typeof budget === "number" ? budget : null };
+    });
+  }
+
+  if (args.op !== "record") return { error: "unknown op " + args.op };
+
+  return new Promise(function (resolve) {
+    var lab = window.tugdeck && window.tugdeck.lab;
+    if (!lab || typeof lab.drive !== "function") {
+      resolve({ error: "this deck has no window.tugdeck.lab.drive — it predates the gesture door" });
+      return;
+    }
+    var lead = window.__tugLead || null;
+    if (args.tasks && !lead) {
+      resolve({ error: "the lead recorder is not installed in this page" });
+      return;
+    }
+    // With the recorder installed the page's schedulers are wrapped, and the
+    // verb's own chains must not be in what it records.
+    var setTimeout = lead ? lead.native.setTimeout : window.setTimeout.bind(window);
+    var requestAnimationFrame = lead ? lead.native.requestAnimationFrame : window.requestAnimationFrame.bind(window);
+    var MutationObserver = lead ? lead.native.MutationObserver : window.MutationObserver;
+    var frames = [];
+    var beats = [];
+    var marks = [];
+    var done = false;
+    var t0 = 0;
+
+    function frame() {
+      frames.push(performance.now());
+      if (!done) requestAnimationFrame(frame);
+    }
+    function beat() {
+      beats.push(performance.now());
+      if (!done) setTimeout(beat, 0);
+    }
+    var observer = new MutationObserver(function (records) {
+      var now = performance.now();
+      records.forEach(function (m) {
+        // The container's mark alone: each frame carries a copy, set and
+        // cleared with it, and only the container's says when the settle is.
+        if (m.target.classList.contains("tug-pane")) return;
+        marks.push([now, m.target.hasAttribute(SETTLE)]);
+      });
+    });
+    observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: [SETTLE] });
+    requestAnimationFrame(frame);
+    beat();
+
+    var rel = function (t) { return Math.round((t - t0) * 10) / 10; };
+
+    function finish(error) {
+      done = true;
+      observer.disconnect();
+      var tasks = args.tasks ? lead.disarm() : null;
+      var tells = args.tasks ? lead.tells() : null;
+      if (error) {
+        resolve({ error: error });
+        return;
+      }
+      resolve({
+        frames: frames.filter(function (t) { return t > t0; }).map(rel),
+        beats: beats.filter(function (t) { return t >= t0; }).map(rel),
+        settle: marks.map(function (m) { return [rel(m[0]), m[1]]; }),
+        visibility: document.visibilityState,
+        tasks: tasks && tasks.map(function (e) {
+          return {
+            kind: e.kind, name: e.name, stack: e.stack, parent: e.parent,
+            queued: e.queued === null ? null : rel(e.queued),
+            start: rel(e.start), end: rel(e.end),
+          };
+        }),
+        tells: tells && tells.map(function (t) {
+          return { t: rel(t.t), kind: t.kind, stack: t.stack, task: t.task };
+        }),
+        // The census walks every commit in test mode, and in a release deck
+        // only while the recorder is armed — so without `tasks` a release
+        // deck has none to give.
+        commits: window.__tugCommits
+          ? window.__tugCommits.since(t0).map(function (c) {
+              return {
+                t: rel(c.t), ms: Math.round(c.ms * 10) / 10, task: c.task,
+                fibers: c.fibers, performed: c.performed, mounted: c.mounted,
+                origins: c.origins, top: c.top, hooks: c.hooks, why: c.why,
+                renderStart: c.renderStart == null ? null : rel(c.renderStart),
+                post: c.post == null ? null : rel(c.post),
+              };
+            })
+          : null,
+      });
+    }
+
+    // The settle mark has been on and has since gone off.
+    function settled() {
+      var on = false;
+      for (var i = 0; i < marks.length; i += 1) {
+        if (marks[i][1]) on = true;
+        else if (on) return true;
+      }
+      return false;
+    }
+
+    // Two frames of chain before the drive, so the gesture lands in a chain
+    // that is already running rather than one it starts.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        setTimeout(function () {
+          t0 = performance.now();
+          var drive = function () { return lab.drive(args.gesture, args.args); };
+          var outcome;
+          if (args.tasks) {
+            lead.arm();
+            outcome = lead.run("gesture", drive);
+          } else {
+            outcome = drive();
+          }
+          if (outcome && outcome.error) {
+            finish(outcome.error);
+            return;
+          }
+          (function poll() {
+            var elapsed = performance.now() - t0;
+            if (args.fixedMs != null) {
+              // A switch sets no settle mark; it is read over a fixed span.
+              if (elapsed >= args.fixedMs) setTimeout(function () { finish(null); }, args.tailMs);
+              else setTimeout(poll, 50);
+            } else if (settled()) {
+              setTimeout(function () { finish(null); }, args.tailMs);
+            } else if (elapsed >= args.capMs) {
+              finish(null);
+            } else {
+              setTimeout(poll, 50);
+            }
+          })();
+        }, 0);
+      });
+    });
+  });
+})

@@ -29,7 +29,7 @@
 
 import type { DeckState } from "../layout-tree";
 import { spaceThemesDiffer, type SpacesSnapshot } from "../spaces";
-import { bullseyePaneIdOf, slotStackOf } from "../deck-store-selectors";
+import { bullseyePaneIdOf, isSidebarStanding, slotStackOf } from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
@@ -861,7 +861,8 @@ export function projectDeckState(
     if (registration.layoutRole !== "sidebar") continue;
     const instance = state.cards.find((c) => c.componentId === componentId);
     sidebars[componentId] = {
-      showing: instance !== undefined,
+      // Showing, not present: a hidden rail parks its members on the deck.
+      showing: instance !== undefined && isSidebarStanding(state, componentId),
       side: sidebarSide(state.imposition, componentId),
       pinned: isSidebarPinned(state.imposition, componentId),
       focused:

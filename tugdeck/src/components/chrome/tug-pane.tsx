@@ -161,6 +161,7 @@ import {
 import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
 import { useSpaceLayerShownSource } from "@/components/chrome/space-layer";
 import { useStoreDerived } from "@/lib/use-store-derived";
+import { panePlaceFactsOf, placeFactsFor, placeSource } from "./pane-place-facts";
 import { CardFoldGlyph, useCardFoldFocus } from "@/components/chrome/card-fold-glyph";
 import type { SpacesSnapshot } from "@/spaces";
 import {
@@ -360,6 +361,16 @@ export interface CardTitleBarProps {
    * picker it opens. Empty for a free pane and for a rail pane.
    */
   slotStack?: readonly SlotStackEntry[];
+  /**
+   * The pane whose place the badge draws. Given, the badge reads the place's
+   * members, this pane's band and the count from the deck itself
+   * (`pane-place-facts.ts`) rather than from {@link slotStack} and
+   * {@link placeArrangement}: those change on every member when one member
+   * comes or goes, and as props they re-rendered each survivor's whole bar —
+   * its tooltips, popovers and confirm popover — for a number on a chip.
+   * Omitted by a bar with no deck behind it, which draws from the props.
+   */
+  placePaneId?: string;
   /** Raise the pane a picker row names. Wired in `DeckCanvas`. */
   onRevealPane?: (entry: SlotStackEntry) => void;
   /**
@@ -393,10 +404,12 @@ export interface CardTitleBarProps {
     mode: ColumnMode;
     kind: "rail" | "column";
     /** This pane's place in the run, topmost first — the band letter the badge
-     *  draws when the place is split. */
-    index: number;
-    /** How many panes share the place. */
-    count: number;
+     *  draws when the place is split. Omitted when {@link placePaneId} is
+     *  given: the badge reads it from the deck. */
+    index?: number;
+    /** How many panes share the place. Omitted with {@link placePaneId}, as
+     *  `index` is. */
+    count?: number;
   };
   /**
    * Arrange the COLUMN this pane stands in. `"split"` / `"stack"` set the mode;
@@ -516,6 +529,206 @@ function sharedVerbRank(commandId: string): number {
 }
 const PLACE_VERB_EQUALIZE = "place:equalize";
 
+interface CardPlaceBadgeProps {
+  placePaneId: string | undefined;
+  slotStack: readonly SlotStackEntry[];
+  placeArrangement: CardTitleBarProps["placeArrangement"];
+  onArrangePlace: CardTitleBarProps["onArrangePlace"];
+  onRevealPane: CardTitleBarProps["onRevealPane"];
+  modalHeld: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+/**
+ * The column badge and the picker it opens: the one part of the title bar
+ * that draws the pane's place in its run.
+ *
+ * Its own component so that it can read that place itself. The count, this
+ * pane's band and the picker rows move on EVERY member of a place when one
+ * member arrives or leaves, so a bar that took them as props re-rendered on
+ * every survivor of a close. Read here, through the deck store ([L02]), a
+ * close re-renders this badge on the panes whose place it changed, and
+ * nothing else of their bars. A bar with no deck behind it (a spike) passes
+ * no `placePaneId` and the badge draws from the props.
+ */
+const CardPlaceBadge = memo(function CardPlaceBadge({
+  placePaneId,
+  slotStack: slotStackProp,
+  placeArrangement,
+  onArrangePlace,
+  onRevealPane,
+  modalHeld,
+  open,
+  onOpenChange,
+}: CardPlaceBadgeProps) {
+  const deck = useContext(DeckManagerContext);
+  const source = useMemo(
+    () => (deck === null || placePaneId === undefined ? null : placeSource(deck)),
+    [deck, placePaneId],
+  );
+  const facts = useStoreDerived(source, (snapshot) =>
+    snapshot === null || placePaneId === undefined
+      ? null
+      : placeFactsFor(snapshot, placePaneId),
+  );
+  const slotStack = facts?.slotStack ?? slotStackProp;
+  // Whether the place this badge describes is a divided rail rather than a
+  // stack of any kind — the one fact the badge's glyph, its label, and its
+  // verbs all read.
+  const placeSplit = placeArrangement?.mode === "split";
+  const badgeKind = placeSplit ? "split" : "stack";
+  const badgeCount =
+    facts !== null
+      ? Math.max(facts.count, 1)
+      : placeArrangement?.count ?? Math.max(slotStack.length, 1);
+  const badgeIndex = facts?.index ?? placeArrangement?.index ?? 0;
+  // A place one card deep. The badge draws its place all the same — `1` for a
+  // stack, `A` for a slot set to split, both true sentences in the vocabulary
+  // it already speaks, and inventing a fourth glyph for solitude would say
+  // nothing either one does not. What DOES turn is the prose: a place holding
+  // one card cannot offer to show you another, so the phrasing below asks a
+  // different question of it.
+  const placeAlone = badgeCount < 2;
+  return (
+    // The tooltip anchors a SPAN around the menu rather than the trigger
+    // button itself. Both `TugTooltip` and `TugPopupMenu` hand their
+    // child to a Radix `asChild` slot, and neither wrapper forwards the
+    // props or the ref that slot injects — so they cannot be nested
+    // directly. A span is a DOM element both can address: the menu takes
+    // the button inside it, the tooltip takes the span. Hover and the
+    // inner button's focus both reach the span (React's `onFocus` is
+    // `focusin`, which bubbles), and the pointerdown that opens the menu
+    // is the same one Radix closes the bubble on.
+    //
+    // The phrase says the COUNT and then the act, in that order, and the
+    // chord chip closes it. The badge is small and its glyph is
+    // schematic, so a reader hovering it is asking two questions at once
+    // — what am I looking at, and what happens if I press — and a
+    // tooltip that answered only the second left the first to be
+    // guessed from a numeral behind a stack of slices.
+    //
+    // `TugActionTooltip`, so the chip is read from the keymap registry
+    // and a rebind reaches the bubble rather than leaving an authored
+    // chord to go stale. ⌃⌘/ is a TOGGLE, which is why the same chord is
+    // named whether the place is stacked or split — it is the way back
+    // as much as the way in.
+    <TugActionTooltip
+      action={TUG_ACTIONS.TOGGLE_COLUMN_SPLIT}
+      content={
+        onArrangePlace !== undefined && placeArrangement !== undefined
+          ? placeSplit
+            ? placeAlone
+              ? `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in this split ${placeArrangement.kind} — press to re-stack it`
+              : `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)} of ${badgeCount} — press to show a card, or re-stack this ${placeArrangement.kind}`
+            : placeAlone
+              ? `One card in this ${placeArrangement.kind} — press to split it`
+              : `${badgeCount} cards in this ${placeArrangement.kind} — press to show one, or split it`
+          : `${badgeCount} cards stacked here — press to show another`
+      }
+    >
+      <span className="tug-pane-title-bar-tooltip-anchor">
+        <TugPopupMenu
+          trigger={
+            <TugButton
+              subtype="icon"
+              emphasis="ghost"
+              role="action"
+              size="sm"
+              /* One badge in the slot chip's footprint, rather than a
+                 lucide glyph beside a numeral. A stack draws how many
+                 cards are behind this one — the fact the eye cannot get,
+                 since a visible stacked card is the top one by
+                 construction. A split draws this member's band letter,
+                 because every band of a split is visible and the badge's
+                 job there is naming rather than revealing. */
+              icon={
+                <TugColumnBadge
+                  kind={badgeKind}
+                  count={badgeCount}
+                  index={badgeIndex}
+                  // The cluster draws the RUN and lets the character
+                  // name the position. At this size a lit rung is a
+                  // fraction of a pixel of extra weight in a ladder the
+                  // height of a lowercase letter — it reads as grit on
+                  // the badge rather than as an answer, and the
+                  // character beside it is already saying the same
+                  // thing exactly. The Cards row keeps the mark, where
+                  // the slot picker's own selection fill teaches it.
+                  showLevel={false}
+                />
+              }
+              className="tug-pane-title-bar-stack-badge"
+              aria-label={
+                placeSplit
+                  ? placeAlone
+                    ? `Split place, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in it`
+                    : `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
+                  : placeAlone
+                    ? "Alone in this place"
+                    : `Stack of ${badgeCount} cards`
+              }
+              data-testid="tug-pane-title-bar-stack-badge"
+              // The badge is a door into the OTHER cards in this place —
+              // showing one, splitting the column. A held card is not a
+              // card to be navigated away from.
+              disabled={modalHeld}
+            />
+          }
+          align="end"
+          open={open}
+          onOpenChange={onOpenChange}
+          items={[
+            ...slotStack.map((entry) => {
+              // Each row is a miniature of the title bar it stands for: the
+              // pane's own icon, then the pane's own title, in that order and
+              // from the same `CardMeta.icon` the real title bar draws.
+              const RowIcon =
+                entry.icon !== undefined && entry.icon in icons
+                  ? icons[entry.icon as keyof typeof icons]
+                  : null;
+              return {
+                id: entry.paneId,
+                label: entry.title,
+                ...(RowIcon === null
+                  ? {}
+                  : { icon: React.createElement(RowIcon) }),
+                // Set on every row, not just the checked one, so the check
+                // column aligns across the menu.
+                selected: entry.selected,
+              };
+            }),
+            // The place's own verbs, below its members. Their ids are
+            // prefixed so they cannot collide with a paneId. Alone in a
+            // place there is nothing to stack and nothing to equalize,
+            // so only the verb that changes that is offered.
+            ...(onArrangePlace === undefined || placeArrangement === undefined
+              ? []
+              : placeSplit
+                ? [
+                    { id: PLACE_VERB_STACK, label: "Stack" },
+                    ...(placeAlone
+                      ? []
+                      : [
+                          { id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" },
+                        ]),
+                  ]
+                : [{ id: PLACE_VERB_SPLIT, label: "Split Vertically" }]),
+          ]}
+          onSelect={(id) => {
+            if (id === PLACE_VERB_SPLIT) return onArrangePlace?.("split");
+            if (id === PLACE_VERB_STACK) return onArrangePlace?.("stack");
+            if (id === PLACE_VERB_EQUALIZE) return onArrangePlace?.("equalize");
+            const entry = slotStack.find((e) => e.paneId === id);
+            if (entry) onRevealPane?.(entry);
+          }}
+          data-testid="tug-pane-title-bar-stack-menu"
+        />
+      </span>
+    </TugActionTooltip>
+  );
+}, (prev, next) => plainEqual(prev, next));
+
 /**
  * The pane's title bar, memoized on its props by value — the same comparator
  * the frame uses ({@link plainEqual}).
@@ -545,6 +758,7 @@ function CardTitleBar({
   resolveCloseAdvice,
   activeCardId,
   slotStack = EMPTY_SLOT_STACK,
+  placePaneId,
   onRevealPane,
   bullseye = false,
   onToggleBullseye,
@@ -559,10 +773,6 @@ function CardTitleBar({
   onClose,
   onDragStart,
 }: CardTitleBarProps, ref) {
-  // Whether the place this badge describes is a divided rail rather than a
-  // stack of any kind — the one fact the badge's glyph, its label, and its
-  // verbs all read.
-  const placeSplit = placeArrangement?.mode === "split";
   // Whether this pane stands in a PLACE at all — a slot, or a rail. That is
   // the badge's whole condition now, and depth is no part of it: a card alone
   // in its column is standing in a place one card deep, which is a true fact
@@ -575,16 +785,6 @@ function CardTitleBar({
   // share a place while reaching the bar without an arrangement record, and
   // when it does the depth the title bar can see for itself still answers.
   const hasPlace = placeArrangement !== undefined || slotStack.length > 1;
-  const badgeKind = placeSplit ? "split" : "stack";
-  const badgeCount = placeArrangement?.count ?? Math.max(slotStack.length, 1);
-  const badgeIndex = placeArrangement?.index ?? 0;
-  // A place one card deep. The badge draws its place all the same — `1` for a
-  // stack, `A` for a slot set to split, both true sentences in the vocabulary
-  // it already speaks, and inventing a fourth glyph for solitude would say
-  // nothing either one does not. What DOES turn is the prose: a place holding
-  // one card cannot offer to show you another, so the phrasing below asks a
-  // different question of it.
-  const placeAlone = badgeCount < 2;
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
   // card published them (the `cardTitleStore` precedent) — no cards-card import.
@@ -1095,7 +1295,13 @@ function CardTitleBar({
     },
     revealStack: () => {
       // A pane with no stack has no badge, therefore no anchor to open at.
-      if (slotStack.length <= 1) return;
+      // The depth is read at the press, from the deck when the bar has one —
+      // the bar does not render from it ([L02]).
+      const depth =
+        deck !== null && placePaneId !== undefined
+          ? placeFactsFor(placeSource(deck).getSnapshot(), placePaneId).slotStack.length
+          : slotStack.length;
+      if (depth <= 1) return;
       // Toggle, not set. The chord that reaches here travels the responder
       // chain, and `sendToFirstResponder` runs the responder action before it
       // notifies the dispatch observers — so an OPEN menu's observeDispatch
@@ -1107,7 +1313,7 @@ function CardTitleBar({
       // pointer callers, where "again" ought to dismiss.
       setStackMenuOpen((prev) => !prev);
     },
-  }), [confirmsClose, onClose, openCloseConfirm, paneCloseIntent, withCloseDecision, slotStack.length]);
+  }), [confirmsClose, onClose, openCloseConfirm, paneCloseIntent, withCloseDecision, slotStack.length, deck, placePaneId]);
 
   const IconComponent =
     icon && icons[icon as keyof typeof icons]
@@ -1621,141 +1827,16 @@ function CardTitleBar({
             badges saying the same true thing about the one place they share,
             which is the honest reading rather than a duplicate. */}
         {hasPlace && (
-          // The tooltip anchors a SPAN around the menu rather than the trigger
-          // button itself. Both `TugTooltip` and `TugPopupMenu` hand their
-          // child to a Radix `asChild` slot, and neither wrapper forwards the
-          // props or the ref that slot injects — so they cannot be nested
-          // directly. A span is a DOM element both can address: the menu takes
-          // the button inside it, the tooltip takes the span. Hover and the
-          // inner button's focus both reach the span (React's `onFocus` is
-          // `focusin`, which bubbles), and the pointerdown that opens the menu
-          // is the same one Radix closes the bubble on.
-          //
-          // The phrase says the COUNT and then the act, in that order, and the
-          // chord chip closes it. The badge is small and its glyph is
-          // schematic, so a reader hovering it is asking two questions at once
-          // — what am I looking at, and what happens if I press — and a
-          // tooltip that answered only the second left the first to be
-          // guessed from a numeral behind a stack of slices.
-          //
-          // `TugActionTooltip`, so the chip is read from the keymap registry
-          // and a rebind reaches the bubble rather than leaving an authored
-          // chord to go stale. ⌃⌘/ is a TOGGLE, which is why the same chord is
-          // named whether the place is stacked or split — it is the way back
-          // as much as the way in.
-          <TugActionTooltip
-            action={TUG_ACTIONS.TOGGLE_COLUMN_SPLIT}
-            content={
-              onArrangePlace !== undefined && placeArrangement !== undefined
-                ? placeSplit
-                  ? placeAlone
-                    ? `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in this split ${placeArrangement.kind} — press to re-stack it`
-                    : `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)} of ${badgeCount} — press to show a card, or re-stack this ${placeArrangement.kind}`
-                  : placeAlone
-                    ? `One card in this ${placeArrangement.kind} — press to split it`
-                    : `${badgeCount} cards in this ${placeArrangement.kind} — press to show one, or split it`
-                : `${badgeCount} cards stacked here — press to show another`
-            }
-          >
-            <span className="tug-pane-title-bar-tooltip-anchor">
-              <TugPopupMenu
-                trigger={
-                  <TugButton
-                    subtype="icon"
-                    emphasis="ghost"
-                    role="action"
-                    size="sm"
-                    /* One badge in the slot chip's footprint, rather than a
-                       lucide glyph beside a numeral. A stack draws how many
-                       cards are behind this one — the fact the eye cannot get,
-                       since a visible stacked card is the top one by
-                       construction. A split draws this member's band letter,
-                       because every band of a split is visible and the badge's
-                       job there is naming rather than revealing. */
-                    icon={
-                      <TugColumnBadge
-                        kind={badgeKind}
-                        count={badgeCount}
-                        index={badgeIndex}
-                        // The cluster draws the RUN and lets the character
-                        // name the position. At this size a lit rung is a
-                        // fraction of a pixel of extra weight in a ladder the
-                        // height of a lowercase letter — it reads as grit on
-                        // the badge rather than as an answer, and the
-                        // character beside it is already saying the same
-                        // thing exactly. The Cards row keeps the mark, where
-                        // the slot picker's own selection fill teaches it.
-                        showLevel={false}
-                      />
-                    }
-                    className="tug-pane-title-bar-stack-badge"
-                    aria-label={
-                      placeSplit
-                        ? placeAlone
-                          ? `Split place, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in it`
-                          : `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
-                        : placeAlone
-                          ? "Alone in this place"
-                          : `Stack of ${badgeCount} cards`
-                    }
-                    data-testid="tug-pane-title-bar-stack-badge"
-                    // The badge is a door into the OTHER cards in this place —
-                    // showing one, splitting the column. A held card is not a
-                    // card to be navigated away from.
-                    disabled={modalHeld}
-                  />
-                }
-                align="end"
-                open={stackMenuOpen}
-                onOpenChange={setStackMenuOpen}
-                items={[
-                  ...slotStack.map((entry) => {
-                    // Each row is a miniature of the title bar it stands for: the
-                    // pane's own icon, then the pane's own title, in that order and
-                    // from the same `CardMeta.icon` the real title bar draws.
-                    const RowIcon =
-                      entry.icon !== undefined && entry.icon in icons
-                        ? icons[entry.icon as keyof typeof icons]
-                        : null;
-                    return {
-                      id: entry.paneId,
-                      label: entry.title,
-                      ...(RowIcon === null
-                        ? {}
-                        : { icon: React.createElement(RowIcon) }),
-                      // Set on every row, not just the checked one, so the check
-                      // column aligns across the menu.
-                      selected: entry.selected,
-                    };
-                  }),
-                  // The place's own verbs, below its members. Their ids are
-                  // prefixed so they cannot collide with a paneId. Alone in a
-                  // place there is nothing to stack and nothing to equalize,
-                  // so only the verb that changes that is offered.
-                  ...(onArrangePlace === undefined || placeArrangement === undefined
-                    ? []
-                    : placeSplit
-                      ? [
-                          { id: PLACE_VERB_STACK, label: "Stack" },
-                          ...(placeAlone
-                            ? []
-                            : [
-                                { id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" },
-                              ]),
-                        ]
-                      : [{ id: PLACE_VERB_SPLIT, label: "Split Vertically" }]),
-                ]}
-                onSelect={(id) => {
-                  if (id === PLACE_VERB_SPLIT) return onArrangePlace?.("split");
-                  if (id === PLACE_VERB_STACK) return onArrangePlace?.("stack");
-                  if (id === PLACE_VERB_EQUALIZE) return onArrangePlace?.("equalize");
-                  const entry = slotStack.find((e) => e.paneId === id);
-                  if (entry) onRevealPane?.(entry);
-                }}
-                data-testid="tug-pane-title-bar-stack-menu"
-              />
-            </span>
-          </TugActionTooltip>
+          <CardPlaceBadge
+            placePaneId={placePaneId}
+            slotStack={slotStack}
+            placeArrangement={placeArrangement}
+            onArrangePlace={onArrangePlace}
+            onRevealPane={onRevealPane}
+            modalHeld={modalHeld}
+            open={stackMenuOpen}
+            onOpenChange={setStackMenuOpen}
+          />
         )}
 
         {closable && (
@@ -2130,17 +2211,6 @@ export interface TugPaneProps {
    */
   contentWidthPx?: number;
   /**
-   * Every pane sharing this pane's slot, topmost first — the slot's stack.
-   * Resolved by `DeckCanvas` for the same reason `placement` is: a pane cannot
-   * see its slot's other occupants from its own state.
-   *
-   * The entries arrive display-resolved (title and topmost flag already
-   * decided), so the title bar renders its stack picker from props alone and
-   * never reaches for the deck store. Absent for a free pane and for a rail,
-   * which hold no slot and therefore stand in no stack.
-   */
-  slotStack?: readonly SlotStackEntry[];
-  /**
    * Raise the pane a stack-picker row names. Wired in `DeckCanvas`, which is
    * where the store lives; the pane and its title bar only report the choice.
    */
@@ -2161,6 +2231,15 @@ export interface TugPaneProps {
    * Resolved by `DeckCanvas` — the pane carries no marker of its own ([P04]).
    */
   sidebarStack?: SidebarStackStanding;
+  /**
+   * Set only on a PARKED rail member — a sidebar card whose rail was hidden
+   * whole — to the side it is parked on. The frame stays mounted at its
+   * pinned box, with `data-rail-parked` (the stylesheet hides it and skips
+   * its contents' layout) and `inert`, and stands in no rail: it takes no
+   * `sidebarStack`, so nothing reads it as a member. A show clears it and the
+   * same frame stands again, with nothing to mount.
+   */
+  railParked?: SidebarSide;
   /**
    * Set only on a pane standing in a SPLIT slot: which slot, which position in
    * its column, and how many members divide the run.
@@ -2395,10 +2474,10 @@ function TugPaneImpl({
   zIndex,
   placement,
   contentWidthPx,
-  slotStack = EMPTY_SLOT_STACK,
   onRevealPane,
   onMoveToSpace,
   sidebarStack,
+  railParked,
   isSidebarPane = false,
   bullseye = false,
   bullseyeExit,
@@ -2408,6 +2487,18 @@ function TugPaneImpl({
   folded = false,
 }: TugPaneProps) {
   const sidebarSide = sidebarStack?.side;
+  // The seat a PARKED rail member last stood at. Parked, the frame is in no
+  // rail and takes no `sidebarStack`, but its title bar is hidden with it and
+  // has nothing to redraw: handing the bar the seat it stood at keeps its
+  // props — the badge's arrangement, the absent width control — exactly what
+  // they were, so the show that stands it again renders no bar and mounts no
+  // control. A member restored parked, never seen standing, has no seat to
+  // keep and is drawn from its pin alone.
+  const lastSeatRef = useRef<SidebarStackStanding | undefined>(sidebarStack);
+  if (sidebarStack !== undefined) lastSeatRef.current = sidebarStack;
+  const barSeat =
+    sidebarStack ?? (railParked !== undefined ? lastSeatRef.current : undefined);
+  const barSide = barSeat?.side ?? railParked;
   // A split rail's member takes its share of the run instead of the whole of
   // it. Passed to the imposer rather than resolved here — the pins are its
   // arithmetic, and a rail of one is stacked geometry whatever the mode says,
@@ -2486,6 +2577,22 @@ function TugPaneImpl({
   const stackId = id;
   const minContentSize = minContentSizeProp ?? DEFAULT_MIN_CONTENT;
   const store = useDeckManager();
+
+  // `data-stack-depth`: how many panes share this pane's place. Written from
+  // the deck rather than rendered from a prop, because the depth moves on
+  // every member when one member comes or goes, and a prop for it re-rendered
+  // each survivor's frame for a number no layout reads ([L06]). Read from the
+  // deck that holds the pane, so a hidden workspace's frames keep theirs.
+  useLayoutEffect(() => {
+    const source = placeSource(store);
+    const write = (): void => {
+      const el = frameRef.current;
+      if (el === null) return;
+      el.dataset.stackDepth = String(placeFactsFor(source.getSnapshot(), stackId).slotStack.length);
+    };
+    write();
+    return source.subscribe(write);
+  }, [store, stackId]);
 
   const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null);
   // Frame element exposed via TugPaneFrameContext and bridged through
@@ -2680,6 +2787,7 @@ function TugPaneImpl({
       // up, so the *next* press is answered by that pane reading its own
       // freshly-ordered stack.
       [TUG_ACTIONS.NEXT_STACK_CARD]: (_event: ActionEvent) => {
+        const slotStack = panePlaceFactsOf(store.getSnapshot(), stackId).slotStack;
         if (slotStack.length <= 1) return;
         const buried = slotStack[slotStack.length - 1];
         if (buried) onRevealPane?.(buried);
@@ -2690,6 +2798,7 @@ function TugPaneImpl({
       // second-from-top instead would ping-pong. Focus rides
       // `transferFocusForActivation` like every other activation path.
       [TUG_ACTIONS.PREVIOUS_STACK_CARD]: (_event: ActionEvent) => {
+        const slotStack = panePlaceFactsOf(store.getSnapshot(), stackId).slotStack;
         if (slotStack.length <= 1) return;
         const next = slotStack[1];
         const bottom = slotStack[slotStack.length - 1];
@@ -4641,6 +4750,8 @@ function TugPaneImpl({
       imposeStyle({ slot: 0, count: 1 }, bullseyeWidth, pinnedFrame)
     : sidebarSide !== undefined
       ? imposeSidebarStyle(sidebarSide, renderWidth, railMember)
+      : railParked !== undefined
+        ? imposeSidebarStyle(railParked, renderWidth)
       : imposed && placement !== undefined
         ? arriving === "bottom"
           ? // The seat a newcomer will take ([B08]): the bottom of the run at
@@ -4764,6 +4875,11 @@ function TugPaneImpl({
       // `:has()` does not invalidate on a descendant attribute change.
       {...(isRail ? { "data-role": "sidebar" } : {})}
       {...(isSidebarPane ? { "data-sidebar-pane": "" } : {})}
+      // Parked: its rail hidden whole. Hidden and skipped by the stylesheet,
+      // inert to pointer and keyboard, and out of every shown-frame query.
+      {...(railParked !== undefined
+        ? { "data-rail-parked": railParked, inert: true }
+        : {})}
       // `data-rail-side` is NOT the same bit: it carries which edge a rail is
       // pinned to, and a released rail has rail chrome with no side.
       {...(sidebarSide !== undefined ? { "data-rail-side": sidebarSide } : {})}
@@ -4810,7 +4926,6 @@ function TugPaneImpl({
       // frame, and the stylesheet-free `visibility` below is what keeps it
       // laying out while nothing can see, focus, or click it.
       {...(arriving !== undefined ? { "data-arriving": arriving } : {})}
-      data-stack-depth={String(slotStack.length)}
       style={{
         position: "absolute",
         ...modeStyle,
@@ -4831,7 +4946,10 @@ function TugPaneImpl({
           Everything else exposes all eight, imposed or not: resizing an imposed
           pane releases it from its slot, so there is no edge it needs to be
           protected from. */}
-      {sidebarSide !== undefined ? (
+      {/* `barSide`: a PARKED member keeps its rail edge, as its bar keeps its
+          seat — the frame is inert and hidden, and swapping its one edge for
+          a free pane's eight would be a mount the show pays for. */}
+      {barSide !== undefined ? (
         // A rail standing in bullseye exposes no edge at all. Its one handle
         // drags the RAIL's width — measured from the deck edge the rail is
         // pinned to — and the frame would not be standing there, so the drag
@@ -4849,7 +4967,7 @@ function TugPaneImpl({
         // silence [L31] forbids.
         bullseye || railWidthGesture === null ? null : (
           <div
-            className={`tug-pane-resize tug-pane-rail-edge tug-pane-resize-${sidebarSide === "left" ? "e" : "w"}`}
+            className={`tug-pane-resize tug-pane-rail-edge tug-pane-resize-${barSide === "left" ? "e" : "w"}`}
             onPointerDown={handleSidebarResizeStart}
           />
         )
@@ -4876,7 +4994,7 @@ function TugPaneImpl({
             title={displayTitle}
             icon={effectiveMeta.icon}
             closable={closable}
-            {...(sidebarSide === undefined
+            {...(barSide === undefined
               ? {
                   widthPreset: stackState.widthPreset ?? null,
                   onSetWidth: handleSetWidth,
@@ -4888,7 +5006,7 @@ function TugPaneImpl({
             confirmClose={paneConfirmClose}
             resolveCloseAdvice={resolveCloseAdvice}
             activeCardId={activeCardId}
-            slotStack={slotStack}
+            placePaneId={stackId}
             onRevealPane={onRevealPane}
             // Neither verb is a rail's, and the bar is told so by being handed
             // neither handler — the same shape `onSetWidth` already takes
@@ -4902,7 +5020,7 @@ function TugPaneImpl({
                   bullseye,
                   onToggleBullseye: handleToggleBullseye,
                 })}
-            {...(sidebarStack !== undefined
+            {...(barSeat !== undefined || barSide !== undefined
               ? {
                   // A rail is always divided, so the badge draws the band and
                   // lists the side's members — and passes no `onArrangePlace`,
@@ -4914,12 +5032,10 @@ function TugPaneImpl({
                   // count, exactly as a slot of one does, rather than a band
                   // letter naming a division that is not there.
                   placeArrangement: {
-                    mode: (sidebarStack.count > 1
+                    mode: ((barSeat?.count ?? 1) > 1
                       ? "split"
                       : "stack") as ColumnMode,
                     kind: "rail" as const,
-                    index: sidebarStack.memberIndex,
-                    count: sidebarStack.count,
                   },
                 }
               : placement !== undefined
@@ -4946,11 +5062,9 @@ function TugPaneImpl({
                     placeArrangement: {
                       mode: columnMode ?? ("stack" as ColumnMode),
                       kind: "column" as const,
-                      // A stacked column has no member record and needs none:
-                      // the badge draws the depth, and every pane in the stack
-                      // draws the same one.
-                      index: columnMember?.index ?? 0,
-                      count: columnMember?.count ?? slotStack.length,
+                      // The band and the count are not here: the badge reads
+                      // them from the deck (`placePaneId`), so a close moves no
+                      // survivor's bar.
                     },
                     onArrangePlace: handleArrangePlace,
                   }

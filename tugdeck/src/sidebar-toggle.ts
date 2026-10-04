@@ -35,7 +35,7 @@
 
 import type { IDeckManagerStore } from "./deck-manager-store";
 import {
-  isSidebarPinned,
+  isSidebarSeated,
   railHiddenMembers,
   sidebarSide,
   type SidebarSide,
@@ -62,9 +62,11 @@ export function toggleSidebarRail(
 ): void {
   const state = store.getSnapshot();
   const imposition = state.imposition;
+  // The members SEATED on the side: a parked rail is not showing, so the
+  // ladder's first rung — show it — is the answer for it.
   const members = findSidebarPanes(state).filter(
     ({ componentId }) =>
-      isSidebarPinned(imposition, componentId) &&
+      isSidebarSeated(imposition, componentId) &&
       sidebarSide(imposition, componentId) === side,
   );
   const outgoingCardId = store.getFirstResponderCardId();
@@ -105,17 +107,17 @@ export function toggleSidebarRail(
  * pressing this is asking for room to read in, not for the keyboard to go to
  * a rail.
  *
- * **Showing puts back only what a hide took away.** `hideSidebarRail` records
- * each side's members before it closes them, so the show branch reopens the
- * sides that carry such a memory and leaves the others alone —
+ * **Showing puts back only what a hide took away.** `hideSidebarRail` parks
+ * each side's members under a memory, so the show branch unparks the sides
+ * that carry one and leaves the others alone —
  * `showSidebarRail` on a side with no memory falls back to that side's default
  * member, which on a deck the user had never opened a right rail on would MINT
  * one the gesture never hid. The fallback is right in exactly one case: no
  * side remembers anything, which is a first press of Show with nothing to
  * restore, and there the gesture means "open what each side would open".
  *
- * **The keyboard stays where the reader left it.** A hide's closes hand it on
- * themselves, and a show has to hand it BACK: `showSidebarPane` mints its pane
+ * **The keyboard stays where the reader left it.** A hide hands it on as a
+ * close would, and a show has to hand it BACK: `showSidebarPane` mints its pane
  * as the active one — right for ⌃⌘L, which is a summons — so without this the
  * gesture that gives the reader room to read would take their caret out of the
  * card they were typing in. The card the keyboard was on is re-activated when
@@ -126,7 +128,7 @@ export function toggleSidebars(store: IDeckManagerStore): void {
   const state = store.getSnapshot();
   const imposition = state.imposition;
   const standing = findSidebarPanes(state).some(({ componentId }) =>
-    isSidebarPinned(imposition, componentId),
+    isSidebarSeated(imposition, componentId),
   );
   const sides: readonly SidebarSide[] = ["left", "right"];
 

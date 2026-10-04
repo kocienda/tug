@@ -310,8 +310,8 @@
                 ? window.__tugCommits.since(click).map(function (c) {
                     return {
                       t: rel(c.t), ms: Math.round(c.ms * 10) / 10, task: c.task,
-                      fibers: c.fibers, performed: c.performed,
-                      origins: c.origins, top: c.top, hooks: c.hooks,
+                      fibers: c.fibers, performed: c.performed, mounted: c.mounted,
+                      origins: c.origins, top: c.top, hooks: c.hooks, why: c.why,
                       // The first store read of the render, and the end of
                       // the commit's passive effects; either may be absent.
                       renderStart: c.renderStart == null ? null : rel(c.renderStart),

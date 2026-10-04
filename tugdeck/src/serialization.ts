@@ -490,6 +490,18 @@ function parseRails(
       if (Object.keys(weights).length > 0) arrangement.shares = weights;
     }
 
+    // The hide's memory. A rail hidden whole PARKS its members on the deck,
+    // so a deck saved with a memory carries those members' panes and cards
+    // too, and must come back parked: dropping the memory here would reload
+    // every one of them standing.
+    const hidden = entry["hidden"];
+    if (Array.isArray(hidden)) {
+      const ids = hidden
+        .filter((id): id is string => typeof id === "string")
+        .map(migrateComponentId);
+      if (ids.length > 0) arrangement.hidden = ids;
+    }
+
     // Nothing survived: the side is absent, which is what a stack already is.
     if (Object.keys(arrangement).length === 0) continue;
     rails[side] = arrangement;

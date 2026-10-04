@@ -130,6 +130,16 @@ import {
  * `arm` find the strips' entries among the frames'.
  */
 const RAIL_SHADOW_TWEEN_PREFIX = "rail-shadow:";
+
+/**
+ * The rail shadow strips that STAND. A parked rail keeps its strip mounted and
+ * hidden (`data-rail-parked`), and the settle reads it as gone — the way
+ * `SHOWN_PANE_FRAMES` reads its frames — so a hide still ghosts the strip out
+ * with the panel, and the show still brings it in as an arrival.
+ */
+const STANDING_RAIL_SHADOWS = "[data-rail-shadow]:not([data-rail-parked])";
+const standingRailShadowOf = (side: string): string =>
+  `[data-rail-shadow="${side}"]:not([data-rail-parked])`;
 function railShadowTweenKey(side: SidebarSide): string {
   return `${RAIL_SHADOW_TWEEN_PREFIX}${side}`;
 }
@@ -1694,7 +1704,7 @@ export function useSettleEngine({
       }
       if (measure) {
         for (const strip of el.querySelectorAll<HTMLElement>(
-          "[data-rail-shadow]",
+          STANDING_RAIL_SHADOWS,
         )) {
           const side = strip.getAttribute("data-rail-shadow");
           if (side !== "left" && side !== "right") continue;
@@ -2725,7 +2735,7 @@ export function useSettleEngine({
       const side = frame.getAttribute("data-rail-side");
       if (side === "left" || side === "right") railArrivingSides.delete(side);
     }
-    for (const strip of el.querySelectorAll<HTMLElement>("[data-rail-shadow]")) {
+    for (const strip of el.querySelectorAll<HTMLElement>(STANDING_RAIL_SHADOWS)) {
       const side = strip.getAttribute("data-rail-shadow");
       if (side !== "left" && side !== "right") continue;
       const key = railShadowTweenKey(side);
@@ -2846,7 +2856,7 @@ export function useSettleEngine({
         departure.travelPx = travelBySide.get(side) ?? 0;
       }
       for (const [side, px] of travelBySide) {
-        if (el.querySelector(`[data-rail-shadow="${side}"]`) !== null) continue;
+        if (el.querySelector(standingRailShadowOf(side)) !== null) continue;
         const rect = firstRailShadows.get(side);
         if (rect === undefined) continue;
         const ghost = document.createElement("div");

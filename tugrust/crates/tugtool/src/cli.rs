@@ -1168,6 +1168,52 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// Drive one settle gesture and name every React commit in its window.
+    ///
+    /// Drives the gesture through the deck's own gesture door,
+    /// `window.tugdeck.lab.drive`, and reports every commit between the
+    /// settle mark going on and off, 60 ms either side: its React time, the
+    /// fibers it performed and mounted, the components that asked for it, the
+    /// store changes that caused it, and why each pane-chrome component
+    /// rendered — beside a census of the deck and an at-rest check. A deck
+    /// that is not at rest is reported and not read.
+    ///
+    /// `--count` repeats the gesture, undoing it in between: `fold`/`unfold`
+    /// alternate, `split` alternates the mode, `switch` and `flip` go back to
+    /// where the deck stood, `rails` hides before each show it reads (so start
+    /// with the rails showing), and a pane closes once. A release deck walks
+    /// React commits only with `--tasks`.
+    Settle {
+        /// The gesture to drive.
+        #[arg(long, value_parser = crate::commands::deck_motion_settle::GESTURE_NAMES)]
+        gesture: String,
+        /// The card `flip`, `fold` and `unfold` act on.
+        #[arg(long)]
+        card: Option<String>,
+        /// The pane `close` closes.
+        #[arg(long)]
+        pane: Option<String>,
+        /// The slot `split` sets the column mode of, 0-based.
+        #[arg(long)]
+        slot: Option<u32>,
+        /// The column mode `split` sets first.
+        #[arg(long, value_parser = ["split", "stack"])]
+        mode: Option<String>,
+        /// The workspace `switch` activates.
+        #[arg(long)]
+        space: Option<String>,
+        /// Gestures read.
+        #[arg(long, default_value_t = 3)]
+        count: u32,
+        /// Also install the lead recorder and attribute each commit: its React
+        /// time from the render's first store read, and the store changes or
+        /// flushSyncs that caused it. The first run on a page reloads the deck
+        /// to install the recorder.
+        #[arg(long)]
+        tasks: bool,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// Price the compositing walk with a named subtree skipped or removed.
     ///
     /// A frame with nothing dirty runs no walk, so this drives one: inside

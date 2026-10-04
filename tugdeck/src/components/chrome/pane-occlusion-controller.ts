@@ -73,10 +73,11 @@
  */
 
 import { useLayoutEffect, useRef } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { useStoreDerived } from "@/lib/use-store-derived";
 
 import { useDeckManager } from "@/deck-manager-context";
 import { SHOWN_PANE_FRAMES } from "./space-layer";
+import { canvasDeck, canvasDeckEqual } from "./canvas-deck-fields";
 
 /** Settle delay before a newly-covered pane is actually hidden. Restarted by
  *  every apply pass and re-deferred while any frame is animating; this is a
@@ -328,7 +329,11 @@ export function usePaneOcclusionController(
   deckRootRef: React.RefObject<HTMLDivElement | null>,
 ): void {
   const store = useDeckManager();
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // The canvas's own narrowed read: every geometry-changing commit reaches the
+  // reactive pass below, which is how a reveal shares the paint with the
+  // change that exposed the pane. Only a commit that moves nothing the canvas
+  // reads (window focus) is dropped.
+  const snapshot = useStoreDerived(store, canvasDeck, canvasDeckEqual);
   const activePaneId = snapshot.activePaneId ?? null;
 
   const hideTimerRef = useRef<number | null>(null);

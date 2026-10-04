@@ -221,8 +221,9 @@ export interface RailArrangement {
    * The members standing on the side when the rail as a whole was last hidden,
    * by componentId — what showing the rail again brings back.
    *
-   * A rail toggle addresses the SIDE, so hiding one closes every member at once
-   * and showing it has to know which ones to reopen. `order` cannot answer
+   * A rail toggle addresses the SIDE, so hiding one PARKS every member at
+   * once — on the deck, mounted, seated nowhere ({@link isRailRemembered}) —
+   * and showing it has to know which ones to stand again. `order` cannot answer
    * that: it outlives the members it names deliberately ([L23]), so it still
    * holds the card the user closed by hand a week ago, and reading it would
    * resurrect that card the first time the rail was shown. This field records
@@ -501,6 +502,39 @@ export function railHiddenMembers(
   return imposition.rails?.[side]?.hidden ?? [];
 }
 
+/**
+ * Whether `componentId` is named in the hidden memory of the side it holds.
+ *
+ * A rail hidden whole PARKS its members rather than closing them: they stay
+ * in the deck, their cards mounted, and the memory names them. So a sidebar
+ * card that is present and remembered is parked — standing nowhere, seated in
+ * no rail, inset from nothing — and one that is present and not remembered
+ * stands. Absent and remembered is a deck saved before parking existed, or
+ * a member closed while parked; a show mints those back.
+ */
+export function isRailRemembered(
+  imposition: DeckImposition,
+  componentId: string,
+): boolean {
+  return railHiddenMembers(imposition, sidebarSide(imposition, componentId)).includes(
+    componentId,
+  );
+}
+
+/**
+ * Whether a present sidebar card takes a seat in its side's rail: pinned, and
+ * not parked by a hide ({@link isRailRemembered}). Every reader that asks
+ * "which members stand on this rail" — its order, its allocation, its width,
+ * the band's inset — asks this, not {@link isSidebarPinned}, which is the
+ * card's pin setting and holds through a hide.
+ */
+export function isSidebarSeated(
+  imposition: DeckImposition,
+  componentId: string,
+): boolean {
+  return isSidebarPinned(imposition, componentId) && !isRailRemembered(imposition, componentId);
+}
+
 /** The imposition remembering that `side` held `hidden` when its rail went
  *  away — or, given an empty list, remembering nothing, which is what a show
  *  writes once it has reopened what the memory named. */
@@ -509,9 +543,21 @@ export function withRailHidden(
   side: SidebarSide,
   hidden: readonly string[],
 ): DeckImposition {
-  return withRailField(imposition, side, {
-    hidden: hidden.length === 0 ? undefined : [...hidden],
-  });
+  if (hidden.length > 0) return withRailField(imposition, side, { hidden: [...hidden] });
+  // Forgetting removes the key — and a side record, and the rails record,
+  // left empty by it — rather than writing `hidden: undefined`. A hide and
+  // its show are then a round trip to the same imposition, value for value,
+  // and a reader comparing by value sees nothing moved.
+  const current = imposition.rails?.[side];
+  if (current === undefined || !("hidden" in current)) return imposition;
+  const { hidden: _forgotten, ...rest } = current;
+  const rails = { ...imposition.rails };
+  if (Object.keys(rest).length > 0) rails[side] = rest;
+  else delete rails[side];
+  const next = { ...imposition };
+  if (Object.keys(rails).length > 0) next.rails = rails;
+  else delete next.rails;
+  return next;
 }
 
 /** The imposition with `side`'s height weights replaced. */

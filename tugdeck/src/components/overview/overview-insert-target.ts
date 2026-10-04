@@ -39,6 +39,7 @@ import {
   insertSubstrateAt,
 } from "@/components/tugways/tug-text-editor/drop-extension";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { isSidebarStanding } from "@/deck-store-selectors";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import type { AtomSegment } from "@/lib/tug-text-types";
 import type {
@@ -56,7 +57,9 @@ import type {
 export const OVERVIEW_COMPOSER_FOCUS_KEY = "overview-card:0";
 
 /**
- * The Overview card's live id, or `null` when the rail is not showing.
+ * The Overview card's live id, or `null` when the rail is not showing —
+ * closed, or parked by a rail hide, which keeps the card on the deck but
+ * hidden and inert, where a placement would land in nothing.
  *
  * {@link OVERVIEW_CARD_ID} is the card's **componentId** — its entry in the
  * registry — and the focus engine keys its contexts by the **card id**, which
@@ -66,8 +69,9 @@ export const OVERVIEW_COMPOSER_FOCUS_KEY = "overview-card:0";
  * paints nothing. Read live, because the id does not survive a hide.
  */
 function overviewCardId(): string | null {
-  const cards = getDeckStore()?.getSnapshot().cards ?? [];
-  return cards.find((c) => c.componentId === OVERVIEW_CARD_ID)?.id ?? null;
+  const deck = getDeckStore()?.getSnapshot();
+  if (deck === undefined || !isSidebarStanding(deck, OVERVIEW_CARD_ID)) return null;
+  return deck.cards.find((c) => c.componentId === OVERVIEW_CARD_ID)?.id ?? null;
 }
 
 /**

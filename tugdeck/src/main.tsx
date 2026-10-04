@@ -56,6 +56,7 @@ import { keyboardAccessStore, normalizeKeyboardAccessMode } from "./keyboard-acc
 import { KEYMAP_DOMAIN, keymapOverrideStore } from "./keymap-override-store";
 import { focusRingModalityStore, normalizeFocusRingModality } from "./focus-ring-modality-store";
 import { getThemeSetter } from "./action-dispatch";
+import { driveGesture } from "./lib/gesture-drivers";
 import {
   sendCanvasColor,
   seedOnScreenTheme,
@@ -158,6 +159,10 @@ declare global {
        */
       lab: {
         dispatch(action: string, payload?: Record<string, unknown>): void;
+        drive(
+          gesture: string,
+          args?: Record<string, unknown>,
+        ): { ok: true } | { error: string };
         seedDeck(state: unknown, focusCardId?: string): void;
         createSpace(name?: string): string;
         renameSpace(spaceId: string, name: string): void;
@@ -980,12 +985,22 @@ async function withBootHorizon<T>(
      * script could already drive any of this by synthesizing clicks on
      * real controls. What is new is convenience for a developer who has
      * already opened that door, not a door.
+     *
+     * `drive` adds one thing `dispatch` cannot say: a settle gesture by
+     * name, including the close, whose `close-pane` action takes its pane
+     * from the dispatch target rather than a payload. Each gesture calls
+     * the door a user's gesture reaches (`lib/gesture-drivers.ts`), so it
+     * widens nothing — a close is a move page script could already make
+     * by clicking the pane's X.
      */
     lab: {
       /** Run a control action exactly as a menu item or control would. */
       dispatch: (action: string, payload?: Record<string, unknown>) => {
         dispatchAction({ ...payload, action });
       },
+      /** Perform a settle gesture by name (`lib/gesture-drivers.ts`). */
+      drive: (gesture: string, args?: Record<string, unknown>) =>
+        driveGesture(dispatchAction, gesture, args),
       /**
        * Replace the deck's state wholesale. The caller passes a
        * fully-formed `DeckState`; there is no merge with what was

@@ -111,3 +111,24 @@
   content-visibility: visible;
   pointer-events: auto;
 }
+
+/* A PARKED rail member: its rail was hidden whole, and its frame stays
+   mounted at its pinned box rather than closing, so the show that brings it
+   back mounts nothing. Hidden for the same reasons a hidden workspace is —
+   off screen, out of hit-testing, and its contents' paint skipped — and
+   `inert` on the frame keeps the keyboard out. `SHOWN_PANE_FRAMES` leaves it
+   out of every sweep, and its loops pause (`space-layer-loops.ts`). */
+.tug-pane[data-rail-parked] {
+  visibility: hidden;
+  content-visibility: hidden;
+  pointer-events: none;
+}
+
+/* And the parked rail's own chrome on the canvas — its shadow, its seams,
+   the vacancy it holds open opposite — kept mounted for the same show. */
+.tug-rail-shadow[data-rail-parked],
+.tug-place-seam[data-rail-parked],
+.tug-rail-vacancy[data-rail-parked] {
+  visibility: hidden;
+  pointer-events: none;
+}

@@ -276,6 +276,12 @@ fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
     script_page(port, PAGE, args)
 }
 
+/// The deck's census — its size and its panes — that every reading carries
+/// beside its numbers. `None` when the eval door is shut.
+pub(crate) fn census(port: u16) -> Result<Option<Value>, String> {
+    page(port, json!({"op": "census"}))
+}
+
 /// Post one op of an embedded page script. `None` when the eval door is shut;
 /// a page `{error}` comes back as `Err`, carrying the row titles when the page
 /// sent them.
@@ -435,12 +441,27 @@ pub struct RawCommit {
     pub task: i64,
     #[serde(default)]
     pub performed: u64,
+    /// Every fiber the census walk visited, performed or not.
+    #[serde(default)]
+    pub fibers: u64,
+    /// The performed fibers that had no alternate: mounts, which `performed`
+    /// alone cannot tell from re-renders.
+    #[serde(default)]
+    pub mounted: u64,
+    /// The components that performed the most, with how many of each.
+    #[serde(default)]
+    pub top: Vec<(String, u64)>,
     /// The components that rendered on their own state, a store or a context
     /// rather than because a parent did, with how many of each.
     #[serde(default)]
     pub origins: Vec<(String, u64)>,
     #[serde(default)]
     pub hooks: Vec<String>,
+    /// Why each watched pane-chrome component rendered: `Name@<id>{keys}`,
+    /// a bare key moved in value and a `~key` only in identity, or
+    /// `Name@<id>[state/ctx]` when a hook asked (`tugdeck/index.html`).
+    #[serde(default)]
+    pub why: Vec<String>,
     /// The first store snapshot read since the previous commit — the
     /// earliest the render is known to have been running. A lower bound:
     /// production React exposes no render start of its own.
@@ -745,7 +766,7 @@ pub struct CommitRow {
 /// How many origins name a commit.
 const ORIGINS_NAMED: usize = 4;
 
-fn origins_label(origins: &[(String, u64)]) -> String {
+pub(crate) fn origins_label(origins: &[(String, u64)]) -> String {
     if origins.is_empty() {
         return "(no origin: a root render or a parent's props)".to_string();
     }
@@ -851,7 +872,7 @@ const RELOAD_SETTLE_MS: u64 = 8000;
 
 /// Make sure the page carries the lead recorder, reloading the deck to install
 /// it when it does not. `Ok(false)` when the eval door is shut.
-fn ensure_recorder(port: u16, quiet: bool) -> Result<bool, String> {
+pub(crate) fn ensure_recorder(port: u16, quiet: bool) -> Result<bool, String> {
     let installed = |value: &Value| value.get("installed").and_then(|v| v.as_bool()) == Some(true);
     match page(port, json!({"op": "recorder"}))? {
         None => return Ok(false),
@@ -1076,7 +1097,7 @@ pub fn run_slide(
     Ok(0)
 }
 
-fn print_census(census: &Value) {
+pub(crate) fn print_census(census: &Value) {
     let n = |k: &str| census.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
     println!(
         "deck: {} elements, {} stacking contexts, {} render-layer candidates",
@@ -1670,6 +1691,22 @@ mod tests {
         assert_eq!(tags[1].callback_ms, 4.0);
         assert!(tags[1].commits.is_empty());
         assert_eq!(tags[1].query_calls, 0);
+    }
+
+    #[test]
+    fn a_commit_parses_with_or_without_the_census_detail() {
+        // A census from before `mounted` and the forwarded `why` still parses.
+        let bare: RawCommit = serde_json::from_value(json!({"t": 1.0})).unwrap();
+        assert_eq!((bare.fibers, bare.mounted), (0, 0));
+        assert!(bare.top.is_empty() && bare.why.is_empty());
+        let full: RawCommit = serde_json::from_value(json!({
+            "t": 1.0, "fibers": 900, "performed": 40, "mounted": 12,
+            "top": [["div", 20]], "why": ["TugPaneImpl@p1{columnMember}"],
+        }))
+        .unwrap();
+        assert_eq!((full.fibers, full.performed, full.mounted), (900, 40, 12));
+        assert_eq!(full.top, vec![("div".to_string(), 20)]);
+        assert_eq!(full.why, vec!["TugPaneImpl@p1{columnMember}".to_string()]);
     }
 
     #[test]
