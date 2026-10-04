@@ -175,6 +175,8 @@ pub const TMP_PREFIXES: &[TmpPrefix] = &[
     file("tug-turn-boundary-skew-warned"),
     // Directories.
     dir("tug-probe-"),
+    // `tugtool deck motion sample`'s per-process `sample` output directory.
+    dir("tug-slide-sample-"),
     // `testTmpDir()` in the app-test harness.
     dir("tug-scratch-"),
     dir("tugcast-capture-"),
