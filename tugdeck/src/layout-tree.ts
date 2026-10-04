@@ -508,6 +508,35 @@ export interface DeckState {
    * with its last entry, so absence is the one reading of "nothing arriving".
    */
   arriving?: Readonly<Record<string, true>>;
+  /**
+   * The DEPARTING mark: the panes that have closed but are still drawn,
+   * keyed by pane id the way {@link DeckState.arriving} is — its twin at the
+   * other end of a pane's life.
+   *
+   * A marked pane is the real frame, kept mounted, `inert` and outside the
+   * solver, so the settle can carry it out on the frame itself rather than
+   * on a ghost planted inside the window. The mark lives only in the deck
+   * the store PUBLISHES: the deck manager's own working deck never holds a
+   * departing pane, and its snapshot composes them back in at their old
+   * positions (`composeDeparting` in `lib/departing.ts`). So every reader
+   * that lists or counts reads through `standingDeck` and sees past them,
+   * while a read of one pane or card by id still finds a departing one,
+   * unchanged, for the length of its fade. The settle's land is the one
+   * commit that removes the pane, its cards and the mark together.
+   *
+   * `true` rather than a time or a reason: what the record says is WHICH
+   * panes are leaving, and the settle that carries them out is what knows
+   * when.
+   *
+   * Session state only, and never serialized, for {@link
+   * DeckState.arriving}'s reason: nothing is departing across a restart, and
+   * a restored mark would hold a closed card on screen with nothing to land
+   * it.
+   *
+   * Absent, rather than empty, when nothing is departing: the field goes away
+   * with its last entry, so absence is the one reading of "nothing departing".
+   */
+  departing?: Readonly<Record<string, true>>;
 }
 
 // ---- Invariant validation ----

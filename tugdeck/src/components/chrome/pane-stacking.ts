@@ -21,6 +21,7 @@ import { type RefObject, useLayoutEffect } from "react";
 import { findSidebarPanes } from "@/deck-store-selectors";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import type { DeckState } from "@/layout-tree";
+import { withDepartingStanding } from "@/lib/departing";
 import { revealPaneFrame } from "./pane-occlusion-controller";
 import { SHOWN_PANE_FRAMES } from "./space-layer";
 
@@ -138,6 +139,10 @@ export function buildZIndexMap(
 
 /** A deck's pane z-order, as its arrangement renders it. */
 export function paneZIndexMap(deck: DeckState): Map<string, number> {
+  // Ranked over the RENDERED set, departing panes included, so the inline
+  // writes below agree with the canvas's own z-map while a pane is carried
+  // out — the canvas ranks the same picture.
+  deck = withDepartingStanding(deck);
   return buildZIndexMap(
     deck.panes,
     new Set(findSidebarPanes(deck).map(({ pane }) => pane.id)),

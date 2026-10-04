@@ -112,6 +112,7 @@ import {
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import { stepCardRing } from "@/lib/card-ring";
 import type { DeckState, TugPaneState } from "@/layout-tree";
+import { standingDeck, withDepartingStanding } from "@/lib/departing";
 import { useDeckManager } from "@/deck-manager-context";
 import { cardDragCoordinator } from "@/card-drag-coordinator";
 import { selectionGuard } from "@/components/tugways/selection-guard";
@@ -281,6 +282,7 @@ const COLUMN_SEAM_MAX_SLOT = slotCount("six-up") - 1;
  *  than a fresh `{}` per render, so the memos reading it are not re-run by an
  *  identity that changes for no reason. */
 const EMPTY_COLUMN_OFFSETS: Readonly<Record<number, number>> = Object.freeze({});
+const NO_DEPARTING: ReadonlySet<string> = new Set();
 
 /** The rail-offsets record's twin of {@link EMPTY_COLUMN_OFFSETS}, and a
  *  frozen singleton for the same reason. */
@@ -1221,6 +1223,10 @@ interface LayerArrangement {
   readonly contentWidthPx: number;
   readonly bullseyePaneId: string | null;
   readonly bullseyeAnchorCentre: string | undefined;
+  /** The panes the shown deck is carrying out, rendered `departing` at the
+   *  place they stood ({@link deriveShownArrangement}). Empty on every other
+   *  arrangement. */
+  readonly departingPaneIds: ReadonlySet<string>;
 }
 
 /**
@@ -1435,6 +1441,73 @@ function deriveLayerArrangement(
     contentWidthPx,
     bullseyePaneId,
     bullseyeAnchorCentre,
+    departingPaneIds: NO_DEPARTING,
+  };
+}
+
+/**
+ * The SHOWN deck's arrangement, which is the one deck that can be carrying a
+ * pane out.
+ *
+ * The store publishes a closed pane, its cards and a `departing` mark for one
+ * settle (`lib/departing.ts`), and the canvas draws that pane where it stood
+ * so the settle can run its `depart` beat on the real frame. Two arrangements
+ * answer that:
+ *
+ * - the STANDING one, over the deck without the departing panes, which is
+ *   where every survivor goes: they take the room the close gave up;
+ * - the PICTURE, over the deck as if the departing panes still stood, which is
+ *   where each departing pane is drawn — its placement, its column band, its
+ *   rail seat.
+ *
+ * The collections come from the picture for EVERY pane while anything
+ * departs: the frames to render (so the departing one renders at all), the
+ * cards and their hosts (so its content is not unmounted at frame one), and
+ * the z-map. That last one cannot be split per pane: `buildZIndexMap` ranks
+ * by array position, so a standing map gives the survivor that took the
+ * closed pane's position the same `zIndex` the picture gives the departing
+ * pane. Survivors' relative order is the same in both maps.
+ *
+ * Identity with {@link deriveLayerArrangement} when nothing departs.
+ */
+function deriveShownArrangement(
+  deck: DeckState,
+  placeRuns: PlaceRuns,
+): LayerArrangement {
+  const standing = deriveLayerArrangement(standingDeck(deck), placeRuns);
+  const marks = deck.departing;
+  if (marks === undefined) return standing;
+  const picture = deriveLayerArrangement(withDepartingStanding(deck), placeRuns);
+  const departing = new Set(Object.keys(marks));
+  const theirs = <V,>(
+    ours: ReadonlyMap<string, V>,
+    pictured: ReadonlyMap<string, V>,
+  ): ReadonlyMap<string, V> => {
+    const merged = new Map(ours);
+    for (const paneId of departing) {
+      merged.delete(paneId);
+      const value = pictured.get(paneId);
+      if (value !== undefined) merged.set(paneId, value);
+    }
+    return merged;
+  };
+  return {
+    ...standing,
+    sidebarPaneIds: picture.sidebarPaneIds,
+    columnMemberByPaneId: theirs(standing.columnMemberByPaneId, picture.columnMemberByPaneId),
+    columnModeByPaneId: theirs(standing.columnModeByPaneId, picture.columnModeByPaneId),
+    stackByPaneId: theirs(standing.stackByPaneId, picture.stackByPaneId),
+    parkedRailSideByPaneId: theirs(
+      standing.parkedRailSideByPaneId,
+      picture.parkedRailSideByPaneId,
+    ),
+    placementFor: (pane) =>
+      departing.has(pane.id) ? picture.placementFor(pane) : standing.placementFor(pane),
+    sortedStacks: picture.sortedStacks,
+    zIndexMap: picture.zIndexMap,
+    hostStackIdByCardId: picture.hostStackIdByCardId,
+    cardsById: picture.cardsById,
+    departingPaneIds: departing,
   };
 }
 
@@ -1909,6 +1982,7 @@ const LayerPanes = memo(function LayerPanes({
             onMoveToSpace={callbacks.onMoveToSpace}
             sidebarStack={arr.stackByPaneId.get(stackState.id)}
             railParked={arr.parkedRailSideByPaneId.get(stackState.id)}
+            departing={arr.departingPaneIds.has(stackState.id)}
             isSidebarPane={arr.sidebarPaneIds.has(stackState.id)}
             onCardMoved={store.handlePaneMoved}
             onClose={callbacks.onClose}
@@ -2059,7 +2133,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     column: store.getColumnRunHeight(),
   };
   const shownArrangement = useMemo(
-    () => deriveLayerArrangement(deckState, placeRuns),
+    () => deriveShownArrangement(deckState, placeRuns),
     // `placeRuns` is minted per render; its two numbers are the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [deckState, placeRuns.rail, placeRuns.column],
@@ -4765,8 +4839,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
-      {/* The rail shadows: one strip per railed side, standing in the gutter
-          off the rail's inner edge. It is the rail's z-order made visible —
+      {/* The rail shadows: one strip per side, standing in the gutter off the
+          rail's inner edge. It is the rail's z-order made visible —
           the panel is above every content card, and a card travelling toward
           it passes under this before it goes behind the panel, so the gutter
           reads as depth rather than as air between two cards.
@@ -4779,14 +4853,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           foot. One element per side has no seam in it to break at. It spans
           the rail RUN rather than the window, so it stops at the rail's foot
           instead of running on beside the maker strip. See rail-shadow.css
-          for the falloff and its reasoning. */}
+          for the falloff and its reasoning.
+
+          The strip ALWAYS stands, on every side, railed or not. A side whose
+          rail is parked keeps it hidden (`data-rail-parked`) and a side with
+          no rail keeps it hidden and empty (`data-rail-empty`), so a rail
+          that leaves carries its own strip out with it rather than having a
+          stand-in planted inside the settle ([D9]). */}
       {(["left", "right"] as const).map((side) => {
         // The same `railWidthOf` the inset effect reads, so the shadow and
         // the band can never disagree about where the rail's inner edge is.
-        // No rail on this side, nothing to cast a shadow — unless it is a
-        // PARKED rail's, which is kept mounted and hidden for its show.
+        // No rail on this side, nothing to cast a shadow: the strip stands
+        // hidden, parked for a parked rail's show or empty, and its inner
+        // edge resolves to the edge inset while the width variable is zero.
         const parked = railWidthOf(side) === 0 && parkedRailSides.has(side);
-        if (railWidthOf(side) === 0 && !parked) return null;
+        const empty = railWidthOf(side) === 0 && !parked;
         const innerEdge =
           `calc(${RAIL_EDGE_INSET} + var(${sidebarWidthProperty(side)}, 0px))`;
         return (
@@ -4795,6 +4876,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             className={`tug-rail-shadow tug-rail-shadow--${side}`}
             data-rail-shadow={side}
             {...(parked ? { "data-rail-parked": side } : {})}
+            {...(empty ? { "data-rail-empty": side } : {})}
             aria-hidden="true"
             style={{
               ...(side === "left" ? { left: innerEdge } : { right: innerEdge }),

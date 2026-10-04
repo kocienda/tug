@@ -56,14 +56,15 @@
  *      statement that the first live report and the bid were the same number.
  *   5. **Nothing is left behind.** At rest no frame carries an inline
  *      `opacity`, the canvas carries neither `data-imposer-settling` nor
- *      `data-imposer-beat`, and no exit ghost is in the document. An opacity
+ *      `data-imposer-beat`, and no departing target is marked. An opacity
  *      hold left on a settled frame is a card the reader cannot see.
  *
  * The second test is the departure, which is the same design read backwards
- * and is also two motions: `depart`, then `room`. The ghost that stands where
- * the card was is a BLANK TILE carrying nothing, which is what a departure
- * has been since the clone planted inside it was retired — a copy of a card
- * leaves behind everything about the card that is not DOM.
+ * and is also two motions: `depart`, then `room`. What fades where the card
+ * was is the card's OWN frame, kept mounted for the settle and marked
+ * `data-settle-departing` with its pane id: it stands at the rect it stood at
+ * before the close for the whole of its beat, fades there, and its mark is
+ * gone before the survivor takes the room back.
  *
  * The sitting member is a `hello` card rather than a second Session card for
  * `at0569`'s reason: an unbound Session card raises its picker the moment it
@@ -177,7 +178,7 @@ const SEEDED_PANES = ["p1", "p3"] as const;
 const SITTER = "p1";
 
 const PICKER_FORM = ".session-card-picker-form";
-const EXIT_GHOST = ".tug-pane-exit-ghost";
+const DEPARTING = "[data-settle-departing]";
 const SHEET_PANEL = '[data-slot="tug-sheet"].tug-sheet-content';
 
 /**
@@ -299,10 +300,10 @@ interface Sample {
    * settle divides against is the held number, whichever record carries it.
    */
   held: Record<string, number>;
-  /** How many exit ghosts stood on the canvas. */
+  /** How many departing targets the settle was carrying. */
   ghosts: number;
-  /** How many nodes stood INSIDE the ghosts. A departure is a blank tile. */
-  ghostCarried: number;
+  /** Each departing target: its mark, where it stood, and its opacity. */
+  departing: Array<{ key: string; top: number; height: number; opacity: number }>;
 }
 
 /**
@@ -333,7 +334,7 @@ async function census(app: App, gesture: string): Promise<Sample[]> {
           opacity: {},
           inlineOpacity: {},
           picker: document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null,
-          ghosts: document.querySelectorAll(${JSON.stringify(EXIT_GHOST)}).length,
+          ghosts: document.querySelectorAll(${JSON.stringify(DEPARTING)}).length,
         };
         var state = window.tugdeck.diag.getDeckState();
         var bids = state.openingBids || {};
@@ -342,10 +343,16 @@ async function census(app: App, gesture: string): Promise<Sample[]> {
         for (var key in claims) sample.held[key] = claims[key];
         for (var key in bids) sample.held[key] = bids[key];
         sample.rows = document.querySelectorAll('[data-testid="session-card-picker-session-resume"]').length;
-        var tiles = document.querySelectorAll(${JSON.stringify(EXIT_GHOST)});
-        sample.ghostCarried = 0;
-        for (var g = 0; g < tiles.length; g += 1) {
-          sample.ghostCarried += tiles[g].childNodes.length;
+        var targets = document.querySelectorAll(${JSON.stringify(DEPARTING)});
+        sample.departing = [];
+        for (var g = 0; g < targets.length; g += 1) {
+          var tr = targets[g].getBoundingClientRect();
+          sample.departing.push({
+            key: targets[g].getAttribute("data-settle-departing"),
+            top: tr.top,
+            height: tr.height,
+            opacity: Number(getComputedStyle(targets[g]).opacity),
+          });
         }
         var frames = document.querySelectorAll(".tug-pane[data-pane-id]");
         for (var i = 0; i < frames.length; i += 1) {
@@ -488,7 +495,7 @@ async function atRest(app: App): Promise<{
         settling: canvas !== null,
         beat: withBeat === null ? null : withBeat.getAttribute("data-imposer-beat"),
         inlineOpacities: inline,
-        ghosts: document.querySelectorAll(${JSON.stringify(EXIT_GHOST)}).length,
+        ghosts: document.querySelectorAll(${JSON.stringify(DEPARTING)}).length,
         picker: document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null,
       };
     })()`,
@@ -808,7 +815,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           rest.inlineOpacities,
           "no frame keeps an inline opacity hold",
         ).toEqual([]);
-        expect(rest.ghosts, "and no exit ghost stands").toBe(0);
+        expect(rest.ghosts, "and no departing target is still marked").toBe(0);
         expect(rest.picker, "the picker is up at rest").toBe(true);
 
         // ── 4, finished. The bid the app wrote before the commit, against a
@@ -849,7 +856,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   );
 
   test(
-    "cancelling the picker takes the card away, and its ghost is a blank tile",
+    "cancelling the picker takes the card away, on its own frame, where it stood",
     async () => {
       const app = await launchTugApp({ testName: "at0571-departure" });
       try {
@@ -867,9 +874,8 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         // is gone there is nothing left to read it off.
         const leaving = await arrivedPaneId(app);
         expect(leaving, "the card to cancel is on the canvas").not.toBeNull();
-        const leavingHeight = (
-          await paneRects(app, [leaving ?? ""])
-        )[leaving ?? ""].height;
+        const leavingRect = (await paneRects(app, [leaving ?? ""]))[leaving ?? ""];
+        const leavingHeight = leavingRect.height;
 
         const samples = await census(app, cancelPicker);
         const order = beatOrder(samples);
@@ -880,7 +886,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           `order=${JSON.stringify(order)} depart=${depart.length}f room=${room.length}f leaving=${leavingHeight.toFixed(1)}`,
         );
 
-        // ── TWO MOTIONS, read backwards. The ghost fades on its own beat,
+        // ── TWO MOTIONS, read backwards. The card fades on its own beat,
         //    then the column re-divides in one — there is no separate grow,
         //    because the survivor taking the room back IS the arrangement
         //    change ([P08]). ──
@@ -897,7 +903,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "the room beat must be sampled mid-motion",
         ).toBeGreaterThan(3);
 
-        // The survivor holds still for the whole of the ghost's fade — the
+        // The survivor holds still for the whole of the card's fade — the
         // departure's half of "one kind of thing at a time".
         const departStep = worstHeightStep(depart);
         note(
@@ -909,35 +915,53 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "no frame changes size during the depart beat",
         ).toBeLessThan(EPSILON);
 
-        // ── The ghost stands where the card was, and it is a BLANK TILE. The
-        //    clone that used to be planted in it is retired: a copy of a card
-        //    leaves behind everything about the card that is not DOM, and the
-        //    set of such things has no end to enumerate. What survives is the
-        //    claim that a departure is marked at all. ──
-        const withGhost = samples.filter((s) => s.ghosts > 0);
+        // ── What departs is the CARD'S OWN FRAME, marked with its own pane
+        //    id, standing where it stood before the close and fading there.
+        //    Nothing is planted to stand in for it ([D9]). ──
+        const own = depart.flatMap((s) =>
+          s.departing.filter((d) => d.key === leaving),
+        );
+        const others = samples.flatMap((s) =>
+          s.departing.filter((d) => d.key !== leaving),
+        );
+        const worstDrift = own.reduce(
+          (worst, d) =>
+            Math.max(
+              worst,
+              Math.abs(d.top - leavingRect.top),
+              Math.abs(d.height - leavingRect.height),
+            ),
+          0,
+        );
+        const opacities = own.map((d) => d.opacity);
         note(
-          "ghost tile",
-          `${withGhost.length} sample(s) with a ghost, ${withGhost.filter((s) => s.ghostCarried > 0).length} carrying anything inside`,
+          "departing frame",
+          `${own.length} depart sample(s) carrying ${leaving}, worst drift ${worstDrift.toFixed(2)}px, opacity ${opacities.length === 0 ? "—" : `${Math.max(...opacities).toFixed(2)}→${Math.min(...opacities).toFixed(2)}`}, ${others.length} other target sample(s)`,
         );
         expect(
-          withGhost.length,
-          "a ghost stands where the card was",
+          own.length,
+          "the card's own frame is carried on the depart beat",
         ).toBeGreaterThan(0);
+        expect(others.length, "and nothing else is").toBe(0);
         expect(
-          withGhost.filter((s) => s.ghostCarried > 0).length,
-          "and it is a blank tile — a departure carries nothing inside it",
-        ).toBe(0);
+          worstDrift,
+          "it stands at the rect it stood at before the close",
+        ).toBeLessThan(1);
+        expect(
+          Math.max(...opacities) - Math.min(...opacities),
+          "and it fades there",
+        ).toBeGreaterThan(0.5);
 
-        // The ghost is the depart beat's whole subject, so it is gone by the
-        // time the survivor takes the room back.
+        // The departure is the depart beat's whole subject, so its mark is
+        // gone by the time the survivor takes the room back.
         const ghostsDuringRoom = room.filter((s) => s.ghosts > 0);
         note(
-          "ghost",
+          "departing mark",
           `standing on ${depart.filter((s) => s.ghosts > 0).length} depart sample(s), ${ghostsDuringRoom.length} room sample(s)`,
         );
         expect(
           ghostsDuringRoom.length,
-          "the ghost is gone before the room beat starts",
+          "the departure is over before the room beat starts",
         ).toBe(0);
 
         // And the survivor really did grow back over the whole run.
@@ -958,7 +982,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           rest.inlineOpacities,
           "no frame keeps an inline opacity hold",
         ).toEqual([]);
-        expect(rest.ghosts, "and no exit ghost stands").toBe(0);
+        expect(rest.ghosts, "and no departing target is still marked").toBe(0);
         expect(rest.picker, "the picker went with its card").toBe(false);
       } finally {
         await app.close();

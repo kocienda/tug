@@ -2186,30 +2186,3 @@ body {
 .tug-place-seam[data-gesture]::before {
   opacity: 1;
 }
-
-/* The mark a closing pane leaves behind.
- *
- * React unmounts a closing frame inside the commit, so the frame cannot be
- * animated out — by the time there is an animation to run, there is no element
- * to run it on. The canvas plants one of these at the departing frame's last
- * rect instead and fades it, so a close reads as the card leaving rather than
- * the card having never been there.
- *
- * It carries the chrome's ground, border, and radius and nothing else. A
- * departure is a blank tile, which is what every departure was for the month
- * before a clone of the pane's face was planted inside it — and the clone is
- * retired: a copy of a card is everything about the card that is not DOM
- * getting left behind, and that set has no end to enumerate.
- *
- * Inert in every sense: it takes no pointer events, and the canvas removes it
- * when the fade lands. Motion is TugAnimator's ([L13]), so nothing here
- * animates. */
-.tug-pane-exit-ghost {
-  position: fixed;
-  z-index: var(--tugx-pane-exit-ghost-z, 1);
-  pointer-events: none;
-  box-sizing: border-box;
-  background-color: var(--tugx-pane-bg);
-  border: 1px solid var(--tugx-pane-border);
-  border-radius: var(--tug-radius-md);
-}

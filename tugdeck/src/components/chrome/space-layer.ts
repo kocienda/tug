@@ -100,9 +100,13 @@ export const SPACE_SWITCHING_ATTRIBUTE = "data-space-switching";
  * A PARKED rail member (`data-rail-parked`) keeps its box for the same reason
  * and is left out for the same reason: its rail was hidden whole, and it
  * stands nowhere a reader can see.
+ *
+ * A DEPARTING frame (`data-departing`) is left out too. It is a closed pane
+ * kept mounted, inert, for the one settle that carries it out, and it stands
+ * in no place a card could snap to, occlude, or settle against.
  */
 export const SHOWN_PANE_FRAMES =
-  `.tug-pane[data-pane-id]:not([data-rail-parked]):not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
+  `.tug-pane[data-pane-id]:not([data-rail-parked]):not([data-departing]):not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
 
 /**
  * Whether the workspace a card is mounted in is the one on screen.

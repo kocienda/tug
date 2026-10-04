@@ -196,6 +196,7 @@ import {
   railMembersOf,
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
+import { standingDeck } from "@/lib/departing";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { TugLabel } from "@/components/tugways/tug-label";
@@ -462,12 +463,13 @@ function useDeckDerived<T>(
 /** The componentIds of the sidebar cards that are OPEN — on the deck and not
  *  parked by a rail hide — read off the deck's card list ([L02]). */
 function useOpenSidebarIds(): ReadonlySet<string> {
-  const ids = useDeckDerived((deck) =>
-    (deck?.cards ?? [])
+  const ids = useDeckDerived((deck) => {
+    const standing = deck === null ? null : standingDeck(deck);
+    return (standing?.cards ?? [])
       .map((card) => card.componentId)
-      .filter((componentId) => deck !== null && isSidebarStanding(deck, componentId))
-      .sort(),
-  );
+      .filter((componentId) => standing !== null && isSidebarStanding(standing, componentId))
+      .sort();
+  });
   return useMemo(() => new Set(ids), [ids]);
 }
 
@@ -756,6 +758,7 @@ function CommittedFlowStrip({
       travel: FlowStripTravel | null;
     } | null => {
       if (deck === null || store === null) return null;
+      deck = standingDeck(deck);
       const kind = deck.imposition.kind;
       if (kind === undefined) return null;
       const count = slotCount(kind);
@@ -1151,7 +1154,7 @@ export function LayoutContent(
       if (center !== null) {
         store.setFlowOffset(center);
       } else {
-        const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
+        const pane = standingDeck(store.getSnapshot()).panes.find((p) => p.slot === slot);
         if (pane !== undefined) raiseCard(store, pane.activeCardId);
       }
       flashSlot(store, slot);

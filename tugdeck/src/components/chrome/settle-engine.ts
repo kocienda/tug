@@ -57,9 +57,6 @@ import {
   deckTrace,
   type CommitLanding,
 } from "@/deck-trace";
-import {
-  RAIL_SHADOW_ZINDEX,
-} from "./pane-stacking";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import {
   bullseyePaneIdOf,
@@ -69,6 +66,7 @@ import {
   sidebarRailsOf,
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
+import { standingDeck } from "@/lib/departing";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
@@ -132,14 +130,14 @@ import {
 const RAIL_SHADOW_TWEEN_PREFIX = "rail-shadow:";
 
 /**
- * The rail shadow strips that STAND. A parked rail keeps its strip mounted and
- * hidden (`data-rail-parked`), and the settle reads it as gone — the way
- * `SHOWN_PANE_FRAMES` reads its frames — so a hide still ghosts the strip out
- * with the panel, and the show still brings it in as an arrival.
+ * The rail shadow strips that STAND. Every side's strip is always mounted: a
+ * parked rail's is hidden (`data-rail-parked`), and a side with no rail at all
+ * holds an empty one (`data-rail-empty`). The settle reads both as gone — the
+ * way `SHOWN_PANE_FRAMES` reads its frames — so a hide carries the strip out
+ * with the panel on its own element, and the show brings it in as an arrival.
  */
-const STANDING_RAIL_SHADOWS = "[data-rail-shadow]:not([data-rail-parked])";
-const standingRailShadowOf = (side: string): string =>
-  `[data-rail-shadow="${side}"]:not([data-rail-parked])`;
+const STANDING_RAIL_SHADOWS =
+  "[data-rail-shadow]:not([data-rail-parked]):not([data-rail-empty])";
 function railShadowTweenKey(side: SidebarSide): string {
   return `${RAIL_SHADOW_TWEEN_PREFIX}${side}`;
 }
@@ -276,6 +274,10 @@ function arrangementSignature(
   state: DeckState,
   runs: PlaceRuns,
 ): ArrangementSignature {
+  // A DEPARTING pane is no term either: it has already left the arrangement
+  // the survivors cross to, and the commit that finally unmounts it at the
+  // land must arm no settle of its own.
+  state = standingDeck(state);
   const paneTerms = state.panes
     // A pane still marked ARRIVING is no term of the arrangement, on the same
     // rule that keeps it out of its column's division ([B08]) and out of the
@@ -383,7 +385,7 @@ function arrangementSignature(
  */
 function inlineRestorer(
   el: HTMLElement,
-  property: "width" | "height" | "opacity",
+  property: "width" | "height" | "opacity" | "transform" | "transform-origin",
 ): () => void {
   const prev = el.style.getPropertyValue(property);
   return () => {
@@ -463,6 +465,41 @@ interface SettleTween {
   el: HTMLElement;
   anims: TugAnimation[];
   restores: Array<() => void>;
+}
+
+/**
+ * One element the `depart` beat carries out ([P06]). `closing` is a closed
+ * pane's own frame, kept mounted by the store until the settle lands;
+ * `parked` is a rail frame whose rail was hidden whole, shown only for its
+ * exit; `strip` is a side's rail shadow. `restores` hands back every inline
+ * write and mark the Last pass made on it.
+ */
+interface DepartingTarget {
+  el: HTMLElement;
+  kind: "closing" | "parked" | "strip";
+  launched: boolean;
+  restores: Array<() => void>;
+}
+
+/** The mark a departing target wears for the length of its beat — the one
+ *  selector every reader of a departure finds it by. */
+const SETTLE_DEPARTING_ATTR = "data-settle-departing";
+
+/**
+ * A departing target's landing ([P06], Spec S02 step 7). A CLOSING frame
+ * keeps its hold and goes to an inline `opacity: 0`: its fade has ended (or
+ * never ran) and `fill: none` would otherwise hand it back at full opacity
+ * until the store's land unmounts it. Its mark comes off with the beat, so
+ * `[data-settle-departing]` names exactly what a beat is carrying. Every
+ * other kind runs its restorers, which take the mark and the holds off.
+ */
+function landDepartingTarget(target: DepartingTarget): void {
+  if (target.kind === "closing") {
+    target.el.style.opacity = "0";
+    target.el.removeAttribute(SETTLE_DEPARTING_ATTR);
+    return;
+  }
+  for (const restore of target.restores) restore();
 }
 
 /**
@@ -674,7 +711,7 @@ export function useSettleEngine({
    * it was folded, and how tall its content box was.
    *
    * Kept apart from `settleFirstRectsRef` because the rect map is read by the
-   * departure ghosts and by `flipDelta`, and neither has anything to do with
+   * departing targets and by `flipDelta`, and neither has anything to do with
    * the fold. These two are read once, by the tween pass, to decide whether a
    * frame is crossing the fold and what height to hold its interior at
    * ([B04] of `session-fold-still-interior`).
@@ -692,20 +729,21 @@ export function useSettleEngine({
    * rail.
    *
    * Read by the depart beat alone, and read there because that is the one
-   * question a ghost cannot answer for itself: the pane it stands for has
-   * already left the deck, so the side it stood on is only knowable from the
-   * near side of the commit. An arriving rail is not in this map and does not
-   * need to be — its own frame is in the document and carries the attribute.
+   * question a departing frame cannot answer for itself: a parked frame has
+   * already left the arrangement and a closing one is outside the solver, so
+   * the side it stood on is only knowable from the near side of the commit.
+   * An arriving rail is not in this map and does not need to be — its own
+   * frame is in the document and carries the attribute.
    */
   const settleFirstRailSidesRef = useRef<Map<string, SidebarSide>>(new Map());
   /**
    * Where each side's rail shadow stood before the commit, by side.
    *
    * The shadow strip is the canvas's, not the pane's ([D183]'s one-per-side
-   * rule), so a departing rail unmounts it and there is nothing left to
-   * animate — the same problem the pane ghost solves, one element over. This
-   * is what a shadow ghost is planted from, and it is read on the near side of
-   * the commit for the same reason every other First fact is.
+   * rule), and it always stands: a side whose rail departs keeps its strip
+   * mounted, parked or empty. This is the rect a departing strip is held at
+   * for its beat, read on the near side of the commit for the same reason
+   * every other First fact is.
    */
   const settleFirstRailShadowsRef = useRef<Map<SidebarSide, DOMRect>>(
     new Map(),
@@ -732,59 +770,89 @@ export function useSettleEngine({
    */
   const settleTweensRef = useRef<Map<string, SettleTween>>(new Map());
   /**
-   * Every departure ghost standing right now, by the pane it stands for.
+   * Every DEPARTING TARGET this settle is carrying out, keyed by pane id — or
+   * by `rail-shadow:<side>` for a side's strip ([P06]).
    *
-   * The one owner of a ghost's lifetime, and the reason it exists is that
-   * there used not to be one. A ghost was held in the `departures` array of
-   * one Last pass's closure and taken away by that chain's `depart` beat
-   * landing — which is a guarantee only for a chain that reaches its beat. A
-   * retarget landing between the plant and the launch returns out of `runBeat`
-   * before anything is launched, so no completion ever runs, so the tile
-   * stands in the document for the life of the canvas. One per close
-   * interrupted at exactly the wrong moment, and nothing in the deck would
-   * ever notice: a ghost carries nothing and answers to nothing, which is
-   * what makes it safe and also what makes a stranded one invisible.
+   * A target is a real element that already stood at rest: a CLOSING pane's
+   * own frame, which the store keeps mounted and `inert` for this settle
+   * (`data-departing`); a PARKED rail frame, whose rail was hidden whole and
+   * which the engine shows for the length of its exit; or a side's STRIP.
+   * The `depart` beat fades or slides each one where it stood, and nothing
+   * is created inside the window to do it ([D9]).
    *
-   * So a ghost is registered the moment it is planted and removed BY NAME at
-   * every way out of a settle — the `depart` beat's landing, the window sweep,
-   * a retarget's `arm`, and the canvas unmount ([B05]). A ghost is in none of
-   * the records `arm` walks: it stands for a pane that has already left the
-   * deck, so it has no First rect, no frame, and no later pass will ever
-   * collect it again. This map is the only thing that can hand it back.
+   * The one owner of a target's holds, because a target is in none of the
+   * records `arm` walks. A departing or
+   * parked frame is out of `SHOWN_PANE_FRAMES`, so no later First pass
+   * measures it and no later Last pass collects it, and this map is the only
+   * thing that can hand it back — at the `depart` beat's landing, the window
+   * sweep, a retarget's `arm`, and the canvas unmount ([B05]).
+   *
+   * Handing back differs by kind. A CLOSING frame keeps its hold and is given
+   * an inline `opacity: 0`, because `fill: none` would otherwise return it at
+   * full opacity until the store's land unmounts it; its id is then free to
+   * land. A PARKED frame or a strip runs its restorers, which take the mark
+   * and the holds off, and the stylesheet hides it again.
    *
    * `launched` is what makes the retarget's exit precise rather than blunt.
-   * A ghost whose `depart` fade is in flight already has a landing coming that
-   * runs UNCONDITIONAL on the generation, so `arm` leaves it to fade out as
-   * the reader is watching it do. A ghost whose fade never launched has
-   * nothing coming for it at all, and that is the one `arm` takes. Sweeping
-   * both would cut a departure's fade the instant a second close landed
-   * beside it — two cards closed in one gesture is an ordinary thing to do,
-   * and each of them is owed its own ghost for its own beat ([B06]).
+   * A target whose `depart` beat is in flight already has a landing coming
+   * that runs UNCONDITIONAL on the generation, so `arm` leaves it to finish as
+   * the reader is watching it. A target whose beat never launched has nothing
+   * coming for it at all, and that is the one `arm` takes. Taking both would
+   * cut a departure the instant a second close landed beside it — two cards
+   * closed in one gesture is an ordinary thing to do, and each is owed its
+   * own beat ([B06]).
    */
-  const departureGhostsRef = useRef<
-    Map<string, { ghost: HTMLElement; launched: boolean }>
-  >(new Map());
+  const departingTargetsRef = useRef<Map<string, DepartingTarget>>(new Map());
   /**
-   * Take standing ghosts away. Idempotent, and safe to call from a path that
-   * has already been swept — the map is the record, and an empty one is the
-   * answer that nothing is standing.
+   * Hand departing targets back. Idempotent, and safe to call from a path
+   * that has already been swept — the map is the record, and an empty one is
+   * the answer that nothing is being carried.
    *
    * `which` says how far it reaches. `"all"` is for the paths where nothing
    * is coming for anything — the window sweep and the canvas unmount. `"unlaunched"`
-   * is the retarget's, and takes only the ghosts whose fade never started.
+   * is the retarget's, and takes only the targets whose beat never started.
    */
-  const removeDepartureGhosts = useCallback(
+  const releaseDepartingTargets = useCallback(
     (which: "all" | "unlaunched"): void => {
-      for (const [paneId, entry] of [...departureGhostsRef.current]) {
+      for (const [key, entry] of [...departingTargetsRef.current]) {
         if (which === "unlaunched" && entry.launched) continue;
-        entry.ghost.remove();
-        departureGhostsRef.current.delete(paneId);
+        landDepartingTarget(entry);
+        departingTargetsRef.current.delete(key);
       }
     },
     [],
   );
-  const removeDepartureGhostsRef = useRef(removeDepartureGhosts);
-  removeDepartureGhostsRef.current = removeDepartureGhosts;
+  const releaseDepartingTargetsRef = useRef(releaseDepartingTargets);
+  releaseDepartingTargetsRef.current = releaseDepartingTargets;
+  /**
+   * Tell the store which departures are over: every pane its snapshot marks
+   * `departing` that this registry is no longer carrying ([P06]).
+   *
+   * Stated over the SNAPSHOT rather than over the targets a settle planned,
+   * because a departing pane can reach no target at all — a parked rail
+   * member closed from the Cards list, a pane closed while its arrival was
+   * still pending, a close whose Last pass took an early return — and each of
+   * those would otherwise stand in the published deck until the next
+   * workspace switch. Called at a settle's finish, at both of the Last pass's
+   * early returns, and by a beat that lands with no settle in flight; the
+   * sweep and the unmount land everything.
+   */
+  const landSettledDepartures = useCallback((): void => {
+    const marks = store.getSnapshot().departing;
+    if (marks === undefined) return;
+    const ids = Object.keys(marks).filter(
+      (paneId) => !departingTargetsRef.current.has(paneId),
+    );
+    if (ids.length > 0) store.landDepartures(ids);
+  }, [store]);
+  const landSettledDeparturesRef = useRef(landSettledDepartures);
+  landSettledDeparturesRef.current = landSettledDepartures;
+  // The settle is the deck's departure host: with it registered, a close
+  // leaves the pane in the published deck for this engine to carry out, and
+  // without it a close removes outright ([P07]). A layout effect, because a
+  // close landing between mount and a passive effect would remove outright
+  // with a canvas standing ready to carry it ([L03]).
+  useLayoutEffect(() => store.registerDepartureHost(), [store]);
   /**
    * The hold plan for the columns whose mode flipped this settle, computed
    * when the settle arms and consumed by the Last pass.
@@ -1099,31 +1167,33 @@ export function useSettleEngine({
   // where it is hardest to see.
   useLayoutEffect(() => {
     const clearFlip = clearFlipRef.current;
-    // **A canvas inherits no residue.** An exit ghost stands outside React's
-    // tree and a rail shadow's slide writes an inline transform, so neither is
-    // anything a re-render can take back — and a canvas that comes up over a
-    // previous one's leavings shows them for the rest of its life. That is the
-    // ordinary case under HMR, where the module is replaced and the DOM is
-    // not: a stripe stranded by the code being edited stays on screen through
-    // every update that fixes it, which reads as the fix not working.
+    // **A canvas inherits no residue.** A departing target's mark and holds
+    // and a rail shadow's slide are inline writes, so none of them is
+    // anything a re-render can take back — and a
+    // canvas that comes up over a previous one's leavings shows them for the
+    // rest of its life. That is the ordinary case under HMR, where the module
+    // is replaced and the DOM is not: a stripe stranded by the code being
+    // edited stays on screen through every update that fixes it, which reads
+    // as the fix not working.
     //
     // Swept at MOUNT for that reason, against the document rather than against
     // the records — the records belong to the instance that just went away.
     {
       const canvas = containerRef.current;
       if (canvas !== null) {
-        for (const ghost of canvas.querySelectorAll(".tug-pane-exit-ghost")) {
-          ghost.remove();
+        for (const frame of canvas.querySelectorAll<HTMLElement>(
+          `.tug-pane[${SETTLE_DEPARTING_ATTR}]`,
+        )) {
+          frame.removeAttribute(SETTLE_DEPARTING_ATTR);
+          frame.style.removeProperty("transform");
+          frame.style.removeProperty("opacity");
         }
         for (const strip of canvas.querySelectorAll<HTMLElement>(
           ".tug-rail-shadow",
         )) {
-          if (strip.hasAttribute("data-exit-ghost-for")) {
-            strip.remove();
-          } else {
-            strip.style.removeProperty("transform");
-            strip.style.removeProperty("opacity");
-          }
+          strip.removeAttribute(SETTLE_DEPARTING_ATTR);
+          strip.style.removeProperty("transform");
+          strip.style.removeProperty("opacity");
         }
       }
     }
@@ -1320,10 +1390,12 @@ export function useSettleEngine({
           for (const restore of restores) restore();
         }
         endSettleMarks(el);
-        // Every ghost this window was still carrying. The sweep is the net for
-        // a settle whose completion never landed, and a ghost is the one thing
-        // in a settle that no later pass can ever collect ([B05]).
-        removeDepartureGhostsRef.current("all");
+        // Every target this window was still carrying, and then every
+        // departure the store still holds. The sweep is the net for a settle
+        // whose completion never landed, and a departing target is the one
+        // thing in a settle that no later pass can ever collect ([B05]).
+        releaseDepartingTargetsRef.current("all");
+        landSettledDeparturesRef.current();
         // Paired with the marks coming off, here as at every other point they
         // do: "the settle is over" and "the notice went out" are one
         // condition, and a sheet clamped against a frame this sweep just
@@ -1442,13 +1514,15 @@ export function useSettleEngine({
       let interrupted: InterruptedBeat | null = null;
 
       // A retarget: past the signature guard, so this runs only when the
-      // arrangement really moved. A ghost whose depart fade never launched has
-      // nothing coming for it — the chain that owned it returns out of
-      // `runBeat` on the generation check and no completion ever runs, so the
-      // tile would stand for the life of the canvas ([B05], [F04]). One whose
-      // fade IS in flight keeps it: its landing is unconditional, and cutting
-      // it would take the departure off the screen mid-fade.
-      removeDepartureGhostsRef.current("unlaunched");
+      // arrangement really moved. A target whose depart beat never launched
+      // has nothing coming for it — the chain that owned it returns out of
+      // `runBeat` on the generation check and no completion ever runs, so its
+      // holds would stand for the life of the canvas ([B05], [F04]). One whose
+      // beat IS in flight keeps it: its landing is unconditional, and cutting
+      // it would take the departure off the screen mid-beat. A closing frame
+      // handed back here is held at `opacity: 0`, and the settle this arm
+      // starts lands it with the store at its finish.
+      releaseDepartingTargetsRef.current("unlaunched");
       // Every arm supersedes the Last pass before it. Under the
       // deferral there is a painted frame between this arm and its own Last
       // pass, and a beat this arm cancels lands its completion in that
@@ -1669,7 +1743,7 @@ export function useSettleEngine({
             contentHeight: contentBoxHeight(frame),
           });
         }
-        // The edge, for the ghost this frame may leave behind. Read for every
+        // The edge, for the departure this frame may make. Read for every
         // frame for `firstFolds`' reason — which ones depart is not knowable
         // until the Last pass — and it is one attribute read.
         if (measure) {
@@ -2023,10 +2097,11 @@ export function useSettleEngine({
       settleHoldPlanRef.current.survivors.clear();
       settleHoldPlanRef.current.covered.clear();
       settleHoldPlanRef.current.held.clear();
-      // The canvas is coming down and a ghost is not React's to unmount — it
-      // was appended to the container outside the tree ([L06]), so it would
-      // otherwise go only when the container itself does.
-      removeDepartureGhostsRef.current("all");
+      // The canvas is coming down, and a target's holds and marks are inline
+      // writes rather than React's ([L06]): handed back here, and every
+      // departure the store holds landed, since nothing is left to carry one.
+      releaseDepartingTargetsRef.current("all");
+      store.landDepartures();
       // Nothing is left to run an arrive beat, so nothing is left to clear a
       // mark. A caller still waiting would wait past the canvas itself.
       drainArrivalsRef.current();
@@ -2077,6 +2152,18 @@ export function useSettleEngine({
       for (const [, handle] of settleEpisodesRef.current) handle.end();
       settleEpisodesRef.current.clear();
     };
+    // A pending arrival that closed before its arrive beat ran (Spec S02 step
+    // 0): its frame now wears `data-departing`, still at the `opacity: 0` the
+    // arrival hold put on it. It leaves the pending map WITHOUT its restorers,
+    // so nothing hands it back to full opacity before the store unmounts it,
+    // and it plans no beat — nobody ever saw it. A pass of its own, ahead of
+    // everything else, because `arm` skips a pending arrival and so its id is
+    // never among the First rects the departure loop below walks.
+    for (const [paneId, pending] of [...pendingArrivalsRef.current]) {
+      if (pending.frame.hasAttribute("data-departing")) {
+        pendingArrivalsRef.current.delete(paneId);
+      }
+    }
     if (el === null || firstRects.size === 0) {
       firstRects.clear();
       firstFolds.clear();
@@ -2099,6 +2186,9 @@ export function useSettleEngine({
       // take them off itself. An arrival marked and never drained is stranded
       // whoever owns the marks, and this pass has nothing that will run a beat.
       drainArrivalsRef.current();
+      // And a departure with nothing to carry it is over now, for the same
+      // reason: no beat will run here, and no later pass collects it ([P06]).
+      landSettledDeparturesRef.current();
       return;
     }
     // Reduced motion: the layout has already snapped, and that IS the settle.
@@ -2141,6 +2231,7 @@ export function useSettleEngine({
       // reduced motion no beat runs at all, so nothing else will ever clear a
       // mark this pass found standing.
       drainArrivalsRef.current();
+      landSettledDeparturesRef.current();
       return;
     }
     const clearFlip = clearFlipRef.current;
@@ -2227,7 +2318,7 @@ export function useSettleEngine({
     // launch, which is where the fold's prepare beat is paid.
     let opensFoldCrossing = false;
     /**
-     * The frames arriving in this settle, and the ghosts standing in for the
+     * The frames arriving in this settle, and the targets carrying out the
      * panes leaving it — collected by the passes below and launched by the
      * chain's outer beats ([P05]).
      *
@@ -2243,7 +2334,15 @@ export function useSettleEngine({
     }> = [];
     const departures: Array<{
       paneId: string;
-      ghost: HTMLElement;
+      el: HTMLElement;
+      /**
+       * The start pose's inverse translate, which the target is held at for
+       * its whole beat: where it stood at First, from where it stands now.
+       * For a strip, the offset from where it stood at First to its parked
+       * or empty box.
+       */
+      dx: number;
+      dy: number;
       /**
        * A rail leaves by the edge it stands on, and this is how far ([B10]).
        * `undefined` for a frame in the band, which has no edge of its own
@@ -2252,13 +2351,13 @@ export function useSettleEngine({
       travelPx?: number;
     }> = [];
     /**
-     * Which side each departing RAIL left by, keyed by the ghost's name.
+     * Which side each departing RAIL left by, keyed by the target's name.
      *
-     * Collected while the ghosts are planted and read once afterwards, when
+     * Collected while the targets are found and read once afterwards, when
      * the travel per side can be measured against the canvas. A band frame is
      * absent from it, which is what "this exit is a fade" means.
      */
-    const railSideOfGhost = new Map<string, SidebarSide>();
+    const railSideOfDeparture = new Map<string, SidebarSide>();
     /**
      * The shadow strips of the sides whose rails are ALL arriving, held
      * invisible with their rails and slid in on the arrive beat.
@@ -2293,6 +2392,10 @@ export function useSettleEngine({
       // not an arrive beat is what brought it: this is the moment the settle
       // is over, and the drain is what makes the event unmissable ([R01]).
       drainArrivalsRef.current();
+      // And every departure is over: the store removes each closed pane, its
+      // cards and its mark in one commit, outside the window, where its
+      // teardown is nobody's frame ([P03], [P06]).
+      landSettledDeparturesRef.current();
     };
     const settled = (): void => {
       outstanding -= 1;
@@ -2721,9 +2824,9 @@ export function useSettleEngine({
     // re-planned from where it was — is a strip travelling with its rail's
     // move, and it is choreographed like a frame: held at First, carried on
     // the side's beat, its transform taken off when the beat lands. A side
-    // whose rails all left has no live strip; its ghost is planted below with
-    // the rail's. React writes neither opacity nor transform on a strip, so
-    // handing either back is taking it off.
+    // whose rails all left keeps its strip parked or empty, and it is carried
+    // out below with the rail's frames. React writes neither opacity nor
+    // transform on a strip, so handing either back is taking it off.
     const railArrivingSides = new Set<SidebarSide>();
     for (const { frame } of arrivals) {
       const side = frame.getAttribute("data-rail-side");
@@ -2775,106 +2878,145 @@ export function useSettleEngine({
         stillCrossingId: null,
       });
     }
-    // The departures. A pane `arm` measured that no longer has a frame closed
-    // during this commit, and its last rect is the one thing still known about
-    // it — so the ghost goes exactly there, fades, and is taken away. Planted
-    // on the container rather than the frames' parent chain so nothing it
-    // outlives can strand it.
+    // The departures (Spec S02). A pane `arm` measured that no longer stands
+    // among the shown frames has left the arrangement during this commit, and
+    // the depart beat carries it out on its OWN frame, which already stood at
+    // rest: nothing is created inside the window to stand in for it ([D9]).
     //
-    // The fade is the chain's FIRST beat now ([P05]) rather than an effect
-    // launched alongside it, so this pass plants the ghost and collects it; the
-    // depart beat fades it and takes it away. The room a closing pane gives up
-    // is therefore given up before any survivor moves into it.
-    for (const [paneId, rect] of firstRects) {
+    // Two kinds of frame are still in the DOM to carry. A CLOSE leaves the
+    // pane mounted, `inert` and outside the solver for this settle, wearing
+    // `data-departing`; the store removes it at the settle's land ([P01]). A
+    // rail HIDDEN WHOLE leaves its frames mounted at their pinned box, parked
+    // and hidden; the engine shows each for the length of its exit and hides
+    // it again at the land ([P05]). A pane that left through any other writer
+    // — a move to another workspace, the emptied source of a tab merge — has
+    // no frame left here, and its card lives on elsewhere: it gets no depart
+    // beat, and the survivors' beats run alone ([P04]).
+    //
+    // Each target is held at its First rect from here to its beat's end: the
+    // inverse translate of where the commit put it, and its First width and
+    // height where its box changed (a parked rail's width variable drops to
+    // zero when it parks). Static holds, written in this pass like every
+    // survivor's ([P09]); its beat animates only `transform` and `opacity`.
+    //
+    // ONE animation is unconditional on the settle generation, and it is the
+    // depart beat's LANDING — the `depart` branch below says so at its own
+    // site. A target is in no record `arm` walks, so a generation check there
+    // would strand its holds for the life of the canvas.
+    //
+    // Every read here is behind a departure. The survivors' holds are already
+    // written by this point, so a geometry read is a forced layout, and one
+    // paid on a settle with nothing leaving lands in the lead of every
+    // arrival and every walk across the band.
+    for (const [paneId, firstRect] of firstRects) {
       if (survivors.has(paneId)) continue;
       endEpisode(paneId);
-      const ghost = document.createElement("div");
-      ghost.className = "tug-pane-exit-ghost";
-      ghost.setAttribute("data-exit-ghost-for", paneId);
-      ghost.style.left = `${rect.left}px`;
-      ghost.style.top = `${rect.top}px`;
-      ghost.style.width = `${rect.width}px`;
-      ghost.style.height = `${rect.height}px`;
-      el.appendChild(ghost);
-      // Registered the instant it is planted, so every exit below can hand it
-      // back by name. A departure whose pane somehow departs twice replaces
-      // its own entry, which is the right record of one pane, one ghost.
-      //
-      // Unlaunched, rail or not ([B10]). A rail's exit used to be launched
-      // here, on a clock of its own, because the beat was not reachable for
-      // it: hiding the sidebars is a run of commits in ONE turn, and under
-      // the old per-commit React commit each of those produced a Last pass
-      // whose `arm` swept the ghosts whose beat had not launched yet, so
-      // every rail but the last one closed vanished without travelling. The
-      // deferred, coalesced commit ([D204]) produces ONE Last pass for the
-      // whole run: the ghosts are planted and their beat is launched in the
-      // same pass, and no `arm` stands between the two. So the exit rides the
-      // `depart` beat like every other exit.
-      //
-      // ONE animation is still unconditional on the settle generation, and it
-      // is this one: the ghost's LANDING — the `depart` branch below that
-      // marks each ghost `launched` once its fade is running, whose own
-      // comment says so. A ghost stands for a pane
-      // that has already left the deck, so it is in neither `settleTweensRef`
-      // nor any future First measurement — `arm` never looks at it and no
-      // later pass will ever collect it. A generation check there would strand
-      // the tile in the document for the life of the canvas, one per close
-      // interrupted mid-fade. The exception is named at its own site; it is
-      // recorded here so this paragraph is not read as denying it.
-      departureGhostsRef.current.set(paneId, { ghost, launched: false });
+      const frame = el.querySelector<HTMLElement>(
+        `.tug-pane[data-pane-id="${CSS.escape(paneId)}"]`,
+      );
+      if (frame === null) continue;
+      const kind = frame.hasAttribute("data-departing")
+        ? "closing"
+        : frame.hasAttribute("data-rail-parked")
+          ? "parked"
+          : null;
+      if (kind === null) continue;
+      const lastRect = frame.getBoundingClientRect();
+      const { dx, dy } = flipDelta(firstRect, lastRect);
+      const restores: Array<() => void> = [
+        inlineRestorer(frame, "transform"),
+        inlineRestorer(frame, "transform-origin"),
+        inlineRestorer(frame, "opacity"),
+        inlineRestorer(frame, "width"),
+        inlineRestorer(frame, "height"),
+        () => frame.removeAttribute(SETTLE_DEPARTING_ATTR),
+      ];
+      frame.setAttribute(SETTLE_DEPARTING_ATTR, paneId);
+      frame.style.transformOrigin = "0 0";
+      applyHolds(frame, {
+        transform: { dx, dy, sx: 1 },
+        ...(Math.abs(firstRect.width - lastRect.width) >= 0.5
+          ? { width: firstRect.width }
+          : {}),
+        ...(Math.abs(firstRect.height - lastRect.height) >= 0.5
+          ? { height: firstRect.height }
+          : {}),
+      });
+      // Registered the instant it is held, so every exit can hand it back by
+      // name. Unlaunched until its beat is running ([B10]).
+      departingTargetsRef.current.set(paneId, {
+        el: frame,
+        kind,
+        launched: false,
+        restores,
+      });
+      departures.push({ paneId, el: frame, dx, dy });
       const railSide = firstRailSides.get(paneId);
-      departures.push({ paneId, ghost });
-      if (railSide !== undefined) railSideOfGhost.set(paneId, railSide);
+      if (railSide !== undefined) railSideOfDeparture.set(paneId, railSide);
     }
     // A rail leaves by the edge it stands on, and it takes its SHADOW with
     // it. The shadow is one strip per side drawn by the canvas rather than by
-    // any pane ([D183]), so a departing rail unmounts it outright and it would
-    // blink out while the panel it is the depth of slides away — a panel and
-    // its depth are one object as the eye reads them. The strip's ghost is
-    // planted only where the side is now EMPTY: a rail losing one of two
-    // members keeps its live strip, which must not be doubled.
+    // any pane ([D183]), and it always stands: a side whose rails all left
+    // keeps its strip mounted, parked or empty and hidden, so its depth would
+    // blink out while the panel slides away — a panel and its depth are one
+    // object as the eye reads them. That strip is shown for the beat and
+    // carried out with the rail, on its own element, exactly as a parked
+    // frame is ([P05]). A rail losing one of two members keeps its standing
+    // strip, which the survivors' pass above already carries.
     //
-    // Every ghost on a side travels the RAIL's distance, never its own. The
-    // strip stands ten pixels inboard, so measuring it against the edge
-    // separately would give it a longer journey and the two would drift apart
-    // over the crossing.
-    if (railSideOfGhost.size > 0) {
+    // Every target on a side travels the RAIL's distance, never its own,
+    // measured from where it stood at First. The strip stands ten pixels
+    // inboard, so measuring it against the edge separately would give it a
+    // longer journey and the two would drift apart over the crossing.
+    if (railSideOfDeparture.size > 0) {
       const canvasRect = el.getBoundingClientRect();
       const travelBySide = new Map<SidebarSide, number>();
       for (const departure of departures) {
-        const side = railSideOfGhost.get(departure.paneId);
-        if (side === undefined) continue;
-        if (travelBySide.has(side)) continue;
-        travelBySide.set(
-          side,
-          railTravelPx(departure.ghost.getBoundingClientRect(), side, canvasRect),
-        );
+        const side = railSideOfDeparture.get(departure.paneId);
+        if (side === undefined || travelBySide.has(side)) continue;
+        const firstRect = firstRects.get(departure.paneId);
+        if (firstRect === undefined) continue;
+        travelBySide.set(side, railTravelPx(firstRect, side, canvasRect));
       }
       for (const departure of departures) {
-        const side = railSideOfGhost.get(departure.paneId);
+        const side = railSideOfDeparture.get(departure.paneId);
         if (side === undefined) continue;
         departure.travelPx = travelBySide.get(side) ?? 0;
       }
       for (const [side, px] of travelBySide) {
-        if (el.querySelector(standingRailShadowOf(side)) !== null) continue;
-        const rect = firstRailShadows.get(side);
-        if (rect === undefined) continue;
-        const ghost = document.createElement("div");
-        ghost.className = `tug-rail-shadow tug-rail-shadow--${side}`;
-        const key = `rail-shadow:${side}`;
-        ghost.setAttribute("data-exit-ghost-for", key);
-        ghost.style.position = "fixed";
-        ghost.style.left = `${rect.left}px`;
-        ghost.style.top = `${rect.top}px`;
-        ghost.style.width = `${rect.width}px`;
-        ghost.style.height = `${rect.height}px`;
-        ghost.style.zIndex = String(RAIL_SHADOW_ZINDEX);
-        el.appendChild(ghost);
-        // In the same registry the pane ghosts are in, so the canvas
-        // teardown's "take them all" sweep reaches these too — and launched,
-        // unlaunched with its rail, because it rides the same beat ([B10]).
-        departureGhostsRef.current.set(key, { ghost, launched: false });
-        departures.push({ paneId: key, ghost, travelPx: px });
+        const firstRect = firstRailShadows.get(side);
+        if (firstRect === undefined) continue;
+        const strip = el.querySelector<HTMLElement>(
+          `[data-rail-shadow="${side}"]`,
+        );
+        if (
+          strip === null ||
+          !(
+            strip.hasAttribute("data-rail-parked") ||
+            strip.hasAttribute("data-rail-empty")
+          )
+        ) {
+          continue;
+        }
+        const key = railShadowTweenKey(side);
+        const restores: Array<() => void> = [
+          inlineRestorer(strip, "transform"),
+          inlineRestorer(strip, "opacity"),
+          () => strip.removeAttribute(SETTLE_DEPARTING_ATTR),
+        ];
+        const dx = firstRect.left - strip.getBoundingClientRect().left;
+        strip.setAttribute(SETTLE_DEPARTING_ATTR, key);
+        applyHolds(strip, { transform: { dx, dy: 0, sx: 1 } });
+        // In the same registry as the frames, so the teardown's "take them
+        // all" sweep reaches it too, and unlaunched with its rail, because it
+        // rides the same beat ([B10]).
+        departingTargetsRef.current.set(key, {
+          el: strip,
+          kind: "strip",
+          launched: false,
+          restores,
+        });
+        departures.push({ paneId: key, el: strip, dx, dy: 0, travelPx: px });
       }
     }
     // The beats. Every frame's shrink tweens together; on their joint
@@ -3011,7 +3153,7 @@ export function useSettleEngine({
       // a beat cancelled or outlived by a later settle leaves them to that
       // one — and `arm` lands them when it finds the beat over before it
       // measures, having already moved the generation on by then. A departure
-      // lands whatever the generation says: its ghosts are in no record a
+      // lands whatever the generation says: its targets are in no record a
       // later settle reads.
       const planSettleBeat = (
         options: Omit<BeatOptions, "onLand" | "record">,
@@ -3074,9 +3216,9 @@ export function useSettleEngine({
           // moving right, and the right rail is its mirror. A card in the band
           // has no edge of its own and keeps the fade — it is not travelling
           // from anywhere, it is beginning to be here ([D135]). The way OUT is
-          // the mirror of it, and it is here too now ([B10]): a rail's ghost
-          // slides off the edge it came in by, on this beat, with its shadow
-          // strip beside it on the same keyframes.
+          // the mirror of it, and it is here too now ([B10]): a rail's parked
+          // frames slide off the edge they came in by, on this beat, with its
+          // shadow strip beside them on the same keyframes.
           const canvasRect = el.getBoundingClientRect();
           // **One travel per side, and the shadow takes the pane's** — the
           // exit's rule, for the exit's reason.
@@ -3097,21 +3239,24 @@ export function useSettleEngine({
             transform: [`translateX(${px}px)`, "translateX(0px)"],
           });
           // The beat's layers, each on its own keyframes and slot: a
-          // departure's ghost or an arrival's frame.
+          // departing target or an arrival's frame. A band target fades where
+          // it stands and keeps its inline hold; a rail target slides off its
+          // edge from the same held translate, so the hold and keyframe 0
+          // agree and nothing jumps when the beat begins.
           const targets: BeatTarget[] =
             kind === "depart"
-              ? departures.map(({ ghost, travelPx }) => ({
-                  el: ghost,
+              ? departures.map(({ el: target, dx, dy, travelPx }) => ({
+                  el: target,
                   keyframes:
                     travelPx === undefined
                       ? { opacity: [1, 0] }
                       : {
                           transform: [
-                            "translateX(0px)",
-                            `translateX(${travelPx}px)`,
+                            `translate(${dx}px, ${dy}px)`,
+                            `translate(${dx + travelPx}px, ${dy}px)`,
                           ],
                         },
-                  key: "imposer-exit-ghost",
+                  key: "imposer-depart",
                 }))
               : arrivals.map(({ frame }) => {
                   const attr = frame.getAttribute("data-rail-side");
@@ -3158,23 +3303,29 @@ export function useSettleEngine({
             }
           }
           if (targets.length === 0) return Promise.resolve();
-          // What the fade leaves behind when it lands. A departure's ghost
-          // stood in for a pane that no longer exists, so there is nothing to
-          // hand anything back to: it goes. An arrival's opacity hold comes off
-          // for the move and grow beats' reason: `fill: none` means the
-          // effect's end value is the underlying inline style, and a frame
+          // What the beat leaves behind when it lands. A departing target is
+          // landed by its kind (`landDepartingTarget`): a closing frame held
+          // at `opacity: 0` until the store unmounts it, a parked frame or a
+          // strip handed back and hidden again. An arrival's opacity hold
+          // comes off for the move and grow beats' reason: `fill: none` means
+          // the effect's end value is the underlying inline style, and a frame
           // left wearing the hold would snap back to invisible.
           const landFades = (): void => {
             if (kind === "depart") {
               // Through the ref rather than through this closure's array: the
-              // ref is the owner, and a removal that bypassed it would leave
-              // an entry naming a node no longer in the document.
+              // ref is the owner, and a hand-back that bypassed it would leave
+              // an entry naming holds that are already gone.
               for (const { paneId } of departures) {
-                const entry = departureGhostsRef.current.get(paneId);
+                const entry = departingTargetsRef.current.get(paneId);
                 if (entry === undefined) continue;
-                entry.ghost.remove();
-                departureGhostsRef.current.delete(paneId);
+                landDepartingTarget(entry);
+                departingTargetsRef.current.delete(paneId);
               }
+              // A beat that lands after its settle was superseded, with no
+              // settle in flight, is the last word on these departures: the
+              // store is told now. While a settle IS in flight, its own finish
+              // lands them ([P06]).
+              if (settleReleasedRef.current) landSettledDeparturesRef.current();
               return;
             }
             for (const { frame } of arrivals) {
@@ -3193,12 +3344,10 @@ export function useSettleEngine({
           // only beat that does. Every other frame here is still on screen and
           // still registered in `settleTweensRef`, so a retarget's `arm`
           // cancels its tween, runs its restorers, and a later Last pass owns
-          // it. A ghost is in neither: it stands for a pane that has already
-          // left the deck, so `arm` never looks at it and no later pass will
-          // ever collect it again — a departed pane has no First rect to be
-          // measured from. Left standing, it would strand the tile in the
-          // document for the life of the canvas, one per close interrupted
-          // mid-fade.
+          // it. A departing target is in neither: it is out of the shown
+          // frames, so `arm` never measures it and no later pass will ever
+          // collect it again. Left un-landed, its holds would stand for the
+          // life of the canvas, one per close interrupted mid-fade.
           const { beat, land } = planSettleBeat(
             {
               recipe: kind,
@@ -3219,12 +3368,12 @@ export function useSettleEngine({
             if (slide !== undefined) settleTweensRef.current.get(key)?.anims.push(slide);
           }
           if (kind === "depart") {
-            // The fades are running, so each of these ghosts now has a landing
+            // The beat is running, so each of these targets now has a landing
             // coming that is unconditional on the generation. That is what
             // lets a retarget's `arm` leave them alone and take only the ones
             // nothing will ever collect.
             for (const { paneId } of departures) {
-              const entry = departureGhostsRef.current.get(paneId);
+              const entry = departingTargetsRef.current.get(paneId);
               if (entry !== undefined) entry.launched = true;
             }
           }

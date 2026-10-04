@@ -361,7 +361,7 @@ class RailWidthDraft implements RailWidthGesture {
       if (travel !== null) carried.push(carry(el, travel));
     }
     for (const el of container.querySelectorAll<HTMLElement>(
-      `[data-rail-shadow="${side}"]`,
+      `[data-rail-shadow="${side}"]:not([data-rail-empty])`,
     )) {
       carried.push(carry(el, null));
     }

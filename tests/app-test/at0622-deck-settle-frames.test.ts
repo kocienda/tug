@@ -154,12 +154,13 @@ import {
   STALL_PLANTED_AT_MS,
   TEST_TIMEOUT_MS,
   type ArrivalSample,
-  type GhostTravel,
+  type DepartureTravel,
   type SettleFramesRow,
   activateAndReadSameTask,
   activateLast,
   activePaneId,
-  armGhostCensus,
+  armDepartureCensus,
+  arrivedIn,
   arrivalCensus,
   bandCensus,
   budgetCensus,
@@ -169,11 +170,14 @@ import {
   flashCensus,
   frameOrigins,
   home,
+  installLeadRecorder,
+  largestCommit,
   launch,
   motionViolationRows,
   paneHeightOf,
   railBlob,
-  readGhostCensus,
+  reactCommits,
+  readDepartureCensus,
   releaseSources,
   report,
   reportB09,
@@ -187,6 +191,7 @@ import {
   traceMark,
   traceWithSettleFrames,
   wait,
+  windowCommits,
 } from "./settle-frames-fixture";
 
 /** The resize-to-fit leg's gap bar — re-budgeted from 2 by the user on
@@ -1023,8 +1028,14 @@ describe.skipIf(!SHOULD_RUN)(
 
           const before = await frameOrigins(app);
           const mark = await traceMark(app);
+          // The side's shadow strip, held by identity: a hide carries out
+          // the strip that stood, so the same element is still the strip
+          // when the beat has landed.
+          await app.evalJS<null>(
+            `(window.__at0622Strip = document.querySelector('[data-rail-shadow="left"]'), null)`,
+          );
           await app.armSettleFrameProbe();
-          await armGhostCensus(app);
+          await armDepartureCensus(app);
           // The quiet head the classifier derives the display's period from.
           await wait(120);
           await app.dispatchControlAction("toggle-sidebars");
@@ -1037,10 +1048,10 @@ describe.skipIf(!SHOULD_RUN)(
           );
           const probe = await app.takeSettleFrameReading();
           await app.disarmSettleFrameProbe();
-          const ghosts = await readGhostCensus(app);
+          const departures = await readDepartureCensus(app);
           const after = await frameOrigins(app);
           note(`at0622 two-commit probe: ${JSON.stringify(probe)}`);
-          note(`at0622 two-commit ghosts: ${JSON.stringify(ghosts)}`);
+          note(`at0622 two-commit departures: ${JSON.stringify(departures)}`);
           note(
             `at0622 two-commit origins: ${JSON.stringify(before)} -> ` +
               `${JSON.stringify(after)}`,
@@ -1097,19 +1108,19 @@ describe.skipIf(!SHOULD_RUN)(
           // are gone from the DOM by the time anything above reads it, and
           // their exit is the one motion in this gesture nothing else here
           // can see: a rail that vanished on the spot moves the band, leaves
-          // no ghost behind, and satisfies every bar above.
-          const travelled = Object.keys(ghosts.travel).sort();
+          // nothing marked behind, and satisfies every bar above.
+          const travelled = Object.keys(departures.travel).sort();
           expect(
             travelled,
             `two-commit: both rail members and the side's shadow strip got ` +
-              `a ghost — ${JSON.stringify(travelled)}. A missing strip is ` +
+              `a depart beat — ${JSON.stringify(travelled)}. A missing strip is ` +
               `the depth of the panel blinking out while the panel slides`,
           ).toEqual(["at0622-pj1", "at0622-pl1", "rail-shadow:left"]);
           for (const key of travelled) {
-            const row = ghosts.travel[key] as GhostTravel;
+            const row = departures.travel[key] as DepartureTravel;
             expect(
               row.maxPx,
-              `two-commit: ${key}'s ghost travelled off the edge — ` +
+              `two-commit: ${key} travelled off the edge — ` +
                 `${row.maxPx.toFixed(1)}px over ${row.ticks} frame(s). Near ` +
                 `zero is a rail that disappeared where it stood`,
             ).toBeGreaterThan(100);
@@ -1118,22 +1129,63 @@ describe.skipIf(!SHOULD_RUN)(
               `two-commit: and travelled ACROSS frames rather than in one ` +
                 `jump — ${key} was in the document for ${row.ticks} frame(s)`,
             ).toBeGreaterThan(2);
+            expect(
+              row.maxStepPx,
+              `two-commit: and no frame of it jumped — ${key}'s largest ` +
+                `single-frame move was ${row.maxStepPx.toFixed(1)}px of ` +
+                `${row.maxPx.toFixed(1)}px. A real strip held at the wrong ` +
+                `First rect stands a rail's width off and jumps there`,
+            ).toBeLessThan(row.maxPx / 4);
           }
           // One travel per side: the strip stands ten pixels inboard, so a
           // strip measured against the edge separately would take a longer
           // journey and drift away from the panel it is the depth of.
           const spans = travelled.map(
-            (k) => (ghosts.travel[k] as GhostTravel).maxPx,
+            (k) => (departures.travel[k] as DepartureTravel).maxPx,
           );
           expect(
             Math.max(...spans) - Math.min(...spans),
-            `two-commit: every ghost on the side travelled the RAIL's ` +
+            `two-commit: every target on the side travelled the RAIL's ` +
               `distance — ${JSON.stringify(spans)}`,
           ).toBeLessThan(0.5);
           expect(
-            [...ghosts.standing],
-            `two-commit: and every ghost was collected when its beat landed`,
+            [...departures.standing],
+            `two-commit: and every target's mark came off when its beat landed`,
           ).toEqual([]);
+
+          // ---- The strip was neither created nor destroyed ([D9]). ----
+          const strip = await app.evalJS<{
+            held: boolean;
+            connected: boolean;
+            same: boolean;
+            parked: boolean;
+            transform: string;
+          }>(
+            `(function () {
+              var held = window.__at0622Strip;
+              var now = document.querySelector('[data-rail-shadow="left"]');
+              return {
+                held: held instanceof HTMLElement,
+                connected: held instanceof HTMLElement && held.isConnected,
+                same: held === now,
+                parked: now !== null && now.hasAttribute("data-rail-parked"),
+                transform: now === null ? "" : now.style.transform,
+              };
+            })()`,
+          );
+          note(`at0622 two-commit strip: ${JSON.stringify(strip)}`);
+          expect(
+            strip,
+            `two-commit: the left strip that stood before the hide is the ` +
+              `one in the document after it — parked, with no inline ` +
+              `transform left on it`,
+          ).toEqual({
+            held: true,
+            connected: true,
+            same: true,
+            parked: true,
+            transform: "",
+          });
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);
@@ -1319,7 +1371,7 @@ describe.skipIf(!SHOULD_RUN)(
  *
  * The close is `closePane`, the pane's own close button's call, and it takes
  * the newcomer back out of the same column: the sitters reclaim the height on
- * the `depart` beat while the ghost of the departing frame leaves.
+ * the `depart` beat while the departing frame fades where it stood.
  *
  * Both legs assert the beat by name off the imposer's own attribute, because
  * every timing clause in the bar is satisfied perfectly by a card that popped
@@ -1417,6 +1469,100 @@ describe.skipIf(!SHOULD_RUN)(
               `frame across \`room\`, held at opacity 0 throughout`,
           );
           expectB09Bar("appear", appear, [appear.probe.minOpacityPaneId]);
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      BAR_TIMEOUT_MS,
+    );
+  },
+);
+
+/**
+ * A card's departure from a split column, against the bar.
+ *
+ * The arrival that precedes it is the appear leg above, sampled here as the
+ * setup and not judged: a departure needs a card to depart. The close is
+ * `closePane`, the pane's own close button's call, and it takes the newcomer
+ * back out of the column it arrived in. The departing frame fades where it
+ * stood on `depart` while the sitters reclaim the height on `room`.
+ *
+ * The lead recorder is installed first, so every commit in the window carries
+ * its render time; the departing pane renders in the close's commit and is
+ * unmounted by the land's, and the largest in-window commit is what the
+ * reading names beside the gap.
+ *
+ * **Sampled and reported, NOT judged.** On three solo runs its gap read
+ * 2.06–2.24 frames against 2, with a first paint at 2–4 ms and
+ * `commitDelayMs` 0. What lands in the window is the close's own deck commit
+ * (580 performed fibers, the survivors re-rendering for `placement`) followed
+ * within 30 ms by the survivors' tooltip and popover-button trees (450, 192,
+ * 184 performed). The departing frame itself renders nothing new. The
+ * readings and the cause are in
+ * `briefs/departing-and-height-crossing-readings.md`; the beats are asserted,
+ * and the bar waits on that cause.
+ */
+describe.skipIf(!SHOULD_RUN)(
+  "at0622 — a card's departure from a split column",
+  () => {
+    test(
+      "the same card closed out of the column it arrived in, across depart and room",
+      async () => {
+        const { app, tugbankPath } = await launch(8, columnBlob());
+        try {
+          await installLeadRecorder(app);
+          await traceWithSettleFrames(app);
+          await home(app);
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-column-mode", ` +
+              `{ slot: 0, mode: "split" }), null)`,
+          );
+          await wait(AFTER_LAND_MS);
+
+          const standing = new Set(
+            (await bandCensus(app)).split(" ").map((s) => s.split("@")[0]),
+          );
+          const appear = await sampleB09Gesture(
+            app,
+            `window.__tug.dispatchControlAction("show-card", ` +
+              `{ component: "session" })`,
+          );
+          reportB09("appear (setup)", appear);
+          const newcomers = appear.after
+            .split(" ")
+            .map((s) => s.split("@")[0])
+            .filter((id) => id !== "" && !standing.has(id));
+          expect(
+            newcomers.length,
+            `appear (setup): exactly one frame arrived — ${JSON.stringify(newcomers)}`,
+          ).toBe(1);
+
+          const mark = await traceMark(app);
+          const disappear = await sampleB09Gesture(
+            app,
+            `window.__tug.closePane(${JSON.stringify(newcomers[0])})`,
+          );
+          reportB09("disappear", disappear);
+          note(`at0622 disappear commits: ${JSON.stringify(await reactCommits(app))}`);
+          const window_ = await windowCommits(app, mark);
+          const largest = window_ === null ? null : largestCommit(window_.commits);
+          note(
+            `at0622 disappear window: ${window_?.commits.length ?? 0} commit(s); ` +
+              `largest ${JSON.stringify(
+                largest === null
+                  ? null
+                  : {
+                      t: largest.t,
+                      performed: largest.performed,
+                      mounted: largest.mounted,
+                      fibers: largest.fibers,
+                      reactMs: largest.reactMs,
+                      origins: largest.origins,
+                    },
+              )}`,
+          );
+          expectBeats("disappear", disappear, ["depart", "room"]);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);
@@ -1634,7 +1780,7 @@ describe.skipIf(!SHOULD_RUN)(
   "at0622 — hiding the sidebars and the settled-resize retune, at the bar",
   () => {
     test(
-      "hiding a two-member rail holds the bar and the resize retune holds its re-budgeted one; showing the rail is sampled and not judged",
+      "hiding and showing a two-member rail hold the bar and the resize retune holds its re-budgeted one",
       async () => {
         const { app, tugbankPath } = await launch(4, railBlob());
         try {
@@ -1653,16 +1799,36 @@ describe.skipIf(!SHOULD_RUN)(
           );
           reportB09("sidebars hide", hide);
 
+          const showMark = await traceMark(app);
           const show = await sampleB09Gesture(
             app,
             `window.__tug.dispatchControlAction("toggle-sidebars", {})`,
           );
           reportB09("sidebars show", show);
-          // Sampled and reported, NOT judged: showing the rail mounts its
+          const showWindow = await windowCommits(app, showMark);
+          const showLargest =
+            showWindow === null ? null : largestCommit(showWindow.commits);
+          note(
+            `at0622 sidebars show window: ${showWindow?.commits.length ?? 0} ` +
+              `commit(s); largest ${JSON.stringify(
+                showLargest === null
+                  ? null
+                  : {
+                      t: showLargest.t,
+                      performed: showLargest.performed,
+                      mounted: showLargest.mounted,
+                      fibers: showLargest.fibers,
+                      reactMs: showLargest.reactMs,
+                      origins: showLargest.origins,
+                    },
+              )}`,
+          );
+          // Judged below with the others. Showing the rail used to mount its
           // whole contents inside the settle window (a 4501-fiber commit,
-          // 2.9–3.1 frames against 2), recorded in
-          // `briefs/zero-red-app-tests-brief.md`. It is sampled here because
-          // the retune below needs the rails standing.
+          // 2.9–3.1 frames against 2); a parked rail keeps them mounted, and
+          // the show's largest in-window commit is now 45 performed fibers,
+          // 1.59–1.82 frames on three solo runs
+          // (`briefs/departing-and-height-crossing-readings.md`).
 
           // The retune wants a deck whose rails do NOT already fit, or it
           // commits nothing and the band guard is what catches it. Widening
@@ -1685,9 +1851,33 @@ describe.skipIf(!SHOULD_RUN)(
           // like any other, and one thrown between the gestures would cost
           // the readings the legs after it were sampled for.
           expectBeats("sidebars hide", hide, ["depart", "room"]);
+          expectBeats("sidebars show", show, ["room", "arrive"]);
           expectBeats("resize to fit", retune, ["shrink", "move", "grow"]);
 
           expectB09Bar("sidebars hide", hide);
+          // The show's pose exemption, earned the way the appear leg earns
+          // its own: the rail's frames ARRIVE, each held at inline
+          // `opacity: 0` across `room`, so the probe must have watched an
+          // arriving frame be invisible, and that frame must be one that
+          // arrived. Anything else and the pose clause judges every pane.
+          const arrived = arrivedIn(show);
+          expect(
+            arrived.length,
+            `sidebars show: the rail's frames arrived in this gesture — ` +
+              `${JSON.stringify(arrived)}`,
+          ).toBeGreaterThan(0);
+          expect(
+            show.probe.minOpacity,
+            `sidebars show: an arriving frame really was held invisible — ` +
+              `the probe's worst opacity was ${show.probe.minOpacity} on ` +
+              `\`${show.probe.minOpacityPaneId}\``,
+          ).toBe(0);
+          expect(
+            arrived,
+            `sidebars show: and the frame held invisible is one that arrived ` +
+              `— ${show.probe.minOpacityPaneId} against ${JSON.stringify(arrived)}`,
+          ).toContain(show.probe.minOpacityPaneId);
+          expectB09Bar("sidebars show", show, arrived);
           expectB09Bar("resize to fit", retune, [], RESIZE_TO_FIT_GAP_FRAMES_BAR);
         } finally {
           await app.close();

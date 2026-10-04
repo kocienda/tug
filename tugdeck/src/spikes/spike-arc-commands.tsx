@@ -370,6 +370,12 @@ function useControls({ surface, treatment, state, m, press }: FrameProps): {
     e.preventDefault();
     keepMenu.openMenuAt(e.clientX, e.clientY);
   };
+  /** A button opens the menu under itself, at its bottom-left corner. */
+  const openUnder = (el: HTMLElement | null) => {
+    if (el === null) return;
+    const rect = el.getBoundingClientRect();
+    keepMenu.openMenuAt(rect.left, rect.bottom);
+  };
 
   if (treatment === "shipped") {
     // Today's arrangement, surface by surface. Join is composer-only today, so
@@ -408,7 +414,7 @@ function useControls({ surface, treatment, state, m, press }: FrameProps): {
             emphasis="ghost"
             icon={<EllipsisVertical size={ICON} />}
             aria-label={`Actions for arc ${ARC}`}
-            onClick={(e) => keepMenu.openMenu((e?.currentTarget as HTMLElement) ?? null)}
+            onClick={(e) => openUnder((e?.currentTarget as HTMLElement) ?? null)}
           />
           {m.branch ? (
             <VerbButton verb={set.look} form="icon" onPress={fire(set.look)} />
@@ -452,7 +458,7 @@ function useControls({ surface, treatment, state, m, press }: FrameProps): {
           emphasis="ghost"
           trailingIcon={<ChevronDown size={12} />}
           aria-label={`More verbs for arc ${ARC}`}
-          onClick={(e) => keepMenu.openMenu((e?.currentTarget as HTMLElement) ?? null)}
+          onClick={(e) => openUnder((e?.currentTarget as HTMLElement) ?? null)}
         >
           Arc
         </TugPushButton>

@@ -24,6 +24,7 @@
  */
 
 import type { DeckState } from "@/layout-tree";
+import { standingDeck } from "@/lib/departing";
 import { columnIsWall } from "@/deck-manager";
 import { deckColumnsOf, deckFlowStrip } from "@/deck-store-selectors";
 import {
@@ -85,6 +86,7 @@ export function readOpeningDeck(
   state: DeckState,
   { run, band }: OpeningMeasurements,
 ): OpeningDeck | null {
+  state = standingDeck(state);
   const kind = state.imposition.kind;
   if (kind === undefined) return null;
   const columns = new Map(

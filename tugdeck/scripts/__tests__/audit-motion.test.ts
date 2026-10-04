@@ -730,7 +730,7 @@ describe("rule 1 — `position: fixed` under a pane frame", () => {
   });
 
   test("a frame declared fixed is a different claim, and not this one", () => {
-    expect(scan(".tug-pane-exit-ghost { position: fixed; }")).toEqual([]);
+    expect(scan(".tug-pane-sibling { position: fixed; }")).toEqual([]);
   });
 });
 

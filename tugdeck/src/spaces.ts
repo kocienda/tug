@@ -126,6 +126,7 @@ export function parkedDeck(deck: DeckState): DeckState {
     sheetReservations: _sheetReservations,
     openingBids: _openingBids,
     arriving: _arriving,
+    departing: _departing,
     ...rest
   } = deck;
 
@@ -393,6 +394,10 @@ function strippedOfPane(deck: DeckState, paneId: string): DeckState {
   const arriving = withoutRecordKey(next.arriving, paneId);
   if (arriving === undefined) delete next.arriving;
   else next.arriving = arriving;
+
+  const departing = withoutRecordKey(next.departing, paneId);
+  if (departing === undefined) delete next.departing;
+  else next.departing = departing;
 
   return next;
 }

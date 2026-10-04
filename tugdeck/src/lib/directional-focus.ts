@@ -72,6 +72,7 @@
  */
 
 import type { DeckState } from "../layout-tree";
+import { standingDeck } from "./departing";
 import {
   columnDrawsSplit,
   columnMoveOrder,
@@ -260,6 +261,7 @@ export function resolveDirectionalFocus(
   direction: FocusDirection,
   goal: FocusTravelSpan | null = null,
 ): FocusTravelTarget | null {
+  state = standingDeck(state);
   const host = state.panes.find((pane) =>
     pane.cardIds.includes(sourceCardId),
   );
@@ -357,6 +359,7 @@ export function focusTravelDirections(
   readonly below: boolean;
 } | null {
   if (sourceCardId === null) return null;
+  state = standingDeck(state);
   const can = (direction: FocusDirection): boolean =>
     resolveDirectionalFocus(state, runs, sourceCardId, direction) !== null;
   const answer = {

@@ -29,6 +29,7 @@
  */
 
 import type { DeckState } from "../layout-tree";
+import { standingDeck } from "./departing";
 import type { Rect } from "../snap";
 import { deckColumnsOf } from "../deck-store-selectors";
 import {
@@ -914,6 +915,7 @@ export function enumerateDropZones(
   draggedPaneId: string,
   measured: DropZoneMeasurements,
 ): DropZoneSet {
+  state = standingDeck(state);
   const ownRail = measured.rails.find((r) => r.members.includes(draggedPaneId));
   if (ownRail !== undefined) {
     const zones: DropZone[] = [];

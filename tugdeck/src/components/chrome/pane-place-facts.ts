@@ -34,6 +34,7 @@ import {
   type SlotStackEntry,
 } from "@/deck-store-selectors";
 import type { DeckState, TugPaneState } from "@/layout-tree";
+import { isPaneDeparting, standingDeck, withDepartingStanding } from "@/lib/departing";
 import { cardTitleStore } from "@/lib/card-title-store";
 import {
   isSidebarSeated,
@@ -73,6 +74,7 @@ export const NO_PLACE_FACTS: PanePlaceFacts = {
  * rail. A pane in no place is absent.
  */
 export function slotStacksOf(deck: DeckState): Map<string, readonly SlotStackEntry[]> {
+  deck = standingDeck(deck);
   const { panes, cards, imposition } = deck;
   const cardsForTitles = new Map(cards.map((c) => [c.id, c]));
   const rails = sidebarRailsOf(deck, UNMEASURED_RUNS);
@@ -180,8 +182,16 @@ function seatedPlaceFactsOf(deck: DeckState): Map<string, PanePlaceFacts> {
 
 const cache = new WeakMap<DeckState, { version: number; facts: Map<string, PanePlaceFacts> }>();
 
-/** A pane's place facts on `deck`, read once per snapshot for every pane. */
+/**
+ * A pane's place facts on `deck`, read once per snapshot for every pane.
+ *
+ * A departing pane is answered over the deck as if it still stood, so its
+ * badge does not change in the middle of its fade; every other pane is
+ * answered over the standing deck, which a departing pane is not part of.
+ * Both decks are memoized on `deck`, so the cache below still hits.
+ */
 export function panePlaceFactsOf(deck: DeckState, paneId: string): PanePlaceFacts {
+  deck = isPaneDeparting(deck, paneId) ? withDepartingStanding(deck) : standingDeck(deck);
   const version = cardTitleStore.version();
   let hit = cache.get(deck);
   if (hit === undefined || hit.version !== version) {

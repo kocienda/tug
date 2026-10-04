@@ -137,10 +137,11 @@ export const FORCED_STALL_MS = 200;
  */
 export const STALL_PLANTED_AT_MS = 60;
 
-/** The frames on screen: the shown layer's, less a parked rail's — the
- *  product's `SHOWN_PANE_FRAMES`, spelled for a sweep from the document. */
+/** The frames on screen: the shown layer's, less a parked rail's and a
+ *  departing one's — the product's `SHOWN_PANE_FRAMES`, spelled for a sweep
+ *  from the document. */
 export const SHOWN_FRAMES =
-  "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]:not([data-rail-parked])";
+  "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]:not([data-rail-parked]):not([data-departing])";
 
 export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -1138,72 +1139,85 @@ export const traceWithSettleFrames = async (app: App): Promise<void> => {
   );
 };
 
-/** One exit ghost's travel over the beat that took it away. */
-export interface GhostTravel {
-  /** The largest |translateX| the ghost was seen wearing. */
+/** One departing target's travel over the beat that took it away. */
+export interface DepartureTravel {
+  /** The farthest its painted left edge stood from where it was first seen. */
   readonly maxPx: number;
+  /** The largest move of its painted left edge between two frames. */
+  readonly maxStepPx: number;
   /** How many frames it was in the document for. */
   readonly ticks: number;
 }
 
 /**
- * Start a per-frame census of every exit ghost's `translateX`.
+ * Start a per-frame census of every departing target's painted left edge,
+ * keyed by its `data-settle-departing` — a pane id, or `rail-shadow:<side>`.
  *
- * A departing RAIL leaves by the edge it stands on, and since [B10] its ghost
- * — and the shadow strip beside it — slide on the `depart` beat rather than
- * on a plant-time clock of their own. Nothing else in this file would notice
- * if that slide stopped happening: a rail that vanished on the spot still
- * moves the band, still carries every surviving frame, and still leaves no
- * ghost behind. The travel has to be read directly or it is not read at all.
+ * A departing RAIL leaves by the edge it stands on: its parked frames — and
+ * the shadow strip beside them — slide on the `depart` beat. Nothing else in
+ * this file would notice if that slide stopped happening: a rail that
+ * vanished on the spot still moves the band, still carries every surviving
+ * frame, and still leaves nothing marked behind. The travel has to be read
+ * directly or it is not read at all.
  *
- * Sampled off computed style rather than off the animation, because what is
+ * Sampled off the painted rect rather than off the animation, because what is
  * claimed is what the frame PAINTED — an effect that exists and applies
  * nothing is exactly the failure a `fill` or a play-pending window produces.
+ * And off the rect rather than the translate, because a target is a real
+ * element held at its First rect: its translate carries that hold's offset as
+ * well as its travel, and the strip's offset is the rail's whole width when
+ * the rail parks. Measured from where the target was first seen, the travel
+ * is the same number for every target on a side; `maxStepPx` is the largest
+ * single-frame move, so a target that jumped rather than slid is visible.
  *
  * Falsified with the depart beat's rail branch forced to the band's fade
- * under a `file probe`: every ghost read `maxPx: 0` over 15 frames and the
+ * under a `file probe`: every target read `maxPx: 0` over 15 frames and the
  * file dropped from 10/12 to 9/12. On the beat it reads 443.9px over 16
  * frames, the same number for both members and the strip.
  */
-export const armGhostCensus = (app: App): Promise<null> =>
+export const armDepartureCensus = (app: App): Promise<null> =>
   app.evalJS<null>(
     `(function () {
        var seen = {};
-       window.__at0622Ghosts = seen;
+       window.__at0622Departures = seen;
        var tick = function () {
-         var els = document.querySelectorAll("[data-exit-ghost-for]");
+         var els = document.querySelectorAll("[data-settle-departing]");
          for (var i = 0; i < els.length; i++) {
            var el = els[i];
-           var key = el.getAttribute("data-exit-ghost-for");
+           var key = el.getAttribute("data-settle-departing");
            var row = seen[key];
-           if (row === undefined) { row = seen[key] = { maxPx: 0, ticks: 0 }; }
-           var m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-           row.maxPx = Math.max(row.maxPx, Math.abs(m.m41));
+           var left = el.getBoundingClientRect().left;
+           if (row === undefined) {
+             row = seen[key] = { maxPx: 0, maxStepPx: 0, ticks: 0, firstLeft: left, lastLeft: left };
+           }
+           row.maxPx = Math.max(row.maxPx, Math.abs(left - row.firstLeft));
+           row.maxStepPx = Math.max(row.maxStepPx, Math.abs(left - row.lastLeft));
+           row.lastLeft = left;
            row.ticks += 1;
          }
-         window.__at0622GhostRaf = requestAnimationFrame(tick);
+         window.__at0622DepartureRaf = requestAnimationFrame(tick);
        };
-       window.__at0622GhostRaf = requestAnimationFrame(tick);
+       window.__at0622DepartureRaf = requestAnimationFrame(tick);
        return null;
      })()`,
   );
 
-/** Stop the census and read it, with the ghosts still standing at rest. */
-export const readGhostCensus = (
+/** Stop the census and read it, with the targets still marked at rest. */
+export const readDepartureCensus = (
   app: App,
 ): Promise<{
-  travel: Record<string, GhostTravel>;
+  travel: Record<string, DepartureTravel>;
   standing: readonly string[];
 }> =>
   app.evalJS(
     `(function () {
-       cancelAnimationFrame(window.__at0622GhostRaf);
+       cancelAnimationFrame(window.__at0622DepartureRaf);
        var standing = [];
-       var els = document.querySelectorAll("[data-exit-ghost-for]");
+       var els = document.querySelectorAll("[data-settle-departing]");
        for (var i = 0; i < els.length; i++) {
-         standing.push(els[i].getAttribute("data-exit-ghost-for"));
+         standing.push(els[i].getAttribute("data-settle-departing"));
        }
-       return { travel: window.__at0622Ghosts, standing: standing };
+       return { travel: window.__at0622Departures, standing: standing };
      })()`,
   );
 

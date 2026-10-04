@@ -14,6 +14,7 @@
 
 import { columnMoveOrder } from "@/deck-store-selectors";
 import type { DeckState, TugPaneState } from "@/layout-tree";
+import { standingDeck } from "@/lib/departing";
 import type { DropZone } from "@/lib/drop-zones";
 import {
   clampFlowOffset,
@@ -50,6 +51,7 @@ export function frontPaneOfSlot(
   state: DeckState,
   slot: number,
 ): TugPaneState | null {
+  state = standingDeck(state);
   const kind = state.imposition.kind;
   if (kind === undefined) return null;
   for (let i = state.panes.length - 1; i >= 0; i--) {

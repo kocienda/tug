@@ -59,6 +59,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { useStoreDerived } from "@/lib/use-store-derived";
 import type { DeckState } from "@/layout-tree";
+import { standingDeck } from "@/lib/departing";
 
 import { useDeckManager } from "@/deck-manager-context";
 import { getFocusManager } from "@/components/tugways/focus-manager";
@@ -88,7 +89,7 @@ interface FocusFacts {
 function focusFacts(snapshot: DeckState | null): FocusFacts {
   return {
     activePaneId: snapshot?.activePaneId ?? null,
-    paneKey: snapshot === null ? "" : snapshot.panes.map((p) => p.id).join("\u0000"),
+    paneKey: snapshot === null ? "" : standingDeck(snapshot).panes.map((p) => p.id).join("\u0000"),
     arriving: snapshot?.arriving,
   };
 }

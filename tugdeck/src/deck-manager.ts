@@ -40,6 +40,7 @@ import {
   sweptArriving,
 } from "./layout-tree";
 import { buildDefaultLayout, serialize, deserialize } from "./serialization";
+import { composeDeparting, type DepartingEntry } from "./lib/departing";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./lib/after-paint";
 import { SpaceSwitchMark, switchMarkDeadlineMs } from "./lib/space-switch-mark";
 import {
@@ -1230,6 +1231,26 @@ export class DeckManager implements IDeckManagerStore {
 
   private stateVersion: number = 0;
 
+  /**
+   * The panes that have closed and are still being carried out, keyed by
+   * pane id in marking order ([P01], [P02]). {@link deckState} — the deck
+   * every mutation reads and writes — never holds one, so no writer can
+   * count, re-slot or move a departing pane; {@link getSnapshot} composes
+   * them back in for every reader outside. Session state only: saving reads
+   * `deckState`, and a workspace switch reaps the record first.
+   */
+  private departingRecord = new Map<string, DepartingEntry>();
+
+  /** Bumped on every change to {@link departingRecord}; half of the composed snapshot's memo key. */
+  private departingVersion = 0;
+
+  /** How many departure hosts are registered ({@link registerDepartureHost}). */
+  private departureHostCount = 0;
+
+  /** The composed snapshot, memoized on (`deckState` identity, `departingVersion`). */
+  private composedMemo: { deck: DeckState; version: number; composed: DeckState } | null =
+    null;
+
   // ---- Stable bound callbacks ----
 
   public handlePaneMoved: (
@@ -1278,7 +1299,72 @@ export class DeckManager implements IDeckManagerStore {
     };
   };
 
-  public getSnapshot = (): DeckState => this.deckState;
+  /**
+   * The published deck: the standing {@link deckState} with every departing
+   * pane composed back in at its old position ([P02]). The standing deck
+   * itself when nothing departs, and the same object across calls until
+   * either half changes, so `useSyncExternalStore` sees no churn.
+   */
+  public getSnapshot = (): DeckState => {
+    if (this.departingRecord.size === 0) return this.deckState;
+    const memo = this.composedMemo;
+    if (memo !== null && memo.deck === this.deckState && memo.version === this.departingVersion) {
+      return memo.composed;
+    }
+    const composed = composeDeparting(this.deckState, [...this.departingRecord.values()]);
+    this.composedMemo = { deck: this.deckState, version: this.departingVersion, composed };
+    return composed;
+  };
+
+  public registerDepartureHost = (): (() => void) => {
+    this.departureHostCount += 1;
+    let registered = true;
+    return () => {
+      if (!registered) return;
+      registered = false;
+      this.departureHostCount -= 1;
+      // Nobody is left to carry a departure out, so none may stand.
+      if (this.departureHostCount === 0) this.landDepartures();
+    };
+  };
+
+  public landDepartures = (paneIds?: readonly string[]): void => {
+    const ids = paneIds ?? [...this.departingRecord.keys()];
+    if (this._destroyDepartures(ids) === 0) return;
+    this.notify("landDepartures", "cut");
+  };
+
+  /**
+   * Every departure, destroyed with no notify — for a caller that is about to
+   * commit a whole new deck anyway (a workspace switch, a seed), where a
+   * departing pane composed into it would belong to the deck that left.
+   */
+  private _reapDepartures(): void {
+    this._destroyDepartures([...this.departingRecord.keys()]);
+  }
+
+  /**
+   * The destruction a close with a departure host deferred ([P03]), run for
+   * each named entry still in the record, in `_closePane`'s order: every
+   * card's save callback flushed, then `cardWillBeginDestruction` for each,
+   * then the entry dropped, then the preservation registries discarded.
+   * Returns how many entries it removed, having bumped the record's version
+   * if that is any.
+   */
+  private _destroyDepartures(paneIds: readonly string[]): number {
+    let removed = 0;
+    for (const paneId of paneIds) {
+      const entry = this.departingRecord.get(paneId);
+      if (entry === undefined) continue;
+      for (const cid of entry.pane.cardIds) this.flushSaveCallbackBeforeDestruction(cid);
+      for (const cid of entry.pane.cardIds) this.cardLifecycle.notifyCardWillBeginDestruction(cid);
+      this.departingRecord.delete(paneId);
+      for (const cid of entry.pane.cardIds) this.discardComponentStatePreservationRegistry(cid);
+      removed += 1;
+    }
+    if (removed > 0) this.departingVersion += 1;
+    return removed;
+  }
 
   /**
    * {@link subscribe}'s synchronous door ([D204], [B04]).
@@ -1393,7 +1479,7 @@ export class DeckManager implements IDeckManagerStore {
    */
   public spaceOf = (cardId: string): string | null => {
     for (const space of this.spaces) {
-      const deck = space.deck ?? this.deckState;
+      const deck = space.deck ?? this.getSnapshot();
       if (deck.cards.some((c) => c.id === cardId)) return space.id;
     }
     return null;
@@ -1406,7 +1492,7 @@ export class DeckManager implements IDeckManagerStore {
   public getSpaceDeck = (spaceId: string): DeckState | null => {
     const space = this.spaces.find((s) => s.id === spaceId);
     if (space === undefined) return null;
-    return space.deck ?? this.deckState;
+    return space.deck ?? this.getSnapshot();
   };
 
   /**
@@ -1420,7 +1506,7 @@ export class DeckManager implements IDeckManagerStore {
   public allSpaceCardIds = (): Set<string> => {
     const ids = new Set<string>();
     for (const space of this.spaces) {
-      const deck = space.deck ?? this.deckState;
+      const deck = space.deck ?? this.getSnapshot();
       for (const card of deck.cards) ids.add(card.id);
     }
     return ids;
@@ -1494,6 +1580,9 @@ export class DeckManager implements IDeckManagerStore {
       console.warn(`activateSpace: no active space to leave`);
       return;
     }
+    // A departing pane belongs to the deck being left; composed into the
+    // incoming one it would stand in a workspace it was never part of.
+    this._reapDepartures();
     const incomingDeck = incoming.deck;
 
     // The switch instrument ([P09]). Every reading below is a delta from
@@ -4641,11 +4730,34 @@ export class DeckManager implements IDeckManagerStore {
     // Phase 2: flush each card's save callback then fire destruction.
     // Save-on-close runs BEFORE destruction so the card's last bag
     // lands before subscribers tear down dependent state. [L23].
-    for (const cid of win.cardIds) {
-      this.flushSaveCallbackBeforeDestruction(cid);
-    }
-    for (const cid of win.cardIds) {
-      this.cardLifecycle.notifyCardWillBeginDestruction(cid);
+    //
+    // With a departure host registered, motion on, and the pane not still
+    // arriving, the destruction is deferred to the settle's land instead
+    // ([P01], [P03]): the pane and its cards leave the standing deck in this
+    // commit as always, but wait in the departing record, published, until
+    // the settle has carried the frame out. Its cards' teardown then runs in
+    // the commit after the settle rather than inside its window. An arriving
+    // pane was never shown, so there is nothing to carry out.
+    const departs =
+      this.departureHostCount > 0 &&
+      isTugMotionEnabled() &&
+      this.deckState.arriving?.[paneId] !== true;
+    if (departs) {
+      const closing = this.deckState.panes.find((s) => s.id === paneId) ?? win;
+      const closingCardIds = new Set(closing.cardIds);
+      this.departingRecord.set(paneId, {
+        pane: closing,
+        cards: this.deckState.cards.filter((c) => closingCardIds.has(c.id)),
+        index: this.deckState.panes.findIndex((s) => s.id === paneId),
+      });
+      this.departingVersion += 1;
+    } else {
+      for (const cid of win.cardIds) {
+        this.flushSaveCallbackBeforeDestruction(cid);
+      }
+      for (const cid of win.cardIds) {
+        this.cardLifecycle.notifyCardWillBeginDestruction(cid);
+      }
     }
     const cardIdSet = new Set(win.cardIds);
     const remaining = this.deckState.panes.filter((s) => s.id !== paneId);
@@ -4686,8 +4798,10 @@ export class DeckManager implements IDeckManagerStore {
     // destruction notifications have fired — subscribers observing
     // destruction never have a stake in these registries, but ordering
     // after the lifecycle event makes the intent explicit.
-    for (const cid of win.cardIds) {
-      this.discardComponentStatePreservationRegistry(cid);
+    if (!departs) {
+      for (const cid of win.cardIds) {
+        this.discardComponentStatePreservationRegistry(cid);
+      }
     }
     this.notify("_closePane");
     this.scheduleSave();
@@ -7330,6 +7444,10 @@ export class DeckManager implements IDeckManagerStore {
     cardStates?: Map<string, CardStateBag>;
     focusCardId?: string;
   }): void {
+    // A seed replaces the deck whole, so nothing departing from the old one
+    // may be composed into it.
+    this._reapDepartures();
+
     // Clear construction lifecycle memory for cards that are leaving
     // the deck so a later `seedDeckState` call that re-introduces an
     // id does not double-fire construction. Fresh-card construction

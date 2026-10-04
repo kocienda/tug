@@ -22,11 +22,11 @@
  * `absolute` — an absolutely positioned descendant follows a transformed
  * ancestor correctly, which is why `TugSheet` stays in the frame.
  *
- * **The rule is scoped by SELECTOR, not by file.** `.tug-pane-exit-ghost` is
- * declared in `tug-pane.css` and is `position: fixed`, and it is correct:
- * the canvas appends it to the frames CONTAINER rather than to a frame, so it
- * is a sibling of every frame and nothing promotes it. A file-scoped rule
- * would fail on it and the rule would be loosened to make the noise stop.
+ * **The rule is scoped by SELECTOR, not by file.** A class declared in
+ * `tug-pane.css` may be `position: fixed` and correct, when the canvas
+ * appends its element to the frames CONTAINER rather than to a frame: it is a
+ * sibling of every frame and nothing promotes it. A file-scoped rule would
+ * fail on it and the rule would be loosened to make the noise stop.
  *
  * What the rule can and cannot prove is worth stating plainly. A selector that
  * names a frame root as an ancestor — `.tug-pane .x`, `.tug-pane-chrome > .y`
@@ -204,7 +204,7 @@ const TS_ROOT = path.join(TUGDECK, "src");
  * out from under the rule by starting one level down.
  *
  * A class whose name merely BEGINS with one of these is a different class and
- * is not matched: `.tug-pane-exit-ghost` is not `.tug-pane`, which is the
+ * is not matched: `.tug-pane-sibling` is not `.tug-pane`, which is the
  * whole reason this is a set of exact class names rather than a prefix test.
  */
 const FRAME_ROOTS = new Set(["tug-pane", "tug-pane-chrome", "tug-pane-content"]);

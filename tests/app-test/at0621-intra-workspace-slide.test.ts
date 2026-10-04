@@ -80,7 +80,7 @@
  * never left the screen is never treated as arriving.
  *
  * Both legs also read the canvas **at rest** — no frame left wearing an inline
- * opacity, none computing below 1, no ghost still standing. That is the claim
+ * opacity, none computing below 1, no departing target still marked. That is the claim
  * the sweep itself can fail: an id dropped from `pendingArrivalsRef` without
  * running its restorers leaves its frame invisible for the life of the canvas,
  * which a mid-flight sampler cannot tell from a hold about to be handed back.
@@ -121,9 +121,12 @@ const RAIL_PANE = "at0621-pl1";
 
 /** Every pane frame in the document — hidden layers and crossing ones too. */
 const ALL_FRAMES = ".tug-pane[data-pane-id]";
-/** The panes on screen. */
+/** The panes on screen — less a parked rail's and a departing one's, which
+ *  the product's `SHOWN_PANE_FRAMES` leaves out too. A departing frame wears
+ *  an inline `opacity: 0` from its beat's landing until the store unmounts
+ *  it, and read as shown it would count as a held frame. */
 const SHOWN_FRAMES =
-  "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]";
+  "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]:not([data-rail-parked]):not([data-departing])";
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -148,7 +151,7 @@ interface Reading {
   heldResidentFirstMs: number;
   /** Shown pane ids whose rounded rect changed between two samples. */
   rectsMoved: string[];
-  /** Exit ghosts seen at any one sample. */
+  /** Departing targets (`[data-settle-departing]`) seen at any one sample. */
   ghosts: number;
   offsetFirst: number;
   offsetLast: number;
@@ -213,7 +216,7 @@ const SAMPLER_START = `(function () {
       else if (s.rects[fid] !== key) { s.moved[fid] = true; s.rects[fid] = key; }
     }
 
-    var g = document.querySelectorAll(".tug-pane-exit-ghost").length;
+    var g = document.querySelectorAll("[data-settle-departing]").length;
     if (g > s.ghosts) s.ghosts = g;
 
     var off = s.offsetNow();
@@ -268,14 +271,14 @@ interface Resting {
   inlineOpacity: string[];
   /** Every frame not computing a flat 1, as `paneId=value`. */
   computed: string[];
-  /** Exit ghosts still standing. */
+  /** Departing targets still marked. */
   ghosts: number;
 }
 
 const RESTING_READ = `(function () {
   var out = {
     inlineOpacity: [], computed: [],
-    ghosts: document.querySelectorAll(".tug-pane-exit-ghost").length,
+    ghosts: document.querySelectorAll("[data-settle-departing]").length,
   };
   var frames = document.querySelectorAll(${JSON.stringify(ALL_FRAMES)});
   for (var i = 0; i < frames.length; i++) {
@@ -456,7 +459,7 @@ function expectNoResidue(resting: Resting, leg: string): void {
     resting.computed,
     `${leg}: every frame came to rest fully opaque`,
   ).toEqual([]);
-  expect(resting.ghosts, `${leg}: no exit ghost was left standing`).toBe(0);
+  expect(resting.ghosts, `${leg}: no departing target was left marked`).toBe(0);
 }
 
 describe.skipIf(!SHOULD_RUN)(

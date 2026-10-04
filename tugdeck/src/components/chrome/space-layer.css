@@ -117,16 +117,49 @@
    back mounts nothing. Hidden for the same reasons a hidden workspace is —
    off screen, out of hit-testing, and its contents' paint skipped — and
    `inert` on the frame keeps the keyboard out. `SHOWN_PANE_FRAMES` leaves it
-   out of every sweep, and its loops pause (`space-layer-loops.ts`). */
+   out of every sweep, and its loops pause (`space-layer-loops.ts`).
+
+   Except while the settle carries it out: a hide departs on the parked
+   frame itself, so for the length of its `depart` beat the engine marks it
+   `data-settle-departing` and the frame's own box shows, sliding off its
+   edge. Its CONTENTS stay skipped the whole time — what leaves is a tile in
+   the pane's ground, edge and radius (the rule below), and the card inside
+   is never laid out or painted for its exit. Un-skipping them cost the card
+   a re-layout the next show then paid for (`at0684`'s rail leg read a list
+   re-render at the show while it did). The land takes the mark off and the
+   frame hides again. */
 .tug-pane[data-rail-parked] {
-  visibility: hidden;
   content-visibility: hidden;
+}
+
+.tug-pane[data-rail-parked]:not([data-settle-departing]) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The tile a parked rail frame slides out as: the pane's ground, edge and
+   radius on the frame's own box, whose contents stay skipped. Its tokens are
+   the pane's own, so a rail panel's tint carries through. */
+.tug-pane[data-rail-parked][data-settle-departing] {
+  box-sizing: border-box;
+  background-color: var(--tugx-pane-bg);
+  border: 1px solid var(--tugx-pane-border);
+  border-radius: var(--tug-radius-md);
+  pointer-events: none;
+}
+
+/* A DEPARTING frame: a closed pane kept mounted, `inert`, for the one settle
+   that carries it out. It takes no pointer while it fades. */
+.tug-pane[data-departing] {
   pointer-events: none;
 }
 
 /* And the parked rail's own chrome on the canvas — its shadow, its seams,
-   the vacancy it holds open opposite — kept mounted for the same show. */
-.tug-rail-shadow[data-rail-parked],
+   the vacancy it holds open opposite — kept mounted for the same show. A
+   shadow strip also stands EMPTY on a side with no rail at all. Either strip
+   is shown only while the settle carries it out with its rail. */
+.tug-rail-shadow[data-rail-parked]:not([data-settle-departing]),
+.tug-rail-shadow[data-rail-empty]:not([data-settle-departing]),
 .tug-place-seam[data-rail-parked],
 .tug-rail-vacancy[data-rail-parked] {
   visibility: hidden;

@@ -36,6 +36,16 @@ Three audits (2026-10-01 to 2026-10-02) found neither begun. The third audit's v
 
 **[F07] Width already crosses without a width keyframe.** `tuglaws/animation-doctrine.md:337`: width crosses on the same tween as a `scaleX` term anchored at the frame's left edge, with the raster cap as the standing hit. The translation-and-occlusion design is the height analogue, and the doctrine's width section is its nearest precedent. **(verified, read)**
 
+**[F08] The held interior clips without showing, and without a `height` tween.** Under the bench (`labFlags.heightByTranslation`), the folding frame's box is held at its larger height by a static inline `height`, its interior stays held by the still crossing it already had, and the chrome's own `overflow: clip` clips it. Across three solo runs, folding and unfolding, the seam band between the travelling edge piece and the lower member was at most 5 px (the member gap) and never resolved into either frame's content, and no flag-on gesture wrote a `settle-motion-violation` row. The session card's scroller did not fight the held box. A layout cost of the hold was not separated from the commit's, and the timing in [F10] does not show one. **(verified, `at0685` reading 2 in `briefs/departing-and-height-crossing-readings.md`)**
+
+**[F09] Every shipped theme's pane chrome is opaque, and the frame paints nothing.** The theme census over `SHIPPED_THEME_NAMES`: the lower member's `.tug-pane-chrome` background is alpha 1 in all ten themes (`oklch(0.31 0.01 h)` in the five dark ships, `oklch(0.985 0.002 h)` in the five light boats). The `.tug-pane` frame's own background is `rgba(0, 0, 0, 0)` in all ten. Occlusion by the chrome needs no backing layer in any shipped theme, and the bench's forced alpha-1 rule changes nothing in them. **(verified, `at0685` theme census)**
+
+**[F10] Taking the `height` tween out of the fold does not move its gap.** With the bench on, the unfold's `longestGapFrames` read 2.06, 2.00, 2.12 / 2.18, 1.29, 1.88 / 2.12, 2.00, 1.94 over three solo runs (mean 1.95). The flag-off control read 2.00, 1.47, 2.24 / 1.82, 1.53, 2.12 / 1.94, 1.65, 2.31 (mean 1.90). The fold in was 1.96 on, 2.16 off. Both arms carry the same largest commit in every window, 718 performed at 20–45 ms in, and the bench's one transform-only beat has the same gap as the three-beat fold with two `height` terms. The fold's remaining hole is the commit's, not the tween's. `reactMs` was not readable (the lead recorder attached no render start), so the commit's share is read from its timing, not measured. **(verified, `at0685` reading 2)**
+
+**[F11] The exposure is at the column's foot, not at the seam.** The lower member, held at its larger box and translated, hangs below the column foot by up to 291 px on the fold and 298 px on the unfold. Most of that is past the window's bottom edge and clipped by it. In the strip still inside the viewport, about 18 px, one tick of one unfold in three runs showed the lower card's own content (`session-card-picker-backdrop`) where the canvas belongs. The seam, the place the brief expected an edge piece to fail, never exposed. A column whose foot stands higher in the window than the bench fixture's would show more of the overhang. **(verified, `at0685` reading 2)**
+
+**[F12] Verdict: the fold bench fails.** Against its three clauses: timing fails ([F10], over 1.5 on 8 of 9 flag-on unfolds and no better than the control); exposure fails ([F11], one foot-band tick); the property holds ([F08], no `height` animated). So the fold keeps its height tween and its prepare beat, the division is not benched ([B04] is not taken), and the bench is removed. What this leaves for whoever takes the fold's gap next is [F10]: the hole is the commit's. **(verified, `at0685` reading 2)**
+
 ---
 
 ## Decisions {#decisions}
@@ -58,8 +68,8 @@ Three audits (2026-10-01 to 2026-10-02) found neither begun. The third audit's v
 
 ## Open Questions {#open-questions}
 
-- **Can the held interior be clipped without a layout?** `overflow: clip` on the frame with the interior at a fixed height is the intent; whether the session card's own scroller fights it is the bench's first finding.
-- **Is every theme's pane chrome alpha 1 at its top edge?** `[F06]`. Read from `tugdeck/styles/themes/*.css` during the bench. A theme that is not decides whether occlusion needs a backing layer.
+- **Can the held interior be clipped without a layout?** **Answered, [F08]:** it clips without showing and without a `height` tween; the scroller does not fight it. A layout cost of the hold was not separated from the commit's.
+- **Is every theme's pane chrome alpha 1 at its top edge?** **Answered, [F09]:** yes, in all ten shipped themes, so occlusion needs no backing layer.
 - **What does a departing pane's card content do for the settle's length?** It is closed from the user's point of view; its content should stop, not re-render. Whether the card lifecycle's `will`-phase runs at the mark or at the unmount is a `lifecycle-delegates.md` question.
 - **Does the Beat's start-pose writer carry the held interior height?** Depends on how `briefs/settle-engine-and-beat-brief.md` answers its first open question.
 

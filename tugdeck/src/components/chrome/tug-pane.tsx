@@ -2241,6 +2241,14 @@ export interface TugPaneProps {
    */
   railParked?: SidebarSide;
   /**
+   * Set only on a DEPARTING pane — closed, but kept mounted for the one
+   * settle that carries it out. The frame wears `data-departing` and `inert`:
+   * out of every shown-frame query, out of the keyboard and (by the
+   * stylesheet) out of hit-testing, while the settle fades it where it stood.
+   * The settle's land is the commit that unmounts it.
+   */
+  departing?: boolean;
+  /**
    * Set only on a pane standing in a SPLIT slot: which slot, which position in
    * its column, and how many members divide the run.
    *
@@ -2478,6 +2486,7 @@ function TugPaneImpl({
   onMoveToSpace,
   sidebarStack,
   railParked,
+  departing = false,
   isSidebarPane = false,
   bullseye = false,
   bullseyeExit,
@@ -4880,6 +4889,9 @@ function TugPaneImpl({
       {...(railParked !== undefined
         ? { "data-rail-parked": railParked, inert: true }
         : {})}
+      // Departing: closed, and carried out by the settle on this very frame.
+      // Inert, and out of every shown-frame query, until the land unmounts it.
+      {...(departing ? { "data-departing": "", inert: true } : {})}
       // `data-rail-side` is NOT the same bit: it carries which edge a rail is
       // pinned to, and a released rail has rail chrome with no side.
       {...(sidebarSide !== undefined ? { "data-rail-side": sidebarSide } : {})}

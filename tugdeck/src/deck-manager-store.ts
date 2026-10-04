@@ -1084,6 +1084,30 @@ export interface IDeckManagerStore {
     interrupted: string[];
     unacknowledged: string[];
   }>;
+
+  /**
+   * Become the deck's DEPARTURE HOST — the one party that will carry a
+   * closed pane out and say when it is gone. Returns the unregister.
+   *
+   * While a host is registered and motion is on, a close leaves the pane, its
+   * cards and a `departing` mark in the published snapshot instead of removing
+   * them, and defers the cards' destruction until {@link landDepartures}. With
+   * no host, a close removes outright, so a deck with no mounted canvas — a
+   * unit test, the boot path — never strands a departure. When the last host
+   * unregisters, every departure lands.
+   *
+   * The settle engine registers in a `useLayoutEffect`.
+   */
+  registerDepartureHost: () => () => void;
+
+  /**
+   * Land departures: for each named departing pane (every one when `paneIds`
+   * is omitted), flush its cards' save callbacks, fire their
+   * `cardWillBeginDestruction`, and remove the pane, its cards and its mark
+   * from the published snapshot in one notify. An id that is not departing is
+   * ignored, so landing twice is harmless.
+   */
+  landDepartures: (paneIds?: readonly string[]) => void;
 }
 
 /**
