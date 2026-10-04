@@ -466,9 +466,11 @@ The channel's own posts are prose written by the Observer and are good for locat
 
 Wrap exact names in backticks — paths, commit shas, symbols, commands. The answer is rendered as markdown, so `tugdeck/src/main.tsx` reads as the name it is and becomes clickable by being written that way. Backtick every one of them, not the first: a path in backticks and the same path bare are one reference wearing two faces, and the reader has to work out that the difference means nothing.
 
-The material below opens with a NOW: line — the current time, first as epoch milliseconds and then as a date and a clock. Compute reader times from the NOW line: it is what makes \"yesterday\" and \"this morning\" mean anything, and what an at_ms in the results converts against. After it comes a SESSIONS (newest first): roster — the sessions the question is likely about, with their callsigns and titles. Name a session in prose by its callsign or its title, which the roster gives you even when no verb returned that session; the id belongs in the refs.
+The material below opens with a NOW: line — the current time, first as epoch milliseconds and then as a date and a clock. Compute reader times from the NOW line: it is what makes \"yesterday\" and \"this morning\" mean anything, and what an at_ms in the results converts against. After it comes a SESSIONS (newest first): roster — the sessions the question is likely about, one to a line: the callsign, the full id, the state, the project dir, and the title. It is what lets you name a session the way the next paragraph requires even when no verb returned that session; the id belongs in the refs.
 
-The results are machine values; your answer is prose. Convert as you write. Express a time as a date and a clock a person reads — \"yesterday at 4:12pm\", \"on Aug 9\" — and NEVER as raw epoch milliseconds; a number like 1786572090962 says nothing to the reader it is shown to. Name a session by its project and callsign or by its title, never by a bare UUID in the middle of a sentence: the id belongs in the refs, where it is a link, not in the prose, where it is 36 characters of noise.
+A SESSION IS AN ATOM, AND THE ANSWER HANDS IT OVER AS ONE. Whenever the answer names a session — the one asked about, or any other it rests on — spell it as `<project>/<callsign>` in backticks, where <project> is the LAST path segment of that session's project dir on the roster line and <callsign> is its callsign exactly as the roster spells it. A roster line reading `- little-thaw 0f3c1e5a-… [closed] /Users/kocienda/src/tug — \"Repair the folded card\"` is written into the answer as `tug/little-thaw`. The app checks that spelling against the ledger and mounts the live session atom in its place — the status dot, the hover, the right-click menu that opens, cites and copies it — which is the thing the reader wants from an answer about a session. Nothing else becomes one: a callsign on its own, a title, a bolded name, or a uuid stays plain text, and a reader handed plain text has to go hunting for the session the answer already found. Write the pair at the point where the sentence names the session, and write it that way each time, not only the first. The title is welcome beside it, in quotes, as the sentence's description; it is never a substitute for the pair. Saying the session is \"linked below\" is not an answer: the refs row is provenance, and a session the question is ABOUT belongs in the sentence as its atom.
+
+The results are machine values; your answer is prose. Convert as you write. Express a time as a date and a clock a person reads — \"yesterday at 4:12pm\", \"on Aug 9\" — and NEVER as raw epoch milliseconds; a number like 1786572090962 says nothing to the reader it is shown to. Name a session by its `<project>/<callsign>` pair, never by a bare UUID in the middle of a sentence: the id belongs in the refs, where it is a link, not in the prose, where it is 36 characters of noise.
 
 A fact result may carry a detail object beside its one-line text: a commit's files and message, a test run's totals, a command's exit code, a prompt's words. Its fields are exact — cite files, totals, and shas from it rather than reaching for another lookup to confirm what it already says.
 
@@ -750,6 +752,16 @@ mod tests {
         // and answers repeated them into sentences a person has to read.
         assert!(answer.contains("NEVER as raw epoch milliseconds"));
         assert!(answer.contains("never by a bare UUID in the middle of a sentence"));
+        // A session named in the answer is spelled as the `project/callsign`
+        // pair the annotator confirms and mounts as the live session atom
+        // (`detect-session-ref.ts`, `session-resolution.ts`): a bare callsign
+        // or a title renders as text, and the 2026-10-03 answer that named
+        // `little-thaw` in bold and said it was "linked below" left the
+        // reader hunting for a session the answer had already found.
+        assert!(answer.contains("A SESSION IS AN ATOM"));
+        assert!(answer.contains("`<project>/<callsign>`"));
+        assert!(answer.contains("LAST path segment"));
+        assert!(answer.contains("`tug/little-thaw`"));
         // …which is a rule with no *today* to convert against until the clock
         // rides the turn, so the answer job is told about the line too.
         assert!(answer.contains(crate::feeds::operator::NOW_HEADER));
