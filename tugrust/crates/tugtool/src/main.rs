@@ -131,6 +131,10 @@ fn main() -> ExitCode {
         Some(Commands::Apptest(cmd)) => changes::finish(match cmd {
             cli::ApptestCommands::Record => apptest::run_record(),
             cli::ApptestCommands::History { root, files, .. } => apptest::run_history(root, files),
+            cli::ApptestCommands::Reach { command } => match command {
+                cli::ReachCommands::Record => apptest::run_reach_record(),
+                cli::ReachCommands::Show { root, files } => apptest::run_reach_show(root, files),
+            },
         }),
     }
 }

@@ -29,26 +29,38 @@
  * Usage:
  *   bun scripts/select-tests.ts                  # derive changed paths from this session's changes
  *   bun scripts/select-tests.ts <path>...        # explicit changed paths
- *   bun scripts/select-tests.ts --print          # print the selection and skip the budget refusal
+ *   bun scripts/select-tests.ts --print          # print the whole ranking, not just the first MAX_SELECTED
  *   bun scripts/select-tests.ts --check          # lint: @covers present, resolving, and scoped
  *   bun scripts/select-tests.ts --core           # the core tier's file list
  *   bun scripts/select-tests.ts --foreground <f>...   # the @foreground subset of <f>...
  *   bun scripts/select-tests.ts --foreground-check    # lint: @foreground matches behavior
+ *   bun scripts/select-tests.ts --reach [<f>...]      # each test's executed share of what it covers
  *
  * Selected test filenames go to stdout, one per line (feed straight to `just app-test`).
  * Reasons, advisories, and diagnostics go to stderr.
  *
- * ## The selection budget
+ * ## The cut
  *
  * A derived selection is only useful if it stays small. Past MAX_SELECTED files the run
  * stops being "the tests for my change" and becomes a sweep in disguise — twenty minutes
- * of serialized Tug.app launches nobody asked for. So the budget is a REFUSAL, and it is
- * final: over it, this script emits no filenames and exits EXIT_OVER_BUDGET.
+ * of serialized Tug.app launches nobody asked for. So MAX_SELECTED is a hard limit, and
+ * the answer to a selection over it is a ranking, not a refusal: the candidates are
+ * ordered by how relevant they are to the change and the first MAX_SELECTED run.
  *
- * There is deliberately NO opt-in flag. A budget with an override is not a budget — the
- * override becomes the habit, and every over-budget run gets waved through with a reason
- * that felt good at the time. Narrow the diff, or name the handful of tests you actually
- * mean. MAX_SELECTED is the limit.
+ * The order is the tuple `rank.ts` documents — changed symbols the test reaches, then
+ * whether a recorded map ruled it out, then changed files it declares, then its current
+ * red streak, then its last duration, then its name. "Reaches" is resolved from the
+ * hunks: `changed-symbols.ts` names the functions each hunk falls inside. When the test
+ * has a reach map in the results ledger (recorded by an instrumented run), the map
+ * decides: a function it hit is reached, and one the map's tree had but did not hit is
+ * ruled out. A function the map's tree never had falls back to text — the test reaches it
+ * when its text spells the function, a caller of it in the same module, or a test-surface
+ * verb that calls either. Every candidate prints on stderr with its rank and reason, the
+ * excluded ones below a `cap` divider, so a wrong cut is visible rather than silent.
+ *
+ * There is deliberately NO flag that raises the limit. A limit with an override is not a
+ * limit — the override becomes the habit. Naming files by hand to get past the cut is the
+ * same override spelled differently.
  *
  * `--check` enforces the same ceiling ahead of time: no single source path may fan out to
  * more than MAX_SELECTED tests. Today's hub files already exceed it and are recorded in
@@ -62,6 +74,8 @@
 import { Glob } from "bun";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { changedSymbols, describeChanged, mentionSet, reachOf, type MapEvidence } from "./changed-symbols";
+import { lostOn, rank, reportLine, type RankInput } from "./rank";
 
 const APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const REPO_ROOT = resolve(APP_TEST_DIR, "..", "..");
@@ -121,26 +135,11 @@ const CORE_TIER = [
 ];
 
 /**
- * The most test files a derived selection may run without an explicit opt-in. Sized to
- * the core tier (~20 files, a few minutes): past this, selection has stopped scoping the
- * change and the caller should be the one deciding to spend the time.
+ * The most test files a derived selection runs: the ranked candidates are cut here. Sized
+ * to the core tier (~20 files, a few minutes). A hard limit — there is no flag that raises
+ * it, because a limit with an override is not a limit.
  */
 const MAX_SELECTED = 20;
-
-/** Exit code for a selection that exceeds {@link MAX_SELECTED}; distinct from a hard error. */
-const EXIT_OVER_BUDGET = 3;
-
-/**
- * Seconds one app-test file costs, used to price a selection in the refusal message.
- *
- * Measured 2026-08-21 over the core tier: 15 files ran in 97s, a mean of 6.5s. It is a
- * MEAN, not a flat rate — the spread is 2s (at0003) to 18s (at0024), so a selection of
- * long files costs materially more than this predicts and a selection of short ones less.
- * What the figure is for is sizing a refusal, where the order of magnitude is the whole
- * argument. The recipe now records each file's own duration in its summary and in
- * `TUG_APPTEST_JSON`, so this can be re-measured rather than re-guessed.
- */
-const SECONDS_PER_TEST_FILE = 7;
 
 /**
  * Source paths already fanning out past {@link MAX_SELECTED}, with the count observed when
@@ -557,6 +556,108 @@ function tugtoolPath(): string | null {
     return null;
 }
 
+/** What the results ledger says about one candidate, as the ranker reads it. */
+interface LedgerAnswer {
+    word: string;
+    recentRed: number;
+    lastSecs: number | null;
+}
+
+/**
+ * Recent red and last seconds per file, from one `tugtool apptest history` call.
+ *
+ * Telemetry, never a gate: no binary, a non-zero exit, or JSON without a `files` array
+ * each print one stderr line and return an empty map, and the ranker reads every file as
+ * `ledger unavailable` — those two axes unknown, the rest unchanged.
+ */
+function ledgerHistory(files: string[]): Map<string, LedgerAnswer> {
+    const answers = new Map<string, LedgerAnswer>();
+    const unavailable = (why: string) => {
+        process.stderr.write(`[select-tests] ledger unavailable (${why}) — ranking without recent red or seconds\n`);
+        return answers;
+    };
+    const bin = tugtoolPath();
+    if (bin === null) return unavailable("no built tugtool under tugrust/target");
+    const proc = Bun.spawnSync([bin, "apptest", "history", "--root", REPO_ROOT, "--json", ...files], {
+        cwd: REPO_ROOT,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    if (proc.exitCode !== 0) return unavailable(`apptest history exited ${proc.exitCode}`);
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(proc.stdout.toString());
+    } catch {
+        return unavailable("unreadable JSON");
+    }
+    const rows = (parsed as { files?: unknown })?.files;
+    if (!Array.isArray(rows)) return unavailable("unreadable JSON");
+    for (const row of rows as { file?: string; answer?: string; count?: number; lastSecs?: number }[]) {
+        if (typeof row.file !== "string") continue;
+        const red = row.answer === "red-streak" ? (row.count ?? 1) : 0;
+        answers.set(row.file, {
+            word: red > 0 ? `red-streak (${red})` : row.answer === "last-green" ? "last green" : "no history",
+            recentRed: red,
+            lastSecs: typeof row.lastSecs === "number" ? row.lastSecs : null,
+        });
+    }
+    return answers;
+}
+
+/** A test's recorded reach map, as `tugtool apptest reach show` prints it. */
+interface RecordedMap {
+    headSha: string;
+    map: MapEvidence["map"];
+}
+
+/**
+ * The recorded reach map per file, from one `tugtool apptest reach show` call.
+ *
+ * Telemetry, like the history: any failure prints one stderr line and returns an empty
+ * map, and every candidate is ranked on its text alone — exactly as if no map had ever
+ * been recorded.
+ */
+function recordedMaps(files: string[]): Map<string, RecordedMap> {
+    const maps = new Map<string, RecordedMap>();
+    const unavailable = (why: string) => {
+        process.stderr.write(`[select-tests] reach maps unavailable (${why}) — ranking on textual reach\n`);
+        return maps;
+    };
+    const bin = tugtoolPath();
+    if (bin === null) return maps;
+    const proc = Bun.spawnSync([bin, "apptest", "reach", "show", "--root", REPO_ROOT, ...files], {
+        cwd: REPO_ROOT,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    if (proc.exitCode !== 0) return unavailable(`apptest reach show exited ${proc.exitCode}`);
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(proc.stdout.toString());
+    } catch {
+        return unavailable("unreadable JSON");
+    }
+    const rows = (parsed as { files?: unknown })?.files;
+    if (!Array.isArray(rows)) return unavailable("unreadable JSON");
+    for (const row of rows as { file?: unknown; headSha?: unknown; map?: unknown }[]) {
+        if (typeof row.file !== "string" || typeof row.headSha !== "string") continue;
+        if (row.map === null || typeof row.map !== "object") continue;
+        maps.set(row.file, { headSha: row.headSha, map: row.map as RecordedMap["map"] });
+    }
+    return maps;
+}
+
+/** `git show <sha>:<path>`, once per pair for the run; null when git cannot show it. */
+const textAtSha = new Map<string, string | null>();
+function showAt(sha: string, path: string): string | null {
+    const key = `${sha}:${path}`;
+    if (!textAtSha.has(key)) {
+        const proc = Bun.spawnSync(["git", "show", key], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
+        textAtSha.set(key, proc.exitCode === 0 ? proc.stdout.toString() : null);
+    }
+    return textAtSha.get(key) ?? null;
+}
+
 /**
  * The changed paths this run selects from.
  *
@@ -713,6 +814,7 @@ const holesOnly = args.includes("--holes");
 const coreOnly = args.includes("--core");
 const foregroundOnly = args.includes("--foreground");
 const foregroundCheck = args.includes("--foreground-check");
+const reachReport = args.includes("--reach");
 const explicit = args.filter((a) => !a.startsWith("--"));
 
 if (coreOnly) {
@@ -741,6 +843,58 @@ if (coreOnly) {
 }
 
 const coverage = testFiles().map(readCoverage);
+
+/** At or above this executed share of its covered modules, a test claims nearly all it covers. */
+const NEARLY_EVERYTHING = 0.8;
+
+if (reachReport) {
+    // What each test's recorded map says it executed, per `@covers` declaration: `hit/n`
+    // named functions over the modules the declaration matches, a subtree aggregating its
+    // modules. A test whose share across everything it covers is high claims the surface it
+    // declares; a low one declares far more than it drives. It deletes nothing — pruning a
+    // declaration is a hand gesture, made by reading the test.
+    const named = explicit.map(normalizeTestName);
+    const files = named.length > 0 ? named : coverage.map((c) => c.file);
+    const maps = recordedMaps(files);
+    const pct = (hit: number, n: number) => (n === 0 ? 0 : Math.round((100 * hit) / n));
+    const share = (hit: number, n: number) => `${hit}/${n} (${pct(hit, n)}%)`;
+    const nearly: string[] = [];
+    for (const file of files) {
+        const recorded = maps.get(file);
+        if (recorded === undefined) {
+            process.stdout.write(`${file}  no map\n`);
+            continue;
+        }
+        const covers = coverage.find((c) => c.file === file)?.covers ?? [];
+        const modules = Object.keys(recorded.map);
+        const counted = new Set<string>();
+        const lines: string[] = [];
+        for (const q of covers) {
+            const mine = modules.filter((m) => matches(q, m));
+            if (mine.length === 0) continue;
+            let hit = 0;
+            let n = 0;
+            for (const m of mine) {
+                hit += recorded.map[m].hit.length;
+                n += recorded.map[m].n;
+                counted.add(m);
+            }
+            const label = mine.length === 1 && mine[0] === q ? q : `${q} (${mine.length} module${mine.length === 1 ? "" : "s"})`;
+            lines.push(`  ${label}  ${share(hit, n)}`);
+        }
+        let hit = 0;
+        let n = 0;
+        for (const m of counted) {
+            hit += recorded.map[m].hit.length;
+            n += recorded.map[m].n;
+        }
+        process.stdout.write(`${file}  ${counted.size === 0 ? "no covered module in its map" : `covered ${share(hit, n)}`}\n`);
+        for (const l of lines) process.stdout.write(`${l}\n`);
+        if (n > 0 && hit / n >= NEARLY_EVERYTHING) nearly.push(file);
+    }
+    process.stdout.write(`claim nearly everything they cover: ${nearly.length > 0 ? nearly.join(", ") : "none"}\n`);
+    process.exit(0);
+}
 
 /**
  * A test filename as the corpus knows it. Callers hand us whatever their shell produced —
@@ -1089,9 +1243,53 @@ for (const c of coverage) {
     if (because.length > 0) selected.push({ file: c.file, because });
 }
 
-process.stderr.write(`[select-tests] ${sources.length} changed source file(s) → ${selected.length} test file(s)\n`);
-for (const s of selected) {
-    process.stderr.write(`  ${s.file}  ←  ${s.because.slice(0, 3).join(", ")}${s.because.length > 3 ? ", …" : ""}\n`);
+const running = Math.min(selected.length, MAX_SELECTED);
+process.stderr.write(
+    `[select-tests] ${sources.length} changed source file(s) → ${selected.length} candidate test file(s)` +
+        (selected.length > 0 ? `, ranked; running ${running} (cap ${MAX_SELECTED})` : "") +
+        "\n",
+);
+
+// What the change touched, by name: the hunks of every changed source that selected
+// something, resolved to the named functions they fall inside.
+const selecting = sources.filter((p) => selected.some((s) => s.because.includes(p)));
+const changedFiles = changedSymbols(selecting, REPO_ROOT);
+const sets = mentionSet(changedFiles, REPO_ROOT);
+if (changedFiles.length > 0) {
+    process.stderr.write(`[select-tests] changed symbols:\n`);
+    for (const f of changedFiles) process.stderr.write(`  ${describeChanged(f, sets)}\n`);
+}
+
+const histories = selected.length > 0 ? ledgerHistory(selected.map((s) => s.file)) : new Map<string, LedgerAnswer>();
+const maps = selected.length > 0 && changedFiles.length > 0 ? recordedMaps(selected.map((s) => s.file)) : new Map<string, RecordedMap>();
+const ranked = rank(
+    selected.map((s): RankInput => {
+        const text = readFileSync(join(APP_TEST_DIR, s.file), "utf8");
+        const recorded = maps.get(s.file);
+        const evidence: MapEvidence | undefined = recorded === undefined
+            ? undefined
+            : { map: recorded.map, textAtHead: (path) => showAt(recorded.headSha, path) };
+        const { reach, negative, note } = reachOf(text, changedFiles.filter((f) => s.because.includes(f.path)), sets, evidence);
+        const h = histories.get(s.file) ?? { word: histories.size > 0 ? "no history" : "ledger unavailable", recentRed: 0, lastSecs: null };
+        return {
+            file: s.file,
+            because: s.because,
+            reach,
+            negative,
+            reachNote: note,
+            recentRed: h.recentRed,
+            history: h.word,
+            lastSecs: h.lastSecs,
+        };
+    }),
+);
+const width = Math.max(0, ...ranked.map((r) => r.file.length));
+for (const r of ranked) {
+    if (r.rank === MAX_SELECTED + 1) {
+        process.stderr.write(`---- cap: ${MAX_SELECTED} — below the line, in rank order ----\n`);
+    }
+    const lost = r.rank > MAX_SELECTED ? lostOn(r, ranked[MAX_SELECTED - 1]) : undefined;
+    process.stderr.write(`${reportLine(r, width, lost)}\n`);
 }
 
 if (setAside.length > 0) {
@@ -1120,17 +1318,7 @@ if (tripped.length > 0) {
     );
 }
 
-// The budget refusal. Deliberately AFTER the per-test reasons above, so an over-budget
-// caller still sees exactly what would have run and why before deciding.
-if (!printOnly && selected.length > MAX_SELECTED) {
-    process.stderr.write(
-        `\n[select-tests] REFUSED — ${selected.length} test files exceeds the ${MAX_SELECTED}-file\n` +
-            `               selection budget. That is ~${Math.round((selected.length * SECONDS_PER_TEST_FILE) / 60)} minutes of\n` +
-            `               serialized Tug.app launches, which is a sweep, not a scoped run.\n\n` +
-            `               Narrow the diff, or name the few tests you actually want:\n` +
-            `                 just app-test <file>...\n`,
-    );
-    process.exit(EXIT_OVER_BUDGET);
-}
-
-for (const s of selected) process.stdout.write(`${s.file}\n`);
+// The cut. Bare mode is what `app-test-changed` runs, so it gets the first MAX_SELECTED
+// in rank order; `--print` shows the whole ranking. Everything below the line was
+// already printed above with its rank and the axis it lost on.
+for (const r of printOnly ? ranked : ranked.slice(0, MAX_SELECTED)) process.stdout.write(`${r.file}\n`);

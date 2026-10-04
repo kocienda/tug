@@ -414,6 +414,31 @@ pub enum ApptestCommands {
         #[arg(required = true, num_args = 1..)]
         files: Vec<String>,
     },
+    /// Record or read which functions each test file executed.
+    ///
+    /// One map per test file per base checkout, written by an instrumented
+    /// app-test run and read by the selector to rank candidates.
+    Reach {
+        #[command(subcommand)]
+        command: ReachCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ReachCommands {
+    /// Store each file's map, read as JSON on stdin; a later record for the
+    /// same file replaces the earlier one.
+    Record,
+    /// Print the stored map for each named file that has one.
+    Show {
+        /// The root the run executed in (default: cwd). Resolved to its base
+        /// checkout, so an arc worktree and its checkout share one map.
+        #[arg(long)]
+        root: Option<PathBuf>,
+        /// Test files to answer for, as the report names them.
+        #[arg(required = true, num_args = 1..)]
+        files: Vec<String>,
+    },
 }
 
 /// Clap-facing mirror of {@link JoinStrategy}.

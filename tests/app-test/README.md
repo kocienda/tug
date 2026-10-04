@@ -62,7 +62,13 @@ Running everything is almost never the right move: each file launches its own `T
  */
 ```
 
-A `@covers` value is a repo-relative path (a trailing `/` means the whole subtree) or a glob. `just app-test-changed` reads the changed files out of `git status`, resolves them through those declarations, prints which changed file pulled in each test, and runs exactly that set. Prefer **generous** globs — a directory over a single file — so a rename inside the subsystem doesn't silently drop coverage.
+A `@covers` value is a repo-relative path (a trailing `/` means the whole subtree) or a glob. `just app-test-changed` reads the changed files out of `git status`, resolves them through those declarations, prints which changed file pulled in each test, and runs that set — up to twenty. Prefer **generous** globs — a directory over a single file — so a rename inside the subsystem doesn't silently drop coverage.
+
+When the declarations name more than twenty tests, `just app-test-changed` runs the **top twenty** by relevance and prints the rest below the line. The ranking resolves each changed hunk to the function it falls inside and puts first the tests that reach those functions, then the ones declaring more of the changed files, then the ones already red, then the cheapest. Every candidate prints on stderr with its rank and why, in and out alike; `just app-test-select` shows the whole ranking. Twenty is a hard limit — there is no flag to raise it.
+
+#### Reading the reach map
+
+"Reaches" is best answered by what a test actually executed. `just app-test-reach` runs every test on a deck built with `TUG_APPTEST_REACH=1`, where every named function marks itself when it runs, and records each passing file's map — per module, the named functions it ran out of how many there are — in the results ledger. The instrumented deck costs frames, so ordinary runs never record and the frame-sensitive tests may go red under it; it is a sweep you start on purpose, not part of the everyday loop. Once a test has a map, the ranking reads it first: a changed function the map hit is `measured`, one the map's tree had and the test never ran is `negative` and sorts below every test without evidence, and one the map predates falls back to the test's text. `just app-test-reach-report [files…]` (`bun scripts/select-tests.ts --reach`) prints, per test, `hit/n` for each module its `@covers` names, a subtree aggregating its modules, and closes with the tests that execute at least 80 percent of what they cover. A low share is a test declaring far more than it drives — a reason to read it, never to delete a declaration unread.
 
 | Command | What it runs |
 |---|---|
@@ -71,6 +77,8 @@ A `@covers` value is a repo-relative path (a trailing `/` means the whole subtre
 | `just app-test` | The ~20-test core tier (defined in the `app-test` recipe) |
 | `just app-test <files…>` | Exactly the named files |
 | `just app-test-all` | Every test file |
+| `just app-test-reach` | Every test file, on a deck instrumented to record what each test executes |
+| `just app-test-reach-report [files…]` | Each test's executed share of what it covers, from the recorded maps |
 | `just app-test-covers-check` | Lint: every test declares `@covers`, and every path resolves |
 | `just app-test-foreground-check` | Lint: `@foreground` matches which tests actually take the screen |
 

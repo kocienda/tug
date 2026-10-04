@@ -18,6 +18,8 @@ import {
   type DuetSeed,
 } from "./theme-editor-core";
 import { fracFromAuthored, chromaFromAuthored, resolveHueAngle } from "./src/components/tugways/tugcolor";
+// The app-test reach instrumentation: only a build with TUG_APPTEST_REACH=1 carries it.
+import { tugReachPlugin } from "./scripts/babel-plugin-tug-reach";
 
 /**
  * Vite plugin: seamless CSS hot-reload when tugcolor.ts changes.
@@ -846,7 +848,11 @@ export default (defineConfig as any)((env: any = {}) => {
     plugins: [
       buildSummaryPlugin(),
       noConditionalRequestsPlugin(),
-      react(),
+      // An app-test run that records reach builds its dist with TUG_APPTEST_REACH=1,
+      // which instruments every named function's entry (see the plugin's header). Any
+      // other build — release, the dev server, a plain app-test run — runs no Babel
+      // plugins of its own.
+      react({ babel: { plugins: process.env.TUG_APPTEST_REACH === "1" ? [tugReachPlugin()] : [] } }),
       activeThemeVirtualPlugin(),
       paletteHotReload(),
       controlTokenHotReload(),

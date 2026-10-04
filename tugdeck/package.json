@@ -79,6 +79,8 @@
     "@codemirror/language": "6.12.4"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/types": "^7.29.0",
     "@types/diff-match-patch": "^1.0.36",
     "@types/dompurify": "^3.2.0",
     "@types/jsdom": "^28.0.0",

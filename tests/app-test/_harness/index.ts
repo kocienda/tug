@@ -40,6 +40,7 @@ import {
   VersionSkewError,
 } from "./errors";
 import { shortToken, tmuxSocketLabel } from "./fnv1a";
+import { unionReachMaps, type ReachMap } from "./reach-map";
 import { onTestRunEnd } from "./test-cleanup";
 import { RpcClient, type RpcTransport } from "./rpc";
 import type {
@@ -1394,6 +1395,7 @@ export class App {
    */
   async quitGracefully(opts?: { timeoutMs?: number }): Promise<void> {
     if (this.closed) return;
+    await this.dumpReach();
     // Fire the RPC. The Swift handler writes its `ok` response BEFORE
     // scheduling the terminate, so under normal flow the call resolves
     // cleanly. If the kernel buffer hasn't drained the response by the
@@ -1466,6 +1468,7 @@ export class App {
   async appReload(opts?: { timeoutMs?: number }): Promise<void> {
     const timeoutMs = opts?.timeoutMs ?? 8000;
     const pollMs = 100;
+    await this.dumpReach();
 
     // Read the pre-reload generation. Fall back to 0 when `__tug` /
     // `getReadyGen` aren't present so old surface versions surface
@@ -1664,6 +1667,33 @@ export class App {
   }
 
   /**
+   * Fold this page's reach map into the test file's, when the run asked for one.
+   *
+   * The recipe sets `TUG_APPTEST_REACH_OUT` per file only under `TUG_APPTEST_REACH=1`,
+   * where the deck is built with the reach prologue and `window.__tugReach.dump()` says
+   * which named functions ran. A page's map dies with the page, so this runs before
+   * every teardown — `close()`, `quitGracefully()`, and the reload in `appReload()` —
+   * and unions into the file already there. A map is telemetry: any failure is one
+   * stderr line, and the teardown carries on.
+   */
+  private async dumpReach(): Promise<void> {
+    const out = process.env.TUG_APPTEST_REACH_OUT;
+    if (!out) return;
+    try {
+      const map = await this.evalJS<ReachMap | null>(
+        `(typeof window.__tugReach === "object" && window.__tugReach) ? window.__tugReach.dump() : null`,
+        { timeoutMs: 2000 },
+      );
+      if (map === null || typeof map !== "object") return;
+      const prior = existsSync(out) ? (JSON.parse(readFileSync(out, "utf8")) as ReachMap) : {};
+      mkdirSync(dirname(out), { recursive: true });
+      writeFileSync(out, JSON.stringify(unionReachMaps(prior, map)));
+    } catch (err) {
+      process.stderr.write(`[harness] reach map not written: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+
+  /**
    * SIGTERM the subprocess, wait out the shared `tug-quiesce` teardown
    * deadline for exit, SIGKILL on timeout. Unlinks the socket file,
    * flushes the log stream, and detaches process-level signal handlers.
@@ -1671,6 +1701,7 @@ export class App {
    */
   async close(): Promise<void> {
     if (this.closed) return;
+    await this.dumpReach();
     this.closed = true;
     // Primary teardown: signal the GUI Tug.app process by PID. The app
     // has no SIGTERM handler, so SIGTERM ends it promptly, and its

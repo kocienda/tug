@@ -23,15 +23,34 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const APPTEST_RESULTS_SCHEMA_VERSION: i64 = 1;
+pub const APPTEST_RESULTS_SCHEMA_VERSION: i64 = 2;
 
 /// Registered migrations, each keyed by the on-disk version it upgrades
 /// *from*. Every migration whose `from` is at or above the version found on
-/// disk is applied in order. Empty at v1; a schema change adds an entry here
-/// and bumps [`APPTEST_RESULTS_SCHEMA_VERSION`] — never edits the DDL alone.
-const APPTEST_RESULTS_MIGRATIONS: &[(i64, &str)] = &[];
+/// disk is applied in order. A schema change adds an entry here and bumps
+/// [`APPTEST_RESULTS_SCHEMA_VERSION`] — never edits the DDL alone.
+///
+/// - v1 → v2: the `reach` table, one executed-function map per test file.
+const APPTEST_RESULTS_MIGRATIONS: &[(i64, &str)] = &[(1, CREATE_REACH_SQL)];
+
+/// Which functions each test file executed, as the instrumented deck recorded
+/// them. One row per `(base_root, file)`, replaced by whichever run last
+/// executed that file; `head_sha` is the tree the map was recorded against,
+/// so a reader can tell a function the map never knew from one it did not
+/// reach. `map` is JSON: `{ "<path>": { "n": <int>, "hit": ["<name>", …] } }`.
+const CREATE_REACH_SQL: &str = "
+    CREATE TABLE IF NOT EXISTS reach (
+        base_root   TEXT    NOT NULL,
+        file        TEXT    NOT NULL,
+        head_sha    TEXT    NOT NULL,
+        recorded_at INTEGER NOT NULL,
+        map         TEXT    NOT NULL,
+        PRIMARY KEY (base_root, file)
+    );
+";
 
 /// How many runs are kept per base root. Older runs are deleted at record
 /// time, and their result rows follow by cascade. Diagnostic telemetry whose
@@ -192,6 +211,10 @@ pub struct FileHistory {
     pub file: String,
     #[serde(flatten)]
     pub history: History,
+    /// The newest recorded outcome's duration in seconds — what a selection
+    /// that must cut can break its last tie on. `None` with no outcomes.
+    #[serde(rename = "lastSecs", skip_serializing_if = "Option::is_none")]
+    pub last_secs: Option<i64>,
 }
 
 /// The machine-global ledger path.
@@ -234,6 +257,7 @@ fn prepare(conn: &Connection) -> Result<(), ApptestLedgerError> {
         }
     }
     conn.execute_batch(CREATE_APPTEST_RESULTS_SQL)?;
+    conn.execute_batch(CREATE_REACH_SQL)?;
     conn.pragma_update(None, "user_version", APPTEST_RESULTS_SCHEMA_VERSION)?;
     Ok(())
 }
@@ -320,6 +344,7 @@ struct Outcome {
     runs_ago: i64,
     /// How many files actually ran in that run.
     files_in_run: i64,
+    secs: i64,
 }
 
 /// The three answers, per file, for the given base root.
@@ -334,7 +359,8 @@ pub fn file_history(
     let mut stmt = conn.prepare(
         "SELECT r.status, u.head_sha, DATE(u.ended_at, 'unixepoch'), u.dirty,
                 (SELECT COUNT(*) FROM results b
-                  WHERE b.run_id = u.id AND b.status <> 'SKIP')
+                  WHERE b.run_id = u.id AND b.status <> 'SKIP'),
+                r.secs
            FROM results r JOIN runs u ON u.id = r.run_id
           WHERE u.base_root = ?1 AND r.file = ?2 AND r.status <> 'SKIP'
           ORDER BY u.id DESC",
@@ -350,6 +376,7 @@ pub fn file_history(
                     dirty: row.get::<_, i64>(3)? != 0,
                     runs_ago: 0,
                     files_in_run: row.get(4)?,
+                    secs: row.get(5)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
@@ -363,6 +390,7 @@ pub fn file_history(
         out.push(FileHistory {
             file: file.clone(),
             history: answer_from(&outcomes),
+            last_secs: outcomes.first().map(|o| o.secs),
         });
     }
     Ok(out)
@@ -394,6 +422,97 @@ fn answer_from(outcomes: &[Outcome]) -> History {
         max_files_in_run: streak.iter().map(|o| o.files_in_run).max().unwrap_or(0),
         last_green: outcomes.iter().find(|o| o.status == "PASS").map(green),
     }
+}
+
+/// One test file's executed-function map, as the recipe hands it over.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReachFile {
+    pub file: String,
+    /// Stored verbatim: the ledger keeps the map, it does not interpret it.
+    pub map: Box<RawValue>,
+}
+
+/// Every map one run recorded, read as JSON on stdin.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReachRecord {
+    /// The literal root the run executed in; resolved to its base checkout.
+    pub run_root: String,
+    pub head_sha: String,
+    pub recorded_at: i64,
+    pub files: Vec<ReachFile>,
+}
+
+/// One file's stored map, as `reach show` prints it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReachRow {
+    pub file: String,
+    pub head_sha: String,
+    pub recorded_at: i64,
+    pub map: Box<RawValue>,
+}
+
+/// Store each file's map under the run root's base checkout, replacing the
+/// map any earlier run left for that file. Returns how many were stored.
+pub fn record_reach(conn: &mut Connection, rec: &ReachRecord) -> Result<usize, ApptestLedgerError> {
+    let base_root = resolve_base_root(Path::new(&rec.run_root));
+    let tx = conn.transaction()?;
+    {
+        let mut insert = tx.prepare(
+            "INSERT OR REPLACE INTO reach (base_root, file, head_sha, recorded_at, map)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )?;
+        for f in &rec.files {
+            insert.execute(params![
+                base_root,
+                f.file,
+                rec.head_sha,
+                rec.recorded_at,
+                f.map.get()
+            ])?;
+        }
+    }
+    tx.commit()?;
+    Ok(rec.files.len())
+}
+
+/// The stored map for each named file that has one, in the order named.
+pub fn reach_for(
+    conn: &Connection,
+    base_root: &str,
+    files: &[String],
+) -> Result<Vec<ReachRow>, ApptestLedgerError> {
+    let mut stmt = conn.prepare(
+        "SELECT head_sha, recorded_at, map FROM reach WHERE base_root = ?1 AND file = ?2",
+    )?;
+    let mut out = Vec::new();
+    for file in files {
+        let row = stmt
+            .query_row(params![base_root, file], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .optional()?;
+        let Some((head_sha, recorded_at, map)) = row else {
+            continue;
+        };
+        // A row that is not JSON was never written by `record_reach`; skip it
+        // rather than fail the read, since the map is telemetry.
+        let Ok(map) = RawValue::from_string(map) else {
+            continue;
+        };
+        out.push(ReachRow {
+            file: file.clone(),
+            head_sha,
+            recorded_at,
+            map,
+        });
+    }
+    Ok(out)
 }
 
 /// How many runs are recorded for a base root — the retention tests' witness,
@@ -854,9 +973,213 @@ mod tests {
         let none = serde_json::to_value(FileHistory {
             file: "at9999.test.ts".into(),
             history: History::NoHistory,
+            last_secs: None,
         })
         .unwrap();
         assert_eq!(none["answer"], "no-history");
+    }
+
+    /// A selection that has to cut breaks its last tie on cost, so the
+    /// answer carries the newest outcome's duration — not an average, and
+    /// never a `SKIP`'s, since a skipped file never ran.
+    #[test]
+    fn the_answer_carries_the_newest_outcomes_seconds() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let timed = |name: &str, status: &str, secs: i64| FileResult {
+            secs,
+            ..file(name, status)
+        };
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "aaa1111",
+                1_700_000_000,
+                vec![timed("at0001.test.ts", "PASS", 20)],
+            ),
+        )
+        .unwrap();
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "bbb2222",
+                1_700_086_400,
+                vec![
+                    timed("at0001.test.ts", "FAIL", 31),
+                    timed("at0002.test.ts", "SKIP", 0),
+                ],
+            ),
+        )
+        .unwrap();
+        let base = resolve_base_root(Path::new(&root));
+        let answers = file_history(
+            &conn,
+            &base,
+            &[
+                "at0001.test.ts".into(),
+                "at0002.test.ts".into(),
+                "at0003.test.ts".into(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(answers[0].last_secs, Some(31), "the newer run's seconds");
+        assert_eq!(answers[1].last_secs, None, "a SKIP-only file never ran");
+        assert_eq!(answers[2].last_secs, None);
+
+        let red = serde_json::to_value(&answers[0]).unwrap();
+        assert_eq!(red["answer"], "red-streak");
+        assert_eq!(red["lastSecs"], 31);
+
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "ccc3333",
+                1_700_172_800,
+                vec![timed("at0001.test.ts", "PASS", 12)],
+            ),
+        )
+        .unwrap();
+        let green = serde_json::to_value(
+            &file_history(&conn, &base, &["at0001.test.ts".into()]).unwrap()[0],
+        )
+        .unwrap();
+        assert_eq!(green["answer"], "last-green");
+        assert_eq!(green["lastSecs"], 12);
+
+        let none = serde_json::to_value(&answers[2]).unwrap();
+        assert_eq!(none["answer"], "no-history");
+        assert!(none.get("lastSecs").is_none(), "omitted, not null: {none}");
+    }
+
+    fn reach_record(root: &str, sha: &str, at: i64, file: &str, map: &str) -> ReachRecord {
+        serde_json::from_str(&format!(
+            r#"{{"runRoot":{root:?},"headSha":{sha:?},"recordedAt":{at},"files":[{{"file":{file:?},"map":{map}}}]}}"#
+        ))
+        .unwrap()
+    }
+
+    /// A v1 ledger — the only shape every other checkout's `tugtool` knows —
+    /// reaches v2 through the registered migration, and keeps its runs.
+    #[test]
+    fn a_v1_ledger_migrates_to_v2_with_the_reach_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CREATE_APPTEST_RESULTS_SQL).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute(
+            "INSERT INTO runs (started_at, ended_at, base_root, run_root, branch, head_sha,
+                               dirty, sweep, selection, wall_secs, verdict)
+             VALUES (1, 2, '/r', '/r', 'main', 'abc', 0, 'core', 'core', 1, 'PASS')",
+            [],
+        )
+        .unwrap();
+        prepare(&conn).unwrap();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        let reach: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'reach'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(reach, 1);
+        let runs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(runs, 1, "the migration keeps what v1 recorded");
+    }
+
+    #[test]
+    fn a_newer_schema_is_refused() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", APPTEST_RESULTS_SCHEMA_VERSION + 1)
+            .unwrap();
+        match prepare(&conn) {
+            Err(ApptestLedgerError::SchemaTooNew { on_disk, supported }) => {
+                assert_eq!(on_disk, APPTEST_RESULTS_SCHEMA_VERSION + 1);
+                assert_eq!(supported, APPTEST_RESULTS_SCHEMA_VERSION);
+            }
+            other => panic!("expected SchemaTooNew, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_reach_map_round_trips_verbatim_and_a_later_record_replaces_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let base = resolve_base_root(Path::new(&root));
+        let first = r#"{"tugdeck/src/a.ts":{"n":3,"hit":["alpha","Widget.bump"]}}"#;
+        let stored = record_reach(
+            &mut conn,
+            &reach_record(&root, "aaa1111", 100, "at0001.test.ts", first),
+        )
+        .unwrap();
+        assert_eq!(stored, 1);
+
+        let rows = reach_for(
+            &conn,
+            &base,
+            &["at0001.test.ts".into(), "at0002.test.ts".into()],
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1, "only files with a row are answered");
+        assert_eq!(rows[0].file, "at0001.test.ts");
+        assert_eq!(rows[0].head_sha, "aaa1111");
+        assert_eq!(rows[0].recorded_at, 100);
+        assert_eq!(rows[0].map.get(), first);
+
+        let second = r#"{"tugdeck/src/a.ts":{"n":3,"hit":[]}}"#;
+        record_reach(
+            &mut conn,
+            &reach_record(&root, "bbb2222", 200, "at0001.test.ts", second),
+        )
+        .unwrap();
+        let rows = reach_for(&conn, &base, &["at0001.test.ts".into()]).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].head_sha, "bbb2222");
+        assert_eq!(rows[0].map.get(), second);
+
+        let json = serde_json::to_value(&rows[0]).unwrap();
+        assert_eq!(json["headSha"], "bbb2222");
+        assert_eq!(json["recordedAt"], 200);
+        assert_eq!(json["map"]["tugdeck/src/a.ts"]["n"], 3);
+    }
+
+    #[test]
+    fn a_worktree_and_its_base_read_one_reach_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("checkout");
+        let worktree = dir.path().join("wt");
+        std::fs::create_dir_all(base.join(".git/worktrees/wt")).unwrap();
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}\n", base.join(".git/worktrees/wt").display()),
+        )
+        .unwrap();
+        std::fs::write(base.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
+
+        let mut conn = ledger(dir.path());
+        let map = r#"{"a.ts":{"n":1,"hit":["f"]}}"#;
+        record_reach(
+            &mut conn,
+            &reach_record(&worktree.to_string_lossy(), "aaa1111", 1, "x.test.ts", map),
+        )
+        .unwrap();
+        let rows = reach_for(&conn, &resolve_base_root(&base), &["x.test.ts".into()]).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "recorded from the worktree, found from the base"
+        );
+        assert_eq!(rows[0].map.get(), map);
     }
 
     #[test]

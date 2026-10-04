@@ -1669,6 +1669,12 @@ app-test *FILES:
     # See tuglaws/code-signing-mac.md.
     BUILT_BUNDLE_ID="$(plutil -extract CFBundleIdentifier raw "$APP_DIR/Contents/Info.plist" 2>/dev/null || echo '?')"
     echo "==> app-test bundle id: $BUILT_BUNDLE_ID (identity: $TUG_FORCE_BUNDLE_ID)"
+    # The deck this run serves is the dist the refresh below builds, so the
+    # reach instrumentation follows the run's own environment, never how the
+    # bundle was built. Say which deck it is.
+    if [ "${TUG_APPTEST_REACH:-}" = "1" ]; then
+        echo "==> deck instrumented for reach (TUG_APPTEST_REACH=1)"
+    fi
     if [ "$BUILT_BUNDLE_ID" != "$TUG_FORCE_BUNDLE_ID" ]; then
         echo "[warn] built bundle is $BUILT_BUNDLE_ID but app-test drives $TUG_FORCE_BUNDLE_ID." >&2
         echo "       Run 'just build-app' to rebuild the app-test bundle." >&2
@@ -2066,18 +2072,25 @@ app-test *FILES:
         local out="$RUNDIR/$(printf '%s' "$f" | tr '/' '_')"
         local tmpout="$out.out"
         local file_start rc passed failed total secs status
+        # Under TUG_APPTEST_REACH=1 the harness folds each page's reach map into
+        # this file's own JSON before every teardown; empty, it writes nothing.
+        local reach_out=""
+        if [ "${TUG_APPTEST_REACH:-}" = "1" ]; then
+            mkdir -p "$RUNDIR/reach"
+            reach_out="$RUNDIR/reach/$(printf '%s' "$f" | tr '/' '_').json"
+        fi
         file_start="$(date +%s)"
         if [ -n "$STREAM" ]; then
             echo "---- $f ----"
             # bun's stdout/stderr both stream to the user's terminal AND
             # land in $tmpout for parsing. `tee` truncates without `-a`.
-            if bun test $BUN_TIMEOUT_ARG "$f" 2>&1 | tee "$tmpout"; then
+            if TUG_APPTEST_REACH_OUT="$reach_out" bun test $BUN_TIMEOUT_ARG "$f" 2>&1 | tee "$tmpout"; then
                 rc=0
             else
                 rc="${PIPESTATUS[0]}"
             fi
         else
-            if bun test $BUN_TIMEOUT_ARG "$f" > "$tmpout" 2>&1; then
+            if TUG_APPTEST_REACH_OUT="$reach_out" bun test $BUN_TIMEOUT_ARG "$f" > "$tmpout" 2>&1; then
                 rc=0
             else
                 rc=$?
@@ -2507,6 +2520,31 @@ app-test *FILES:
         elif ! printf '%s' "$record_payload" | "$TUGTOOL_BIN" apptest record >/dev/null; then
             echo "[app-test] results not recorded: tugtool apptest record exited non-zero" >&2
         fi
+
+        # The reach maps of the files that passed: what each one's run actually
+        # executed, which the selector ranks by. A red file's map is not a fact
+        # about the test, so it is never recorded. Telemetry, like the record above.
+        if [ "${TUG_APPTEST_REACH:-}" = "1" ]; then
+            reach_payload="$(
+                {
+                    for row in "${RESULT_ROWS[@]}"; do
+                        IFS=':' read -r status file _ <<< "$row"
+                        [ "$status" = PASS ] || continue
+                        reach_file="$RUNDIR/reach/$(printf '%s' "$file" | tr '/' '_').json"
+                        [ -s "$reach_file" ] || continue
+                        jq -c --arg file "$file" '{file:$file, map:.}' "$reach_file"
+                    done
+                } | jq -s \
+                    --arg runRoot "{{justfile_directory()}}" --arg headSha "$record_head" \
+                    --argjson recordedAt "$END_EPOCH" \
+                    'if length == 0 then empty else
+                     {runRoot:$runRoot, headSha:$headSha, recordedAt:$recordedAt, files: .} end'
+            )" || reach_payload=""
+            if [ -n "$reach_payload" ] && \
+                ! printf '%s' "$reach_payload" | "$TUGTOOL_BIN" apptest reach record >/dev/null; then
+                echo "[app-test] reach maps not recorded: tugtool apptest reach record exited non-zero" >&2
+            fi
+        fi
     fi
 
     echo "$BANNER"
@@ -2550,12 +2588,6 @@ app-test-changed *PATHS:
     set -uo pipefail
     FILES="$(cd tests/app-test && bun scripts/select-tests.ts {{PATHS}})"
     STATUS=$?
-    # Exit 3 = the selection blew the budget. The script already explained itself
-    # and printed the would-be selection; stop here rather than silently running a
-    # sweep's worth of tests (or, worse, reporting "nothing to run").
-    if [ "$STATUS" -eq 3 ]; then
-        exit 1
-    fi
     if [ "$STATUS" -ne 0 ]; then
         echo "==> select-tests failed (status $STATUS)." >&2
         exit "$STATUS"
@@ -2579,6 +2611,25 @@ app-test-all:
     set -uo pipefail
     FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; })"
     TUG_APPTEST_SELECTION=all just app-test $FILES
+
+# Every app-test file, on a deck instrumented to record which named functions
+# each test executes. The one recipe besides `app-test-all` that runs more than
+# twenty files: it IS `app-test-all`, with `TUG_APPTEST_REACH=1` so the run's own
+# dist refresh instruments the deck and each passing file's reach map lands in
+# the results ledger, where `app-test-changed` ranks by it. The instrumentation
+# costs frames (tuglaws/app-test-harness.md), so frame-sensitive files may go
+# red here and only green files' maps are recorded. A sweep by design — run it
+# on purpose, never as a selection.
+app-test-reach:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; })"
+    TUG_APPTEST_REACH=1 TUG_APPTEST_SELECTION=reach just app-test $FILES
+
+# Print each test's executed share of the modules it covers, from the recorded
+# reach maps, and the tests that execute nearly everything they cover.
+app-test-reach-report *FILES:
+    @cd tests/app-test && bun scripts/select-tests.ts --reach {{FILES}}
 
 # An unannotated test can never be selected by `app-test-changed`, so it
 # silently stops guarding its surface — this is the guard against that

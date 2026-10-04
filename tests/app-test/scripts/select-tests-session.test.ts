@@ -21,6 +21,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from "node:fs";
@@ -248,11 +249,25 @@ describe("every fallback says which one it took and why", () => {
 });
 
 describe("explicit paths bypass the ledger", () => {
-    test("the stub is never invoked when paths are named", () => {
+    test("the stub is never asked for changes when paths are named", () => {
         armStub(payload({ files: [FOREIGN] }), 0);
         const r = run(["--print", ATTRIBUTED]);
         expect(r.code).toBe(0);
-        expect(existsSync(stubFile("stub-calls"))).toBe(false);
+        const calls = existsSync(stubFile("stub-calls"))
+            ? readFileSync(stubFile("stub-calls"), "utf8").split("\n").filter((l) => l.length > 0)
+            : [];
+        expect(calls.filter((l) => l.startsWith("changes"))).toEqual([]);
         expect(lines(r.out)).toEqual(lines(run(["--print", ATTRIBUTED]).out));
+    });
+
+    test("a history answer the selector cannot read ranks as ledger unavailable", () => {
+        // The stub answers every verb with the canned `changes` payload, so the selector's
+        // `apptest history` call gets JSON with no `files` array.
+        armStub(payload({ files: [FOREIGN] }), 0);
+        const r = run(["--print", ATTRIBUTED]);
+        expect(r.code).toBe(0);
+        expect(r.err).toContain("[select-tests] ledger unavailable (unreadable JSON)");
+        expect(r.err).toContain("· ledger unavailable · ?s");
+        expect(lines(r.out).length).toBeGreaterThan(0);
     });
 });
