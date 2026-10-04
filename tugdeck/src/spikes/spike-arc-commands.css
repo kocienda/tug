@@ -1,0 +1,99 @@
+/* @tug-pairings: none — spike scaffolding; the block, the buttons and the popup
+ * list draw from their own stylesheets [L20] */
+
+/* spike-arc-commands — the frames each surface's stand-in sits in, and the
+   command row the treatments share. Nothing here is production styling. */
+
+.sp-arc-commands-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tug-space-sm);
+}
+
+.sp-arc-commands-caption,
+.sp-arc-commands-readout {
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
+
+.sp-arc-commands-readout > span {
+  font-family: var(--tug-font-family-mono);
+  color: var(--tugx-block-text-color-muted);
+}
+
+/* The command row: one run under the block, the act leading and the
+   housekeeping pushed to the trailing edge by the spacer. */
+.sp-arc-commands-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+.sp-arc-commands-row[data-in="footer"] {
+  width: 100%;
+}
+
+.sp-arc-commands-spacer {
+  flex: 1 1 0;
+}
+
+/* The Arcs card at the sidebar's width — the narrow case every treatment has
+   to survive. */
+.sp-arc-commands-arcs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  width: 360px;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tugx-block-chrome-bg);
+}
+
+.sp-arc-commands-steps {
+  max-width: none;
+}
+
+.sp-arc-commands-popup {
+  width: 460px;
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tugx-block-chrome-bg);
+  overflow: hidden;
+}
+
+.sp-arc-commands-popup .tug-popup-list {
+  max-width: none;
+}
+
+.sp-arc-commands-popup-head {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+}
+
+.sp-arc-commands-changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  max-width: 680px;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tugx-block-well-bg);
+}
+
+.sp-arc-commands-lane-detail {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tugx-block-text-color-muted);
+  padding-inline-start: var(--tug-space-md);
+}
+
+.sp-arc-commands-order {
+  margin: 0;
+  padding-inline-start: var(--tug-space-lg);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.6;
+  color: var(--tug7-element-field-text-normal-label-rest);
+}
