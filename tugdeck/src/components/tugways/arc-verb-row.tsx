@@ -3,8 +3,8 @@
  * block on every arc surface.
  *
  * The set and its order come from {@link arcVerbs}; this component only draws
- * it. The arc's next step leads, outlined; the view follows; a spacer pushes
- * the housekeeping verbs — Bind or Unbind, Replay, Discard — to the trailing
+ * it. The arc's next step leads, outlined; the view follows; the housekeeping
+ * verbs — Bind or Unbind, Replay, Discard — ride one group at the trailing
  * edge ([B02]). Every verb is an icon and a word ([B03]): a bare glyph on one
  * surface and a bare word on another was the drift this row ends.
  *
@@ -16,9 +16,10 @@
  * the other verbs answer a refused press with nothing but the hover they
  * already show.
  *
- * **The row wraps; it never truncates** ([B11]). At the sidebar's width five or
- * six verbs break onto a second line, which is the accepted cost of every verb
- * staying legible.
+ * **The row wraps; it never truncates** ([B11]). The housekeeping verbs wrap as
+ * one family: at the sidebar's width the whole group drops to a second line,
+ * still at the trailing edge, rather than leaving Unbind stranded on the first
+ * line with Replay and Discard wrapped under the act. Every verb stays legible.
  *
  * The transport verbs press through {@link useArcTransportPress}, the one wire
  * path `arc_run` / `arc_resume` / `arc_stop` take. Every other verb is the
@@ -259,8 +260,7 @@ export function ArcVerbRow({
         />
       )}
       {housekeeping.length === 0 ? null : (
-        <>
-          <span className="tug-arc-verb-row-spacer" aria-hidden="true" />
+        <span className="tug-arc-verb-row-housekeeping" data-slot="arc-verb-row-housekeeping">
           {housekeeping.map((verb) => (
             <VerbButton
               key={verb.kind}
@@ -270,7 +270,7 @@ export function ArcVerbRow({
               onPress={surfacePress(verb)}
             />
           ))}
-        </>
+        </span>
       )}
     </div>
   );

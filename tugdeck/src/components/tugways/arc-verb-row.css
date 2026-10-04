@@ -1,10 +1,11 @@
 /* arc-verb-row.css — the arc's verbs, one run under the block.
 
-   The row wraps rather than truncating ([B11]): at the sidebar's width the
-   housekeeping verbs break onto a second line, and every verb keeps its word.
-   The spacer is what pushes the housekeeping verbs to the trailing edge
-   ([B02]); on a wrapped line it collapses to nothing and they start at the
-   leading edge, which is what a wrapped run of buttons should do.
+   The row wraps rather than truncating ([B11]), and every verb keeps its word.
+   The housekeeping verbs are one group pushed to the trailing edge by its own
+   auto margin ([B02]), so they wrap as a family: when the group does not fit
+   beside the act and the view it drops to the next line whole, still at the
+   trailing edge. A lone flex-grow spacer did this badly — it pushed only the
+   first housekeeping verb right and let the rest wrap to the leading edge.
 
    Refused and pending are `data-*` and `aria-disabled` alone ([L06]) — a
    refused verb must stay pressable, because its hover is what says why. */
@@ -17,8 +18,13 @@
   min-width: 0;
 }
 
-.tug-arc-verb-row-spacer {
-  flex: 1 1 0;
+.tug-arc-verb-row-housekeeping {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: inherit;
+  margin-inline-start: auto;
   min-width: 0;
 }
 
