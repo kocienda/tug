@@ -18,7 +18,6 @@
  */
 
 import type { DeckState } from "../layout-tree";
-import { standingDeck } from "./departing";
 import { findSidebarPanes, type PlaceRuns } from "../deck-store-selectors";
 import {
   resolveDirectionalFocus,
@@ -63,7 +62,6 @@ export function resolveCloseSuccessor(
   runs: PlaceRuns,
   closingPaneId: string,
 ): string | null {
-  state = standingDeck(state);
   const closing = state.panes.find((pane) => pane.id === closingPaneId);
   if (closing === undefined) return null;
 

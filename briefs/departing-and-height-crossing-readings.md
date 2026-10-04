@@ -299,3 +299,37 @@ at0685 theme skiff: chrome oklch(0.985 0.002 200) (alpha 1) · frame rgba(0, 0, 
 at0685 theme kayak: chrome oklch(0.985 0.002 70) (alpha 1) · frame rgba(0, 0, 0, 0) (alpha 0)
 at0685 theme pinnace: chrome oklch(0.985 0.002 320) (alpha 1) · frame rgba(0, 0, 0, 0) (alpha 0)
 ```
+
+## Reading 3 — the fixed tree
+
+2026-10-04, at `1d9221e70`: the store publishes the standing deck and the picture has one door (`getPicture`); a retarget ends every crossing it does not carry; a drag start takes its frame from the settle; a rail re-shown inside its hide's depart window is not read as an arrival; a driven gesture runs under the click's hold. Each file alone, one invocation each:
+
+| file | verdict |
+|------|---------|
+| `at0684-settle-window-commits` ×3 | PASS 5/5 each |
+| `at0555-session-fold-motion` | PASS 1/1 |
+| `at0582-departing-frame-rect` | PASS 1/1 |
+| `at0583-departing-frame-inert` | PASS 1/1 |
+| `at0677-rail-width-drag-commit-and-cancel` | PASS 4/4 |
+| `at0678-rail-width-drag-frames` | PASS 2/2 |
+| `at0679-rail-width-drag-reflow-on-pause` | PASS 1/1 |
+| `at0680-rail-width-drag-readout-and-limits` | PASS 2/2 |
+| `at0689-retarget-ends-crossings` | PASS 1/1 |
+| `at0686-drag-takes-frame-from-settle` | PASS 1/1 |
+| `at0687-reshown-rail-is-not-an-arrival` | PASS 1/1 |
+| `at0688-placard-z-order` | PASS 2/2 |
+| `at0622-deck-settle-frames` ×5 | PASS 9/9 once; FAIL on four |
+
+`at0684`'s readings and bars are in `settle-window-commit-readings.md`, reading 6.
+
+**`at0622` is red on four of five solo runs, and the red rotates.** Each red is one leg missing its bar by at most a frame, with 0 ms spent before the canvas armed:
+
+- appear lead 20 ms against 17, twice;
+- the rail show's gap 2.24 frames against 2, once;
+- the go-to-slot home lead 19 ms against 17 and the resize-to-fit gap 2.59 frames against 2.5, together, once.
+
+Across the five runs the appear lead read 1, 2, 1, 20 and 20 ms, and the rail show's gap 1.65–2.24 frames. That is the reading reading 1's "The appear lead" took on the base and the tip alike: a lead that lands either inside the first frame or just past it, and a gap at the edge of its bar. The brief places it on the compositing floor, outside this work. No bar in `at0622` was moved.
+
+### The release deck
+
+Every number in this file and in `settle-window-commit-readings.md` comes from the harness on a debug build; none has been taken on the deck the user works in since the gesture scope landed. That reading needs two things only the user can supply. First, a release build of this tree installed as the running Tug.app, because the installed release predates the gesture door, the parked rail and the standing snapshot. Second, a quiet deck arranged to each leg's shape before its gesture, because `tugtool deck motion settle` refuses a deck over its rest check (the working deck read 27 updates/s against 10). The shapes are: a split column of three for the close and the split, a two-member rail for the rails, a folded session card for the unfold, and two workspaces for the switch. With those, `tugtool deck motion settle --gesture <g> --tasks` reads the same windows `at0684` reads here.

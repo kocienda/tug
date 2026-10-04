@@ -560,6 +560,14 @@ export function withRailHidden(
   return next;
 }
 
+/**
+ * The imposition with every side's hide forgotten: the seats a parked rail's
+ * members would stand in. A side with no memory is left as it is.
+ */
+export function withEveryHideCleared(imposition: DeckImposition): DeckImposition {
+  return withRailHidden(withRailHidden(imposition, "left", []), "right", []);
+}
+
 /** The imposition with `side`'s height weights replaced. */
 export function withRailShares(
   imposition: DeckImposition,

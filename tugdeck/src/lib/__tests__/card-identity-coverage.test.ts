@@ -207,6 +207,8 @@ function parkOneCard(
   registerDeckStore({
     spaceOf: (cardId: string) => (cardId === CARD_ID ? "space-1" : null),
     getSpaceDeck: (spaceId: string) => (spaceId === "space-1" ? deck : null),
+    getSpacesSnapshot: () => ({ activeSpaceId: "space-1" }),
+    getPicture: () => deck,
     getCardState: (cardId: string) =>
       cardId === CARD_ID && bag !== undefined ? { content: bag } : undefined,
   } as unknown as IDeckManagerStore);

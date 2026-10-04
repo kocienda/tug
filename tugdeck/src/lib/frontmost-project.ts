@@ -17,7 +17,6 @@ import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getDeckStore } from "./deck-store-registry";
-import { standingDeck } from "./departing";
 import {
   cardSessionBindingStore,
   type CardSessionBinding,
@@ -32,7 +31,7 @@ import {
 export function frontmostProjectBinding(): CardSessionBinding | null {
   const store = getDeckStore();
   if (store === null) return null;
-  const { panes } = standingDeck(store.getSnapshot());
+  const { panes } = store.getSnapshot();
   for (let i = panes.length - 1; i >= 0; i--) {
     const pane = panes[i];
     const active = cardSessionBindingStore.getBinding(pane.activeCardId);

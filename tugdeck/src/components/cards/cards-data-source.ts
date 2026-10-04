@@ -43,7 +43,6 @@ import type {
   TugListViewDataSource,
 } from "@/components/tugways/tug-list-view";
 import type { CardState, DeckState, TugPaneState } from "@/layout-tree";
-import { standingDeck } from "@/lib/departing";
 import type { SpacesSnapshot } from "@/spaces";
 import { workspacePanes } from "@/deck-store-selectors";
 import type { CardSessionBinding } from "@/lib/card-session-binding-store";
@@ -794,7 +793,7 @@ function countLiveSessions(
   r: CardsResolvers,
 ): number {
   let live = 0;
-  for (const card of standingDeck(deck).cards) {
+  for (const card of deck.cards) {
     if (r.group(card.componentId) !== "sessions") continue;
     if (inputs.bindings.has(card.id) || r.cachedSessionLive(card.id)) live += 1;
   }
@@ -817,7 +816,7 @@ function buildSpaceRows(
   inputs: LensCardsInputs,
   r: CardsResolvers,
 ): { rows: CardsRow[]; paneCount: number } {
-  const deck = standingDeck(space.deck);
+  const deck = space.deck;
   const spaceId = space.id;
 
   // Session → arc, memoized on the snapshot, so every row's lookup is a map

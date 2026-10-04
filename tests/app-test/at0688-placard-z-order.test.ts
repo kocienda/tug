@@ -1,5 +1,5 @@
 /**
- * at0622-placard-z-order.test.ts — one Z2 placard at a time, and the frame
+ * at0688-placard-z-order.test.ts — one Z2 placard at a time, and the frame
  * holding the most recently raised surface paints on top.
  *
  * Two folded Session cards running side by side could each hold an OPEN Z2
@@ -175,9 +175,9 @@ async function seedWall(app: App): Promise<void> {
   // Both cards are bound, and both must be: an UNBOUND session card raises its
   // own `Choose Session` sheet as soon as it is activated, which would put an
   // entirely correct second raise on the wall and make the reading unusable.
-  await app.bindSession("A", { tugSessionId: "at0622-a" });
+  await app.bindSession("A", { tugSessionId: "at0688-a" });
   await app.awaitEngineReady("A");
-  await app.bindSession("B", { tugSessionId: "at0622-b" });
+  await app.bindSession("B", { tugSessionId: "at0688-b" });
   await app.awaitEngineReady("B");
 }
 
@@ -207,14 +207,14 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
   test(
     "a placard opened on one folded card closes the one open on another, and outranks it",
     async () => {
-      const app = await launchTugApp({ testName: "at0622-two-folded-placards" });
+      const app = await launchTugApp({ testName: "at0688-two-folded-placards" });
       try {
         await seedWall(app);
         await fold(app, "A", "p1");
         await fold(app, "B", "p2");
 
         const idle = await app.evalJS<Reading>(READ);
-        note("at0622 folded wall, no placard", idle);
+        note("at0688 folded wall, no placard", idle);
         expect(idle.placards).toBe(0);
         expect(idle.panes.p1.raised).toBe(false);
         expect(idle.panes.p2.raised).toBe(false);
@@ -225,7 +225,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
 
         await pressCell(app, "A");
         const onA = await app.evalJS<Reading>(READ);
-        note("at0622 placard on A", onA);
+        note("at0688 placard on A", onA);
         expect(onA.placards).toBe(1);
         expect(onA.placardPane).toBe("p1");
         // The panel really does reach across the peer pane, so the z-order
@@ -236,7 +236,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         // The reported symptom in its own terms: nothing of the card beneath
         // blocks the panel anywhere in the crossing.
         expect(onA.topAtCrossing?.inPlacard, "the panel paints over the peer, whole").toBe(true);
-        note("at0622 placard on A, over the peer", (await app.screenshot()).path);
+        note("at0688 placard on A, over the peer", (await app.screenshot()).path);
 
         // The screenshot exactly: the OTHER card is the one the user goes on to
         // work in, so focus order hands it the higher z. The lift has to hold
@@ -244,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         await app.evalJS<null>(`(window.__tug.activateCard("B"), null)`);
         await wait(600);
         const peerFocused = await app.evalJS<Reading>(READ);
-        note("at0622 placard on A, peer focused", peerFocused);
+        note("at0688 placard on A, peer focused", peerFocused);
         expect(peerFocused.placards).toBe(1);
         expect(peerFocused.placardPane).toBe("p1");
         expect(peerFocused.panes.p1.z).toBeGreaterThan(peerFocused.panes.p2.z);
@@ -254,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         // Before the scoping, both placards stood and the array order decided.
         await pressCell(app, "B");
         const onB = await app.evalJS<Reading>(READ);
-        note("at0622 placard moved to B", onB);
+        note("at0688 placard moved to B", onB);
         expect(onB.placards, "A's placard is gone, B's is up").toBe(1);
         expect(onB.placardPane).toBe("p2");
         expect(onB.panes.p1.raised, "and A's frame let the lift go").toBe(false);
@@ -265,7 +265,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         // direction, which is what array order could never say.
         await pressCell(app, "A");
         const backOnA = await app.evalJS<Reading>(READ);
-        note("at0622 placard back on A", backOnA);
+        note("at0688 placard back on A", backOnA);
         expect(backOnA.placards).toBe(1);
         expect(backOnA.placardPane).toBe("p1");
         expect(backOnA.panes.p2.raised).toBe(false);
@@ -276,7 +276,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         // would close the placard and the ensuing click would reopen it.
         await pressCell(app, "A");
         const toggled = await app.evalJS<Reading>(READ);
-        note("at0622 toggled closed on its own cell", toggled);
+        note("at0688 toggled closed on its own cell", toggled);
         expect(toggled.placards, "its own cell still toggles it closed").toBe(0);
         expect(toggled.panes.p1.raised).toBe(false);
         expect(toggled.panes.p1.z).toBeLessThan(8900);
@@ -290,7 +290,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
   test(
     "a sheet and a folded placard on different cards are ordered by which was raised last",
     async () => {
-      const app = await launchTugApp({ testName: "at0622-sheet-versus-placard" });
+      const app = await launchTugApp({ testName: "at0688-sheet-versus-placard" });
       try {
         await seedWall(app);
         // A folds; B stays open, because a sheet is what B is going to hold.
@@ -311,13 +311,13 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         await finishSheetAnimations(app);
 
         const sheetOnly = await app.evalJS<Reading>(READ);
-        note("at0622 sheet up on B", sheetOnly);
+        note("at0688 sheet up on B", sheetOnly);
         expect(sheetOnly.sheets).toBe(1);
         expect(sheetOnly.panes.p2.raised).toBe(true);
 
         await pressCell(app, "A");
         const both = await app.evalJS<Reading>(READ);
-        note("at0622 sheet on B, placard raised after it on A", both);
+        note("at0688 sheet on B, placard raised after it on A", both);
         expect(both.sheets, "the sheet is still up").toBe(1);
         expect(both.placards).toBe(1);
         expect(both.placardPane).toBe("p1");
@@ -330,7 +330,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         expect(both.panes.p2.z).toBeGreaterThanOrEqual(8900);
         expect(both.panes.p1.z).toBeGreaterThan(both.panes.p2.z);
         expect(both.topAtCrossing?.inPlacard, "and the panel wins the crossing").toBe(true);
-        note("at0622 sheet under a later-raised placard", (await app.screenshot()).path);
+        note("at0688 sheet under a later-raised placard", (await app.screenshot()).path);
 
         // The other way round. Escape takes both surfaces down — it closes the
         // sheet and the placard alike — and the exit animation is what unmounts
@@ -349,7 +349,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
           if (clear.sheets === 0 && clear.placards === 0) break;
         }
         const down = await app.evalJS<Reading>(READ);
-        note("at0622 both surfaces down", down);
+        note("at0688 both surfaces down", down);
         expect(down.sheets).toBe(0);
         expect(down.placards).toBe(0);
         expect(down.panes.p1.raised).toBe(false);
@@ -368,7 +368,7 @@ describe.skipIf(!SHOULD_RUN)("AT0622: one Z2 placard at a time, last raise on to
         await wait(800);
         await finishSheetAnimations(app);
         const reversed = await app.evalJS<Reading>(READ);
-        note("at0622 sheet raised after the placard", reversed);
+        note("at0688 sheet raised after the placard", reversed);
         expect(reversed.placards, "the placard is still up").toBe(1);
         expect(reversed.sheets).toBe(1);
         expect(reversed.panes.p1.raised).toBe(true);

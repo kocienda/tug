@@ -45,6 +45,8 @@ function installDeckStore(
     spaceOf: (cardId: string) =>
       cards.some((c) => c.id === cardId) ? "space-1" : null,
     getSpaceDeck: (spaceId: string) => (spaceId === "space-1" ? deck : null),
+    getSpacesSnapshot: () => ({ activeSpaceId: "space-1" }),
+    getPicture: () => deck,
     getCardState: (cardId: string) =>
       cardId in bags ? { content: bags[cardId] } : undefined,
   } as unknown as IDeckManagerStore;

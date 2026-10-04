@@ -83,7 +83,6 @@ import { getDeckStore } from "./lib/deck-store-registry";
 import type { BeatKind } from "./lib/pane-flip";
 import type { BeatRow } from "./components/tugways/tug-animator";
 import { isFocusDestination } from "./deck-store-selectors";
-import { standingDeck } from "./lib/departing";
 
 // ---------------------------------------------------------------------------
 // Event shape (`DeckTraceEvent` union)
@@ -1540,7 +1539,7 @@ function snapshotDestinations(): Map<string, boolean> {
   const readings = new Map<string, boolean>();
   const store = getDeckStore();
   if (!store) return readings;
-  const state = standingDeck(store.getSnapshot());
+  const state = store.getSnapshot();
   for (const card of state.cards) {
     readings.set(card.id, isFocusDestination(card.id, state));
   }
@@ -1553,7 +1552,7 @@ function installDestinationFlipObserver(): void {
   if (!store) return;
   const prevReadings = snapshotDestinations();
   const onCommit = (): void => {
-    const state = standingDeck(store.getSnapshot());
+    const state = store.getSnapshot();
     // Include every card currently in the deck, plus any card we had
     // been tracking that has since been removed (so a removed card's
     // last true-reading flips to false exactly once).

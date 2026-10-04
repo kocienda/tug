@@ -37,7 +37,6 @@
 
 import type { DeckManager } from "./deck-manager";
 import type { DeckState, CardStateBag } from "./layout-tree";
-import { standingDeck } from "./lib/departing";
 import {
   DEFAULT_SIDEBAR_SIDE,
   columnOffsetProperty,
@@ -2096,7 +2095,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     // ---- state reads ----
     getPaneRecord(paneId: string) {
-      const pane = standingDeck(deck.getSnapshot()).panes.find((p) => p.id === paneId);
+      const pane = deck.getSnapshot().panes.find((p) => p.id === paneId);
       if (pane === undefined) return null;
       return {
         position: { ...pane.position },
@@ -2708,7 +2707,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // consumers see, so a card that was just removed is a
       // miss — return null in that race rather than synthesizing
       // a partial state.
-      const snapshot = standingDeck(deck.getSnapshot());
+      const snapshot = deck.getSnapshot();
       const card = snapshot.cards.find((c) => c.id === cardId);
       if (card === undefined) return null;
 
@@ -3165,7 +3164,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
     ): { notifies: number; threw: boolean } {
       const store = getDeckStore();
       if (store === null) return { notifies: -1, threw: false };
-      const paneId = standingDeck(store.getSnapshot()).panes[0]?.id;
+      const paneId = store.getSnapshot().panes[0]?.id;
       if (paneId === undefined) return { notifies: -1, threw: false };
       // Bullseye is the right mutation to probe with: it notifies, it
       // persists nothing, and toggling it twice is the identity — so the

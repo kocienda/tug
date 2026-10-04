@@ -515,14 +515,15 @@ export interface DeckState {
    *
    * A marked pane is the real frame, kept mounted, `inert` and outside the
    * solver, so the settle can carry it out on the frame itself rather than
-   * on a ghost planted inside the window. The mark lives only in the deck
-   * the store PUBLISHES: the deck manager's own working deck never holds a
-   * departing pane, and its snapshot composes them back in at their old
-   * positions (`composeDeparting` in `lib/departing.ts`). So every reader
-   * that lists or counts reads through `standingDeck` and sees past them,
-   * while a read of one pane or card by id still finds a departing one,
-   * unchanged, for the length of its fade. The settle's land is the one
-   * commit that removes the pane, its cards and the mark together.
+   * on a ghost planted inside the window. The mark lives only in the store's
+   * PICTURE: the deck manager's own working deck — the one `getSnapshot`
+   * publishes — never holds a departing pane, and `getPicture` composes them
+   * back in at their old positions (`composeDeparting` in
+   * `lib/departing.ts`). So every reader is right by default, and only what
+   * draws the deck — the canvas, the settle, and a departing card's own
+   * content — reads the picture and finds a departing pane, unchanged, for
+   * the length of its fade. The settle's land is the one commit that
+   * removes the pane, its cards and the mark together.
    *
    * `true` rather than a time or a reason: what the record says is WHICH
    * panes are leaving, and the settle that carries them out is what knows

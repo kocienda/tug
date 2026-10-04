@@ -67,6 +67,7 @@ import {
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { standingDeck } from "@/lib/departing";
+import { SETTLE_TAKE_EVENT, type SettleTakeDetail } from "@/lib/settle-take";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
@@ -479,6 +480,8 @@ interface DepartingTarget {
   kind: "closing" | "parked" | "strip";
   launched: boolean;
   restores: Array<() => void>;
+  /** The depart beat's animation on this target, once it is launched. */
+  anims?: TugAnimation[];
 }
 
 /** The mark a departing target wears for the length of its beat — the one
@@ -500,6 +503,33 @@ function landDepartingTarget(target: DepartingTarget): void {
     return;
   }
   for (const restore of target.restores) restore();
+}
+
+/**
+ * End the crossing on every frame a retarget took over that the settle
+ * replacing it does not carry on, and forget them all.
+ *
+ * A crossing is ended by the completion of the settle that opened or adopted
+ * it, and a retarget's generation bump turns the interrupted settle's
+ * completion into a no-op. So a frame the replacement settle takes over has
+ * exactly two futures: the new Last pass adopts its crossing under a fresh id
+ * — it carries the frame with a height term — or nothing ever ends it, and the
+ * card stands held at a box it no longer has with its end never announced.
+ * A covered member of a flipped column, a frame that only slides, an arrival
+ * and a departure are all the second case. `carried` is the first: every
+ * frame this settle holds a still crossing for, which every adopted fold is
+ * too ([L32]: one path ends a crossing on every exit).
+ */
+function endCrossingsNotCarried(
+  frames: Set<HTMLElement>,
+  carried: ReadonlySet<HTMLElement> = new Set(),
+): void {
+  for (const frame of frames) {
+    if (carried.has(frame)) continue;
+    endFoldCrossing(frame);
+    endStillCrossing(frame);
+  }
+  frames.clear();
 }
 
 /**
@@ -770,6 +800,22 @@ export function useSettleEngine({
    */
   const settleTweensRef = useRef<Map<string, SettleTween>>(new Map());
   /**
+   * The frames a retarget's `arm` took over mid-settle, from the cancel until
+   * the next Last pass says which of their crossings it carries on. That pass
+   * ends every other one ({@link endCrossingsNotCarried}); the sweep and the
+   * unmount teardown end whatever a Last pass never reached.
+   */
+  const retargetedFramesRef = useRef<Set<HTMLElement>>(new Set());
+  /**
+   * The frames a pointer gesture took from a running settle, each against the
+   * generation of the settle it took it from. That settle's later landings and
+   * its completion leave a taken frame alone: the gesture owns its transform
+   * from the threshold on ([L32]), and a write from the settle would hide or
+   * wipe it. A later settle has a later generation, so a frame dropped and
+   * carried again is that settle's like any other.
+   */
+  const takenFramesRef = useRef<WeakMap<HTMLElement, number>>(new WeakMap());
+  /**
    * Every DEPARTING TARGET this settle is carrying out, keyed by pane id — or
    * by `rail-shadow:<side>` for a side's strip ([P06]).
    *
@@ -838,7 +884,7 @@ export function useSettleEngine({
    * sweep and the unmount land everything.
    */
   const landSettledDepartures = useCallback((): void => {
-    const marks = store.getSnapshot().departing;
+    const marks = store.getPicture().departing;
     if (marks === undefined) return;
     const ids = Object.keys(marks).filter(
       (paneId) => !departingTargetsRef.current.has(paneId),
@@ -1158,6 +1204,48 @@ export function useSettleEngine({
     },
   );
 
+  // A pointer gesture taking a frame from the settle (`lib/settle-take.ts`).
+  // Synchronous, because the gesture's first transform write follows the
+  // dispatch on the same tick: every running tween on the frame is cancelled
+  // at the pose on screen — measured there, for `arm`'s reason — and then its
+  // holds, its transform, its crossing and its episode are handed back, which
+  // is everything the settle's own completion would have taken off. What the
+  // gesture is told is the distance between that pose and the committed one,
+  // so it can start from where the eye had the frame. A layout effect, for
+  // [L03]: a drag that begins before a passive effect lands would find no one
+  // listening.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    const onTake = (event: Event): void => {
+      const frame = event.target;
+      if (!(frame instanceof HTMLElement)) return;
+      const paneId = frame.getAttribute("data-pane-id");
+      if (paneId === null) return;
+      takenFramesRef.current.set(frame, settleGenerationRef.current);
+      const running = settleTweensRef.current.get(paneId);
+      if (running === undefined || running.el !== frame) return;
+      for (const anim of running.anims) anim.cancel("hold-at-current");
+      const seen = frame.getBoundingClientRect();
+      for (const restore of running.restores) restore();
+      clearFlipRef.current(paneId, frame, running.anims);
+      endFoldCrossing(frame);
+      endStillCrossing(frame);
+      retargetedFramesRef.current.delete(frame);
+      const episode = settleEpisodesRef.current.get(paneId);
+      if (episode !== undefined) {
+        episode.end();
+        settleEpisodesRef.current.delete(paneId);
+      }
+      const committed = frame.getBoundingClientRect();
+      const detail = (event as CustomEvent<SettleTakeDetail>).detail;
+      detail.dx = seen.left - committed.left;
+      detail.dy = seen.top - committed.top;
+    };
+    el.addEventListener(SETTLE_TAKE_EVENT, onTake);
+    return () => el.removeEventListener(SETTLE_TAKE_EVENT, onTake);
+  }, [containerRef]);
+
   // First, and the arming. A LAYOUT effect, not a passive one ([L03]): this
   // registers the store subscriber that measures every frame's outgoing
   // geometry, and a subscription that lands after paint is a subscription that
@@ -1379,6 +1467,8 @@ export function useSettleEngine({
           endFoldCrossing(entry.el);
           endStillCrossing(entry.el);
         }
+        // And a frame a retarget took over that no Last pass has read since.
+        endCrossingsNotCarried(retargetedFramesRef.current);
         // After the frames, so the flush inside carries their hand-back.
         //
         // And the frames that never reached a tween record: an arrival whose
@@ -1874,6 +1964,9 @@ export function useSettleEngine({
           // against fresh calc geometry, which is the flash the census counts.
           for (const restore of running.restores) restore();
           clearFlip(paneId, frame, running.anims);
+          // Its crossing, if it has one, is the next Last pass's to carry on
+          // or to end: the cancel just made the old completion a no-op.
+          retargetedFramesRef.current.add(frame);
         }
       }
       // The strips' residue goes back on the same tick, after the last
@@ -1997,6 +2090,11 @@ export function useSettleEngine({
         const curve = motionKeyframes(BEAT_RECIPE.move, { nominalMs: settleMs });
         const keyframes = springSettleKeyframes({ dx, dy: 0 }, curve.progress);
         const token = {};
+        // A prelaunched slide bumps no generation — the Last pass it stands
+        // in for measures nothing and plans nothing — so a frame a pointer
+        // gesture takes while it runs is marked against the one in force
+        // now, and the landing below leaves that frame to the gesture.
+        const generation = settleGenerationRef.current;
         // Only a frame whose `left` reads the strip's offset moved, so only
         // it has a delta to invert. A rail pane stands where it stood: the
         // slots changing never moves a sidebar card, and a tween launched
@@ -2025,6 +2123,7 @@ export function useSettleEngine({
             if (prelaunchRef.current?.token !== token) return;
             prelaunchRef.current = null;
             for (const { paneId, frame, anims } of launched) {
+              if (takenFramesRef.current.get(frame) === generation) continue;
               clearFlip(paneId, frame, anims);
             }
             settleBeatRef.current = null;
@@ -2099,6 +2198,7 @@ export function useSettleEngine({
         endFoldCrossing(entry.el);
         endStillCrossing(entry.el);
       }
+      endCrossingsNotCarried(retargetedFramesRef.current);
       for (const [, handle] of settleEpisodesRef.current) handle.end();
       settleEpisodesRef.current.clear();
       settleFirstRectsRef.current.clear();
@@ -2173,7 +2273,46 @@ export function useSettleEngine({
         pendingArrivalsRef.current.delete(paneId);
       }
     }
+    // A FRAME STILL DEPARTING IS NOT AN ARRIVAL ([B04]). A rail shown again
+    // while its hide's depart beat is still carrying it out is back among
+    // the shown frames with no First rect — it was parked when `arm` ran —
+    // and the arrival branch below would hold it invisible and slide it in
+    // from the edge while the depart beat still owns it, and the depart's
+    // landing would then hand back holds captured before the hide. So it is
+    // released from its depart target here, before anything asks who is
+    // arriving and before an empty First pass is read as nothing to carry:
+    // the beat is cut where the eye has it, the frame is measured there, its
+    // holds and its mark go back, and that pose is its First rect. From
+    // there it is planned as the show it is — a frame carried from where it
+    // stands to where the commit put it — and the strip of its side the same
+    // way, so the panel and its depth travel together.
+    if (el !== null) {
+      const releaseDeparting = (target: HTMLElement, key: string): DOMRect | null => {
+        if (!target.hasAttribute(SETTLE_DEPARTING_ATTR)) return null;
+        const entry = departingTargetsRef.current.get(key);
+        if (entry === undefined || entry.el !== target) return null;
+        for (const anim of entry.anims ?? []) anim.cancel("hold-at-current");
+        const seen = target.getBoundingClientRect();
+        for (const restore of entry.restores) restore();
+        departingTargetsRef.current.delete(key);
+        return seen;
+      };
+      for (const frame of el.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
+        const paneId = frame.getAttribute("data-pane-id");
+        if (paneId === null || firstRects.has(paneId)) continue;
+        const seen = releaseDeparting(frame, paneId);
+        if (seen !== null) firstRects.set(paneId, seen);
+      }
+      for (const strip of el.querySelectorAll<HTMLElement>(STANDING_RAIL_SHADOWS)) {
+        const side = strip.getAttribute("data-rail-shadow");
+        if (side !== "left" && side !== "right") continue;
+        const seen = releaseDeparting(strip, railShadowTweenKey(side));
+        if (seen !== null) firstRailShadows.set(side, seen);
+      }
+    }
     if (el === null || firstRects.size === 0) {
+      // Nothing is carried on, so every frame a retarget took is ended here.
+      endCrossingsNotCarried(retargetedFramesRef.current);
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -2214,6 +2353,7 @@ export function useSettleEngine({
     // no First rects, so there is nothing here to carry and every frame would
     // otherwise read as an arrival and be faded up ([P02]).
     if (!isTugMotionEnabled() || settleSwitchingRef.current) {
+      endCrossingsNotCarried(retargetedFramesRef.current);
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -2382,6 +2522,11 @@ export function useSettleEngine({
     // retarget that landed in between has already cancelled, restored and
     // re-planned every frame, and a later Last pass owns them now.
     const generation = ++settleGenerationRef.current;
+    // A frame a pointer gesture took from THIS settle is the gesture's from
+    // then on: nothing below that would write it — a beat's landing, the
+    // completion's hand-back — touches it again.
+    const taken = (frame: HTMLElement): boolean =>
+      takenFramesRef.current.get(frame) === generation;
     // ONE release for the whole settle, on the settle's own clock: the hold
     // taken at arm comes off when the last of this pass's completions has
     // landed — after the final beat's last tween, never from the window
@@ -2817,6 +2962,17 @@ export function useSettleEngine({
         continue;
       }
     }
+    // Every frame a retarget took over whose crossing the loop above did not
+    // adopt — covered, sliding, arriving or gone — has its crossing ended
+    // now, while the rest of the settle is planned.
+    endCrossingsNotCarried(
+      retargetedFramesRef.current,
+      new Set(
+        choreography
+          .filter((c) => c.stillCrossingId !== null)
+          .map((c) => c.frame),
+      ),
+    );
     // The shadow strips, planned AFTER every frame so the answer to "did this
     // side's rail survive?" is in hand. A strip is the rail's depth, and it
     // moves exactly as the rail does or it is not that — every case below is
@@ -3319,6 +3475,13 @@ export function useSettleEngine({
           // comes off for the move and grow beats' reason: `fill: none` means
           // the effect's end value is the underlying inline style, and a frame
           // left wearing the hold would snap back to invisible.
+          //
+          // Only the targets THIS beat launched. A show inside the beat cuts
+          // a target and drops it from the registry ([B04]), and a hide after
+          // that registers a new one under the same key; this beat lands once
+          // all of its effects settle, which can be after that, and landing
+          // the newer target would hand back its holds mid-departure.
+          const launchedTargets = new Map<string, DepartingTarget>();
           const landFades = (): void => {
             if (kind === "depart") {
               // Through the ref rather than through this closure's array: the
@@ -3326,7 +3489,7 @@ export function useSettleEngine({
               // an entry naming holds that are already gone.
               for (const { paneId } of departures) {
                 const entry = departingTargetsRef.current.get(paneId);
-                if (entry === undefined) continue;
+                if (entry === undefined || entry !== launchedTargets.get(paneId)) continue;
                 landDepartingTarget(entry);
                 departingTargetsRef.current.delete(paneId);
               }
@@ -3381,9 +3544,15 @@ export function useSettleEngine({
             // coming that is unconditional on the generation. That is what
             // lets a retarget's `arm` leave them alone and take only the ones
             // nothing will ever collect.
-            for (const { paneId } of departures) {
+            for (const [i, { paneId }] of departures.entries()) {
               const entry = departingTargetsRef.current.get(paneId);
-              if (entry !== undefined) entry.launched = true;
+              if (entry === undefined) continue;
+              entry.launched = true;
+              launchedTargets.set(paneId, entry);
+              // Kept so a show that lands inside this beat can cut it where
+              // it stands rather than wait for it ([B04]).
+              const anim = fades[i];
+              if (anim !== undefined) entry.anims = [anim];
             }
           }
           whenBeatBegins(delayMs, () => {
@@ -3481,6 +3650,7 @@ export function useSettleEngine({
         // the record on `settleBeatRef` says why that door exists.
         const landFrames = (): void => {
           for (const [c, beat] of launchedBeats) {
+            if (taken(c.frame)) continue;
             // Stated as a rule over what the beat ANIMATED rather than as a
             // list of kinds: a beat ends at the value it animated to, which
             // is identity for a transform and the committed size for an
@@ -3603,6 +3773,7 @@ export function useSettleEngine({
           // hold released, so the one publish and the one pin land on
           // settled geometry.
           for (const c of choreography) {
+            if (taken(c.frame)) continue;
             for (const restore of c.restores) restore();
             clearFlip(c.paneId, c.frame, c.anims);
           }
@@ -3612,6 +3783,7 @@ export function useSettleEngine({
           // not on screen to open one — so it joins at the restore and the
           // episode, not in the crossing loop between them.
           for (const { paneId, frame, restores } of arrivals) {
+            if (taken(frame)) continue;
             for (const restore of restores) restore();
             clearFlip(paneId, frame, settleTweensRef.current.get(paneId)?.anims ?? []);
           }
@@ -3623,10 +3795,12 @@ export function useSettleEngine({
           // earlier: the survivor has covered a retiring member, or retreated
           // off a revealed one, only when the chain is done ([B03]).
           for (const c of covered) {
+            if (taken(c.frame)) continue;
             for (const restore of c.restores) restore();
             clearFlip(c.paneId, c.frame, c.anims);
           }
           for (const c of choreography) {
+            if (taken(c.frame)) continue;
             if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
             if (c.stillCrossingId !== null) {
               endStillCrossing(c.frame, c.stillCrossingId);

@@ -77,20 +77,27 @@ const drive = (gesture: string, args: Record<string, unknown> = {}): string =>
 /**
  * Each leg's bar on its largest in-window commit, in fibers performed.
  *
- * Set from the readings in `briefs/settle-window-commit-readings.md` with
- * about a quarter's headroom over the largest seen alone: close 1626 (React
- * batching the close's own commit with its badge and popper commits; 547 when
- * they land apart), rails 45, split 858, unfold 169, switch 1026. The rails
- * read 4063 while a hide closed its cards and the show minted them again, so
- * its bar is what keeps that mount from coming back under the tween unnoticed;
- * the others hold each leg near where it stands.
+ * About a quarter over the largest of three solo readings, taken with driven
+ * gestures under the click's hold (`briefs/settle-window-commit-readings.md`).
+ * The three readings per leg:
+ *
+ * - close: 1623, 547, 547 — bimodal: 1623 when React batches the close's own
+ *   commit with its badge and popper commits, 547 when they land apart. A
+ *   quarter over 1623 would be looser than the 2000 it was, so it stays 2000.
+ * - rails: 45, 45, 45. The rails read 4063 while a hide closed its cards and
+ *   the show minted them again; this bar keeps that mount from coming back.
+ * - split: 858, 858, 858.
+ * - unfold: 169, 169, 169.
+ * - switch: 1026, 1026, 1026.
+ *
+ * The numbers are a default; revise them against these readings.
  */
 const COMMIT_BAR: Record<string, number> = {
   close: 2_000,
-  rails: 100,
-  split: 1_100,
-  unfold: 250,
-  switch: 1_300,
+  rails: 57,
+  split: 1_075,
+  unfold: 212,
+  switch: 1_285,
 };
 
 /** The leg's largest in-window commit is under its bar, with the reading. */

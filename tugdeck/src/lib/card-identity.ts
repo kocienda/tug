@@ -83,6 +83,8 @@ export interface ResolvedCardIdentity {
  *
  * `spaceOf` + `getSpaceDeck` is the one pair of reads that reaches a card
  * nobody is looking at, which is the whole reason this function can be total.
+ * The active workspace is read through its picture, so a departing card's own
+ * content still finds itself for the length of its fade.
  * `null` when no deck store is registered (a test that bootstrapped only a
  * subset of the deck) or when no workspace holds the id.
  */
@@ -91,7 +93,10 @@ function cardStateOf(cardId: string): CardState | null {
   if (store === null) return null;
   const spaceId = store.spaceOf(cardId);
   if (spaceId === null) return null;
-  const deck = store.getSpaceDeck(spaceId);
+  const deck =
+    spaceId === store.getSpacesSnapshot().activeSpaceId
+      ? store.getPicture()
+      : store.getSpaceDeck(spaceId);
   if (deck === null) return null;
   return deck.cards.find((card) => card.id === cardId) ?? null;
 }

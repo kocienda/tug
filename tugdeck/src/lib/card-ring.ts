@@ -25,13 +25,11 @@
  */
 
 import type { DeckState, TugPaneState } from "@/layout-tree";
-import { standingDeck } from "@/lib/departing";
 import { findSidebarPanes, parkedSidebarPaneIds } from "@/deck-store-selectors";
 import { isSidebarPinned, sidebarSide } from "@/lib/layout-imposer";
 
 /** Every visible card position, in ring order. */
 export function visibleCardRing(state: DeckState): readonly string[] {
-  state = standingDeck(state);
   // A pinned sidebar pane's place is its rail; everything else is its slot,
   // or nothing. Same place taxonomy as the slot-stack picker's. A sidebar
   // dragged off its pin has no rail entry and falls through to `free`, which
@@ -88,7 +86,6 @@ export function visibleCardRing(state: DeckState): readonly string[] {
 
 /** The ring's size — the menu fact Previous/Next Card gate on. */
 export function visibleCardCount(state: DeckState): number {
-  state = standingDeck(state);
   return visibleCardRing(state).length;
 }
 
@@ -103,7 +100,6 @@ export function stepCardRing(
   fromCardId: string | null,
   direction: 1 | -1,
 ): string | null {
-  state = standingDeck(state);
   const ring = visibleCardRing(state);
   if (ring.length < 2 || fromCardId === null) return null;
   const idx = ring.indexOf(fromCardId);

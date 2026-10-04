@@ -179,6 +179,8 @@ describe("projectDeckState", () => {
       spaceOf: () => "space-1",
       getSpaceDeck: (spaceId: string) =>
         spaceId === "space-1" ? state : null,
+      getSpacesSnapshot: () => ({ activeSpaceId: "space-1" }),
+      getPicture: () => state,
       getCardState: () => undefined,
     } as unknown as IDeckManagerStore);
     try {

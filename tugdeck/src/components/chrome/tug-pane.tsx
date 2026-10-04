@@ -174,6 +174,7 @@ import {
   syncGuideElements,
 } from "@/components/chrome/snap-guides";
 import { useRailWidthGesture } from "@/components/chrome/rail-width-draft";
+import { takeFrameFromSettle } from "@/lib/settle-take";
 import {
   RAIL_REFLOW_ATTR,
   RAIL_TRAVEL_ATTR,
@@ -3752,6 +3753,16 @@ function TugPaneImpl({
           );
           if (travelled < DRAG_MOVE_THRESHOLD_PX) return;
           dragMoved.current = true;
+          // The frame is the drag's from here, so a settle still carrying it
+          // gives it up first ([L32]). The drag measures from the pointer's
+          // start, so the distance the settle had yet to carry the frame
+          // moves the start with it, and the pane stays where the hand found
+          // it rather than jumping to where the slide was taking it.
+          const stood = takeFrameFromSettle(frame);
+          dragStartPointer.current = {
+            x: start.x - stood.dx,
+            y: start.y - stood.dy,
+          };
           // From here the pointer writes `left`/`top` every frame, and the
           // settle and the cut detector must leave the frame alone.
           frame.setAttribute("data-pointer-owned", "true");
@@ -4336,6 +4347,8 @@ function TugPaneImpl({
         const travelled = Math.hypot(pointer.x - startX, pointer.y - startY);
         if (travelled < DRAG_MOVE_THRESHOLD_PX) return false;
         resizeMoved = true;
+        // The resize owns the frame from here; a settle carrying it lets go.
+        takeFrameFromSettle(frame);
         frame.setAttribute("data-pointer-owned", "true");
         // A shrinking edge exposes what this frame was covering, without a
         // store commit; reveal occluded panes now and hold hides until the

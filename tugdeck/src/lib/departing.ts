@@ -1,21 +1,20 @@
 /**
- * The DEPARTING mark's pure helpers — how a closed pane stays in the
- * published deck for the one settle that carries it out, and how a reader
- * that lists or counts sees past it.
+ * The DEPARTING mark's pure helpers — how a closed pane stays in the deck's
+ * picture for the one settle that carries it out, and how a picture reader
+ * sees past it.
  *
  * The deck manager's working deck is the STANDING deck: it never holds a
- * departing pane, so no mutation can count, re-slot or re-divide one. The
- * closed panes wait in a record beside it, and the snapshot the store
- * publishes is the two composed ({@link composeDeparting}). Every reader
- * outside the manager therefore gets the composed deck, and splits by what it
- * asks:
+ * departing pane, so no mutation can count, re-slot or re-divide one, and it
+ * is what `getSnapshot` publishes, so no reader can either. The closed panes
+ * wait in a record beside it, and `getPicture` — the one named door to the
+ * composed deck ({@link composeDeparting}) — serves only what draws the
+ * departure: the canvas, the settle engine, and the place facts, slot badge
+ * and identity a departing card's own content reads itself through.
+ * `departing-invisibility.test.ts` holds every caller of that door to an
+ * allow list.
  *
- * - a reader that LISTS or COUNTS panes or cards — the solver's chokepoints,
- *   rail membership, the ring, the menus, the lists — begins with
- *   {@link standingDeck}, so a departing pane is invisible to it;
- * - a reader that looks up ONE pane or card by id stays on the composed deck,
- *   so a departing card's own content still finds itself, unchanged, for the
- *   length of its fade.
+ * A picture reader that also lists or counts begins with {@link standingDeck},
+ * so a departing pane is invisible to that half of it.
  *
  * Pure: no DOM, no store.
  */
@@ -69,9 +68,8 @@ const standingMemo = new WeakMap<DeckState, DeckState>();
  * `state.departing` is absent, and the same object across calls on one
  * `state`, so a reader that memoizes on its deck's identity keeps doing so.
  *
- * Use it at the entry of any reader that lists or counts. A reader that looks
- * one pane or card up by id should not: the departing card's own content
- * reads itself that way.
+ * Use it where a picture reader lists or counts. A reader of `getSnapshot`
+ * never needs it: the standing deck is what that door publishes.
  */
 export function standingDeck(state: DeckState): DeckState {
   const marks = state.departing;

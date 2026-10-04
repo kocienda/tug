@@ -40,7 +40,6 @@ import {
 } from "@/components/tugways/tug-text-editor/drop-extension";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { isSidebarStanding } from "@/deck-store-selectors";
-import { standingDeck } from "@/lib/departing";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import type { AtomSegment } from "@/lib/tug-text-types";
 import type {
@@ -70,8 +69,7 @@ export const OVERVIEW_COMPOSER_FOCUS_KEY = "overview-card:0";
  * paints nothing. Read live, because the id does not survive a hide.
  */
 function overviewCardId(): string | null {
-  const live = getDeckStore()?.getSnapshot();
-  const deck = live === undefined ? undefined : standingDeck(live);
+  const deck = getDeckStore()?.getSnapshot();
   if (deck === undefined || !isSidebarStanding(deck, OVERVIEW_CARD_ID)) return null;
   return deck.cards.find((c) => c.componentId === OVERVIEW_CARD_ID)?.id ?? null;
 }

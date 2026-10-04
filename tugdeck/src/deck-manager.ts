@@ -1235,19 +1235,19 @@ export class DeckManager implements IDeckManagerStore {
    * The panes that have closed and are still being carried out, keyed by
    * pane id in marking order ([P01], [P02]). {@link deckState} — the deck
    * every mutation reads and writes — never holds one, so no writer can
-   * count, re-slot or move a departing pane; {@link getSnapshot} composes
-   * them back in for every reader outside. Session state only: saving reads
+   * count, re-slot or move a departing pane; {@link getPicture} composes
+   * them back in for the readers that draw the deck. Session state only: saving reads
    * `deckState`, and a workspace switch reaps the record first.
    */
   private departingRecord = new Map<string, DepartingEntry>();
 
-  /** Bumped on every change to {@link departingRecord}; half of the composed snapshot's memo key. */
+  /** Bumped on every change to {@link departingRecord}; half of the picture's memo key. */
   private departingVersion = 0;
 
   /** How many departure hosts are registered ({@link registerDepartureHost}). */
   private departureHostCount = 0;
 
-  /** The composed snapshot, memoized on (`deckState` identity, `departingVersion`). */
+  /** The picture ({@link getPicture}), memoized on (`deckState` identity, `departingVersion`). */
   private composedMemo: { deck: DeckState; version: number; composed: DeckState } | null =
     null;
 
@@ -1300,12 +1300,20 @@ export class DeckManager implements IDeckManagerStore {
   };
 
   /**
-   * The published deck: the standing {@link deckState} with every departing
-   * pane composed back in at its old position ([P02]). The standing deck
-   * itself when nothing departs, and the same object across calls until
-   * either half changes, so `useSyncExternalStore` sees no churn.
+   * The published deck: the standing {@link deckState}, which never holds a
+   * departing pane. Every reader is right by default — one that lists or
+   * counts sees past a pane on its way out without having to ask — and the
+   * few that draw the departure read {@link getPicture}.
    */
-  public getSnapshot = (): DeckState => {
+  public getSnapshot = (): DeckState => this.deckState;
+
+  /**
+   * The composed picture: the standing deck with every departing pane
+   * composed back in at its old position ([P02]). The standing deck itself
+   * when nothing departs, and the same object across calls until either half
+   * changes, so `useSyncExternalStore` sees no churn.
+   */
+  public getPicture = (): DeckState => {
     if (this.departingRecord.size === 0) return this.deckState;
     const memo = this.composedMemo;
     if (memo !== null && memo.deck === this.deckState && memo.version === this.departingVersion) {
@@ -1476,10 +1484,14 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Which space holds `cardId` — the active one or a parked one — or `null`
    * when no space does.
+   *
+   * Over the active space's picture, so a departing card still answers to
+   * the workspace it is leaving for the length of its fade: its own content
+   * reads who it is this way.
    */
   public spaceOf = (cardId: string): string | null => {
     for (const space of this.spaces) {
-      const deck = space.deck ?? this.getSnapshot();
+      const deck = space.deck ?? this.getPicture();
       if (deck.cards.some((c) => c.id === cardId)) return space.id;
     }
     return null;
@@ -3406,7 +3418,11 @@ export class DeckManager implements IDeckManagerStore {
     return this._createSidebarPane(componentId);
   }
 
-  /** Hide a sidebar card by closing its pane. No-op when it is not open. */
+  /**
+   * Hide a sidebar card by closing its pane. It tests presence, so a parked
+   * card — on the deck, its rail hidden whole — is closed too. No-op when the
+   * card is not on the deck.
+   */
   hideSidebarPane(componentId: string): void {
     // Dismissing a sidebar settles the factory rail too — the factory default
     // must not reinstate what the user just closed.

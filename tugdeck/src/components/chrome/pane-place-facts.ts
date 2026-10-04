@@ -39,7 +39,7 @@ import { cardTitleStore } from "@/lib/card-title-store";
 import {
   isSidebarSeated,
   sidebarSide,
-  withRailHidden,
+  withEveryHideCleared,
   type SidebarSide,
 } from "@/lib/layout-imposer";
 import { paneTitleBarTextFor } from "@/lib/pane-title";
@@ -74,7 +74,6 @@ export const NO_PLACE_FACTS: PanePlaceFacts = {
  * rail. A pane in no place is absent.
  */
 export function slotStacksOf(deck: DeckState): Map<string, readonly SlotStackEntry[]> {
-  deck = standingDeck(deck);
   const { panes, cards, imposition } = deck;
   const cardsForTitles = new Map(cards.map((c) => [c.id, c]));
   const rails = sidebarRailsOf(deck, UNMEASURED_RUNS);
@@ -139,9 +138,7 @@ function placeFactsOf(deck: DeckState): Map<string, PanePlaceFacts> {
   const facts = seatedPlaceFactsOf(deck);
   const parked = parkedSidebarPaneIds(deck);
   if (parked.size === 0) return facts;
-  let imposition = deck.imposition;
-  for (const side of ["left", "right"] as const) imposition = withRailHidden(imposition, side, []);
-  const standing = seatedPlaceFactsOf({ ...deck, imposition });
+  const standing = seatedPlaceFactsOf({ ...deck, imposition: withEveryHideCleared(deck.imposition) });
   for (const paneId of parked) {
     const seat = standing.get(paneId);
     if (seat !== undefined) facts.set(paneId, seat);
@@ -226,13 +223,15 @@ export function placeFactsFor(snapshot: PlaceSnapshot, paneId: string): PanePlac
 /** The store doors a place reading needs. */
 export type PlaceStore = Pick<
   IDeckManagerStore,
-  "subscribe" | "getSnapshot" | "subscribeSpaces" | "getSpacesSnapshot"
+  "subscribe" | "getPicture" | "subscribeSpaces" | "getSpacesSnapshot"
 >;
 
 /**
- * The store a place badge derives from: the deck, the workspaces and
- * `cardTitleStore` together, so a title override renames a picker row without
- * a deck commit. The snapshot keeps its identity until one of the three moves.
+ * The store a place badge derives from: the deck's picture, the workspaces
+ * and `cardTitleStore` together, so a title override renames a picker row
+ * without a deck commit. The picture, because a departing pane's own badge
+ * is read through here for the length of its fade. The snapshot keeps its
+ * identity until one of the three moves.
  */
 export function placeSource(store: PlaceStore): DerivableStore<PlaceSnapshot> {
   let last: PlaceSnapshot | null = null;
@@ -248,7 +247,7 @@ export function placeSource(store: PlaceStore): DerivableStore<PlaceSnapshot> {
       };
     },
     getSnapshot: () => {
-      const deck = store.getSnapshot();
+      const deck = store.getPicture();
       const spaces = store.getSpacesSnapshot();
       const titleVersion = cardTitleStore.version();
       if (

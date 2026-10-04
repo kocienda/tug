@@ -169,3 +169,17 @@ The close is the one leg with two readings, and they are the same work: at 1626 
 `at0684` does not use `installLeadRecorder`, so there is no `react_ms` to bar.
 
 **Decided, as the arc's default, for the user to revise:** each leg's largest in-window commit is under about a quarter's headroom over the largest seen alone — close 2000, rails 100, split 1100, unfold 250, switch 1300 fibers performed. The brief makes the number the user's call; the arc does not stop for it, so this is the default the bar lands with, and changing it is one table (`COMMIT_BAR`) in `at0684`. The rails bar is the one with teeth against what this arc removed (4063 before); the others hold each leg near where it stands.
+
+## Reading 6: the bar at the fixed tree
+
+2026-10-04, at `1d9221e70`, with every driven gesture under the click's `pointer` hold (`driveGesture` opens it before it dispatches or closes) and the store publishing the standing deck. `at0684` alone three times, every run `VERDICT: PASS (1/1 files green; 5/5 tests passed)`. Largest in-window commit per leg, in fibers performed:
+
+| leg | runs 1–3 | bar |
+|-----|----------|-----|
+| close | 1623, 547, 547 | 2000 (unchanged) |
+| rails | 45, 45, 45 | 57 (was 100) |
+| split | 858, 858, 858 | 1075 (was 1100) |
+| unfold | 169, 169, 169 | 212 (was 250) |
+| switch | 1026, 1026, 1026 | 1285 (was 1300) |
+
+The close is reading 5's two readings again: 1623 when React batches the close's own commit with the badge and tooltip commits, 547 when they land apart. Departing-and-height's reading 1 put it at 580, the apart case. A quarter over 1623 would loosen the close's bar, so it stays at 2000; every other bar is set to about a quarter over its reading and is tighter than before. The three readings stand beside each bar in `COMMIT_BAR`'s comment, so revising a number is one table.

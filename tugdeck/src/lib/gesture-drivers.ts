@@ -20,6 +20,7 @@
  */
 
 import { getDeckStore } from "./deck-store-registry";
+import { gestureScope, type GestureScope } from "./gesture-scope";
 
 /** The gestures, in the order the settle verb lists them. */
 export const SETTLE_GESTURES = [
@@ -118,27 +119,45 @@ export function resolveGesture(
 
 /**
  * Resolve a gesture and perform it through the door a user's gesture
- * reaches. Returns `{ ok: true }` once the call was made, or the
- * resolution's error; a close with no deck store registered is an error
- * too, since nothing was driven.
+ * reaches, under the hold a real click puts on it. Returns `{ ok: true }`
+ * once the call was made, or the resolution's error; a close with no deck
+ * store registered, or naming a pane the deck does not hold, is an error
+ * too, since nothing was driven ([L31]: a refusal the caller can read).
+ *
+ * A click opens a `pointer` scope at its pointerdown, ahead of any handler,
+ * and the scope releases itself past the next paint
+ * (`installGestureScope`). A driven gesture runs in an evaluate task with no
+ * pointer event in it, so it opens the same scope itself, after the
+ * gesture resolved and before the call: every non-deck store is held for
+ * the gesture's commit exactly as it is for the user's, and what the
+ * harness and the settle verb measure is the gesture the user makes. The
+ * scope closes the way a click's does, by its own release.
  *
  * `dispatch` is the control-frame door, handed in by `main.tsx` — the one
  * module allowed to import `dispatchAction` for a replayed frame — so this
  * module adds no second importer of it (`one-front-door.test.ts`).
+ * `scope` is the singleton outside unit tests, which have no paint to wait on.
  */
 export function driveGesture(
   dispatch: (frame: { action: string } & Record<string, unknown>) => void,
   gesture: string,
   args: Record<string, unknown> = {},
+  scope: Pick<GestureScope, "open"> = gestureScope,
 ): { ok: true } | { error: string } {
   const resolved = resolveGesture(gesture, args);
   if ("error" in resolved) return resolved;
   if (resolved.kind === "close") {
     const store = getDeckStore();
     if (!store) return { error: "close: no deck store is registered" };
-    store.handlePaneClosed(resolved.paneId);
+    const { paneId } = resolved;
+    if (!store.getSnapshot().panes.some((pane) => pane.id === paneId)) {
+      return { error: `close: no pane "${paneId}" on the deck` };
+    }
+    scope.open("pointer");
+    store.handlePaneClosed(paneId);
     return { ok: true };
   }
+  scope.open("pointer");
   dispatch({ ...resolved.payload, action: resolved.action });
   return { ok: true };
 }

@@ -135,10 +135,23 @@ export interface IDeckManagerStore {
   flushPendingNotify?: () => void;
 
   /**
-   * Return the current DeckState snapshot.
-   * Must be an arrow property (stable identity, auto-bound this).
+   * Return the current DeckState snapshot: the STANDING deck, which never
+   * holds a departing pane, so a reader that lists or counts is right by
+   * default. Must be an arrow property (stable identity, auto-bound this).
    */
   getSnapshot: () => DeckState;
+
+  /**
+   * The composed picture: the standing deck with every departing pane, its
+   * cards and the `departing` marks composed back in for the settle that
+   * carries it out (`lib/departing.ts`). Read only by what draws the deck —
+   * the canvas, the settle engine, the place facts and slot badge a departing
+   * card's own content shows — each named in `departing-invisibility.test.ts`'s
+   * allow list. The standing deck when nothing departs. Arrow property, and
+   * the same object across calls until either half changes; notified through
+   * {@link subscribe}.
+   */
+  getPicture: () => DeckState;
 
   /**
    * Run `fn` as one gesture: every store notification it provokes is
@@ -495,8 +508,8 @@ export interface IDeckManagerStore {
   showSidebarPane: (componentId: string) => string | null;
 
   /**
-   * Hide a sidebar card by closing its pane (presence is the open state,
-   * [P02]). No-op when it is not open.
+   * Hide a sidebar card by closing its pane. It tests presence, so a parked
+   * card is closed too. No-op when the card is not on the deck.
    */
   hideSidebarPane: (componentId: string) => void;
 

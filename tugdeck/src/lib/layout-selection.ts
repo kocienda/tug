@@ -41,7 +41,6 @@ import {
 } from "@/components/cards/cards-selection-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { IDeckManagerStore } from "@/deck-manager-store";
-import { standingDeck } from "@/lib/departing";
 
 /**
  * The card ids the next layout verb applies to, in selection order.
@@ -53,7 +52,7 @@ export function resolveLayoutSelection(
   deck: IDeckManagerStore,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): readonly string[] {
-  const live = new Set(standingDeck(deck.getSnapshot()).cards.map((c) => c.id));
+  const live = new Set(deck.getSnapshot().cards.map((c) => c.id));
   const selected = selection.getSnapshot().ids.filter((id) => live.has(id));
   if (selected.length > 0) return selected;
   const cursor = getLayoutCursorCard();
@@ -70,7 +69,7 @@ function contentCardsAmong(
   deck: IDeckManagerStore,
   ids: readonly string[],
 ): readonly string[] {
-  const cards = standingDeck(deck.getSnapshot()).cards;
+  const cards = deck.getSnapshot().cards;
   return ids.filter((id) => {
     const card = cards.find((c) => c.id === id);
     return card !== undefined && !isSidebarCard(card.componentId);
@@ -97,7 +96,7 @@ export function resolveColumnMenuFact(
 ): { mode: ColumnMode; canMoveUp: boolean; canMoveDown: boolean } | null {
   const cardIds = contentCardsAmong(deck, resolveLayoutSelection(deck, selection));
   if (cardIds.length === 0) return null;
-  const state = standingDeck(deck.getSnapshot());
+  const state = deck.getSnapshot();
   if (state.imposition.kind === undefined) return null;
   const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
   if (host?.slot === undefined) return null;

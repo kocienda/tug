@@ -26,7 +26,6 @@
  */
 
 import type { DeckState, TugPaneState } from "./layout-tree";
-import { standingDeck } from "./lib/departing";
 import {
   getAllRegistrations,
   getRegistration,
@@ -122,7 +121,6 @@ export function findSidebarPane(
 export function findSidebarPanes(
   state: DeckState,
 ): readonly { componentId: string; pane: TugPaneState }[] {
-  state = standingDeck(state);
   const byCardId = new Map<string, string>();
   for (const card of state.cards) {
     if (isSidebarCard(card.componentId)) byCardId.set(card.id, card.componentId);
@@ -151,7 +149,6 @@ export function findSidebarPanes(
  * must agree.
  */
 export function workspacePanes(state: DeckState): readonly TugPaneState[] {
-  state = standingDeck(state);
   const rail = new Set(findSidebarPanes(state).map(({ pane }) => pane.id));
   return state.panes.filter((pane) => !rail.has(pane.id));
 }
@@ -188,15 +185,9 @@ export function isSidebarStanding(state: DeckState, componentId: string): boolea
 
 /** The ids of the panes hosting a parked sidebar card. */
 export function parkedSidebarPaneIds(state: DeckState): ReadonlySet<string> {
-  state = standingDeck(state);
   const parked = new Set<string>();
   for (const { componentId, pane } of findSidebarPanes(state)) {
-    if (
-      isSidebarPinned(state.imposition, componentId) &&
-      isRailRemembered(state.imposition, componentId)
-    ) {
-      parked.add(pane.id);
-    }
+    if (isSidebarParked(state, componentId)) parked.add(pane.id);
   }
   return parked;
 }
@@ -217,7 +208,6 @@ export function railMembersToPark(
   state: DeckState,
   side: SidebarSide,
 ): readonly string[] {
-  state = standingDeck(state);
   const imposition = state.imposition;
   const pinned = findSidebarPanes(state).filter(
     ({ componentId }) =>
@@ -244,7 +234,6 @@ export function slotStackOf(
   state: DeckState,
   slot: number | undefined,
 ): readonly TugPaneState[] {
-  state = standingDeck(state);
   if (slot === undefined) return [];
   return state.panes.filter((p) => p.slot === slot);
 }
@@ -350,7 +339,6 @@ export interface SlotStackEntry {
  * working in the card they bullseyed.
  */
 export function bullseyePaneIdOf(state: DeckState): string | null {
-  state = standingDeck(state);
   const paneId = state.bullseyePaneId;
   if (paneId === undefined) return null;
   if (state.activePaneId !== paneId) return null;
@@ -402,7 +390,6 @@ export function paneRenderWidthOf(
  * stands at slot 4 whether or not slot 3 holds anything.
  */
 export function deckFlowStrip(state: DeckState): FlowStrip | null {
-  state = standingDeck(state);
   if (impositionLayout(state.imposition) !== "flow") return null;
   return deckSlotStrip(state, 0);
 }
@@ -427,7 +414,6 @@ export function deckSlotStrip(
   state: DeckState,
   band: number,
 ): FlowStrip | null {
-  state = standingDeck(state);
   if (state.imposition.kind === undefined) return null;
   const occupied: FlowSlotExtent[] = [];
   for (const pane of state.panes) {
@@ -468,7 +454,6 @@ export function deckSlotStrip(
  * cannot reserve three different numbers.
  */
 export function deckVacancyExtent(state: DeckState): number {
-  state = standingDeck(state);
   const occupied: { slot: number; width: number }[] = [];
   for (const pane of state.panes) {
     if (pane.slot === undefined) continue;
@@ -535,7 +520,6 @@ export function deckColumnsOf(
   state: DeckState,
   columnRun: number | null,
 ): readonly DeckColumn[] {
-  state = standingDeck(state);
   const kind = state.imposition.kind;
   if (kind === undefined) return [];
   const bySlot = columnStandingBySlot(state, kind);
@@ -575,7 +559,6 @@ function columnStandingBySlot(
   state: DeckState,
   kind: NonNullable<DeckState["imposition"]["kind"]>,
 ): Map<number, string[]> {
-  state = standingDeck(state);
   const bySlot = new Map<number, string[]>();
   for (const pane of state.panes) {
     if (pane.slot === undefined) continue;
@@ -594,7 +577,6 @@ export function columnMembersOf(
   state: DeckState,
   slot: number,
 ): readonly string[] {
-  state = standingDeck(state);
   const kind = state.imposition.kind;
   if (kind === undefined) return [];
   const standing = columnStandingBySlot(state, kind).get(slot);
@@ -738,7 +720,6 @@ export function placeMembers(
   memberIds: readonly string[],
   shares: Readonly<Record<string, number>> | undefined,
 ): PlaceMember[] {
-  state = standingDeck(state);
   // An arriving pane is drawn but not divided ([B08]): the column's readers
   // already leave it out of `memberIds`, and a caller that hands one in
   // anyway gets the standing members back, so the division never sees it.
@@ -834,7 +815,6 @@ export function railMembersOf(
   state: DeckState,
   side: SidebarSide,
 ): readonly { componentId: string; paneId: string }[] {
-  state = standingDeck(state);
   const pinned = findSidebarPanes(state).filter(({ componentId }) =>
     isSidebarSeated(state.imposition, componentId),
   );
@@ -867,7 +847,6 @@ export function railAllocationOf(
   side: SidebarSide,
   run: number | null,
 ): PlaceAllocation | null {
-  state = standingDeck(state);
   if (run === null || !(run > 0)) return null;
   const members = railMembersOf(state, side);
   if (members.length === 0) return null;
@@ -890,7 +869,6 @@ export function columnAllocationOf(
   slot: number,
   run: number | null,
 ): PlaceAllocation | null {
-  state = standingDeck(state);
   if (run === null || !(run > 0)) return null;
   if (columnModeOf(state.imposition, slot) !== "split") return null;
   const members = columnMembersOf(state, slot);
@@ -1042,7 +1020,6 @@ export function columnBadgeFactsOf(
   state: DeckState,
   cardId: string,
 ): ColumnBadgeFacts | null {
-  state = standingDeck(state);
   const host = state.panes.find((pane) => pane.cardIds.includes(cardId));
   if (host === undefined) return null;
   // The badge is about membership and standing, never about heights, so it
@@ -1087,7 +1064,6 @@ export function columnMoveOrder(
   state: DeckState,
   paneId: string,
 ): readonly string[] {
-  state = standingDeck(state);
   const kind = state.imposition.kind;
   if (kind === undefined) return [];
   const pane = state.panes.find((p) => p.id === paneId);
@@ -1110,7 +1086,6 @@ export function columnMoveOrder(
  * counts through here rather than off `state.cards.length`.
  */
 export function countWorkCards(state: DeckState): number {
-  state = standingDeck(state);
   return state.cards.filter((c) => !isSidebarCard(c.componentId)).length;
 }
 
@@ -1159,7 +1134,6 @@ export function sidebarRailsOf(
   state: DeckState,
   runs: PlaceRuns,
 ): readonly SidebarRail[] {
-  state = standingDeck(state);
   const paneById = new Map(state.panes.map((pane) => [pane.id, pane]));
   const rails: SidebarRail[] = [];
   for (const side of ["left", "right"] as const) {

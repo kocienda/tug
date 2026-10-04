@@ -28,7 +28,6 @@
  */
 
 import type { DeckState } from "../layout-tree";
-import { standingDeck } from "./departing";
 import { spaceThemesDiffer, type SpacesSnapshot } from "../spaces";
 import { bullseyePaneIdOf, isSidebarStanding, slotStackOf } from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
@@ -764,7 +763,6 @@ export function projectDeckState(
   state: DeckState,
   spaces: SpacesSnapshot = EMPTY_SPACES_SNAPSHOT,
 ): MenuStateDeckProjection {
-  state = standingDeck(state);
   const stacks = state.panes;
   const cardsById = new Map(state.cards.map((c) => [c.id, c]));
   const focusedStack = stacks.length > 0 ? stacks[stacks.length - 1] : null;

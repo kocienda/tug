@@ -51,7 +51,6 @@
 
 import { paneCanvasOf } from "@/components/chrome/space-layer";
 import type { IDeckManagerStore } from "@/deck-manager-store";
-import { standingDeck } from "@/lib/departing";
 import { afterGesture } from "@/lib/gesture-scope";
 import { scheduleAfterPaint } from "@/lib/after-paint";
 import { IMPOSER_SETTLE_END } from "./settle-notice";
@@ -356,7 +355,7 @@ export function flashVacantSlot(slot: number): void {
  * silent for reasons the user never asked about.
  */
 export function flashSlot(store: IDeckManagerStore, slot: number): void {
-  const pane = standingDeck(store.getSnapshot()).panes.find((p) => p.slot === slot);
+  const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
   if (pane !== undefined) flashPaneBorder(pane.id);
   else flashVacantSlot(slot);
 }

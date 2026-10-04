@@ -134,8 +134,18 @@ function CardSlotBadgeFor({ cardId }: { cardId: string }): React.ReactElement | 
   // trigger on every activation, close and slide, inside the settle window
   // those gestures animate through ([D204]). Derived, a commit that moved no
   // slot renders no badge.
+  //
+  // Over the deck's picture: a departing card's badge is its own content, and
+  // reads itself for the length of the fade rather than vanishing under it.
+  const pictureStore = useMemo(
+    () =>
+      deckStore === null
+        ? null
+        : { subscribe: deckStore.subscribe, getSnapshot: deckStore.getPicture },
+    [deckStore],
+  );
   const live = useStoreDerived<DeckState, SlotFacts | null | undefined>(
-    deckStore,
+    pictureStore,
     (deck) => (deck === null ? null : slotFactsIn(deck, cardId)),
   );
   // The level above the deck, for a card whose pane stands in a PARKED

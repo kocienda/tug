@@ -103,6 +103,7 @@ import {
   deckVacancyExtent,
   type DeckColumn,
   findSidebarPanes,
+  isSidebarParked,
   isUnboundMember,
   placeMembers,
   type PlaceRuns,
@@ -199,10 +200,8 @@ import "./rail-vacancy.css";
 import "./margin-cap.css";
 import "./rail-shadow.css";
 import {
-  isRailRemembered,
-  isSidebarPinned,
   sidebarSide,
-  withRailHidden,
+  withEveryHideCleared,
   isContentWidth,
   resolvePlacement,
   resolveContentWidthPx,
@@ -1348,16 +1347,14 @@ function deriveLayerArrangement(
 
   const parkedRailSideByPaneId = new Map<string, SidebarSide>();
   for (const { componentId, pane } of findSidebarPanes(deck)) {
-    if (isSidebarPinned(imposition, componentId) && isRailRemembered(imposition, componentId)) {
+    if (isSidebarParked(deck, componentId)) {
       parkedRailSideByPaneId.set(pane.id, sidebarSide(imposition, componentId));
     }
   }
   const parkedRailSides = new Set(parkedRailSideByPaneId.values());
   let pictureRails: readonly SidebarRail[] = sidebarRails;
   if (parkedRailSides.size > 0) {
-    let cleared = imposition;
-    for (const side of parkedRailSides) cleared = withRailHidden(cleared, side, []);
-    pictureRails = sidebarRailsOf({ ...deck, imposition: cleared }, placeRuns);
+    pictureRails = sidebarRailsOf({ ...deck, imposition: withEveryHideCleared(imposition) }, placeRuns);
   }
   const pictureVacantRails = railVacanciesOf(pictureRails);
 
@@ -2057,9 +2054,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // Named `store` (not `manager`) to avoid collision with the ResponderChainManager
   // variable below.
   const store = useDeckManager();
+  // The canvas draws the deck, so it reads the PICTURE — the standing deck
+  // with every departing pane composed back in for the settle that carries
+  // it out — and derives the standing deck from it for everything else. The
+  // picture is what renders frames and hosts and what the settle plans over;
+  // every selector, effect and law in this body reads `deckState`, which
+  // holds no departing pane.
+  const pictureStore = useMemo(
+    () => ({ subscribe: store.subscribe, getSnapshot: store.getPicture }),
+    [store],
+  );
   // Every field but `CANVAS_UNREAD_FIELDS` commits; a window focus or blur,
   // which moves only `hasFocus`, does not.
-  const deckState = useStoreDerived(store, canvasDeck, canvasDeckEqual);
+  const picture = useStoreDerived(pictureStore, canvasDeck, canvasDeckEqual);
+  const deckState = standingDeck(picture);
   const panes = deckState.panes;
   const cards = deckState.cards;
   const imposition = deckState.imposition;
@@ -2116,7 +2124,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const layers: SpaceLayer[] = [];
     for (const spaceId of spacesSnapshot.mountedSpaceIds) {
       if (spaceId === spacesSnapshot.activeSpaceId) {
-        layers.push({ spaceId, shown: true, deck: deckState });
+        layers.push({ spaceId, shown: true, deck: picture });
         continue;
       }
       const parked = spacesSnapshot.mountedDecks.get(spaceId);
@@ -2127,11 +2135,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       layers.unshift({
         spaceId: spacesSnapshot.activeSpaceId,
         shown: true,
-        deck: deckState,
+        deck: picture,
       });
     }
     return layers;
-  }, [spacesSnapshot, deckState]);
+  }, [spacesSnapshot, picture]);
   // The shown deck's arrangement — one derivation the whole body reads from,
   // and the same one every hidden layer takes from its own parked deck in the
   // render below. `placeRuns` are the canvas's measured run heights, the same
@@ -2141,10 +2149,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     column: store.getColumnRunHeight(),
   };
   const shownArrangement = useMemo(
-    () => deriveShownArrangement(deckState, placeRuns),
+    () => deriveShownArrangement(picture, placeRuns),
     // `placeRuns` is minted per render; its two numbers are the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deckState, placeRuns.rail, placeRuns.column],
+    [picture, placeRuns.rail, placeRuns.column],
   );
   const {
     sidebarPaneIds,
@@ -3261,7 +3269,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // run, so its hooks and effects keep the place in this body they had.
   const { pendingArrivalsRef, settleCommitSeqRef } = useSettleEngine({
     store,
-    deckState,
+    deckState: picture,
     placeRuns,
     containerRef,
   });
@@ -3310,8 +3318,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    */
   const vacantSlots = useMemo(() => {
     if (impositionKind === undefined) return [];
+    // Over the picture: a departing pane still holds its slot until it lands,
+    // so the vacancy appears with the unmount rather than under the fade.
     const held = new Set(
-      deckState.panes
+      picture.panes
         .filter((pane) => pane.slot !== undefined)
         .map((pane) => clampSlot(impositionKind, pane.slot as number)),
     );
@@ -3334,7 +3344,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       });
     }
     return tiles;
-  }, [impositionKind, deckState, flowStrip]);
+  }, [impositionKind, picture, deckState, flowStrip]);
 
   // `bullseyePaneId` and `bullseyeAnchorCentre` are the shown arrangement's,
   // destructured above. The pane standing in bullseye is deck state — which

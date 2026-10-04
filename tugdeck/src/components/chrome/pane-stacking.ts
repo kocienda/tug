@@ -170,7 +170,7 @@ export function usePaneRaise(
     const raise = (): void => {
       const root = deckRootRef.current;
       if (root === null) return;
-      const zIndexMap = paneZIndexMap(store.getSnapshot());
+      const zIndexMap = paneZIndexMap(store.getPicture());
       for (const frame of root.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
         const z = zIndexMap.get(frame.dataset.paneId ?? "");
         if (z === undefined) continue;

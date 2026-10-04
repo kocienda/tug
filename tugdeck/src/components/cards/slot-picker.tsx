@@ -69,7 +69,6 @@ import { dispatchCommand } from "@/command-dispatch";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
-import { standingDeck } from "@/lib/departing";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import { cardsSelectionStore } from "./cards-selection-store";
 import { useSlotWindow } from "@/lib/slot-window-pref";
@@ -135,17 +134,15 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
 
   const kind = deck?.imposition.kind;
   if (kind === undefined || deck === null) return null;
-  const standing = standingDeck(deck);
-
   const count = slotCount(kind);
-  const hostIndex = standing.panes.findIndex((pane) => pane.cardIds.includes(cardId));
-  const host = hostIndex >= 0 ? standing.panes[hostIndex] : undefined;
+  const hostIndex = deck.panes.findIndex((pane) => pane.cardIds.includes(cardId));
+  const host = hostIndex >= 0 ? deck.panes[hostIndex] : undefined;
   // A card hosted in a rail is not the chain's to place — a rail is the
   // imposition's fixed end. The Cards rows never represent a rail card today;
   // the guard keeps the picker honest if one ever does.
   const disabled =
     host === undefined ||
-    findSidebarPanes(standing).some(({ pane }) => pane.id === host.id);
+    findSidebarPanes(deck).some(({ pane }) => pane.id === host.id);
   const held = host?.slot;
 
   // Later in the panes array is higher in the stack, so the last pane holding
@@ -153,7 +150,7 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
   const topIndexAtHeldSlot =
     held === undefined
       ? -1
-      : standing.panes.reduce(
+      : deck.panes.reduce(
           (top, pane, index) => (pane.slot === held ? index : top),
           -1,
         );

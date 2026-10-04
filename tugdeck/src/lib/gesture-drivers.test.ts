@@ -1,16 +1,21 @@
 /**
- * `resolveGesture` unit tests.
+ * `resolveGesture` and `driveGesture` unit tests.
  *
  * Covers:
  * - Each settle gesture resolves to the action and payload its driver
  *   dispatches, or to a close of the named pane.
  * - Each missing argument yields an error naming it; a bad `slot` or
  *   `mode` is refused; an unknown gesture is refused with the list.
+ * - A driven gesture opens the click's `pointer` hold before its call, and
+ *   a close naming a pane the deck does not hold is refused, with no hold
+ *   opened and nothing closed.
  */
 
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
 
-import { resolveGesture, SETTLE_GESTURES } from "./gesture-drivers";
+import type { IDeckManagerStore } from "../deck-manager-store";
+import { registerDeckStore } from "./deck-store-registry";
+import { driveGesture, resolveGesture, SETTLE_GESTURES } from "./gesture-drivers";
 
 describe("resolveGesture", () => {
   test("flip focuses the session card", () => {
@@ -102,5 +107,50 @@ describe("resolveGesture", () => {
     for (const g of SETTLE_GESTURES) {
       expect("error" in r && r.error).toContain(g);
     }
+  });
+});
+
+describe("driveGesture", () => {
+  afterEach(() => registerDeckStore(null));
+
+  /** A deck holding `paneIds`, recording every close into `log`. */
+  function deckWith(paneIds: readonly string[], log: string[]): void {
+    registerDeckStore({
+      getSnapshot: () => ({ panes: paneIds.map((id) => ({ id })) }),
+      handlePaneClosed: (paneId: string) => log.push(`close ${paneId}`),
+    } as unknown as IDeckManagerStore);
+  }
+
+  /** A scope recording each open into `log`. */
+  const scopeInto = (log: string[]) => ({ open: (reason: string) => log.push(`open ${reason}`) });
+
+  test("a dispatched gesture opens the click's hold before it dispatches", () => {
+    const log: string[] = [];
+    const r = driveGesture((frame) => log.push(`dispatch ${frame.action}`), "rails", {}, scopeInto(log));
+    expect(r).toEqual({ ok: true });
+    expect(log).toEqual(["open pointer", "dispatch toggle-sidebars"]);
+  });
+
+  test("a close opens the click's hold before it closes the pane", () => {
+    const log: string[] = [];
+    deckWith(["p1", "p2"], log);
+    const r = driveGesture(() => log.push("dispatch"), "close", { pane: "p2" }, scopeInto(log));
+    expect(r).toEqual({ ok: true });
+    expect(log).toEqual(["open pointer", "close p2"]);
+  });
+
+  test("a close naming a pane the deck does not hold is refused, and nothing is driven", () => {
+    const log: string[] = [];
+    deckWith(["p1"], log);
+    const r = driveGesture(() => log.push("dispatch"), "close", { pane: "p9" }, scopeInto(log));
+    expect(r).toEqual({ error: `close: no pane "p9" on the deck` });
+    expect(log).toEqual([]);
+  });
+
+  test("a gesture that does not resolve opens no hold", () => {
+    const log: string[] = [];
+    const r = driveGesture(() => log.push("dispatch"), "flip", {}, scopeInto(log));
+    expect("error" in r).toBe(true);
+    expect(log).toEqual([]);
   });
 });

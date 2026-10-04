@@ -72,7 +72,7 @@
  * @module components/chrome/pane-occlusion-controller
  */
 
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { useStoreDerived } from "@/lib/use-store-derived";
 
 import { useDeckManager } from "@/deck-manager-context";
@@ -332,8 +332,14 @@ export function usePaneOcclusionController(
   // The canvas's own narrowed read: every geometry-changing commit reaches the
   // reactive pass below, which is how a reveal shares the paint with the
   // change that exposed the pane. Only a commit that moves nothing the canvas
-  // reads (window focus) is dropped.
-  const snapshot = useStoreDerived(store, canvasDeck, canvasDeckEqual);
+  // reads (window focus) is dropped. Over the picture, as the canvas reads it,
+  // so the commit that unmounts a departed frame — which moves the picture
+  // and not the standing deck — re-runs the pass over what it exposed.
+  const pictureStore = useMemo(
+    () => ({ subscribe: store.subscribe, getSnapshot: store.getPicture }),
+    [store],
+  );
+  const snapshot = useStoreDerived(pictureStore, canvasDeck, canvasDeckEqual);
   const activePaneId = snapshot.activePaneId ?? null;
 
   const hideTimerRef = useRef<number | null>(null);
