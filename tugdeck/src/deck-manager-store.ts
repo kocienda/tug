@@ -173,6 +173,15 @@ export interface IDeckManagerStore {
    */
   getBandWidth: () => number | null;
   /**
+   * The flow offset {@link previewFlowOffset} last drew and no commit has
+   * yet consumed, or `null` when the strip stands where the store says. The
+   * settle's arm reads it, inside the commit that consumes it, as the origin
+   * of its flow slide — the frame the eye is on rather than the store's last
+   * word, which is what keeps the slide after a swipe from snapping back to
+   * where the strip stood before the hand touched it.
+   */
+  getDrawnFlowOffset: () => number | null;
+  /**
    * The same band as its two edges in canvas layout px, or `null` when there
    * is none — the left edge is the left rail's inset plus the gap when a rail
    * stands there and the bare gap otherwise, and the right edge likewise.

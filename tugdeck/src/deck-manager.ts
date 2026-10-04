@@ -2782,6 +2782,12 @@ export class DeckManager implements IDeckManagerStore {
   private batchPendingSave = false;
 
   /**
+   * The flow offset {@link previewFlowOffset} last drew and no commit has yet
+   * consumed. See {@link getDrawnFlowOffset}.
+   */
+  private drawnFlowOffset: number | null = null;
+
+  /**
    * Fire every subscriber over the current state.
    *
    * `caller` is the mutating method's own name, stamped by each call
@@ -2850,6 +2856,13 @@ export class DeckManager implements IDeckManagerStore {
     for (const cb of this.syncSubscribers.keys()) {
       cb(landing);
     }
+    // A commit consumes the drawn flow offset whoever made it: the sync arm
+    // above has read it, and the layer re-writes the strip's offset from the
+    // store on the React commit that follows, so the preview is no longer
+    // what the screen shows. Cleared here rather than in `setFlowOffset`
+    // because a reveal or a retune moves the strip too, and a batched commit
+    // reaches its arm only at this flush.
+    this.drawnFlowOffset = null;
     this.inFlightDeferralVote = priorVote;
     // Under reduced motion there is no tween to keep the commit out of, and a
     // deferral would only put the snapped layout one frame behind the gesture.
@@ -5778,20 +5791,54 @@ export class DeckManager implements IDeckManagerStore {
    *
    * It touches no state and notifies nothing — a commit per frame would arm
    * the settle on every one of them and tween the deck under the user's hand.
+   *
+   * It does remember the offset it drew, and that memory is what the settle
+   * after a gesture starts from. The settle's own record of the strip's
+   * place advances only on a commit, so without this the slide after a swipe
+   * would begin where the strip stood BEFORE the hand touched it, snap the
+   * frames back there for a frame, and replay the whole swipe. The one writer
+   * is where the truth of what is on screen lives, so it is the one place to
+   * keep it: the canvas wheel, the Layout card's scrub and the miniature's
+   * drag all land here and all inherit the origin.
    */
   previewFlowOffset(offset: number): void {
     if (deckFlowStrip(this.deckState) === null) return;
     const band = this.getBandWidth();
     if (band === null) return;
-    writeCanvasFlowOffset(this.container, Math.round(offset));
+    const drawn = Math.round(offset);
+    writeCanvasFlowOffset(this.container, drawn);
+    this.drawnFlowOffset = drawn;
     publishFlowOffset(offset / band);
+  }
+
+  /**
+   * The offset {@link previewFlowOffset} last drew and no commit has yet
+   * consumed, or `null` when the strip stands where the store says it does.
+   *
+   * Read by the settle's arm, inside the commit that consumes it, as the
+   * origin of its flow slide. It is a fact about the SCREEN rather than the
+   * store — which frame the eye is looking at — so it rides beside the state
+   * rather than in it and moves no version.
+   */
+  getDrawnFlowOffset(): number | null {
+    return this.drawnFlowOffset;
   }
 
   /** The flow strip's twin of {@link setColumnOffset} — the same one-write-at-
    *  the-end rule, read across instead of down, and the same `landing`. It is
    *  the one of the three with a `"cross"` caller that matters: a strip
    *  segment click and the Center Card chord both hand it a number the deck
-   *  was NOT drawing, and the settle tweens the crossing. */
+   *  was NOT drawing, and the settle tweens the crossing.
+   *
+   *  Every path out clears the drawn offset: the commit is what consumes a
+   *  preview, whether the arm read it (`notify` clears it once its sync
+   *  subscribers have run) or there was nothing to arm because the hand came
+   *  back to where the store already stood.
+   *
+   *  A commit of the very number the deck was drawing lands `"cut"` whatever
+   *  the caller said: the frames are already where it puts them, which is the
+   *  definition of that landing ([F01]), and a `"cross"` here would arm a
+   *  settle over a slide of zero length. */
   setFlowOffset(offset: number, landing: CommitLanding = "cross"): void {
     const strip = deckFlowStrip(this.deckState);
     if (strip === null) return;
@@ -5800,9 +5847,15 @@ export class DeckManager implements IDeckManagerStore {
       strip.width,
       this._flowBandWidth(this.deckState.panes, this.deckState.imposition),
     );
-    if (clamped === (this.deckState.flowOffset ?? 0)) return;
+    if (clamped === (this.deckState.flowOffset ?? 0)) {
+      this.drawnFlowOffset = null;
+      return;
+    }
+    const drawn = this.drawnFlowOffset;
+    const resolved =
+      drawn !== null && drawn === Math.round(clamped) ? "cut" : landing;
     this.deckState = { ...this.deckState, flowOffset: clamped };
-    this.notify("setFlowOffset", landing);
+    this.notify("setFlowOffset", resolved);
   }
 
   /**

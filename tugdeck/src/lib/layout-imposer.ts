@@ -1942,6 +1942,81 @@ export function clampStripOffset(
   return Math.min(Math.max(0, offset), Math.max(0, stripLength - band));
 }
 
+/**
+ * The hump a wheel swipe clears before the flow strip tracks the hand, in px.
+ *
+ * A trackpad delivers a pixel or two of sideways delta under a hand that is
+ * merely resting, and a strip that moves 1:1 from the first event judders on
+ * every one of them. So a gesture opens HELD: its deltas accumulate and draw
+ * nothing until their sum passes this, and from there the strip tracks with
+ * the hump subtracted so the first drawn frame is a continuation rather than
+ * a lurch. Paid once per gesture — a pause inside a swipe that has cleared it
+ * does not re-arm it; the idle commit ends the gesture and the next swipe
+ * opens held again. A swipe that never clears it moves nothing and commits
+ * nothing. Tuned by feel; a starting value rather than a measurement.
+ */
+export const FLOW_WHEEL_HUMP_PX = 16;
+
+/**
+ * How close to a stop a released swipe may stand and be read as ON it, in px.
+ *
+ * {@link flowNextStop} skips a stop the hand has already passed by more than
+ * this, and answers one within it as the destination — so a release a pixel
+ * short of a slot lands on that slot rather than the one after, and a release
+ * a pixel past it is not sent a whole card further for the overshoot.
+ */
+export const FLOW_STOP_NEAR_PX = 2;
+
+/** What {@link flowNextStop} is asked over. */
+export interface FlowNextStopInput {
+  /** The deck's strip. */
+  strip: FlowStrip;
+  /** The band the strip is seen through. */
+  band: number;
+  /** The offset the hand left the strip at. */
+  offset: number;
+  /** The sign of the hand's last movement: positive slides the strip toward
+   *  its far end (offset rising), negative toward its near end. */
+  direction: number;
+}
+
+/**
+ * Where a released swipe settles: the next stop in the direction the hand was
+ * last moving, or the offset itself when there is none ahead.
+ *
+ * A stop is an offset that aligns a slot's near edge with the band's — each
+ * slot's own strip position — plus the strip's two clamped ends, every one
+ * run through {@link clampFlowOffset} so no stop names a place the strip
+ * cannot be scrolled to. The answer is the first stop AHEAD of the hand, where
+ * "ahead" allows {@link FLOW_STOP_NEAR_PX} of slack behind it: a hand that
+ * stopped a pixel past a slot is on that slot, not a card short of the next.
+ *
+ * Deliberately not the NEAREST stop. Nearest would send a swipe that stopped
+ * forty percent of the way to the next slot back to the one it left — a move
+ * against the hand, which is the one motion a release must never make. With
+ * nothing ahead (the hand is already at the far clamp) the answer is the
+ * offset itself, so the caller commits what is drawn and animates nothing.
+ * A zero direction has no "ahead" and answers the same way.
+ */
+export function flowNextStop(input: FlowNextStopInput): number {
+  const { strip, band, offset, direction } = input;
+  if (!Number.isFinite(offset) || direction === 0) return offset;
+  const dir = Math.sign(direction);
+  const stops = new Set<number>();
+  stops.add(clampFlowOffset(0, strip.width, band));
+  stops.add(clampFlowOffset(strip.width, strip.width, band));
+  for (const left of strip.positions.values()) {
+    stops.add(clampFlowOffset(left, strip.width, band));
+  }
+  let best: number | null = null;
+  for (const stop of stops) {
+    const ahead = (stop - offset) * dir;
+    if (ahead < -FLOW_STOP_NEAR_PX) continue;
+    if (best === null || (stop - best) * dir < 0) best = stop;
+  }
+  return best ?? offset;
+}
+
 /** The horizontal name for {@link clampStripOffset} — flow's strip runs left to
  *  right, and the callers that only ever mean flow say so. */
 export function clampFlowOffset(

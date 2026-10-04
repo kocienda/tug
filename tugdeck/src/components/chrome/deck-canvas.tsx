@@ -225,6 +225,9 @@ import {
   RESIZE_RETUNE_QUIET_MS,
   FLOW_STRIP_PROPERTY,
   clampFlowOffset,
+  FLOW_WHEEL_HUMP_PX,
+  FLOW_STOP_NEAR_PX,
+  flowNextStop,
   flowCenterOffset,
   effectiveRailOrder,
   imposeSidebarStyle,
@@ -295,6 +298,11 @@ const EMPTY_RAIL_OFFSETS: Readonly<Partial<Record<SidebarSide, number>>> =
  *  read as three gestures, short enough that the store is caught up by the
  *  time a hand reaches for anything else. */
 const FLOW_WHEEL_IDLE_MS = 180;
+
+/** How many of a wheel gesture's last deltas decide the direction its release
+ *  settles toward. Few enough that a reversal at the end of a swipe is read
+ *  as one; more than one so a single stray delta is not. */
+const FLOW_WHEEL_RECENT_DELTAS = 3;
 
 /**
  * Every member of every place, keyed by PANE ID — the map the drop-zone
@@ -4476,8 +4484,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   //
   // Accumulation lives in a ref and the gesture ends on an idle timeout, which
   // is the only end a wheel has — there is no "up" to commit on.
-  const wheelGestureRef = useRef<{ offset: number; timer: number | null }>({
+  //
+  // `held` is the gesture's hump ([B02]): the sum of the deltas taken since
+  // the gesture opened, standing only until it passes `FLOW_WHEEL_HUMP_PX`.
+  // While it stands the strip draws nothing — a resting hand's pixel of
+  // wobble is taken (so nothing else scrolls) and moves nothing. The first
+  // event past it draws the sum LESS the hump, so the strip continues from
+  // where it stood rather than lurching the whole sum at once, and from there
+  // every delta tracks 1:1. It is null once cleared, and a pause inside the
+  // swipe does not re-arm it: only the idle end of the gesture does, by
+  // opening the next one held. A gesture that never clears it ends on the
+  // same idle and commits nothing, because nothing was drawn.
+  //
+  // `recent` is the last few deltas, newest last — the direction the hand was
+  // LAST moving, which is what the release settles toward ([B03]). The net of
+  // the swipe would send a hand that reversed back the way it came.
+  const wheelGestureRef = useRef<{
+    offset: number;
+    held: number | null;
+    recent: number[];
+    timer: number | null;
+  }>({
     offset: 0,
+    held: null,
+    recent: [],
     timer: null,
   });
   useLayoutEffect(() => {
@@ -4517,18 +4547,70 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (strip === null || band === null || band <= 0) return;
       if (scrollableAncestor(event.target)) return;
       event.preventDefault();
-      // Picked up from the store on the first event of a gesture and carried in
-      // the ref after that, so a commit landing mid-gesture cannot rewind the
-      // hand. Clamped every frame with the store's own arithmetic, so the frame
-      // never shows an overshoot the commit would reject.
-      const standing =
-        gesture.timer === null ? (state.flowOffset ?? 0) : gesture.offset;
-      gesture.offset = clampFlowOffset(standing + delta, strip.width, band);
-      previewFlowOffset(gesture.offset);
+      // A gesture opens held, with its offset picked up from the store on its
+      // first event and carried in the ref after that, so a commit landing
+      // mid-gesture cannot rewind the hand. Clamped every frame with the
+      // store's own arithmetic, so the frame never shows an overshoot the
+      // commit would reject.
+      if (gesture.timer === null) {
+        gesture.offset = state.flowOffset ?? 0;
+        gesture.held = 0;
+        gesture.recent = [];
+      }
+      gesture.recent.push(delta);
+      if (gesture.recent.length > FLOW_WHEEL_RECENT_DELTAS) gesture.recent.shift();
+      let travel = delta;
+      if (gesture.held !== null) {
+        gesture.held += delta;
+        if (Math.abs(gesture.held) < FLOW_WHEEL_HUMP_PX) {
+          travel = 0;
+        } else {
+          travel = gesture.held - Math.sign(gesture.held) * FLOW_WHEEL_HUMP_PX;
+          gesture.held = null;
+        }
+      }
+      if (travel !== 0) {
+        gesture.offset = clampFlowOffset(
+          gesture.offset + travel,
+          strip.width,
+          band,
+        );
+        previewFlowOffset(gesture.offset);
+      }
       if (gesture.timer !== null) window.clearTimeout(gesture.timer);
       gesture.timer = window.setTimeout(() => {
+        const cleared = gesture.held === null;
         gesture.timer = null;
-        commitFlowOffset(gesture.offset);
+        gesture.held = null;
+        if (!cleared) return;
+        // The release ([B03], [B04]): the hand's offset settles on to the
+        // next stop in the direction it was last moving. The strip and band
+        // are read again here rather than carried from the last event — a
+        // commit mid-gesture may have re-laid the strip, and the stops are
+        // the strip's. A hand already on a stop (within the near slack)
+        // commits exactly that stop as a cut, so the frames stand still and
+        // the store catches up by at most the slack; one with a stop ahead
+        // commits the stop, and the settle slides there from the drawn
+        // offset.
+        const now = store.getSnapshot();
+        const stripNow = deckFlowStrip(now);
+        const bandNow = store.getBandWidth();
+        if (stripNow === null || bandNow === null || bandNow <= 0) {
+          commitFlowOffset(gesture.offset);
+          return;
+        }
+        const direction = gesture.recent.reduce((sum, d) => sum + d, 0);
+        const stop = flowNextStop({
+          strip: stripNow,
+          band: bandNow,
+          offset: gesture.offset,
+          direction,
+        });
+        if (Math.abs(stop - gesture.offset) <= FLOW_STOP_NEAR_PX) {
+          store.setFlowOffset(stop, "cut");
+        } else {
+          commitFlowOffset(stop);
+        }
       }, FLOW_WHEEL_IDLE_MS);
     };
 

@@ -1467,6 +1467,15 @@ export function useSettleEngine({
       const prevFlowOffset = flowOffsetRef.current;
       const nextFlowOffset = Math.round(state.flowOffset ?? 0);
       flowOffsetRef.current = nextFlowOffset;
+      // Where the strip is DRAWN, when a gesture has been drawing it: the
+      // per-frame writer's own record, standing only between a preview and
+      // the commit that consumes it. The flow slide below starts from here
+      // rather than from `prevFlowOffset`, which is the store's last word and,
+      // after a swipe, the place the strip stood before the hand touched it —
+      // a slide from there snaps every frame back and replays the swipe. A
+      // First rect would read the drawn place off the DOM for free; the
+      // prelaunch plans from the store's delta alone and has to be told.
+      const flowOrigin = store.getDrawnFlowOffset() ?? prevFlowOffset;
 
       // The commit said the frames are already drawn where it puts them — a
       // per-frame writer catching the store up after the fact ([B01]). There
@@ -1559,7 +1568,7 @@ export function useSettleEngine({
       const prelaunch =
         motion &&
         flowOnly &&
-        prevFlowOffset !== nextFlowOffset &&
+        flowOrigin !== nextFlowOffset &&
         settleTweensRef.current.size === 0 &&
         // Nothing MEASURED and unrendered ([B02]). A First rect standing here
         // is an earlier arm in this same task whose Last pass has not run —
@@ -1983,8 +1992,8 @@ export function useSettleEngine({
         // it at its origin. The layer's own effect writes the same value after
         // React commits, which is a no-op by then.
         writeCanvasFlowOffset(el, nextFlowOffset);
-        // `left = C - offset`, so First - Last = next - prev.
-        const dx = nextFlowOffset - prevFlowOffset;
+        // `left = C - offset`, so First - Last = next - origin.
+        const dx = nextFlowOffset - flowOrigin;
         const curve = motionKeyframes(BEAT_RECIPE.move, { nominalMs: settleMs });
         const keyframes = springSettleKeyframes({ dx, dy: 0 }, curve.progress);
         const token = {};
