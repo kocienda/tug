@@ -4965,6 +4965,8 @@ export function SessionCardBody({
                     liveEdgeContent={
                       <SessionLandingProgressRow
                         joinModeController={joinModeController}
+                        pushEntryKey={changesController.entryKey}
+                        pushWorkspaceKey={changesController.workspaceKey}
                       />
                     }
                   />

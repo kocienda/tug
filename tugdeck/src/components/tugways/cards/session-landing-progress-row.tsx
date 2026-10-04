@@ -31,9 +31,16 @@
  * until the next join replaces it — which is what makes it findable by
  * somebody who was not watching.
  *
- * Laws: [L02] the register arrives through `useSyncExternalStore` over the
- * controller; [L19]/[L20] this composes {@link ArcJoinRegisterView} and adds
- * no rule reaching inside its chrome; [L13] the pulse is the register's own.
+ * **A push narrates here too.** A push is a round trip to a remote that can
+ * take seconds, and its receipt only lands when the remote answers. While the
+ * card's push is pending this row carries a `pushing <branch>` line on the
+ * same `BlockHeader` chrome, pulsing in flight; it unmounts the moment the
+ * push settles, when the receipt (or the refusal bulletin) takes over.
+ *
+ * Laws: [L02] the register and the push state arrive through
+ * `useSyncExternalStore` over their stores; [L19]/[L20] this composes
+ * {@link ArcJoinRegisterView} and `BlockHeader` and adds no rule reaching
+ * inside their chrome; [L13] the pulse is the header's own.
  *
  * @tug-pairings ArcJoinRegisterView
  *
@@ -46,7 +53,10 @@ import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { ArcJoinRegisterView } from "../arc-join-register";
+import { BlockHeader } from "../blocks/block-header";
 import type { JoinModeController } from "@/lib/join-mode-controller";
+import { useChangesetPush } from "@/lib/changeset-verb-store";
+import { useChangesetAll } from "@/lib/changeset-all-store";
 
 export interface SessionLandingProgressRowProps {
   /**
@@ -55,19 +65,40 @@ export interface SessionLandingProgressRowProps {
    * grows one, it mounts in this same row.
    */
   joinModeController: JoinModeController;
+  /** The card's changes entry key — whose push state this row narrates. */
+  pushEntryKey: string;
+  /** The card's workspace key — where the pushed branch's name is read. */
+  pushWorkspaceKey: string;
 }
 
 export function SessionLandingProgressRow({
   joinModeController,
+  pushEntryKey,
+  pushWorkspaceKey,
 }: SessionLandingProgressRowProps): React.ReactElement | null {
   const register = useSyncExternalStore(
     joinModeController.subscribe,
     () => joinModeController.getSnapshot().register,
   );
-  if (register === null) return null;
+  const push = useChangesetPush(pushEntryKey);
+  const aggregate = useChangesetAll();
+  const pushing = push.phase === "pending";
+  if (register === null && !pushing) return null;
+  const branch = aggregate.projects.find(
+    (p) => p.workspace_key === pushWorkspaceKey,
+  )?.branch;
   return (
     <div className="session-landing-progress-row" data-slot="session-landing-progress-row">
-      <ArcJoinRegisterView register={register} />
+      {register !== null ? <ArcJoinRegisterView register={register} /> : null}
+      {pushing ? (
+        <div className="session-push-register" data-slot="session-push-register">
+          <BlockHeader
+            phase="in_flight"
+            target={branch !== undefined ? `Pushing ${branch}` : "Pushing"}
+            summary={{ kind: "text", text: "pushing" }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

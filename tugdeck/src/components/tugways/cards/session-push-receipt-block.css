@@ -24,26 +24,24 @@
   min-width: 0;
 }
 
+/* The route reads as the commit receipt's subject does: block text, in the
+   identity line's face rather than the header's mono command face. The
+   two-class selector outranks `.tool-call-header-detail code`. */
+.push-receipt-header .push-receipt-route {
+  color: var(--tugx-block-text-color);
+  font-family: inherit;
+}
+
 /* The sha pill sits inline after the route, on its own terms — `CommitShaText`
    owns every pointer gesture on it. */
 .push-receipt-sha {
   white-space: nowrap;
 }
 
-/* The pushed commits' subjects. A plain list at the body's own scale: these are
-   subjects of commits that already exist, so they are a reference rather than
-   the receipt's own prose, and the list is deliberately quieter than the commit
-   receipt's message body. */
-.push-receipt-subjects {
-  margin: 0;
-  padding-left: var(--tugx-space-4, 1rem);
-  list-style: disc;
-  color: var(--tugx-text-secondary, inherit);
-  font-size: var(--tugx-font-size-sm, 0.8125rem);
-  line-height: var(--tugx-line-height-snug, 1.4);
-}
-
-.push-receipt-subjects > li {
-  min-width: 0;
-  overflow-wrap: anywhere;
+/* The pushed commits' subjects. The well is the shared `.tugx-commit-message`,
+   so its face, scale and inline inset are the commit receipt's; this states
+   the block padding the commit receipt's detail states, for the same reason —
+   the chrome's body region carries none of its own. */
+[data-slot="push-receipt-detail"] {
+  padding-block: var(--tug-space-sm);
 }

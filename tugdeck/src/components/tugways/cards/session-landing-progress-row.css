@@ -24,4 +24,14 @@
 .session-landing-progress-row {
   padding-block: var(--tug-space-sm);
   padding-inline-start: var(--tugx-transcript-body-inset);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+}
+
+/* The push's line, framed as the join register frames its header. */
+.session-push-register {
+  min-width: 0;
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
 }

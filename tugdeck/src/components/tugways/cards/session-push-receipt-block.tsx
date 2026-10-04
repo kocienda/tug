@@ -16,7 +16,9 @@
  * What it does *not* carry is the commit receipt's file list, and the reason is
  * the verb's: a push moved commits that were already committed, so the files
  * belong to those commits rather than to this act. The subjects are what the
- * push has to say.
+ * push has to say, and they read as a bulleted commit message — the same
+ * `CommitMessage` well, face and insets the commit receipt's body uses — so a
+ * push stacked under the commit it sent reads as one family.
  *
  * @module components/tugways/cards/session-push-receipt-block
  */
@@ -24,6 +26,8 @@
 import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
+import { CommitMessage } from "@/components/tugways/commit-presentation";
+import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { requestCommitCard } from "@/lib/open-commit-in-card";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
@@ -35,6 +39,7 @@ import {
 } from "./session-command-block-registry";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import { ShellExchangeBlock } from "./shell-exchange-block";
+import "@/components/tugways/commit-presentation.css";
 import "./session-push-receipt-block.css";
 
 /** The display facts parsed from a Spec S01 push summary. */
@@ -77,6 +82,14 @@ export function parsePushReceipt(output: string): ParsedPushReceipt | null {
       .map((l) => l.trim())
       .filter((l) => l.length > 0),
   };
+}
+
+/**
+ * The subjects as the markdown body the receipt renders — one bullet each,
+ * the shape a commit message's own change list takes.
+ */
+export function pushReceiptBody(subjects: readonly string[]): string {
+  return subjects.map((subject) => `- ${subject}`).join("\n");
 }
 
 export function SessionPushReceiptBlock(props: CommandBlockProps): React.ReactElement {
@@ -137,7 +150,9 @@ function PushReceipt({
       <div data-testid="session-push-receipt">
         <BlockChrome
           rootSlot="push-receipt-block"
-          className="tugx-push-receipt"
+          // The commit receipt's scope class first, so the route and the
+          // subjects take the same prose face the commit receipt's do.
+          className="tugx-commit-receipt tugx-push-receipt"
           variant="receipt"
           identity={identity}
           flowTrailing
@@ -146,17 +161,16 @@ function PushReceipt({
           status="ready"
           copyText={`${branch} → ${upstream} ${after}`.trim()}
         >
-          {/* The subjects, newest first, as the push's own list. A `(new)` push
-              carries none — every commit on the branch arrived, and naming them
-              all would say nothing about the push. */}
+          {/* The subjects, newest first, through the commit receipt's own
+              message well. A `(new)` push carries none — every commit on the
+              branch arrived, and naming them all would say nothing about the
+              push. */}
           {subjects.length > 0 ? (
-            <ul className="push-receipt-subjects" data-slot="push-receipt-detail">
-              {subjects.map((subject, index) => (
-                <li key={`${index}-${subject}`} data-tugx-findable="">
-                  {subject}
-                </li>
-              ))}
-            </ul>
+            <CommitMessage
+              body={pushReceiptBody(subjects)}
+              dataSlot="push-receipt-detail"
+              findable
+            />
           ) : null}
         </BlockChrome>
       </div>
@@ -175,15 +189,18 @@ export function matchesPushReceipt(command: string): boolean {
 
 /**
  * The receipt's searchable text, in render order: the route line, then the
- * subjects. An output this block cannot parse falls through to
- * `ShellExchangeBlock` — `null` says so.
+ * subjects as the markdown styler lays them out. An output this block cannot
+ * parse falls through to `ShellExchangeBlock` — `null` says so.
  */
 export function pushReceiptFindParts(
   message: ShellExchangeMessage,
 ): string[] | null {
   const parsed = parsePushReceipt(message.output);
   if (parsed === null) return null;
-  return [`pushed ${parsed.branch} → ${parsed.upstream}`, ...parsed.subjects];
+  return [
+    `pushed ${parsed.branch} → ${parsed.upstream}`,
+    ...markdownTextParts(pushReceiptBody(parsed.subjects)),
+  ];
 }
 
 // Registration happens at import time (the side-effect import in
