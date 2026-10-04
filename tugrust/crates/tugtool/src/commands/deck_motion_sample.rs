@@ -307,6 +307,7 @@ pub fn reduce_report(text: &str) -> Vec<ThreadReading> {
 // Finding the processes
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "macos")]
 unsafe extern "C" {
     /// The pid macOS holds responsible for `pid` — for a WebKit XPC service,
     /// the app whose web view launched it. Exported by libSystem; undocumented
@@ -314,9 +315,16 @@ unsafe extern "C" {
     fn responsibility_get_pid_responsible_for_pid(pid: libc::pid_t) -> libc::pid_t;
 }
 
+#[cfg(target_os = "macos")]
 fn responsible_for(pid: i32) -> i32 {
     // SAFETY: a pure query on a pid; an unknown pid answers -1.
     unsafe { responsibility_get_pid_responsible_for_pid(pid) }
+}
+
+/// Off macOS there is no responsibility graph; every pid answers as unknown.
+#[cfg(not(target_os = "macos"))]
+fn responsible_for(_pid: i32) -> i32 {
+    -1
 }
 
 /// The `Tug` host behind a tugcast port, from the instance registry.
