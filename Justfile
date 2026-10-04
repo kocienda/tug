@@ -960,10 +960,25 @@ bless:
 # go in — scripts/release.py — and asks before every command that changes
 # state. The script probes where the release already stands, runs `just lint`
 # as a gate, works out which step is next, and walks bump → draft the notes →
-# show them → commit → push → bless → dispatch → watch, printing the exact
-# command and asking y/N (default N) each time. Read-only probes and gates run
-# without asking, because asking about a read teaches the habit of answering y
-# without reading.
+# show them → commit → push → wait for CI → bless → dispatch → watch, printing
+# the exact command and asking Y/n (default Y) each time — running this is the
+# decision to release, so Enter goes on and n is the deliberate answer.
+# Read-only probes and gates run without asking.
+#
+# CI on the pushed commit gates the dispatch. release.yml builds on macOS and
+# ci.yml on Linux, so a release run can be green over a commit CI cannot build;
+# 0.8.16 shipped that way, dispatched before CI had answered. bless only
+# reports CI, because an arbitrary HEAD may have no run; the release walk has
+# just pushed, so its HEAD always does, and it waits for that run to finish.
+#
+# A version number names a build that worked. When the probe finds the current
+# version already published from a commit CI failed, the next step is to
+# retract it — delete the tag, the release and its archive on the update feed
+# — and release the same version again, with release-notes/<version>.md as
+# written, from the fixed commit. Bumping past it would strand those notes on
+# a build nobody should have. `--redo` asks for the retraction even over a
+# green CI. Nothing is deleted until the replacement is pushed and green, so
+# the feed's dead-link window is only the release build itself.
 #
 # The lint gate comes before anything changes, and before the bump rather than
 # beside the blessing, because `just lint` is what CI's format and clippy jobs
@@ -981,7 +996,7 @@ bless:
 # written notes are never drafted over.
 #
 # Every step is idempotent and the run is resumable. Declining a row ends the
-# run, and running the same command again picks up from the probe — so N is
+# run, and running the same command again picks up from the probe — so n is
 # never a dead end, and an abandoned bump or a release already in flight is
 # continued rather than started over.
 #
@@ -990,17 +1005,18 @@ bless:
 # implementation of signing, notarizing, appcast generation and asset upload
 # would be a second thing to keep correct.
 #
-# The blessing blocks rather than warning, because a gate that warns is a
-# gate that is read past. `--force` dispatches over a failed blessing, and it
+# The blessing and the CI gate block rather than warning, because a gate that
+# warns is a gate that is read past. `--force` dispatches over either, and it
 # exists because a checklist this young will be wrong about something — the
 # right answer to a wrong check is to ship and then fix the check, not to
 # delete the gate. The escape lives on this composed gesture only; `just
 # bless` on its own stays a pure query with no flags at all.
 #
-# `--dry-run` prints every row and runs none. Anything else on the line is
-# emphasis for the notes draft: `just release patch emphasise the update pill`.
+# `--dry-run` prints every row and runs none. `--redo` re-releases the current
+# version (see above). Anything else on the line is emphasis for the notes
+# draft: `just release patch emphasise the update pill`.
 #
-# Walk a release: bump, notes, commit, push, bless, dispatch, watch (y/N each).
+# Walk a release: bump, notes, commit, push, CI, bless, dispatch, watch (Y/n each).
 release *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail

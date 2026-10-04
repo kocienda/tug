@@ -5,21 +5,29 @@ The release used to be a chain of seven commands typed in an order one person
 remembered. This is that chain, with the order written down: the script probes
 where the release already stands, runs the checks CI would run, works out which
 step is next, and then walks bump -> draft the notes -> show them -> commit ->
-push -> bless -> dispatch -> watch. Before every command that changes state it
-prints the exact command and asks y/N, defaulting to N. Read-only probes and
-gates run without asking, because asking about a read teaches the habit of
-answering y without reading.
+push -> wait for CI -> bless -> dispatch -> watch. Before every command that
+changes state it prints the exact command and asks Y/n, defaulting to Y: the
+point of running this is to release, so Enter goes on and n is the deliberate
+answer. Read-only probes and gates run without asking.
 
 Nothing here is new machinery. `just version-bump`, `just bless` and
 `scripts/watch-release-run.sh` already exist and already know their jobs; this
 script is the order they go in, plus one `claude -p` call that drafts the notes.
 
-Every step is idempotent and the run is resumable: declining a row, or a step
-that fails, ends the run, and running the same command again picks up from the
-probe. Standard library only -- the machine has Homebrew Python and nothing
-else is promised.
+Every step is idempotent and the run is resumable: declining a row, a step that
+fails, or a red CI run on the commit about to ship, ends the run, and running
+the same command again picks up from the probe. Standard library only -- the
+machine has Homebrew Python and nothing else is promised.
 
-Usage: release.py [major|minor|patch] [--force] [--dry-run] [emphasis words...]
+A version number names a build that worked. When a published version turns out
+to have been built from a commit CI rejects, the script offers to retract it --
+delete the tag, the release and its feed archive -- so the same version, with
+the notes already written for it, is released again from the fixed commit.
+Bumping past it would strand those notes on a build nobody should have, and
+ship the next number with notes describing a one-line fix. `--redo` asks for
+the retraction even when CI on the built commit was green.
+
+Usage: release.py [major|minor|patch] [--redo] [--force] [--dry-run] [emphasis words...]
 """
 
 import os
@@ -66,6 +74,11 @@ SEED_MARKERS = (
 # before its run appears, and a minute is what the recipe this replaces waited.
 RUN_APPEAR_TRIES = 30
 RUN_APPEAR_INTERVAL = 2
+
+# How long to wait for ci.yml to list a run for a commit just pushed. GitHub
+# queues the push event within seconds, so two minutes is generous.
+CI_APPEAR_TRIES = 60
+CI_APPEAR_INTERVAL = 2
 
 # Set once in main() so a declined row can say what resumes the run.
 INVOCATION = "just release"
@@ -154,22 +167,25 @@ def show_row(argv, why=None):
     say(f"    {quote(argv)}")
 
 
-def confirm(question="  Run it?", choices="[y/N] "):
-    """Ask, defaulting to N. Returns the reply lowercased; "" for a bare Enter.
+def confirm(question="  Run it?", choices="[Y/n] "):
+    """Ask, defaulting to Y. Returns the reply lowercased, a bare Enter as "y".
 
-    A dry run answers nothing and returns "": it shows rows and takes none.
+    A dry run answers nothing and returns "": it shows rows and takes none. A
+    closed stdin answers "n" -- the default is for a person pressing Enter,
+    never for a pipe that has nothing to say.
     """
     if DRY_RUN:
         say("  [dry run] not asked, not run")
         return ""
     try:
-        return input(f"{question} {choices}").strip().lower()
+        return input(f"{question} {choices}").strip().lower() or "y"
     except EOFError:
-        return ""
+        say()
+        return "n"
 
 
 def row_many(argvs, why=None):
-    """Several commands behind one y/N, run in order.
+    """Several commands behind one Y/n, run in order.
 
     One gesture, one question: staging and committing are not two decisions,
     and asking twice would teach the habit of answering y without reading. The
@@ -195,10 +211,10 @@ def row_many(argvs, why=None):
 
 
 def row(argv, why=None):
-    """Show a state-changing command, ask y/N (default N), run it on y.
+    """Show a state-changing command, ask Y/n (default Y), run it on yes.
 
     This is the interface the whole script is: the user sees the exact command
-    before it runs, and N is never a dead end because the run is resumable.
+    before it runs, and n is never a dead end because the run is resumable.
     """
     row_many([argv], why)
 
@@ -275,6 +291,8 @@ class State:
     def __init__(self):
         self.version = None
         self.tag = None  # True published, False absent, None unknown
+        self.built_sha = None  # the commit a published tag's run checked out
+        self.built_ci = None  # (run id, conclusion) of ci.yml on that commit
         self.notes_path = None
         self.notes_exists = False
         self.notes_is_seed = False
@@ -306,6 +324,17 @@ def probe():
     else:
         st.tag = None
 
+    # 2b. A published version's health: the commit its run built, and what CI
+    #     made of that commit. The run checked out one sha and the release body
+    #     records it; the tag itself is not trusted for this (see
+    #     previous_release). This is what tells a release to be retracted from
+    #     one to be bumped past.
+    if st.tag:
+        st.built_sha = built_from(f"v{st.version}")
+        if st.built_sha:
+            run = ci_run_for(st.built_sha)
+            st.built_ci = (run[0], run[2]) if run and run[1] == "completed" else None
+
     # 3. The notes file: absent, still the seed, or written.
     st.notes_path = REPO_ROOT / "release-notes" / f"{st.version}.md"
     st.notes_exists = st.notes_path.is_file()
@@ -329,6 +358,14 @@ def report(st):
     say()
     tag = {True: "published on origin", False: "not on origin", None: "UNKNOWN (cannot reach origin)"}[st.tag]
     say(f"  {('tag v' + st.version):<16} {tag}")
+    if st.tag:
+        if not st.built_sha:
+            built = "UNKNOWN (no 'Built from commit' in the release body)"
+        elif not st.built_ci:
+            built = f"{st.built_sha[:9]}, CI not finished or not run"
+        else:
+            built = f"{st.built_sha[:9]}, CI {st.built_ci[1]} (run {st.built_ci[0]})"
+        say(f"  {'built from':<16} {built}")
     if not st.notes_exists:
         notes = "absent (a bump seeds it)"
     elif st.notes_is_seed:
@@ -348,26 +385,32 @@ def report(st):
 
 # ------------------------------------------------------------------ plan ----
 #
-# The walking order is bump -> draft -> show -> commit -> push -> bless -> dispatch.
-# Every one of them is idempotent, so a rerun skips the ones already done, and
-# the probe is what says which is next.
+# The walking order is bump -> draft -> show -> commit -> push -> ci -> bless ->
+# dispatch. Every one of them is idempotent, so a rerun skips the ones already
+# done, and the probe is what says which is next.
 #
-# bless sits between push and dispatch and is never what the probe *starts* at:
-# it is read-only, it gates dispatch by exit code, and a resume that came in at
-# dispatch still has to pass through it.
-ORDER = ["bump", "draft", "show", "commit", "push", "bless", "dispatch"]
+# ci and bless sit between push and dispatch, and a pushed tree resumes at ci:
+# both are read-only, both gate dispatch, and a resume that came in at dispatch
+# still has to pass through them.
+ORDER = ["bump", "draft", "show", "commit", "push", "ci", "bless", "dispatch"]
 
 
-def decide_next(st, component):
+def decide_next(st, component, redo=False):
     """Which step the probe says is next, or None when there is nothing to do.
 
     `component` is set when the command line named one, which forces a bump
-    even from a state that would otherwise resume mid-release.
+    even from a state that would otherwise resume mid-release. A published
+    version built from a commit CI failed is retracted, not bumped past, and
+    `redo` asks for that retraction whatever CI said.
     """
     if st.tag is None:
         stop("Cannot reach origin to tell whether this version is already released.")
 
-    if component or st.tag:
+    if component:
+        return "bump"
+    if st.tag:
+        if redo or (st.built_ci and st.built_ci[1] != "success"):
+            return "retract"
         return "bump"
     if not st.notes_exists or st.notes_is_seed:
         return "draft"
@@ -375,7 +418,7 @@ def decide_next(st, component):
         return "commit"
     if not st.head_pushed:
         return "push"
-    return "bless"
+    return "ci"
 
 
 # --------------------------------------------------------------- walking ----
@@ -400,8 +443,18 @@ def step_bump(st, component):
     return probe()
 
 
+def built_from(release):
+    """The sha a release's run checked out, read from `Built from commit <sha>`
+    in its body, when that commit is in this checkout; else None."""
+    body = read(["gh", "release", "view", release, "--json", "body", "--jq", ".body"]) or ""
+    built = re.search(r"Built from commit ([0-9a-f]{40})", body)
+    if built and read_rc(["git", "cat-file", "-e", f"{built.group(1)}^{{commit}}"]) == 0:
+        return built.group(1)
+    return None
+
+
 def previous_release():
-    """The newest v<M.m.p> tag on origin, as (name, commit sha).
+    """The newest v<M.m.p> tag on origin, as (name, the commit it was built from).
 
     The sha matters more than the name. Nothing in this repository fetches
     tags, so a checkout usually has none of them, and `git log v0.8.11..HEAD`
@@ -414,6 +467,13 @@ def previous_release():
     moves none, the same reason bless reaches for `gh api`. An annotated tag
     lists twice, and the `^{}` line is the commit the release was cut from
     where the plain line is the tag object, so the `^{}` sha wins.
+
+    The tag is not the last word, though. release.yml used to let the
+    versioned release create its tag at whatever main was when the publish
+    step ran, which is not always the commit the run checked out -- v0.8.16
+    landed on the fix pushed while it was building, and the range from there
+    to HEAD read as empty. The release body records `Built from commit <sha>`,
+    and when that commit is in the checkout it is the one the range starts at.
     """
     out = read(["git", "ls-remote", "--tags", "origin", "refs/tags/v*"])
     if out is None:
@@ -435,7 +495,51 @@ def previous_release():
     if not commits:
         return None, None
     newest = max(commits, key=lambda n: tuple(int(g) for g in n[1:].split(".")))
-    return newest, commits[newest]
+    return newest, built_from(newest) or commits[newest]
+
+
+def step_retract(st, force):
+    """Take a published version back so it can be released again, by name.
+
+    Three things made the version public and all three go: the v<version>
+    release and its tag, and Tug-<version>.zip on the `updates` feed -- the
+    asset is what release.yml's already-published check looks for. The appcast
+    on `updates` keeps naming the version until the re-release overwrites it,
+    which is a dead download link for the ten minutes in between; so the fix
+    has to be pushed and green *before* anything is deleted, and the walk goes
+    on to dispatch in the same run rather than leaving the feed broken.
+
+    Installed copies that already took the bad build will not see the redo:
+    Sparkle compares CFBundleVersion and it is the same number. That is the
+    price of keeping the number, and it is only right while there is nobody
+    out there to pay it.
+    """
+    if not st.tree_clean or not st.head_pushed:
+        stop(f"{st.version} is published from {(st.built_sha or '?')[:9]} and would be retracted,\n"
+             f"but HEAD is not pushed. Commit and push the fix first; nothing is deleted\n"
+             f"until the commit that replaces it is on origin and green.")
+    if st.built_sha and st.head_sha == st.built_sha:
+        stop(f"{st.version} was built from HEAD itself ({st.head_sha[:9]}) — there is no fix\n"
+             f"to re-release yet. Push one and run again.")
+
+    # The replacement must be green before the retraction opens the window.
+    step_ci(st, force)
+
+    if st.built_ci:
+        reason = f"built from {st.built_sha[:9]}, which CI marked {st.built_ci[1]}"
+    elif st.built_sha:
+        reason = f"built from {st.built_sha[:9]}"
+    else:
+        reason = "built from a commit the release body does not name"
+    row_many(
+        [
+            ["gh", "release", "delete", f"v{st.version}", "--cleanup-tag", "--yes"],
+            ["gh", "release", "delete-asset", "updates", f"Tug-{st.version}.zip", "--yes"],
+        ],
+        why=f"Retract {st.version} — {reason}. The tag, the release and its feed\n"
+            f"archive are deleted so {st.version}, with release-notes/{st.version}.md as\n"
+            f"written, is released again from {st.head_sha[:9]}:",
+    )
 
 
 def compose_prompt(version, emphasis, tag, log):
@@ -518,8 +622,8 @@ def step_draft(st, emphasis):
 def step_show(st):
     """Print the notes, and offer EDIT_OPENER once before going on.
 
-    One question, because the notes are rarely worth editing by hand: y goes
-    on, e opens them and asks again, anything else ends the run. Opening does
+    One question, because the notes are rarely worth editing by hand: Enter or
+    y goes on, e opens them and asks again, anything else ends the run. Opening does
     not block -- the file is read again at the commit row, so a tune made
     after the opener returns is still the one that ships.
     """
@@ -536,7 +640,7 @@ def step_show(st):
             say("  EDIT_OPENER is not set, so these are printed only.")
             answer = confirm("  Go on with these notes?")
         else:
-            answer = confirm(f"  Go on with these notes, or open them in {opener} first?", "[y/e/N] ")
+            answer = confirm(f"  Go on with these notes, or open them in {opener} first?", "[Y/e/n] ")
         if answer in ("y", "yes"):
             return
         if opener and answer == "e":
@@ -617,6 +721,73 @@ def step_push(st):
         ["git", "push", "origin", "main"],
         why=f"Push {st.version} to origin/main — CI builds the pushed ref, not yours:",
     )
+
+
+def ci_run_for(sha):
+    """ci.yml's newest run on `sha` as (id, status, conclusion), or None."""
+    out = read([
+        "gh", "run", "list", "--workflow", "ci.yml", "--commit", sha,
+        "--limit", "1", "--json", "databaseId,status,conclusion",
+        "--jq", '.[] | "\\(.databaseId) \\(.status) \\(.conclusion)"',
+    ])
+    if not out:
+        return None
+    parts = out.split()
+    return (parts[0], parts[1], parts[2] if len(parts) > 2 else "")
+
+
+def step_ci(st, force):
+    """Wait for ci.yml on the pushed commit, and refuse to dispatch over red.
+
+    release.yml builds on macOS and CI builds on Linux, so a release run can be
+    green over a commit CI cannot build -- 0.8.16 shipped exactly that way,
+    dispatched seconds after the push and long before CI had an answer. CI runs
+    on every push to main, so the pushed HEAD always gets a run; this waits for
+    it to be listed, watches it to the end, and lets its conclusion gate the
+    dispatch. Unasked, because it is read-only. --force is the only way past.
+    """
+    sha = st.head_sha
+    say()
+    say(f"Waiting for CI on {sha[:9]}. Read-only, so this one is not asked:")
+    say(f"    gh run watch <the ci.yml run for {sha[:9]}> --exit-status")
+    if DRY_RUN:
+        say("  [dry run] not run")
+        return
+
+    run = ci_run_for(sha)
+    tries = 0
+    while run is None and tries < CI_APPEAR_TRIES:
+        time.sleep(CI_APPEAR_INTERVAL)
+        tries += 1
+        run = ci_run_for(sha)
+    if run is None:
+        if not force:
+            stop(f"No ci.yml run was listed for {sha[:9]}, so whether it builds is unknown.\n"
+                 f"Check `gh run list --workflow ci.yml`, or run again with --force.")
+        say()
+        say("==> --force: going on without a CI run.")
+        return
+
+    run_id, status, conclusion = run
+    if status != "completed":
+        say()
+        subprocess.run(
+            ["gh", "run", "watch", run_id, "--compact", "--exit-status", "--interval", "10"],
+            cwd=REPO_ROOT, check=False,
+        )
+        run = ci_run_for(sha)
+        conclusion = run[2] if run else ""
+
+    if conclusion == "success":
+        say()
+        say(f"  CI is green on {sha[:9]}.")
+        return
+    if not force:
+        stop(f"CI is not green on {sha[:9]} ({conclusion or 'unknown'}): run {run_id}.\n"
+             f"The release would ship a commit that does not build. Fix it, push, and\n"
+             f"run again — the bump stays, and the notes are redrafted only if still seeded.")
+    say()
+    say(f"==> --force: going on over CI {conclusion or 'unknown'} on {sha[:9]}.")
 
 
 def step_checks(force):
@@ -751,6 +922,7 @@ def step_dispatch(st):
 
 def parse_args(argv):
     component = None
+    redo = False
     force = False
     dry_run = False
     emphasis = []
@@ -758,6 +930,8 @@ def parse_args(argv):
     for arg in argv:
         if arg in ("major", "minor", "patch") and component is None and not emphasis:
             component = arg
+        elif arg == "--redo":
+            redo = True
         elif arg == "--force":
             force = True
         elif arg == "--dry-run":
@@ -770,13 +944,15 @@ def parse_args(argv):
         else:
             emphasis.append(arg)
 
-    return component, force, dry_run, emphasis
+    if component and redo:
+        refuse(f"--redo re-releases the current version; '{component}' bumps past it — one or the other")
+    return component, redo, force, dry_run, emphasis
 
 
 def main(argv):
     global DRY_RUN, INVOCATION
 
-    component, force, dry_run, emphasis = parse_args(argv)
+    component, redo, force, dry_run, emphasis = parse_args(argv)
     DRY_RUN = dry_run
     INVOCATION = " ".join(["just", "release"] + argv)
 
@@ -789,9 +965,16 @@ def main(argv):
     st = probe()
     report(st)
 
-    nxt = decide_next(st, component)
+    nxt = decide_next(st, component, redo)
     say()
     say(f"Next: {nxt}")
+
+    # A retraction stands outside the order: it is what makes the version
+    # unpublished again, after which the walk resumes where any pushed, green,
+    # written-up tree would — at the blessing, then the dispatch.
+    if nxt == "retract":
+        step_retract(st, force)
+        nxt = "bless"
 
     # The walk starts wherever the probe said and runs to the end. Each step is
     # idempotent, so resuming into the middle of the order is the ordinary case
@@ -807,6 +990,9 @@ def main(argv):
             step_commit(st)
         elif name == "push":
             step_push(st)
+        elif name == "ci":
+            st = probe()
+            step_ci(st, force)
         elif name == "bless":
             step_bless(force)
         elif name == "dispatch":
