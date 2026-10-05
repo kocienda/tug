@@ -2,69 +2,123 @@
  * departing-invisibility.test.ts — a departing pane is invisible to every
  * reader that lists or counts.
  *
- * The store publishes a closed pane, its cards and a `departing` mark for the
- * one settle that carries it out (`lib/departing.ts`). For that half second
- * the pane is still in `panes`, so any reader that walks the array would count
- * it, seat it, ring it, menu it or list it. The rule is that such a reader
- * begins with `standingDeck`, and this is the property that holds it to the
- * rule: over a deck `D` and each pane `X` in it, every reader returns for the
- * composed deck `Dd = composeDeparting(D − X, [entry(X)])` exactly what it
- * returns for `D − X`.
+ * The store holds a closed pane, its cards and a `departing` mark for the one
+ * settle that carries it out (`lib/departing.ts`). `getSnapshot` publishes the
+ * STANDING deck, which never holds a departing pane, so a reader that lists or
+ * counts is right by default. `getPicture` is the one door to the composed
+ * deck, and only what draws the departure may read it: the canvas, the settle
+ * engine, the raise, the occlusion pass, a departing card's place facts, slot
+ * badge and identity, and `spaceOf`.
  *
- * The readers are named one by one rather than discovered, so a new one that
- * lists or counts is a line added here. A by-id lookup is deliberately not
- * here: a departing card's own content reads itself that way and must still
- * find itself. The one by-id reader that IS here is `panePlaceFactsOf`, whose
- * answer for the departing pane is read as if it still stood, so its badge
- * does not change mid-fade.
+ * So the property is held at the door rather than reader by reader:
  *
- * Real registrations via `registerCard`, because a rail is derived from
- * `layoutRole: "sidebar"` and sorted into registration order.
+ * - every `getPicture` read in `src` is on {@link PICTURE_READERS}, at the
+ *   count recorded there. A new read is a line added here, with the reason
+ *   it draws the departure rather than lists or counts;
+ * - `composeDeparting` is called only inside `getPicture`, so no other path
+ *   reaches the composed deck;
+ * - `getSnapshot` returns the standing deck.
+ *
+ * The one by-id reader of the picture that answers for the departing pane
+ * itself is `panePlaceFactsOf`, read as if the pane still stood so its badge
+ * does not change mid-fade; that is checked over a composed deck below.
  */
 
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 
 import { registerCard } from "../card-registry";
 import type { CardState, DeckState, TugPaneState } from "../layout-tree";
 import { composeDeparting, type DepartingEntry } from "../lib/departing";
-import {
-  bullseyePaneIdOf,
-  columnAllocationOf,
-  columnBadgeFactsOf,
-  columnMembersOf,
-  columnMoveOrder,
-  countWorkCards,
-  deckColumnsOf,
-  deckFlowStrip,
-  deckSlotStrip,
-  deckVacancyExtent,
-  findSidebarPanes,
-  parkedSidebarPaneIds,
-  placeMembers,
-  railAllocationOf,
-  railMembersOf,
-  railMembersToPark,
-  sidebarRailsOf,
-  slotStackOf,
-  workspacePanes,
-} from "../deck-store-selectors";
-import { stepCardRing, visibleCardCount, visibleCardRing } from "../lib/card-ring";
-import { projectDeckState } from "../lib/host-menu-state";
-import { resolveCloseSuccessor } from "../lib/close-successor";
-import { focusTravelDirections, resolveDirectionalFocus } from "../lib/directional-focus";
-import {
-  contentCardsInLayoutSelection,
-  resolveColumnMenuFact,
-  resolveLayoutSelection,
-} from "../lib/layout-selection";
-import { panePlaceFactsOf, slotStacksOf } from "../components/chrome/pane-place-facts";
-import { buildCardsRows, type LensCardsInputs } from "../components/cards/cards-data-source";
-import { readOpeningDeck } from "../lib/opening-placement";
-import { enumerateDropZones, type DropZoneMeasurements } from "../lib/drop-zones";
-import { frontPaneOfSlot } from "../components/layout/miniature-gestures";
-import { setLayoutCursorCard } from "../components/cards/cards-selection-store";
-import type { IDeckManagerStore } from "../deck-manager-store";
-import type { Rect } from "../snap";
+import { panePlaceFactsOf } from "../components/chrome/pane-place-facts";
+
+const SRC = resolve(import.meta.dir, "..");
+
+/**
+ * Every file that reads `getPicture`, and how many times. Each draws the
+ * departure; none lists or counts.
+ */
+const PICTURE_READERS: Record<string, number> = {
+  // The door itself, its interface, and `spaceOf`: a departing card's own
+  // content still answers to the workspace it is leaving.
+  "deck-manager.ts": 2,
+  "deck-manager-store.ts": 1,
+  // Draws every frame, departing ones included.
+  "components/chrome/deck-canvas.tsx": 1,
+  // Carries the departing frame out and lands it.
+  "components/chrome/settle-engine.ts": 2,
+  // Stacks a departing frame where it stood.
+  "components/chrome/pane-stacking.ts": 1,
+  // Occludes against what is on screen, departing frames included.
+  "components/chrome/pane-occlusion-controller.ts": 1,
+  // A departing card's place facts, slot badge and identity.
+  "components/chrome/pane-place-facts.ts": 2,
+  "components/tugways/card-slot-badge.tsx": 1,
+  "lib/card-identity.ts": 1,
+};
+
+/** Strip block and line comments so prose naming the door is not a read. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+/** Every non-test source file under `src`, relative path → comment-stripped text. */
+function sources(): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "__tests__" && entry.name !== "node_modules") walk(path);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue;
+      out.set(relative(SRC, path), stripComments(readFileSync(path, "utf8")));
+    }
+  };
+  walk(SRC);
+  return out;
+}
+
+function count(text: string, pattern: RegExp): number {
+  return text.match(pattern)?.length ?? 0;
+}
+
+describe("only what draws the departure reads the composed deck", () => {
+  const files = sources();
+
+  test("every getPicture read is on the allow list, at its recorded count", () => {
+    const found: Record<string, number> = {};
+    for (const [path, text] of files) {
+      const n = count(text, /\bgetPicture\b/g);
+      if (n > 0) found[path] = n;
+    }
+    expect(found).toEqual(PICTURE_READERS);
+  });
+
+  test("composeDeparting is called only inside getPicture", () => {
+    const callers: string[] = [];
+    for (const [path, text] of files) {
+      if (path === "lib/departing.ts") continue;
+      if (count(text, /\bcomposeDeparting\s*\(/g) > 0) callers.push(path);
+    }
+    expect(callers).toEqual(["deck-manager.ts"]);
+
+    const manager = files.get("deck-manager.ts") ?? "";
+    expect(count(manager, /\bcomposeDeparting\s*\(/g)).toBe(1);
+    const door = manager.slice(manager.indexOf("public getPicture = "));
+    const body = door.slice(0, door.indexOf("\n  };"));
+    expect(body).toContain("composeDeparting(");
+  });
+
+  test("getSnapshot publishes the standing deck", () => {
+    const manager = files.get("deck-manager.ts") ?? "";
+    expect(manager).toMatch(/public getSnapshot = \(\): DeckState => this\.deckState;/);
+  });
+});
+
+// ---- The departing pane's own place facts ----
 
 beforeAll(() => {
   for (const componentId of ["invTop", "invBottom"]) {
@@ -81,8 +135,6 @@ beforeAll(() => {
     defaultMeta: { title: "Content", closable: true },
   });
 });
-
-afterEach(() => setLayoutCursorCard(null));
 
 function card(id: string, componentId: string): CardState {
   return { id, componentId, title: id, closable: true };
@@ -157,143 +209,13 @@ function closed(paneId: string): { standing: DeckState; entry: DepartingEntry } 
   };
 }
 
-function storeOver(state: DeckState): IDeckManagerStore {
-  return {
-    getSnapshot: () => state,
-    getFirstResponderCardId: () => {
-      if (state.activePaneId === undefined) return null;
-      return state.panes.find((p) => p.id === state.activePaneId)?.activeCardId ?? null;
-    },
-  } as unknown as IDeckManagerStore;
-}
-
-function cardsInputs(state: DeckState): LensCardsInputs {
-  return {
-    spaces: [{ id: "s1", name: "Main", active: true, expanded: true, deck: state }],
-    cardsRowOrder: { sessions: [], files: [], tools: [] },
-    groupOrder: [],
-    collapsedGroups: [],
-    filterQuery: "",
-    registryVersion: 0,
-    bindings: new Map(),
-    tagVersion: 0,
-    nameVersion: 0,
-    changesets: null,
-    bindingsCache: new Map(),
-  } as unknown as LensCardsInputs;
-}
-
-const RECT = (x: number): Rect => ({ x, y: 0, width: 320, height: 600 });
-
-const MEASURED: DropZoneMeasurements = {
-  slots: new Map([
-    [0, RECT(400)],
-    [1, RECT(740)],
-    [2, RECT(1240)],
-  ]),
-  panes: new Map(D.panes.map((p, i) => [p.id, RECT(i * 100)])),
-  tabBars: new Map(),
-  rails: [{ side: "left", members: ["p-top", "p-bottom"] }],
-  members: new Map(),
-  runs: { column: 900, rail: 900 },
-  draggedAtStart: RECT(740),
-  railVacancies: {},
-} as unknown as DropZoneMeasurements;
-
-const RUNS = { rail: 900, column: 900 };
-const DIRECTIONS = ["left", "right", "above", "below"] as const;
-
-/** Every reader in the list, as a name and what it answers over one deck. */
-function readers(paneIds: readonly string[], cardIds: readonly string[]): [string, (s: DeckState) => unknown][] {
-  // A gesture names a pane that is still there, so the drag is always of one
-  // that is not departing.
-  const dragged = (s: DeckState) => (s.departing?.["p-d"] === true || !s.panes.some((p) => p.id === "p-d") ? "p-e" : "p-d");
-  return [
-    ["findSidebarPanes", (s) => findSidebarPanes(s)],
-    ["workspacePanes", (s) => workspacePanes(s)],
-    ["parkedSidebarPaneIds", (s) => [...parkedSidebarPaneIds(s)]],
-    ["railMembersToPark", (s) => railMembersToPark(s, "left")],
-    ["slotStackOf", (s) => [0, 1, 2].map((slot) => slotStackOf(s, slot))],
-    ["bullseyePaneIdOf", (s) => bullseyePaneIdOf(s)],
-    ["deckFlowStrip", (s) => deckFlowStrip(s)],
-    ["deckSlotStrip", (s) => deckSlotStrip(s, 1600)],
-    ["deckVacancyExtent", (s) => deckVacancyExtent(s)],
-    ["deckColumnsOf", (s) => deckColumnsOf(s, 900)],
-    ["columnMembersOf", (s) => [0, 1, 2].map((slot) => columnMembersOf(s, slot))],
-    ["placeMembers", (s) => placeMembers(s, "column", ["p-a", "p-b", "p-c"], undefined)],
-    ["railMembersOf", (s) => railMembersOf(s, "left")],
-    ["railAllocationOf", (s) => railAllocationOf(s, "left", 900)],
-    ["columnAllocationOf", (s) => columnAllocationOf(s, 0, 900)],
-    ["columnBadgeFactsOf", (s) => cardIds.map((id) => columnBadgeFactsOf(s, id))],
-    ["columnMoveOrder", (s) => paneIds.map((id) => columnMoveOrder(s, id))],
-    ["countWorkCards", (s) => countWorkCards(s)],
-    ["sidebarRailsOf", (s) => sidebarRailsOf(s, RUNS)],
-    ["visibleCardRing", (s) => visibleCardRing(s)],
-    ["visibleCardCount", (s) => visibleCardCount(s)],
-    ["stepCardRing", (s) => cardIds.flatMap((id) => [stepCardRing(s, id, 1), stepCardRing(s, id, -1)])],
-    ["projectDeckState", (s) => projectDeckState(s)],
-    ["resolveCloseSuccessor", (s) => paneIds.map((id) => resolveCloseSuccessor(s, RUNS, id))],
-    [
-      "resolveDirectionalFocus",
-      (s) => cardIds.flatMap((id) => DIRECTIONS.map((d) => resolveDirectionalFocus(s, RUNS, id, d))),
-    ],
-    ["focusTravelDirections", (s) => cardIds.map((id) => focusTravelDirections(s, RUNS, id))],
-    ["resolveLayoutSelection", (s) => resolveLayoutSelection(storeOver(s))],
-    [
-      "resolveLayoutSelection (cursor)",
-      (s) =>
-        cardIds.map((id) => {
-          setLayoutCursorCard(id);
-          return resolveLayoutSelection(storeOver(s));
-        }),
-    ],
-    [
-      "resolveColumnMenuFact",
-      (s) =>
-        cardIds.map((id) => {
-          setLayoutCursorCard(id);
-          return resolveColumnMenuFact(storeOver(s));
-        }),
-    ],
-    [
-      "contentCardsInLayoutSelection",
-      (s) =>
-        cardIds.map((id) => {
-          setLayoutCursorCard(id);
-          return contentCardsInLayoutSelection(storeOver(s));
-        }),
-    ],
-    ["slotStacksOf", (s) => [...slotStacksOf(s).entries()]],
-    ["buildCardsRows", (s) => buildCardsRows(cardsInputs(s), { icon: () => null })],
-    ["readOpeningDeck", (s) => readOpeningDeck(s, { run: 900, band: 1600 })],
-    ["enumerateDropZones", (s) => enumerateDropZones(s, dragged(s), MEASURED)],
-    ["frontPaneOfSlot", (s) => [0, 1, 2].map((slot) => frontPaneOfSlot(s, slot))],
-  ];
-}
-
-describe("a departing pane is invisible to every reader that lists or counts", () => {
-  const paneIds = D.panes.map((p) => p.id);
-  const cardIds = D.cards.map((c) => c.id);
-
-  for (const x of paneIds) {
-    describe(`with ${x} departing`, () => {
+describe("panePlaceFactsOf answers a departing pane as if it still stood", () => {
+  for (const x of D.panes.map((p) => p.id)) {
+    test(`with ${x} departing`, () => {
       const { standing, entry } = closed(x);
       const composed = composeDeparting(standing, [entry]);
-
-      test("the composed deck really does carry it", () => {
-        expect(composed.panes.some((p) => p.id === x)).toBe(true);
-        expect(composed.departing).toEqual({ [x]: true });
-      });
-
-      for (const [name, read] of readers(paneIds, cardIds)) {
-        test(name, () => {
-          expect(read(composed)).toEqual(read(standing));
-        });
-      }
-
-      test("panePlaceFactsOf answers the departing pane as if it still stood", () => {
-        expect(panePlaceFactsOf(composed, x)).toEqual(panePlaceFactsOf(D, x));
-      });
+      expect(composed.departing).toEqual({ [x]: true });
+      expect(panePlaceFactsOf(composed, x)).toEqual(panePlaceFactsOf(D, x));
     });
   }
 });
