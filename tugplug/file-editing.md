@@ -48,6 +48,8 @@ Three rules carry nearly every refusal an edit program has ever earned:
 - **A block that replaces a block is a `patch` hunk** — one prefix byte per line (` ` context, `-` out, `+` in) and the file's own indentation after it, which is how the indentation stays visible instead of being reconstructed.
 - **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom. An edit-program literal is not a shell string.
 
+**A refusal is a correction, not a dead end.** When `tugtool file edit` rejects a program, its error says what to write instead: rewrite the program that way and run it again. Never drop back to `Edit` because it looks simpler. Once an edit program has been refused, the edit stays an edit program until it lands.
+
 A `<<` body is also an **address**, wherever an address goes — so `after << … >> insert << … >>` anchors past a whole block when no single line in it is worth naming, and beats a line number, which goes stale the moment anything above it moves. `before` takes the block's first line, `after` its last.
 
 Every address resolves against the file's **original** bytes before anything is written. So `delete 166 .. 178` means the lines you just read in `grep -n`, however many lines another op inserts above them; ops go in any order; and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1`; say `all` for a rename across a file. A no-match exits non-zero rather than succeeding quietly.
