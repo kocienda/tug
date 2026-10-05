@@ -39,6 +39,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -63,7 +64,9 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "a7c0d1ea-0000-4000-8000-000000000520";
+/** Minted per run, for the reason at0496 gives: a fixed id lets another live
+ *  instance's stale row answer `arc bind` for this run. */
+const SID = randomUUID();
 const CARD = '[data-card-id="A"]';
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 const SECTION = ".arcs-section";

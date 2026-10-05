@@ -304,7 +304,8 @@ describe("the housekeeping verbs ([B02], [B07], [B09])", () => {
 
   it("name Replay's destination and take its terms from the arc's facts", () => {
     const current = arcVerbs(input()).housekeeping.find((v) => v.kind === "replay");
-    expect(current?.word).toBe("Replay onto main");
+    expect(current?.word).toBe("Replay");
+    expect(current?.label).toContain("onto main");
     expect(current?.refusal).toBe("already current with main");
     const diverged = arcVerbs(
       input({ branch: { ...BRANCH, base_ahead: 2 } }),

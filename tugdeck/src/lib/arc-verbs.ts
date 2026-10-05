@@ -297,7 +297,10 @@ function housekeepingVerbs(input: ArcVerbInput): ArcVerbSet["housekeeping"] {
     const refusal = replay.refusal ?? replayDisabledReason(input.branch);
     verbs.push({
       kind: "replay",
-      word: `Replay onto ${input.branch.base}`,
+      // The bare word on the button; the destination rides the label, which
+      // is the tooltip. "Replay onto main" was the widest verb in the row and
+      // broke the housekeeping group at the sidebar's width.
+      word: "Replay",
       label: withRefusal(
         `Replay arc ${input.arc} onto ${input.branch.base}`,
         refusal,
