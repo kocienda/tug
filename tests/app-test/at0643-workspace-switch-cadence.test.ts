@@ -45,7 +45,7 @@
  * otherwise idle.
  *
  * It is the wrong bar for a tripwire, and the reason is written down rather
- * than assumed: `at0622` pins a settle's move beat at 2.0 display frames and
+ * than assumed: the settle files pin a settle's move beat at 2.0 display frames and
  * that bar has no margin on this machine — it alternates green and red at
  * 2.12–2.30 across shas and worktrees, on main as much as on this arc, which is
  * recorded in the arc's `baseline.md`. A test whose bar sits at the number the
@@ -61,7 +61,7 @@
  * margin derived from the 52–67 ms this very fixture was reading, which makes
  * it a bar that cannot find its own subject wanting: whatever the gesture did,
  * the number was set from it. It is now ONE DERIVED DISPLAY PERIOD, which is
- * the criterion the arc actually wrote, the one `at0622` holds on every leg,
+ * the criterion the arc actually wrote, the one the settle files hold on every leg,
  * and the one the live-deck readings are against. A red here is a finding to
  * record rather than a bar to move back.
  *

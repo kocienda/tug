@@ -125,7 +125,7 @@
    edge. Its CONTENTS stay skipped the whole time — what leaves is a tile in
    the pane's ground, edge and radius (the rule below), and the card inside
    is never laid out or painted for its exit. Un-skipping them cost the card
-   a re-layout the next show then paid for (`at0684`'s rail leg read a list
+   a re-layout the next show then paid for (the rail show's commit census read a list
    re-render at the show while it did). The land takes the mark off and the
    frame hides again. */
 .tug-pane[data-rail-parked] {

@@ -2012,7 +2012,7 @@ function resolveSelectionIndex(
  * carries, a layout change on every rendered cell at once) and the `hidden`
  * arm alone still 45ms at the arm. With no pin at all the same fold read 1ms
  * for the first geometry read after the arm. The mark stays because it is
- * free and the `at0622` budget census reads it.
+ * free and the `at0697` budget census reads it.
  *
  * ONE handler for every cell of every list view, on purpose. It reads
  * everything it needs off the event, so there is nothing to close over — and

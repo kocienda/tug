@@ -35,7 +35,7 @@
  * frame depending on who mounts it, and no static read of the CSS can say
  * which. That half is the sampler's: `settle-frame-probe.ts` counts elements
  * computing `position: fixed` under a shown frame on a live deck, and
- * `at0622` reports it. Neither half is sufficient alone.
+ * the settle app-tests report it. Neither half is sufficient alone.
  *
  * **Rule 2 — nothing but `transform` and `opacity` animates on a frame.**
  *

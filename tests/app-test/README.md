@@ -119,9 +119,18 @@ just app-test 2>/dev/null | tail -n 1   # → VERDICT: PASS  (47/47 ...)
 ```
 
 The summary also lists every file with `[PASS]` / `[FAIL]` / `[SKIP]`
-/ `[ERR]` and per-file `(passed/total)` counts, plus a `Failures:`
-block when any file fails. The app-test cleanup design record's
-summary-format spec [S01] states the contract.
+/ `[ERR]` / `[WEDGED]` and per-file `(passed/total)` counts, plus a
+`Failures:` block when any file fails. The app-test cleanup design
+record's summary-format spec [S01] states the contract.
+
+`[WEDGED]` is a file the recipe killed at its cap: three times its last
+recorded wall time, floored at two minutes
+(`scripts/wedge-cap.ts`, enforced by `scripts/run-capped.sh`). It is a
+machine state rather than a result — the app stopped answering — so the
+results ledger never reads it as a red and never takes a duration from
+it, and the verdict is `FAIL` because nobody learned whether the file
+works. Two wedges in a row halt the run with a line saying the app is
+not answering, and the summary names the files it never reached.
 
 ### Concurrency: one invocation at a time
 

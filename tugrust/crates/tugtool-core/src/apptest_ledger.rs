@@ -98,7 +98,7 @@ pub enum ApptestLedgerError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FileResult {
     pub file: String,
-    /// `PASS` | `FAIL` | `ERR` | `SKIP`.
+    /// `PASS` | `FAIL` | `ERR` | `SKIP` | `WEDGED`.
     pub status: String,
     pub passed: i64,
     pub total: i64,
@@ -351,6 +351,13 @@ struct Outcome {
 ///
 /// `SKIP` rows are excluded from consideration entirely — a file the runner
 /// skipped tells the reader nothing about whether it works.
+///
+/// So are `WEDGED` rows: the runner killed the file at its cap because the
+/// app stopped answering, which says nothing about the file either. Read as a
+/// red it would indict a file for a machine state, and read as a duration it
+/// would triple the next run's cap — so it is neither. A wedged file *did*
+/// run, though, and contended with its batch, so it still counts toward
+/// `files_in_run`.
 pub fn file_history(
     conn: &Connection,
     base_root: &str,
@@ -362,7 +369,8 @@ pub fn file_history(
                   WHERE b.run_id = u.id AND b.status <> 'SKIP'),
                 r.secs
            FROM results r JOIN runs u ON u.id = r.run_id
-          WHERE u.base_root = ?1 AND r.file = ?2 AND r.status <> 'SKIP'
+          WHERE u.base_root = ?1 AND r.file = ?2
+            AND r.status NOT IN ('SKIP', 'WEDGED')
           ORDER BY u.id DESC",
     )?;
     let mut out = Vec::with_capacity(files.len());
@@ -928,6 +936,81 @@ mod tests {
         .unwrap();
         assert_eq!(
             history_of(&conn, &root, "at0002.test.ts"),
+            History::NoHistory
+        );
+    }
+
+    /// A file killed at its cap is a machine state, not a result: it never
+    /// becomes a red, never supplies the duration the next cap is computed
+    /// from, and never hides the green before it. It still ran, so it still
+    /// counts toward the size of the batch its neighbours ran in.
+    #[test]
+    fn wedged_rows_are_neither_a_red_nor_a_duration() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let name = "at0357.test.ts";
+        let timed = |name: &str, status: &str, secs: i64| FileResult {
+            secs,
+            ..file(name, status)
+        };
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "aaa1111",
+                1_700_000_000,
+                vec![timed(name, "PASS", 7)],
+            ),
+        )
+        .unwrap();
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "bbb2222",
+                1_700_086_400,
+                vec![
+                    timed(name, "WEDGED", 1125),
+                    timed("at0563.test.ts", "FAIL", 9),
+                ],
+            ),
+        )
+        .unwrap();
+        let base = resolve_base_root(Path::new(&root));
+        let answers = file_history(&conn, &base, &[name.into(), "at0563.test.ts".into()]).unwrap();
+        match &answers[0].history {
+            History::LastGreen { green } => {
+                assert_eq!(green.sha, "aaa1111");
+                assert_eq!(green.runs_ago, 0, "the wedge is not a recorded outcome");
+            }
+            other => panic!("a WEDGED row must not become a red: {other:?}"),
+        }
+        assert_eq!(
+            answers[0].last_secs,
+            Some(7),
+            "the green's time, not the cap's"
+        );
+        match &answers[1].history {
+            History::RedStreak {
+                min_files_in_run, ..
+            } => assert_eq!(*min_files_in_run, 2, "the wedged file ran beside it"),
+            other => panic!("expected the neighbour's red: {other:?}"),
+        }
+
+        // A file that has only ever wedged has no history, and so gets the floor.
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "ccc3333",
+                1_700_172_800,
+                vec![timed("at0597.test.ts", "WEDGED", 1015)],
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            history_of(&conn, &root, "at0597.test.ts"),
             History::NoHistory
         );
     }

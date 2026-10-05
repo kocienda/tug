@@ -790,7 +790,7 @@ export function useSettleEngine({
      * settle that follows a fold by a second or two carries one that is
      * fresh and belongs to somebody else. Left unguarded, a pane drag a
      * second after a fold reports a second of dead lead it never had, in the
-     * one row [D9]'s guard and `at0622` both read.
+     * one row [D9]'s guard and the settle app-tests both read.
      */
     consumedGestureAt: number | null;
     /**

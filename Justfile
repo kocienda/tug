@@ -2096,17 +2096,23 @@ app-test *FILES:
             reach_out="$RUNDIR/reach/$(printf '%s' "$f" | tr '/' '_').json"
         fi
         file_start="$(date +%s)"
+        # The file runs under its wedge cap (run-capped.sh), which kills it and
+        # leaves $out.wedged behind when the app has stopped answering.
+        local cap
+        cap="$(wedge_cap_for "$f" | cut -f1)"
         if [ -n "$STREAM" ]; then
             echo "---- $f ----"
             # bun's stdout/stderr both stream to the user's terminal AND
             # land in $tmpout for parsing. `tee` truncates without `-a`.
-            if TUG_APPTEST_REACH_OUT="$reach_out" bun test $BUN_TIMEOUT_ARG "$f" 2>&1 | tee "$tmpout"; then
+            if TUG_APPTEST_REACH_OUT="$reach_out" bash scripts/run-capped.sh "$cap" "$out.wedged" \
+                    bun test $BUN_TIMEOUT_ARG "$f" 2>&1 | tee "$tmpout"; then
                 rc=0
             else
                 rc="${PIPESTATUS[0]}"
             fi
         else
-            if TUG_APPTEST_REACH_OUT="$reach_out" bun test $BUN_TIMEOUT_ARG "$f" > "$tmpout" 2>&1; then
+            if TUG_APPTEST_REACH_OUT="$reach_out" bash scripts/run-capped.sh "$cap" "$out.wedged" \
+                    bun test $BUN_TIMEOUT_ARG "$f" > "$tmpout" 2>&1; then
                 rc=0
             else
                 rc=$?
@@ -2125,7 +2131,12 @@ app-test *FILES:
         # Diagnostics the test asked to be seen, on green runs as well as red.
         grep '^TUG-NOTE: ' "$tmpout" 2>/dev/null | sed 's/^TUG-NOTE: //' > "$out.notes" || true
 
-        if [ "$rc" -eq 0 ] && [ "$total" -eq 0 ]; then
+        # A wedge outranks every count: the file was killed mid-run, so what it
+        # printed before the kill is not a result. It has no failure records,
+        # and the ledger never reads it as a red.
+        if [ -e "$out.wedged" ]; then
+            status=WEDGED
+        elif [ "$rc" -eq 0 ] && [ "$total" -eq 0 ]; then
             status=SKIP; passed=0; total=0
         elif [ "$rc" -eq 0 ]; then
             status=PASS
@@ -2167,6 +2178,15 @@ app-test *FILES:
             msg="${msg%%"$US"*}"
             detail="$(printf '\n          ↳ %s\n            %s' "${title:0:140}" "${msg:0:160}")"
         fi
+        if [ "$status" = WEDGED ]; then
+            local cap last
+            IFS=$'\t' read -r cap last <<< "$(wedge_cap_for "$f")"
+            if [ "$last" = "-" ]; then
+                detail="$(printf '\n          ↳ stopped at its %ss cap (no recorded time, so the floor) — the app stopped answering' "$cap")"
+            else
+                detail="$(printf '\n          ↳ stopped at its %ss cap (3× its last recorded %ss) — the app stopped answering' "$cap" "$last")"
+            fi
+        fi
         printf '%3d/%-3d %02d:%02d  %-6s %-56s (%d/%d)  %4ds%s\n' \
             "$nth" "${#FILES[@]}" $((elapsed / 60)) $((elapsed % 60)) \
             "[$status]" "$f" "$passed" "$total" "$secs" "$detail"
@@ -2180,6 +2200,11 @@ app-test *FILES:
         [ -f "$out.row" ] || return 0
         row="$(cat "$out.row")"
         RESULT_ROWS+=("$row")
+        case "$row" in
+            WEDGED:*) WEDGE_STREAK=$((WEDGE_STREAK + 1)) ;;
+            *)        WEDGE_STREAK=0 ;;
+        esac
+        [ "$WEDGE_STREAK" -ge 2 ] && HALTED=1
         if [ -f "$out.notes" ]; then
             while IFS= read -r ln; do
                 [ -n "$ln" ] && NOTE_ROWS+=("$f$US$ln")
@@ -2191,6 +2216,36 @@ app-test *FILES:
             done < "$out.fails"
         fi
     }
+
+    # `tugtool` here is the workspace's own build, not whatever a PATH symlink
+    # resolves to: run from an arc worktree, a PATH `tugtool` is the base
+    # checkout's binary, which is exactly the wrong one to trust about a
+    # feature under development.
+    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
+    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
+
+    # Every file's wedge cap, from one history call before anything runs: three
+    # times its last recorded wall time, floored at two minutes (wedge-cap.ts).
+    # A file past its cap is killed and recorded as WEDGED rather than waited
+    # on — a hung app otherwise walks the rest of the selection into the same
+    # wall, one file at a time. No ledger means every file gets the floor: the
+    # cap is a backstop, and a missing one must never stop a run.
+    CAPS_FILE="$RUNDIR/caps"
+    if [ -n "$TUGTOOL_BIN" ]; then
+        "$TUGTOOL_BIN" apptest history --root "{{justfile_directory()}}" --json "${FILES[@]}" 2>/dev/null || true
+    fi | bun scripts/wedge-cap.ts "${FILES[@]}" > "$CAPS_FILE" 2>/dev/null || true
+    wedge_cap_for() {
+        local line
+        line="$(awk -F'\t' -v f="$1" '$1 == f { print $2 "\t" $3; exit }' "$CAPS_FILE" 2>/dev/null)"
+        [ -n "$line" ] || line="$(printf '120\t-')"
+        printf '%s\n' "$line"
+    }
+
+    # Two wedges in a row is an app that is not answering, not two slow files:
+    # every file after them would wedge too, each at its own cap. The run halts
+    # instead, and the files it never reached are named in the summary.
+    WEDGE_STREAK=0
+    HALTED=""
 
     START_EPOCH="$(date +%s)"
     [ -n "$PROGRESS" ] && echo "==> running ${#FILES[@]} file(s), $JOBS at a time; each reports as it finishes."
@@ -2207,9 +2262,10 @@ app-test *FILES:
                 reap_stragglers
                 for b in "${BATCH[@]}"; do collect_file "$b"; done
                 BATCH=()
+                [ -n "$HALTED" ] && break
             fi
         done
-        if [ "${#BATCH[@]}" -gt 0 ]; then
+        if [ -z "$HALTED" ] && [ "${#BATCH[@]}" -gt 0 ]; then
             for b in "${BATCH[@]}"; do run_one_file "$b" & done
             wait
             reap_stragglers
@@ -2221,6 +2277,7 @@ app-test *FILES:
     # The screen-takers, strictly one at a time. The decision resolves here,
     # after every background file has already run.
     for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
+        [ -n "$HALTED" ] && break
         resolve_foreground_decision
         if [ "$FG_DECISION" = "skip" ]; then
             [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
@@ -2235,14 +2292,28 @@ app-test *FILES:
         sleep 0.3
     done
 
+    declare -a UNRUN_FILES=()
+    if [ -n "$HALTED" ]; then
+        for f in "${FILES[@]}"; do
+            ran=""
+            for row in "${RESULT_ROWS[@]}"; do
+                IFS=':' read -r _s rfile _rest <<< "$row"
+                [ "$rfile" = "$f" ] && ran=1 && break
+            done
+            [ -z "$ran" ] && UNRUN_FILES+=("$f")
+        done
+        echo "==> two files in a row wedged — the app is not answering. Stopping with ${#UNRUN_FILES[@]} file(s) not run."
+    fi
+
     END_EPOCH="$(date +%s)"
     ELAPSED=$((END_EPOCH - START_EPOCH))
 
-    files_run=${#FILES[@]}
+    files_run=${#RESULT_ROWS[@]}
     files_passed=0
     files_failed=0
     files_errored=0
     files_skipped=0
+    files_wedged=0
     tests_passed_total=0
     tests_total=0
     for row in "${RESULT_ROWS[@]}"; do
@@ -2252,6 +2323,7 @@ app-test *FILES:
             FAIL) files_failed=$((files_failed + 1)) ;;
             ERR)  files_errored=$((files_errored + 1)) ;;
             SKIP) files_skipped=$((files_skipped + 1)) ;;
+            WEDGED) files_wedged=$((files_wedged + 1)) ;;
         esac
         tests_passed_total=$((tests_passed_total + rpassed))
         tests_total=$((tests_total + rtotal))
@@ -2268,6 +2340,9 @@ app-test *FILES:
     printf '%-14s  %d\n' 'Files failed:' "$files_failed"
     printf '%-14s  %d\n' 'Files errored:' "$files_errored"
     [ "$files_skipped" -gt 0 ] && printf '%-14s  %d\n' 'Files skipped:' "$files_skipped"
+    [ "$files_wedged" -gt 0 ] && printf '%-14s  %d\n' 'Files wedged:' "$files_wedged"
+    [ "${#UNRUN_FILES[@]}" -gt 0 ] && printf '%-14s  %d (%s)\n' 'Files not run:' "${#UNRUN_FILES[@]}" \
+        "$(printf '%s\n' "${UNRUN_FILES[@]}" | sed 's/\.test\.ts$//' | paste -sd ',' - | sed 's/,/, /g')"
     if [ "$ELAPSED" -lt 60 ]; then
         printf '%-14s  %ds\n' 'Wall time:' "$ELAPSED"
     else
@@ -2307,13 +2382,7 @@ app-test *FILES:
     # comparing against rather than one this run has already contaminated with
     # its own failure. One call for the whole set, and never on a green run —
     # the question only exists where there is a red file to ask it about.
-    #
-    # `tugtool` here is the workspace's own build, not whatever a PATH symlink
-    # resolves to: run from an arc worktree, a PATH `tugtool` is the base
-    # checkout's binary, which is exactly the wrong one to trust about a
-    # feature under development.
-    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
-    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
+    # It asks the same TUGTOOL_BIN the wedge caps were read from.
     HISTORY_JSON=""
     HISTORY_ERR=""
     declare -a RED_FILES=()
@@ -2413,7 +2482,7 @@ app-test *FILES:
         if ! command -v jq >/dev/null 2>&1; then
             echo "[app-test] TUG_APPTEST_JSON is set but jq is not on PATH — no document written." >&2
         else
-            if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ]; then
+            if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ -z "$HALTED" ]; then
                 json_verdict=PASS
             else
                 json_verdict=FAIL
@@ -2476,12 +2545,15 @@ app-test *FILES:
                 --argjson filesFailed "$files_failed" \
                 --argjson filesErrored "$files_errored" \
                 --argjson filesSkipped "$files_skipped" \
+                --argjson filesWedged "$files_wedged" \
+                --argjson filesNotRun "${#UNRUN_FILES[@]}" \
                 --argjson testsPassed "$tests_passed_total" \
                 --argjson testsTotal "$tests_total" \
                 '{sweep:$sweep, wallSeconds:$wall, verdict:$verdict,
                   totals:{filesRun:$filesRun, filesPassed:$filesPassed,
                           filesFailed:$filesFailed, filesErrored:$filesErrored,
-                          filesSkipped:$filesSkipped, testsPassed:$testsPassed,
+                          filesSkipped:$filesSkipped, filesWedged:$filesWedged,
+                          filesNotRun:$filesNotRun, testsPassed:$testsPassed,
                           testsTotal:$testsTotal},
                   files: .}' > "$TUG_APPTEST_JSON"
         fi
@@ -2501,7 +2573,7 @@ app-test *FILES:
         echo "[app-test] results not recorded: jq is not on PATH" >&2
     else
         record_verdict=PASS
-        { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ]; } || record_verdict=FAIL
+        { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ -z "$HALTED" ]; } || record_verdict=FAIL
         record_head="$(git -C "{{justfile_directory()}}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
         record_branch="$(git -C "{{justfile_directory()}}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
         record_dirty=false
@@ -2570,13 +2642,18 @@ app-test *FILES:
     files_ran=$((files_run - files_skipped))
     skip_clause=""
     [ "$files_skipped" -gt 0 ] && skip_clause="; $files_skipped skipped"
-    if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ]; then
+    # A wedge is not a red, but it is not a green either: nobody learned
+    # whether that file works, so the run cannot say PASS.
+    wedge_clause=""
+    [ "$files_wedged" -gt 0 ] && wedge_clause="; $files_wedged wedged"
+    [ "${#UNRUN_FILES[@]}" -gt 0 ] && wedge_clause="$wedge_clause; ${#UNRUN_FILES[@]} not run"
+    if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ -z "$wedge_clause" ]; then
         printf 'VERDICT: PASS  (%d/%d files green%s; %d/%d tests passed)\n' \
             "$files_passed" "$files_ran" "$skip_clause" "$tests_passed_total" "$tests_total"
         exit 0
     else
-        printf 'VERDICT: FAIL  (%d/%d files green; %d file(s) failed%s; %d/%d tests passed)\n' \
-            "$files_passed" "$files_ran" $((files_failed + files_errored)) "$skip_clause" \
+        printf 'VERDICT: FAIL  (%d/%d files green; %d file(s) failed%s%s; %d/%d tests passed)\n' \
+            "$files_passed" "$files_ran" $((files_failed + files_errored)) "$wedge_clause" "$skip_clause" \
             "$tests_passed_total" "$tests_total"
         exit 1
     fi

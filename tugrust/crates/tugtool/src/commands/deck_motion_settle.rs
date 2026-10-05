@@ -37,6 +37,12 @@
 //! observer deliveries the hand-back dirtied. What ran in that span is named
 //! by site: commits from the census, chains with `--chains`, and
 //! `ResizeObserver` deliveries from the lead recorder with `--tasks`.
+//!
+//! The commits are the window's census, and the census carries its sum: the
+//! **main thread** — React's time in every commit in the window, plus the
+//! longest chain (with `--chains`) whose paying read fell outside every
+//! commit's span. That is the set-up's cost a gesture's frames wait behind,
+//! read on the deck the user runs rather than barred in an app-test.
 
 use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED};
 use crate::commands::deck_motion_slide::{
@@ -659,6 +665,76 @@ pub fn largest(commits: &[WindowCommit]) -> Option<&WindowCommit> {
         })
 }
 
+/// The window's main-thread time, summed off the commit census: React's time
+/// in every commit in the window, plus the longest forced-layout chain in the
+/// window whose paying read falls outside every commit's span from render
+/// start to commit. A chain paid in a layout effect is inside its commit's
+/// React time already, so only a chain after the commit — a `ResizeObserver`
+/// delivery, a CodeMirror measure — is added to it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct MainThread {
+    /// `react_ms` summed over the window's timed commits.
+    pub react_ms: f64,
+    /// The window's commits that carry no React time — no lead recorder, or a
+    /// render that read no store. Counted, and not in the sum.
+    pub untimed: usize,
+    /// The longest chain outside every commit's span; `None` without
+    /// `--chains`, and when every chain in the window fell inside a commit.
+    pub outside_chain: Option<LandSite>,
+    /// The chain time the commits' spans already contain; `None` without
+    /// `--chains`.
+    pub inside_chain_ms: Option<f64>,
+    /// `react_ms` plus the outside chain's time.
+    pub total_ms: f64,
+}
+
+/// Sum the window's main-thread time from the raw commits and, with
+/// `--chains`, each chain's paying read on the drive's clock.
+pub fn main_thread(
+    commits: &[RawCommit],
+    chains: Option<&[LandSite]>,
+    window: (f64, f64),
+) -> MainThread {
+    let in_win: Vec<&RawCommit> = in_window(commits, window, MARGIN_MS)
+        .into_iter()
+        .map(|i| &commits[i])
+        .collect();
+    let spans: Vec<(f64, f64)> = in_win
+        .iter()
+        .filter_map(|c| c.render_start.map(|s| (s, c.t)))
+        .collect();
+    let react_ms = round1(spans.iter().map(|(s, t)| t - s).sum());
+    let untimed = in_win.len() - spans.len();
+    let (outside_chain, inside_chain_ms) = match chains {
+        None => (None, None),
+        Some(chains) => {
+            let near = chains
+                .iter()
+                .filter(|c| c.t >= window.0 - MARGIN_MS && c.t <= window.1 + MARGIN_MS);
+            let (inside, outside): (Vec<&LandSite>, Vec<&LandSite>) =
+                near.partition(|c| spans.iter().any(|(s, t)| c.t >= *s && c.t <= *t));
+            let longest = outside
+                .into_iter()
+                .fold(None, |best: Option<&LandSite>, c| match best {
+                    Some(b) if b.ms >= c.ms => Some(b),
+                    _ => Some(c),
+                });
+            (
+                longest.cloned(),
+                Some(round1(inside.iter().map(|c| c.ms).sum())),
+            )
+        }
+    };
+    let total_ms = round1(react_ms + outside_chain.as_ref().map_or(0.0, |c| c.ms));
+    MainThread {
+        react_ms,
+        untimed,
+        outside_chain,
+        inside_chain_ms,
+        total_ms,
+    }
+}
+
 /// The rest check's line, and whether the deck is at rest: its updates per
 /// second at or under the probe's calibrated budget. A deck that reports no
 /// budget is read, with the line saying the budget is unknown — a missing
@@ -695,6 +771,9 @@ pub struct Reading {
     /// Commits the run saw at all, in or out of the window; `None` when the
     /// page had no census to give (a release deck without `--tasks`).
     pub commits_seen: Option<usize>,
+    /// The window's main-thread time over `commits`; `None` when the page had
+    /// no census or the window never closed.
+    pub main_thread: Option<MainThread>,
     /// The `settle-beat` rows recorded over the drive (page key `settleBeats`).
     pub settle_beats: Vec<BeatRow>,
     /// The drive to the first frame after it.
@@ -758,6 +837,10 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         (Some(commits), Some(window)) => window_commits(commits, &tells, window),
         _ => Vec::new(),
     };
+    let main_thread_reading = match (&raw_commits, window) {
+        (Some(commits), Some(window)) => Some(main_thread(commits, land_chains.as_deref(), window)),
+        _ => None,
+    };
     Reading {
         gesture: drive.gesture,
         args: drive.args.clone(),
@@ -765,6 +848,7 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         largest: largest(&commits).cloned(),
         commits,
         commits_seen: raw_commits.map(|c| c.len()),
+        main_thread: main_thread_reading,
         settle_beats: list(raw, "settleBeats").unwrap_or_default(),
         lead_ms,
         longest_gap_ms,
@@ -991,6 +1075,28 @@ pub fn reading_extras(r: &Reading) -> String {
         ms(r.lead_ms),
         ms(r.longest_gap_ms)
     );
+    if let Some(m) = &r.main_thread {
+        let untimed = if m.untimed == 0 {
+            String::new()
+        } else {
+            format!(", {} untimed", m.untimed)
+        };
+        let outside = match (&m.outside_chain, m.inside_chain_ms) {
+            (_, None) => "chains unread (--chains)".to_string(),
+            (None, Some(inside)) => {
+                format!("no chain outside a commit (in-commit chains {inside:.1} ms)")
+            }
+            (Some(c), Some(inside)) => format!(
+                "longest outside chain {:.1} ms at {} (in-commit chains {inside:.1} ms)",
+                c.ms, c.site
+            ),
+        };
+        let _ = writeln!(
+            out,
+            "   main thread {:.1} ms: react {:.1} ms{untimed} + {outside}",
+            m.total_ms, m.react_ms
+        );
+    }
     if let Some(land) = &r.land {
         let gaps = land
             .gaps_ms
@@ -1684,6 +1790,79 @@ mod tests {
         let out = serde_json::to_value(&r).unwrap();
         assert_eq!(out["settle_beats"][0]["startDelayMs"], 129.4);
         assert!(out.get("beats").is_none());
+    }
+
+    #[test]
+    fn the_main_thread_is_react_time_plus_the_longest_chain_outside_every_commit() {
+        let timed = |t: f64, start: f64| -> RawCommit {
+            serde_json::from_value(json!({"t": t, "performed": 10, "renderStart": start})).unwrap()
+        };
+        let commits = vec![
+            // Before the window's leading margin: not the gesture's.
+            timed(-200.0, -230.0),
+            timed(40.0, 10.0),
+            timed(150.0, 120.0),
+            // In the window, but rendered before the lead recorder armed.
+            commit(160.0, 4),
+        ];
+        let site = |t: f64, ms: f64, site: &str| LandSite {
+            t,
+            ms,
+            site: site.to_string(),
+        };
+        let chains = vec![
+            // Inside the first commit's span: already in its React time.
+            site(20.0, 6.0, "layout effect"),
+            // After every commit: added, and the longest of the two.
+            site(200.0, 3.0, "ResizeObserver"),
+            site(90.0, 2.0, "CodeMirror measure"),
+            // Past the trailing margin.
+            site(500.0, 40.0, "not the gesture's"),
+        ];
+        let m = main_thread(&commits, Some(&chains), (0.0, 300.0));
+        assert_eq!(m.react_ms, 60.0);
+        assert_eq!(m.untimed, 1);
+        assert_eq!(m.inside_chain_ms, Some(6.0));
+        assert_eq!(
+            m.outside_chain.as_ref().map(|c| c.site.as_str()),
+            Some("ResizeObserver")
+        );
+        assert_eq!(m.total_ms, 63.0);
+
+        // Without --chains the sum is React's alone, and says the chains went unread.
+        let bare = main_thread(&commits, None, (0.0, 300.0));
+        assert_eq!((bare.total_ms, bare.inside_chain_ms), (60.0, None));
+
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "c1"}),
+            read: true,
+        };
+        let raw = json!({
+            "settle": [[0.0, true], [300.0, false]],
+            "commits": serde_json::to_value(
+                commits.iter().map(|c| json!({"t": c.t, "performed": c.performed, "renderStart": c.render_start})).collect::<Vec<_>>()
+            ).unwrap(),
+            "landChains": serde_json::to_value(&chains).unwrap(),
+        });
+        let r = reduce(&drive, &raw);
+        assert_eq!(r.main_thread.as_ref().map(|m| m.total_ms), Some(63.0));
+        let text = reading_extras(&r);
+        assert!(
+            text.contains(
+                "main thread 63.0 ms: react 60.0 ms, 1 untimed + longest outside chain 3.0 ms at ResizeObserver (in-commit chains 6.0 ms)"
+            ),
+            "{text}"
+        );
+        let out = serde_json::to_value(&r).unwrap();
+        assert_eq!(out["main_thread"]["total_ms"], 63.0);
+
+        // A page with no census has no main-thread reading.
+        let none = reduce(
+            &drive,
+            &json!({"settle": [[0.0, true], [300.0, false]], "commits": null}),
+        );
+        assert_eq!(none.main_thread, None);
     }
 
     #[test]

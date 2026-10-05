@@ -1,6 +1,7 @@
 /**
  * settle-frames-fixture.ts — the deck's settle, sampled frame by frame: the
- * fixture, the samplers and the bar that `at0622` reads.
+ * fixture, the samplers and the bar that the per-gesture settle files
+ * (`at0696`–`at0706`, one gesture each) read.
  *
  * ## Why this is a module and not a test
  *
@@ -16,8 +17,14 @@
  * unfold, a card's departure, showing a rail, and the column split — each one
  * large React commit landing inside the settle window) stand in
  * `briefs/zero-red-app-tests-brief.md`. The shared half lives here, exported,
- * so that a test file never imports another test file, and neither test file
+ * so that a test file never imports another test file, and no test file
  * defines a sampler of its own.
+ *
+ * `at0622` itself was later fanned out into one file per gesture, each with
+ * its own setup and its own `@covers`, because `@covers` selects a whole file:
+ * a change to the fold path selected all fourteen of its gestures and paid
+ * every one's transcript resume. It is the legs that fanned out, not the
+ * instrument — every sampler and bar is still here.
  *
  * ## The instrument
  *
@@ -695,7 +702,7 @@ export function sessionCardsOf(blob: Record<string, unknown>): string[] {
 export async function launch(
   count: number,
   blob: Record<string, unknown> = blobFor(count),
-  testName = "at0622-deck-settle-frames",
+  testName = "settle-frames",
   opts: LaunchOptions = {},
 ): Promise<{ app: App; tugbankPath: string }> {
   const tugbankPath = mkTempTugbank();
@@ -829,7 +836,7 @@ export async function sampleColumnGesture(
  * retargeting the one before, so the bar is read over every row rather than
  * the last: a retarget that stalls is a stall the reader saw. The height
  * term itself is main-thread by construction ([D9]'s standing hit) and its
- * `:height` violation rows are asserted present by `at0622`'s violations
+ * `:height` violation rows are asserted present by `at0697`'s violations
  * leg; what this bar asks is that the main-thread term still delivers.
  *
  * **It does not, and that is the reading `at0654` carries:** dividing four
@@ -1547,14 +1554,6 @@ export const reactCommits = (app: App): Promise<unknown> =>
  */
 export const WINDOW_MARGIN_MS = 60;
 
-/**
- * The span a workspace switch is read over. A switch arms no settle and so
- * writes no `settle-frames` row; its frames are sampled for this long from
- * the swap (`SPACE_SWITCH_FRAME_WINDOW_MS`), and its commits are read over the
- * same span from the gesture.
- */
-export const SWITCH_WINDOW_MS = 600;
-
 /** One React commit inside a settle window, as the census recorded it. */
 export interface WindowCommit {
   /** Relative to the window's start. */
@@ -1588,39 +1587,27 @@ export interface WindowReading {
  *
  * The window is the last `settle-frames` row written since `mark` — written at
  * the release — back to the last armed `settle-arm` before it, both stamped on
- * the page clock the census stamps commits with. A switch writes neither, so
- * it passes `fixed`: the page time it was driven at and the span to read.
- * Resolves `null` when there is no census in the page or no window to read.
+ * the page clock the census stamps commits with. Resolves `null` when there is
+ * no census in the page or no window to read.
  */
-export const windowCommits = (
-  app: App,
-  mark: number,
-  fixed?: { readonly from: number; readonly ms: number },
-): Promise<WindowReading | null> =>
+export const windowCommits = (app: App, mark: number): Promise<WindowReading | null> =>
   app.evalJS<WindowReading | null>(
     `(function () {
        var api = window.__tugCommits;
        if (!api) return null;
-       var fixed = ${JSON.stringify(fixed ?? null)};
-       var from, to;
-       if (fixed) {
-         from = fixed.from;
-         to = fixed.from + fixed.ms;
-       } else {
-         var rows = window.__deckTrace.since(${mark});
-         var end = -1;
-         for (var i = rows.length - 1; i >= 0; i -= 1) {
-           if (rows[i].kind === "settle-frames") { end = i; break; }
-         }
-         if (end < 0) return null;
-         var start = -1;
-         for (var j = end; j >= 0; j -= 1) {
-           if (rows[j].kind === "settle-arm" && rows[j].armed) { start = j; break; }
-         }
-         if (start < 0) return null;
-         from = rows[start].timestamp;
-         to = rows[end].timestamp;
+       var rows = window.__deckTrace.since(${mark});
+       var end = -1;
+       for (var i = rows.length - 1; i >= 0; i -= 1) {
+         if (rows[i].kind === "settle-frames") { end = i; break; }
        }
+       if (end < 0) return null;
+       var start = -1;
+       for (var j = end; j >= 0; j -= 1) {
+         if (rows[j].kind === "settle-arm" && rows[j].armed) { start = j; break; }
+       }
+       if (start < 0) return null;
+       var from = rows[start].timestamp;
+       var to = rows[end].timestamp;
        var margin = ${WINDOW_MARGIN_MS};
        var commits = api.since(from - margin)
          .filter(function (c) { return c.t <= to + margin; })
@@ -1645,6 +1632,117 @@ export function largestCommit(commits: readonly WindowCommit[]): WindowCommit | 
     if (best === null || c.performed > best.performed) best = c;
   }
   return best;
+}
+
+/**
+ * Each gesture's bar on its settle window's main-thread time, in
+ * milliseconds: the sum of `reactMs` over the in-window commits, plus the
+ * longest forced-layout chain in the window whose paying read falls outside
+ * every commit's span from render start to commit. A chain paid in a layout
+ * effect is inside its commit's `reactMs` already, so only a chain after the
+ * commit — a `ResizeObserver` delivery, a CodeMirror measure — is added to it.
+ * It is the set-up's cost, held as a regression guard on the legs that read
+ * it; `tugtool deck motion settle` reads the same sum on any deck as its
+ * reading's `main_thread`.
+ *
+ * About a quarter over the largest of three solo whale readings
+ * (`briefs/real-transcript-motion-readings.md`, "Bars"), as react_ms +
+ * outside chain = total:
+ *
+ * - close: 107 + 1 = 108, 111 + 0 = 111, 108 + 1 = 109 (slice 116–118).
+ * - rails: 57 + 1 = 58, 61 + 0 = 61, 57 + 1 = 58 (slice 56–64).
+ */
+export const MAIN_THREAD_BAR_MS = {
+  close: 140,
+  rails: 76,
+} as const;
+
+/** A window's main-thread time, as `readMainThread` reads it. */
+export interface MainThreadReading {
+  readonly reactMs: number;
+  readonly outsideMs: number;
+  readonly total: number;
+}
+
+/**
+ * The trace mark a main-thread leg reads its window from, with the lead
+ * recorder armed there — armed, the census stamps each commit's render start,
+ * and so each commit's `reactMs`; nothing else arms it on a harness deck. The
+ * chain probe is armed beside it, without stacks, so its capture adds nothing
+ * to the `reactMs` it is summed with. Needs `launch`'s `leadRecorder`.
+ */
+export async function armedMainThreadMark(app: App): Promise<number> {
+  await app.evalJS<null>(
+    `(window.__tugLead && window.__tugLead.arm(), ` +
+      `window.__tugMotion.chains("arm", { stacks: false }), null)`,
+  );
+  return traceMark(app);
+}
+
+/**
+ * Read and disarm what `armedMainThreadMark` armed, and note the window's
+ * main-thread time: the three numbers, and the chain time the commits' spans
+ * already contain. Read before any of the leg's clauses, so a red one never
+ * costs the reading. A commit that rendered before the recorder was armed
+ * carries no React time; it is counted and noted, and its time is not in
+ * the sum.
+ */
+export async function readMainThread(
+  app: App,
+  label: string,
+  w: WindowReading,
+): Promise<MainThreadReading> {
+  const reading = await app.evalJS<{
+    chainTimes: { t: number; ms: number; name: string; site: string }[];
+    truncated: boolean;
+  }>(
+    `(function () {
+       var r = window.__tugMotion.chains("read");
+       window.__tugMotion.chains("disarm");
+       if (window.__tugLead) window.__tugLead.disarm();
+       return { chainTimes: r.chainTimes.map(function (c) {
+         return { t: c.t, ms: c.ms, name: c.name, site: c.site };
+       }), truncated: r.truncated };
+     })()`,
+  );
+  const timed = w.commits.filter((c) => c.reactMs !== null && c.renderStart !== null);
+  const reactMs = timed.reduce((s, c) => s + (c.reactMs as number), 0);
+  const spans = timed.map((c) => [w.from + (c.renderStart as number), w.from + c.t] as const);
+  const inWindow = reading.chainTimes.filter(
+    (c) => c.t >= w.from - WINDOW_MARGIN_MS && c.t <= w.to + WINDOW_MARGIN_MS,
+  );
+  const inside = inWindow.filter((c) => spans.some(([a, b]) => c.t >= a && c.t <= b));
+  const outside = inWindow.filter((c) => !inside.includes(c));
+  const longest = outside.reduce<(typeof outside)[number] | null>(
+    (m, c) => (m === null || c.ms > m.ms ? c : m),
+    null,
+  );
+  const outsideMs = longest?.ms ?? 0;
+  const total = reactMs + outsideMs;
+  note(
+    `${label} main thread: react_ms ${reactMs.toFixed(1)} + longest outside chain ` +
+      `${outsideMs.toFixed(1)}${longest === null ? "" : ` (${longest.name} at ${longest.site})`} = ` +
+      `${total.toFixed(1)} ms; in-commit chains ${inside.reduce((s, c) => s + c.ms, 0).toFixed(1)} ms ` +
+      `over ${inside.length}, ${outside.length} outside` +
+      `${reading.truncated ? "; chain log truncated" : ""}; ` +
+      `${w.commits.length - timed.length} of ${w.commits.length} commit(s) untimed`,
+  );
+  return { reactMs, outsideMs, total };
+}
+
+/** The window's main-thread time is under the gesture's `MAIN_THREAD_BAR_MS`. */
+export function expectMainThreadUnderBar(
+  leg: string,
+  gesture: keyof typeof MAIN_THREAD_BAR_MS,
+  r: MainThreadReading,
+): void {
+  const bar = MAIN_THREAD_BAR_MS[gesture];
+  expect(
+    r.total,
+    `${leg}: the window's main-thread time is react_ms ${r.reactMs.toFixed(1)} + the longest ` +
+      `chain outside every commit ${r.outsideMs.toFixed(1)} = ${r.total.toFixed(1)} ms, ` +
+      `against a bar of ${bar} ms`,
+  ).toBeLessThan(bar);
 }
 
 /**

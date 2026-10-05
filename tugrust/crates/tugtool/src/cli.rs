@@ -399,7 +399,8 @@ pub enum ApptestCommands {
     /// Answer each named file's history for the run root's base checkout.
     ///
     /// One of `last-green`, `red-streak`, or `no-history` per file. `SKIP`
-    /// rows are excluded — a file the runner skipped says nothing about
+    /// and `WEDGED` rows are excluded — a file the runner skipped, or killed
+    /// at its cap because the app stopped answering, says nothing about
     /// whether it works.
     History {
         /// The root the run executed in (default: cwd). Resolved to its base
@@ -1223,7 +1224,9 @@ pub enum DeckMotionCommands {
     /// Every reading also prints the frame lead (the drive to the first frame
     /// after it), the longest gap the outside recorder saw up to the settle
     /// mark's off, the lead included, and each settle beat's start delay and
-    /// declared breaches.
+    /// declared breaches. And it prints the window's main-thread time: React's
+    /// time summed over the window's commits, plus — with `--chains` — the
+    /// longest forced-layout chain outside every commit.
     Settle {
         /// The gesture to drive.
         #[arg(long, value_parser = crate::commands::deck_motion_settle::GESTURE_NAMES)]

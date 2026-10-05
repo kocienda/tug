@@ -170,7 +170,7 @@ function deckShape() {
  * a fade on `.tug-pane::after` would arrive here wearing the frame's identity
  * while animating nothing about the frame. The recede is exactly that: three
  * pseudo layers whose opacity fades on the settle's landing, which this file's
- * claims are not about and which `at0622` asserts on its own terms. The
+ * claims are not about and which `at0697` asserts on its own terms. The
  * subject of every claim below is the frame itself, so the census is too.
  */
 interface FrameAnimation {

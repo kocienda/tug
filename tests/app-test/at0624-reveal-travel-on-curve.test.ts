@@ -4,7 +4,7 @@
  *
  * ## The path nothing else walks
  *
- * `at0369` proves an opened file lands in the right slot. `at0622` proves an
+ * `at0369` proves an opened file lands in the right slot. `at0697` proves an
  * ACTIVATION's settle shows all of its travel. Between them sits the gesture
  * neither reads: opening a file into a slot the band does not show, where the
  * deck owes the reader TWO beats — the card rising into the slot it landed in,
@@ -97,7 +97,7 @@ const TEST_TIMEOUT_MS = 600_000;
 
 const SPACE_ID = "at0624-one";
 const RAIL_WIDTH = 420;
-/** `at0622`'s slot width: narrower than the band, so a run of four is wider. */
+/** The settle fixture's slot width: narrower than the band, so a run of four is wider. */
 const SLIM_PX = 675;
 /** The settle window, with room for a landing tween. */
 const AFTER_LAND_MS = 900;

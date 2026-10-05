@@ -4156,7 +4156,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // reverse-patch probe of these two files put it back under.
     //
     // The global `enable(true)` is NOT a narrow enough door, which is the second
-    // half of the same finding: `at0622` turns tracing on to read the SETTLE's
+    // half of the same finding: the settle app-tests turn tracing on to read the SETTLE's
     // frame record, so a global gate armed this sampler inside a test measuring
     // something else, and the red survived. `enableKind` is per-kind for exactly
     // this — an instrument that costs frames is armed by the reading that wants

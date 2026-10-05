@@ -1343,7 +1343,7 @@ export interface DeckTrace {
    * the numbers, and `record` drops the row when tracing is off. A cost-bearing
    * kind is the exception — `space-switch-frames` has to run a 600 ms rAF loop
    * to produce its numbers at all — and for those the global flag is the wrong
-   * door, because it is shared. `at0622` enables tracing to read the SETTLE's
+   * door, because it is shared. The settle app-tests enable tracing to read the SETTLE's
    * frame record, and under a global door that turned on the switch sampler
    * too, whose extra rAF subscriber pushed at0622's own move-beat gap bar from
    * under two display frames to 2.12–2.29. One test paying for another test's

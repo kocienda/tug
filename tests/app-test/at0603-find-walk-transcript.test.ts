@@ -82,7 +82,26 @@ const SEL = sessionSelectors("A");
 
 /** Planted a known number of times, in three different row kinds. */
 const PROBE = "vermilionstep";
-const TURNS = 60;
+
+/**
+ * The shortest transcript that would still have shown the three defects the
+ * header names. Fifteen turns plant 35 matches over some forty rows — several
+ * viewports — so most ⌘G steps must scroll a match in from past the fold
+ * (the reveal that outlived its budget), the walk runs dozens of gestures
+ * back to back and wraps (the race through one shared boolean), and the
+ * ordinal climbs through two digits against the chip (the drift). The walk
+ * was once sixty turns and 141 steps, which bought no defect this one cannot
+ * show and cost two minutes a run.
+ */
+const TURNS = 15;
+
+/**
+ * The distinct scroll offsets the walk must land on. A transcript short
+ * enough to fit one viewport would land every step at one offset and pass
+ * every clause without ever forcing a reveal; this is the guard against the
+ * fixture shrinking past the walk.
+ */
+const MIN_LANDED_OFFSETS = 3;
 
 /**
  * Per turn: once in the reply prose, once in a Bash command (a tool HEADER
@@ -182,7 +201,6 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
         const firstChip = await readChip(app);
         const total = Number(firstChip.split(" of ")[1] ?? "0");
         note(`opening chip: ${JSON.stringify(firstChip)} (expected total ${expectedMatches(TURNS)})`);
-        expect(total, "the chip must report a match set to walk").toBeGreaterThanOrEqual(80);
         expect(total, "the count must be the one the fixture plants").toBe(
           expectedMatches(TURNS),
         );
@@ -191,6 +209,7 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
         const failures: string[] = [];
         let lastRow = -1;
         let wrapped = false;
+        const landedOffsets = new Set<number>();
         for (let step = 0; step < total + 1; step += 1) {
           const mark = await markTrace(app);
           await chord(app, "KeyG", "g", { meta: true });
@@ -230,6 +249,7 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
             );
           }
           const offsets = new Set(last10.map((s) => Math.round(s.scrollTop)));
+          for (const o of offsets) landedOffsets.add(o);
           if (offsets.size !== 1) {
             failures.push(
               `step ${step}: the scroller was still moving — offsets ${JSON.stringify([...offsets])}`,
@@ -269,6 +289,12 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
 
         for (const f of failures.slice(0, 25)) note(f);
         if (failures.length > 25) note(`…and ${failures.length - 25} more`);
+        note(`landed offsets: ${landedOffsets.size} distinct over ${total + 1} steps`);
+        expect(
+          landedOffsets.size,
+          `the walk landed on ${landedOffsets.size} distinct scroll offset(s); a walk that never ` +
+            `scrolls never forced a reveal`,
+        ).toBeGreaterThanOrEqual(MIN_LANDED_OFFSETS);
         expect(
           failures.length,
           `${failures.length} of ${total + 1} walk steps disagreed with themselves; see Diagnostics`,

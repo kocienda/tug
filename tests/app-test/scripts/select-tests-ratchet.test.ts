@@ -29,7 +29,7 @@ const SCRIPT_REL = "tests/app-test/scripts/select-tests.ts";
 /**
  * The source roots `@covers` lines name. Symlinked so declarations resolve on disk.
  *
- * `tuglaws` is one of them: a test whose subject is a doctrine — `at0622` covers
+ * `tuglaws` is one of them: a test whose subject is a doctrine — `at0697` covers
  * `tuglaws/animation-doctrine.md`, the law its readings enforce — names the document.
  * A root missing here resolves to nothing inside the throwaway repo, so every case
  * below fails on a path lint that has nothing to do with the ratchet.

@@ -412,7 +412,7 @@ body {
    carries, a layout change on every rendered cell at once — and the `hidden`
    arm alone still 45ms. With no pin the same fold's first geometry read after
    the arm cost 1ms. The mark it read, `data-cv-skipped`, stays: it is free,
-   and the `at0622` budget census reads it. */
+   and the `at0697` budget census reads it. */
 
 /* The tail cell opts out. It is the auto-follow target — always on
    screen, so skipping it saves nothing — and it is the cell whose

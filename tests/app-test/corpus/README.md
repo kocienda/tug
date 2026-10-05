@@ -45,6 +45,6 @@ real-shape generator legs.
 
 ## The settle legs' whale arm
 
-The settle tests (`at0555`, `at0566`, `at0605`, `at0621`, `at0622`, `at0643`, `at0684` and `at0690`) run each leg twice through `transcriptArms()` in `real-transcript-fixture.ts`: once on the committed `session-transcript-basic` slice, and once with the corpus's selected whale (`whaleSnapshot()`: the pinned whale when the manifest selected it, otherwise its first `whale`-class entry) bound on the cards the gesture resizes or moves. Every other card on the deck takes the slice, because a deck of eight whales is a deck no user has. Each card gets its own copy, seeded under a fresh session id.
+The settle tests (`at0555`, `at0566`, `at0605`, `at0621`, `at0643` and the per-gesture settle files `at0696`–`at0706`) run each leg twice through `transcriptArms()` in `real-transcript-fixture.ts`: once on the committed `session-transcript-basic` slice, and once with the corpus's selected whale (`whaleSnapshot()`: the pinned whale when the manifest selected it, otherwise its first `whale`-class entry) bound on the cards the gesture resizes or moves. Every other card on the deck takes the slice, because a deck of eight whales is a deck no user has. Each card gets its own copy, seeded under a fresh session id.
 
 The whale arm is skipped, not failed, on a machine with no `manifest.json` or no whale in it, so a fresh checkout runs the slice arm alone. Run the harvester above to arm it. The arm never falls back to the slice: a whale reading taken on a slice would read as a whale reading.
