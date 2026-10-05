@@ -234,6 +234,9 @@ A skill in this lane may raise a dialog at a real decision point — an unsettle
 - Never ask which route or which shape the work takes when the invocation, or a design the session already holds, has settled it.
 - Never ask the user to choose between readings of the codebase. Read the code; the answer is a decision in the plan.
 - Never hand the user work the session can do itself. A step that calls for a build, a launch, an arranged surface, or a reading taken off a running instance is the stage's own work, done with the tools it has. A plan step that says "hand back to the user" for such a reading is a step to carry out, not a stop.
+- Never ask a question you can answer with a recommendation. The option you would write *my recommendation* beside is the default: take it, record it in the brief, build it, and say so in the turn. The user overrules on the transcript if they disagree; an arc stopped to have them pick the option already picked has cost a round trip for nothing.
+- Never stop on a rule the brief wrote for a case it did not foresee. A rule carries the reason it was written, and when its letter and its purpose part ways on a case the brief never pictured, the purpose decides: do what the rule was for, write the resolution into the brief that turn, and keep going. `arc ask` is for a purpose that is itself in doubt.
+- Never stop on a machine state. A verdict run that fails because the machine cannot run it — a harness window occluded so no frames sample, a wedged app, a gate held elsewhere — is a fact to say in the turn's prose with what clears it, not a decision to record. Reverse the working diff and run one short red file to prove it is the machine, say so, leave the step open, and end the turn.
 
 Join's other stops — a conflict, a missing draft, a named blocker — stay stops. They are correct refusals with one right answer, not unasked questions.
 
