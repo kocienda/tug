@@ -466,7 +466,7 @@ describe("routeTopLevelEvent", () => {
     expect(marker.pre_tokens).toBe(48000);
   });
 
-  test("top-level tool_progress is swallowed (no unknown_event banner)", () => {
+  test("top-level bash_progress is forwarded as one tool_progress message", () => {
     // Real bash_progress shape from the engine — progress telemetry, no output.
     const event = {
       type: "tool_progress",
@@ -479,8 +479,30 @@ describe("routeTopLevelEvent", () => {
       uuid: "u-1",
     };
     const result = routeTopLevelEvent(event, baseCtx);
-    expect(result.messages).toHaveLength(0);
+    expect(result.messages).toEqual([
+      {
+        type: "tool_progress",
+        tool_use_id: "toolu_abc",
+        tool_name: "Bash",
+        elapsed_time_seconds: 12,
+        parent_tool_use_id: null,
+        ipc_version: 2,
+      },
+    ]);
     expect(result.gotResult).toBe(false);
+  });
+
+  test("tool_progress variants with no tool call are still swallowed (no unknown_event banner)", () => {
+    for (const event of [
+      { type: "tool_progress", heartbeat: true },
+      { type: "tool_progress", elapsed_time_seconds: 3 },
+      { type: "tool_progress", tool_use_id: "", elapsed_time_seconds: 3 },
+      { type: "tool_progress", tool_use_id: "toolu_abc" },
+    ]) {
+      const result = routeTopLevelEvent(event, baseCtx);
+      expect(result.messages).toHaveLength(0);
+      expect(result.gotResult).toBe(false);
+    }
   });
 
   test("unrecognized top-level type emits an unknown_event frame", () => {

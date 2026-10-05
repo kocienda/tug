@@ -283,6 +283,37 @@ pub enum Commands {
     #[command(subcommand)]
     Apptest(ApptestCommands),
 
+    /// The unit-test results ledger — every recorded suite run, and the
+    /// failures the last one named.
+    #[command(subcommand)]
+    Test(TestCommands),
+
+    /// Tell the block this command runs under how far it has got.
+    ///
+    /// Silent and always exits 0: a report that cannot be delivered changes
+    /// nothing about the command reporting it, and with no calling session
+    /// nothing is sent at all.
+    Progress {
+        /// The run's short name (`rust`, `app-test`).
+        #[arg(long)]
+        label: Option<String>,
+        /// Units finished so far.
+        #[arg(long)]
+        done: Option<u64>,
+        /// Units the run will finish in all.
+        #[arg(long)]
+        total: Option<u64>,
+        /// Failures so far.
+        #[arg(long)]
+        failures: Option<u64>,
+        /// Text the running command contains, for matching the report to it
+        /// when the session has several calls open.
+        #[arg(long = "needle")]
+        needles: Vec<String>,
+        /// The progress line.
+        text: String,
+    },
+
     /// This card's claude session — ask the wheel to seat a fresh one.
     #[command(subcommand)]
     Session(SessionCommands),
@@ -439,6 +470,79 @@ pub enum ReachCommands {
         /// Test files to answer for, as the report names them.
         #[arg(required = true, num_args = 1..)]
         files: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TestCommands {
+    /// Record one suite run from its junit document.
+    ///
+    /// The run is keyed under the project root of `--root` (default: cwd) and
+    /// that root's base checkout, so a run recorded from a subdirectory or an
+    /// arc worktree answers a read made at the checkout's root. A document
+    /// that is missing or unreadable still records the run, marked as having
+    /// no per-test record.
+    Record {
+        /// The suite's name, e.g. `tugdeck` or `rust`.
+        #[arg(long)]
+        suite: String,
+        /// The junit document the run wrote.
+        #[arg(long)]
+        junit: PathBuf,
+        /// Where the run happened (default: cwd).
+        #[arg(long)]
+        root: Option<PathBuf>,
+        /// The command's exit status (default: 0).
+        #[arg(long, default_value_t = 0)]
+        exit_code: i64,
+        /// When the run started, in epoch seconds (default: now).
+        #[arg(long)]
+        started_at: Option<i64>,
+        /// The command that ran, as text.
+        #[arg(long)]
+        command: Option<String>,
+    },
+    /// Run a test command, copying its output through, and record the run.
+    ///
+    /// The command's stdout and stderr pass through as they arrive and its
+    /// exit status is this verb's. Progress is followed from stderr, and at
+    /// exit the run's junit document is recorded, so `test last --failures`
+    /// names a red run's failures whatever happened to its output.
+    Run {
+        /// The suite's name in the ledger, e.g. `tugdeck` or `rust`.
+        #[arg(long)]
+        suite: String,
+        /// Which runner the command is.
+        #[arg(long, value_enum)]
+        kind: crate::test_run::RunKind,
+        /// The junit document the command writes (required for nextest; bun
+        /// is pointed at a temporary one).
+        #[arg(long)]
+        junit: Option<PathBuf>,
+        /// The label progress is shown under.
+        #[arg(long)]
+        label: Option<String>,
+        /// Text the running command contains, for matching progress to it.
+        #[arg(long = "needle")]
+        needles: Vec<String>,
+        /// The command to run.
+        #[arg(last = true, required = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
+    /// The latest recorded run of each suite, and the failures it named.
+    ///
+    /// Always exits 0: it is a reader, and "nothing recorded" is an answer.
+    Last {
+        /// Print only the failing tests, across suites.
+        #[arg(long)]
+        failures: bool,
+        /// Only this suite.
+        #[arg(long)]
+        suite: Option<String>,
+        /// The checkout to read for (default: cwd), resolved the same way a
+        /// run's root is.
+        #[arg(long)]
+        root: Option<PathBuf>,
     },
 }
 

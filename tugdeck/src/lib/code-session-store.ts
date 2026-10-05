@@ -38,6 +38,7 @@ import {
   PropertyStore,
 } from "@/components/tugways/property-store";
 import { FeedStore } from "@/lib/feed-store";
+import { RunProgressStore, type RunProgressFrame } from "@/lib/run-progress-store";
 import type { AtomSegment } from "./tug-atom-img";
 import { TUG_ATOM_CHAR } from "./tug-atom-img";
 import { hasLeadingCommandAtom } from "./command-atom";
@@ -488,6 +489,13 @@ export interface CodeSessionStoreOptions {
  */
 export class CodeSessionStore {
   readonly streamingDocument: PropertyStore;
+  /**
+   * Live progress for running tool calls — the engine's `tool_progress`
+   * heartbeat and the command's own `run_progress` reports. Diverted out of
+   * the frame stream before the reducer, because neither is part of the
+   * session's record and a heartbeat a second must not rebuild the snapshot.
+   */
+  readonly runProgress = new RunProgressStore();
 
   private readonly conn: TugConnection;
   private readonly lifecycle: ConnectionLifecycle;
@@ -698,6 +706,7 @@ export class CodeSessionStore {
     this._lifecycleUnsubs.push(
       this.lifecycle.observeConnectionDidClose(() => {
         if (this._disposed) return;
+        this.runProgress.clear();
         this.dispatch({ type: "transport_close" });
       }),
     );
@@ -2050,6 +2059,7 @@ export class CodeSessionStore {
    * post-filter and need no `tug_session_id` of their own.
    */
   private routeFrame(feedId: number, value: unknown): void {
+    if (feedId === FeedId.CODE_OUTPUT && this.divertProgress(value)) return;
     if (
       feedId === FeedId.CODE_OUTPUT &&
       (value as { type?: string }).type === "replay_batch"
@@ -2057,6 +2067,7 @@ export class CodeSessionStore {
       const frames = (value as { frames?: unknown }).frames;
       if (Array.isArray(frames)) {
         for (const inner of frames) {
+          if (this.divertProgress(inner)) continue;
           const event = this.frameToEvent(feedId, inner);
           if (event !== null) this.dispatch(event, "wire");
         }
@@ -2065,6 +2076,41 @@ export class CodeSessionStore {
     }
     const event = this.frameToEvent(feedId, value);
     if (event !== null) this.dispatch(event, "wire");
+  }
+
+  /**
+   * Send a CODE_OUTPUT frame's live-progress meaning to {@link runProgress}.
+   * Returns true for the two progress frames, which the reducer never sees;
+   * a `tool_result` also closes its call here, and still goes on to the
+   * reducer.
+   */
+  private divertProgress(value: unknown): boolean {
+    const frame = value as { type?: string; tool_use_id?: unknown };
+    switch (frame.type) {
+      case "tool_progress": {
+        const elapsed = (value as { elapsed_time_seconds?: unknown })
+          .elapsed_time_seconds;
+        if (typeof frame.tool_use_id === "string" && typeof elapsed === "number") {
+          this.runProgress.applyHeartbeat(frame.tool_use_id, elapsed, Date.now());
+        }
+        return true;
+      }
+      case "run_progress":
+        this.runProgress.applyReport(
+          value as RunProgressFrame,
+          Date.now(),
+          (id) =>
+            this.state.jobs.some((j) => j.toolUseId === id && j.status === "running"),
+        );
+        return true;
+      case "tool_result":
+        if (typeof frame.tool_use_id === "string") {
+          this.runProgress.close(frame.tool_use_id);
+        }
+        return false;
+      default:
+        return false;
+    }
   }
 
   private frameToEvent(

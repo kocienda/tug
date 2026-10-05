@@ -64,6 +64,9 @@ tugcore = { path = "crates/tugcore" }
 rusqlite = { version = "0.33", features = ["bundled"] }
 sha2 = "0.10"
 
+# JUnit documents (the test results ledger)
+roxmltree = "0.21"
+
 # Internal crates
 tugtool-core = { path = "crates/tugtool-core" }
 tuggram = { path = "crates/tuggram" }

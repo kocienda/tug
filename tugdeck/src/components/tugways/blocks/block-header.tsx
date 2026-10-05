@@ -62,15 +62,27 @@ import {
   useLiveTick,
   formatTimeMinutesSeconds,
 } from "@/components/tugways/cards/session-card-telemetry-renderers";
-import { useToolCallMeta } from "./collapse-context";
+import { useToolCallMeta, type ToolCallMeta } from "./collapse-context";
+import { useRunProgress } from "./run-progress-context";
+import { engineLiveness, liveElapsedMs } from "@/lib/run-progress-store";
 
 /**
- * Live elapsed clock for an in-flight tool call. Reads the call's start
- * from the ambient {@link useToolCallMeta} (provided once by the
- * transcript renderer — no per-block plumbing) and ticks via the shared
- * 1 Hz {@link useLiveTick}. Mounted by the header ONLY while the call is
- * in flight, so a resting/committed block pays no clock; renders nothing
- * outside a provider (standalone / gallery mounts).
+ * The header's timing slot while a tool call is in flight: a live elapsed
+ * clock, ticked by the shared 1 Hz {@link useLiveTick}. Mounted by
+ * {@link HeaderTiming} ONLY on the in-flight branch, so a resting/committed
+ * block pays no tick.
+ *
+ * The reading is the engine's own when it supplies one: each `tool_progress`
+ * heartbeat carries the call's elapsed seconds, and the clock carries that
+ * reading forward from the heartbeat's arrival ({@link liveElapsedMs}). With
+ * no heartbeat it counts from the call's start ({@link ToolCallMeta.startedAtMs}),
+ * which after a reload mid-run is the replayed `createdAt` — so the
+ * engine's reading is what makes a reloaded clock right.
+ *
+ * The span carries `data-engine="live"` while the last heartbeat is under
+ * ten seconds old, `"quiet"` once heartbeats were seen and stopped, and
+ * nothing when none ever arrived ({@link engineLiveness}). It is derived in
+ * the render the tick already causes, and CSS styles it [L06].
  *
  * Formatting mirrors the Z2 status row's TIME cell exactly
  * ({@link formatTimeMinutesSeconds}): whole seconds only — the 1 Hz tick
@@ -78,11 +90,25 @@ import { useToolCallMeta } from "./collapse-context";
  * seconds for a width-stable read under ten minutes. Tabular figures and
  * the `sm` badge size come from the wrapping badge / CSS.
  */
-function ToolElapsedClock(): React.ReactElement | null {
-  const meta = useToolCallMeta();
+function InFlightTiming({ meta }: { meta: ToolCallMeta }): React.ReactElement {
   const now = useLiveTick();
-  if (meta === null) return null;
-  return <>{formatTimeMinutesSeconds(Math.max(0, now - meta.startedAtMs))}</>;
+  const progress = useRunProgress(meta.toolUseId);
+  return (
+    <span
+      className="tool-call-header-timing tug-line-box"
+      data-slot="tool-call-header-elapsed"
+      data-engine={engineLiveness(progress, now) ?? undefined}
+    >
+      <TugBadge
+        emphasis="ghost"
+        role="inherit"
+        size="sm"
+        className="tool-call-header-timing-badge"
+      >
+        {formatTimeMinutesSeconds(liveElapsedMs(meta.startedAtMs, progress, now))}
+      </TugBadge>
+    </span>
+  );
 }
 
 /**
@@ -103,13 +129,13 @@ function formatToolWallTime(ms: number): string {
 /**
  * The header's timing section — its own pipe-delimited slot at the
  * trailing edge, right of the result summary. While the call is in flight
- * it shows the LIVE {@link ToolElapsedClock}; once it lands the clock
+ * it shows the LIVE {@link InFlightTiming}; once it lands the clock
  * freezes to the recorded wall time ({@link ToolCallMeta.toolWallMs}), so
  * a resting block still reports how long the call took — the same `0m 20s`
  * shape either way ({@link formatTimeMinutesSeconds}), so the value never
  * changes format when it freezes.
  *
- * The live tick lives inside {@link ToolElapsedClock}, mounted ONLY on the
+ * The live tick lives inside {@link InFlightTiming}, mounted ONLY on the
  * in-flight branch, so a committed/replayed block pays no 1 Hz re-render.
  * Renders nothing outside a provider (standalone / gallery) or when a call
  * has no recorded wall time (its turn ended before the result landed).
@@ -122,21 +148,7 @@ function HeaderTiming({
   const meta = useToolCallMeta();
   if (meta === null) return null;
   if (phase === "in_flight") {
-    return (
-      <span
-        className="tool-call-header-timing tug-line-box"
-        data-slot="tool-call-header-elapsed"
-      >
-        <TugBadge
-          emphasis="ghost"
-          role="inherit"
-          size="sm"
-          className="tool-call-header-timing-badge"
-        >
-          <ToolElapsedClock />
-        </TugBadge>
-      </span>
-    );
+    return <InFlightTiming meta={meta} />;
   }
   if (meta.toolWallMs === null) return null;
   return (

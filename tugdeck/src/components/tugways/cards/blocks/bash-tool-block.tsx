@@ -27,7 +27,11 @@
  *   - `status === "streaming"` → header still shows whatever input
  *     fragment has arrived (typically an empty `command` until
  *     enough of the input has streamed in); the body is `null` (the
- *     header dot is the in-flight signal).
+ *     header dot is the in-flight signal). Once the running command
+ *     reports its own progress (`tugtool progress`, `tugtool test
+ *     run`), the latest report rides the chrome's live band
+ *     ({@link BashLiveBand}) — between header and body, so it reads
+ *     while the block is collapsed.
  *   - `status === "ready"` → steady-state render.
  *   - `status === "error"` → chrome paints the error stripe, the
  *     plain-text `tool_result.output` (if any) renders as the inline
@@ -93,7 +97,9 @@ import {
 } from "@/components/tugways/body-kinds/commit-block";
 
 import { BlockChrome } from "../../blocks/block-chrome";
-import type { BlockNotice } from "../../blocks/block-notice";
+import { BlockNoticeBand, type BlockNotice } from "../../blocks/block-notice";
+import { useRunProgress } from "../../blocks/run-progress-context";
+import { formatRunProgressLine } from "@/lib/run-progress-store";
 import type { ToolResultSummary } from "../../blocks/tool-result-summary";
 import type { ToolBlockProps } from "../../blocks/types";
 
@@ -260,6 +266,22 @@ export function tryParseBashDiff(
   const hunks = parseUnifiedDiffText(text!);
   return hunks.length > 0 ? hunks : null;
 }
+
+/**
+ * The running command's latest progress report, as one line on the notice
+ * band's surface. It subscribes to its own call's entry, so a report a
+ * second re-renders this band and nothing else; with no report yet it
+ * renders nothing, and the block looks as it always has.
+ */
+export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => {
+  const progress = useRunProgress(toolUseId);
+  if (progress?.text === undefined) return null;
+  return (
+    <div data-slot="bash-live-band" className="bash-live-band">
+      <BlockNoticeBand tone="info" maxLines={1} text={formatRunProgressLine(progress)} />
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -465,6 +487,11 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
       phase={phase}
       caution={caution}
       notice={notice}
+      liveBand={
+        status === "streaming" && !preview ? (
+          <BashLiveBand toolUseId={toolUseId} />
+        ) : undefined
+      }
       footerBadges={footerBadges}
     >
       {body}

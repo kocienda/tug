@@ -898,6 +898,8 @@ pub async fn run_session_bridge(
             // produce its `task_started`, so the entry holding the session
             // busy has nothing left that could ever close it.
             entry.open_jobs.clear();
+            // And no call it was running can report any more.
+            entry.open_runs.clear();
         }
 
         match outcome {

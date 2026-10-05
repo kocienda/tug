@@ -1636,6 +1636,23 @@ pub(crate) fn post_instance_api(
     subject: &str,
     body: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let ports = instance_ports();
+    if ports.is_empty() {
+        return Err(format!(
+            "{subject} goes through a running Tug instance, but none was found"
+        ));
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into();
+    walk_instances(&agent, ports, path, body)
+}
+
+/// Every live instance's tugcast port, the cwd's own instance first
+/// (`find_for_cwd` reaches through an arc worktree to its main checkout, so
+/// it is usually the one that answers).
+pub(crate) fn instance_ports() -> Vec<u16> {
     let mut ports: Vec<u16> = Vec::new();
     if let Ok(Some(instance)) = std::env::current_dir()
         .map_err(|_| ())
@@ -1648,20 +1665,45 @@ pub(crate) fn post_instance_api(
             ports.push(instance.tugcast_port);
         }
     }
-    if ports.is_empty() {
-        return Err(format!(
-            "{subject} goes through a running Tug instance, but none was found"
-        ));
-    }
+    ports
+}
 
-    // A non-2xx must stay readable: `unknown_session` arrives as a 404 whose
-    // *body* is the answer the loop branches on, and ureq's default turns a
-    // non-2xx into an error that discards it.
+/// How long one bounded POST may take, connect to last byte.
+const BOUNDED_POST: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// [`post_instance_api`]'s twin for telemetry: the same walk and the same
+/// reading of its answers, with every request bounded by [`BOUNDED_POST`].
+///
+/// For a caller that reports while something else runs — a progress line
+/// posted from inside a test recipe — where an instance that accepts the
+/// connection and never answers would otherwise stall the recipe it rides.
+pub(crate) fn post_instance_api_bounded(
+    path: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let ports = instance_ports();
+    if ports.is_empty() {
+        return Err("no running Tug instance was found".to_string());
+    }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        .timeout_global(Some(BOUNDED_POST))
         .build()
         .into();
+    walk_instances(&agent, ports, path, body)
+}
 
+/// POST `body` to each port in turn and stop at the first `{"status":"ok"}`.
+///
+/// The agent must not treat a non-2xx as an error: `unknown_session` arrives
+/// as a 404 whose *body* is the answer the loop branches on, and ureq's
+/// default turns a non-2xx into an error that discards it.
+fn walk_instances(
+    agent: &ureq::Agent,
+    ports: Vec<u16>,
+    path: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let mut last_error = None;
     // **A refusal outranks a shrug.** `unknown_session` is one instance
     // saying "not mine, keep walking"; anything else is the instance that

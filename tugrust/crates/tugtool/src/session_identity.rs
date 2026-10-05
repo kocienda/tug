@@ -23,7 +23,7 @@
 //! try-each-instance POST the binding verbs use, at `POST /api/session`
 //! `{op: "resolve"}`.
 
-use crate::arc::post_instance_api;
+use crate::arc::{post_instance_api, post_instance_api_bounded};
 
 /// A resolved calling session: what was posted, what it resolved to, and
 /// enough of the ledger's answer to write a sentence about either.
@@ -200,6 +200,29 @@ pub(crate) fn ask_about_calling_session(
     }
     Some(post_instance_api("/api/session", subject, body))
 }
+
+/// [`ask_about_calling_session`]'s bounded twin, for telemetry: tell the
+/// owning instance something about the calling session, with every POST
+/// bounded so a hung instance cannot stall whatever is reporting.
+///
+/// The same opening as its twin and on the same terms — the op resolves the
+/// posted id at its own door, and the raw id never leaves this module. The
+/// outer `None` is "no calling session"; the inner `Err` is every way the
+/// walk did not get an `ok`, which a telemetry caller drops.
+pub(crate) fn tell_calling_session(
+    op: &str,
+    fields: serde_json::Value,
+) -> Option<Result<serde_json::Value, String>> {
+    let posted = posted_session_id()?;
+    let mut body = serde_json::json!({ "op": op, "tug_session_id": posted });
+    if let (Some(target), Some(extra)) = (body.as_object_mut(), fields.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    Some(post_instance_api_bounded("/api/session", body))
+}
+
 /// Ask the instance that owns the line. Walks every live instance, exactly as
 /// a binding write does: `sessions.db` is per-instance, so the first machine
 /// to answer is not always the right one.

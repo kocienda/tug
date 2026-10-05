@@ -159,6 +159,11 @@ import {
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
+import {
+  formatRunProgressLine,
+  type RunProgressStore,
+} from "@/lib/run-progress-store";
+import { useRunProgressFrom } from "@/components/tugways/blocks/run-progress-context";
 
 // ---------------------------------------------------------------------------
 // Cross-popover callback contract
@@ -1037,6 +1042,64 @@ function JobMetaSep(): React.ReactElement {
 }
 
 /**
+ * A running job's latest progress report, appended to its row's meta line.
+ * A component rather than a hook in the row, because only running rows
+ * read it and a hook cannot be conditional.
+ */
+function JobRunProgress({
+  store,
+  toolUseId,
+}: {
+  store: RunProgressStore | undefined;
+  toolUseId: string;
+}): React.ReactElement | null {
+  const progress = useRunProgressFrom(store, toolUseId);
+  if (progress?.text === undefined) return null;
+  return (
+    <>
+      <JobMetaSep />
+      <span
+        className="session-jobs-popover-run-progress"
+        data-slot="session-jobs-popover-run-progress"
+      >
+        {formatRunProgressLine(progress)}
+      </span>
+    </>
+  );
+}
+
+/** How long a report no call claimed stays on the placard. */
+const LIVE_RUN_FRESH_MS = 120_000;
+
+/**
+ * The card's latest report that no call claimed — a run tugcast could not
+ * tie to one block — while it is fresh. Freshness is read at render, so a
+ * stale line is simply not drawn the next time the placard renders.
+ */
+function LiveRunLine({
+  store,
+}: {
+  store: RunProgressStore | undefined;
+}): React.ReactElement | null {
+  const progress = useRunProgressFrom(store, null);
+  if (
+    progress?.text === undefined ||
+    progress.reportAtMs === undefined ||
+    Date.now() - progress.reportAtMs >= LIVE_RUN_FRESH_MS
+  ) {
+    return null;
+  }
+  return (
+    <div
+      className="session-jobs-popover-live-run"
+      data-slot="session-jobs-popover-live-run"
+    >
+      {formatRunProgressLine(progress)}
+    </div>
+  );
+}
+
+/**
  * One row of the Jobs popup — a status dot beside a two-line text
  * block (description above a muted meta line: the launching turn's
  * clickable `#a{turn}` address, the job kind, and the elapsed time),
@@ -1057,6 +1120,7 @@ function JobRow({
   onStopJob,
   onCancelScheduledWork,
   onStopLoop,
+  runProgress,
 }: {
   job: JobItem;
   transcript: ReadonlyArray<TurnEntry>;
@@ -1071,6 +1135,8 @@ function JobRow({
    * omitted, wakeup rows render no action (the historical shape).
    */
   onStopLoop?: (jobId: string) => void;
+  /** The session's live run progress, for a running row's report. */
+  runProgress?: RunProgressStore;
 }): React.ReactElement {
   const description = jobDescriptionText(job.description);
   // The job launched from an assistant turn's `tool_use`; link its
@@ -1124,6 +1190,9 @@ function JobRow({
             {job.progress.lastToolName}
           </span>
         </>
+      ) : null}
+      {job.status === "running" ? (
+        <JobRunProgress store={runProgress} toolUseId={job.toolUseId} />
       ) : null}
       {wakeBadge !== null ? (
         <TugBadge emphasis="tinted" role="danger" size="2xs">
@@ -1233,6 +1302,7 @@ export function JobsPopoverContent({
   onCancelScheduledWork,
   onStopLoop,
   onClearJobs,
+  runProgress,
 }: {
   goal: GoalState | null;
   /** Clear is gated to idle (a live goal run is stopped via interrupt). */
@@ -1249,9 +1319,16 @@ export function JobsPopoverContent({
   onCancelScheduledWork?: (jobId: string) => void;
   onStopLoop?: (jobId: string) => void;
   onClearJobs?: () => void;
+  /**
+   * The session's live run progress: each running job's latest report, and
+   * the card's report no call claimed. Optional — a surface without one
+   * shows neither.
+   */
+  runProgress?: RunProgressStore;
 }): React.ReactElement {
   const hasGoal = goal !== null;
   const hasJobs = jobs.length > 0;
+  const liveRun = <LiveRunLine store={runProgress} />;
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   // Row order is goal, running, scheduled, finished, and jobs append within
   // each group. So a surface with anything live on it already opens on its
@@ -1267,6 +1344,7 @@ export function JobsPopoverContent({
   if (!hasGoal && !hasJobs) {
     return (
       <TugPopupListFrame kind="item">
+        {liveRun}
         <TugPopupListEmpty form="word">None</TugPopupListEmpty>
       </TugPopupListFrame>
     );
@@ -1282,6 +1360,7 @@ export function JobsPopoverContent({
       onStopJob={onStopJob}
       onCancelScheduledWork={onCancelScheduledWork}
       onStopLoop={onStopLoop}
+      runProgress={runProgress}
     />
   );
   const group = (
@@ -1366,6 +1445,7 @@ export function JobsPopoverContent({
         ref={scrollerRef}
         data-slot="session-jobs-popover-body"
       >
+        {liveRun}
         {group("Goal", goalRow, goalRow === null)}
         {group(
           "Running",

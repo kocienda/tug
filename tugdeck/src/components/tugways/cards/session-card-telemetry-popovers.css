@@ -305,6 +305,27 @@
   white-space: nowrap;
 }
 
+/* A running job's latest progress report (`tugtool progress`, `tugtool test
+   run`) — live activity, so it reads like the agent's last tool beside it.
+   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-jobs-popover-run-progress {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The card's latest report no call claimed: one clipped line above the
+   groups.
+   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-jobs-popover-live-run {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ============================================================================
    Arc — the cockpit detail's header block
    ========================================================================= */

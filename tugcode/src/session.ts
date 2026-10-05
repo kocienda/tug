@@ -34,6 +34,7 @@ import type {
   CompactBoundary,
   ApiRetry,
   RateLimitEvent,
+  ToolProgress,
   ControlRequestForward,
   ControlRequestCancel,
   ReplayComplete,
@@ -2323,13 +2324,30 @@ export function routeTopLevelEvent(
       // Top-level progress/heartbeat telemetry the engine yields while a
       // long-running tool executes: `bash_progress` / `powershell_progress`
       // (elapsed_time_seconds + task_id), `repl_call`, `heartbeat:true`, and
-      // subagent-retry frames. None carries tool output — they exist only to
-      // report liveness — so there is nothing to render in the Session card.
-      // Streaming tool input already flows through `tool_input_progress`, and
-      // subagent progress through the `system/task_progress` path; claude's own
-      // SDK adapter ignores the heartbeat/subagent-retry variants. Swallow it
-      // so it does not fall into the `unknown_event` default and raise a
+      // subagent-retry frames. None carries tool output.
+      //
+      // The tool-call shape — a `tool_use_id` and an `elapsed_time_seconds` —
+      // is forwarded as a `tool_progress` IPC message: it is the one thing
+      // that is true about a running Bash call while it runs, since the
+      // call's output arrives only in its `tool_result`, and the deck ticks
+      // the running block's clock from it. Every other variant is swallowed
+      // (claude's own SDK adapter ignores the heartbeat and subagent-retry
+      // frames), so none falls into the `unknown_event` default and raises a
       // spurious "Unsupported event" banner downstream.
+      const toolUseId = event.tool_use_id;
+      const elapsed = event.elapsed_time_seconds;
+      if (typeof toolUseId === "string" && toolUseId !== "" && typeof elapsed === "number") {
+        const msg: ToolProgress = {
+          type: "tool_progress",
+          tool_use_id: toolUseId,
+          tool_name: typeof event.tool_name === "string" ? event.tool_name : "",
+          elapsed_time_seconds: elapsed,
+          parent_tool_use_id:
+            typeof event.parent_tool_use_id === "string" ? event.parent_tool_use_id : null,
+          ipc_version: 2,
+        };
+        messages.push(msg);
+      }
       break;
     }
 

@@ -562,6 +562,15 @@ pub struct LedgerEntry {
     /// launched inside — [`AgentSupervisor::end_step_jobs`], because a job
     /// whose step is over has nothing left to report to (brief [B01]).
     pub open_jobs: std::collections::BTreeMap<String, OpenJob>,
+    /// The Bash calls a running command's progress report may belong to,
+    /// keyed by `tool_use_id` ([`OpenRun`] has the lifecycle).
+    ///
+    /// A report posted through `/api/session` names its session but not its
+    /// call — a shell command cannot know the id of the call that ran it — so
+    /// [`AgentSupervisor::publish_run_progress`] matches it against this map
+    /// and attaches it to a block only when exactly one run fits. Capped at
+    /// [`OPEN_RUNS_CAP`], oldest out first.
+    pub open_runs: std::collections::BTreeMap<String, OpenRun>,
     /// Notified at exactly the edges where [`LedgerEntry::is_quiet`] can
     /// become true, so a waiter watches the session rather than polling it
     /// ([P05]).
@@ -716,6 +725,7 @@ impl LedgerEntry {
             turn_cancelled: false,
             step_closed_this_turn: None,
             open_jobs: std::collections::BTreeMap::new(),
+            open_runs: std::collections::BTreeMap::new(),
             quiesced: Arc::new(tokio::sync::Notify::new()),
             input_tx: None,
             cancel: CancellationToken::new(),
@@ -741,6 +751,43 @@ impl LedgerEntry {
     /// `task_started` that confirms it.
     pub fn is_quiet(&self) -> bool {
         !self.turn_active && self.open_jobs.is_empty()
+    }
+
+    /// Which open run a progress report belongs to, by Spec S05's rules:
+    /// an exact id that names a candidate, else the one candidate, else the
+    /// one candidate whose command holds a needle — else `None`, which the
+    /// caller publishes card-level rather than guess.
+    ///
+    /// A candidate is a foreground run, or a background run whose job is
+    /// still open. A background run whose job is gone leaves the map here, as
+    /// it is found: this read is the one place that liveness is asked.
+    pub fn attach_run(&mut self, tool_use_id: Option<&str>, needles: &[String]) -> Option<String> {
+        let open_jobs = &self.open_jobs;
+        self.open_runs.retain(|id, run| {
+            !run.background
+                || open_jobs.contains_key(&launch_key(id))
+                || run
+                    .task_id
+                    .as_ref()
+                    .is_some_and(|task| open_jobs.contains_key(task))
+        });
+        if let Some(id) = tool_use_id
+            && self.open_runs.contains_key(id)
+        {
+            return Some(id.to_owned());
+        }
+        if self.open_runs.len() == 1 {
+            return self.open_runs.keys().next().cloned();
+        }
+        let mut matched = self.open_runs.iter().filter(|(_, run)| {
+            needles
+                .iter()
+                .any(|needle| !needle.is_empty() && run.command.contains(needle.as_str()))
+        });
+        match (matched.next(), matched.next()) {
+            (Some((id, _)), None) => Some(id.clone()),
+            _ => None,
+        }
     }
 
     /// Drop every open job whose stamp has gone stale with the turn ended —
@@ -3634,6 +3681,119 @@ impl From<&str> for JobKind {
             other => JobKind::Other(other.to_ascii_lowercase()),
         }
     }
+}
+
+/// One entry in [`LedgerEntry::open_runs`]: a live Bash call a progress report
+/// can attach to.
+///
+/// It opens at a live (never replayed) Bash `tool_use`. A foreground run
+/// closes at its `tool_result`, and every foreground run left is dropped at
+/// the turn's end. A background run outlives its `tool_result`, because its
+/// command keeps going after the call has answered: it stays a candidate for
+/// as long as its job is open in [`LedgerEntry::open_jobs`] — under
+/// `launch:<tool_use_id>` and then under the `task_id` it was re-keyed to —
+/// and leaves the map the first time a match finds the job gone. The relay's
+/// teardown clears the map with the jobs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenRun {
+    /// The command as the call spelled it — what a report's needles match.
+    pub command: String,
+    /// When the call opened, in epoch ms; the eviction order past the cap.
+    pub opened_at_ms: i64,
+    pub background: bool,
+    /// The job's `task_id`, once its `task_started` confirmed it.
+    pub task_id: Option<String>,
+}
+
+/// The most open runs one session keeps; the oldest goes first.
+pub const OPEN_RUNS_CAP: usize = 64;
+
+/// A progress report a running command posted about itself, as the
+/// `/api/session` `run_progress` op received it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunProgressReport {
+    /// The call the reporter says it is running under, when it knows.
+    pub tool_use_id: Option<String>,
+    pub label: Option<String>,
+    pub text: String,
+    pub done: Option<u64>,
+    pub total: Option<u64>,
+    pub failures: Option<u64>,
+    /// Substrings of the command the reporter expects to be running under.
+    pub needles: Vec<String>,
+}
+
+/// A live Bash `tool_use`'s `(tool_use_id, OpenRun)`, or `None` for any other
+/// frame.
+fn parse_bash_run(payload: &[u8], now_ms: i64) -> Option<(String, OpenRun)> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    if value.get("type")?.as_str()? != "tool_use" || value.get("tool_name")?.as_str()? != "Bash" {
+        return None;
+    }
+    let tool_use_id = value.get("tool_use_id")?.as_str()?;
+    if tool_use_id.is_empty() {
+        return None;
+    }
+    let input = value.get("input");
+    let command = input
+        .and_then(|i| i.get("command"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("");
+    let background = input
+        .and_then(|i| i.get("run_in_background"))
+        .and_then(|b| b.as_bool())
+        == Some(true);
+    Some((
+        tool_use_id.to_owned(),
+        OpenRun {
+            command: command.to_owned(),
+            opened_at_ms: now_ms,
+            background,
+            task_id: None,
+        },
+    ))
+}
+
+/// The `tool_use_id` a `tool_result` answers, errored or not.
+fn parse_tool_result_id(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    if value.get("type")?.as_str()? != "tool_result" {
+        return None;
+    }
+    let tool_use_id = value.get("tool_use_id")?.as_str()?;
+    (!tool_use_id.is_empty()).then(|| tool_use_id.to_owned())
+}
+
+/// The Spec S03 `run_progress` CODE_OUTPUT payload for `live`, with
+/// `tug_session_id` spliced in as its first key and absent numbers omitted.
+fn run_progress_payload(
+    live: &str,
+    attached: Option<&str>,
+    report: &RunProgressReport,
+    at_ms: i64,
+) -> Vec<u8> {
+    let mut body = serde_json::Map::new();
+    body.insert("type".into(), "run_progress".into());
+    body.insert(
+        "tool_use_id".into(),
+        attached.map_or(serde_json::Value::Null, |id| id.into()),
+    );
+    if let Some(label) = &report.label {
+        body.insert("label".into(), label.clone().into());
+    }
+    body.insert("text".into(), report.text.clone().into());
+    for (key, value) in [
+        ("done", report.done),
+        ("total", report.total),
+        ("failures", report.failures),
+    ] {
+        if let Some(n) = value {
+            body.insert(key.into(), n.into());
+        }
+    }
+    body.insert("at_ms".into(), at_ms.into());
+    let bytes = serde_json::to_vec(&body).expect("a json object of plain values serializes");
+    splice_tug_session_id(&bytes, live)
 }
 
 /// The prefix that marks a provisional [`LedgerEntry::open_jobs`] key — one
@@ -12382,6 +12542,94 @@ impl AgentSupervisor {
         );
     }
 
+    /// Register a live Bash call as an [`OpenRun`], so a progress report its
+    /// command posts can find the block it belongs to (Spec S05).
+    ///
+    /// Replay-guarded like every fold here: a replayed call ran under a
+    /// session that is gone, and its command is not reporting.
+    pub(super) async fn record_run_open(&self, session_id: &TugSessionId, payload: &[u8]) {
+        let Some((tool_use_id, run)) = parse_bash_run(payload, crate::session_ledger::now_millis())
+        else {
+            return;
+        };
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(session_id).cloned()
+        };
+        let Some(entry_arc) = entry_arc else {
+            return;
+        };
+        let mut entry = entry_arc.lock().await;
+        if entry.replay_brackets_open != 0 {
+            return;
+        }
+        entry.open_runs.insert(tool_use_id, run);
+        while entry.open_runs.len() > OPEN_RUNS_CAP {
+            let oldest = entry
+                .open_runs
+                .iter()
+                .min_by_key(|(_, run)| run.opened_at_ms)
+                .map(|(id, _)| id.clone());
+            let Some(oldest) = oldest else { break };
+            entry.open_runs.remove(&oldest);
+        }
+    }
+
+    /// A call answered: a foreground run is over. A background run's call
+    /// answers at once while its command keeps going, so it stays, and
+    /// leaves when its job does.
+    pub(super) async fn close_run(&self, session_id: &TugSessionId, payload: &[u8]) {
+        let Some(tool_use_id) = parse_tool_result_id(payload) else {
+            return;
+        };
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(session_id).cloned()
+        };
+        let Some(entry_arc) = entry_arc else {
+            return;
+        };
+        let mut entry = entry_arc.lock().await;
+        if entry
+            .open_runs
+            .get(&tool_use_id)
+            .is_some_and(|run| !run.background)
+        {
+            entry.open_runs.remove(&tool_use_id);
+        }
+    }
+
+    /// Attach a running command's progress report to its block and publish
+    /// it on CODE_OUTPUT as a Spec S03 `run_progress` frame.
+    ///
+    /// Answers `(attached to a block, the call it attached to)`, or `None`
+    /// when `segment` has no ledger entry. A report no rule attaches is still
+    /// published, with a `null` id, as the card's line: a guessed block would
+    /// be worse than an honest card-level one ([P03]).
+    pub async fn publish_run_progress(
+        &self,
+        segment: &str,
+        report: RunProgressReport,
+    ) -> Option<(bool, Option<String>)> {
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(&TugSessionId::new(segment)).cloned()
+        }?;
+        let attached = entry_arc
+            .lock()
+            .await
+            .attach_run(report.tool_use_id.as_deref(), &report.needles);
+        let payload = run_progress_payload(
+            segment,
+            attached.as_deref(),
+            &report,
+            crate::session_ledger::now_millis(),
+        );
+        self.code_output
+            .publish_tagged(Frame::new(FeedId::CODE_OUTPUT, payload));
+        Some((attached.is_some(), attached))
+    }
+
     /// Close the provisional job of a launch whose `tool_result` came back
     /// errored, and answer whether that left the session **quiet**.
     ///
@@ -12513,8 +12761,10 @@ impl AgentSupervisor {
                 // entry's stamp moves onto the `task_id`, so the reaper
                 // clocks the job from the launch it actually began at rather
                 // than from its confirmation.
-                let launched = parse_task_started_launch_id(payload)
-                    .and_then(|id| entry.open_jobs.remove(&launch_key(&id)));
+                let launch_id = parse_task_started_launch_id(payload);
+                let launched = launch_id
+                    .as_ref()
+                    .and_then(|id| entry.open_jobs.remove(&launch_key(id)));
                 let Some(job) = launched else {
                     tracing::debug!(
                         target: "dev::ledger",
@@ -12527,6 +12777,11 @@ impl AgentSupervisor {
                     return false;
                 };
                 entry.open_jobs.insert(task.clone(), job);
+                // A background Bash run's progress reports stay attachable
+                // for as long as this job lives, under its new key.
+                if let Some(run) = launch_id.and_then(|id| entry.open_runs.get_mut(&id)) {
+                    run.task_id = Some(task.clone());
+                }
                 tracing::debug!(
                     target: "dev::ledger",
                     event = "job_opened",
@@ -12835,21 +13090,24 @@ impl AgentSupervisor {
                     // gate for a live frame.
                     if is_tool_use(&frame.payload) {
                         self.record_job_launch(&id, &frame.payload).await;
+                        self.record_run_open(&id, &frame.payload).await;
                     }
                     // The launch that never ran. A backgrounded call the
                     // PreToolUse gate denies answers with an errored
                     // `tool_result` and nothing else, so this is the only
                     // frame that can close the provisional job it opened.
-                    if is_tool_result(&frame.payload)
-                        && self.close_failed_launch(&id, &frame.payload).await
-                    {
-                        if let Some(tx) = self.turn_complete_tx.get() {
-                            let _ = tx.try_send(id.to_string());
+                    // Every answered call also closes its foreground run.
+                    if is_tool_result(&frame.payload) {
+                        self.close_run(&id, &frame.payload).await;
+                        if self.close_failed_launch(&id, &frame.payload).await {
+                            if let Some(tx) = self.turn_complete_tx.get() {
+                                let _ = tx.try_send(id.to_string());
+                            }
+                            if let Some(tx) = self.arc_tick_tx.get() {
+                                let _ = tx.try_send(id.to_string());
+                            }
+                            self.registry.changeset_all_bump().notify_one();
                         }
-                        if let Some(tx) = self.arc_tick_tx.get() {
-                            let _ = tx.try_send(id.to_string());
-                        }
-                        self.registry.changeset_all_bump().notify_one();
                     }
                     // A background agent's heartbeat — not a job edge, but it
                     // proves the job is alive, which is what keeps the reaper
@@ -12885,6 +13143,9 @@ impl AgentSupervisor {
                             } else if entry.replay_brackets_open == 0 {
                                 entry.turn_active = false;
                                 entry.turns_ended += 1;
+                                // A foreground call cannot outlive its turn;
+                                // only a background run's command can.
+                                entry.open_runs.retain(|_, run| run.background);
                                 // Split the count by what opened the turn. An
                                 // unrecorded opener — a turn inherited across a
                                 // restart — counts as a prompt, which is
@@ -21269,6 +21530,241 @@ mod tests {
                 "two turns ended and exactly one of them was asked for",
             );
         }
+
+        cancel.cancel();
+        let _ = merger_handle.await;
+    }
+
+    // ── open runs and their progress reports (Spec S05) ───────────────────
+
+    fn bash_use(id: &str, command: &str, background: bool) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "type": "tool_use",
+            "msg_id": "m1",
+            "seq": 1,
+            "tool_name": "Bash",
+            "tool_use_id": id,
+            "input": {"command": command, "run_in_background": background},
+            "ipc_version": 2,
+        }))
+        .unwrap()
+    }
+
+    fn tool_result_for(id: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "type": "tool_result",
+            "tool_use_id": id,
+            "output": "",
+            "is_error": false,
+        }))
+        .unwrap()
+    }
+
+    fn report(needles: &[&str]) -> RunProgressReport {
+        RunProgressReport {
+            label: Some("rust".into()),
+            text: "compiling tugcast".into(),
+            done: Some(3),
+            needles: needles.iter().map(|n| (*n).to_owned()).collect(),
+            ..RunProgressReport::default()
+        }
+    }
+
+    /// The published frame, parsed, after its raw bytes are checked to lead
+    /// with the session id as `SessionScopedFeed` frames require.
+    fn next_run_progress(rx: &mut broadcast::Receiver<Frame>, live: &str) -> serde_json::Value {
+        let frame = rx.try_recv().expect("a run_progress frame was published");
+        assert_eq!(frame.feed_id, FeedId::CODE_OUTPUT);
+        let lead = format!("{{\"tug_session_id\":\"{live}\"");
+        assert!(
+            frame.payload.starts_with(lead.as_bytes()),
+            "{}",
+            String::from_utf8_lossy(&frame.payload)
+        );
+        serde_json::from_slice(&frame.payload).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_report_attaches_to_the_one_live_bash_call() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-run");
+        insert_ledger_entry(&sup, &id).await;
+        let mut code_rx = sup.code_output.subscribe();
+
+        sup.record_run_open(&id, &bash_use("toolu_X", "just test", false))
+            .await;
+        let answer = sup.publish_run_progress("sess-run", report(&[])).await;
+        assert_eq!(answer, Some((true, Some("toolu_X".to_owned()))));
+
+        let frame = next_run_progress(&mut code_rx, "sess-run");
+        assert_eq!(frame["type"], "run_progress");
+        assert_eq!(frame["tool_use_id"], "toolu_X");
+        assert_eq!(frame["label"], "rust");
+        assert_eq!(frame["text"], "compiling tugcast");
+        assert_eq!(frame["done"], 3);
+        assert!(
+            frame.get("total").is_none() && frame.get("failures").is_none(),
+            "absent numbers are omitted, not null: {frame}"
+        );
+        assert!(frame["at_ms"].as_i64().is_some());
+    }
+
+    #[tokio::test]
+    async fn needles_pick_one_of_two_runs_and_a_miss_goes_to_the_card() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-two");
+        insert_ledger_entry(&sup, &id).await;
+        let mut code_rx = sup.code_output.subscribe();
+        sup.record_run_open(&id, &bash_use("toolu_T", "just test", false))
+            .await;
+        sup.record_run_open(&id, &bash_use("toolu_S", "sleep 30", false))
+            .await;
+
+        let answer = sup
+            .publish_run_progress("sess-two", report(&["just test"]))
+            .await;
+        assert_eq!(answer, Some((true, Some("toolu_T".to_owned()))));
+        assert_eq!(
+            next_run_progress(&mut code_rx, "sess-two")["tool_use_id"],
+            "toolu_T"
+        );
+
+        let answer = sup
+            .publish_run_progress("sess-two", report(&["cargo nextest"]))
+            .await;
+        assert_eq!(answer, Some((false, None)));
+        assert!(
+            next_run_progress(&mut code_rx, "sess-two")["tool_use_id"].is_null(),
+            "two runs and no needle between them: the card, never a guess"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_exact_id_wins_over_a_needle_match_on_another_run() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-exact");
+        insert_ledger_entry(&sup, &id).await;
+        sup.record_run_open(&id, &bash_use("toolu_T", "just test", false))
+            .await;
+        sup.record_run_open(&id, &bash_use("toolu_S", "sleep 30", false))
+            .await;
+
+        let exact = RunProgressReport {
+            tool_use_id: Some("toolu_S".into()),
+            ..report(&["just test"])
+        };
+        let answer = sup.publish_run_progress("sess-exact", exact).await;
+        assert_eq!(answer, Some((true, Some("toolu_S".to_owned()))));
+    }
+
+    /// A backgrounded call answers at once and its command keeps going, so
+    /// its run stays attachable for as long as its job is open — under the
+    /// launch key, then under the task id — and goes card-level after.
+    #[tokio::test]
+    async fn a_background_run_outlives_its_result_until_its_job_ends() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-bgrun");
+        let entry = insert_ledger_entry(&sup, &id).await;
+        let launch = bash_use("toolu_B", "just test", true);
+        sup.record_job_launch(&id, &launch).await;
+        sup.record_run_open(&id, &launch).await;
+        sup.close_run(&id, &tool_result_for("toolu_B")).await;
+
+        let answer = sup.publish_run_progress("sess-bgrun", report(&[])).await;
+        assert_eq!(
+            answer,
+            Some((true, Some("toolu_B".to_owned()))),
+            "attachable under `launch:toolu_B`"
+        );
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"tb","tool_use_id":"toolu_B","description":"just test","task_type":"local_bash","ipc_version":2}"#;
+        sup.apply_job_edge(&id, started).await;
+        assert_eq!(
+            entry.lock().await.open_runs["toolu_B"].task_id.as_deref(),
+            Some("tb")
+        );
+        let answer = sup.publish_run_progress("sess-bgrun", report(&[])).await;
+        assert_eq!(
+            answer,
+            Some((true, Some("toolu_B".to_owned()))),
+            "attachable under its task id"
+        );
+
+        let completed = br#"{"type":"task_updated","session_id":"c","task_id":"tb","status":"completed","ipc_version":2}"#;
+        sup.apply_job_edge(&id, completed).await;
+        let answer = sup.publish_run_progress("sess-bgrun", report(&[])).await;
+        assert_eq!(answer, Some((false, None)));
+        assert!(
+            entry.lock().await.open_runs.is_empty(),
+            "a run whose job ended is pruned as it is found"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replayed_bash_call_registers_no_run() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-replay-run");
+        let entry = insert_ledger_entry(&sup, &id).await;
+        entry.lock().await.replay_brackets_open = 1;
+        sup.record_run_open(&id, &bash_use("toolu_R", "just test", false))
+            .await;
+        assert!(entry.lock().await.open_runs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_report_for_a_session_with_no_entry_publishes_nothing() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let mut code_rx = sup.code_output.subscribe();
+        assert_eq!(sup.publish_run_progress("nobody", report(&[])).await, None);
+        assert!(code_rx.try_recv().is_err());
+    }
+
+    /// Through the merger: a call's result closes its foreground run, and the
+    /// turn's end drops every foreground run still open — a background run's
+    /// command outlives both.
+    #[tokio::test]
+    async fn the_merger_opens_and_closes_runs_and_the_turn_end_drops_the_foreground() {
+        let ((sup, _state_rx, _meta_rx, _control_rx), register_rx) =
+            make_supervisor_with_spawner(stall_spawner_factory());
+        let sup = Arc::new(sup);
+        let cancel = CancellationToken::new();
+        let merger_handle = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+
+        let id = TugSessionId::new("sess-merge-run");
+        let entry_arc = insert_ledger_entry(&sup, &id).await;
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
+        let send = |payload: Vec<u8>| {
+            let tx = tx.clone();
+            async move {
+                let tagged = splice_tug_session_id(&payload, "sess-merge-run");
+                tx.send(Frame::new(FeedId::CODE_OUTPUT, tagged))
+                    .await
+                    .unwrap();
+            }
+        };
+
+        send(bash_use("toolu_A", "just test", false)).await;
+        send(bash_use("toolu_F", "sleep 30", false)).await;
+        send(bash_use("toolu_B", "just app-test", true)).await;
+        send(tool_result_for("toolu_A")).await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move {
+                let entry = entry_arc.lock().await;
+                entry.open_runs.len() == 2 && !entry.open_runs.contains_key("toolu_A")
+            }
+        })
+        .await;
+
+        send(br#"{"type":"turn_complete","msg_id":"m","seq":2}"#.to_vec()).await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.turns_ended == 1 }
+        })
+        .await;
+        let keys: Vec<String> = entry_arc.lock().await.open_runs.keys().cloned().collect();
+        assert_eq!(keys, vec!["toolu_B".to_owned()]);
 
         cancel.cancel();
         let _ = merger_handle.await;

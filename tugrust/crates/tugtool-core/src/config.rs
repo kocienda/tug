@@ -569,7 +569,7 @@ pub fn find_project_root() -> Result<PathBuf, TugError> {
 /// enclosing git checkout is the project: a project that declares nothing has
 /// no `.tugtool/` at all, and `load_from_project` already answers for it with
 /// the defaults. Only a directory inside neither is uninitialized.
-pub(crate) fn find_project_root_from(start: PathBuf) -> Result<PathBuf, TugError> {
+pub fn find_project_root_from(start: PathBuf) -> Result<PathBuf, TugError> {
     let mut current = start;
     let mut checkout: Option<PathBuf> = None;
     loop {

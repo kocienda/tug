@@ -12,9 +12,12 @@ mod draft;
 mod host;
 mod output;
 mod plan;
+mod progress;
 mod session;
 mod session_identity;
 mod splash;
+mod test_ledger_cli;
+mod test_run;
 
 use std::process::ExitCode;
 
@@ -136,6 +139,58 @@ fn main() -> ExitCode {
                 cli::ReachCommands::Show { root, files } => apptest::run_reach_show(root, files),
             },
         }),
+
+        // The unit-test results ledger.
+        Some(Commands::Test(cmd)) => changes::finish(match cmd {
+            cli::TestCommands::Record {
+                suite,
+                junit,
+                root,
+                exit_code,
+                started_at,
+                command,
+            } => test_ledger_cli::run_record(suite, junit, root, exit_code, started_at, command),
+            cli::TestCommands::Run {
+                suite,
+                kind,
+                junit,
+                label,
+                needles,
+                command,
+            } => test_run::run(test_run::RunArgs {
+                suite,
+                kind,
+                junit,
+                label,
+                needles,
+                command,
+            }),
+            cli::TestCommands::Last {
+                failures,
+                suite,
+                root,
+            } => test_ledger_cli::run_last(failures, suite, root, json),
+        }),
+
+        // A running command's progress line. Telemetry: silent, always 0.
+        Some(Commands::Progress {
+            label,
+            done,
+            total,
+            failures,
+            needles,
+            text,
+        }) => {
+            progress::run(progress::RunReport {
+                label,
+                text,
+                done,
+                total,
+                failures,
+                needles,
+            });
+            ExitCode::SUCCESS
+        }
     }
 }
 

@@ -934,7 +934,8 @@ fn apply_arc_request(
 /// vocabulary ([P03]).
 #[derive(serde::Deserialize)]
 struct SessionApiRequest {
-    /// `rotate` | `rotate_cancel` | `resolve` | `step_closed` | `turn_facts`.
+    /// `rotate` | `rotate_cancel` | `resolve` | `step_closed` | `turn_facts` |
+    /// `run_progress`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -957,6 +958,25 @@ struct SessionApiRequest {
     /// `step_closed`: the step the calling turn just closed.
     #[serde(default)]
     step: Option<u32>,
+    /// `run_progress`: the call the reporter says it runs under, when it knows.
+    #[serde(default)]
+    tool_use_id: Option<String>,
+    /// `run_progress`: the run's short name (`rust`, `app-test`).
+    #[serde(default)]
+    label: Option<String>,
+    /// `run_progress`: the progress line itself. Required.
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    done: Option<u64>,
+    #[serde(default)]
+    total: Option<u64>,
+    #[serde(default)]
+    failures: Option<u64>,
+    /// `run_progress`: substrings of the command the reporter expects to be
+    /// running under, for the attachment's needle rule.
+    #[serde(default)]
+    needles: Option<Vec<String>>,
 }
 
 /// Why a `resolve` could not answer, in the vocabulary the CLI's
@@ -1119,6 +1139,63 @@ async fn session_handler(
                 &format!("session task failed: {e}"),
             ),
         };
+    }
+
+    // ── A running command's progress report ───────────────────────────────
+    //
+    // Its own block rather than a third name in the turn-boundary `matches!`
+    // below: that block reads `arc_is_running` for every op it handles, and
+    // this one arrives about once a second for as long as a run lasts and
+    // never needs it. It resolves the posted id at its own door like the rest
+    // ([P01]), and an id with no live segment here is `unknown_session`, so
+    // the reporter's walk goes on to the next instance.
+    if req.op == "run_progress" {
+        let Some(text) = req.text.clone() else {
+            return err(StatusCode::BAD_REQUEST, "run_progress names its text");
+        };
+        let live = {
+            let ledger = Arc::clone(&ledger);
+            let posted = session_id.clone();
+            match tokio::task::spawn_blocking(move || {
+                ledger.live_segment_of(&posted).ok().flatten()
+            })
+            .await
+            {
+                Ok(live) => live,
+                Err(e) => {
+                    return err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("session task failed: {e}"),
+                    );
+                }
+            }
+        };
+        let Some(live) = live else {
+            return err(StatusCode::NOT_FOUND, "unknown_session");
+        };
+        let report = crate::feeds::agent_supervisor::RunProgressReport {
+            tool_use_id: req.tool_use_id.clone().filter(|id| !id.is_empty()),
+            label: req.label.clone(),
+            text,
+            done: req.done,
+            total: req.total,
+            failures: req.failures,
+            needles: req.needles.clone().unwrap_or_default(),
+        };
+        let Some((on_block, attached)) = supervisor.publish_run_progress(&live, report).await
+        else {
+            return err(StatusCode::NOT_FOUND, "unknown_session");
+        };
+        return (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({
+                "status": "ok",
+                "session_id": live,
+                "attached": if on_block { "block" } else { "card" },
+                "tool_use_id": attached,
+            })),
+        )
+            .into_response();
     }
 
     // ── The turn-boundary ops ─────────────────────────────────────────────
@@ -2456,6 +2533,68 @@ mod tests {
             control_rx,
             pending_asks,
         }
+    }
+
+    // ── /api/session `run_progress` ──────────────────────────────────────
+
+    /// A live app whose router carries a supervisor reading an empty sessions
+    /// ledger, so every posted id is one this instance does not know.
+    async fn serve_session_fixture() -> String {
+        let (sup, _ledger, mut register_rx) =
+            crate::feeds::agent_supervisor::test_minimal_supervisor_reading_its_ledger();
+        tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::mpsc::channel(1);
+        let dev_state = crate::dev::new_shared_dev_state();
+        let mut router = FeedRouter::new(
+            "test-session".to_owned(),
+            crate::auth::new_shared_auth_state_no_auth(0),
+            shutdown_tx,
+            dev_state.clone(),
+        );
+        router.set_supervisor(sup);
+        let app = build_app(router, dev_state, None, None, None);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        format!("http://127.0.0.1:{port}/api/session")
+    }
+
+    #[tokio::test]
+    async fn run_progress_with_no_text_is_refused() {
+        let url = serve_session_fixture().await;
+        let (status, body) = post_json(
+            &url,
+            &serde_json::json!({"op": "run_progress", "tug_session_id": "sess-1", "label": "rust"}),
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(body["message"], "run_progress names its text");
+    }
+
+    /// The reporter walks every instance; one that does not know the id says
+    /// so in the word the walk continues past.
+    #[tokio::test]
+    async fn run_progress_for_an_unknown_session_is_unknown_session() {
+        let url = serve_session_fixture().await;
+        let (status, body) = post_json(
+            &url,
+            &serde_json::json!({
+                "op": "run_progress",
+                "tug_session_id": "sess-nobody",
+                "text": "compiling tugcast",
+                "needles": ["just test"],
+            }),
+        )
+        .await;
+        assert_eq!(status, 404);
+        assert_eq!(body["message"], "unknown_session");
     }
 
     fn ask_body(timeout_secs: u64) -> serde_json::Value {

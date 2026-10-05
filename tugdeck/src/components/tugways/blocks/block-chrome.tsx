@@ -272,6 +272,16 @@ export interface BlockChromeProps {
    */
   notice?: BlockNotice;
   /**
+   * Optional live band — what a running block is doing right now, rendered
+   * where the notice band renders (between header and body, outside the
+   * collapse guard, so a collapsed running block still shows it). Rendered
+   * only when `notice` is undefined: a notice explains a finished block, the
+   * live band narrates a running one, and a block is never both. The node
+   * may render `null` — `BashToolBlock`'s band does until its command first
+   * reports — and then nothing shows.
+   */
+  liveBand?: React.ReactNode;
+  /**
    * Body content — typically a body-kind component
    * (`TerminalBlock`, `DiffBlock`, etc.). The chrome hosts it
    * inside a region with `data-slot="tool-block-body"`.
@@ -337,6 +347,7 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
   caution,
   footerBadges,
   notice,
+  liveBand,
   variant = "tool",
   altitude = "leaf",
   flowTrailing = false,
@@ -534,6 +545,7 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
           and the body — so a short explanation stays readable while
           collapsed. The full detail lives in the body below. */}
       {notice !== undefined ? <BlockNoticeBand {...notice} /> : null}
+      {notice === undefined ? liveBand : null}
       {blockCollapsed ? null : (
         <BlockFoldSuppressedContext.Provider value={blockCollapse !== null}>
           {/* Mounted only when a body exists — an empty region under the

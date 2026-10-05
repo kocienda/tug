@@ -378,6 +378,25 @@ pub fn apptest_results_db_path() -> PathBuf {
     guard_isolated(base_data_dir().join("apptest_results.db"))
 }
 
+/// Environment variable overriding the shared unit-test results ledger path.
+/// Set by the tugtool CLI suite and by any probe that records a scratch run,
+/// so isolated runs never touch the real record.
+pub const ENV_TEST_RESULTS_DB: &str = "TUG_TEST_RESULTS_DB";
+
+/// The **machine-global** unit-test results ledger path: one
+/// `test_results.db` for every app instance, holding one row per recorded
+/// test-suite invocation and one per failing case in it. Instance-independent
+/// for the same reason as [`apptest_results_db_path`]: the question it
+/// answers ("what failed in the last run?") is about the checkout, not about
+/// which build ran the suite. Honors the [`ENV_TEST_RESULTS_DB`] override for
+/// isolated test runs.
+pub fn test_results_db_path() -> PathBuf {
+    if let Some(p) = env::var_os(ENV_TEST_RESULTS_DB).filter(|v| !v.is_empty()) {
+        return guard_isolated(PathBuf::from(p));
+    }
+    guard_isolated(base_data_dir().join("test_results.db"))
+}
+
 /// Environment variable overriding the shared jots-file path.
 /// Set by test harnesses so isolated runs never touch the user's real
 /// jots file.
@@ -964,6 +983,39 @@ mod tests {
     fn apptest_results_db_path_ignores_empty_env() {
         let _s = VarGuard::set(ENV_APPTEST_RESULTS_DB, Some(std::path::Path::new("")));
         assert!(apptest_results_db_path().ends_with("Tug/apptest_results.db"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_results_db_path_default_is_machine_global_and_instance_independent() {
+        let _g = EnvGuard::snapshot();
+        let _s = VarGuard::set(ENV_TEST_RESULTS_DB, None);
+        set_instance(None);
+        let unset = test_results_db_path();
+        set_instance(Some("debug-foo"));
+        let set = test_results_db_path();
+        assert_eq!(unset, set);
+        assert!(set.ends_with("Tug/test_results.db"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_results_db_path_env_override_wins() {
+        let _s = VarGuard::set(
+            ENV_TEST_RESULTS_DB,
+            Some(std::path::Path::new("/tmp/custom-test-results.db")),
+        );
+        assert_eq!(
+            test_results_db_path(),
+            PathBuf::from("/tmp/custom-test-results.db")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_results_db_path_ignores_empty_env() {
+        let _s = VarGuard::set(ENV_TEST_RESULTS_DB, Some(std::path::Path::new("")));
+        assert!(test_results_db_path().ends_with("Tug/test_results.db"));
     }
 
     #[test]

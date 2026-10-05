@@ -18,3 +18,10 @@ slow-timeout = "15m"
 [[profile.default.overrides]]
 filter = 'test(stream_json_catalog_drift_regression)'
 slow-timeout = "5m"
+
+# Every run writes a junit document, read by `tugtool test run` (the
+# `test-rust` recipe) into the test results ledger, so `tugtool test last
+# --failures` names a red run's failures without running it again. Written to
+# `target/nextest/default/junit.xml`.
+[profile.default.junit]
+path = "junit.xml"

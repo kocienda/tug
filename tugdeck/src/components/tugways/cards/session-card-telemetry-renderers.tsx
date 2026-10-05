@@ -1697,6 +1697,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       onCancelScheduledWork={cancelScheduledWork}
       onStopLoop={stopLoop}
       onClearJobs={clearJobs}
+      runProgress={codeSessionStore.runProgress}
     />
   );
 

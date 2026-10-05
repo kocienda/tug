@@ -58,13 +58,29 @@ test: test-rust test-ts test-swift test-standalone
 # tuglaws/, no CLAUDE.md, no .tugtool/, an empty PATH, and a fresh HOME —
 # only a bundle-shaped directory holding tugtool and the plugin.
 test-standalone:
+    @"{{justfile_directory()}}/tugrust/target/debug/tugtool" progress --label standalone --needle "just test" -- running >/dev/null 2>&1 || true
     cd tugrust && cargo build -p tugtool
     cd tugplug && bun test __tests__/
 
 # Run Rust tests. `--no-fail-fast`: one pass names every failure, so a red
 # gate is one round of fixing rather than one round per broken test.
+#
+# The run goes through `tugtool test run`, which copies the output through
+# unchanged, keeps the exit status, and records the run's junit document so
+# `tugtool test last --failures` names a red run's failures without a second
+# run. With no tugtool that knows `test run` — no build, or only an app build
+# that predates the verb — the bare command runs, unrecorded.
 test-rust:
-    cd tugrust && cargo nextest run --workspace --no-fail-fast
+    #!/usr/bin/env bash
+    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
+    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
+    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" test run --help >/dev/null 2>&1 || TUGTOOL_BIN=""
+    cd tugrust || exit 1
+    if [ -z "$TUGTOOL_BIN" ]; then
+        echo "[test] not recorded: no tugtool that knows test run" >&2
+        exec cargo nextest run --workspace --no-fail-fast
+    fi
+    exec "$TUGTOOL_BIN" test run --suite rust --kind nextest --junit target/nextest/default/junit.xml --label rust --needle "just test" --needle "cargo nextest" -- cargo nextest run --workspace --no-fail-fast
 
 # Run TypeScript tests (tugdeck frontend + tugcode bridge + app-test pure logic)
 #
@@ -77,11 +93,35 @@ test-rust:
 # self-checks under `scripts/__tests__/` — is never discovered by a bare
 # `bun test`. Naming the path explicitly is what runs it, and a self-check
 # nobody runs is no check at all.
+#
+# Each line goes through `tugtool test run`, which copies the output through
+# unchanged and records the run under its own suite, so `tugtool test last
+# --failures` names a red line's failures without a second run. Every line
+# runs even after one fails, and the recipe exits non-zero if any did, so one
+# pass names every failure. With no tugtool that knows `test run` — no build,
+# or only an app build that predates the verb — the bare commands run,
+# unrecorded.
 test-ts:
-    cd tugdeck && bun test
-    cd tugdeck && bun test ./scripts/__tests__
-    cd tugcode && bun test
-    cd tests/app-test && bun test scripts/ _harness/
+    #!/usr/bin/env bash
+    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
+    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
+    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" test run --help >/dev/null 2>&1 || TUGTOOL_BIN=""
+    [ -n "$TUGTOOL_BIN" ] || echo "[test] not recorded: no tugtool that knows test run" >&2
+    status=0
+    suite() {
+        local dir="$1" name="$2"
+        shift 2
+        if [ -n "$TUGTOOL_BIN" ]; then
+            (cd "$dir" && "$TUGTOOL_BIN" test run --suite "$name" --kind bun --label "bun test · $name" --needle "just test" --needle "bun test" -- "$@") || status=1
+        else
+            (cd "$dir" && "$@") || status=1
+        fi
+    }
+    suite tugdeck tugdeck bun test
+    suite tugdeck tugdeck-scripts bun test ./scripts/__tests__
+    suite tugcode tugcode bun test
+    suite tests/app-test app-test-logic bun test scripts/ _harness/
+    exit "$status"
 
 # Run the Swift unit tests.
 #
@@ -91,6 +131,7 @@ test-ts:
 # rather than a copy of its logic. That idiom only works for a source with
 # no app-type dependencies, which is why every one of them is Foundation-only.
 test-swift:
+    @"{{justfile_directory()}}/tugrust/target/debug/tugtool" progress --label swift --needle "just test" -- running >/dev/null 2>&1 || true
     bash tests/build-info/test-branch-slug.sh
     bash tests/shell-path/test-shell-path-timeout.sh
     bash tests/update/test-update-state.sh
@@ -1370,14 +1411,23 @@ build-app:
             | awk -F'"' '/Developer ID Application:/ {print $2; exit}'
     )"
 
+    # Each phase also reports to the calling Session card's running block, so
+    # a `just app-test` that rebuilds first does not sit silent for minutes.
+    # The workspace's own tugtool, else PATH's; with neither, no report.
+    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
+    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
+
     echo "==> [1/5] Rust debug binaries"
+    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 1 --total 5 --needle "just build-app" --needle "just app-test" -- "Rust debug binaries" >/dev/null 2>&1 || true
     (cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank)
     bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
 
     echo "==> [2/5] tugdeck deps + prebuilt dist"
+    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 2 --total 5 --needle "just build-app" --needle "just app-test" -- "tugdeck build" >/dev/null 2>&1 || true
     (cd tugdeck && bun install && bun run build)
 
     echo "==> [3/5] tests/app-test deps"
+    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 3 --total 5 --needle "just build-app" --needle "just app-test" -- "app-test deps" >/dev/null 2>&1 || true
     (cd tests/app-test && bun install)
 
     # PRODUCT_NAME names the built `.app` per variant (Tug-apptest under
@@ -1390,6 +1440,7 @@ build-app:
     # DerivedData and so never clobber each other's `.app`.
     DERIVED="$(bash tugrust/scripts/derived-data-path.sh debug)"
     echo "==> [4/5] Build ${PRODUCT_NAME}.app (Debug)"
+    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 4 --total 5 --needle "just build-app" --needle "just app-test" -- "Xcode build" >/dev/null 2>&1 || true
     find tugapp/Sources -name '*.swift' -exec touch {} +
     bash tugrust/scripts/xcodebuild-quiet.sh "${PRODUCT_NAME}.app (Debug)" \
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug \
@@ -1404,6 +1455,7 @@ build-app:
     # then seals the outer .app with Tug.entitlements. `--deep` is
     # intentionally absent — see tugrust/scripts/sign-bundle.sh.
     echo "==> [5/5] Re-sign inside-out with Developer ID"
+    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 5 --total 5 --needle "just build-app" --needle "just app-test" -- "re-sign" >/dev/null 2>&1 || true
     bash tugrust/scripts/sign-bundle.sh "$APP_DIR" "$SIGNING_IDENTITY"
 
     # Capture the bundle's designated requirement (DR) into a
@@ -2163,11 +2215,18 @@ app-test *FILES:
     # slowest file does. `nth` counts the rows already written — two files that
     # finish in the same instant can share a number, which costs nothing. The
     # whole report is one printf, so concurrent jobs never interleave mid-line.
+    #
+    # The live report to the calling Session card's block goes first, above the
+    # guard: `TUG_APPTEST_STREAM=1` empties PROGRESS, and the block's line must
+    # not depend on these text lines being on. The verb is silent and bounded.
     report_progress() {
-        [ -n "$PROGRESS" ] || return 0
         local f="$1" status="$2" passed="$3" total="$4" secs="$5" fails="$6"
         local nth elapsed detail="" first title msg
         nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
+        if [ -n "$TUGTOOL_BIN" ]; then
+            "$TUGTOOL_BIN" progress --label app-test --done "$nth" --total "${#FILES[@]}" --failures "$(grep -lE '^(FAIL|ERR|WEDGED):' "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')" --needle "just app-test" -- "$f $status ($passed/$total) ${secs}s" >/dev/null 2>&1 || true
+        fi
+        [ -n "$PROGRESS" ] || return 0
         elapsed=$(( $(date +%s) - START_EPOCH ))
         # The first record's title and the first line of its message: enough to
         # know which test went red and why without waiting for the summary.

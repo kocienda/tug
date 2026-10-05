@@ -1198,6 +1198,22 @@ export interface RateLimitEvent {
 }
 
 /**
+ * The engine's heartbeat for a running tool call, forwarded from the
+ * top-level `tool_progress` frame (`bash_progress` and its kin) — the one
+ * signal that is true while a long command runs, since a Bash tool's output
+ * arrives only in its `tool_result`. Carries no output; the deck ticks the
+ * running block's clock from `elapsed_time_seconds` and marks it live.
+ */
+export interface ToolProgress {
+  type: "tool_progress";
+  tool_use_id: string;
+  tool_name: string;
+  elapsed_time_seconds: number;
+  parent_tool_use_id: string | null;
+  ipc_version: number;
+}
+
+/**
  * Structured tool result for rich UI display per D11/PN-4.
  */
 export interface ToolUseStructured {
@@ -1723,6 +1739,7 @@ export type OutboundMessage =
   | OutputTruncated
   | GoalFeedback
   | RateLimitEvent
+  | ToolProgress
   | ToolUseStructured
   | ControlRequestCancel
   | ResumeFailed

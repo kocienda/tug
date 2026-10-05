@@ -1005,7 +1005,14 @@ pub const TOOL_BODY_FILLER_EVENT_TYPES: &[&str] = &["assistant_text", "content_b
 ///   background-agent lifecycle probe) it is pinned the right way — via
 ///   that probe's `required_events` at capture time — not via the drift
 ///   sequence comparison.
-pub const MODEL_OPTIONAL_EVENT_TYPES: &[&str] = &["thinking_text", "task_progress"];
+/// - `tool_progress`: the engine's heartbeat for a running tool call,
+///   which tugcode forwards so the deck can tick the running block's
+///   clock. The engine emits one roughly per second of a tool's run, so
+///   whether a probe's Bash call runs long enough to produce any — and how
+///   many — is timing, not protocol. A capture that carries one and a
+///   capture that does not are the same contract.
+pub const MODEL_OPTIONAL_EVENT_TYPES: &[&str] =
+    &["thinking_text", "task_progress", "tool_progress"];
 
 /// Reduce a probe's event-type sequence to its **order-comparison
 /// shape**: drop position-insensitive interstitial events

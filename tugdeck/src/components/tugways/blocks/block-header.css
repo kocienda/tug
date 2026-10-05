@@ -112,6 +112,12 @@ body {
   border-bottom: none;
 }
 
+/* The same, for a notice band one wrapper deep — the chrome's live band is a
+ * tool's own wrapper (carrying its own `data-slot`) around a notice band. */
+.tool-call-header:has(+ * > [data-slot="tool-block-notice"]:first-child) {
+  border-bottom: none;
+}
+
 /* First-row items that each ride a one-line box and center their content,
  * so each reads vertically centered on the first line and a multi-line
  * command keeps them pinned to row 1. The row is `flex-start`; each of
@@ -289,6 +295,14 @@ body {
  * `N lines` result summary. */
 .tool-call-header-timing-badge {
   font-variant-numeric: tabular-nums;
+}
+
+/* An in-flight clock the engine has stopped vouching for: heartbeats were
+ * arriving and have not for ten seconds. Dimmed to the header's muted tone
+ * so a stalled call reads differently from a working one; a clock that never
+ * had a heartbeat carries no attribute and keeps its normal tone. */
+.tool-call-header-timing[data-engine="quiet"] {
+  color: var(--tugx-block-text-color-muted);
 }
 
 /* Trailing actions — the controls cluster at the row's trailing edge (the
