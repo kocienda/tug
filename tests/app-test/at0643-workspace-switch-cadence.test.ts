@@ -20,13 +20,16 @@
  *
  * So the fixture is grown in the two dimensions that matter and in no others:
  *
- *  - **Elements.** Six session cards across two workspaces, each streamed
- *    {@link HIDDEN_TURNS} complete turns through `window.__tug.driveSession` in
- *    one page-side loop (at0620's helper, for at0620's reason: several hundred
- *    RPC round trips would dominate the fixture's wall clock). The element
- *    count the deck actually reaches is MEASURED and noted rather than
- *    asserted — it is a property of the harness's window size and the row
- *    renderer, not a number this file gets to declare.
+ *  - **Elements.** Six session cards across two workspaces, each bound to a
+ *    REAL resumed transcript (`real-transcript-fixture.ts`) on two arms: the
+ *    slice everywhere, and in the whale arm one card of each workspace carries
+ *    the corpus's whale. Each workspace's cards are bound while it is the one
+ *    on screen, since a parked layer has no height for a transcript to settle
+ *    into. They once grew by streamed turns, and no longer can: on a resumed
+ *    card a `send` is a real turn sent to `claude`. The element count the
+ *    deck actually reaches is MEASURED and noted rather than asserted — it is
+ *    a property of the harness's window size and the row renderer, not a
+ *    number this file gets to declare.
  *  - **Running animations.** An infinite CSS loop installed on every pane and
  *    every card host of every layer, which is dozens on this fixture. This is
  *    at0641's probe shape and it is here for a different question: at0641 asks
@@ -106,6 +109,7 @@
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/space-switch-frames.ts
  * @covers tugdeck/src/components/chrome/space-layer.css
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -118,6 +122,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { bindForTest, transcriptArms, type TranscriptSize } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 600_000;
@@ -127,22 +132,8 @@ const SPACE_TWO = "at0643-two";
 
 const SESSIONS_ONE = ["at0643-sa", "at0643-sb", "at0643-sc"] as const;
 const SESSIONS_TWO = ["at0643-sd", "at0643-se", "at0643-sf"] as const;
-
-/** The synthetic session id a bound card streams under. */
-const sessionIdFor = (cardId: string): string => `at0643-session-${cardId}`;
-
-/** `FeedId.CodeOutput`, mirrored — the app-tests share no module graph. */
-const FEED_CODE_OUTPUT = 0x40;
-
-/**
- * Complete turns streamed into each of the six session cards.
- *
- * 60 is at0620's figure and it is kept, because the two files are then
- * comparable: this fixture is at0620's transcript weight over three times the
- * session cards, which is the growth [B07] asks for stated as a multiple of a
- * fixture that already exists rather than as a new number.
- */
-const HIDDEN_TURNS = 60;
+/** The whale arm's subjects: one card in each workspace the switch carries. */
+const WHALE_CARDS = ["at0643-sa", "at0643-sd"] as const;
 
 const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
 const SHOWN_FRAMES =
@@ -313,52 +304,18 @@ function twoSpaceBlob(): Record<string, unknown> {
   };
 }
 
-/**
- * Append `HIDDEN_TURNS` complete turns to each named card, in ONE page-side
- * loop — at0620's helper, kept verbatim in shape.
- *
- * Every drive is guarded: a card whose services are not up yet reports rather
- * than throwing the whole fixture out, because the growth step has to be green
- * whatever it finds and the count it actually achieved is noted either way.
- */
-const streamScript = (cardIds: readonly string[]): string =>
-  `(function () {
-  var ids = ${JSON.stringify(cardIds)};
-  var out = { sent: 0, errors: [] };
-  for (var c = 0; c < ids.length; c++) {
-    var cardId = ids[c];
-    var sid = "at0643-session-" + cardId;
-    for (var i = 0; i < ${HIDDEN_TURNS}; i++) {
-      var msgId = "m-" + cardId + "-" + i;
-      try {
-        window.__tug.driveSession(cardId, {
-          op: "send", text: "grown row " + i, suppress: true,
-        });
-        window.__tug.driveSession(cardId, {
-          op: "ingestFrame", feedId: ${FEED_CODE_OUTPUT},
-          decoded: {
-            type: "assistant_text", tug_session_id: sid, msg_id: msgId,
-            text: "a reply long enough to wrap onto more than one line, so the row renderer has real boxes to build, number " + i,
-            is_partial: false, rev: 0, seq: 0,
-          },
-        });
-        window.__tug.driveSession(cardId, {
-          op: "ingestFrame", feedId: ${FEED_CODE_OUTPUT},
-          decoded: {
-            type: "turn_complete", tug_session_id: sid, msg_id: msgId,
-            result: "success",
-          },
-        });
-        out.sent += 1;
-      } catch (e) {
-        if (out.errors.length < 3) {
-          out.errors.push(cardId + ": " + String(e && e.message ? e.message : e));
-        }
-      }
-    }
-  }
-  return out;
-})()`;
+/** Bind one workspace's session cards — the one on screen — to real transcripts. */
+const grow = async (
+  app: App,
+  cardIds: readonly string[],
+  size: TranscriptSize,
+): Promise<void> => {
+  await bindForTest(app, cardIds, {
+    size,
+    whaleCards: WHALE_CARDS,
+    label: `at0643 [${size}]`,
+  });
+};
 
 const LOOP_STYLE_ID = "at0643-loop-style";
 const LOOP_CLASS = "at0643-loop";
@@ -638,11 +595,11 @@ function assertCadence(label: string, r: FrameRecord): void {
   ).toBeLessThanOrEqual(LONGEST_GAP_FRAMES * r.framePeriodMs);
 }
 
-describe.skipIf(!SHOULD_RUN)(
-  "at0643 — a workspace switch paints on time on a grown deck",
+for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0643 — a workspace switch paints on time on a grown deck [${arm.size}]`,
   () => {
     test(
-      "four switches on six streamed session cards and dozens of running loops: the first frame is on time and no gap is over budget",
+      "four switches on six bound session cards and dozens of running loops: the first frame is on time and no gap is over budget",
       async () => {
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
@@ -655,7 +612,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         const app = await launchTugApp({
-          testName: "at0643-workspace-switch-cadence",
+          testName: `at0643-workspace-switch-cadence-${arm.size}`,
           env: { TUGBANK_PATH: tugbankPath },
           skipAccessibilityPreflight: true,
           persistInTestMode: true,
@@ -668,44 +625,29 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await settle(1200);
 
-          // ---- Mount both workspaces. -----------------------------------
+          // ---- Mount both workspaces, and grow them. --------------------
           //
           // Before anything else, and the order is load-bearing twice over. A
           // workspace nobody has visited has no layer at all, so the first
           // switch to it is a MOUNT rather than a re-show — a different path,
           // and not the one [B06] leaves the deck in for every switch after
-          // the first. And a card that has never stood has no bound session
-          // for `driveSession` to stream into, which is the second thing this
-          // round trip buys the growth step below.
+          // the first. And each workspace's cards are bound while it is on
+          // screen, where their transcripts have a height to settle into.
+          //
+          // The parked workspace is grown too, and it has to be: the cost
+          // this file measures is the cost of the ARRIVING tree, so a fixture
+          // that only grew the workspace already on screen would measure the
+          // switch away and nothing else.
           await app.evalJS<null>(
             `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_TWO)} }), null)`,
           );
           await settle(2000);
+          await grow(app, SESSIONS_TWO, arm.size);
           await app.evalJS<null>(
             `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_ONE)} }), null)`,
           );
           await settle(2000);
-
-          // ---- Grow the fixture. ----------------------------------------
-          //
-          // The parked workspace is streamed too, and it has to be: the cost
-          // this file measures is the cost of the ARRIVING tree, so a fixture
-          // that only grew the workspace already on screen would measure the
-          // switch away and nothing else.
-          for (const cardId of [...SESSIONS_ONE, ...SESSIONS_TWO]) {
-            await app.bindSession(cardId, { tugSessionId: sessionIdFor(cardId) });
-          }
-          await settle(800);
-          const streamedOne = await app.evalJS<{ sent: number; errors: string[] }>(
-            streamScript(SESSIONS_ONE),
-          );
-          const streamedTwo = await app.evalJS<{ sent: number; errors: string[] }>(
-            streamScript(SESSIONS_TWO),
-          );
-          note(
-            `at0643 streamed: ${streamedOne.sent} + ${streamedTwo.sent} turns, ` +
-              `errors ${JSON.stringify([...streamedOne.errors, ...streamedTwo.errors])}`,
-          );
+          await grow(app, SESSIONS_ONE, arm.size);
           await settle(2500);
 
           const loops = await app.evalJS<{ marked: number; running: number }>(

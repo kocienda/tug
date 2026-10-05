@@ -60,6 +60,10 @@ try {
 }
 ```
 
+### Seeding under another session id
+
+`seedFixtureSession(name, label, { sessionId })` seeds the copy under the given id: every record's top-level `sessionId` is rewritten to it, and the file is named `<sessionId>.jsonl`, which is the stem the picker keys a session by. Use it when one fixture backs several cards. Two cards cannot resume one id, and `claude --resume` refuses an id that is not a UUID, so give each card a fresh `randomUUID()`. This is how `real-transcript-fixture.ts` binds every session card on a settle deck to its own copy of the slice.
+
 ## Fixtures
 
 | File | Turns | Source | What it exercises |

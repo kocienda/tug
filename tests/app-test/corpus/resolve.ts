@@ -12,6 +12,11 @@
  * Corpus legs `skipIf` cleanly when no manifest exists: a machine
  * without a harvested corpus still gates on the always-runnable
  * real-shape generator legs.
+ *
+ * `seedSnapshot`'s `opts.sessionId` seeds the copy under a different id,
+ * rewriting every record's top-level `sessionId` and naming the file
+ * `<sessionId>.jsonl`, for the reason `fixtures/resolve.ts` gives: one
+ * snapshot resumed into several cards needs one UUID per copy.
  */
 
 import {
@@ -86,12 +91,14 @@ export interface SeededCorpusSession {
 
 /**
  * Seed `snap` into `~/.claude/projects/` under a fresh temp project
- * dir, rewriting each record's top-level `cwd`. Streams line by line —
- * whale snapshots never exist in memory whole.
+ * dir, rewriting each record's top-level `cwd` — and, with
+ * `opts.sessionId`, its `sessionId`. Streams line by line — whale
+ * snapshots never exist in memory whole.
  */
 export async function seedSnapshot(
   snap: SelectedSnapshot,
   label: string,
+  opts: { sessionId?: string } = {},
 ): Promise<SeededCorpusSession> {
   const source = snapshotSource(snap);
   const projectDir = realpathSync(
@@ -104,7 +111,8 @@ export async function seedSnapshot(
     encodeProjectDir(projectDir),
   );
   mkdirSync(seededClaudeDir, { recursive: true });
-  const jsonlPath = join(seededClaudeDir, `${snap.id}.jsonl`);
+  const sessionId = opts.sessionId ?? snap.id;
+  const jsonlPath = join(seededClaudeDir, `${sessionId}.jsonl`);
 
   const out = createWriteStream(jsonlPath);
   const rl = createInterface({
@@ -113,11 +121,13 @@ export async function seedSnapshot(
   });
   for await (const line of rl) {
     let rewritten = line;
-    if (line.includes('"cwd":')) {
+    const rewriteId = opts.sessionId !== undefined && line.includes('"sessionId":');
+    if (line.includes('"cwd":') || rewriteId) {
       try {
         const record = JSON.parse(line);
-        if (record !== null && typeof record === "object" && "cwd" in record) {
-          record.cwd = projectDir;
+        if (record !== null && typeof record === "object") {
+          if ("cwd" in record) record.cwd = projectDir;
+          if (rewriteId && "sessionId" in record) record.sessionId = sessionId;
           rewritten = JSON.stringify(record);
         }
       } catch {
@@ -131,7 +141,7 @@ export async function seedSnapshot(
 
   return {
     snap,
-    sessionId: snap.id,
+    sessionId,
     projectDir,
     seededClaudeDir,
     jsonlPath,

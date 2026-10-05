@@ -34,8 +34,16 @@
  *      delivery lands at launch, before the first paint. On a SHRINK the hold
  *      restores the larger height pre-paint and nothing is delivered until the
  *      hold comes off, at landing. The window in between is what is asserted
- *      empty: from the SECOND marked animation frame (the first delivery
- *      opportunity after the first paint) up to the first unmarked one.
+ *      empty: from the SECOND animation frame on which the card's height is
+ *      in motion — strictly between its two ends — up to the first unmarked
+ *      one. That is the first delivery opportunity after the tween's first
+ *      painted frame. It used to be read as the second MARKED frame, which
+ *      named the same frame only while the mark went on in the commit that
+ *      launched the tween; the settle now marks a frame it predicts will
+ *      resize in the store's notify, one painted frame before that commit,
+ *      so the second marked frame is one frame early and a growth's launch
+ *      delivery lands in it. The claim's words are unchanged; the proxy for
+ *      "the first painted frame" moved to the one that says it.
  *   2. **The mark is on for the tween's life and off at landing.** Every frame
  *      on which a marked pane's height is between its two ends carries the
  *      mark, and none carries it at rest.
@@ -55,30 +63,38 @@
  * The instrument is proven by running this file behind a reverse patch of the
  * pane's held-height rule, where claim 1 goes red.
  *
+ * Both cards are bound to REAL resumed transcripts
+ * (`real-transcript-fixture.ts`), on two arms: the slice everywhere, and in
+ * the whale arm both cards — every crossing here resizes one or both — carry
+ * the corpus's whale. The transcript is what makes a delivery expensive, so
+ * it is the user's kind of transcript rather than one staged for the test.
+ * The cards are not grown by streaming turns into them: on a resumed card a
+ * `send` is a real turn sent to `claude`, and the real transcript already
+ * overflows its scroller several times over, which is all the streamed turns
+ * ever stood in for.
+ *
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { bindForTest, transcriptArms, type TranscriptSize } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 420_000;
-const FEED_CODE_OUTPUT = 0x40;
 
 const CARD_IDS = ["A", "B"] as const;
 type CardId = (typeof CARD_IDS)[number];
 const PANE_OF: Record<CardId, string> = { A: "p1", B: "p2" };
 const SLOT_OF: Record<CardId, number> = { A: 0, B: 1 };
-const TURNS = 24;
 
 const CENSUS_MS = 1_600;
 const AFTER_LAND_MS = 1_800;
-
-const sid = (card: CardId): string => `at0605-session-${card}`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -107,33 +123,7 @@ function deckShape() {
   };
 }
 
-async function seedTurn(app: App, card: CardId, n: number): Promise<void> {
-  const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
-    app.driveSession(card, {
-      op: "ingestFrame",
-      feedId: FEED_CODE_OUTPUT,
-      decoded: { tug_session_id: sid(card), ...decoded },
-    });
-  const msgId = `${sid(card)}-m${n}`;
-  await app.driveSession(card, { op: "send", text: `prompt ${n}` });
-  await frame({ type: "prompt_anchor", promptUuid: `${sid(card)}-u${n}` });
-  await frame({
-    type: "content_block_start",
-    msg_id: msgId,
-    block_index: 0,
-    kind: "text",
-  });
-  await frame({
-    type: "assistant_text",
-    msg_id: msgId,
-    block_index: 0,
-    text: `## step ${n}\n\nReply number ${n}, long enough to take a few lines of the transcript so that the whole of it overflows the scrollport several times over.\n\n- marker ${n}`,
-    is_partial: false,
-  });
-  await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
-}
-
-async function openCards(app: App): Promise<void> {
+async function openCards(app: App, size: TranscriptSize): Promise<void> {
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   for (const card of CARD_IDS) {
@@ -142,13 +132,11 @@ async function openCards(app: App): Promise<void> {
       { timeoutMs: 30_000 },
     );
   }
-  for (const card of CARD_IDS) {
-    await app.bindSession(card, { tugSessionId: sid(card) });
-    await app.awaitEngineReady(card);
-  }
-  for (const card of CARD_IDS) {
-    for (let n = 0; n < TURNS; n += 1) await seedTurn(app, card, n);
-  }
+  await bindForTest(app, CARD_IDS, {
+    size,
+    whaleCards: CARD_IDS,
+    label: `at0605 [${size}]`,
+  });
   await wait(AFTER_LAND_MS);
 }
 
@@ -320,9 +308,16 @@ function assertStill(label: string, run: Census): CardId[] {
     const landed = frames.find((s) => s.t > lastMarked.t);
     const mine = run.deliveries.filter((d) => d.card === card);
 
-    // The window that must be empty: from the second marked frame — the first
-    // delivery opportunity after the first paint — to the first unmarked one.
-    const opens = marked.length > 1 ? marked[1].t : Number.POSITIVE_INFINITY;
+    // The window that must be empty: from the second frame on which the height
+    // is in motion — the first delivery opportunity after the tween's first
+    // painted frame — to the first unmarked one. Read off the height rather
+    // than the mark, which now goes on a painted frame before the tween.
+    const motionLo = Math.min(first, last) + 1;
+    const motionHi = Math.max(first, last) - 1;
+    const inMotion = frames.filter(
+      (s) => s.panes[card].height > motionLo && s.panes[card].height < motionHi,
+    );
+    const opens = inMotion.length > 1 ? inMotion[1].t : Number.POSITIVE_INFINITY;
     const closes = landed === undefined ? Number.POSITIVE_INFINITY : landed.t;
     const inside = mine.filter((d) => d.t >= opens && d.t < closes);
     const atLaunch = mine.filter((d) => d.t < opens);
@@ -383,13 +378,13 @@ function assertStill(label: string, run: Census): CardId[] {
   return held;
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0605: a still interior for every height crossing", () => {
+for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(`AT0605: a still interior for every height crossing [${arm.size}]`, () => {
   test(
     "a stack, a split and a two-card join deliver nothing inside a held session card mid-tween",
     async () => {
-      const app = await launchTugApp({ testName: "at0605-still-deliveries" });
+      const app = await launchTugApp({ testName: `at0605-still-deliveries-${arm.size}` });
       try {
-        await openCards(app);
+        await openCards(app, arm.size);
         // A known start, whatever the column's default mode is.
         await app.evalJS<null>(`(${setColumnMode("split")}, null)`);
         await wait(AFTER_LAND_MS);

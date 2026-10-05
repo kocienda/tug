@@ -1,5 +1,7 @@
 # Departing and height-crossing readings
 
+Taken on unbound session cards with empty transcripts: a reading of the chrome, not of a session card (`briefs/real-transcript-motion-brief.md` [F04]).
+
 The readings behind the work that carries a closed card and a hidden rail out on their own frames. Each entry is pasted as the instrument printed it — the `note()` lines of `at0622-deck-settle-frames.test.ts` and `at0684-settle-window-commits.test.ts` — with its date, the tree it was read on, and its verdict. Numbers here come from a tool, never from a hand. The format is `briefs/settle-window-commit-readings.md`'s.
 
 The instruments:

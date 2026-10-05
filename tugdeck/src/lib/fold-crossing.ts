@@ -47,8 +47,24 @@
  * Two marks rather than one widened, because everything that reads the fold's
  * reads it as "a fold": the card's terminal-state effect, `afterFoldCrossing`'s
  * two waiters. A stack that set the fold's mark would have a compaction cover
- * waiting on, or closed by, a settle that is not a fold. The still crossing
- * therefore announces nothing — it is a layout hold, and nobody lands on it.
+ * waiting on, or closed by, a settle that is not a fold. So the still crossing
+ * announces its end under its OWN event, `STILL_CROSSING_END`, which nothing
+ * waiting on a fold hears. What waits on it is the interior being held: a list
+ * view owes its pin, its restore and its extent rebase while its frame wears
+ * the mark, and catches up once when this event says the hold is off.
+ *
+ * The announcement is made where the mark is taken off, and nowhere else: the
+ * one remover is shared by every path that lifts the hold — a beat's
+ * completion, the window sweep, a retarget, the unmount, a fold's end, and the
+ * Last pass's end of a mark `arm` opened for a frame that turned out not to
+ * change height — so nothing owed is ever stranded behind a path that forgot
+ * to say so.
+ *
+ * A still crossing can open at `arm`, in the store's notify, before React
+ * commits the arrangement that changes the frame's height. The settle engine
+ * predicts which frames that arrangement resizes and holds each at its First
+ * content height there, so the commit's own frame change never reaches the
+ * card's interior; the Last pass then re-marks (never lowering) or ends it.
  *
  * A re-mark never lowers a held height, in either form. On a retarget the
  * imposer measures First mid-tween, at an intermediate height, so the larger
@@ -92,6 +108,18 @@ export interface FoldCrossingEventDetail {
 
 /** Stamped on the frame for the length of any held height tween, a fold's included. Observable to tests; not React state ([L06]). */
 export const STILL_CROSSING_ATTR = "data-still-crossing";
+
+/**
+ * Dispatched on the frame when a still crossing ends, by whichever path took
+ * the mark off. Not cancelable, and does not bubble: it is the frame's own news.
+ */
+export const STILL_CROSSING_END = "tug-still-crossing-end";
+
+/** Detail carried by the still crossing's end event. */
+export interface StillCrossingEventDetail {
+  /** The stamp the end closed, so a listener can tell one crossing's end from another's. */
+  readonly id: number;
+}
 
 /**
  * The height the interior is held at under the still crossing, written where
@@ -303,8 +331,9 @@ export function endFoldCrossing(
 /**
  * Close the still crossing on `frame`: take the mark and the held height off.
  * `crossingId` guards a late end exactly as `endFoldCrossing`'s does, and is
- * omitted on the same two paths. Announces nothing, and leaves the fold's mark
- * alone: a fold still running is ended by its own door, which ends this too.
+ * omitted on the same two paths. Announces `STILL_CROSSING_END` when it closed
+ * a mark, and leaves the fold's mark alone: a fold still running is ended by
+ * its own door, which ends this too and announces both.
  */
 export function endStillCrossing(
   frame: HTMLElement,
@@ -313,7 +342,14 @@ export function endStillCrossing(
   endKind(STILL_KIND, frame, crossingId);
 }
 
-/** Take one kind's mark and held height off `frame`. Returns the stamp it closed, or `null` when it closed nothing. */
+/**
+ * Take one kind's mark and held height off `frame`. Returns the stamp it
+ * closed, or `null` when it closed nothing.
+ *
+ * The still crossing's end is announced HERE, because this is the mark's only
+ * remover: whichever door lifted the hold, the interior that owed its
+ * reactions to it hears so once.
+ */
 function endKind(
   kind: CrossingKind,
   frame: HTMLElement,
@@ -334,6 +370,15 @@ function endKind(
         child.style.removeProperty(kind.prop);
       }
     }
+  }
+  if (kind === STILL_KIND) {
+    frame.dispatchEvent(
+      new CustomEvent<StillCrossingEventDetail>(STILL_CROSSING_END, {
+        detail: { id: Number(stamp) },
+        cancelable: false,
+        bubbles: false,
+      }),
+    );
   }
   return Number(stamp);
 }

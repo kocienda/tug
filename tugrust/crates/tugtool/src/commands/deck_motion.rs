@@ -99,8 +99,17 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         DeckMotionCommands::Demote { state, .. } => {
             format!("window.__tugMotion.demote({})", state == "on")
         }
-        DeckMotionCommands::Chains { mode, .. } => {
-            format!("window.__tugMotion.chains({})", json(mode))
+        DeckMotionCommands::Chains {
+            mode, no_stacks, ..
+        } => {
+            if *no_stacks && mode == "arm" {
+                format!(
+                    r#"window.__tugMotion.chains({}, {{"stacks": false}})"#,
+                    json(mode)
+                )
+            } else {
+                format!("window.__tugMotion.chains({})", json(mode))
+            }
         }
         // The window rides EVERY mode, not just `arm`. A call that carried the
         // mode alone would be indistinguishable from one that silently dropped
@@ -178,8 +187,10 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             slot,
             mode,
             space,
+            component,
             count,
             tasks,
+            chains,
             ..
         } => crate::commands::deck_motion_settle::run_settle(
             port,
@@ -190,9 +201,11 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
                 slot,
                 mode,
                 space,
+                component,
             },
             count,
             tasks,
+            chains,
             json_output,
         ),
         DeckMotionCommands::Walk { restore: true, .. } => {
@@ -501,26 +514,41 @@ fn render_layers(value: &serde_json::Value) {
 /// and the read is what can move above it or batch with its peers. Each site is
 /// a multi-line stack, indented so the ranking stays legible.
 fn render_chains(mode: &str, value: &serde_json::Value) {
-    if mode != "read" {
-        match value.get("armed").and_then(|v| v.as_bool()) {
-            Some(armed) => println!(
-                "chains {}: cap {} entries",
-                if armed { "armed" } else { "disarmed" },
-                num_at(value, "cap") as i64
-            ),
-            None => fallback(value),
-        }
-        return;
+    match chains_text(mode, value) {
+        Some(text) => print!("{text}"),
+        None => fallback(value),
     }
-    let Some(ranked) = value.get("ranked").and_then(|r| r.as_array()) else {
-        fallback(value);
-        return;
-    };
-    println!(
-        "{} chains over {} entries in {} tasks{}",
+}
+
+/// The text [`render_chains`] prints, or `None` for a value it cannot read.
+///
+/// Each site carries its summed ms beside its chain count, and the summary
+/// names the longest chain and the total: a count says how often a site paid,
+/// and only the ms say what it cost.
+pub(crate) fn chains_text(mode: &str, value: &serde_json::Value) -> Option<String> {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    if mode != "read" {
+        let armed = value.get("armed").and_then(|v| v.as_bool())?;
+        let stackless = armed && value.get("stacks").and_then(|v| v.as_bool()) == Some(false);
+        let _ = writeln!(
+            out,
+            "chains {}: cap {} entries{}",
+            if armed { "armed" } else { "disarmed" },
+            num_at(value, "cap") as i64,
+            if stackless { ", no stacks" } else { "" }
+        );
+        return Some(out);
+    }
+    let ranked = value.get("ranked").and_then(|r| r.as_array())?;
+    let _ = writeln!(
+        out,
+        "{} chains over {} entries in {} tasks (longest {:.1} ms, total {:.1} ms){}",
         num_at(value, "chains") as i64,
         num_at(value, "entries") as i64,
         num_at(value, "tasks") as i64,
+        num_at(value, "longestChainMs"),
+        num_at(value, "totalChainMs"),
         if value
             .get("truncated")
             .and_then(|t| t.as_bool())
@@ -532,13 +560,15 @@ fn render_chains(mode: &str, value: &serde_json::Value) {
         }
     );
     for site in ranked.iter().take(10) {
-        println!(
-            "  {:>5} chains  [{}]",
+        let _ = writeln!(
+            out,
+            "  {:>5} chains  {:>7.1} ms  [{}]",
             num_at(site, "chains") as i64,
+            num_at(site, "ms"),
             joined(site, "names")
         );
         for line in str_at(site, "site").lines() {
-            println!("      read  {}", line.trim());
+            let _ = writeln!(out, "      read  {}", line.trim());
         }
         if let Some(writes) = site.get("writeSites").and_then(|w| w.as_array()) {
             for write in writes {
@@ -550,10 +580,11 @@ fn render_chains(mode: &str, value: &serde_json::Value) {
                     .unwrap_or("")
                     .trim()
                     .to_string();
-                println!("      write {first}");
+                let _ = writeln!(out, "      write {first}");
             }
         }
     }
+    Some(out)
 }
 
 /// The gesture recorder's reading.
@@ -843,6 +874,7 @@ mod tests {
         for mode in ["arm", "read", "disarm"] {
             let cmd = DeckMotionCommands::Chains {
                 mode: mode.to_string(),
+                no_stacks: false,
                 target: target(),
             };
             assert_eq!(
@@ -850,6 +882,78 @@ mod tests {
                 Some(format!(r#"window.__tugMotion.chains("{mode}")"#).as_str())
             );
         }
+        // `--no-stacks` rides `arm` alone; `read` and `disarm` have no stack to
+        // skip, and a second argument there would read as a different call.
+        for (mode, code) in [
+            (
+                "arm",
+                r#"window.__tugMotion.chains("arm", {"stacks": false})"#,
+            ),
+            ("read", r#"window.__tugMotion.chains("read")"#),
+            ("disarm", r#"window.__tugMotion.chains("disarm")"#),
+        ] {
+            let cmd = DeckMotionCommands::Chains {
+                mode: mode.to_string(),
+                no_stacks: true,
+                target: target(),
+            };
+            assert_eq!(eval_code_for(&cmd).as_deref(), Some(code));
+        }
+    }
+
+    /// A read prints each site's ms beside its count, and the summary names
+    /// the longest chain and the total — the count alone cannot say what a
+    /// site cost.
+    #[test]
+    fn chains_read_prints_ms() {
+        let value = serde_json::json!({
+            "entries": 40,
+            "tasks": 3,
+            "chains": 5,
+            "longestChainMs": 12.5,
+            "totalChainMs": 31.0,
+            "chainTimes": [],
+            "truncated": false,
+            "ranked": [{
+                "site": "at pin (smart-scroll.ts:1)\nat effect (tug-list-view.tsx:2)",
+                "chains": 4,
+                "ms": 28.5,
+                "writeSites": ["at write (a.ts:3)\nat caller (b.ts:4)"],
+                "names": ["clientHeight", "scrollTop"],
+            }],
+        });
+        let text = chains_text("read", &value).expect("a read value renders");
+        assert!(
+            text.starts_with(
+                "5 chains over 40 entries in 3 tasks (longest 12.5 ms, total 31.0 ms)\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("      4 chains     28.5 ms  [clientHeight,scrollTop]\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("      read  at pin (smart-scroll.ts:1)\n"),
+            "{text}"
+        );
+        assert!(text.contains("      write at write (a.ts:3)\n"), "{text}");
+        assert!(!text.contains("at caller"), "{text}");
+    }
+
+    #[test]
+    fn chains_arm_says_when_it_carries_no_stacks() {
+        let stackless = serde_json::json!({"armed": true, "cap": 16000, "stacks": false});
+        assert_eq!(
+            chains_text("arm", &stackless).as_deref(),
+            Some("chains armed: cap 16000 entries, no stacks\n")
+        );
+        let stacked = serde_json::json!({"armed": true, "cap": 16000, "stacks": true});
+        assert_eq!(
+            chains_text("arm", &stacked).as_deref(),
+            Some("chains armed: cap 16000 entries\n")
+        );
+        assert_eq!(chains_text("arm", &serde_json::json!({"error": "x"})), None);
     }
 
     /// One case per mode, and each asserts the TWO-argument form.

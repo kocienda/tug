@@ -3289,6 +3289,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     deckState: picture,
     placeRuns,
     containerRef,
+    shownArrangement,
+    deriveArrangement: deriveShownArrangement,
   });
 
   // Where each imposed pane sits.

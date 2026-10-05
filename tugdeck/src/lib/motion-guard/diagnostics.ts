@@ -226,8 +226,13 @@ export interface TugMotionDiagnostics {
    * on dev mode or the per-instance `diag/eval` opt-in. Nothing arms it on load,
    * and an armed probe is paying a stack capture per geometry read, so it is
    * armed around the gesture under study and disarmed after.
+   * `{ stacks: false }` arms it without the capture, for a reading whose
+   * milliseconds must not carry the probe's own price.
    */
-  chains(mode: "arm" | "read" | "disarm"): ChainArmReading | GeometryChainReading;
+  chains(
+    mode: "arm" | "read" | "disarm",
+    options?: { readonly stacks?: boolean },
+  ): ChainArmReading | GeometryChainReading;
   /**
    * The frames a gesture actually delivered, recorded from OUTSIDE it
    * ([P03], Spec S02).
@@ -618,8 +623,8 @@ export const tugMotion: TugMotionDiagnostics = {
     return liveMarks();
   },
 
-  chains(mode) {
-    if (mode === "arm") return armGeometryChains();
+  chains(mode, options) {
+    if (mode === "arm") return armGeometryChains(options);
     if (mode === "disarm") return disarmGeometryChains();
     return readGeometryChains();
   },

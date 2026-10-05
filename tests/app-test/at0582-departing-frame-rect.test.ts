@@ -43,12 +43,20 @@
  * lasts one beat, so a check after it has nothing to look at, and a check
  * once mid-fade cannot tell a frame that stood still from one that drifted.
  *
+ * The three cards are Session cards bound to REAL resumed transcripts — the
+ * slice (`real-transcript-fixture.ts`) — so the card that leaves is a card
+ * with a transcript under it, which is the card a user closes. The claims are
+ * rects and a commit's arm, which a transcript must not change, so the slice
+ * is the one arm this file runs.
+ *
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/departing.ts
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { bindForTest } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -90,7 +98,7 @@ interface Sample {
 }
 
 /**
- * A five-up FLOW band holding three `hello` cards in slots 1, 2 and 3.
+ * A five-up FLOW band holding three Session cards in slots 1, 2 and 3.
  *
  * A real arrangement rather than a lone card, because the departure has to be
  * read against survivors that are themselves moving into the room it gives up
@@ -101,8 +109,8 @@ function deckShape() {
   return {
     cards: ids.map((id) => ({
       id,
-      componentId: "hello",
-      title: `Card ${id}`,
+      componentId: "session",
+      title: `Session ${id}`,
       closable: true,
     })),
     panes: ids.map((id, index) => ({
@@ -121,13 +129,17 @@ function deckShape() {
   };
 }
 
-/** Seed the deck and let the imposer settle, so the close lands on a deck at rest. */
+/**
+ * Seed the deck, bind its cards, and let the imposer settle, so the close
+ * lands on a deck at rest.
+ */
 async function seed(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "C" });
   await app.waitForCondition<boolean>(
     `document.querySelector('.tug-pane[data-pane-id="p2"]') !== null`,
     { timeoutMs: 8_000 },
   );
+  await bindForTest(app, ["C", "D", "E"], { size: "slice", label: "at0582" });
   await wait(1_400);
 }
 

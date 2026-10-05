@@ -93,6 +93,14 @@
  * settling those. The second leg runs eight of them, which is the whole
  * question of whether the cost grows with the card count.
  *
+ * Every session card is bound to a real resumed transcript before a leg reads
+ * it, and every leg runs twice: the `slice` arm, on the committed fixture,
+ * everywhere; and the `whale` arm, where the local corpus holds a whale, with
+ * the whale on the cards the leg's gesture resizes or moves (`at0622-c1` and
+ * `at0622-c2` unless a leg names others). An unbound card's transcript is
+ * empty and pays nothing when its frame changes height, so a bar read over
+ * one says nothing about the card a user has.
+ *
  * ## The fold leg
  *
  * A session card's fold is the same question asked of a gesture with no
@@ -132,6 +140,7 @@
  * @covers tugdeck/src/focus-transfer.ts
  * @covers tugdeck/src/default-focus.ts
  * @covers tugdeck/src/deck-trace.ts
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -164,13 +173,14 @@ import {
   arrivalCensus,
   bandCensus,
   budgetCensus,
+  blobFor,
   columnBlob,
   expectB09Bar,
+  expectBeatStarts,
   expectBeats,
   flashCensus,
   frameOrigins,
   home,
-  installLeadRecorder,
   largestCommit,
   launch,
   motionViolationRows,
@@ -190,17 +200,19 @@ import {
   settleFrameRows,
   traceMark,
   traceWithSettleFrames,
+  transcriptArms,
   wait,
   windowCommits,
 } from "./settle-frames-fixture";
+
+const ARMS = transcriptArms();
 
 /** The resize-to-fit leg's gap bar — re-budgeted from 2 by the user on
  *  2026-10-03 after reading 2.06–2.18 on every run (see the header). */
 const RESIZE_TO_FIT_GAP_FRAMES_BAR = 2.5;
 
-/**
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — the fold's gesture stamp",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — the fold's gesture stamp [${arm.size}]`,
   () => {
     test(
       "the fold's gesture stamp is spent once — the next settle measures from its own arm",
@@ -212,7 +224,7 @@ describe.skipIf(!SHOULD_RUN)(
         // Unguarded, this activation would report the whole distance back to
         // the fold as dead lead, in the row [D9]'s guard and the bar above both
         // read.
-        const { app, tugbankPath } = await launch(4);
+        const { app, tugbankPath } = await launch(4, blobFor(4), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -244,13 +256,13 @@ describe.skipIf(!SHOULD_RUN)(
   },
 );
 
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — the flash waits for the landing, and moves only opacity",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — the flash waits for the landing, and moves only opacity [${arm.size}]`,
   () => {
     test(
       "four session cards: no ring in the click's frame, an opacity-only ring after it lands",
       async () => {
-        const { app, tugbankPath } = await launch(4);
+        const { app, tugbankPath } = await launch(4, blobFor(4), undefined, { transcripts: arm.size });
         try {
           await home(app);
           await wait(AFTER_LAND_MS);
@@ -325,13 +337,13 @@ describe.skipIf(!SHOULD_RUN)(
   },
 );
 
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — the click task is bounded, and a settling frame holds its cells",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — the click task is bounded, and a settling frame holds its cells [${arm.size}]`,
   () => {
     test(
       "four session cards: a slide raises no episode, a width change does",
       async () => {
-        const { app, tugbankPath } = await launch(4);
+        const { app, tugbankPath } = await launch(4, blobFor(4), undefined, { transcripts: arm.size });
         try {
           await home(app);
           await wait(AFTER_LAND_MS);
@@ -402,13 +414,13 @@ describe.skipIf(!SHOULD_RUN)(
   },
 );
 
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — the settle records its own frames, and its own violations",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — the settle records its own frames, and its own violations [${arm.size}]`,
   () => {
     test(
       "four session cards: one row per settle, agreeing with the probe, and none at rest",
       async () => {
-        const { app, tugbankPath } = await launch(4);
+        const { app, tugbankPath } = await launch(4, blobFor(4), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -512,7 +524,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "eight cards in shared columns: the height-bearing gesture IS reported, which is what makes the zero above evidence",
       async () => {
-        const { app, tugbankPath } = await launch(8, columnBlob());
+        const { app, tugbankPath } = await launch(8, columnBlob(), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
           await wait(AFTER_LAND_MS);
@@ -609,13 +621,13 @@ describe.skipIf(!SHOULD_RUN)(
  * a different thing than the one on its label. Reaching those two clocks wants
  * a door this file does not have.
  */
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — a settle dropped mid-flight leaves no frame at its origin",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — a settle dropped mid-flight leaves no frame at its origin [${arm.size}]`,
   () => {
     test(
       "a stalled settle, a retarget and a space switch each land the deck with every frame at Last",
       async () => {
-        const { app, tugbankPath } = await launch(4);
+        const { app, tugbankPath } = await launch(4, blobFor(4), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
 
@@ -781,13 +793,17 @@ describe.skipIf(!SHOULD_RUN)(
   },
 );
 
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — a settle interrupted mid-flight leaves no frame stranded",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — a settle interrupted mid-flight leaves no frame stranded [${arm.size}]`,
   () => {
     test(
       "a fold retargeted at 140ms, and a resize interrupted by a fold, strand no frame at the first gesture's end pose",
       async () => {
-        const { app, tugbankPath } = await launch(4);
+        // The folds land on c2, c3 and c4; the heights this leg reads are p2's and p4's.
+        const { app, tugbankPath } = await launch(4, blobFor(4), undefined, {
+          transcripts: arm.size,
+          whaleCards: ["at0622-c2", "at0622-c4"],
+        });
         try {
           await traceWithSettleFrames(app);
 
@@ -1014,13 +1030,13 @@ describe.skipIf(!SHOULD_RUN)(
  * stands over the live gesture in case a future commit order reaches the
  * predicate the way [F03] describes.
  */
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — two commits in one task carry every frame they move",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — two commits in one task carry every frame they move [${arm.size}]`,
   () => {
     test(
       "hiding a two-member rail moves the band and leaves no frame uncarried",
       async () => {
-        const { app, tugbankPath } = await launch(4, railBlob());
+        const { app, tugbankPath } = await launch(4, railBlob(), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -1245,13 +1261,13 @@ describe.skipIf(!SHOULD_RUN)(
  * both are the same defect: a card that pops in has no arrival to be early
  * to.
  */
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — an arrival interrupted by a close keeps its hold",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — an arrival interrupted by a close keeps its hold [${arm.size}]`,
   () => {
     test(
       "a card arriving, closed into at 140ms, never stands at full opacity before its arrive beat",
       async () => {
-        const { app, tugbankPath } = await launch(3);
+        const { app, tugbankPath } = await launch(3, blobFor(3), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -1390,13 +1406,13 @@ describe.skipIf(!SHOULD_RUN)(
  * pane renumbers every surviving pane's position label inside the settle
  * window. The reading is in `briefs/zero-red-app-tests-brief.md`.
  */
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — a card appears, at the bar",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — a card appears, at the bar [${arm.size}]`,
   () => {
     test(
       "a card arriving into a split column holds the bar across room and arrive",
       async () => {
-        const { app, tugbankPath } = await launch(8, columnBlob());
+        const { app, tugbankPath } = await launch(8, columnBlob(), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -1503,15 +1519,17 @@ describe.skipIf(!SHOULD_RUN)(
  * `briefs/departing-and-height-crossing-readings.md`; the beats are asserted,
  * and the bar waits on that cause.
  */
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — a card's departure from a split column",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — a card's departure from a split column [${arm.size}]`,
   () => {
     test(
       "the same card closed out of the column it arrived in, across depart and room",
       async () => {
-        const { app, tugbankPath } = await launch(8, columnBlob());
+        const { app, tugbankPath } = await launch(8, columnBlob(), undefined, {
+          transcripts: arm.size,
+          leadRecorder: true,
+        });
         try {
-          await installLeadRecorder(app);
           await traceWithSettleFrames(app);
           await home(app);
           await app.evalJS<null>(
@@ -1563,6 +1581,7 @@ describe.skipIf(!SHOULD_RUN)(
               )}`,
           );
           expectBeats("disappear", disappear, ["depart", "room"]);
+          expectBeatStarts("disappear", disappear.beatRows, disappear.probe.framePeriodMs);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);
@@ -1586,11 +1605,11 @@ describe.skipIf(!SHOULD_RUN)(
  * out runs against a band whose far slots have never been laid out at their
  * final width, and the walk home runs against frames that have.
  */
-describe.skipIf(!SHOULD_RUN)("at0622 — the walk across the band", () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0622 — the walk across the band [${arm.size}]`, () => {
   test(
     "go-to-slot out and home holds the bar in both directions",
     async () => {
-      const { app, tugbankPath } = await launch(4);
+      const { app, tugbankPath } = await launch(4, blobFor(4), undefined, { transcripts: arm.size });
       try {
         await traceWithSettleFrames(app);
         await home(app);
@@ -1685,11 +1704,11 @@ describe.skipIf(!SHOULD_RUN)("at0622 — the walk across the band", () => {
  * clause proved nothing — and everything it reports must be `:width`. Any
  * other property is a second standing violation nobody has written down.
  */
-describe.skipIf(!SHOULD_RUN)("at0622 — bullseye, and [F15]'s width", () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0622 — bullseye, and [F15]'s width [${arm.size}]`, () => {
   test(
     "bullseye in and out holds the bar, and the runtime guard reports :width and nothing else",
     async () => {
-      const { app, tugbankPath } = await launch(4);
+      const { app, tugbankPath } = await launch(4, blobFor(4), undefined, { transcripts: arm.size });
       try {
         await traceWithSettleFrames(app);
         await home(app);
@@ -1776,13 +1795,13 @@ describe.skipIf(!SHOULD_RUN)("at0622 — bullseye, and [F15]'s width", () => {
  * retune that reached the canvas a frame late would show as lead here and
  * nowhere else in this file.
  */
-describe.skipIf(!SHOULD_RUN)(
-  "at0622 — hiding the sidebars and the settled-resize retune, at the bar",
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0622 — hiding the sidebars and the settled-resize retune, at the bar [${arm.size}]`,
   () => {
     test(
       "hiding and showing a two-member rail hold the bar and the resize retune holds its re-budgeted one",
       async () => {
-        const { app, tugbankPath } = await launch(4, railBlob());
+        const { app, tugbankPath } = await launch(4, railBlob(), undefined, { transcripts: arm.size });
         try {
           await traceWithSettleFrames(app);
           await home(app);

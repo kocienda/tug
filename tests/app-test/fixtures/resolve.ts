@@ -12,6 +12,13 @@
  * dir: the external-session scanner excludes a session whose first
  * `cwd` doesn't match its project dir, so the rewrite is what makes the
  * fixture listable from the picker (the at0182 pattern).
+ *
+ * `opts.sessionId` seeds the copy under a different session id: every
+ * record's top-level `sessionId` is rewritten to it and the file is named
+ * `<sessionId>.jsonl`. Two cards cannot resume one id, and `claude --resume`
+ * refuses an id that is not a UUID, so a test that resumes one fixture into
+ * several cards seeds one copy per card, each under a fresh
+ * `crypto.randomUUID()`.
  */
 
 import {
@@ -56,12 +63,15 @@ export interface SeededFixtureSession {
  * Seed committed fixture `name` into `~/.claude/projects/` under a
  * fresh temp project dir, rewriting each record's `cwd`. The seeded
  * file is named `<sessionId>.jsonl` (the picker keys a session by its
- * filename stem), where `sessionId` is read from the fixture records.
+ * filename stem), where `sessionId` is `opts.sessionId` when given —
+ * every record's `sessionId` rewritten to match — and otherwise read
+ * from the fixture records.
  * Fixtures are small committed files, so this reads the whole file.
  */
 export async function seedFixtureSession(
   name: string,
   label: string,
+  opts: { sessionId?: string } = {},
 ): Promise<SeededFixtureSession> {
   const source = fixturePath(name);
   if (!existsSync(source)) {
@@ -83,6 +93,7 @@ export async function seedFixtureSession(
       // skip
     }
   }
+  if (opts.sessionId !== undefined) sessionId = opts.sessionId;
 
   const projectDir = realpathSync(
     mkdtempSync(join(tmpdir(), `fixture-${label}-`)),
@@ -101,6 +112,9 @@ export async function seedFixtureSession(
       const record = JSON.parse(line) as Record<string, unknown>;
       if (record !== null && typeof record === "object") {
         if ("cwd" in record) record.cwd = projectDir;
+        if (opts.sessionId !== undefined && "sessionId" in record) {
+          record.sessionId = opts.sessionId;
+        }
         return JSON.stringify(record);
       }
     } catch {

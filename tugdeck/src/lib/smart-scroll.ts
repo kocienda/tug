@@ -438,6 +438,23 @@ export class SmartScroll {
   // during the resize still takes the position.
   private _restoreSuspendsDriftSupersede = false;
 
+  // Whether the scroller's interior is being HELD right now — its pane
+  // frame wearing a still crossing (`lib/fold-crossing.ts`), so the
+  // interior stands at a fixed height while the frame's edge tweens.
+  // `null` until the consumer installs one; a scroller with no source is
+  // never held. While held, the growth pin and the restore heartbeat owe
+  // their write instead of making it, and `catchUp` pays it once when the
+  // hold lifts: a write against a held interior is a scroll position the
+  // reader never sees, taken against geometry that is about to change.
+  private _isHeld: (() => boolean) | null = null;
+
+  // What the hold deferred. `"maybe"` is a growth pin, which `catchUp`
+  // re-judges against the live geometry; `"pin"` is an unconditional
+  // `pinToBottom`, which it makes as asked. Local data, never React
+  // state ([L02], [L06]).
+  private _owedPin: "maybe" | "pin" | null = null;
+  private _owedRestore = false;
+
   // Listener function references stored for removeEventListener
   private readonly _onScroll: () => void;
   private readonly _onScrollEnd: () => void;
@@ -697,6 +714,10 @@ export class SmartScroll {
    *  something it did not cause. */
   pinToBottom(): void {
     if (this._disposed) return;
+    if (this._isHeld?.() === true) {
+      this._owedPin = "pin";
+      return;
+    }
     const max = this._container.scrollHeight - this._container.clientHeight;
     if (this._container.scrollTop >= max) return;
     this._container.scrollTop = Math.max(0, max);
@@ -815,6 +836,10 @@ export class SmartScroll {
    *  idle user behind a whole turn landing in one commit. */
   maybePinToBottom(): void {
     if (this._disposed) return;
+    if (this._isHeld?.() === true) {
+      if (this._owedPin === null) this._owedPin = "maybe";
+      return;
+    }
     if (
       !this._isFollowingBottom &&
       !this.isUserScrolling &&
@@ -971,6 +996,10 @@ export class SmartScroll {
     if (this._disposed) return;
     const resolver = this._restoreTarget;
     if (resolver === null) return;
+    if (this._isHeld?.() === true) {
+      this._owedRestore = true;
+      return;
+    }
     // Who owns the position? A gesture SmartScroll saw, or a
     // displacement it cannot attribute (a native scrollbar drag
     // delivers no events, so the phase machine sits in `idle` while
@@ -994,6 +1023,36 @@ export class SmartScroll {
       this._writeScrollTop(desired, false);
     }
     this._restoreBaselineTop = this._container.scrollTop;
+  }
+
+  // -------------------------------------------------------------------------
+  // Public API — the held interior
+  // -------------------------------------------------------------------------
+
+  /**
+   * Install what says whether this scroller's interior is held. The list
+   * view hands in a read of its pane frame's still-crossing mark: one
+   * attribute read on a cached element, no layout ([D7]).
+   */
+  setHeldSource(isHeld: () => boolean): void {
+    this._isHeld = isHeld;
+  }
+
+  /**
+   * Pay what the hold deferred, once: an owed restore first, because a
+   * restore decides where the reader stands and a pin only applies when
+   * they stand at the bottom, then an owed pin. Called when the hold lifts;
+   * a call with nothing owed does nothing.
+   */
+  catchUp(): void {
+    if (this._disposed) return;
+    const restore = this._owedRestore;
+    const pin = this._owedPin;
+    this._owedRestore = false;
+    this._owedPin = null;
+    if (restore) this.applyRestoreTarget();
+    if (pin === "pin") this.pinToBottom();
+    else if (pin === "maybe") this.maybePinToBottom();
   }
 
   // -------------------------------------------------------------------------

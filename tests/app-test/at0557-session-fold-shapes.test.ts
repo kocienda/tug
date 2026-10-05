@@ -49,6 +49,12 @@
  *      rather than a collapse running on past it, which is the user's own
  *      requirement and the thing the old show got wrong by 300ms.
  *
+ * The card is bound to a REAL resumed transcript on each shape — the slice
+ * (`real-transcript-fixture.ts`) — so the card that folds carries the list
+ * view and the editor a user's card does, and answers its own height change
+ * the way theirs does. The claims are about boxes, which a transcript must not
+ * move, so the slice is the one arm this file runs.
+ *
  * `@covers` names the settle engine, which is where the signature term lives;
  * the stylesheet that carries the frame's own transition — the [D07] ease that
  * had to stand down for the settle to own the height — the card stylesheet that
@@ -59,17 +65,18 @@
  * @covers tugdeck/styles/chrome.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  * @covers tugdeck/src/lib/fold-crossing.ts
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { bindForTest } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const CARD_ID = "S";
 const PANE_ID = "p1";
-const SID = "at0557-session";
 
 const FRAME = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const ENTRY = `[data-card-id="${CARD_ID}"] [data-slot="session-card-entry-region"]`;
@@ -339,8 +346,7 @@ async function runShape(app: App, stacked: boolean): Promise<void> {
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered(${JSON.stringify(CARD_ID)})`,
     { timeoutMs: 30_000 },
   );
-  await app.bindSession(CARD_ID, { tugSessionId: `${SID}-${label}` });
-  await app.awaitEngineReady(CARD_ID);
+  await bindForTest(app, [CARD_ID], { size: "slice", label: `at0557 ${label}` });
   await wait(AFTER_LAND_MS);
 
   const beatMs = await declaredClock(app);

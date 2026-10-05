@@ -57,9 +57,11 @@
  *
  * The card is bound because an unbound one renders the project picker rather
  * than the card body, and the slot, its transcript pane and the composer are
- * in the body. The transcript's own length is deliberately not staged: what is
- * under test is whether the boxes hold their PLACES, which is a fact about the
- * cascade and the imposer rather than about how much text is in it.
+ * in the body. It is bound to a REAL resumed transcript — the slice
+ * (`real-transcript-fixture.ts`) — so the interior that must hold still is
+ * one with rows in it, a list view that pins and restores, and an editor that
+ * measures. What is under test is whether the boxes hold their PLACES, which a
+ * transcript must not change, so the slice is the one arm this file runs.
  *
  * `@covers` names the module that owns the mark and the held height, and the
  * stylesheet that reads them, and the settle engine, which detects the
@@ -71,15 +73,16 @@
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  * @covers tugdeck/src/components/chrome/settle-engine.ts
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { bindForTest } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const SID = "at0563-session";
 const PANE_ID = "p1";
 const CARD = '[data-card-id="A"]';
 const CARD_ROOT = `${CARD} .session-card`;
@@ -247,8 +250,7 @@ async function openCard(app: App): Promise<void> {
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 30_000 },
   );
-  await app.bindSession("A", { tugSessionId: SID });
-  await app.awaitEngineReady("A");
+  await bindForTest(app, ["A"], { size: "slice", label: "at0563" });
 }
 
 /** The crossing's own two marks: the frame's stamp and the held height. */

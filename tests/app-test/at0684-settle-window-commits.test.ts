@@ -24,7 +24,16 @@
  * was served, the gesture wrote its window, and a commit fell in it. A census
  * that was missing, a covered window, or a gesture that armed no settle would
  * otherwise all read as a leg with nothing to report. Then it bars the
- * largest commit in each leg's window by fibers performed (`COMMIT_BAR`).
+ * largest commit in each leg's window by fibers performed (`COMMIT_BAR`), and
+ * the window's main-thread milliseconds (`MAIN_THREAD_BAR_MS`): React's time
+ * in every commit, plus the longest forced layout that no commit already
+ * counted.
+ *
+ * Every leg runs twice, on session cards bound to real resumed transcripts:
+ * the `slice` arm everywhere, and the `whale` arm where the local corpus holds
+ * a whale, with the whale on the cards the leg's gesture resizes or moves. The
+ * lead recorder is installed at launch, before the cards are bound, so each
+ * commit carries its React time.
  *
  * ## Why this file does not name `deck-canvas.tsx`, `tug-pane.tsx` or `deck-manager.ts`
  *
@@ -39,6 +48,7 @@
  * @covers tugdeck/src/sidebar-toggle.ts
  * @covers tugdeck/src/lib/gesture-drivers.ts
  * @covers tugdeck/src/components/chrome/pane-place-facts.ts
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -62,11 +72,15 @@ import {
   sampleB09Gesture,
   traceMark,
   traceWithSettleFrames,
+  transcriptArms,
   wait,
   windowCommits,
   type B09Leg,
+  type TranscriptArm,
   type WindowReading,
 } from "./settle-frames-fixture";
+
+const ARMS = transcriptArms();
 
 const TEST_NAME = "at0684-settle-window-commits";
 
@@ -100,6 +114,105 @@ const COMMIT_BAR: Record<string, number> = {
   switch: 1_285,
 };
 
+/**
+ * Each leg's bar on the window's main-thread time, in milliseconds: the sum of
+ * `react_ms` over the in-window commits, plus the longest forced-layout chain
+ * in the window whose paying read falls outside every commit's span from
+ * render start to commit. A chain paid in a layout effect is inside its
+ * commit's `react_ms` already, so only a chain after the commit — a
+ * `ResizeObserver` delivery, a CodeMirror measure — is added to it.
+ *
+ * About a quarter over the largest of three solo whale readings
+ * (`briefs/real-transcript-motion-readings.md`, "Bars"); the whale's
+ * readings, as react_ms + outside chain = total:
+ *
+ * - close: 107 + 1 = 108, 111 + 0 = 111, 108 + 1 = 109.
+ * - rails: 57 + 1 = 58, 61 + 0 = 61, 57 + 1 = 58.
+ * - split: 91 + 0 = 91, 92 + 0 = 92, 91 + 0 = 91.
+ * - unfold: 34, 45, 47, with no chain outside a commit.
+ * - switch: 72 + 3 = 75, 77 + 3 = 80, 72 + 2 = 74.
+ *
+ * The slice arm read under each: close 116–118, rails 56–64, split 90–93,
+ * unfold 42–49, switch 80–87. For the user to confirm against the same
+ * numbers read on a release deck.
+ */
+const MAIN_THREAD_BAR_MS: Record<string, number> = {
+  close: 140,
+  rails: 76,
+  split: 115,
+  unfold: 60,
+  switch: 100,
+};
+
+/** One forced-layout chain, as the chain probe reports its paying read. */
+interface ChainTime {
+  readonly t: number;
+  readonly ms: number;
+  readonly name: string;
+  readonly site: string;
+}
+
+/** A window's main-thread time, as `readMainThread` reads it. */
+interface MainThreadReading {
+  readonly reactMs: number;
+  readonly outsideMs: number;
+  readonly total: number;
+}
+
+/**
+ * Read and disarm the chain probe `armedMark` armed, and note the window's
+ * main-thread time: the three numbers, and the chain time the commits' spans
+ * already contain. Read before any of the leg's clauses, so a red one never
+ * costs the reading.
+ *
+ * A commit in the window's leading margin that rendered before the lead
+ * recorder was armed carries no React time; it is counted and noted, and its
+ * time is not in the sum.
+ */
+async function readMainThread(app: App, leg: string, w: WindowReading): Promise<MainThreadReading> {
+  const reading = await app.evalJS<{ chainTimes: ChainTime[]; truncated: boolean }>(
+    `(function () {
+       var r = window.__tugMotion.chains("read");
+       window.__tugMotion.chains("disarm");
+       return { chainTimes: r.chainTimes.map(function (c) {
+         return { t: c.t, ms: c.ms, name: c.name, site: c.site };
+       }), truncated: r.truncated };
+     })()`,
+  );
+  const timed = w.commits.filter((c) => c.reactMs !== null && c.renderStart !== null);
+  const reactMs = timed.reduce((s, c) => s + (c.reactMs as number), 0);
+  const spans = timed.map((c) => [w.from + (c.renderStart as number), w.from + c.t] as const);
+  const inWindow = reading.chainTimes.filter(
+    (c) => c.t >= w.from - WINDOW_MARGIN_MS && c.t <= w.to + WINDOW_MARGIN_MS,
+  );
+  const inside = inWindow.filter((c) => spans.some(([a, b]) => c.t >= a && c.t <= b));
+  const outside = inWindow.filter((c) => !inside.includes(c));
+  const longest = outside.reduce<ChainTime | null>((m, c) => (m === null || c.ms > m.ms ? c : m), null);
+  const outsideMs = longest?.ms ?? 0;
+  const total = reactMs + outsideMs;
+  note(
+    `at0684 ${leg} main thread: react_ms ${reactMs.toFixed(1)} + longest outside chain ` +
+      `${outsideMs.toFixed(1)}${longest === null ? "" : ` (${longest.name} at ${longest.site})`} = ` +
+      `${total.toFixed(1)} ms; in-commit chains ${inside.reduce((s, c) => s + c.ms, 0).toFixed(1)} ms ` +
+      `over ${inside.length}, ${outside.length} outside` +
+      `${reading.truncated ? "; chain log truncated" : ""}; ` +
+      `${w.commits.length - timed.length} of ${w.commits.length} commit(s) untimed`,
+  );
+  return { reactMs, outsideMs, total };
+}
+
+/** The window's main-thread time is under the leg's `MAIN_THREAD_BAR_MS`. */
+function expectMainThreadUnderBar(leg: string, r: MainThreadReading): void {
+  const bar = MAIN_THREAD_BAR_MS[leg];
+  expect(bar, `${leg}: the leg has a main-thread bar`).toBeDefined();
+  expect(
+    r.total,
+    `${leg}: the window's main-thread time is react_ms ${r.reactMs.toFixed(1)} + the longest ` +
+      `chain outside every commit ${r.outsideMs.toFixed(1)} = ${r.total.toFixed(1)} ms, ` +
+      `against a bar of ${bar} ms`,
+  ).toBeLessThan(bar as number);
+}
+
 /** The leg's largest in-window commit is under its bar, with the reading. */
 function expectUnderBar(leg: string, w: WindowReading): void {
   const largest = largestCommit(w.commits);
@@ -114,17 +227,35 @@ function expectUnderBar(leg: string, w: WindowReading): void {
   ).toBeLessThan(bar);
 }
 
+/**
+ * The trace mark a leg reads its window from, with the lead recorder armed
+ * there — armed, the census stamps each commit's render start, and so each
+ * commit's `reactMs`. Nothing else arms it on a harness deck. The chain probe
+ * is armed beside it, without stacks, so its capture adds nothing to the
+ * `reactMs` it is summed with.
+ */
+async function armedMark(app: App): Promise<number> {
+  await app.evalJS<null>(
+    `(window.__tugLead && window.__tugLead.arm(), ` +
+      `window.__tugMotion.chains("arm", { stacks: false }), null)`,
+  );
+  return traceMark(app);
+}
+
 /** Every commit in the window, and the largest, as diagnostics. */
 function noteWindow(leg: string, w: WindowReading): void {
   const largest = largestCommit(w.commits);
+  const reactMs = w.commits.reduce((s, c) => s + (c.reactMs ?? 0), 0);
   note(
     `at0684 ${leg}: ${w.commits.length} commit(s) in a ` +
-      `${(w.to - w.from).toFixed(0)} ms window (±${WINDOW_MARGIN_MS} ms)`,
+      `${(w.to - w.from).toFixed(0)} ms window (±${WINDOW_MARGIN_MS} ms), ` +
+      `react_ms summed ${reactMs.toFixed(1)}`,
   );
   for (const c of w.commits) {
     note(
       `at0684 ${leg} commit t=${c.t} performed=${c.performed} ` +
-        `mounted=${c.mounted} fibers=${c.fibers} top=${JSON.stringify(c.top)} ` +
+        `mounted=${c.mounted} fibers=${c.fibers} react_ms=${c.reactMs} ` +
+        `top=${JSON.stringify(c.top)} ` +
         `why=${JSON.stringify(c.why.slice(0, 12))}`,
     );
   }
@@ -265,6 +396,7 @@ async function readLeg(
   const w = await windowCommits(app, mark);
   expect(w, `${leg}: the settle window was found in the trace`).not.toBeNull();
   noteWindow(leg, w as WindowReading);
+  const mainThread = await readMainThread(app, leg, w as WindowReading);
   expect(
     (w as WindowReading).commits.length,
     `${leg}: at least one React commit fell in the window`,
@@ -273,17 +405,27 @@ async function readLeg(
   for (const pane of movedPanes(sampled.before, sampled.after)) own.add(cards[pane] ?? pane);
   expectNoStrayPaneRenders(leg, w as WindowReading, own);
   expectUnderBar(leg, w as WindowReading);
+  expectMainThreadUnderBar(leg, mainThread);
   return w as WindowReading;
 }
 
-/** One leg on its own launched deck, torn down whatever happens. */
+/**
+ * One leg on its own launched deck, torn down whatever happens, with its
+ * session cards bound on `arm` — the whale on `whaleCards` when given.
+ */
 async function onDeck(
+  arm: TranscriptArm,
   count: number,
   blob: Record<string, unknown>,
   body: (app: App) => Promise<void>,
   homeFirst = true,
+  whaleCards?: readonly string[],
 ): Promise<void> {
-  const { app, tugbankPath } = await launch(count, blob, TEST_NAME);
+  const { app, tugbankPath } = await launch(count, blob, TEST_NAME, {
+    transcripts: arm.size,
+    whaleCards,
+    leadRecorder: true,
+  });
   try {
     await traceWithSettleFrames(app);
     if (homeFirst) await home(app);
@@ -295,11 +437,11 @@ async function onDeck(
   }
 }
 
-describe.skipIf(!SHOULD_RUN)("at0684 — a card's departure from a split column", () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0684 — a card's departure from a split column [${arm.size}]`, () => {
   test(
     "closing the newcomer in a split column: every commit in the window, recorded",
     async () => {
-      await onDeck(8, columnBlob(), async (app) => {
+      await onDeck(arm, 8, columnBlob(), async (app) => {
         await app.evalJS<null>(`(${drive("split", { slot: 0, mode: "split" })}, null)`);
         await wait(AFTER_LAND_MS);
         const standing = new Set(
@@ -320,7 +462,7 @@ describe.skipIf(!SHOULD_RUN)("at0684 — a card's departure from a split column"
         await wait(AFTER_LAND_MS);
 
         const cards = await paneCards(app);
-        const mark = await traceMark(app);
+        const mark = await armedMark(app);
         const close = await sampleB09Gesture(app, drive("close", { pane: newcomers[0] }));
         const w = await readLeg(app, "close", mark, close, cards);
         expectSurvivorsKeepTheirBars(w, cards[newcomers[0]] ?? newcomers[0]);
@@ -365,11 +507,11 @@ async function menuMark(app: App, identifier: string, want: number): Promise<num
 /** The rail fixture's two sidebar cards, as their Window-menu toggles. */
 const RAIL_MENU_ROWS = ["view.sidebar.layout.show", "view.sidebar.jots.show"];
 
-describe.skipIf(!SHOULD_RUN)("at0684 — showing a two-member rail", () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0684 — showing a two-member rail [${arm.size}]`, () => {
   test(
     "showing the rails after hiding them: the hide parks, the show mounts nothing",
     async () => {
-      await onDeck(4, railBlob(), async (app) => {
+      await onDeck(arm, 4, railBlob(), async (app) => {
         const rail = await railFrames(app, "all");
         expect(rail.length, `rails: the fixture stands a two-member rail`).toBe(2);
 
@@ -385,7 +527,7 @@ describe.skipIf(!SHOULD_RUN)("at0684 — showing a two-member rail", () => {
           );
         }
 
-        const mark = await traceMark(app);
+        const mark = await armedMark(app);
         const show = await sampleB09Gesture(app, drive("rails"));
         const w = await readLeg(app, "rails", mark, show, await paneCards(app));
         const mounted = w.commits.reduce((sum, c) => sum + c.mounted, 0);
@@ -406,13 +548,13 @@ describe.skipIf(!SHOULD_RUN)("at0684 — showing a two-member rail", () => {
   );
 });
 
-describe.skipIf(!SHOULD_RUN)("at0684 — dividing a shared column", () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0684 — dividing a shared column [${arm.size}]`, () => {
   test(
     "splitting slot 0 of the eight-card column deck: every commit in the window, recorded",
     async () => {
-      await onDeck(8, columnBlob(), async (app) => {
+      await onDeck(arm, 8, columnBlob(), async (app) => {
         const cards = await paneCards(app);
-        const mark = await traceMark(app);
+        const mark = await armedMark(app);
         const split = await sampleB09Gesture(app, drive("split", { slot: 0, mode: "split" }));
         await readLeg(app, "split", mark, split, cards);
       });
@@ -421,15 +563,15 @@ describe.skipIf(!SHOULD_RUN)("at0684 — dividing a shared column", () => {
   );
 });
 
-describe.skipIf(!SHOULD_RUN)("at0684 — unfolding a session card", () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0684 — unfolding a session card [${arm.size}]`, () => {
   test(
     "unfolding a folded session card in the flow: every commit in the window, recorded",
     async () => {
-      await onDeck(4, blobFor(4), async (app) => {
+      await onDeck(arm, 4, blobFor(4), async (app) => {
         await sampleB09Gesture(app, drive("fold", { card: FOLD_CARD_ID }));
         await wait(AFTER_LAND_MS);
         const cards = await paneCards(app);
-        const mark = await traceMark(app);
+        const mark = await armedMark(app);
         const unfold = await sampleB09Gesture(app, drive("unfold", { card: FOLD_CARD_ID }));
         await readLeg(app, "unfold", mark, unfold, cards, [FOLD_CARD_ID]);
       });
@@ -497,11 +639,11 @@ function twoSpaceBlob(): Record<string, unknown> {
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("at0684 — switching workspaces", () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0684 — switching workspaces [${arm.size}]`, () => {
   test(
     "a switch to a mounted workspace: every commit in its window, recorded",
     async () => {
-      await onDeck(4, twoSpaceBlob(), async (app) => {
+      await onDeck(arm, 4, twoSpaceBlob(), async (app) => {
         // Mount both layers first: the first switch to a workspace nobody has
         // visited is a mount, a different path from the re-show every switch
         // after it takes (`at0643`).
@@ -513,7 +655,7 @@ describe.skipIf(!SHOULD_RUN)("at0684 — switching workspaces", () => {
         await app.evalJS<null>(
           `(window.__deckTrace.enableKind("space-switch-frames", true), null)`,
         );
-        const mark = await traceMark(app);
+        const mark = await armedMark(app);
         const from = await app.evalJS<number>(
           `(function () { var t = performance.now(); ${drive("switch", { space: SPACE_TWO })}; return t; })()`,
         );
@@ -543,6 +685,7 @@ describe.skipIf(!SHOULD_RUN)("at0684 — switching workspaces", () => {
         const w = await windowCommits(app, mark, { from, ms: SWITCH_WINDOW_MS });
         expect(w, `switch: the window was read`).not.toBeNull();
         noteWindow("switch", w as WindowReading);
+        const mainThread = await readMainThread(app, "switch", w as WindowReading);
         expect(
           (w as WindowReading).commits.length,
           `switch: at least one React commit fell in the window`,
@@ -551,7 +694,8 @@ describe.skipIf(!SHOULD_RUN)("at0684 — switching workspaces", () => {
         // panes is newly shown. The departing workspace's panes are outside it.
         expectNoStrayPaneRenders("switch", w as WindowReading, new Set(spaceCards("b")));
         expectUnderBar("switch", w as WindowReading);
-      }, false);
+        expectMainThreadUnderBar("switch", mainThread);
+      }, false, ["at0684-sa1", "at0684-sa2"]);
     },
     BAR_TIMEOUT_MS,
   );

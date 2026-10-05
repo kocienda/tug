@@ -163,7 +163,7 @@ declare global {
         drive(
           gesture: string,
           args?: Record<string, unknown>,
-        ): { ok: true } | { error: string };
+        ): { ok: true; paneId?: string } | { error: string };
         seedDeck(state: unknown, focusCardId?: string): void;
         createSpace(name?: string): string;
         renameSpace(spaceId: string, name: string): void;

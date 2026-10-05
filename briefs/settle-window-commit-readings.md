@@ -1,5 +1,7 @@
 # Settle-window commit readings
 
+Taken on unbound session cards with empty transcripts: a reading of the chrome, not of a session card (`briefs/real-transcript-motion-brief.md` [F04]).
+
 The readings behind the work that makes each settle gesture's in-window React commit small. Each entry is pasted as the instrument printed it — `tugtool deck motion settle --json` excerpts, or `at0684-settle-window-commits.test.ts`'s `note()` lines — with its date, the tree it was read on, and the deck's census. Numbers here come from a tool, never from a hand.
 
 The file was numbered `at0683` when these readings were taken and was renumbered `at0684` before landing, because `main` gave `at0683` to `at0683-arc-row-join.test.ts` the same day; the notes below carry the new number.

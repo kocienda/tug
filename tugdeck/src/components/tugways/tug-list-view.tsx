@@ -100,6 +100,7 @@ import {
   RESIZE_PRESERVE_END,
 } from "@/lib/resize-episode";
 import { SmartScroll } from "@/lib/smart-scroll";
+import { STILL_CROSSING_ATTR, STILL_CROSSING_END } from "@/lib/fold-crossing";
 import {
   anchorDepthFromEnd,
   anchorRowIndexInWindow,
@@ -1860,6 +1861,70 @@ function trailingPadOf(el: HTMLElement): number {
 }
 
 /**
+ * Set the extent floor to `extent − 1` from the scroller's settled
+ * geometry, and return `scrollTop` as it stands afterwards — the post-
+ * commit bracket's floor write, and the one the list view owes and pays
+ * once when a still crossing lifts off its pane frame. The why of the
+ * floor is at its call in the bracket; this is the arithmetic and the
+ * declared rebase, in one place so the two callers cannot drift.
+ */
+function settleExtentFloor(args: {
+  el: HTMLElement;
+  floorEl: HTMLElement;
+  floorState: { height: number; inset: number };
+  bottom: HTMLElement | null;
+  ss: SmartScroll;
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}): number {
+  const { el, floorEl, floorState, bottom, ss, scrollHeight, clientHeight } = args;
+  let scrollTop = args.scrollTop;
+  const bottomEdge =
+    bottom === null ? null : bottom.offsetTop + bottom.offsetHeight;
+  floorState.inset = trailingPadOf(el);
+  const extent =
+    bottomEdge === null ? scrollHeight : bottomEdge + floorState.inset;
+  const nextFloor = Math.max(0, Math.round(extent) - 1);
+  if (nextFloor > floorState.height) {
+    floorState.height = nextFloor;
+    floorEl.style.height = `${nextFloor}px`;
+  } else if (nextFloor < floorState.height) {
+    const fromFloor = floorState.height;
+    floorState.height = nextFloor;
+    floorEl.style.height = `${nextFloor}px`;
+    // Flush now so the clamp (if any) happens here, inside the
+    // declared write, instead of at whatever read forces
+    // layout next.
+    void el.scrollHeight;
+    const topAfter = el.scrollTop;
+    const clamped =
+      Math.abs(topAfter - scrollTop) > DISPLACEMENT_EPSILON_PX;
+    if (clamped) {
+      ss.noteExternalWrite();
+      scrollTop = topAfter;
+    }
+    deckTrace.record({
+      kind: "extent-rebase",
+      from: fromFloor,
+      to: nextFloor,
+      scrollTop: topAfter,
+      clientHeight,
+      clamped,
+      following: ss.isFollowingBottom,
+    });
+    tugDevLogStore.debug("list-view", "extent-rebase", {
+      from: fromFloor,
+      to: nextFloor,
+      scrollTop: topAfter,
+      clientHeight,
+      clamped,
+    });
+  }
+  return scrollTop;
+}
+
+/**
  * The probe handle for the list view whose scroll container is `el`,
  * or `null` when `el` is not one.
  *
@@ -2144,6 +2209,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // the probe, and never read back as an input.
     const extentFloorRef = React.useRef<HTMLDivElement | null>(null);
     const extentFloorStateRef = React.useRef({ height: 0, inset: 0 });
+    // The pane frame this list sits in, resolved once at mount, whose still
+    // crossing holds the interior; and whether a floor rebase is owed to
+    // the end of one. Local data, never React state ([L02], [L06]).
+    const heldFrameRef = React.useRef<HTMLElement | null>(null);
+    const owedRebaseRef = React.useRef(false);
     // One-shot arming flag for the clamp simulation the test surface
     // drives. See the displacement effect.
     const forceClampRef = React.useRef(false);
@@ -3514,6 +3584,36 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         },
       });
       smartScrollRef.current = smartScroll;
+      // The held interior. The pane frame is resolved once; its
+      // still-crossing mark is read per call, one attribute on a cached
+      // element. When the crossing ends, the scroller pays its owed pin and
+      // restore once, and the extent floor its owed rebase, against the
+      // geometry the interior settles at. Registered here, beside the
+      // scroller it serves, so it is in place before any event can need it
+      // ([L03]).
+      const heldFrame = el.closest<HTMLElement>(".tug-pane[data-pane-id]");
+      heldFrameRef.current = heldFrame;
+      const onStillCrossingEnd = (): void => {
+        smartScroll.catchUp();
+        if (!owedRebaseRef.current) return;
+        owedRebaseRef.current = false;
+        const floorEl = extentFloorRef.current;
+        if (floorEl === null || el.clientHeight === 0) return;
+        settleExtentFloor({
+          el,
+          floorEl,
+          floorState: extentFloorStateRef.current,
+          bottom: bottomSpacerRef.current,
+          ss: smartScroll,
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        });
+      };
+      if (heldFrame !== null) {
+        smartScroll.setHeldSource(() => heldFrame.hasAttribute(STILL_CROSSING_ATTR));
+        heldFrame.addEventListener(STILL_CROSSING_END, onStillCrossingEnd);
+      }
       // Surface the initial follow-bottom intent: `onFollowBottomChanged`
       // fires only on transitions, so a consumer's observer would
       // otherwise miss the mount-time state.
@@ -3917,6 +4017,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         el.removeEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
         revealObserver.disconnect();
         revealSeamRef.current = null;
+        heldFrame?.removeEventListener(STILL_CROSSING_END, onStillCrossingEnd);
+        heldFrameRef.current = null;
         smartScroll.dispose();
         smartScrollRef.current = null;
       };
@@ -4344,50 +4446,26 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // floor's `− 1` was chosen to make impossible. Measuring costs one
       // computed-style read on a layout the geometry reads above have
       // already flushed, and it cannot go stale.
+      //
+      // HELD, the write is owed rather than made: while the pane frame
+      // wears a still crossing its interior stands at a fixed height
+      // under a tweening edge, and the extent read here is the held
+      // one. The rebase runs once when the crossing announces its end.
       {
         const floorEl = extentFloorRef.current;
         if (floorEl !== null) {
-          const floorState = extentFloorStateRef.current;
-          const bottom = bottomSpacerRef.current;
-          const bottomEdge =
-            bottom === null ? null : bottom.offsetTop + bottom.offsetHeight;
-          floorState.inset = trailingPadOf(el);
-          const extent =
-            bottomEdge === null ? scrollHeight : bottomEdge + floorState.inset;
-          const nextFloor = Math.max(0, Math.round(extent) - 1);
-          if (nextFloor > floorState.height) {
-            floorState.height = nextFloor;
-            floorEl.style.height = `${nextFloor}px`;
-          } else if (nextFloor < floorState.height) {
-            const fromFloor = floorState.height;
-            floorState.height = nextFloor;
-            floorEl.style.height = `${nextFloor}px`;
-            // Flush now so the clamp (if any) happens here, inside the
-            // declared write, instead of at whatever read forces
-            // layout next.
-            void el.scrollHeight;
-            const topAfter = el.scrollTop;
-            const clamped =
-              Math.abs(topAfter - scrollTop) > DISPLACEMENT_EPSILON_PX;
-            if (clamped) {
-              ss.noteExternalWrite();
-              scrollTop = topAfter;
-            }
-            deckTrace.record({
-              kind: "extent-rebase",
-              from: fromFloor,
-              to: nextFloor,
-              scrollTop: topAfter,
+          if (heldFrameRef.current?.hasAttribute(STILL_CROSSING_ATTR) === true) {
+            owedRebaseRef.current = true;
+          } else {
+            scrollTop = settleExtentFloor({
+              el,
+              floorEl,
+              floorState: extentFloorStateRef.current,
+              bottom: bottomSpacerRef.current,
+              ss,
+              scrollTop,
+              scrollHeight,
               clientHeight,
-              clamped,
-              following: ss.isFollowingBottom,
-            });
-            tugDevLogStore.debug("list-view", "extent-rebase", {
-              from: fromFloor,
-              to: nextFloor,
-              scrollTop: topAfter,
-              clientHeight,
-              clamped,
             });
           }
         }

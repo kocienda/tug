@@ -7,7 +7,7 @@
  * A closing pane leaves on its REAL frame: the store keeps it in the deck it
  * publishes for one settle, the canvas draws it `data-departing`, and the
  * settle fades it where it stood (`lib/departing.ts`, `settle-engine.ts`). For
- * the length of that beat the card is fully mounted — its picker form, its
+ * the length of that beat the card is fully mounted — its transcript, its
  * focusables, its scroll keys — and every one of them is still something the
  * document can find. That is the point: the card's own content reads itself
  * unchanged while it leaves. What must not happen is that anything REACHES it:
@@ -37,12 +37,20 @@
  * a copy's, and what it says is what an inert card still holds while it
  * leaves.
  *
+ * The card that leaves is a Session card bound to a REAL resumed transcript —
+ * the slice (`real-transcript-fixture.ts`) — so the subtree that must be
+ * unreachable is the one a user's card holds: list cells, a composer, a
+ * scroller with rows in it. Inertness is not a question a transcript's size
+ * can change, so the slice is the one arm this file runs.
+ *
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/chrome/space-layer.css
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { bindForTest } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -166,9 +174,10 @@ describe.skipIf(!SHOULD_RUN)("AT0583: the departing frame is inert", () => {
         );
         await wait(1_400);
 
-        // A Session card, because its subtree is the RICH one: a picker form,
+        // A Session card, because its subtree is the RICH one: a transcript,
         // focusables, scroll keys, list cells and a state key — and it holds
-        // the keyboard when it opens, so the close has focus to move.
+        // the keyboard when it opens, so the close has focus to move. It opens
+        // on its picker and is then bound to a real transcript.
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("show-card", { component: "session" }), null)`,
         );
@@ -187,6 +196,16 @@ describe.skipIf(!SHOULD_RUN)("AT0583: the departing frame is inert", () => {
           })()`,
         );
         expect(paneId, "the Session card opened into its own pane").not.toBe("");
+        const cardId = await app.evalJS<string>(
+          `(function () {
+            var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
+              return p.id === ${JSON.stringify(paneId)};
+            });
+            return pane ? pane.activeCardId : "";
+          })()`,
+        );
+        await bindForTest(app, [cardId], { size: "slice", label: "at0583" });
+        await wait(1_200);
 
         await arm(app, paneId);
         await app.evalJS<null>(

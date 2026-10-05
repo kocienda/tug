@@ -66,10 +66,13 @@
  *      closed by the cancelled tween's own completion would put the card in
  *      its terminal form with hundreds of pixels of travel still to come.
  *
- * Only the middle card is bound, and only because claim 3 needs a composer to
- * type into — an unbound Session card has no editor to hold a draft. The two
- * neighbours stay unbound: what is under test is a clock and a stylesheet, and
- * two more engines would add nothing but two more engines.
+ * All three cards are bound to REAL resumed transcripts
+ * (`real-transcript-fixture.ts`), on two arms: the slice everywhere, and in
+ * the whale arm the subject carries the corpus's whale. A card with a
+ * transcript answers its own height change — its list view pins, restores and
+ * rebases, and its editor measures — and an empty card pays none of that, so
+ * a fold read on empty cards says nothing about the fold a user sees. Claim 3
+ * types its draft into the subject's own composer.
  *
  * `@covers` names the stylesheet that IS the motion, the module that owns the
  * clock both halves read, and the module that owns the crossing claim 4 is
@@ -83,10 +86,12 @@
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { bindForTest, transcriptArms } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -95,8 +100,6 @@ const PANE_IDS = ["p1", "p2", "p3"] as const;
 const CARD_IDS = ["A", "B", "C"] as const;
 /** The card the fold is driven on — the middle of the wall. */
 const SUBJECT = "B";
-/** The middle card's session id — the one binding this file needs. */
-const SID = "at0555-session";
 /** The card below it, whose travel is the sibling half of claim 2. */
 const NEIGHBOUR = "p3";
 /** The card UNFOLDED partway through the subject's own fold, for claim 4. */
@@ -308,11 +311,11 @@ async function retargetCensus(app: App): Promise<FoldSample[]> {
   return app.evalJS<FoldSample[]>(`window.__at0555r`);
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
+for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(`AT0555: the fold's clock [${arm.size}]`, () => {
   test(
     "the composer's collapse and the wall's travel are one motion, and the draft survives it",
     async () => {
-      const app = await launchTugApp({ testName: "at0555-fold-motion" });
+      const app = await launchTugApp({ testName: `at0555-fold-motion-${arm.size}` });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: SUBJECT });
@@ -322,8 +325,11 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
             { timeoutMs: 30_000 },
           );
         }
-        await app.bindSession(SUBJECT, { tugSessionId: SID });
-        await app.awaitEngineReady(SUBJECT);
+        await bindForTest(app, CARD_IDS, {
+          size: arm.size,
+          whaleCards: [SUBJECT],
+          label: `at0555 [${arm.size}]`,
+        });
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
         );

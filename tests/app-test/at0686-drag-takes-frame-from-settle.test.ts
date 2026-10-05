@@ -103,11 +103,17 @@ describe.skipIf(!SHOULD_RUN)("at0686 — a drag begun mid-settle owns its frame"
           })()`,
         );
         await wait(60);
-        const from = await app.evalJS<{ x: number; y: number }>(
+        const from = await app.evalJS<{ x: number; y: number; t: number }>(
           `(function () {
             var r = document.querySelector(${JSON.stringify(BAR)}).getBoundingClientRect();
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, t: performance.now() };
           })()`,
+        );
+        // Where the bar was at the dispatch and when it was read again: on a
+        // deck whose gesture stalls, the second read lands late in the slide.
+        note(
+          `at0686 grab: bar at dispatch x=${grab.x.toFixed(1)}, ` +
+            `read ${(from.t - grab.t).toFixed(1)} ms later at x=${from.x.toFixed(1)}`,
         );
         const to = { x: from.x, y: from.y + DRAG_DY };
         await app.nativeDragWithoutRelease(from, to);

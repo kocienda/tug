@@ -1130,6 +1130,11 @@ pub enum DeckMotionCommands {
         /// `arm`, `read` or `disarm`.
         #[arg(long, value_parser = ["arm", "read", "disarm"])]
         mode: String,
+        /// Arm without the per-read stack capture, so the reading's ms do not
+        /// carry the probe's own price. Chains still count; their site reads
+        /// `<no stack>`. Only `arm` takes it.
+        #[arg(long)]
+        no_stacks: bool,
         #[command(flatten)]
         target: DeckTarget,
     },
@@ -1206,19 +1211,31 @@ pub enum DeckMotionCommands {
     /// `--count` repeats the gesture, undoing it in between: `fold`/`unfold`
     /// alternate, `split` alternates the mode, `switch` and `flip` go back to
     /// where the deck stood, `rails` hides before each show it reads (so start
-    /// with the rails showing), and a pane closes once. A release deck walks
-    /// React commits only with `--tasks`.
+    /// with the rails showing), and a pane closes once. `slot` sends the card
+    /// to `--slot` and back to the slot it stood in; `go` travels to `--slot`
+    /// and back to slot 0; `bullseye` toggles the pane each time; `sidebar`
+    /// hides `--component`'s sidebar, then shows it; `slide` alternates like
+    /// `flip` and is refused when the strip does not travel; `fit` resizes
+    /// once, whatever the count; and `appear` brings a session picker card in
+    /// and closes it, unread, before the next. A release deck walks React
+    /// commits only with `--tasks`.
+    ///
+    /// Every reading also prints the frame lead (the drive to the first frame
+    /// after it), the longest gap the outside recorder saw up to the settle
+    /// mark's off, the lead included, and each settle beat's start delay and
+    /// declared breaches.
     Settle {
         /// The gesture to drive.
         #[arg(long, value_parser = crate::commands::deck_motion_settle::GESTURE_NAMES)]
         gesture: String,
-        /// The card `flip`, `fold` and `unfold` act on.
+        /// The card `flip`, `fold`, `unfold`, `slot` and `slide` act on.
         #[arg(long)]
         card: Option<String>,
-        /// The pane `close` closes.
+        /// The pane `close` closes and `bullseye` toggles.
         #[arg(long)]
         pane: Option<String>,
-        /// The slot `split` sets the column mode of, 0-based.
+        /// The slot `split` sets the column mode of, `slot` sends the card to,
+        /// and `go` travels to, 0-based.
         #[arg(long)]
         slot: Option<u32>,
         /// The column mode `split` sets first.
@@ -1227,6 +1244,9 @@ pub enum DeckMotionCommands {
         /// The workspace `switch` activates.
         #[arg(long)]
         space: Option<String>,
+        /// The sidebar card component `sidebar` hides and shows.
+        #[arg(long)]
+        component: Option<String>,
         /// Gestures read.
         #[arg(long, default_value_t = 3)]
         count: u32,
@@ -1236,6 +1256,14 @@ pub enum DeckMotionCommands {
         /// to install the recorder.
         #[arg(long)]
         tasks: bool,
+        /// Arm the forced-layout chain probe around each read drive, without
+        /// stacks so its ms are the gesture's own, and print each reading's
+        /// chain count, longest and total ms. One extra drive, ahead of the
+        /// readings, carries stacks and is printed as the chain census by call
+        /// site; a gesture that drives once (`close`, `fit`) reads its one
+        /// drive with stacks instead.
+        #[arg(long)]
+        chains: bool,
         #[command(flatten)]
         target: DeckTarget,
     },

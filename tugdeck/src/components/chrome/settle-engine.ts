@@ -65,7 +65,11 @@ import {
   type PlaceRuns,
   sidebarRailsOf,
 } from "@/deck-store-selectors";
-import type { DeckState } from "@/layout-tree";
+import type { DeckState, TugPaneState } from "@/layout-tree";
+import {
+  predictHeightCrossings,
+  type HeightArrangement,
+} from "@/lib/height-crossing-prediction";
 import { standingDeck } from "@/lib/departing";
 import {
   SETTLE_TAKE_EVENT,
@@ -540,6 +544,38 @@ function endCrossingsNotCarried(
 }
 
 /**
+ * End the still crossing `arm` opened on every frame the Last pass did not go
+ * on to carry, and forget them all.
+ *
+ * `arm` holds a frame from the store's word alone: the frame the new
+ * arrangement will resize is held at its First content height before React
+ * commits that arrangement, so the commit's height change never reaches the
+ * interior. The Last pass confirms each with a re-mark (never lowering) when
+ * the frame really carries a height term, and from then on the tween that
+ * carries it owns the end. A frame it never confirmed — the prediction
+ * over-marked it, or a path out of the pass carried nothing — is ended here,
+ * on that path, and announces its end like every other ([L32]).
+ *
+ * Each frame is ended by the door `arm` opened it with: a frame whose folded
+ * state flips was opened as a fold crossing — both marks, so a fold's still
+ * mark is never on without its fold mark and the card's picture never hangs
+ * from the wrong edge — and is ended as one, which announces the fold's end
+ * to whatever is waiting on it. Every other frame was opened as a still
+ * crossing, and a fold standing from an earlier settle is that settle's to end.
+ */
+function endArmHeldNotCarried(
+  frames: Map<HTMLElement, "fold" | "still">,
+  carried: ReadonlySet<HTMLElement> = new Set(),
+): void {
+  for (const [frame, kind] of frames) {
+    if (carried.has(frame)) continue;
+    if (kind === "fold") endFoldCrossing(frame);
+    else endStillCrossing(frame);
+  }
+  frames.clear();
+}
+
+/**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
  * the settle the whole choreography is measured against — and the two resize
  * beats have recipes of their own in `lib/imposer-motion.ts`.
@@ -601,6 +637,20 @@ export interface SettleEngineDeps {
   deckState: DeckState;
   placeRuns: PlaceRuns;
   containerRef: RefObject<HTMLDivElement | null>;
+  /**
+   * The arrangement the canvas rendered `deckState` with — the near side of
+   * the height prediction `arm` makes.
+   */
+  shownArrangement: HeightArrangement<TugPaneState>;
+  /**
+   * The canvas's own derivation, for the far side: the arrangement a deck will
+   * render at the given run heights. Handed in rather than imported, so the
+   * settle reads exactly what the canvas will render.
+   */
+  deriveArrangement: (
+    deck: DeckState,
+    placeRuns: PlaceRuns,
+  ) => HeightArrangement<TugPaneState>;
 }
 
 /**
@@ -616,6 +666,8 @@ export function useSettleEngine({
   deckState,
   placeRuns,
   containerRef,
+  shownArrangement,
+  deriveArrangement,
 }: SettleEngineDeps) {
   // ---------------------------------------------------------------------------
   // Settling into a new arrangement
@@ -817,6 +869,23 @@ export function useSettleEngine({
    * unmount teardown end whatever a Last pass never reached.
    */
   const retargetedFramesRef = useRef<Set<HTMLElement>>(new Set());
+  /**
+   * The frames `arm` holds on the store's word, before the commit that
+   * resizes them, from that `arm` until a Last pass confirms or ends
+   * each ({@link endArmHeldNotCarried}). The sweep, a later `arm` and the
+   * unmount teardown end whatever no Last pass reached.
+   */
+  const armHeldRef = useRef<Map<HTMLElement, "fold" | "still">>(new Map());
+  /**
+   * What the canvas last rendered — the deck, its arrangement, and how it
+   * derives one — read by `arm` for the near side of its prediction. Written
+   * after every commit, so `arm`, which runs in a later task's notify, reads
+   * the arrangement that is on screen.
+   */
+  const renderedRef = useRef({ deck: deckState, arrangement: shownArrangement, deriveArrangement });
+  useLayoutEffect(() => {
+    renderedRef.current = { deck: deckState, arrangement: shownArrangement, deriveArrangement };
+  });
   /**
    * The frames a pointer gesture took from a running settle, each against the
    * generation of the settle it took it from. That settle's later landings and
@@ -1495,7 +1564,8 @@ export function useSettleEngine({
           endStillCrossing(entry.el);
         }
         // And a frame a retarget took over that no Last pass has read since.
-        endCrossingsNotCarried(retargetedFramesRef.current);
+(retargetedFramesRef.current);
+(armHeldRef.current);
         // After the frames, so the flush inside carries their hand-back.
         //
         // And the frames that never reached a tween record: an arrival whose
@@ -1885,6 +1955,114 @@ export function useSettleEngine({
         armed.push({ paneId, frame, running });
       }
 
+      // A column whose mode flipped moves the one member the stack shows and
+      // holds every other one behind it — `settleHoldPlanRef` says why the
+      // survivor is the z-frontmost rather than the top tile. Skipped under
+      // reduced motion with the rest of the choreography, but the mode record
+      // always advances — a stale record would read the next flip against
+      // the wrong shore. Planned here, ahead of the hold at arm below, which
+      // reads it: a covered member's height changes in the store, but the
+      // settle never tweens it — it stands at its tile behind the survivor and
+      // snaps at release under the cover — so it has no crossing to hold.
+      const holdPlan = settleHoldPlanRef.current;
+      holdPlan.survivors.clear();
+      holdPlan.covered.clear();
+      holdPlan.held.clear();
+      // A COLUMN whose mode flipped gets the cover choreography: the frame the
+      // stack actually shows is the z-frontmost member, not the top of the
+      // column's order, so that is the one that moves and every other one
+      // is covered. Picking the top member instead would grow a frame that
+      // ends up hidden while the card the stack goes on to display arrived by
+      // a cut.
+      //
+      // A rail has no such flip — it is always divided.
+      const columns = deckColumnsOf(state, null);
+      const prevColumnModes = prevColumnModesRef.current;
+      if (motion && prevColumnModes !== null) {
+        for (const column of columns) {
+          const prevMode = prevColumnModes.get(column.slot);
+          if (prevMode === undefined || prevMode === column.mode) continue;
+          if (column.members.length < 2) continue;
+          const members = new Set(column.members);
+          let survivor: string | undefined;
+          for (const pane of state.panes) {
+            if (members.has(pane.id)) survivor = pane.id;
+          }
+          if (survivor !== undefined) holdPlan.survivors.add(survivor);
+          for (const paneId of column.members) {
+            if (paneId === survivor) continue;
+            holdPlan.covered.add(paneId);
+            if (column.mode === "stack") holdPlan.held.add(paneId);
+          }
+        }
+      }
+      prevColumnModesRef.current = new Map(
+        columns.map((column) => [column.slot, column.mode]),
+      );
+
+      // THE HOLD AT ARM. The frames the new arrangement resizes are
+      // held at their First content height HERE, in the store's notify,
+      // before React commits the arrangement. Held in the Last pass instead —
+      // the canvas's layout effect, which React runs after its children's —
+      // the hold arrived after every card's own layout effects had already
+      // seen the frame at its new height, unheld, and relaid the transcript
+      // out inside the commit that plans the motion. Which frames change
+      // height is a pure function of the store (`predictHeightCrossings`),
+      // so no DOM is read for it; the height held is the one this loop just
+      // measured into `firstFolds`.
+      //
+      // The Last pass confirms each hold with a re-mark that never lowers,
+      // or ends one the frame turned out not to need. A hold an earlier
+      // `arm` left unconfirmed — two arms in one task, one coalesced commit —
+      // is re-made here if this arm predicts it again and ended if not.
+      // Only when measuring: a prelaunched flow slide changes no heights, and
+      // under reduced motion there is no tween for a hold to stand under.
+      {
+        const stale = new Map(armHeldRef.current);
+        armHeldRef.current.clear();
+        if (measure) {
+          const rendered = renderedRef.current;
+          const afterDeck = store.getPicture();
+          const after = rendered.deriveArrangement(afterDeck, {
+            rail: store.getRailRunHeight(),
+            column: store.getColumnRunHeight(),
+          });
+          const beforeById = new Map(rendered.deck.panes.map((p) => [p.id, p]));
+          const afterById = new Map(afterDeck.panes.map((p) => [p.id, p]));
+          const frameById = new Map(armed.map((a) => [a.paneId, a.frame]));
+          const pairs: Array<{ before: TugPaneState; after: TugPaneState }> = [];
+          for (const { paneId } of armed) {
+            const before = beforeById.get(paneId);
+            const afterPane = afterById.get(paneId);
+            if (before !== undefined && afterPane !== undefined) {
+              pairs.push({ before, after: afterPane });
+            }
+          }
+          for (const paneId of predictHeightCrossings(rendered.arrangement, after, pairs)) {
+            const frame = frameById.get(paneId);
+            const height = firstFolds.get(paneId)?.contentHeight ?? 0;
+            if (frame === undefined || height <= 0) continue;
+            if (holdPlan.covered.has(paneId)) continue;
+            const wasFolded = beforeById.get(paneId)?.folded === true;
+            const willFold = afterById.get(paneId)?.folded === true;
+            // An UNFOLD is left to the Last pass. The card is folded on screen
+            // until the commit, so its open interior has no First picture to
+            // hold: held here, it would be laid out at the folded box, and the
+            // crossing's first frame would be a folded card. Its hold opens in
+            // the Last pass, at the open height, as it always has ([R02]).
+            if (wasFolded && !willFold) continue;
+            // A fold opens the fold crossing, which sets the still mark beside
+            // its own: the two are one crossing, on for the same frames.
+            const folds = wasFolded !== willFold;
+            if (folds) markFoldCrossing(frame, height);
+            else markStillCrossing(frame, height);
+            armHeldRef.current.set(frame, folds ? "fold" : "still");
+            stale.delete(frame);
+          }
+        }
+        endArmHeldNotCarried(stale);
+      }
+
       // The shadow strips, once rather than per frame: there is one per SIDE,
       // and a rail's members all cast the same one.
       //
@@ -2032,48 +2210,6 @@ export function useSettleEngine({
       // rejected: it changes what First measures on the next retarget and
       // reopens the stale-size flash this pass was written to close.
       if (retargeted) store.flushPendingNotify?.();
-
-      // A column whose mode flipped moves the one member the stack shows and
-      // holds every other one behind it — `settleHoldPlanRef` says why the
-      // survivor is the z-frontmost rather than the top tile. Skipped under
-      // reduced motion with the rest of the choreography, but the mode record
-      // always advances — a stale record would read the next flip against
-      // the wrong shore.
-      const holdPlan = settleHoldPlanRef.current;
-      holdPlan.survivors.clear();
-      holdPlan.covered.clear();
-      holdPlan.held.clear();
-      // A COLUMN whose mode flipped gets the cover choreography: the frame the
-      // stack actually shows is the z-frontmost member, not the top of the
-      // column's order, so that is the one that moves and every other one
-      // is covered. Picking the top member instead would grow a frame that
-      // ends up hidden while the card the stack goes on to display arrived by
-      // a cut.
-      //
-      // A rail has no such flip — it is always divided ([B01]).
-      const columns = deckColumnsOf(state, null);
-      const prevColumnModes = prevColumnModesRef.current;
-      if (motion && prevColumnModes !== null) {
-        for (const column of columns) {
-          const prevMode = prevColumnModes.get(column.slot);
-          if (prevMode === undefined || prevMode === column.mode) continue;
-          if (column.members.length < 2) continue;
-          const members = new Set(column.members);
-          let survivor: string | undefined;
-          for (const pane of state.panes) {
-            if (members.has(pane.id)) survivor = pane.id;
-          }
-          if (survivor !== undefined) holdPlan.survivors.add(survivor);
-          for (const paneId of column.members) {
-            if (paneId === survivor) continue;
-            holdPlan.covered.add(paneId);
-            if (column.mode === "stack") holdPlan.held.add(paneId);
-          }
-        }
-      }
-      prevColumnModesRef.current = new Map(
-        columns.map((column) => [column.slot, column.mode]),
-      );
 
       // The census closes the arm. `panes` is the number of frames this
       // settle will carry; `armed` is false when the signature changed but
@@ -2277,7 +2413,8 @@ export function useSettleEngine({
         endFoldCrossing(entry.el);
         endStillCrossing(entry.el);
       }
-      endCrossingsNotCarried(retargetedFramesRef.current);
+(retargetedFramesRef.current);
+(armHeldRef.current);
       for (const [, handle] of settleEpisodesRef.current) handle.end();
       settleEpisodesRef.current.clear();
       settleFirstRectsRef.current.clear();
@@ -2391,7 +2528,8 @@ export function useSettleEngine({
     }
     if (el === null || firstRects.size === 0) {
       // Nothing is carried on, so every frame a retarget took is ended here.
-      endCrossingsNotCarried(retargetedFramesRef.current);
+(retargetedFramesRef.current);
+(armHeldRef.current);
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -2432,7 +2570,8 @@ export function useSettleEngine({
     // no First rects, so there is nothing here to carry and every frame would
     // otherwise read as an arrival and be faded up ([P02]).
     if (!isTugMotionEnabled() || settleSwitchingRef.current) {
-      endCrossingsNotCarried(retargetedFramesRef.current);
+(retargetedFramesRef.current);
+(armHeldRef.current);
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -3044,14 +3183,16 @@ export function useSettleEngine({
     // Every frame a retarget took over whose crossing the loop above did not
     // adopt — covered, sliding, arriving or gone — has its crossing ended
     // now, while the rest of the settle is planned.
-    endCrossingsNotCarried(
-      retargetedFramesRef.current,
-      new Set(
-        choreography
-          .filter((c) => c.stillCrossingId !== null)
-          .map((c) => c.frame),
-      ),
+    // And every frame `arm` held on the store's word that this pass found
+    // carrying no height term: the prediction over-marked it, and its hold
+    // comes off here, in the pass that knows.
+    const carriedStill = new Set(
+      choreography
+        .filter((c) => c.stillCrossingId !== null)
+        .map((c) => c.frame),
     );
+    endCrossingsNotCarried(retargetedFramesRef.current, carriedStill);
+    endArmHeldNotCarried(armHeldRef.current, carriedStill);
     // The shadow strips, planned AFTER every frame so the answer to "did this
     // side's rail survive?" is in hand. A strip is the rail's depth, and it
     // moves exactly as the rail does or it is not that — every case below is

@@ -60,6 +60,16 @@
  * a column divides and every member carries a `height` term, and `railDeck`
  * stands two sidebar rails up for the hide, show and retune legs.
  *
+ * Every session card on the launched deck's active workspace is BOUND to a
+ * real resumed transcript (`real-transcript-fixture.ts`) before any leg reads
+ * it: an unbound card holds an empty transcript, which pays nothing when its
+ * frame changes height, and a bar read over it says nothing about a user's
+ * card. The slice arm (the default) resumes the committed
+ * `session-transcript-basic` fixture into every card; the whale arm resumes
+ * the local corpus's whale into the cards a leg's gesture resizes or moves
+ * (`whaleCards`, `at0622-c1` and `at0622-c2` by default) and the slice into
+ * the rest. Each launch notes the census of every bound card.
+ *
  * Not a test: no `describe` here, and nothing under `tests/app-test` runs a
  * file that does not end in `.test.ts`.
  */
@@ -71,6 +81,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import type { SettleFrameReading } from "./_harness/client";
+import { bindAndSettle, type TranscriptSize } from "./real-transcript-fixture";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -85,8 +96,9 @@ export const TEST_TIMEOUT_MS = 300_000;
  * An empty directory for every picker on the fixture's deck to list — made
  * once per process, removed at exit.
  *
- * The fixture's cards are unbound Session cards, so each shows its picker, and
- * a debug build seeds the picker's path with the repository's own source tree.
+ * The fixture's session cards are bound before any leg reads them, but a card
+ * that arrives later (a picker card a leg brings in) shows its picker, and a
+ * debug build seeds the picker's path with the repository's own source tree.
  * That tree is where this machine's live sessions write their transcripts, so
  * every picker re-rendered its whole form on each `session_updated` push the
  * host sent about them — a 270–550-fibre commit every 8–15 ms, inside every
@@ -356,6 +368,30 @@ export function railDeck(): Record<string, unknown> {
       layout: "flow",
     },
     hasFocus: true,
+  };
+}
+
+/**
+ * Four session cards, one per slot, with slot 1's column already `split` —
+ * the fixture for seating a card into a column.
+ *
+ * Split before the gesture so the seat is the whole of the motion: a card
+ * moved into slot 1 lands at the column's bottom and the sitter gives up half
+ * its height to it, and moved back out the sitter grows into the room again.
+ * Both frames carry a height term, which is what the seat has that a flow
+ * slide does not.
+ */
+export function slotDeck(): Record<string, unknown> {
+  const deck = flowDeck(4);
+  const imposition = deck.imposition as Record<string, unknown>;
+  return { ...deck, imposition: { ...imposition, columns: { 1: { mode: "split" } } } };
+}
+
+export function slotBlob(): Record<string, unknown> {
+  return {
+    version: 5,
+    activeSpaceId: SPACE_ID,
+    spaces: [{ id: SPACE_ID, name: "One", deck: slotDeck() }],
   };
 }
 
@@ -645,10 +681,41 @@ export function expectBar(leg: string, r: BarLeg): void {
   ).toEqual([]);
 }
 
+/** How a launch binds its session cards. */
+export interface LaunchOptions {
+  /** Which transcript the cards carry; `"slice"` unless a leg names its arm. */
+  readonly transcripts?: TranscriptSize;
+  /**
+   * The cards the whale rides in the whale arm — the ones the leg's gesture
+   * resizes or moves. Every other session card takes the slice.
+   */
+  readonly whaleCards?: readonly string[];
+  /**
+   * Install the lead recorder before binding. Installing it reloads the deck,
+   * so it goes first: a binding must never depend on a reload's restore.
+   */
+  readonly leadRecorder?: boolean;
+}
+
+/** The whale arm's default subjects: the first column's two members. */
+export const DEFAULT_WHALE_CARDS = ["at0622-c1", "at0622-c2"] as const;
+
+/** The two arms every settle leg runs on, shared with every other settle test. */
+export { transcriptArms, type TranscriptArm } from "./real-transcript-fixture";
+
+/** The session cards on a layout blob's active workspace. */
+export function sessionCardsOf(blob: Record<string, unknown>): string[] {
+  const spaces = (blob.spaces ?? []) as { id: string; deck: { cards: { id: string; componentId: string }[] } }[];
+  const active = spaces.find((s) => s.id === blob.activeSpaceId) ?? spaces[0];
+  if (active === undefined) return [];
+  return active.deck.cards.filter((c) => c.componentId === "session").map((c) => c.id);
+}
+
 export async function launch(
   count: number,
   blob: Record<string, unknown> = blobFor(count),
   testName = "at0622-deck-settle-frames",
+  opts: LaunchOptions = {},
 ): Promise<{ app: App; tugbankPath: string }> {
   const tugbankPath = mkTempTugbank();
   seedTugbankForLaunch(tugbankPath);
@@ -675,8 +742,47 @@ export async function launch(
     `document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).length >= ${count + 1}`,
     { timeoutMs: 30_000 },
   );
+  if (opts.leadRecorder === true) await installLeadRecorder(app);
+  const standing = await deckStanding(app);
+  const bound = await bindAndSettle(app, sessionCardsOf(blob), {
+    size: opts.transcripts ?? "slice",
+    whaleCards: opts.whaleCards ?? DEFAULT_WHALE_CARDS,
+    label: testName,
+  });
+  // The seeded copies live under `~/.claude/projects/`; they go when the test
+  // process does, whichever way it ends.
+  process.on("exit", () => bound.cleanup());
+  // A binding activates the card it binds, so the deck can end on the last
+  // card bound with the strip slid to it. Every leg was written against the
+  // deck as it stood at launch, so put the focus back where it was.
+  const after = await deckStanding(app);
+  if (after.activeCardId !== standing.activeCardId && standing.activeCardId !== null) {
+    await app.evalJS<null>(
+      `(window.__tug.dispatchControlAction("focus-session-card", ` +
+        `{ cardId: ${JSON.stringify(standing.activeCardId)} }), null)`,
+    );
+  }
+  await wait(AFTER_LAND_MS);
+  const restored = await deckStanding(app);
+  note(
+    `${testName} standing: before binding ${JSON.stringify(standing)}, ` +
+      `after ${JSON.stringify(after)}, restored ${JSON.stringify(restored)}`,
+  );
   await wait(AFTER_LAND_MS);
   return { app, tugbankPath };
+}
+
+/** The deck's focused card and strip offset — what a binding must not move. */
+async function deckStanding(
+  app: App,
+): Promise<{ activeCardId: string | null; flowOffset: number }> {
+  return app.evalJS<{ activeCardId: string | null; flowOffset: number }>(
+    `(function(){
+      var deck = window.tugdeck.diag.getDeckState();
+      var pane = deck.panes.find(function (p) { return p.id === deck.activePaneId; });
+      return { activeCardId: pane ? pane.activeCardId : null, flowOffset: deck.flowOffset || 0 };
+    })()`,
+  );
 }
 
 /**
@@ -1477,6 +1583,8 @@ export interface WindowCommit {
   readonly hooks: readonly string[];
   /** From the render's first store read to the commit; only with the lead recorder. */
   readonly reactMs: number | null;
+  /** The render's first store read, relative to the window's start; only with the lead recorder. */
+  readonly renderStart: number | null;
 }
 
 /** A settle window and the commits inside it. */
@@ -1536,6 +1644,7 @@ export const windowCommits = (
              top: c.top.slice(0, 8), origins: c.origins, why: c.why,
              hooks: c.hooks || [],
              reactMs: c.renderStart == null ? null : Math.round((c.t - c.renderStart) * 10) / 10,
+             renderStart: c.renderStart == null ? null : Math.round((c.renderStart - from) * 10) / 10,
            };
          });
        return { from: from, to: to, commits: commits };
@@ -2141,6 +2250,31 @@ export function expectB09Bar(
     [...probe.rectsChangedAfterLanding],
     `${leg}: no shown frame's rect moved after the beat landed — a frame ` +
       `that settles twice reads as a correction`,
+  ).toEqual([]);
+  expectBeatStarts(leg, r.beatRows, probe.framePeriodMs);
+}
+
+/**
+ * Every beat that ran started within one display period of its planning.
+ *
+ * A beat's `startDelayMs` runs from the settle's planning to the beat's first
+ * running frame, so a start later than one period is a stall the reader sees
+ * as a frame held still before the motion: the main-thread work between the
+ * plan and the first frame, read off the beat's own clock. A beat that never
+ * ran (`-1`) is the landing clause's concern, not this one. Asserted last in
+ * a leg, so a red here never hides the clauses before it.
+ */
+export function expectBeatStarts(
+  leg: string,
+  beats: readonly SettleBeatRow[],
+  framePeriodMs: number,
+): void {
+  const late = beats.filter((b) => b.startDelayMs >= 0 && b.startDelayMs > framePeriodMs);
+  expect(
+    late.map((b) => `${b.recipe} ${b.startDelayMs}ms`),
+    `${leg}: every beat starts within one display period of its planning — ` +
+      `${framePeriodMs.toFixed(2)}ms; beats ` +
+      `${JSON.stringify(beats.map((b) => [b.recipe, b.startDelayMs]))}`,
   ).toEqual([]);
 }
 

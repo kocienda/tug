@@ -41,13 +41,15 @@
 /**
  * How many entries the log keeps before it stops recording.
  *
- * A switch on the user's deck touches these getters a few hundred times, so
- * 4000 spans four switches with room over. The log STOPS rather than rolling,
+ * A switch on the user's deck touches these getters a few hundred times, but one
+ * gesture over real transcripts filled the old 4,000 by itself — a session card
+ * reacting to its height change reads and writes in a loop — so the cap is four
+ * times that. The log STOPS rather than rolling,
  * because a ring would drop the earliest chain — the one under the arriving
  * layer's first effect, which is the whole subject — and report the tail as if
  * it were the whole reading. Truncation is reported instead.
  */
-export const CHAIN_LOG_CAP = 4000;
+export const CHAIN_LOG_CAP = 16000;
 
 /** How many frames of `new Error().stack` each entry keeps above the wrapper. */
 export const CHAIN_STACK_FRAMES = 6;
@@ -59,12 +61,20 @@ export interface ChainLogEntry {
   readonly seq: number;
   /** `performance.now()` at the call. */
   readonly t: number;
+  /**
+   * The wrapped call's own time, in ms — `original.call(this)` alone. The stack
+   * capture is outside it, so an armed probe does not read its own price.
+   */
+  readonly ms: number;
   readonly kind: "read" | "write";
   /** The property or method — `clientWidth`, `setProperty`, … */
   readonly name: string;
   /** The task the call was in, per the approximation above. */
   readonly taskId: number;
-  /** The first {@link CHAIN_STACK_FRAMES} frames above the wrapper. */
+  /**
+   * The first {@link CHAIN_STACK_FRAMES} frames above the wrapper, or
+   * `"<no stack>"` when the probe was armed without stacks.
+   */
   readonly stack: string;
 }
 
@@ -74,6 +84,10 @@ export interface GeometryChain {
   /** The site of the read that pays — the one worth fixing. */
   readonly readSite: string;
   readonly readName: string;
+  /** The paying read's own time — the forced layout this chain cost. */
+  readonly ms: number;
+  /** The paying read's `performance.now()`, to place the chain against a commit's span. */
+  readonly t: number;
   /** The writes between the two reads, in order. */
   readonly writes: readonly { readonly name: string; readonly site: string }[];
 }
@@ -82,6 +96,8 @@ export interface GeometryChain {
 export interface RankedReadSite {
   readonly site: string;
   readonly chains: number;
+  /** The summed {@link GeometryChain.ms} of this site's chains. */
+  readonly ms: number;
   /** The distinct writing sites that dirtied style before this read. */
   readonly writeSites: readonly string[];
   /** Which getters this site read. */
@@ -92,6 +108,23 @@ export interface GeometryChainReading {
   readonly entries: number;
   readonly tasks: number;
   readonly chains: number;
+  /** The costliest single chain's ms; 0 with no chains. */
+  readonly longestChainMs: number;
+  /** Every chain's ms, summed. */
+  readonly totalChainMs: number;
+  /**
+   * Each chain's paying read, in log order — so a reader can set aside the
+   * chains a commit's span already counts, and say which task each one paid in.
+   */
+  readonly chainTimes: readonly {
+    readonly t: number;
+    readonly ms: number;
+    readonly taskId: number;
+    readonly name: string;
+    readonly site: string;
+    /** The writes that dirtied style before the paying read, in order. */
+    readonly writes: readonly { readonly name: string; readonly site: string }[];
+  }[];
   /** Ranked by `chains`, descending. */
   readonly ranked: readonly RankedReadSite[];
   /** The log hit {@link CHAIN_LOG_CAP}; the reading is a lower bound. */
@@ -143,6 +176,7 @@ let seq = 0;
 let taskId = 0;
 let taskPending = false;
 let truncated = false;
+let captureStacks = true;
 let restores: Restore[] = [];
 
 function siteOf(stack: string | undefined): string {
@@ -155,11 +189,29 @@ function siteOf(stack: string | undefined): string {
   return above.join("\n").trim();
 }
 
-function push(kind: "read" | "write", name: string): void {
-  if (log.length >= CHAIN_LOG_CAP) {
-    truncated = true;
-    return;
-  }
+/**
+ * The caller's site, or `"<no stack>"` when armed without stacks.
+ *
+ * Called directly from the wrapper, so the stack it captures has the same
+ * shape {@link siteOf} expects: `Error`, this frame, the wrapper, the caller.
+ */
+function stackHere(): string {
+  return captureStacks ? siteOf(new Error().stack) : "<no stack>";
+}
+
+function full(): boolean {
+  if (log.length < CHAIN_LOG_CAP) return false;
+  truncated = true;
+  return true;
+}
+
+function push(
+  kind: "read" | "write",
+  name: string,
+  t: number,
+  ms: number,
+  stack: string,
+): void {
   if (!taskPending) {
     taskPending = true;
     // The delimiter. A microtask queued on the first entry of a task runs at the
@@ -171,14 +223,7 @@ function push(kind: "read" | "write", name: string): void {
     });
   }
   seq += 1;
-  log.push({
-    seq,
-    t: performance.now(),
-    kind,
-    name,
-    taskId,
-    stack: siteOf(new Error().stack),
-  });
+  log.push({ seq, t, ms, kind, name, taskId, stack });
 }
 
 function restoreAll(): void {
@@ -198,8 +243,12 @@ function wrap(): void {
     Object.defineProperty(proto, target.name, {
       ...descriptor,
       get(this: unknown) {
-        push("read", target.name);
-        return original.call(this);
+        if (full()) return original.call(this);
+        const stack = stackHere();
+        const t = performance.now();
+        const value = original.call(this);
+        push("read", target.name, t, performance.now() - t, stack);
+        return value;
       },
     });
   }
@@ -212,8 +261,12 @@ function wrap(): void {
     Object.defineProperty(proto, target.name, {
       ...descriptor,
       value: function (this: unknown, ...args: unknown[]): unknown {
-        push("write", target.name);
-        return original.apply(this, args);
+        if (full()) return original.apply(this, args);
+        const stack = stackHere();
+        const t = performance.now();
+        const result = original.apply(this, args);
+        push("write", target.name, t, performance.now() - t, stack);
+        return result;
       },
     });
   }
@@ -222,6 +275,8 @@ function wrap(): void {
 export interface ChainArmReading {
   readonly armed: boolean;
   readonly cap: number;
+  /** Whether each entry carries its call site; `false` writes `"<no stack>"`. */
+  readonly stacks: boolean;
 }
 
 /**
@@ -231,16 +286,28 @@ export interface ChainArmReading {
  * one's descriptors before installing its own, so the wrappers never nest. A
  * nested wrapper would log every call twice and, worse, would survive one
  * `disarm` — the deck would keep paying for a probe nobody could see.
+ *
+ * `stacks: false` skips the per-entry `new Error().stack`, which is the probe's
+ * main cost: a reading whose milliseconds are summed with a commit's own must
+ * not carry the probe's price. Chains still count; their site reads
+ * `"<no stack>"`.
  */
-export function armGeometryChains(): ChainArmReading {
+export function armGeometryChains(
+  opts: { readonly stacks?: boolean } = {},
+): ChainArmReading {
   restoreAll();
   log = [];
   seq = 0;
   taskId = 0;
   taskPending = false;
   truncated = false;
+  captureStacks = opts.stacks ?? true;
   wrap();
-  return { armed: restores.length > 0, cap: CHAIN_LOG_CAP };
+  return {
+    armed: restores.length > 0,
+    cap: CHAIN_LOG_CAP,
+    stacks: captureStacks,
+  };
 }
 
 /** Restore every descriptor and clear the log. */
@@ -249,7 +316,8 @@ export function disarmGeometryChains(): ChainArmReading {
   log = [];
   seq = 0;
   truncated = false;
-  return { armed: false, cap: CHAIN_LOG_CAP };
+  captureStacks = true;
+  return { armed: false, cap: CHAIN_LOG_CAP, stacks: captureStacks };
 }
 
 /** The current log, for the reading and for tests. */
@@ -302,6 +370,8 @@ export function classifyGeometryChains(
           taskId: id,
           readSite: entry.stack,
           readName: entry.name,
+          ms: entry.ms,
+          t: entry.t,
           writes: pendingWrites,
         });
       }
@@ -312,15 +382,16 @@ export function classifyGeometryChains(
 
   const grouped = new Map<
     string,
-    { chains: number; writeSites: Set<string>; names: Set<string> }
+    { chains: number; ms: number; writeSites: Set<string>; names: Set<string> }
   >();
   for (const chain of chains) {
     let group = grouped.get(chain.readSite);
     if (group === undefined) {
-      group = { chains: 0, writeSites: new Set(), names: new Set() };
+      group = { chains: 0, ms: 0, writeSites: new Set(), names: new Set() };
       grouped.set(chain.readSite, group);
     }
     group.chains += 1;
+    group.ms += chain.ms;
     group.names.add(chain.readName);
     for (const write of chain.writes) group.writeSites.add(write.site);
   }
@@ -329,6 +400,7 @@ export function classifyGeometryChains(
     .map(([site, group]) => ({
       site,
       chains: group.chains,
+      ms: group.ms,
       writeSites: [...group.writeSites].slice(0, CHAIN_WRITE_SITES_PER_READ),
       names: [...group.names],
     }))
@@ -338,6 +410,16 @@ export function classifyGeometryChains(
     entries: entries.length,
     tasks: byTask.size,
     chains: chains.length,
+    longestChainMs: chains.reduce((max, chain) => Math.max(max, chain.ms), 0),
+    totalChainMs: chains.reduce((sum, chain) => sum + chain.ms, 0),
+    chainTimes: chains.map((chain) => ({
+      t: chain.t,
+      ms: chain.ms,
+      taskId: chain.taskId,
+      name: chain.readName,
+      site: chain.readSite,
+      writes: chain.writes,
+    })),
     ranked,
     truncated: wasTruncated,
   };

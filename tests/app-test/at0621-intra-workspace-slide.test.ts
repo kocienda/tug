@@ -85,8 +85,16 @@
  * running its restorers leaves its frame invisible for the life of the canvas,
  * which a mid-flight sampler cannot tell from a hold about to be handed back.
  *
+ * The walked workspace's four cards are Session cards bound to REAL resumed
+ * transcripts (`real-transcript-fixture.ts`), on two arms: the slice
+ * everywhere, and in the whale arm the walk's two ends carry the corpus's
+ * whale. The strip carries what a user's strip carries, so a frame lost to a
+ * card's own work under the slide is a frame lost here. The other workspace
+ * keeps its plain cards: it is only ever crossed to and back.
+ *
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/chrome/space-layer.ts
+ * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -98,6 +106,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { bindForTest, transcriptArms } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -118,6 +127,10 @@ const AFTER_LAND_MS = 900;
 const RESIDENT = ["a-p1", "a-p2", "a-p3", "a-p4", "at0621-pl1"] as const;
 /** The Layout rail's pane — the one resident no slot change may move. */
 const RAIL_PANE = "at0621-pl1";
+/** Workspace One's cards — the ones the walk carries, bound before any leg. */
+const WALKED_CARDS = ["a-c1", "a-c2", "a-c3", "a-c4"] as const;
+/** The whale arm's subjects: where the walk starts and where it ends. */
+const WHALE_CARDS = ["a-c1", "a-c4"] as const;
 
 /** Every pane frame in the document — hidden layers and crossing ones too. */
 const ALL_FRAMES = ".tug-pane[data-pane-id]";
@@ -317,13 +330,14 @@ function flowDeck(
   prefix: string,
   railCardId: string,
   railPaneId: string,
+  componentId: string,
 ): Record<string, unknown> {
   const ids = [1, 2, 3, 4].map((n) => `${prefix}-c${n}`);
   return {
     cards: [
       ...ids.map((id) => ({
         id,
-        componentId: "hello",
+        componentId,
         title: id,
         closable: true,
       })),
@@ -365,8 +379,8 @@ function twoSpaceBlob(): Record<string, unknown> {
     version: 5,
     activeSpaceId: SPACE_ONE,
     spaces: [
-      { id: SPACE_ONE, name: "One", deck: flowDeck("a", "at0621-l1", "at0621-pl1") },
-      { id: SPACE_TWO, name: "Two", deck: flowDeck("b", "at0621-l2", "at0621-pl2") },
+      { id: SPACE_ONE, name: "One", deck: flowDeck("a", "at0621-l1", "at0621-pl1", "session") },
+      { id: SPACE_TWO, name: "Two", deck: flowDeck("b", "at0621-l2", "at0621-pl2", "hello") },
     ],
   };
 }
@@ -462,8 +476,8 @@ function expectNoResidue(resting: Resting, leg: string): void {
   expect(resting.ghosts, `${leg}: no departing target was left marked`).toBe(0);
 }
 
-describe.skipIf(!SHOULD_RUN)(
-  "at0621 — an activation inside a workspace slides",
+for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(
+  `at0621 — an activation inside a workspace slides [${arm.size}]`,
   () => {
     test(
       "the plain walk, and the same walk after an arrival a switch cut short",
@@ -479,7 +493,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         const app = await launchTugApp({
-          testName: "at0621-intra-workspace-slide",
+          testName: `at0621-intra-workspace-slide-${arm.size}`,
           env: { TUGBANK_PATH: tugbankPath },
           skipAccessibilityPreflight: true,
           persistInTestMode: true,
@@ -493,6 +507,11 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).length >= 5`,
             { timeoutMs: 30_000 },
           );
+          await bindForTest(app, WALKED_CARDS, {
+            size: arm.size,
+            whaleCards: WHALE_CARDS,
+            label: `at0621 [${arm.size}]`,
+          });
           await wait(AFTER_LAND_MS);
 
           // ---- Leg 1: the plain walk. ------------------------------------

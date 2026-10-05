@@ -4,16 +4,21 @@
 // `census`, `recorder` and `install` ops the shell end reuses. Three ops here:
 //
 //   where  — the active workspace and the focused card, so a repeated
-//            `switch` or `flip` can go back where it came from
+//            `switch` or `flip` can go back where it came from, and with
+//            `args.card` the slot of the pane holding it, so a repeated
+//            `slot` can send the card home
 //   rest   — the deck's at-rest reading beside the budget it is read against
 //   record — one gesture, driven through `window.tugdeck.lab.drive`, recorded
 //            from just before it until the settle mark has gone off and
 //            `tailMs` more, or `capMs` if it never does
 //
 // `record` returns RAW times relative to the drive: every animation frame,
-// every zero-timer heartbeat, every flip of the settle mark, and every React
-// commit the census walked. The shell end finds the settle window and keeps
-// the commits inside it, so that reduction is unit-tested in Rust.
+// every zero-timer heartbeat, every flip of the settle mark, every React
+// commit the census walked, every `settle-beat` row the deck trace recorded
+// (`settleBeats` — never `beats`, which is the heartbeat list), and with
+// `chains` the chain probe's reading over the drive. The shell end finds the
+// settle window and keeps the commits inside it, so that reduction is
+// unit-tested in Rust.
 //
 // The drive is made from a task (a zero timeout), never from inside a frame
 // callback, for the reason `slide` gives: a gesture delivered during a
@@ -31,9 +36,13 @@
     var pane = deck && deck.panes
       ? deck.panes.find(function (p) { return p.id === deck.activePaneId; })
       : null;
+    var holder = deck && deck.panes && args.card
+      ? deck.panes.find(function (p) { return p.cardIds.indexOf(args.card) >= 0; })
+      : null;
     return {
       spaceId: diag.getSpaces().activeSpaceId,
       cardId: pane ? pane.activeCardId : null,
+      cardSlot: holder && typeof holder.slot === "number" ? holder.slot : null,
     };
   }
 
@@ -61,6 +70,12 @@
       resolve({ error: "the lead recorder is not installed in this page" });
       return;
     }
+    var trace = window.__deckTrace || null;
+    var motion = window.__tugMotion || null;
+    if (args.chains && !(motion && typeof motion.chains === "function")) {
+      resolve({ error: "this deck has no window.__tugMotion.chains" });
+      return;
+    }
     // With the recorder installed the page's schedulers are wrapped, and the
     // verb's own chains must not be in what it records.
     var setTimeout = lead ? lead.native.setTimeout : window.setTimeout.bind(window);
@@ -71,6 +86,11 @@
     var marks = [];
     var done = false;
     var t0 = 0;
+    // The deck trace is enabled for the drive alone, so its `settle-beat` rows
+    // are recorded, and put back as it was found.
+    var traceWasOn = trace ? trace.isEnabled() : false;
+    var traceMark = 0;
+    var paneId = null;
 
     function frame() {
       frames.push(performance.now());
@@ -100,6 +120,22 @@
       observer.disconnect();
       var tasks = args.tasks ? lead.disarm() : null;
       var tells = args.tasks ? lead.tells() : null;
+      var chains = null;
+      if (args.chains) {
+        chains = motion.chains("read");
+        motion.chains("disarm");
+      }
+      var settleBeats = trace
+        ? trace.since(traceMark)
+            .filter(function (e) { return e.kind === "settle-beat"; })
+            .map(function (e) {
+              return {
+                recipe: e.recipe, targets: e.targets, durationMs: e.durationMs,
+                startDelayMs: e.startDelayMs, declares: e.declares, landing: e.landing,
+              };
+            })
+        : null;
+      if (trace) trace.enable(traceWasOn);
       if (error) {
         resolve({ error: error });
         return;
@@ -108,6 +144,9 @@
         frames: frames.filter(function (t) { return t > t0; }).map(rel),
         beats: beats.filter(function (t) { return t >= t0; }).map(rel),
         settle: marks.map(function (m) { return [rel(m[0]), m[1]]; }),
+        settleBeats: settleBeats,
+        chains: chains,
+        paneId: paneId,
         visibility: document.visibilityState,
         tasks: tasks && tasks.map(function (e) {
           return {
@@ -151,6 +190,13 @@
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         setTimeout(function () {
+          if (trace) {
+            trace.enable(true);
+            traceMark = trace.mark();
+          }
+          // Armed last, just before the drive, so the probe's log is the
+          // gesture's own; `stacks: false` unless this is the census drive.
+          if (args.chains) motion.chains("arm", { stacks: !!args.chainStacks });
           t0 = performance.now();
           var drive = function () { return lab.drive(args.gesture, args.args); };
           var outcome;
@@ -164,6 +210,7 @@
             finish(outcome.error);
             return;
           }
+          if (outcome && typeof outcome.paneId === "string") paneId = outcome.paneId;
           (function poll() {
             var elapsed = performance.now() - t0;
             if (args.fixedMs != null) {

@@ -45,7 +45,14 @@ import { deckTrace } from "@/deck-trace";
  * decide.
  */
 function marksOn(): boolean {
-  return window.__tugTestMode === true || deckTrace.isEnabled();
+  // `typeof` first: a module test with no DOM reaches here through every
+  // store that marks a commit, and a page with no `window` has nobody
+  // reading the timeline either — so it answers no, rather than throwing
+  // out of whatever microtask asked.
+  return (
+    (typeof window !== "undefined" && window.__tugTestMode === true) ||
+    deckTrace.isEnabled()
+  );
 }
 
 /** {@link marksOn}, for a caller that must not schedule the work either. */

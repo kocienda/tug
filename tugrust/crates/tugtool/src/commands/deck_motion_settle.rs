@@ -22,21 +22,29 @@
 //! it, so the reduction is what the unit tests pin. Every run begins with the
 //! deck's census and an at-rest check: a deck that is not at rest is reported
 //! and not read.
+//!
+//! Beside the commits each reading carries what a user sees: the frame lead
+//! (the drive to the first frame after it), the longest gap the outside
+//! recorder saw up to the settle mark's off, the lead included, and every
+//! `settle-beat` row the deck trace wrote in the window, whose `startDelayMs`
+//! is planning to the beat's first running frame. With `--chains` it also
+//! carries the forced-layout chain probe's reading over the drive.
 
 use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED};
 use crate::commands::deck_motion_slide::{
     RawCommit, RawTell, census, commit_timings, ensure_recorder, origins_label, print_census,
     script_page,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// The page half: one function expression, applied to a JSON argument object.
 const PAGE: &str = include_str!("deck_motion_settle.js");
 
 /// The gestures the verb drives, as `--gesture` takes them.
-pub const GESTURE_NAMES: [&str; 7] = [
-    "flip", "fold", "unfold", "close", "rails", "split", "switch",
+pub const GESTURE_NAMES: [&str; 14] = [
+    "flip", "fold", "unfold", "close", "rails", "split", "switch", "slot", "go", "bullseye",
+    "sidebar", "fit", "appear", "slide",
 ];
 
 /// How far either side of the settle mark a commit still counts as in the
@@ -79,18 +87,24 @@ pub struct GestureArgs {
     pub slot: Option<u32>,
     pub mode: Option<String>,
     pub space: Option<String>,
+    pub component: Option<String>,
 }
 
-/// Where the deck stands before the first drive: what a repeated `switch` or
-/// `flip` goes back to.
+/// Where the deck stands before the first drive: what a repeated `switch`,
+/// `flip`, `slide` or `slot` goes back to.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Home {
     pub space_id: Option<String>,
     pub card_id: Option<String>,
+    /// The slot of the pane holding `--card`, when one does.
+    pub card_slot: Option<u32>,
 }
 
 /// One call to `lab.drive`, and whether its window is reported. A `rails`
-/// hide is driven so the next show has a hidden rail to show, and not read.
+/// hide is driven so the next show has a hidden rail to show, and not read;
+/// so is the close of the card an `appear` brought in. That close names no
+/// pane here (`"pane": null`): the pane is the one the `appear` before it
+/// returned, which the run substitutes ([`close_target`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Drive {
     pub gesture: &'static str,
@@ -102,10 +116,11 @@ pub struct Drive {
 pub fn check_args(gesture: &str, args: &GestureArgs) -> Result<(), String> {
     let missing = |flag: &str| Err(format!("--gesture {gesture} needs {flag}"));
     match gesture {
-        "flip" | "fold" | "unfold" if args.card.is_none() => missing("--card"),
-        "close" if args.pane.is_none() => missing("--pane"),
-        "split" if args.slot.is_none() => missing("--slot"),
+        "flip" | "fold" | "unfold" | "slot" | "slide" if args.card.is_none() => missing("--card"),
+        "close" | "bullseye" if args.pane.is_none() => missing("--pane"),
+        "split" | "slot" | "go" if args.slot.is_none() => missing("--slot"),
         "switch" if args.space.is_none() => missing("--space"),
+        "sidebar" if args.component.is_none() => missing("--component"),
         g if !GESTURE_NAMES.contains(&g) => Err(format!(
             "unknown gesture '{g}' (expected one of {})",
             GESTURE_NAMES.join(", ")
@@ -122,6 +137,12 @@ pub fn check_args(gesture: &str, args: &GestureArgs) -> Result<(), String> {
 /// stood on before the first drive, and `rails` drives an unread hide before
 /// each show it reads — so the deck is expected to start with its rails
 /// showing. A pane closes once, whatever the count.
+///
+/// `slot` alternates `--slot` with the slot the card stood in, and `go` with
+/// slot 0; `bullseye` repeats its toggle, which undoes itself; `sidebar` hides
+/// and then shows, both read; `slide` alternates like `flip`; `fit` drives
+/// once, since a second fit has nothing left to fit; and `appear` is followed
+/// by an unread close of the pane it brought in.
 pub fn drives(
     gesture: &str,
     args: &GestureArgs,
@@ -174,22 +195,77 @@ pub fn drives(
                 read("switch", json!({"space": back})),
             )
         }
-        "flip" => {
+        "flip" | "slide" => {
+            let name: &'static str = if gesture == "flip" { "flip" } else { "slide" };
             let to = args.card.clone().unwrap_or_default();
             let back = match &home.card_id {
                 Some(home) if *home != to => Some(home.clone()),
                 _ if count > 1 => {
                     return Err(format!(
-                        "--gesture flip --count {count} goes back to the focused card between drives, and '{to}' is already the focused one"
+                        "--gesture {name} --count {count} goes back to the focused card between drives, and '{to}' is already the focused one"
                     ));
                 }
                 _ => None,
             };
             alternate(
-                read("flip", json!({"card": to})),
-                read("flip", json!({"card": back})),
+                read(name, json!({"card": to})),
+                read(name, json!({"card": back})),
             )
         }
+        "slot" => {
+            let to = args.slot.unwrap_or_default();
+            let back = match home.card_slot {
+                Some(home) if home != to => Some(home),
+                _ if count > 1 => {
+                    return Err(format!(
+                        "--gesture slot --count {count} sends the card back to its own slot between drives, and the deck holds it in no other slot than {to}"
+                    ));
+                }
+                _ => None,
+            };
+            alternate(
+                read("slot", json!({"card": args.card, "slot": to})),
+                read("slot", json!({"card": args.card, "slot": back})),
+            )
+        }
+        "go" => {
+            let to = args.slot.unwrap_or_default();
+            if to == 0 && count > 1 {
+                return Err(format!(
+                    "--gesture go --count {count} goes back to slot 0 between drives, and --slot 0 is slot 0"
+                ));
+            }
+            alternate(
+                read("go", json!({"slot": to})),
+                read("go", json!({"slot": 0})),
+            )
+        }
+        "bullseye" => (0..count)
+            .map(|_| read("bullseye", json!({"pane": args.pane})))
+            .collect(),
+        "sidebar" => alternate(
+            read(
+                "sidebar",
+                json!({"component": args.component, "open": false}),
+            ),
+            read(
+                "sidebar",
+                json!({"component": args.component, "open": true}),
+            ),
+        ),
+        "fit" => vec![read("fit", json!({}))],
+        "appear" => (0..count)
+            .flat_map(|_| {
+                [
+                    read("appear", json!({})),
+                    Drive {
+                        gesture: "close",
+                        args: json!({"pane": null}),
+                        read: false,
+                    },
+                ]
+            })
+            .collect(),
         "rails" => (0..count)
             .flat_map(|_| {
                 [
@@ -205,6 +281,69 @@ pub fn drives(
         "close" => vec![read("close", json!({"pane": args.pane}))],
         _ => unreachable!("check_args admits only gesture names"),
     })
+}
+
+/// Whether a gesture drives once whatever `--count` says.
+fn drives_once(gesture: &str) -> bool {
+    matches!(gesture, "close" | "fit")
+}
+
+/// The drives a run makes, and which one carries the chain probe's stacks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Plan {
+    pub drives: Vec<Drive>,
+    /// The drive armed with stacks, for the census by call site.
+    pub census: Option<usize>,
+    /// Whether the census drive is also reported as a reading: only when the
+    /// gesture drives once, so there is no other drive to read.
+    pub census_read: bool,
+}
+
+/// The run's drives. Without `--chains`, [`drives`] as it stands. With it,
+/// one repetition more, whose first read drive is the census: armed with
+/// stacks, printed by call site, and not a reading, since a stack per read is
+/// the probe's own price. Every other read drive is armed without stacks. A
+/// gesture that drives once has no second drive to spare, so its one drive is
+/// the census and the reading both.
+pub fn plan(
+    gesture: &str,
+    args: &GestureArgs,
+    count: u32,
+    home: &Home,
+    chains: bool,
+) -> Result<Plan, String> {
+    if !chains {
+        return Ok(Plan {
+            drives: drives(gesture, args, count, home)?,
+            census: None,
+            census_read: false,
+        });
+    }
+    let once = drives_once(gesture);
+    let drives = drives(
+        gesture,
+        args,
+        if once { count } else { count.max(1) + 1 },
+        home,
+    )?;
+    let census = drives.iter().position(|d| d.read);
+    Ok(Plan {
+        drives,
+        census,
+        census_read: once,
+    })
+}
+
+/// The pane a drive closes: its own, or, for the close after an `appear`, the
+/// pane that `appear` returned. `Err` when there is none to close.
+pub fn close_target(drive: &Drive, last_pane: Option<&str>) -> Result<Value, String> {
+    if drive.gesture != "close" || !drive.args["pane"].is_null() {
+        return Ok(drive.args.clone());
+    }
+    match last_pane {
+        Some(pane) => Ok(json!({"pane": pane})),
+        None => Err("--gesture appear: the drive returned no pane to close".to_string()),
+    }
 }
 
 /// The settle window in a run's mark flips: the first time the mark went on,
@@ -228,6 +367,48 @@ pub fn in_window(commits: &[RawCommit], window: (f64, f64), margin_ms: f64) -> V
 
 fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
+}
+
+/// The frame lead and the longest gap, from the outside recorder's frames.
+///
+/// The lead is the first frame after the drive, relative to it. The longest
+/// gap is the largest of the lead and every gap between consecutive frames, up
+/// to and including the first frame at or after `end` (the settle mark's off),
+/// so a gap that spans the off is counted. `None` for both with no frames.
+pub fn frame_gaps(frames: &[f64], end: Option<f64>) -> (Option<f64>, Option<f64>) {
+    let Some(&lead) = frames.first() else {
+        return (None, None);
+    };
+    let mut longest = lead;
+    let mut prev = lead;
+    for &t in &frames[1..] {
+        if end.is_some_and(|end| prev >= end) {
+            break;
+        }
+        longest = longest.max(t - prev);
+        prev = t;
+    }
+    (Some(round1(lead)), Some(round1(longest)))
+}
+
+/// One `settle-beat` row the deck trace recorded in the window.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BeatRow {
+    pub recipe: String,
+    #[serde(default)]
+    pub targets: u64,
+    #[serde(default)]
+    pub duration_ms: f64,
+    /// Planning to the beat's first running frame; `-1` when its clock never
+    /// started.
+    #[serde(default)]
+    pub start_delay_ms: f64,
+    /// The `height`/`width` breaches the beat declared.
+    #[serde(default)]
+    pub declares: Vec<String>,
+    #[serde(default)]
+    pub landing: String,
 }
 
 /// One commit in the window, as the verb reports it.
@@ -328,6 +509,16 @@ pub struct Reading {
     /// Commits the run saw at all, in or out of the window; `None` when the
     /// page had no census to give (a release deck without `--tasks`).
     pub commits_seen: Option<usize>,
+    /// The `settle-beat` rows recorded over the drive (page key `settleBeats`).
+    pub settle_beats: Vec<BeatRow>,
+    /// The drive to the first frame after it.
+    pub lead_ms: Option<f64>,
+    /// The largest of the lead and every frame gap up to the settle mark's off.
+    pub longest_gap_ms: Option<f64>,
+    /// The chain probe's reading over the drive, with `--chains`.
+    pub chains: Option<Value>,
+    /// The pane the drive returned — an `appear`'s arriving pane.
+    pub pane_id: Option<String>,
 }
 
 /// Reduce one `record` op's raw result to a reading.
@@ -340,7 +531,9 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
     let marks: Vec<(f64, bool)> = list(raw, "settle").unwrap_or_default();
     let raw_commits: Option<Vec<RawCommit>> = list(raw, "commits");
     let tells: Vec<RawTell> = list(raw, "tells").unwrap_or_default();
+    let frames: Vec<f64> = list(raw, "frames").unwrap_or_default();
     let window = gesture_window(drive.gesture, &marks);
+    let (lead_ms, longest_gap_ms) = frame_gaps(&frames, window.map(|w| w.1));
     let commits = match (&raw_commits, window) {
         (Some(commits), Some(window)) => window_commits(commits, &tells, window),
         _ => Vec::new(),
@@ -352,6 +545,11 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         largest: largest(&commits).cloned(),
         commits,
         commits_seen: raw_commits.map(|c| c.len()),
+        settle_beats: list(raw, "settleBeats").unwrap_or_default(),
+        lead_ms,
+        longest_gap_ms,
+        chains: raw.get("chains").filter(|v| !v.is_null()).cloned(),
+        pane_id: str_of(raw, "paneId"),
     }
 }
 
@@ -370,6 +568,7 @@ pub fn run_settle(
     args: GestureArgs,
     count: u32,
     tasks: bool,
+    chains: bool,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || {
@@ -377,8 +576,13 @@ pub fn run_settle(
         Ok(EXIT_GATED)
     };
     check_args(gesture, &args)?;
-    if gesture == "close" && count > 1 && !json_output {
-        eprintln!("note: a pane closes once; --count {count} reads one close");
+    if drives_once(gesture) && count > 1 && !json_output {
+        let what = if gesture == "close" {
+            "a pane closes once"
+        } else {
+            "a fit has nothing left to fit after the first"
+        };
+        eprintln!("note: {what}; --count {count} reads one {gesture}");
     }
 
     if tasks && !ensure_recorder(port, json_output)? {
@@ -390,14 +594,22 @@ pub fn run_settle(
     let Some(rest) = page(port, json!({"op": "rest"}))? else {
         return gated();
     };
-    let Some(home) = page(port, json!({"op": "where"}))? else {
+    let Some(home) = page(port, json!({"op": "where", "card": args.card}))? else {
         return gated();
     };
     let home = Home {
         space_id: str_of(&home, "spaceId"),
         card_id: str_of(&home, "cardId"),
+        card_slot: home
+            .get("cardSlot")
+            .and_then(|v| v.as_u64())
+            .map(|s| s as u32),
     };
-    let plan = drives(gesture, &args, count, &home)?;
+    let Plan {
+        drives: plan,
+        census: census_index,
+        census_read,
+    } = plan(gesture, &args, count, &home, chains)?;
 
     let updates = rest
         .pointer("/rest/updatesPerSecond")
@@ -428,18 +640,25 @@ pub fn run_settle(
         println!(
             "settle --gesture {gesture}, {} drive(s), commits within {MARGIN_MS:.0} ms of the settle mark",
             plan.iter().filter(|d| d.read).count()
+                - usize::from(census_index.is_some() && !census_read)
         );
     }
 
     let mut readings = Vec::new();
-    for drive in &plan {
+    let mut chains_census: Option<Value> = None;
+    let mut last_pane: Option<String> = None;
+    for (index, drive) in plan.iter().enumerate() {
+        let is_census = census_index == Some(index);
+        let drive_args = close_target(drive, last_pane.as_deref())?;
         let raw = page(
             port,
             json!({
                 "op": "record",
                 "gesture": drive.gesture,
-                "args": drive.args,
+                "args": drive_args,
                 "tasks": tasks && drive.read,
+                "chains": chains && drive.read,
+                "chainStacks": is_census,
                 "tailMs": TAIL_MS,
                 "capMs": CAP_MS,
                 "fixedMs": (drive.gesture == "switch").then_some(SWITCH_WINDOW_MS),
@@ -448,7 +667,17 @@ pub fn run_settle(
         let Some(raw) = raw else {
             return gated();
         };
-        if drive.read {
+        if let Some(error) = raw.get("error").and_then(|e| e.as_str()) {
+            return Err(error.to_string());
+        }
+        last_pane = str_of(&raw, "paneId");
+        if is_census {
+            chains_census = raw.get("chains").filter(|v| !v.is_null()).cloned();
+            if !json_output {
+                print_chains_census(chains_census.as_ref());
+            }
+        }
+        if drive.read && (!is_census || census_read) {
             let reading = reduce(drive, &raw);
             if !json_output {
                 print_reading(readings.len() + 1, &reading);
@@ -467,6 +696,7 @@ pub fn run_settle(
                 "gesture": gesture,
                 "marginMs": MARGIN_MS,
                 "framesPerturbedByTasks": tasks,
+                "chainsCensus": chains_census,
                 "readings": readings,
             }))
             .unwrap()
@@ -483,18 +713,21 @@ fn print_reading(index: usize, r: &Reading) {
     };
     let Some((on, off)) = r.window else {
         println!("#{index} {what}: the settle mark never went on and off within {CAP_MS} ms");
+        print!("{}", reading_extras(r));
         return;
     };
     let Some(seen) = r.commits_seen else {
         println!(
             "#{index} {what}: settle {on:.1}→{off:.1} ms; no commit census in this page (a release deck needs --tasks)"
         );
+        print!("{}", reading_extras(r));
         return;
     };
     println!(
         "#{index} {what}: settle {on:.1}→{off:.1} ms, {} of {seen} commit(s) in the window",
         r.commits.len()
     );
+    print!("{}", reading_extras(r));
     for c in &r.commits {
         let marker = if r.largest.as_ref() == Some(c) {
             "*"
@@ -522,6 +755,73 @@ fn print_reading(index: usize, r: &Reading) {
     }
 }
 
+/// What a reading says beyond its commits, as the human output prints it
+/// beneath the reading's header: the lead and longest gap, each beat's start
+/// delay and declared breaches, and the chain probe's count, ms and top five
+/// sites.
+pub fn reading_extras(r: &Reading) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let ms = |v: Option<f64>| v.map_or_else(|| "—".to_string(), |v| format!("{v:.1}"));
+    let _ = writeln!(
+        out,
+        "   lead {} ms, longest gap {} ms",
+        ms(r.lead_ms),
+        ms(r.longest_gap_ms)
+    );
+    for beat in &r.settle_beats {
+        let declares = if beat.declares.is_empty() {
+            "nothing".to_string()
+        } else {
+            beat.declares.join(",")
+        };
+        let _ = writeln!(
+            out,
+            "   beat {} start {:.1} ms declares {declares}",
+            beat.recipe, beat.start_delay_ms
+        );
+    }
+    if let Some(chains) = &r.chains {
+        let num = |v: &Value, key: &str| v.get(key).and_then(|n| n.as_f64()).unwrap_or(0.0);
+        let _ = writeln!(
+            out,
+            "   chains {} (longest {:.1} ms, total {:.1} ms)",
+            num(chains, "chains") as i64,
+            num(chains, "longestChainMs"),
+            num(chains, "totalChainMs")
+        );
+        if let Some(ranked) = chains.get("ranked").and_then(|r| r.as_array()) {
+            for site in ranked.iter().take(5) {
+                let first = site
+                    .get("site")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                let _ = writeln!(
+                    out,
+                    "     {:>5} chains {:>7.1} ms  {first}",
+                    num(site, "chains") as i64,
+                    num(site, "ms")
+                );
+            }
+        }
+    }
+    out
+}
+
+/// The census drive's chains, by call site.
+fn print_chains_census(chains: Option<&Value>) {
+    println!();
+    println!("chain census (one extra drive, with stacks — its ms carry the probe's price):");
+    match chains.and_then(|c| crate::commands::deck_motion::chains_text("read", c)) {
+        Some(text) => print!("{text}"),
+        None => println!("  the page returned no chain reading"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,6 +842,7 @@ mod tests {
             slot,
             mode: None,
             space: space.map(str::to_string),
+            component: None,
         }
     }
 
@@ -671,6 +972,7 @@ mod tests {
         let home = Home {
             space_id: Some("s1".into()),
             card_id: Some("c0".into()),
+            card_slot: None,
         };
         let fold = drives("fold", &args(Some("c1"), None, None, None), 3, &home).unwrap();
         let names: Vec<_> = fold.iter().map(|d| d.gesture).collect();
@@ -696,5 +998,284 @@ mod tests {
 
         let close = drives("close", &args(None, Some("p1"), None, None), 5, &home).unwrap();
         assert_eq!(close.len(), 1);
+    }
+
+    #[test]
+    fn each_new_gesture_refuses_its_missing_argument_by_flag() {
+        let none = GestureArgs::default();
+        for (gesture, given, flag) in [
+            ("slot", GestureArgs::default(), "--card"),
+            ("slot", args(Some("c1"), None, None, None), "--slot"),
+            ("go", GestureArgs::default(), "--slot"),
+            ("bullseye", GestureArgs::default(), "--pane"),
+            ("sidebar", GestureArgs::default(), "--component"),
+            ("slide", GestureArgs::default(), "--card"),
+        ] {
+            let error = check_args(gesture, &given).unwrap_err();
+            assert_eq!(error, format!("--gesture {gesture} needs {flag}"));
+        }
+        assert!(check_args("fit", &none).is_ok());
+        assert!(check_args("appear", &none).is_ok());
+    }
+
+    fn home_at(card_slot: Option<u32>) -> Home {
+        Home {
+            space_id: Some("s1".into()),
+            card_id: Some("c0".into()),
+            card_slot,
+        }
+    }
+
+    #[test]
+    fn slot_alternates_with_the_card_s_own_slot() {
+        let slot = drives(
+            "slot",
+            &args(Some("c1"), None, Some(2), None),
+            3,
+            &home_at(Some(0)),
+        )
+        .unwrap();
+        let slots: Vec<_> = slot.iter().map(|d| d.args["slot"].clone()).collect();
+        assert_eq!(slots, vec![json!(2), json!(0), json!(2)]);
+        assert!(
+            slot.iter()
+                .all(|d| d.gesture == "slot" && d.args["card"] == "c1")
+        );
+        // A card already in the slot it is sent to has nowhere to go back to.
+        assert!(
+            drives(
+                "slot",
+                &args(Some("c1"), None, Some(2), None),
+                2,
+                &home_at(Some(2))
+            )
+            .is_err()
+        );
+        assert!(
+            drives(
+                "slot",
+                &args(Some("c1"), None, Some(2), None),
+                2,
+                &home_at(None)
+            )
+            .is_err()
+        );
+        assert!(
+            drives(
+                "slot",
+                &args(Some("c1"), None, Some(2), None),
+                1,
+                &home_at(None)
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn go_alternates_with_slot_zero_and_refuses_a_repeated_zero() {
+        let go = drives("go", &args(None, None, Some(3), None), 2, &home_at(None)).unwrap();
+        assert_eq!(go[0].args, json!({"slot": 3}));
+        assert_eq!(go[1].args, json!({"slot": 0}));
+        assert!(drives("go", &args(None, None, Some(0), None), 2, &home_at(None)).is_err());
+        assert!(drives("go", &args(None, None, Some(0), None), 1, &home_at(None)).is_ok());
+    }
+
+    #[test]
+    fn sidebar_hides_first_and_reads_both() {
+        let given = GestureArgs {
+            component: Some("jots".into()),
+            ..GestureArgs::default()
+        };
+        let sidebar = drives("sidebar", &given, 3, &home_at(None)).unwrap();
+        let opens: Vec<_> = sidebar.iter().map(|d| d.args["open"].clone()).collect();
+        assert_eq!(opens, vec![json!(false), json!(true), json!(false)]);
+        assert!(
+            sidebar
+                .iter()
+                .all(|d| d.read && d.args["component"] == "jots")
+        );
+    }
+
+    #[test]
+    fn fit_drives_once_and_bullseye_repeats_its_toggle() {
+        let fit = drives("fit", &GestureArgs::default(), 3, &home_at(None)).unwrap();
+        assert_eq!(fit.len(), 1);
+        let bullseye = drives(
+            "bullseye",
+            &args(None, Some("p1"), None, None),
+            2,
+            &home_at(None),
+        )
+        .unwrap();
+        assert_eq!(bullseye.len(), 2);
+        assert!(bullseye.iter().all(|d| d.args == json!({"pane": "p1"})));
+    }
+
+    #[test]
+    fn slide_alternates_like_flip() {
+        let slide = drives(
+            "slide",
+            &args(Some("c1"), None, None, None),
+            2,
+            &home_at(None),
+        )
+        .unwrap();
+        assert_eq!(slide[0].gesture, "slide");
+        assert_eq!(slide[1].args, json!({"card": "c0"}));
+        assert!(
+            drives(
+                "slide",
+                &args(Some("c0"), None, None, None),
+                2,
+                &home_at(None)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn appear_reads_each_arrival_and_closes_it_unread() {
+        let appear = drives("appear", &GestureArgs::default(), 2, &home_at(None)).unwrap();
+        let shape: Vec<_> = appear.iter().map(|d| (d.gesture, d.read)).collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("appear", true),
+                ("close", false),
+                ("appear", true),
+                ("close", false)
+            ]
+        );
+        // The close takes the pane the appear before it returned.
+        assert_eq!(
+            close_target(&appear[1], Some("p-new")).unwrap(),
+            json!({"pane": "p-new"})
+        );
+        assert!(close_target(&appear[1], None).is_err());
+        // A close that named its pane keeps it, and any other drive is untouched.
+        let named = drives(
+            "close",
+            &args(None, Some("p1"), None, None),
+            1,
+            &home_at(None),
+        )
+        .unwrap();
+        assert_eq!(
+            close_target(&named[0], Some("p-new")).unwrap(),
+            json!({"pane": "p1"})
+        );
+        assert_eq!(close_target(&appear[0], Some("p-new")).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn chains_add_one_census_drive_ahead_of_the_readings() {
+        let fold = args(Some("c1"), None, None, None);
+        let plain = plan("fold", &fold, 3, &home_at(None), false).unwrap();
+        assert_eq!((plain.drives.len(), plain.census), (3, None));
+
+        let census = plan("fold", &fold, 3, &home_at(None), true).unwrap();
+        let names: Vec<_> = census.drives.iter().map(|d| d.gesture).collect();
+        // One repetition more, so the readings still alternate after it.
+        assert_eq!(names, vec!["fold", "unfold", "fold", "unfold"]);
+        assert_eq!((census.census, census.census_read), (Some(0), false));
+
+        // A rails hide is unread, so the census is the first show.
+        let rails = plan("rails", &GestureArgs::default(), 1, &home_at(None), true).unwrap();
+        assert_eq!(rails.census, Some(1));
+
+        // A gesture that drives once reads its one drive as the census too.
+        let fit = plan("fit", &GestureArgs::default(), 3, &home_at(None), true).unwrap();
+        assert_eq!(
+            (fit.drives.len(), fit.census, fit.census_read),
+            (1, Some(0), true)
+        );
+    }
+
+    #[test]
+    fn the_lead_is_a_gap_and_gaps_stop_at_the_settle_off() {
+        assert_eq!(frame_gaps(&[], Some(100.0)), (None, None));
+        // A 130 ms lead is the longest gap even when every frame after is even.
+        assert_eq!(
+            frame_gaps(&[130.0, 146.7, 163.4, 180.1], Some(170.0)),
+            (Some(130.0), Some(130.0))
+        );
+        // A gap spanning the off is counted; one after the first frame past
+        // the off is not.
+        assert_eq!(
+            frame_gaps(&[8.0, 24.7, 41.4, 90.0, 400.0], Some(60.0)),
+            (Some(8.0), Some(48.6))
+        );
+        // With no window the whole recording counts.
+        assert_eq!(
+            frame_gaps(&[8.0, 24.7, 41.4, 90.0, 400.0], None),
+            (Some(8.0), Some(310.0))
+        );
+    }
+
+    #[test]
+    fn a_reading_carries_beats_gaps_chains_and_the_returned_pane() {
+        let drive = Drive {
+            gesture: "slot",
+            args: json!({"card": "c1", "slot": 1}),
+            read: true,
+        };
+        let raw = json!({
+            "settle": [[2.0, true], [300.0, false]],
+            "frames": [131.0, 147.0, 196.0, 212.0, 310.0],
+            // The zero-timer heartbeat: never a settle beat.
+            "beats": [0.0, 4.1, 8.3],
+            "settleBeats": [
+                {"recipe": "column-divide", "targets": 2, "durationMs": 280.0,
+                 "startDelayMs": 129.4, "declares": ["height"], "landing": "finished"},
+            ],
+            "chains": {"chains": 9, "longestChainMs": 14.0, "totalChainMs": 61.0, "ranked": []},
+            "paneId": "p7",
+            "commits": null,
+        });
+        let r = reduce(&drive, &raw);
+        assert_eq!(r.lead_ms, Some(131.0));
+        assert_eq!(r.longest_gap_ms, Some(131.0));
+        assert_eq!(r.settle_beats.len(), 1);
+        let beat = &r.settle_beats[0];
+        assert_eq!(beat.recipe, "column-divide");
+        assert_eq!(beat.start_delay_ms, 129.4);
+        assert_eq!(beat.declares, vec!["height".to_string()]);
+        assert_eq!(r.chains.as_ref().unwrap()["chains"], 9);
+        assert_eq!(r.pane_id.as_deref(), Some("p7"));
+
+        let text = reading_extras(&r);
+        assert!(
+            text.contains("lead 131.0 ms, longest gap 131.0 ms"),
+            "{text}"
+        );
+        assert!(
+            text.contains("beat column-divide start 129.4 ms declares height"),
+            "{text}"
+        );
+        assert!(
+            text.contains("chains 9 (longest 14.0 ms, total 61.0 ms)"),
+            "{text}"
+        );
+
+        // Serialized under its own name, so the heartbeat key cannot shadow it.
+        let out = serde_json::to_value(&r).unwrap();
+        assert_eq!(out["settle_beats"][0]["startDelayMs"], 129.4);
+        assert!(out.get("beats").is_none());
+    }
+
+    #[test]
+    fn a_page_with_no_trace_reads_no_beats() {
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "c1"}),
+            read: true,
+        };
+        let r = reduce(
+            &drive,
+            &json!({"settle": [[2.0, true], [300.0, false]], "beats": [0.0, 4.0], "settleBeats": null}),
+        );
+        assert!(r.settle_beats.is_empty());
+        assert_eq!((r.lead_ms, r.longest_gap_ms), (None, None));
+        assert!(reading_extras(&r).contains("lead — ms, longest gap — ms"));
     }
 }
