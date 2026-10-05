@@ -31,7 +31,11 @@ pub const REPO_UNIVERSE_ENV: &str = "TUG_REPO_UNIVERSE";
 /// names a path that is missing or holds no `.git` is a misconfiguration of
 /// the process, so it is an error regardless of where `start` points: a
 /// boundary nobody can see is a boundary nobody can debug.
-fn universe_root_for(start: &Path) -> Result<Option<PathBuf>, TugError> {
+///
+/// Crate-visible because the state dir's key (`paths::checkout_for_state`)
+/// keeps the same boundary: a universe-pinned worktree must not hop out of
+/// its universe to find its arc log either.
+pub(crate) fn universe_root_for(start: &Path) -> Result<Option<PathBuf>, TugError> {
     let raw = match std::env::var(REPO_UNIVERSE_ENV) {
         Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
         _ => return Ok(None),
@@ -369,5 +373,37 @@ mod tests {
             TugError::NotAGitRepository => {} // expected
             other => panic!("Expected NotAGitRepository, got: {:?}", other),
         }
+    }
+
+    /// The arc log's key. A stage runs every verb from its worktree, so the
+    /// worktree has to read and write the same log as the checkout that owns
+    /// it — `tugtool arc ask` from a stage found "no arc to stop" until it did.
+    #[test]
+    fn a_linked_worktree_shares_its_checkouts_state_dir() {
+        let _guard = UniverseGuard::set(None);
+        let (_temp, base, worktree) = repo_with_linked_worktree();
+
+        assert_eq!(
+            crate::paths::project_state_dir(&worktree),
+            crate::paths::project_state_dir(&base),
+            "a linked worktree keys its checkout's state dir, not one of its own"
+        );
+    }
+
+    /// The boundary [`find_repo_root_from`] keeps, kept at the key too: a
+    /// worktree pinned as the universe is its own project and files its own
+    /// state, while the checkout beside it still files under itself.
+    #[test]
+    fn a_universe_pinned_worktree_keeps_its_own_state_dir() {
+        let (_temp, base, worktree) = repo_with_linked_worktree();
+        let _guard = UniverseGuard::set(Some(&worktree));
+
+        let pinned = crate::paths::project_state_dir(&worktree);
+        assert_ne!(pinned, crate::paths::project_state_dir(&base));
+        assert!(
+            pinned.to_string_lossy().ends_with("-wt"),
+            "the pinned worktree is the key: {}",
+            pinned.display()
+        );
     }
 }

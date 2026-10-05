@@ -1819,6 +1819,58 @@ mod tests {
         assert!(same_project(&worktree.to_string_lossy(), &worktree));
     }
 
+    /// **The call a stage actually makes.** Every stage runs from the arc's
+    /// worktree, and `tugtool arc ask` sends its cwd as the project. The arc's
+    /// log is keyed by the checkout, so the resolution has to reach it from
+    /// the worktree — and did not: a stage with a question was told "has no
+    /// arc to stop" until it retried with `--project <checkout>`, and the arc
+    /// it meant to stop kept running.
+    #[test]
+    #[serial_test::serial]
+    fn arc_ask_from_the_arcs_worktree_stops_the_arc() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let (main, worktree) = checkout_with_worktree(dir.path());
+        let ledger = on_arc_card(&main);
+        tugarc_core::arc::append_arc_stage(
+            &main,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+
+        match arc_ask(
+            &ledger,
+            &worktree,
+            "claude-1",
+            "alpha",
+            "Which cover hides the band?",
+        ) {
+            ArcApiOutcome::ArcStopped {
+                arc,
+                stage,
+                reason,
+                question,
+                ..
+            } => {
+                assert_eq!(arc, "alpha");
+                assert_eq!(stage, tugarc_core::arc::ArcStage::Implement);
+                assert_eq!(reason, tugarc_core::arc::ArcStopReason::NeedsDecision);
+                assert_eq!(question.as_deref(), Some("Which cover hides the band?"));
+            }
+            ArcApiOutcome::Error(message) => {
+                panic!("a stage asking from its worktree stops its arc, not: {message}")
+            }
+            _ => panic!("a stage asking from its worktree stops its arc"),
+        }
+    }
+
     /// The guard's actual purpose survives: a different project refuses.
     #[test]
     fn an_unrelated_project_still_refuses() {

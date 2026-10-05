@@ -220,9 +220,12 @@ pub fn find_for_cwd(cwd: &Path) -> Result<Option<Instance>, Error> {
 /// Public because instance discovery is not its only consumer: `same_project`
 /// in `tugcast::arc_api` resolves both sides of a bind through it, so a
 /// session spawned in a checkout and a `tugtool arc` call made from inside
-/// that checkout's arc worktree read as one project rather than two. One
-/// translation, two callers — a second implementation would be a second
-/// quiet path resolver.
+/// that checkout's arc worktree read as one project rather than two; and
+/// `tugtool_core::paths::project_state_dir` keys a worktree's runtime state —
+/// the arc log above all — under the checkout through it, so the arc a stage
+/// writes from its worktree is the arc the checkout reads. One translation,
+/// three callers — a second implementation would be a second quiet path
+/// resolver.
 pub fn linked_worktree_base(cwd: &Path) -> Option<PathBuf> {
     let dot_git = cwd
         .ancestors()

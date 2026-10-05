@@ -54,17 +54,52 @@ fn resolve_arc_log_in(dir: &Path) -> PathBuf {
 /// `.claude/projects/` naming, but the key is the canonical path: one
 /// repository has one state dir no matter which spelling the caller arrived by.
 ///
-/// `repo_root` should be the *main* repository root — every linked worktree of
-/// a project shares one state dir. This is per-user runtime state; it is never
-/// committed.
+/// `repo_root` may be the main checkout or any of its linked worktrees: the
+/// key is resolved to the checkout first ([`checkout_for_state`]), so every
+/// worktree of a project shares one state dir by construction rather than by
+/// the caller's care. This is per-user runtime state; it is never committed.
 pub fn project_state_dir(repo_root: &Path) -> PathBuf {
     let projects = tugcore::instance::base_data_dir().join("projects");
-    let canonical = project_slug(repo_root);
-    let raw = raw_slug(repo_root);
+    let checkout = checkout_for_state(repo_root);
+    let canonical = project_slug(&checkout);
+    let raw = raw_slug(&checkout);
     if raw != canonical {
         reconcile_alias_state_dir(&projects.join(raw), &projects.join(&canonical));
     }
     projects.join(canonical)
+}
+
+/// The checkout whose state dir `start` keys: `start` itself, unless it sits
+/// inside a linked worktree, in which case the checkout that owns the worktree.
+///
+/// Every git-backed arc op already hops this way through `main_repo_root`
+/// ([D138]). The arc log is keyed through here instead, and for a long time
+/// did not hop — so `tugtool arc ask` run from inside a stage's worktree,
+/// which is where every stage runs, looked the arc up under
+/// `…-.tug-worktrees-<name>`, found no log there, and refused with "has no
+/// arc to stop", while the same call with `--project <checkout>` succeeded.
+/// This is not an [L29] spelling problem: the gateway had run, and a worktree
+/// and its checkout are two directories, not two spellings of one. The hop
+/// closes it at the key, for every reader at once.
+///
+/// The universe boundary ([`REPO_UNIVERSE_ENV`]) takes precedence, exactly as
+/// it does in [`find_repo_root_from`]: a linked worktree that *is* the project
+/// an instance has open owns its own state, and hopping would file its arcs
+/// under a checkout that instance never opened. A universe that cannot be
+/// resolved is treated as unset here, since this function is infallible and
+/// the misconfiguration is already reported by every repo-root resolution.
+///
+/// Pure filesystem, through [`tugcore::registry::linked_worktree_base`]: the
+/// state dir is resolved on every arc-log read, and it has to resolve with no
+/// `git` on `PATH`.
+///
+/// [`REPO_UNIVERSE_ENV`]: crate::worktree::REPO_UNIVERSE_ENV
+/// [`find_repo_root_from`]: crate::worktree::find_repo_root_from
+fn checkout_for_state(start: &Path) -> PathBuf {
+    if let Ok(Some(universe)) = crate::worktree::universe_root_for(start) {
+        return universe;
+    }
+    tugcore::registry::linked_worktree_base(start).unwrap_or_else(|| start.to_path_buf())
 }
 
 /// Fold an alias spelling's state dir into the canonical one, once.
