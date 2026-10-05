@@ -219,6 +219,56 @@ export function motionSolver(
   return solverFor(spec.zeta, durationMs, opts.initialVelocity ?? 0);
 }
 
+/**
+ * The largest launch velocity, toward the target, that a critically or
+ * over-damped recipe absorbs without carrying past its target — in the same
+ * units as {@link MotionKeyframesOptions.initialVelocity}, travels per second.
+ * `null` for an under-damped recipe, which overshoots from rest anyway, and
+ * for a fade.
+ *
+ * {@link MAX_INITIAL_VELOCITY} bounds how far an under-damped landing may
+ * fling; it does not keep a critically damped curve on one side. At ζ = 1 a
+ * spring launched from one travel away at velocity v₀ toward rest crosses it
+ * exactly when v₀ exceeds ω (in the spring's own time), so a motion that
+ * must never pass its target — the flow strip's settle from a lifted hand,
+ * whose "never backwards" is absolute — clamps its seed here as well. The
+ * bound is taken with a margin for the solver's fixed-step integration.
+ */
+export function motionForwardVelocityLimit(
+  recipe: MotionRecipe,
+  nominalMs: number,
+): number | null {
+  const spec = RECIPES[recipe];
+  if (spec.zeta === null || spec.zeta < 1) return null;
+  const toSpringTime = shapeWindowMs(spec.zeta) / motionDurationMs(recipe, nominalMs);
+  return (0.9 * SHAPE_OMEGA) / toSpringTime;
+}
+
+/**
+ * The {@link MotionKeyframesOptions.initialVelocity} that launches a recipe's
+ * curve at a MEASURED rate — `travelsPerSecond` of real, on-screen travel —
+ * for a caller holding an actual speed rather than a tuned feel.
+ *
+ * `initialVelocity` is not realized at its nominal rate. {@link solverFor}
+ * scales it into the spring's time by `shapeWindow / duration`, but a curve
+ * sampled over the spring's own window and played over the recipe's runs that
+ * same factor faster again, so the first frames move at roughly the factor
+ * squared times what was asked. The interruption handoff is unaffected —
+ * {@link velocityAt} reads back through the inverse, so a reading re-seeds
+ * exactly — and the pane landing's feel was tuned against the realized rate.
+ * A hand's measured speed has neither excuse, so it converts here.
+ */
+export function motionLaunchVelocity(
+  recipe: MotionRecipe,
+  nominalMs: number,
+  travelsPerSecond: number,
+): number {
+  const spec = RECIPES[recipe];
+  if (spec.zeta === null) return 0;
+  const toSpringTime = shapeWindowMs(spec.zeta) / motionDurationMs(recipe, nominalMs);
+  return travelsPerSecond / (toSpringTime * toSpringTime);
+}
+
 /** How long a recipe plays for, without building its curve. */
 export function motionDurationMs(
   recipe: MotionRecipe,

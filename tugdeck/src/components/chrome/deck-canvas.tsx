@@ -126,6 +126,8 @@ import {
 } from "@/lib/dictionary-lookup";
 import { openOpenQuickly } from "@/lib/open-quickly-store";
 import { clearRecentDocuments } from "@/lib/recent-documents";
+import { subscribeScrollPhase } from "@/lib/scroll-phase-bridge";
+import { takeFlowFromSettle } from "@/lib/settle-take";
 import { allocateUntitledNumber } from "@/lib/untitled-naming";
 import {
   IMPOSER_SETTLE_END,
@@ -302,6 +304,21 @@ const FLOW_WHEEL_IDLE_MS = 180;
  *  settles toward. Few enough that a reversal at the end of a swipe is read
  *  as one; more than one so a single stray delta is not. */
 const FLOW_WHEEL_RECENT_DELTAS = 3;
+
+/** How far back a lift looks to measure the hand's speed. Long enough to
+ *  span several deltas at display cadence, short enough that a hand which
+ *  stopped before it lifted reads as stopped. */
+const FLOW_WHEEL_VELOCITY_MS = 80;
+
+/** How many timed deltas the gesture keeps — enough to cover the velocity
+ *  window at display cadence, and the direction's few at its tail. */
+const FLOW_WHEEL_RING = 8;
+
+/** How long a wheel gesture that saw the fingers touch waits, with no delta
+ *  and no lift, before it ends anyway. Such a gesture ends on the host's
+ *  `lifted` edge, not on a quiet — fingers resting mid-swipe are not a
+ *  release — so this is only the guard against a lift that never arrives. */
+const FLOW_WHEEL_LIFT_GUARD_MS = 1000;
 
 /**
  * Every member of every place, keyed by PANE ID — the map the drop-zone
@@ -4495,6 +4512,23 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // Accumulation lives in a ref and the gesture ends on an idle timeout, which
   // is the only end a wheel has — there is no "up" to commit on.
   //
+  // A trackpad does have an "up": Tug.app forwards its phase edges over the
+  // scroll-phase bridge, and `phase` follows them. `tracking` is a gesture the
+  // strip follows 1:1. `released` is the stretch after the fingers lifted:
+  // the gesture has already ended — on the `lifted` edge, or on `momentum` if
+  // that arrived first — and committed its stop, and every delta macOS keeps
+  // sending on the hand's behalf is taken and draws nothing, so the settle is
+  // the only motion from the lift to the landing. It lasts until the next
+  // `touched` or the quiet. `touched` marks a gesture that saw the fingers go
+  // down; its quiet is only a guard against a lift that never arrives. A
+  // gesture with no edge at all — a mouse wheel, a synthetic event — ends on
+  // the idle quiet exactly as before.
+  //
+  // A touch while the release slide is still running catches the strip: the
+  // settle hands it over at the pose on screen, the gesture opens there with
+  // its hump already cleared — a hand catching a moving strip has committed
+  // to moving it — and the strip tracks 1:1 from that frame ([B06]).
+  //
   // `held` is the gesture's hump ([B02]): the sum of the deltas taken since
   // the gesture opened, standing only until it passes `FLOW_WHEEL_HUMP_PX`.
   // While it stands the strip draws nothing — a resting hand's pixel of
@@ -4506,15 +4540,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // opening the next one held. A gesture that never clears it ends on the
   // same idle and commits nothing, because nothing was drawn.
   //
-  // `recent` is the last few deltas, newest last — the direction the hand was
-  // LAST moving, which is what the release settles toward ([B03]). The net of
-  // the swipe would send a hand that reversed back the way it came.
+  // `recent` is the last few deltas with their timestamps, newest last. Its
+  // tail is the direction the hand was LAST moving, which is what the release
+  // settles toward ([B03]) — the net of the swipe would send a hand that
+  // reversed back the way it came. On a lift the whole ring is the hand's
+  // speed, which the release slide launches at.
   const wheelGestureRef = useRef<{
+    phase: "idle" | "tracking" | "released";
+    touched: boolean;
     offset: number;
     held: number | null;
-    recent: number[];
+    recent: { delta: number; t: number }[];
     timer: number | null;
   }>({
+    phase: "idle",
+    touched: false,
     offset: 0,
     held: null,
     recent: [],
@@ -4537,6 +4577,86 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       return false;
     };
 
+    // The release ([B03], [B04]): the hand's offset settles on to the next
+    // stop in the direction it was last moving. The strip and band are read
+    // again here rather than carried from the last event — a commit
+    // mid-gesture may have re-laid the strip, and the stops are the strip's.
+    // A hand already on a stop (within the near slack) commits exactly that
+    // stop as a cut, so the frames stand still and the store catches up by at
+    // most the slack; one with a stop ahead commits the stop, and the settle
+    // slides there from the drawn offset. A gesture that never cleared its
+    // hump drew nothing and commits nothing.
+    //
+    // `velocity` is the hand's speed at a lift, in offset px per second, and
+    // rides the commit to the settle; the quiet passes none, its hand having
+    // already stopped.
+    const endGesture = (velocity: number | null): void => {
+      const cleared = gesture.held === null;
+      gesture.held = null;
+      if (!cleared) return;
+      const now = store.getSnapshot();
+      const stripNow = deckFlowStrip(now);
+      const bandNow = store.getBandWidth();
+      if (stripNow === null || bandNow === null || bandNow <= 0) {
+        commitFlowOffset(gesture.offset);
+        return;
+      }
+      const direction = gesture.recent
+        .slice(-FLOW_WHEEL_RECENT_DELTAS)
+        .reduce((sum, r) => sum + r.delta, 0);
+      const stop = flowNextStop({
+        strip: stripNow,
+        band: bandNow,
+        offset: gesture.offset,
+        direction,
+      });
+      if (Math.abs(stop - gesture.offset) <= FLOW_STOP_NEAR_PX) {
+        store.setFlowOffset(stop, "cut");
+      } else {
+        if (velocity !== null) store.setDrawnFlowVelocity(velocity);
+        commitFlowOffset(stop);
+      }
+    };
+
+    // The hand's speed now, in offset px per second: the deltas inside the
+    // window, over the time from the oldest of them to now. A hand that
+    // stopped before it lifted has nothing in the window and reads zero.
+    const handVelocity = (): number => {
+      const now = performance.now();
+      const inWindow = gesture.recent.filter(
+        (r) => now - r.t <= FLOW_WHEEL_VELOCITY_MS,
+      );
+      if (inWindow.length < 2) return 0;
+      const span = now - inWindow[0].t;
+      if (span <= 0) return 0;
+      const travel = inWindow.slice(1).reduce((sum, r) => sum + r.delta, 0);
+      return (travel / span) * 1000;
+    };
+
+    const clearTimer = (): void => {
+      if (gesture.timer === null) return;
+      window.clearTimeout(gesture.timer);
+      gesture.timer = null;
+    };
+
+    // The quiet. A tracking gesture with no edge ends on it; one that saw the
+    // fingers touch waits the longer lift guard; a released stretch simply
+    // closes, since its gesture already ended at the lift.
+    const armQuiet = (): void => {
+      clearTimer();
+      const ms =
+        gesture.phase === "tracking" && gesture.touched
+          ? FLOW_WHEEL_LIFT_GUARD_MS
+          : FLOW_WHEEL_IDLE_MS;
+      gesture.timer = window.setTimeout(() => {
+        gesture.timer = null;
+        const tracking = gesture.phase === "tracking";
+        gesture.phase = "idle";
+        gesture.touched = false;
+        if (tracking) endGesture(null);
+      }, ms);
+    };
+
     const onWheel = (event: WheelEvent): void => {
       // Shift+vertical is the mouse's horizontal: a wheel with one axis says
       // sideways by holding the modifier, a trackpad says it with deltaX. A
@@ -4551,6 +4671,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           ? event.deltaY
           : 0;
       if (delta === 0) return;
+      // After the lift, every delta is macOS's momentum: taken, so the page
+      // does not pan, and drawn nowhere, so the settle is the only motion.
+      if (gesture.phase === "released") {
+        event.preventDefault();
+        armQuiet();
+        return;
+      }
       const state = store.getSnapshot();
       const strip = deckFlowStrip(state);
       const band = store.getBandWidth();
@@ -4562,13 +4689,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // mid-gesture cannot rewind the hand. Clamped every frame with the
       // store's own arithmetic, so the frame never shows an overshoot the
       // commit would reject.
-      if (gesture.timer === null) {
+      if (gesture.phase === "idle") {
+        gesture.phase = "tracking";
         gesture.offset = state.flowOffset ?? 0;
         gesture.held = 0;
         gesture.recent = [];
       }
-      gesture.recent.push(delta);
-      if (gesture.recent.length > FLOW_WHEEL_RECENT_DELTAS) gesture.recent.shift();
+      // Timed on the clock the lift reads, at the moment the deck takes the
+      // delta — not `event.timeStamp`, whose origin WebKit does not promise
+      // matches `performance.now()`.
+      gesture.recent.push({ delta, t: performance.now() });
+      if (gesture.recent.length > FLOW_WHEEL_RING) gesture.recent.shift();
       let travel = delta;
       if (gesture.held !== null) {
         gesture.held += delta;
@@ -4587,50 +4718,66 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         );
         previewFlowOffset(gesture.offset);
       }
-      if (gesture.timer !== null) window.clearTimeout(gesture.timer);
-      gesture.timer = window.setTimeout(() => {
-        const cleared = gesture.held === null;
-        gesture.timer = null;
-        gesture.held = null;
-        if (!cleared) return;
-        // The release ([B03], [B04]): the hand's offset settles on to the
-        // next stop in the direction it was last moving. The strip and band
-        // are read again here rather than carried from the last event — a
-        // commit mid-gesture may have re-laid the strip, and the stops are
-        // the strip's. A hand already on a stop (within the near slack)
-        // commits exactly that stop as a cut, so the frames stand still and
-        // the store catches up by at most the slack; one with a stop ahead
-        // commits the stop, and the settle slides there from the drawn
-        // offset.
-        const now = store.getSnapshot();
-        const stripNow = deckFlowStrip(now);
-        const bandNow = store.getBandWidth();
-        if (stripNow === null || bandNow === null || bandNow <= 0) {
-          commitFlowOffset(gesture.offset);
-          return;
-        }
-        const direction = gesture.recent.reduce((sum, d) => sum + d, 0);
-        const stop = flowNextStop({
-          strip: stripNow,
-          band: bandNow,
-          offset: gesture.offset,
-          direction,
-        });
-        if (Math.abs(stop - gesture.offset) <= FLOW_STOP_NEAR_PX) {
-          store.setFlowOffset(stop, "cut");
-        } else {
-          commitFlowOffset(stop);
-        }
-      }, FLOW_WHEEL_IDLE_MS);
+      armQuiet();
     };
+
+    // The touch that catches a running slide. The settle holds the strip
+    // where the eye has it and answers that offset; the gesture opens there,
+    // tracking with no hump, and the store is caught up to it as a cut —
+    // the frames are already there — so the next lift's commit is a change
+    // from the caught place rather than a no-op against the slide's stop.
+    // Until the hand moves, the slide's own direction stands as the hand's,
+    // so a hand that lifts without moving is still carried on, never back;
+    // the seed is timed out of the velocity window, so it adds no speed.
+    const catchSlide = (): void => {
+      const stop = store.getSnapshot().flowOffset ?? 0;
+      const caught = takeFlowFromSettle(el);
+      if (caught === null) return;
+      const live = Math.round(caught);
+      gesture.phase = "tracking";
+      gesture.offset = live;
+      gesture.held = null;
+      gesture.recent =
+        live === stop ? [] : [{ delta: Math.sign(stop - live), t: -Infinity }];
+      previewFlowOffset(live);
+      store.setFlowOffset(live, "cut");
+    };
+
+    // The host's phase edges. `touched` ends a released stretch — the next
+    // delta opens a fresh gesture — and marks the gesture as one that ends on
+    // the lift, catching the strip if a slide is still carrying it.
+    // `lifted`, or `momentum` when it beats a late lift, ends a
+    // tracking gesture at once and swallows what follows. An edge for a
+    // gesture the deck never took (the deltas went to a card's own scroller)
+    // moves nothing here, so that card keeps its momentum.
+    const unsubscribe = subscribeScrollPhase((edge) => {
+      if (edge === "touched") {
+        if (gesture.phase === "released") {
+          clearTimer();
+          gesture.phase = "idle";
+        }
+        gesture.touched = true;
+        if (gesture.phase === "idle") catchSlide();
+        if (gesture.phase === "tracking") armQuiet();
+        return;
+      }
+      if (gesture.phase !== "tracking") {
+        if (gesture.phase === "idle") gesture.touched = false;
+        return;
+      }
+      gesture.phase = "released";
+      gesture.touched = false;
+      endGesture(handVelocity());
+      armQuiet();
+    });
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("wheel", onWheel);
-      if (gesture.timer !== null) {
-        window.clearTimeout(gesture.timer);
-        gesture.timer = null;
-      }
+      unsubscribe();
+      clearTimer();
+      gesture.phase = "idle";
+      gesture.touched = false;
     };
   }, [store, previewFlowOffset, commitFlowOffset]);
 

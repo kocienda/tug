@@ -14,7 +14,9 @@ import { describe, expect, test } from "bun:test";
 import {
   MAX_INITIAL_VELOCITY,
   motionDurationMs,
+  motionForwardVelocityLimit,
   motionKeyframes,
+  motionLaunchVelocity,
   motionSolver,
   progressAt,
   velocityAlongTravel,
@@ -297,5 +299,73 @@ describe("a pointer's velocity is projected onto the travel", () => {
     expect(velocityAlongTravel({ x: 100_000, y: 0 }, travel)).toBe(
       MAX_INITIAL_VELOCITY,
     );
+  });
+});
+
+describe("the forward velocity limit", () => {
+  const WINDOWS = [100, NOMINAL, 400, 1200];
+
+  test("a crossing seeded at the limit never passes its target", () => {
+    for (const nominalMs of WINDOWS) {
+      const limit = motionForwardVelocityLimit("crossing", nominalMs);
+      expect(limit).not.toBeNull();
+      const { progress } = motionKeyframes("crossing", {
+        nominalMs,
+        initialVelocity: limit!,
+      });
+      expect(Math.max(...progress)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("the general clamp alone does not keep a crossing on one side", () => {
+    // Why the limit exists: at the shipped window a crossing seeded at the
+    // general clamp carries past its target.
+    const { progress } = motionKeyframes("crossing", {
+      nominalMs: 400,
+      initialVelocity: MAX_INITIAL_VELOCITY,
+    });
+    expect(Math.max(...progress)).toBeGreaterThan(1);
+  });
+
+  test("a seed below the limit still launches faster than rest", () => {
+    const limit = motionForwardVelocityLimit("crossing", NOMINAL)!;
+    const rest = motionKeyframes("crossing", { nominalMs: NOMINAL }).progress;
+    const seeded = motionKeyframes("crossing", {
+      nominalMs: NOMINAL,
+      initialVelocity: limit,
+    }).progress;
+    expect(seeded[1]).toBeGreaterThan(rest[1]);
+  });
+
+  test("an under-damped recipe has no forward limit", () => {
+    expect(motionForwardVelocityLimit("landing", NOMINAL)).toBeNull();
+    expect(motionForwardVelocityLimit("divide-join", NOMINAL)).toBeNull();
+  });
+});
+
+describe("a measured launch rate", () => {
+  /** The first frame's rate above a launch from rest, in travels per second. */
+  const launchRate = (travelsPerSecond: number): number => {
+    const rest = motionKeyframes("crossing", { nominalMs: NOMINAL });
+    const seeded = motionKeyframes("crossing", {
+      nominalMs: NOMINAL,
+      initialVelocity: motionLaunchVelocity("crossing", NOMINAL, travelsPerSecond),
+    });
+    const dt = seeded.durationMs / (seeded.progress.length - 1);
+    return ((seeded.progress[1] - rest.progress[1]) / dt) * 1000;
+  };
+
+  test("launches the curve's first frames at about that rate", () => {
+    // The first sample averages a decelerating spring over one step, so it
+    // reads a little under the launch; it must not read an order over it.
+    for (const rate of [2, 6, 12]) {
+      const realized = launchRate(rate);
+      expect(realized).toBeGreaterThan(rate * 0.6);
+      expect(realized).toBeLessThanOrEqual(rate);
+    }
+  });
+
+  test("a fade has no launch", () => {
+    expect(motionLaunchVelocity("divide-join", NOMINAL, 5)).toBe(0);
   });
 });

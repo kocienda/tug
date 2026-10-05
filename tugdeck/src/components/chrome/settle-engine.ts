@@ -67,7 +67,12 @@ import {
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { standingDeck } from "@/lib/departing";
-import { SETTLE_TAKE_EVENT, type SettleTakeDetail } from "@/lib/settle-take";
+import {
+  SETTLE_TAKE_EVENT,
+  SETTLE_TAKE_FLOW_EVENT,
+  type SettleTakeDetail,
+  type SettleTakeFlowDetail,
+} from "@/lib/settle-take";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
@@ -93,7 +98,9 @@ import {
 } from "@/lib/settle-notice";
 import {
   motionDurationMs,
+  motionForwardVelocityLimit,
   motionKeyframes,
+  motionLaunchVelocity,
   velocityAt,
   type MotionCurve,
   type MotionRecipe,
@@ -664,8 +671,12 @@ export function useSettleEngine({
   const sansOffsetRef = useRef(arrangementSig.sansOffset);
   /** The flow offset as `arm` last saw it, rounded as it is written. */
   const flowOffsetRef = useRef(Math.round(store.getSnapshot().flowOffset ?? 0));
-  /** The move beat `arm` launched ahead of React, if one is up ([D204]). */
-  const prelaunchRef = useRef<{ token: object } | null>(null);
+  /** The move beat `arm` launched ahead of React, if one is up ([D204]), and
+   *  how to take the strip from it: hold it where it is on screen, land the
+   *  settle there, and answer the offset that pose is. */
+  const prelaunchRef = useRef<{ token: object; take: () => number } | null>(
+    null,
+  );
   const settleTimerRef = useRef<number | null>(null);
   /**
    * Re-arms the settle's window sweep — the timer that takes the settling
@@ -1246,6 +1257,22 @@ export function useSettleEngine({
     return () => el.removeEventListener(SETTLE_TAKE_EVENT, onTake);
   }, [containerRef]);
 
+  // A hand taking the whole flow strip from a running slide
+  // (`takeFlowFromSettle`). Synchronous for `onTake`'s reason: the gesture
+  // draws the answer in the same task, so no frame paints between the slide
+  // letting go and the hand holding it.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    const onTakeFlow = (event: Event): void => {
+      const running = prelaunchRef.current;
+      if (running === null) return;
+      (event as CustomEvent<SettleTakeFlowDetail>).detail.offset = running.take();
+    };
+    el.addEventListener(SETTLE_TAKE_FLOW_EVENT, onTakeFlow);
+    return () => el.removeEventListener(SETTLE_TAKE_FLOW_EVENT, onTakeFlow);
+  }, [containerRef]);
+
   // First, and the arming. A LAYOUT effect, not a passive one ([L03]): this
   // registers the store subscriber that measures every frame's outgoing
   // geometry, and a subscription that lands after paint is a subscription that
@@ -1566,6 +1593,10 @@ export function useSettleEngine({
       // First rect would read the drawn place off the DOM for free; the
       // prelaunch plans from the store's delta alone and has to be told.
       const flowOrigin = store.getDrawnFlowOffset() ?? prevFlowOffset;
+      // And how fast the hand was moving it when it let go, when a trackpad
+      // lift handed that over with the commit — the prelaunch slide launches
+      // at it. Read here for the same reason: the commit consumes it.
+      const flowHandVelocity = store.getDrawnFlowVelocity();
 
       // The commit said the frames are already drawn where it puts them — a
       // per-frame writer catching the store up after the fact ([B01]). There
@@ -2087,7 +2118,25 @@ export function useSettleEngine({
         writeCanvasFlowOffset(el, nextFlowOffset);
         // `left = C - offset`, so First - Last = next - origin.
         const dx = nextFlowOffset - flowOrigin;
-        const curve = motionKeyframes(BEAT_RECIPE.move, { nominalMs: settleMs });
+        // A lifted hand's speed seeds the slide, so it continues the hand's
+        // motion rather than restarting from rest: travels per second over
+        // the slide's own `dx`, converted so the first frames move at the
+        // hand's measured rate, and only toward the stop. It changes the
+        // curve's shape, never where it ends, and it is held under the
+        // recipe's forward limit — the crossing must not carry past the stop
+        // and come back, which is the one motion a swipe's release forbids.
+        const handTravels =
+          flowHandVelocity !== null && dx !== 0 ? flowHandVelocity / dx : 0;
+        const forwardLimit =
+          motionForwardVelocityLimit(BEAT_RECIPE.move, settleMs) ?? 0;
+        const launchVelocity = Math.min(
+          motionLaunchVelocity(BEAT_RECIPE.move, settleMs, Math.max(handTravels, 0)),
+          forwardLimit,
+        );
+        const curve = motionKeyframes(BEAT_RECIPE.move, {
+          nominalMs: settleMs,
+          initialVelocity: launchVelocity,
+        });
         const keyframes = springSettleKeyframes({ dx, dy: 0 }, curve.progress);
         const token = {};
         // A prelaunched slide bumps no generation — the Last pass it stands
@@ -2121,18 +2170,21 @@ export function useSettleEngine({
           record: recordBeat,
           onLand: () => {
             if (prelaunchRef.current?.token !== token) return;
-            prelaunchRef.current = null;
-            for (const { paneId, frame, anims } of launched) {
-              if (takenFramesRef.current.get(frame) === generation) continue;
-              clearFlip(paneId, frame, anims);
-            }
-            settleBeatRef.current = null;
-            endSettleMarks(el);
-            dispatchImposerSettleEnd(el);
-            settleReleaseRef.current?.("completion");
-            drainArrivalsRef.current();
+            land();
           },
         });
+        const land = (): void => {
+          prelaunchRef.current = null;
+          for (const { paneId, frame, anims } of launched) {
+            if (takenFramesRef.current.get(frame) === generation) continue;
+            clearFlip(paneId, frame, anims);
+          }
+          settleBeatRef.current = null;
+          endSettleMarks(el);
+          dispatchImposerSettleEnd(el);
+          settleReleaseRef.current?.("completion");
+          drainArrivalsRef.current();
+        };
         // One registry entry per frame, each holding the array `clearFlip`
         // later matches by identity.
         const launched = movers.map(({ paneId, frame }, i) => {
@@ -2140,11 +2192,37 @@ export function useSettleEngine({
           settleTweensRef.current.set(paneId, { el: frame, anims, restores: [] });
           return { paneId, frame, anims };
         });
-        prelaunchRef.current = { token };
+        // A hand catching the strip mid-slide. One frame is measured where
+        // the slide has it, then every frame is held and the landing takes
+        // the holds off, and the frame is measured again at its committed
+        // place; the difference is how far short of the stop the strip
+        // stood: `left = C - offset`, so the live offset is the stop less it.
+        //
+        // Measured BEFORE the hold, against the pane-take's order. A take
+        // here is followed in the same task by the hand drawing the answer,
+        // so it must agree with the pose the last frame showed, and the
+        // rect is that pose — it is what every reading of this slide has
+        // reported. Read after `commitStyles` it came back as much as nine
+        // pixels behind the frame before, and the strip stepped back at the
+        // touch. A prelaunched slide carries no inline transform for the
+        // rect to mistake for the pose, which is the hazard that order
+        // guards against elsewhere.
+        const take = (): number => {
+          const lead = launched[0]?.frame;
+          const seen = lead?.getBoundingClientRect();
+          for (const { anims } of launched) {
+            for (const anim of anims) anim.cancel("hold-at-current");
+          }
+          land();
+          const committed = lead?.getBoundingClientRect();
+          if (seen === undefined || committed === undefined) return nextFlowOffset;
+          return nextFlowOffset - (seen.left - committed.left);
+        };
+        prelaunchRef.current = { token, take };
         settleBeatRef.current = {
           kind: "move",
           launchedAt: move.plannedAt,
-          initialVelocity: 0,
+          initialVelocity: launchVelocity,
           anims: move.anims,
           land: move.land,
         };
@@ -2152,6 +2230,7 @@ export function useSettleEngine({
         tugDevLogStore.debug("arrival", "settle PRELAUNCH", {
           panes: launched.length,
           dx,
+          launchVelocity,
         });
       }
       const windowMs = settleMs * getTugTiming();

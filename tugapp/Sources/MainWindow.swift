@@ -351,6 +351,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// until a `start` arrives, so a window that never dictates never touches
     /// the input node.
     private var dictationEngine: DictationEngine!
+    /// The `.scrollWheel` local monitor feeding `bridgeScrollPhase`; removed
+    /// in `cleanupBridge`.
+    private var scrollPhaseMonitor: Any?
     private var devInfoOverlay: DevInfoOverlayView?
     private var devInfoLabel: NSTextField?
     weak var bridgeDelegate: BridgeDelegate?
@@ -547,6 +550,17 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             audioDisabled: ProcessInfo.processInfo.environment["TUGAPP_TEST_SOCKET"] != nil,
             emit: { [weak self] event in self?.bridgeDictationEvent(event) }
         )
+
+        // The trackpad's phase edges, which `WheelEvent` does not carry. The
+        // monitor observes and returns every event untouched; see
+        // `bridgeScrollPhase`.
+        scrollPhaseMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+            [weak self] event in
+            if let self, event.window === self {
+                self.bridgeScrollPhase(of: event)
+            }
+            return event
+        }
 
         // Suppress WKWebView's default white background. The webView starts
         // hidden and is revealed by frontendReady after JS applies the theme.
@@ -1259,6 +1273,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         // Give the microphone back before the deck it was reporting to is
         // gone. `shutdown` emits nothing: there is nobody left to tell.
         dictationEngine?.shutdown()
+        if let scrollPhaseMonitor {
+            NSEvent.removeMonitor(scrollPhaseMonitor)
+            self.scrollPhaseMonitor = nil
+        }
         bridgeCleaned = true
     }
 
@@ -1333,6 +1351,37 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             if let error = error {
                 NSLog(
                     "MainWindow: evaluateJavaScript failed for onDictation: %@",
+                    error.localizedDescription
+                )
+            }
+        }
+    }
+
+    /// Push a trackpad scroll's phase edge to the deck.
+    ///
+    /// `WheelEvent` carries deltas and nothing about whether the fingers are
+    /// down, so the deck's only end for a wheel gesture would otherwise be a
+    /// quiet. Only the three edges the deck acts on cross: `touched` (fingers
+    /// down), `lifted` (fingers up) and `momentum` (the first delta macOS
+    /// sends on the hand's behalf). Every other event — the deltas between
+    /// edges, and every event of a mouse wheel, whose phases are empty —
+    /// sends nothing; the deltas reach the page through the DOM as always.
+    /// Receiver: `tugdeck/src/lib/scroll-phase-bridge.ts`.
+    private func bridgeScrollPhase(of event: NSEvent) {
+        let edge: String
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
+            edge = "touched"
+        } else if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            edge = "lifted"
+        } else if event.momentumPhase.contains(.began) {
+            edge = "momentum"
+        } else {
+            return
+        }
+        webView.evaluateJavaScript("window.__tugBridge?.onScrollPhase?.('\(edge)')") { _, error in
+            if let error = error {
+                NSLog(
+                    "MainWindow: evaluateJavaScript failed for onScrollPhase: %@",
                     error.localizedDescription
                 )
             }

@@ -195,6 +195,19 @@ export interface IDeckManagerStore {
    */
   getDrawnFlowOffset: () => number | null;
   /**
+   * The hand's velocity at the moment a gesture released the drawn offset, in
+   * offset px per second (positive as the offset grows), or `null` when no
+   * hand handed one over. Written by the canvas wheel just before the commit
+   * a trackpad lift makes, and consumed by that commit alongside the drawn
+   * offset: the settle's flow slide launches at it, toward its stop only, so
+   * a fast lift lands fast and a slow one slow. Like the drawn offset it is a
+   * fact about the screen, not the state.
+   */
+  getDrawnFlowVelocity: () => number | null;
+  /** Hand the next flow commit the hand's velocity; see
+   *  {@link getDrawnFlowVelocity}. */
+  setDrawnFlowVelocity: (pxPerSecond: number | null) => void;
+  /**
    * The same band as its two edges in canvas layout px, or `null` when there
    * is none — the left edge is the left rail's inset plus the gap when a rail
    * stands there and the bare gap otherwise, and the right edge likewise.

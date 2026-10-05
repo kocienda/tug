@@ -49,3 +49,37 @@ export function takeFrameFromSettle(frame: HTMLElement): SettleTakeDetail {
   );
   return detail;
 }
+
+/**
+ * Dispatched on the canvas: a hand touching the flow strip while the settle
+ * is sliding it.
+ *
+ * The strip is not one frame but every imposed frame riding one slide, so the
+ * frame-by-frame take above would leave the slide's landing — its marks, its
+ * settle-end notice, its release — waiting on frames nobody owns any more.
+ * This takes the whole slide at once: the engine holds every frame at the
+ * pose on screen, lands the settle there as its own completion would, and
+ * answers the strip offset that pose is, so the hand's gesture continues
+ * from where the eye has the strip rather than from where the slide was
+ * taking it.
+ */
+export const SETTLE_TAKE_FLOW_EVENT = "tug-settle-take-flow";
+
+/** Filled in by the engine: the strip's live offset, or `null` when no flow
+ *  slide was running. */
+export interface SettleTakeFlowDetail {
+  offset: number | null;
+}
+
+/** Take the flow strip from a running slide on `canvas`, and say where it stood. */
+export function takeFlowFromSettle(canvas: HTMLElement): number | null {
+  const detail: SettleTakeFlowDetail = { offset: null };
+  canvas.dispatchEvent(
+    new CustomEvent<SettleTakeFlowDetail>(SETTLE_TAKE_FLOW_EVENT, {
+      detail,
+      bubbles: false,
+      cancelable: false,
+    }),
+  );
+  return detail.offset;
+}

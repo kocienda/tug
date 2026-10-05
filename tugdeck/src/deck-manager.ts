@@ -2800,6 +2800,12 @@ export class DeckManager implements IDeckManagerStore {
   private drawnFlowOffset: number | null = null;
 
   /**
+   * The hand's velocity handed to the next flow commit. See
+   * {@link getDrawnFlowVelocity}.
+   */
+  private drawnFlowVelocity: number | null = null;
+
+  /**
    * Fire every subscriber over the current state.
    *
    * `caller` is the mutating method's own name, stamped by each call
@@ -2875,6 +2881,7 @@ export class DeckManager implements IDeckManagerStore {
     // because a reveal or a retune moves the strip too, and a batched commit
     // reaches its arm only at this flush.
     this.drawnFlowOffset = null;
+    this.drawnFlowVelocity = null;
     this.inFlightDeferralVote = priorVote;
     // Under reduced motion there is no tween to keep the commit out of, and a
     // deferral would only put the snapped layout one frame behind the gesture.
@@ -5840,6 +5847,21 @@ export class DeckManager implements IDeckManagerStore {
     return this.drawnFlowOffset;
   }
 
+  /**
+   * The hand's velocity at release, in offset px per second, handed over by
+   * {@link setDrawnFlowVelocity} and consumed with the drawn offset by the
+   * commit that follows — read by the settle's arm as the flow slide's launch
+   * velocity. `null` when nobody handed one over.
+   */
+  getDrawnFlowVelocity(): number | null {
+    return this.drawnFlowVelocity;
+  }
+
+  /** Hand the next flow commit the hand's velocity. */
+  setDrawnFlowVelocity(pxPerSecond: number | null): void {
+    this.drawnFlowVelocity = pxPerSecond;
+  }
+
   /** The flow strip's twin of {@link setColumnOffset} — the same one-write-at-
    *  the-end rule, read across instead of down, and the same `landing`. It is
    *  the one of the three with a `"cross"` caller that matters: a strip
@@ -5865,6 +5887,7 @@ export class DeckManager implements IDeckManagerStore {
     );
     if (clamped === (this.deckState.flowOffset ?? 0)) {
       this.drawnFlowOffset = null;
+      this.drawnFlowVelocity = null;
       return;
     }
     const drawn = this.drawnFlowOffset;

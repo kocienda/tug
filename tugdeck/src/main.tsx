@@ -29,6 +29,7 @@ import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installNetworkPathBridge } from "./lib/network-path-store";
 import { installUpdateBridge } from "./lib/update-store";
 import { installDictationBridge } from "./lib/dictation-bridge";
+import { installScrollPhaseBridge } from "./lib/scroll-phase-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { attachLiveTurnsDeck } from "./lib/live-turns-store";
 import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
@@ -670,6 +671,12 @@ async function withBootHorizon<T>(
   // after the deck is mounted so the gesture interpreter is live.
   // See `lib/activation-click-bridge.ts`.
   installActivationClickBridge();
+
+  // Receive the host's trackpad phase edges — fingers down, fingers lifted,
+  // momentum began — which `WheelEvent` does not carry. The canvas's wheel
+  // gesture subscribes; a gesture that sees no edge (a mouse wheel, the dev
+  // browser) ends on its quiet as before. See `lib/scroll-phase-bridge.ts`.
+  installScrollPhaseBridge();
 
   // Install `window.__tug` test-harness surface when
   // `window.__tugTestMode === true`. The attach is a no-op otherwise;
