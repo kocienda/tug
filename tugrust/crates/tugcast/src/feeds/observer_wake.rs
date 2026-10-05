@@ -123,6 +123,14 @@ pub enum WakeReason {
     /// that filled with "the user asked X" would be worse than one that waited
     /// for something to happen.
     Submission,
+    /// The conversation was rewound: the turns after the cut were undone and
+    /// the session continues from an earlier point.
+    ///
+    /// The standing sentence may describe work that is no longer part of the
+    /// conversation, and nothing else would wake the Observer until the next
+    /// turn. So this wake runs even over an empty window, and what it is shown
+    /// — prior posts, facts, activity — is only what came before the cut.
+    Rewind,
 }
 
 impl WakeReason {
@@ -135,6 +143,7 @@ impl WakeReason {
             Self::SessionEnd => "session-end",
             Self::TokenThreshold => "token-threshold",
             Self::Submission => "submission",
+            Self::Rewind => "rewind",
         }
     }
 }
@@ -147,6 +156,26 @@ impl WakeReason {
 pub const ELISION_MARKER: &str = "[earlier frames elided]";
 
 // MARK: - Composing a wake
+
+/// A stretch of a session that a rewind cut away: from the first dropped
+/// record to the moment the rewind landed.
+///
+/// What the Observer recorded inside it — the posts it wrote, the facts that
+/// settled — happened, and the ledger keeps them. They are kept out of what a
+/// wake shows the writer, because the conversation the synopsis describes no
+/// longer contains that work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DroppedSpan {
+    pub from_ms: i64,
+    pub to_ms: i64,
+}
+
+/// Whether `at_ms` falls inside any span a rewind cut away.
+pub fn is_dropped(spans: &[DroppedSpan], at_ms: i64) -> bool {
+    spans
+        .iter()
+        .any(|span| at_ms >= span.from_ms && at_ms <= span.to_ms)
+}
 
 /// One prior post, as the wake input renders it.
 pub struct PriorPost {
@@ -1296,6 +1325,7 @@ mod tests {
         assert_eq!(WakeReason::SessionEnd.as_str(), "session-end");
         assert_eq!(WakeReason::TokenThreshold.as_str(), "token-threshold");
         assert_eq!(WakeReason::Submission.as_str(), "submission");
+        assert_eq!(WakeReason::Rewind.as_str(), "rewind");
     }
 
     /// The gate on the short arm ([B07]). A command changes a setting and

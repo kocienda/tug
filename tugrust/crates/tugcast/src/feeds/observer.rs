@@ -57,9 +57,10 @@ use crate::session_ledger::SessionLedger;
 use crate::shared_agent::SharedAgentPool;
 
 use super::observer_wake::{
-    FactLine, OBSERVER_PROSE_GRACE, OBSERVER_PROSE_LIMIT, PriorPost, WakeReason, clamp_post_body,
-    compose_observer_input, counts_as_ask, counts_as_assistant_activity, parse_envelope, prose_len,
-    render_facts_section, synopsis_register_report, validate_refs,
+    DroppedSpan, FactLine, OBSERVER_PROSE_GRACE, OBSERVER_PROSE_LIMIT, PriorPost, WakeReason,
+    clamp_post_body, compose_observer_input, counts_as_ask, counts_as_assistant_activity,
+    is_dropped, parse_envelope, prose_len, render_facts_section, synopsis_register_report,
+    validate_refs,
 };
 use super::overview_agent::DEFAULT_CARD_ROWS;
 use super::payload_inspector::InspectedPayload;
@@ -217,6 +218,15 @@ struct SessionWindow {
     /// set. A wake that takes the window clears it, so the session re-arms at
     /// the sitrep afterwards as it always did.
     short_arm: Option<Duration>,
+    /// The stretches rewinds cut away from this session. Prior posts and facts
+    /// that fall inside one are kept out of every later wake's input, so a
+    /// synopsis is never rewritten from work the conversation no longer holds.
+    /// Held for the life of the process; the rewind's own wake is the one that
+    /// needs it most, and it runs within seconds of the cut.
+    dropped: Vec<DroppedSpan>,
+    /// A rewind landed while a wake was in flight. Serial wakes are the rule,
+    /// so the rewind wake runs as soon as that one settles.
+    rewind_pending: bool,
 }
 
 impl SessionWindow {
@@ -229,6 +239,8 @@ impl SessionWindow {
             in_flight: None,
             in_flight_facts: None,
             short_arm: None,
+            dropped: Vec::new(),
+            rewind_pending: false,
         }
     }
 }
@@ -321,7 +333,14 @@ async fn observer_bridge_task(
                 }
             }
             Some(outcome) = outcome_rx.recv() => {
+                let session_id = outcome.session_id.clone();
                 settle(&config, &overview_tx, &mut sessions, outcome);
+                let rewind_waiting = sessions
+                    .get(&session_id)
+                    .is_some_and(|w| w.rewind_pending && w.in_flight.is_none());
+                if rewind_waiting {
+                    wake(&config, &mut sessions, &session_id, WakeReason::Rewind, &outcome_tx);
+                }
             }
             _ = sleep_until_opt(next_deadline) => {
                 let now = Instant::now();
@@ -395,6 +414,16 @@ fn handle_code_frame(
     if let Some((session_id, spent)) = turn_cost(&frame.payload) {
         let window = window_for(config, sessions, &session_id);
         window.tokens += spent;
+    }
+
+    // A rewind is not ink: it never enters the buffer, and it takes lines out
+    // of it rather than adding one. Read ahead of the narratable-frame filter,
+    // which does not pass it.
+    if let Some((session_id, cut_ms)) = conversation_rewind(&frame.payload) {
+        if !muted.contains(&session_id) {
+            rewind(config, sessions, &session_id, cut_ms, outcome_tx);
+        }
+        return;
     }
 
     let Some(session_id) = forwardable_session(&frame.payload, muted) else {
@@ -568,6 +597,56 @@ fn sitrep_secs(config: &ObserverBridgeConfig) -> i64 {
     (config.sitrep_secs)()
 }
 
+/// The session and cut time of a successful conversation rewind, read off its
+/// `rewind_result`.
+///
+/// A code-only rewind changes no conversation, a refused one changes nothing,
+/// and one whose cut time tugcode could not read gives no way to tell the
+/// dropped turns from the kept ones — so each of those answers `None` and the
+/// Observer carries on as before rather than guessing where the cut was.
+fn conversation_rewind(payload: &[u8]) -> Option<(String, i64)> {
+    let parsed: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    if parsed.get("type")?.as_str()? != "rewind_result" {
+        return None;
+    }
+    if parsed.get("canRewind")?.as_bool() != Some(true) {
+        return None;
+    }
+    if parsed.get("scope")?.as_str()? == "code" {
+        return None;
+    }
+    let cut_ms = parsed.get("cutAtMs")?.as_i64()?;
+    let session_id = parsed.get("tug_session_id")?.as_str()?.to_string();
+    Some((session_id, cut_ms))
+}
+
+/// Forget what a rewind cut away, and wake to rewrite the synopsis from what
+/// is left.
+///
+/// The window's lines from the cut on go, including any held by a wake in
+/// flight, so a failed job cannot hand them back. The span is remembered so
+/// every later wake keeps the posts and facts inside it out of its input.
+fn rewind(
+    config: &ObserverBridgeConfig,
+    sessions: &mut HashMap<String, SessionWindow>,
+    session_id: &str,
+    cut_ms: i64,
+    outcome_tx: &mpsc::Sender<WakeOutcome>,
+) {
+    let window = window_for(config, sessions, session_id);
+    window.dropped.push(DroppedSpan {
+        from_ms: cut_ms,
+        to_ms: now_ms(),
+    });
+    let cut = cut_ms.max(0) as u64;
+    window.buffer.drop_since(cut);
+    if let Some(in_flight) = window.in_flight.as_mut() {
+        in_flight.drop_since(cut);
+    }
+    window.rewind_pending = true;
+    wake(config, sessions, session_id, WakeReason::Rewind, outcome_tx);
+}
+
 // MARK: - Waking
 
 /// Take a session's window and run the job off-thread.
@@ -600,8 +679,9 @@ fn wake(
     }
     // Silence is not news. An idle session's timer fires over nothing, and
     // the right answer is no wake at all rather than a wake the model then
-    // declines.
-    if window.buffer.is_empty() {
+    // declines. A rewind is the exception: the news is what was taken away,
+    // and an empty window is the usual shape of it.
+    if window.buffer.is_empty() && reason != WakeReason::Rewind {
         window.armed_at = None;
         window.short_arm = None;
         return;
@@ -631,6 +711,7 @@ fn wake(
         window.short_arm = None;
         window.tokens = 0;
         window.assistant_activity = false;
+        window.rewind_pending = false;
         return;
     }
 
@@ -641,6 +722,8 @@ fn wake(
     window.short_arm = None;
     window.tokens = 0;
     window.assistant_activity = false;
+    window.rewind_pending = false;
+    let dropped = window.dropped.clone();
 
     let priors = config
         .ledger
@@ -655,6 +738,7 @@ fn wake(
         })
         .unwrap_or_default()
         .into_iter()
+        .filter(|post| !is_dropped(&dropped, post.at_ms))
         .map(|post| PriorPost {
             at_ms: post.at_ms,
             body: post.body,
@@ -678,6 +762,7 @@ fn wake(
         })
         .unwrap_or_default()
         .into_iter()
+        .filter(|row| !is_dropped(&dropped, row.at_ms))
         .map(|row| FactLine {
             at_ms: row.at_ms,
             text: row.text,
@@ -1785,6 +1870,123 @@ mod tests {
         // The sha appears in no frame — only in the fact — and is kept anyway.
         assert_eq!(post.refs.len(), 1);
         assert_eq!(post.refs[0].target, "03fcaa08");
+        h.cancel.cancel();
+    }
+
+    /// A rewind wakes the Observer, and what it hands the writer is the
+    /// conversation that is left: the posts and facts from before the cut stay,
+    /// those from the dropped turns do not, and neither does the dropped turns'
+    /// activity still sitting in the window.
+    #[tokio::test]
+    async fn a_rewind_wakes_with_only_what_came_before_the_cut() {
+        let spawner = FakeSpawner::always(Ok(
+            r#"{"post": null, "synopsis": "Wire the lexer for raw strings"}"#.to_string(),
+        ));
+        let fake = Arc::clone(&spawner);
+        let mut h = start(spawner, 0).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        let t0 = now_ms();
+        let cut = t0 - 5_000;
+        let post = |at_ms: i64, body: &str| OverviewPost {
+            id: None,
+            at_ms,
+            author: OverviewAuthor::Observer,
+            session_id: Some("s1".to_string()),
+            wake_reason: Some("turn-end".to_string()),
+            body: body.to_string(),
+            refs: Vec::new(),
+            elapsed_ms: None,
+            project_dir: None,
+            attachments: Vec::new(),
+            request_id: None,
+            transient: false,
+        };
+        h.ledger
+            .record_overview_post(&post(t0 - 20_000, "Taught the lexer raw strings."))
+            .expect("kept post");
+        h.ledger
+            .record_overview_post(&post(
+                t0 - 1_000,
+                "Reworked the parser around the new tokens.",
+            ))
+            .expect("dropped post");
+        h.ledger
+            .record_fact(&crate::feeds::facts_library::prompt_fact(
+                t0 - 10_000,
+                "s1",
+                "kept prompt about raw strings",
+            ))
+            .expect("kept fact");
+        h.ledger
+            .record_fact(&crate::feeds::facts_library::prompt_fact(
+                t0 - 2_000,
+                "s1",
+                "dropped prompt about the parser",
+            ))
+            .expect("dropped fact");
+
+        // Activity from the turns about to be cut: it arrives now, after the
+        // cut, and is still in the window when the rewind lands.
+        h.code_tx
+            .send(assistant_text("s1", "Rewiring the parser tables."))
+            .unwrap();
+        h.code_tx
+            .send(code_frame(serde_json::json!({
+                "type": "rewind_result",
+                "tug_session_id": "s1",
+                "promptUuid": "uuid-dropped",
+                "scope": "conversation",
+                "canRewind": true,
+                "cutAtMs": cut,
+            })))
+            .unwrap();
+
+        assert_eq!(
+            next_written_synopsis(&mut h.control_rx).await.as_deref(),
+            Some("Wire the lexer for raw strings"),
+        );
+        let input = fake
+            .turns_seen()
+            .last()
+            .cloned()
+            .expect("the rewind woke the Observer");
+        assert!(input.contains("WAKE REASON: rewind"), "{input}");
+        assert!(input.contains("kept prompt about raw strings"), "{input}");
+        assert!(input.contains("Taught the lexer raw strings."), "{input}");
+        assert!(
+            !input.contains("dropped prompt about the parser"),
+            "{input}"
+        );
+        assert!(!input.contains("Reworked the parser"), "{input}");
+        assert!(!input.contains("Rewiring the parser tables"), "{input}");
+        expect_no_post(&mut h.overview_rx).await;
+        h.cancel.cancel();
+    }
+
+    /// A rewind of the code alone, or one that was refused, leaves the
+    /// conversation as it was and wakes nothing.
+    #[tokio::test]
+    async fn a_code_only_or_refused_rewind_does_not_wake() {
+        let spawner = FakeSpawner::always(Ok(envelope("should never be asked for")));
+        let fake = Arc::clone(&spawner);
+        let h = start(spawner, 0).await;
+        for (scope, can) in [("code", true), ("conversation", false)] {
+            h.code_tx
+                .send(code_frame(serde_json::json!({
+                    "type": "rewind_result",
+                    "tug_session_id": "s1",
+                    "promptUuid": "uuid-x",
+                    "scope": scope,
+                    "canRewind": can,
+                    "cutAtMs": 1_000,
+                })))
+                .unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(fake.turns_seen().is_empty());
         h.cancel.cancel();
     }
 

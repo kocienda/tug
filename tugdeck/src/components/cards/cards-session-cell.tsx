@@ -50,7 +50,10 @@ import {
   NO_SLASH_COMMANDS,
   useAnnotationContextFor,
 } from "@/components/tugways/use-annotation-context";
-import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import {
+  cardSessionBindingStore,
+  useLedgerSegmentForCard,
+} from "@/lib/card-session-binding-store";
 import {
   TUG_SESSION_ROW_INDICATOR_SIZE,
   TugSessionRow,
@@ -106,6 +109,10 @@ export function CardsSessionRow({
       [cardId],
     ),
   );
+  // The row's facts — turn count, last prompt, last-used time — come from the
+  // segment the card is seated on, which a rewind fork moves off the address.
+  // The address still names the session everywhere else on the row.
+  const ledgerSessionId = useLedgerSegmentForCard(cardId, tugSessionId);
   // The description line is prose about the session, and it names files. Same
   // terms as the masthead's ([B02]): the row's own project is both the file
   // index's root and the root a relative path in the prose is counted from,
@@ -123,6 +130,7 @@ export function CardsSessionRow({
         selected={selected}
         className="session-row-content cards-row"
         sessionId={tugSessionId}
+        ledgerSessionId={ledgerSessionId}
         cardId={cardId}
         projectDir={projectDir}
         // The monitor rail's large indicator, and the ONLY place in the app that

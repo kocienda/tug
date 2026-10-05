@@ -571,6 +571,24 @@ export interface SessionSegment {
 }
 
 /**
+ * An in-place rewind finished: the live session's own JSONL was truncated
+ * and its respawn has loaded, under the same id.
+ *
+ * A forking rewind needs no frame of its own, because its new segment is
+ * announced by {@link SessionSegment} and recorded at the `session_init`
+ * after it. An in-place rewind changes no id, so without this nothing tells
+ * tugcast that the segment's turn count and last prompt just dropped, and the
+ * ledger row keeps the rewound-away values until the next turn ends. The deck
+ * does not read it.
+ */
+export interface SessionRewound {
+  type: "session_rewound";
+  /** Claude's id for the session whose file was truncated. */
+  sessionId: string;
+  ipc_version: number;
+}
+
+/**
  * A stage boundary *replayed* — the divider half of a rotation
  * {@link SessionSegment}, with none of the identity half.
  *
@@ -1616,6 +1634,14 @@ export interface RewindResult {
   canRewind: boolean;
   error?: string;
   newSessionId?: string;
+  /**
+   * When the conversation that was cut away began: the epoch-ms timestamp
+   * of the first dropped record, the rewound-to prompt itself. Present on a
+   * successful conversation rewind whose anchor carries a timestamp. The
+   * Observer reads it to keep what it already knew about the dropped turns
+   * out of the synopsis it rewrites.
+   */
+  cutAtMs?: number;
   ipc_version: number;
 }
 
@@ -1681,6 +1707,7 @@ export type OutboundMessage =
   | ControlRequestForward
   | SystemMetadata
   | SessionSegment
+  | SessionRewound
   | ReplayStage
   | ReplayRelocation
   | SessionTitle

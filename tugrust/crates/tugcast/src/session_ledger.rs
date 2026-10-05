@@ -4376,11 +4376,23 @@ impl SessionLedger {
         segments
     }
 
-    /// The turns the whole line has taken, summed across its segments.
+    /// The turns the whole line has taken, each counted once.
+    ///
+    /// A rotation segment starts a fresh transcript, so its count is summed
+    /// whole. A rewind fork's transcript is a prefix copy of its parent's, so
+    /// its count already holds every turn the parent took up to the fork
+    /// point: the parent is left out and the chain is counted at its tip. A
+    /// rewind edge is the one with a `fork_point`.
     pub fn line_turn_count(&self, line_id: &str) -> Result<i64, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let total: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(turn_count), 0) FROM sessions WHERE line_id = ?1",
+            "SELECT COALESCE(SUM(s.turn_count), 0) FROM sessions s
+             WHERE s.line_id = ?1
+               AND NOT EXISTS (
+                   SELECT 1 FROM sessions fork
+                   WHERE fork.forked_from_session_id = s.session_id
+                     AND fork.fork_point IS NOT NULL
+               )",
             params![line_id],
             |row| row.get(0),
         )?;
@@ -5451,6 +5463,28 @@ impl SessionLedger {
              WHERE session_id = ?1",
             params![session_id, count],
         )?;
+        Ok(())
+    }
+
+    /// Set the facts an in-place rewind moves that the turn-count reconcile
+    /// does not: the last prompt, which is now the last one the truncated file
+    /// still holds (`None` when it holds none worth showing), and `last_used_at`,
+    /// because a rewind is the session being used. No-op on a missing row.
+    pub fn record_rewound_facts(
+        &self,
+        session_id: &str,
+        last_user_prompt: Option<&str>,
+        now: i64,
+    ) -> Result<(), LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        conn.execute(
+            "UPDATE sessions
+             SET last_user_prompt = ?2,
+                 last_used_at = ?3
+             WHERE session_id = ?1",
+            params![session_id, last_user_prompt, now],
+        )?;
+        self.notify_sessions_changed();
         Ok(())
     }
 
@@ -13345,6 +13379,40 @@ mod tests {
             l.get("ext").unwrap().unwrap().turn_count,
             5,
             "reconcile corrects the inflated seed to the authority"
+        );
+    }
+
+    /// A rotation segment's transcript starts fresh, so its turns add to the
+    /// line's; a rewind fork's is a prefix copy of its parent's, so the turns
+    /// before the fork point are already in the fork's own count.
+    #[test]
+    fn a_line_counts_a_rewound_turn_once_and_a_rotated_one_whole() {
+        let l = fresh();
+        let seat = |id: &str, at: i64, turns: i64| {
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(at), "line-1", None)
+                .unwrap();
+            l.set_turn_count(id, turns, millis(at)).unwrap();
+            l.demote_live_to_closed(DemoteScope::EveryLiveRow).unwrap();
+        };
+        seat("seg-root", 1, 5);
+        seat("seg-rotated", 2, 3);
+        l.set_fork_provenance("seg-rotated", "seg-root", None)
+            .unwrap();
+        assert_eq!(
+            l.line_turn_count("line-1").unwrap(),
+            8,
+            "a rotation sums whole"
+        );
+
+        // Rewound to the rotated segment's second prompt: the fork holds that
+        // segment's first turn, then takes one of its own.
+        seat("seg-fork", 3, 2);
+        l.set_fork_provenance("seg-fork", "seg-rotated", Some("prompt-2"))
+            .unwrap();
+        assert_eq!(
+            l.line_turn_count("line-1").unwrap(),
+            7,
+            "the root's five and the fork's two; the rotated segment's turns are the fork's"
         );
     }
 

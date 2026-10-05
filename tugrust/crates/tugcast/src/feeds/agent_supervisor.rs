@@ -13100,7 +13100,8 @@ impl AgentSupervisor {
             Some("replay_started")
             | Some("replay_complete")
             | Some("turn_complete")
-            | Some("turn_cancelled") => {}
+            | Some("turn_cancelled")
+            | Some("session_rewound") => {}
             _ => return,
         }
 
@@ -13163,6 +13164,19 @@ impl AgentSupervisor {
                     }
                 }
             }
+            // An in-place rewind truncated the live file under the same id,
+            // so no `session_init` will push the segment's row again. Re-read
+            // it now rather than leaving the rewound-away turn count and
+            // prompt on the row until the next turn ends.
+            Some("session_rewound") => {
+                let claude_id = {
+                    let entry = entry_arc.lock().await;
+                    entry.claude_session_id.clone()
+                };
+                if let Some(claude_id) = claude_id {
+                    self.spawn_rewound_row_refresh(claude_id);
+                }
+            }
             _ => unreachable!("filtered above"),
         }
     }
@@ -13201,6 +13215,34 @@ impl AgentSupervisor {
                 return;
             };
             // Re-read: the refresh just moved `turn_count` on this row.
+            let Ok(Some(row)) = ledger.get(&claude_session_id) else {
+                return;
+            };
+            let usage = ledger.usage_for(&claude_session_id).unwrap_or(None);
+            let _ = control_tx.send(build_session_updated_frame(&row, Some(metrics), usage));
+        });
+    }
+
+    /// [`Self::spawn_session_metrics_refresh`] for an in-place rewind: the same
+    /// detached re-read and push, which also takes the row's last prompt back
+    /// to the last one the truncated file still holds.
+    fn spawn_rewound_row_refresh(&self, claude_session_id: String) {
+        let Some(ledger) = self.session_ledger.clone() else {
+            return;
+        };
+        let control_tx = self.control_tx.clone();
+        tokio::task::spawn_blocking(move || {
+            let Ok(Some(row)) = ledger.get(&claude_session_id) else {
+                return;
+            };
+            let Some(metrics) = crate::external_sessions::refresh_after_in_place_rewind(
+                &ledger,
+                &row.project_dir,
+                &claude_session_id,
+                crate::session_ledger::now_millis(),
+            ) else {
+                return;
+            };
             let Ok(Some(row)) = ledger.get(&claude_session_id) else {
                 return;
             };
@@ -26528,6 +26570,84 @@ mod tests {
             "ipc_version": 2,
         });
         Frame::new(FeedId::CODE_OUTPUT, serde_json::to_vec(&body).unwrap())
+    }
+
+    /// An in-place rewind truncates the live file under the same id, so no
+    /// `session_init` pushes the row again. tugcode's `session_rewound` is
+    /// what makes tugcast re-read it, and the push that follows carries the
+    /// conversation that is left rather than waiting for the next turn.
+    #[tokio::test]
+    async fn an_in_place_rewind_pushes_the_reduced_row() {
+        const CLAUDE_ID: &str = "11111111-2222-3333-4444-0000000a0a0a";
+        const PROJECT: &str = "/tmp/in-place-rewind-project";
+        fn jsonl(prompts: &[&str]) -> String {
+            let mut out = format!(
+                "{{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"{CLAUDE_ID}\"}}\n"
+            );
+            for p in prompts {
+                out.push_str(&format!(
+                    "{{\"type\":\"user\",\"sessionId\":\"{CLAUDE_ID}\",\"cwd\":\"{PROJECT}\",\"timestamp\":\"2026-06-01T10:00:00.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"{p}\"}}}}\n"
+                ));
+            }
+            out
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let projects = root.path().join("projects");
+        let dir = projects.join(crate::session_ledger::encode_claude_project_name(PROJECT));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{CLAUDE_ID}.jsonl"));
+        std::fs::write(
+            &path,
+            jsonl(&["first prompt", "second prompt", "third prompt"]),
+        )
+        .unwrap();
+
+        let ledger = Arc::new(
+            SessionLedger::open_with_claude_root(root.path().join("sessions.db"), projects)
+                .unwrap(),
+        );
+        ledger
+            .record_spawn(CLAUDE_ID, "ws", PROJECT, "card-1", 1, CLAUDE_ID, None)
+            .unwrap();
+        ledger
+            .record_user_prompt(CLAUDE_ID, "third prompt")
+            .unwrap();
+        crate::external_sessions::scan_external_sessions_cached(&ledger, PROJECT);
+        assert_eq!(ledger.get(CLAUDE_ID).unwrap().unwrap().turn_count, 3);
+
+        let (sup, _ledger, mut control_rx) = make_supervisor_for_ledger(Arc::clone(&ledger), None);
+        let tug_session_id = TugSessionId::new("sess-in-place-rewind");
+        let entry = insert_ledger_entry(&sup, &tug_session_id).await;
+        entry.lock().await.claude_session_id = Some(CLAUDE_ID.to_owned());
+
+        // tugcode truncated the file to its first two turns, respawned, and
+        // announced it.
+        std::fs::write(&path, jsonl(&["first prompt", "second prompt"])).unwrap();
+        let rewound = Frame::new(
+            FeedId::CODE_OUTPUT,
+            serde_json::to_vec(&serde_json::json!({
+                "type": "session_rewound",
+                "sessionId": CLAUDE_ID,
+                "ipc_version": 2,
+            }))
+            .unwrap(),
+        );
+        sup.process_outbound_frame_journal_gate(&tug_session_id, &rewound)
+            .await;
+
+        let pushed = loop {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+                .await
+                .expect("a session_updated push follows the rewind")
+                .expect("control feed open");
+            let v: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if v["action"] == "session_updated" && v["session_id"] == CLAUDE_ID {
+                break v;
+            }
+        };
+        assert_eq!(pushed["fields"]["turn_count"], 2);
+        assert_eq!(pushed["fields"]["last_user_prompt"], "second prompt");
     }
 
     #[tokio::test]

@@ -16,6 +16,7 @@ import {
   cardLine,
   cardSeatedSegment,
   cardSessionBindingStore,
+  ledgerSegmentForCard,
   seatedSegmentForSession,
   type CardSessionBinding,
 } from "../lib/card-session-binding-store";
@@ -301,6 +302,55 @@ describe("cardSeatedSegment – the card follows the rotation, its address does 
     }));
     expect(cardSeatedSegment(CARD)).toBe("seat-cold-sess");
     cardSessionBindingStore.clearBinding(CARD);
+  });
+});
+
+/**
+ * **The segment a Workspaces row reads its ledger facts from.** A rewind fork
+ * writes every later turn under a new segment id and announces it as the
+ * card's seat; read off the card's address instead, the row's turn count and
+ * last prompt stay at their pre-rewind values for good.
+ */
+describe("ledgerSegmentForCard – a rewound card's row reads the fork", () => {
+  const CARD = "card-rewind";
+  const ROOT = "rewind-sess-root";
+  const LINE = "rewind-line";
+  const FORK = "rewind-sess-fork";
+
+  function rewindFixture(): void {
+    cardSessionBindingStore.clearBinding(CARD);
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(FORK);
+    cardSessionBindingStore.setBinding(CARD, makeBinding({
+      tugSessionId: ROOT,
+      lineId: LINE,
+      sessionMode: "resume",
+    }));
+    sessionLineStore.seat(ROOT, LINE);
+  }
+
+  test("before any rewind the row reads the card's address", () => {
+    rewindFixture();
+    expect(ledgerSegmentForCard(CARD, ROOT)).toBe(ROOT);
+  });
+
+  test("after a fork rewind the row reads the fork, and the address stays", () => {
+    rewindFixture();
+    // What `session_line_seated` does after the rewind's segment frame.
+    sessionLineStore.seat(FORK, LINE);
+    cardSessionBindingStore.setSeatedSegment(CARD, FORK, LINE);
+
+    expect(ledgerSegmentForCard(CARD, ROOT)).toBe(FORK);
+    expect(cardSessionBindingStore.getBinding(CARD)?.tugSessionId).toBe(ROOT);
+    // The pre-rewind segment's row stays live, and a push about it does not
+    // move the row back onto the conversation that was rewound away.
+    sessionLineStore.seat(ROOT, LINE);
+    expect(ledgerSegmentForCard(CARD, ROOT)).toBe(FORK);
+  });
+
+  test("a card with no binding reads the address it was asked with", () => {
+    cardSessionBindingStore.clearBinding(CARD);
+    expect(ledgerSegmentForCard(CARD, ROOT)).toBe(ROOT);
   });
 });
 

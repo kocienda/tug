@@ -793,6 +793,14 @@ export interface SessionIdentityRowProps
    */
   row?: SessionRow | null;
   /**
+   * The segment whose ledger row the description's prompt rung and the
+   * activity's rest facts are read from, when it is not `sessionId` — a card
+   * whose seat moved off its address on a rewind or a rotation. Everything else
+   * on the row stays keyed by `sessionId`.
+   * @default sessionId
+   */
+  ledgerSessionId?: string;
+  /**
    * The arc binding the caller is ALREADY holding, the same way {@link row}
    * is the ledger row it holds. Given, it is the source for the step ring and
    * for the track riding the title run; omitted, the binding is read from the
@@ -921,6 +929,7 @@ export function SessionIdentityRow({
   renderTape,
   identityContext,
   row: rowOverride,
+  ledgerSessionId,
   arc: arcOverride,
   highlight = "",
   descriptionMaxChars,
@@ -955,7 +964,7 @@ export function SessionIdentityRow({
   // INSIDE the hook rather than after it: a picker that already holds every row
   // in the workspace should not also be listening to the ledger for each of
   // them, and `??` on the way out would have left it doing exactly that.
-  const facts = useSessionLedgerRow(sessionId, projectDir, rowOverride);
+  const facts = useSessionLedgerRow(ledgerSessionId ?? sessionId, projectDir, rowOverride);
 
   // The arc this session is on, for the step ring and the title's progress
   // cluster. The same aggregate read the identity's own arc marker makes —

@@ -784,6 +784,9 @@ describe("conversation rewind — fork (default)", () => {
     expect(types.indexOf("session_segment")).toBeLessThan(
       types.indexOf("session_init"),
     );
+    // The fork's row is pushed from its `session_init`; the in-place frame
+    // has nothing to say about it.
+    expect(types).not.toContain("session_rewound");
   });
 
   test("a destructive in-place rewind announces no segment", async () => {
@@ -823,6 +826,87 @@ describe("conversation rewind — destructive in-place (fork:false)", () => {
     expect(writes.length).toBe(1);
     expect(writes[0].path).toContain("live-claude-id");
     expect(spawns).toEqual([{ id: "live-claude-id", mode: "resume" }]);
+  });
+
+  test("announces the rewind under the same id, before the ack", async () => {
+    // No id changed, so this frame is the only thing that tells tugcast to
+    // re-read the truncated file and push the segment's corrected row.
+    const { jsonl, anchors } = buildSessionJsonl();
+    const { manager } = convManager(jsonl);
+
+    const out = await captureIpcOutput(async () => {
+      await manager.handleSessionRewind({
+        type: "session_rewind",
+        promptUuid: anchors[2],
+        scope: "conversation",
+        fork: false,
+      });
+    });
+
+    expect(out.find((m) => m.type === "session_rewound")).toEqual({
+      type: "session_rewound",
+      sessionId: "live-claude-id",
+      ipc_version: 2,
+    });
+    const types = out.map((m) => m.type);
+    expect(types.indexOf("session_rewound")).toBeLessThan(types.indexOf("rewind_result"));
+  });
+
+  test("the ack carries the cut's time, read off the rewound-to prompt's own record", async () => {
+    // The Observer keeps what it knew about the dropped turns out of the
+    // synopsis it rewrites, and the cut's time is how it tells them apart.
+    const { jsonl, anchors } = buildSessionJsonl();
+    const stamped = jsonl
+      .split("\n")
+      .map((line) => {
+        if (!line.includes(anchors[2])) return line;
+        const record = JSON.parse(line);
+        if (record.uuid !== anchors[2]) return line;
+        return JSON.stringify({ ...record, timestamp: "2026-10-05T12:00:00.000Z" });
+      })
+      .join("\n");
+    const { manager } = convManager(stamped);
+    const out = await captureIpcOutput(async () => {
+      await manager.handleSessionRewind({
+        type: "session_rewind",
+        promptUuid: anchors[2],
+        scope: "conversation",
+        fork: false,
+      });
+    });
+    const ack = out.find((m) => m.type === "rewind_result");
+    expect(ack.canRewind).toBe(true);
+    expect(ack.cutAtMs).toBe(Date.parse("2026-10-05T12:00:00.000Z"));
+  });
+
+  test("an anchor with no timestamp reports no cut time rather than a guess", async () => {
+    const { jsonl, anchors } = buildSessionJsonl();
+    const { manager } = convManager(jsonl);
+    const out = await captureIpcOutput(async () => {
+      await manager.handleSessionRewind({
+        type: "session_rewind",
+        promptUuid: anchors[2],
+        scope: "conversation",
+        fork: false,
+      });
+    });
+    const ack = out.find((m) => m.type === "rewind_result");
+    expect(ack.canRewind).toBe(true);
+    expect("cutAtMs" in ack).toBe(false);
+  });
+
+  test("a refused in-place rewind announces nothing", async () => {
+    const { jsonl } = buildSessionJsonl();
+    const { manager } = convManager(jsonl);
+    const out = await captureIpcOutput(async () => {
+      await manager.handleSessionRewind({
+        type: "session_rewind",
+        promptUuid: "stale-anchor",
+        scope: "conversation",
+        fork: false,
+      });
+    });
+    expect(out.map((m) => m.type)).not.toContain("session_rewound");
   });
 });
 

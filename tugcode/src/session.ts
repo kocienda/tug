@@ -542,6 +542,23 @@ export type ConversationTruncation =
   | { kind: "no_retained_turns" };
 
 /**
+ * The epoch-ms `timestamp` of one JSONL record, or `undefined` when the line
+ * does not parse or carries none — so a rewind's cut is reported only when it
+ * is known, never guessed.
+ */
+export function recordTimestampMs(line: string | undefined): number | undefined {
+  if (line === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(line) as { timestamp?: unknown };
+    if (typeof parsed.timestamp !== "string") return undefined;
+    const ms = Date.parse(parsed.timestamp);
+    return Number.isFinite(ms) ? ms : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Compute where to truncate a session JSONL to rewind the conversation to
  * the turn anchored at `promptUuid` ([#step-7-2]). Pure (no I/O) so the
  * boundary + compaction-guard logic is unit-testable without disk or a live
@@ -8652,7 +8669,12 @@ export class SessionManager {
   private async applyConversationRewind(
     promptUuid: string,
     fork: boolean,
-  ): Promise<{ canRewind: boolean; error?: string; newSessionId?: string }> {
+  ): Promise<{
+    canRewind: boolean;
+    error?: string;
+    newSessionId?: string;
+    cutAtMs?: number;
+  }> {
     const liveId = this.resumeSessionId ?? this.sessionId;
 
     // Resolve the on-disk JSONL the same way runReplay does — claude names
@@ -8702,6 +8724,7 @@ export class SessionManager {
 
     const lines = read.jsonl.split("\n");
     const truncated = lines.slice(0, truncation.boundary).join("\n") + "\n";
+    const cutAtMs = recordTimestampMs(lines[truncation.boundary]);
 
     // Destructive in-place rewind only: refuse while a live process
     // other than our own claude child holds this session (a terminal
@@ -8769,7 +8792,7 @@ export class SessionManager {
       this.startStdoutDrain(forked);
       this.writeSyntheticSessionInit(newId);
       await this.provePostRewindSpawnReady(forked);
-      return { canRewind: true, newSessionId: newId };
+      return { canRewind: true, newSessionId: newId, cutAtMs };
     }
 
     // Destructive in-place: snapshot the full pre-truncation bytes so a
@@ -8799,7 +8822,10 @@ export class SessionManager {
         error: `Respawn after rewind failed (${err instanceof Error ? err.message : String(err)}).`,
       };
     }
-    return { canRewind: true };
+    // The id did not change, so no segment frame says anything happened.
+    // tugcast re-reads the truncated file and pushes the corrected row.
+    writeLine({ type: "session_rewound", sessionId: liveId, ipc_version: 2 });
+    return { canRewind: true, cutAtMs };
   }
 
   /**
@@ -9012,7 +9038,12 @@ export class SessionManager {
   private emitRewindResult(
     promptUuid: string,
     scope: "conversation" | "code" | "both",
-    fields: { canRewind: boolean; error?: string; newSessionId?: string },
+    fields: {
+      canRewind: boolean;
+      error?: string;
+      newSessionId?: string;
+      cutAtMs?: number;
+    },
   ): void {
     const msg: RewindResult = {
       type: "rewind_result",
@@ -9023,6 +9054,7 @@ export class SessionManager {
       ...(fields.newSessionId !== undefined
         ? { newSessionId: fields.newSessionId }
         : {}),
+      ...(fields.cutAtMs !== undefined ? { cutAtMs: fields.cutAtMs } : {}),
       ipc_version: 2,
     };
     writeLine(msg);

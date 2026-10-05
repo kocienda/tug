@@ -1400,6 +1400,56 @@ pub fn refresh_session_metrics(
     })
 }
 
+/// [`refresh_session_metrics`] after an in-place rewind truncated the file,
+/// plus the one row fact a turn-end refresh never has to move: the last
+/// prompt, which a turn only ever replaces with a newer one but a rewind
+/// takes back to an older one.
+///
+/// Returns the fresh metrics when it wrote, `None` when the file is missing,
+/// unreadable, or excluded — the same silence the turn-end path keeps.
+///
+/// A cache that already matches the truncated file is not "nothing to do"
+/// here, as it is at a turn end: the retracted turn's own turn-end refresh is
+/// detached and can read the file after the cut, leaving the count right and
+/// the prompt and the push still owed.
+pub fn refresh_after_in_place_rewind(
+    ledger: &SessionLedger,
+    project_dir: &str,
+    claude_session_id: &str,
+    now: i64,
+) -> Option<SessionScanMetrics> {
+    let metrics = refresh_session_metrics(ledger, project_dir, claude_session_id)
+        .or_else(|| current_cached_metrics(ledger, project_dir, claude_session_id))?;
+    // The cache row now describes the truncated file, so its prompt is the
+    // one the conversation now ends on.
+    let prompt = ledger
+        .get_scan_cache(claude_session_id)
+        .ok()
+        .flatten()
+        .and_then(|row| row.last_user_prompt);
+    if let Err(err) = ledger.record_rewound_facts(claude_session_id, prompt.as_deref(), now) {
+        tracing::warn!(error = %err, "in-place rewind refresh: ledger write failed");
+    }
+    Some(metrics)
+}
+
+/// The cached metrics for a session, only when the cache row was written from
+/// the file as it stands now.
+fn current_cached_metrics(
+    ledger: &SessionLedger,
+    project_dir: &str,
+    claude_session_id: &str,
+) -> Option<SessionScanMetrics> {
+    let (dir, _) = claude_project_dir(ledger.claude_projects_root(), project_dir);
+    let (file_size, file_mtime) =
+        stat_size_mtime(&dir.join(format!("{claude_session_id}.jsonl")))?;
+    let row = ledger.get_scan_cache(claude_session_id).ok().flatten()?;
+    if row.file_size != file_size || row.file_mtime != file_mtime {
+        return None;
+    }
+    ledger.scan_metrics_for(claude_session_id).ok().flatten()
+}
+
 /// Drop superseded lineage ancestors from a listing. A resumed session's
 /// file embeds its pre-rotation history under the old session ids; the old
 /// files are then stale prefixes of the new one and listing them alongside
@@ -2104,6 +2154,97 @@ mod tests {
         // And it is idempotent — a second refresh with no further append has
         // nothing to say.
         assert!(refresh_session_metrics(&ledger, PROJECT, SESSION_A).is_none());
+    }
+
+    #[test]
+    fn in_place_rewind_refresh_takes_the_count_and_prompt_back() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = ledger_with_root(root.path());
+        let projects = root.path().join("projects");
+        seed(
+            &projects,
+            PROJECT,
+            SESSION_A,
+            &terminated_jsonl(
+                SESSION_A,
+                PROJECT,
+                &["first prompt", "second prompt", "third prompt"],
+            ),
+        );
+        ledger
+            .record_spawn(SESSION_A, "ws", PROJECT, "card-1", 1, SESSION_A, None)
+            .unwrap();
+        ledger
+            .record_user_prompt(SESSION_A, "third prompt")
+            .unwrap();
+        scan_external_sessions_cached(&ledger, PROJECT);
+        assert_eq!(ledger.get(SESSION_A).unwrap().unwrap().turn_count, 3);
+
+        // The rewind truncates the same file to its first two turns.
+        let path = projects
+            .join(encode_claude_project_name(PROJECT))
+            .join(format!("{SESSION_A}.jsonl"));
+        let kept = terminated_jsonl(SESSION_A, PROJECT, &["first prompt", "second prompt"]);
+        fs::write(&path, &kept).unwrap();
+
+        let now = 1_900_000_000_000;
+        let metrics =
+            refresh_after_in_place_rewind(&ledger, PROJECT, SESSION_A, now).expect("refreshed");
+        assert_eq!(metrics.turn_count, 2);
+        assert_eq!(metrics.file_size, kept.len() as i64);
+        let row = ledger.get(SESSION_A).unwrap().unwrap();
+        assert_eq!(row.turn_count, 2);
+        assert_eq!(row.last_user_prompt.as_deref(), Some("second prompt"));
+        assert_eq!(row.last_used_at, now);
+        assert_eq!(
+            ledger
+                .scan_metrics_for(SESSION_A)
+                .unwrap()
+                .map(|m| m.turn_count),
+            Some(2)
+        );
+    }
+
+    /// The retracted turn's own turn-end refresh is detached, so it can read
+    /// the file after the cut and leave the cache already matching it. The
+    /// rewind's refresh still owes the prompt and the push.
+    #[test]
+    fn in_place_rewind_refresh_answers_after_a_turn_end_refresh_saw_the_cut() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = ledger_with_root(root.path());
+        let projects = root.path().join("projects");
+        seed(
+            &projects,
+            PROJECT,
+            SESSION_A,
+            &terminated_jsonl(
+                SESSION_A,
+                PROJECT,
+                &["first prompt", "second prompt", "third prompt"],
+            ),
+        );
+        ledger
+            .record_spawn(SESSION_A, "ws", PROJECT, "card-1", 1, SESSION_A, None)
+            .unwrap();
+        ledger
+            .record_user_prompt(SESSION_A, "third prompt")
+            .unwrap();
+        scan_external_sessions_cached(&ledger, PROJECT);
+
+        let path = projects
+            .join(encode_claude_project_name(PROJECT))
+            .join(format!("{SESSION_A}.jsonl"));
+        let kept = terminated_jsonl(SESSION_A, PROJECT, &["first prompt", "second prompt"]);
+        fs::write(&path, &kept).unwrap();
+        assert!(refresh_session_metrics(&ledger, PROJECT, SESSION_A).is_some());
+
+        let now = 1_900_000_000_000;
+        let metrics =
+            refresh_after_in_place_rewind(&ledger, PROJECT, SESSION_A, now).expect("refreshed");
+        assert_eq!(metrics.turn_count, 2);
+        let row = ledger.get(SESSION_A).unwrap().unwrap();
+        assert_eq!(row.last_user_prompt.as_deref(), Some("second prompt"));
+        assert_eq!(row.last_used_at, now);
     }
 
     /// Terminated-lines fixture (every record ends in `\n`) so the

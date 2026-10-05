@@ -36,7 +36,7 @@
 
 import "./miniature-card-tip.css";
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
 import { icons } from "lucide-react";
 
 import { getRegistration } from "@/card-registry";
@@ -50,6 +50,7 @@ import { cardTitleStore } from "@/lib/card-title-store";
 import { SESSION_PHASE_LABELS } from "@/lib/code-session-store/session-phase-visual";
 import { useSessionPhase } from "@/lib/code-session-store/use-session-phase";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   sessionCitation,
   sessionIdentityLine,

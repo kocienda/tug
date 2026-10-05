@@ -322,6 +322,7 @@ The WAKE REASON tells you why you are being asked now. Use it:
 - session-end — the session is over. Write a wrap-up of what it accomplished overall.
 - token-threshold — the session has spent a lot. Say what it has been spending on.
 - submission — the user has just asked for something and the session has started on it. This is the ONE wake that is about the turn in front of the reader rather than about work already done. Write the current line and NOTHING ELSE: answer null for the post and null for the standing sentence. A bare ask is not news — the reader typed it seconds ago — and the session's through-line has not moved just because it was asked one more thing.
+- rewind — the user rewound the conversation: every turn after an earlier point was undone, and the session continues from there. Your recent posts and the settled facts you are shown are only the ones from before that point, and the activity is usually empty. If the standing sentence describes work that was undone, rewrite it for the conversation that remains; if it still holds, answer null for it. Answer null for the post and null for the current line — the reader did the rewind and needs no notice of it.
 
 Write like a person telling a colleague what happened. One or two sentences, 200 characters of prose at the outside — this is a notice in a narrow rail, not a transcript. The budget counts prose only: file paths, commit shas, and session names you must spell exactly are free, so never vague-up a name to save characters. Concrete and specific: name what was built, what was found, what broke, what was asked and what the answer was. Never narrate your own process.
 
@@ -613,7 +614,13 @@ mod tests {
         assert!(observer.contains("EXACTLY"));
         assert!(observer.contains("Spell a path the way the activity spells it"));
         // Every wake reason the bridge can send is explained.
-        for reason in ["turn-end", "sitrep-timer", "session-end", "token-threshold"] {
+        for reason in [
+            "turn-end",
+            "sitrep-timer",
+            "session-end",
+            "token-threshold",
+            "rewind",
+        ] {
             assert!(
                 observer.contains(reason),
                 "wake reason {reason} unexplained"

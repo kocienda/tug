@@ -444,6 +444,20 @@ impl SessionDigest {
         taken
     }
 
+    /// Drop every line at or after `at_ms` — the turns a rewind cut away.
+    ///
+    /// A window holding them would hand the Observer work the conversation no
+    /// longer contains. Lines are pushed in arrival order, so what goes is a
+    /// tail; the elision marker is untouched, because nothing was dropped for
+    /// space and the lines before the cut are as whole as they were.
+    pub fn drop_since(&mut self, at_ms: u64) {
+        while self.lines.back().is_some_and(|line| line.at_ms >= at_ms) {
+            if let Some(dropped) = self.lines.pop_back() {
+                self.bytes = self.bytes.saturating_sub(dropped.text.len());
+            }
+        }
+    }
+
     /// Put a taken digest's lines back at the front, for a wake whose job
     /// failed.
     ///
@@ -2398,6 +2412,24 @@ mod tests {
         assert!(digest.is_empty());
         digest.push(line("something happened"));
         assert!(!digest.is_empty());
+    }
+
+    #[test]
+    fn a_rewind_drops_the_lines_from_the_cut_on() {
+        let at = |text: &str, at_ms: u64| DigestLine {
+            at_ms,
+            ..line(text)
+        };
+        let mut digest = SessionDigest::new(10, 1_000);
+        digest.push(at("kept", 1_000));
+        digest.push(at("cut exactly", 2_000));
+        digest.push(at("after the cut", 3_000));
+        digest.drop_since(2_000);
+        assert_eq!(digest.rendered(), "kept\n");
+        assert_eq!(digest.byte_len(), "kept".len());
+        // A cut past everything leaves the window whole.
+        digest.drop_since(9_000);
+        assert_eq!(digest.len(), 1);
     }
 
     #[test]

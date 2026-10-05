@@ -306,6 +306,29 @@ export function cardSeatedSegment(cardId: string): string | null {
 }
 
 /**
+ * The segment whose ledger row speaks for `cardId`'s conversation: its seat,
+ * or `address` — the card's `tugSessionId` — while nothing has seated one.
+ *
+ * A rewind fork writes every later turn under a new segment id and announces
+ * it as the card's seat, exactly as a rotation does; the address stays put.
+ * Read off the address, a row's turn count, last prompt and last-used time
+ * stay at their pre-rewind values for good, because nothing writes that
+ * segment's row again.
+ */
+export function ledgerSegmentForCard(cardId: string, address: string): string {
+  return cardSeatedSegment(cardId) ?? address;
+}
+
+/** {@link ledgerSegmentForCard}, subscribed ([L02]) so a seat announced while
+ *  the row is mounted moves the row with it. */
+export function useLedgerSegmentForCard(cardId: string, address: string): string {
+  return useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    useCallback(() => ledgerSegmentForCard(cardId, address), [cardId, address]),
+  );
+}
+
+/**
  * The segment `sessionId`'s conversation is seated on right now — `sessionId`
  * itself when no card holds it, or when no seat has moved.
  *
