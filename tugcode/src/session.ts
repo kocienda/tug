@@ -1033,7 +1033,7 @@ export interface ClaudeSpawnConfig {
  * output — how its prose is rendered, what a tool call's exit status tells the
  * reader, and the shape a question must have to arrive — then what a session
  * reference in a prompt means and how to read the session it names, and what
- * a landings block reports.
+ * a landings block reports, then the working rules that hold on every project.
  */
 export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "work-grammar.md",
@@ -1043,6 +1043,7 @@ export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "ask-user-question.md",
   "session-references.md",
   "landings.md",
+  "working-rules.md",
 ];
 
 /**

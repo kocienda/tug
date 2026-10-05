@@ -34,6 +34,7 @@ describe("readPluginPrompts", () => {
         "work-grammar.md": "\n# The work grammar\n\nfour words\n",
         "session-references.md": "# Session references\n",
         "landings.md": "# Landings\n",
+        "working-rules.md": "# Working rules\n",
       },
       (dir) => {
         expect(readPluginPrompts(dir)).toEqual([
@@ -44,6 +45,7 @@ describe("readPluginPrompts", () => {
           "# AskUserQuestion",
           "# Session references",
           "# Landings",
+          "# Working rules",
         ]);
       },
     );

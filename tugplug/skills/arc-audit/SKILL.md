@@ -75,6 +75,10 @@ Then the diff itself, from the worktree — every commit the branch carries agai
 
 **Read the code, not the summary of it.** An audit that could have been written from the commit messages has not happened.
 
+**Open every test file the diff touches.** Seeing a test's name in `--stat` is not reading it, and a test that shells out to a real binary can leave things behind that no document mentions.
+
+**Then read the machine, not just the diff.** Run `tugtool arc list` and `git branch --list 'tugarc/*'`, and account for every row against the arc's documents. Work that touches arcs, worktrees, ledgers or any shared state can leave behind artifacts no test asserts about, such as an orphaned arc cut by the arc's own tests. Anything the documents do not name is a finding.
+
 ### 3. Judge it
 
 Five questions, in this order. The first three are the audit's own; the last two are the bar every arc round was already held to, asked once more by somebody with no stake in the answer.
@@ -113,7 +117,7 @@ Whether or not you changed anything, the tree that lands is the arc's work repla
 tugtool arc replay <name>
 ```
 
-On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugtool arc verify <name>` from the worktree, which resolves every path the replay moved to a surface the project declared and runs what those surfaces declare. A refusal (exit 2) names paths no surface claims and runs nothing: declare a surface for them rather than working around it. Red (exit 1) is ordinary work — fix it as a round. A project that declares no surfaces says so and exits 0; check what the replay moved with the commands the arc's own checkpoints already used, never one you invent, and say so. On **`Current`** the base never moved and the checks that just passed covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify.
+On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugtool arc verify <name>` from the worktree, which resolves every path the replay moved to a surface the project declared and runs what those surfaces declare. A refusal (exit 2) names paths no surface claims and runs nothing: declare a surface for them rather than working around it. Red (exit 1) is ordinary work — fix it as a round. A project that declares no surfaces says so and exits 0; check what the replay moved with the commands the arc's own checkpoints already used, never one you invent, and say so. On **`Current`** the base never moved, but the checks that passed were each step's named files, run one step at a time — never the whole suite in one process. So run the project's full test suite once yourself, whatever the replay said. A test that is green alone and red beside its neighbours (a module mock or global state that leaks across files) is exactly what per-step checkpoints cannot see, and the audit is the last reader before the join. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify.
 
 ### 6. Write the join draft
 

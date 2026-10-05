@@ -73,6 +73,7 @@ const SHIPPED_FORMAT = new Set([
   "transcript-prose.md",
   "tool-calls.md",
   "ask-user-question.md",
+  "working-rules.md",
   "skills/brief/brief-skeleton.md",
 ]);
 

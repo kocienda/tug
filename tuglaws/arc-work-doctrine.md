@@ -231,6 +231,7 @@ A skill in this lane may raise a dialog at a real decision point — an unsettle
 - Never ask anything with a conventional default.
 - Never ask which route or which shape the work takes when the invocation, or a design the session already holds, has settled it.
 - Never ask the user to choose between readings of the codebase. Read the code; the answer is a decision in the plan.
+- Never hand the user work the session can do itself. A step that calls for a build, a launch, an arranged surface, or a reading taken off a running instance is the stage's own work, done with the tools it has. A plan step that says "hand back to the user" for such a reading is a step to carry out, not a stop.
 
 Join's other stops — a conflict, a missing draft, a named blocker — stay stops. They are correct refusals with one right answer, not unasked questions.
 

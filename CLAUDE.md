@@ -68,6 +68,8 @@ just app-test-select         # print that selection without running it
 
 Selection is derived, not guessed: every `*.test.ts` declares the source it exercises with `@covers` lines in its header docblock, and `app-test-changed` resolves the changed files through those declarations. Any new test **must** carry `@covers` — `just app-test-covers-check` fails on a missing declaration or a path that no longer resolves.
 
+A plan step's hand-named checkpoint list misses tests that `@covers` would have found. Take the union with `just app-test-select` whenever a step touches a file with wide reach (`cards-card.css`, `session-card.tsx`, a shared primitive, a theme token file). Among the candidates the cap cuts, read for tests that *enumerate* something the change adds to (a focus-order census, a stop count, a Tab-count loop). Those are the assertions a new always-live control breaks: `at0312` and `at0339` both landed red on `main` that way.
+
 The changed files are **this session's**, not the whole tree's. The selector reads `tugtool changes --json` and selects from the attributed bucket plus any unattributed entry carrying a this-session hint; the **foreign** bucket — files another live session claims — is never selected, so a shared checkout no longer hands you tests for work that isn't yours. When the ledger can't answer (no `TUG_SESSION_ID`, unresolvable session, no built `tugtool`), selection falls back to the whole working tree and prints which fallback it took and why.
 
 Do **not** run `just app-test-all` on your own initiative. Run the full corpus only when:
