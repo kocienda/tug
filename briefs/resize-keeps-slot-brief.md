@@ -28,6 +28,10 @@ Today, picking a width from a menu keeps the card in its slot. Dragging an edge 
 
 **[F07] ⌥ is taken during resize.** `computeAndApplyResize(pointer, snapModifier)` reads `altKey` as the snap modifier, so it is not available to mean "keep the slot". **(verified, read from code)**
 
+**[F08] In flow, a slot's extent is the card's width, and a slot's place is the running sum of the slots before it.** `deckFlowStrip` / `deckSlotStrip` (`tugdeck/src/deck-store-selectors.ts`) read each slot's extent as its widest member's render width, and `flowStripPositions` (`lib/layout-imposer.ts`) sets `stripLeft(k) = Σ_{j<k} (extent(j) + gap)`. So in flow a card fills its slot (the centring term is zero), its own left edge does not move when its width changes, and every slot after it moves by the change. A left edge in flow has nowhere to go: the slots before it do not move, and the viewport offset is clamped at 0 when the strip is shorter than the band. **(verified, read from code)**
+
+**[F09] A `"start"`-anchored pinned height fixes the top edge.** `imposeRect` / `imposeStyle` place a pinned height at the run's top under `anchor: "start"`; the slack is all below the card. The top edge of such a card borders the run's end, exactly as the outer edges of a split column do. **(verified, read from code)**
+
 ---
 
 ## Decisions {#decisions}
@@ -39,6 +43,17 @@ Today, picking a width from a menu keeps the card in its slot. Dragging an edge 
 **[B03] A slot-keeping width resize commits like the width menu does.** It writes the new raw pixel width without `evictSlot`, in one commit with `retuneRails: false`, matching `setCardWidths` ([F02]). Because it carries no preset, `widthPreset` clears ([F04]). Resizing the card you are looking at is not a moment the deck may re-solve the rails. That is the reason `setCardWidths` passes `retuneRails: false`, and the same reasoning applies here.
 
 **[B04] The live width drag stays imposed and resizes symmetrically about the slot's centre.** When the setting keeps the slot, the latch does not call `releaseImposedFrame`. The frame's width follows the pointer at twice the pointer's horizontal delta, so the dragged edge stays under the pointer and the opposite edge mirrors it. The imposer centres the card in its slot, so this is where the card will land anyway. Releasing during the drag and re-centring on pointer-up would put a jump at the end of the gesture, which breaks set-up-and-go motion: nothing lands mid-motion or after it.
+
+**[B04a] A slot-keeping resize moves only an edge that has somewhere to go; an edge pinned to the arrangement is inert.** This is the one rule the per-case decisions below follow, and it is what keeps the dragged edge under the pointer in every case that drags at all. An inert edge offers no resize cursor and never latches, so a drag there is nothing rather than a gesture whose edge walks away from the hand. Which edges are pinned is a fact of the arrangement ([F08], [F09]):
+
+- **Width, fit:** both edges have slack (the card is centred in its slot), so both are handles and the resize is symmetric per [B04].
+- **Width, flow:** the right edge is the handle, tracking the pointer 1:1; the card's left edge and every slot before it stay, and every slot after it moves by the change. The left edge is inert ([F08]).
+- **Height, stacked or single slot:** the bottom edge is the handle; the top edge is inert ([F09], [B06]).
+- **Height, split column:** an inner edge moves the seam it borders ([B05]); the two outer edges are inert, because the column fills the run and its shares divide it.
+
+On a flow deck the slots after the card move live with the drag, at the same 1:1 rate, so nothing lands after the gesture ends; the commit is the same one-commit path as [B03].
+
+**[B04b] A height dragged back to the run's end clears the field.** When a stacked card's bottom edge is dragged to (or past) the run's bottom, `slotHeight` is deleted rather than written at the run's height, so a card that was dragged back to full height is a card with no user height, and follows the run again when the window changes. The "Fill height" menu row ([B07]) is the same clear, offered as a row.
 
 **[B05] In a split column, a height drag moves the seam.** Dragging a member's top or bottom edge rewrites that column's `shares` through `withColumnShares` ([F06]). The change is split with the neighbour across that edge. No new height field is introduced for split columns, because shares already are their height model.
 
@@ -52,8 +67,7 @@ Today, picking a width from a menu keeps the card in its slot. Dragging an edge 
 
 ## Open Questions {#open-questions}
 
-- **How does a slot-keeping width change behave on a flow deck?** On a fit deck, the card centres within a fixed slot ([F01]). In flow, the placements memo in `deck-canvas.tsx` resolves flow lefts, and widening one card moves its neighbours. Neither of these has been verified against the code: whether flow has a "slot width" for the card to centre in, and whether symmetric growth or anchored growth is the natural reading there. The first cut lets the commit's settle move the neighbours rather than moving them live. Reading the placements memo settles whether [B04]'s symmetric drag applies in flow, or whether flow wants a one-sided drag instead.
-- **What does dragging a split member's outer edge mean?** The top edge of the first member and the bottom edge of the last member border the run, not a neighbour. [B05] gives them nothing to trade with. Candidates are "inert" and "falls back to [B06]'s pinned height". This one needs the user's call.
+None. The two that stood here — how a width change behaves in flow, and what a split column's outer edges mean — are settled by [B04a], from [F08] and [F09].
 
 ---
 
@@ -64,6 +78,8 @@ Today, picking a width from a menu keeps the card in its slot. Dragging an edge 
 - **Re-solving the sidebar rails on a slot-keeping resize.** Rejected under [B03], for the same reason `setCardWidths` passes `retuneRails: false`.
 - **Changing title-bar drag.** Out of scope ([B02]).
 - **Resizing sidebar rails.** Their deck-facing edge already commits through `setRailWidth` and never evicts. That path is untouched.
+- **Sliding the flow offset so a left-edge drag in flow keeps the edge under the pointer.** Considered: growing the offset by the drag's delta would move the card and every slot before it left while the right edge and every slot after it held. Rejected: the offset is clamped at 0 when the strip is shorter than the band, so the edge would follow the hand on some decks and not others, and it moves the whole deck for a gesture about one card. The inert-edge rule ([B04a]) is one rule with no modes.
+- **Giving a split column a height of its own.** Considered as the meaning of a split column's outer edges. Rejected: it would be a third height model next to shares and `slotHeight`, and a split column reads as a wall of rows that fills the run.
 
 ---
 
@@ -72,8 +88,8 @@ Today, picking a width from a menu keeps the card in its slot. Dragging an edge 
 An arc. Its first steps, in this order:
 
 1. The setting: a field on `imposition`, a Layout card row, default "keeps its slot", with serialization and validation.
-2. Width keeps the slot: in the resize machine, skip `releaseImposedFrame` at the latch and skip `evictSlot` at commit when the setting holds, and commit through the one-commit, no-rail-retune path. Drive the live drag symmetrically about the slot centre. Add app-tests for slot retention, the cleared preset stamp, and no end-of-gesture jump.
-3. Height in split columns: edge drag maps to `withColumnShares`.
-4. Height in stacked slots: the `slotHeight` pane field feeding `PinnedFrame` with `anchor: "start"`, plus the "Fill height" reset in the masthead menu.
+2. Width keeps the slot: in the resize machine, skip `releaseImposedFrame` at the latch and skip `evictSlot` at commit when the setting holds, and commit through the one-commit, no-rail-retune path. Drive the live drag symmetrically about the slot centre in fit, and right-edge-only with the later slots moving live in flow; make the inert edges offer no cursor and no latch ([B04a]). Add app-tests for slot retention, the cleared preset stamp, the inert left edge in flow, and no end-of-gesture jump in either layout.
+3. Height in split columns: an inner edge drag maps to `withColumnShares`; the outer edges are inert.
+4. Height in stacked slots: the `slotHeight` pane field feeding `PinnedFrame` with `anchor: "start"`, the bottom edge as the only handle, a drag to the run's end clearing the field ([B04b]), plus the "Fill height" reset in the masthead menu.
 
 Step 2 can land and be used before steps 3 and 4.
