@@ -82,6 +82,17 @@
  * in the lift's task: sampled positions this early carry the first frame's
  * latency, which differs slide to slide by more than the launch does.
  *
+ * Both lifts here, and every lift case that asserts the NEXT stop, move at a
+ * brisk pace the flick projection still lands one slot on — `BRISK_GAP_MS`.
+ *
+ * ## The flick
+ *
+ * A quick swipe travels more than one slot: the lift projects the hand on at
+ * its speed (`FLOW_FLICK_COAST_S` × `FLOW_FLICK_SENSITIVITY`) and lands on the
+ * stop ahead nearest that aim. The flick case lifts the same finger travel
+ * fast, from rest, and asserts it settles past the next stop, on the offset it
+ * committed at the lift, with every frame one-way and none past where it lands.
+ *
  * ## The catch
  *
  * A touch while the slide from a lift is still running catches the strip: the
@@ -166,8 +177,15 @@ const MOMENTUM_DELTAS = Array.from({ length: 24 }, (_, i) =>
  *  (180ms) after the last momentum delta; one move leaves only the settle's
  *  first-frame latency. */
 const MAX_PLATEAU_MS = 100;
-/** A slow hand: the same twelve deltas, forty milliseconds apart. */
-const SLOW_GAP_MS = 40;
+/** A slow hand: the same twelve deltas, seventy milliseconds apart — still
+ *  inside the lift's 80ms velocity window, so it reads as a slow hand rather
+ *  than a stopped one, and far enough under the brisk hand that the two
+ *  launches separate clearly. */
+const SLOW_GAP_MS = 70;
+/** A brisk hand: the same twelve deltas, twenty-four milliseconds apart —
+ *  quick enough to launch the slide faster than the slow hand, slow enough
+ *  that the flick projection still aims short of the second stop. */
+const BRISK_GAP_MS = 24;
 /** How far into the slide's curve, as a fraction of its keyframes, the fast
  *  and slow lifts are compared — early, where the launch is what differs. */
 const EARLY_FRACTION = 0.1;
@@ -692,7 +710,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         // ── touched, the finger deltas, lifted, then the momentum ────────────
         await startSwipe(app, {
           deltas: repeat(DELTA_PX, DELTA_COUNT),
-          gapMs: DELTA_GAP_MS,
+          gapMs: BRISK_GAP_MS,
           momentum: MOMENTUM_DELTAS,
         });
         await wait(AFTER_LAND_MS);
@@ -819,7 +837,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           };
         };
 
-        const fast = await lift(DELTA_GAP_MS, 1);
+        const fast = await lift(BRISK_GAP_MS, 1);
         const slow = await lift(SLOW_GAP_MS, 2);
         note(
           `hand to stop: fast ${Math.round(fast.handToStop)}px, slow ${Math.round(slow.handToStop)}px; ` +
@@ -841,6 +859,71 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           fast.early,
           `the fast lift's curve covers more of the travel ${EARLY_FRACTION * 100}% in than the slow one's`,
         ).toBeGreaterThan(slow.early + 0.02);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a quick swipe flicks past the next stop, one way, to where it committed",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0685-flow-swipe-flick",
+      });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+        expect(await flowOffset(app), "the strip starts at rest").toBe(0);
+        const restLeft = await paneLeft(app);
+
+        // ── the same twelve deltas, sixteen milliseconds apart, lifted ───────
+        await startSwipe(app, {
+          deltas: repeat(DELTA_PX, DELTA_COUNT),
+          gapMs: DELTA_GAP_MS,
+          momentum: MOMENTUM_DELTAS,
+        });
+        await wait(AFTER_LAND_MS);
+        const trace = await stopSwipe(app);
+        const settled = await flowOffset(app);
+        const landedLeft = await paneLeft(app);
+        const after = trace.samples.filter((s) => s.t >= trace.tLastDelta);
+        note(
+          `flick: hand at ${Math.round(restLeft - trace.handLeft)}px, ` +
+            `committed ${trace.storeAtTrainEnd}, settled ${settled} ` +
+            `(${(settled / SLOT_PITCH_PX).toFixed(2)} slots)`,
+        );
+
+        expect(
+          trace.storeAtTrainEnd,
+          "the flick's stop was committed at the lift",
+        ).toBe(settled);
+        expect(
+          settled,
+          "the flick travelled past the next stop",
+        ).toBeGreaterThan(SLOT_PITCH_PX + TOL);
+        expect(
+          Math.abs(restLeft - landedLeft - settled),
+          "the card ends where the store settled",
+        ).toBeLessThanOrEqual(TOL);
+        expect(trace.momentumUntaken, "every momentum event was taken").toBe(0);
+        let backtracks = 0;
+        for (let i = 1; i < trace.samples.length; i += 1) {
+          if (trace.samples[i].left - trace.samples[i - 1].left > TOL) backtracks += 1;
+        }
+        expect(backtracks, "the card only ever moved the hand's way").toBe(0);
+        expect(
+          after.filter((s) => s.left < landedLeft - TOL).length,
+          "no frame went past where the flick landed",
+        ).toBe(0);
       } finally {
         await app.close();
       }
@@ -893,7 +976,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
                 wheel(${DELTA_PX});
                 sent += 1;
                 if (trace.tCatch !== null && trace.firstLeft === null) trace.firstLeft = left();
-                if (sent < count) { setTimeout(tick, ${DELTA_GAP_MS}); return; }
+                if (sent < count) { setTimeout(tick, ${BRISK_GAP_MS}); return; }
                 then();
               };
               tick();
@@ -914,7 +997,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
                       phase("lifted");
                       trace.done = true;
                     });
-                  }, ${DELTA_GAP_MS});
+                  }, ${BRISK_GAP_MS});
                 }, ${CATCH_AFTER_MS});
               });
             }, 40);

@@ -1975,6 +1975,32 @@ export const FLOW_WHEEL_HUMP_PX = 16;
  */
 export const FLOW_STOP_NEAR_PX = 2;
 
+/**
+ * How far a lifted hand's speed carries the strip, in seconds of travel at
+ * that speed, before {@link FLOW_FLICK_SENSITIVITY} scales it.
+ *
+ * After a lift the strip no longer coasts on macOS's momentum — the settle is
+ * the only motion — so the distance momentum would have covered is projected
+ * instead, the way a paging scroll view projects a flick: a hand moving v px/s
+ * is aimed at `offset + v × this × sensitivity`, and {@link flowNextStop}
+ * lands on the stop ahead nearest that aim. AppKit's own deceleration covers
+ * about half a second of the release speed; this sits a little under it,
+ * because a stop is a destination rather than a coast and a long slide to one
+ * reads as a lurch.
+ */
+export const FLOW_FLICK_COAST_S = 0.4;
+
+/**
+ * How readily a quick swipe travels past the next stop: the multiplier on
+ * {@link FLOW_FLICK_COAST_S}. `1` is the shipped feel; `0` turns flicking off,
+ * so every lift lands on the next stop whatever its speed; above `1` a gentler
+ * flick carries further. A slow hand's aim falls short of the halfway point to
+ * the second stop, so it lands on the next one as it always did; this tunes
+ * how fast a hand must move to skip one slot, two, and so on. Tuned by feel; a
+ * candidate for a user setting, not one yet.
+ */
+export const FLOW_FLICK_SENSITIVITY = 1;
+
 /** What {@link flowNextStop} is asked over. */
 export interface FlowNextStopInput {
   /** The deck's strip. */
@@ -1986,6 +2012,13 @@ export interface FlowNextStopInput {
   /** The sign of the hand's last movement: positive slides the strip toward
    *  its far end (offset rising), negative toward its near end. */
   direction: number;
+  /** The hand's speed at a lift, in offset px per second, or absent when the
+   *  gesture ended with the hand already stopped. Only its part along
+   *  `direction` counts; it chooses how far ahead the stop is, never which
+   *  way. */
+  velocity?: number;
+  /** The flick multiplier; {@link FLOW_FLICK_SENSITIVITY} when absent. */
+  sensitivity?: number;
 }
 
 /**
@@ -2005,6 +2038,14 @@ export interface FlowNextStopInput {
  * nothing ahead (the hand is already at the far clamp) the answer is the
  * offset itself, so the caller commits what is drawn and animates nothing.
  * A zero direction has no "ahead" and answers the same way.
+ *
+ * A lifted hand's `velocity` lets a quick swipe travel more than one slot. The
+ * hand is projected {@link FLOW_FLICK_COAST_S} × `sensitivity` seconds on at
+ * its speed, and the answer is the stop ahead NEAREST that aim — never one
+ * behind the hand, and never short of the first ahead, so a slow hand lands
+ * where it always did and a fast one skips the slots its speed would have
+ * coasted past. The stops are the deck's own, so the same speed carries
+ * further across narrow cards than wide ones, as momentum would.
  */
 export function flowNextStop(input: FlowNextStopInput): number {
   const { strip, band, offset, direction } = input;
@@ -2022,7 +2063,18 @@ export function flowNextStop(input: FlowNextStopInput): number {
     if (ahead < -FLOW_STOP_NEAR_PX) continue;
     if (best === null || (stop - best) * dir < 0) best = stop;
   }
-  return best ?? offset;
+  if (best === null) return offset;
+  const along = Math.max(0, (input.velocity ?? 0) * dir);
+  const sensitivity = Math.max(0, input.sensitivity ?? FLOW_FLICK_SENSITIVITY);
+  const reach = along * FLOW_FLICK_COAST_S * sensitivity;
+  if (!Number.isFinite(reach) || reach <= 0) return best;
+  const aim = offset + dir * reach;
+  let flung = best;
+  for (const stop of stops) {
+    if ((stop - best) * dir <= 0) continue;
+    if (Math.abs(stop - aim) < Math.abs(flung - aim)) flung = stop;
+  }
+  return flung;
 }
 
 /** The horizontal name for {@link clampStripOffset} — flow's strip runs left to

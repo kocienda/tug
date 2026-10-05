@@ -4611,6 +4611,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         band: bandNow,
         offset: gesture.offset,
         direction,
+        // A lift's speed lets a quick swipe skip slots; the quiet's hand has
+        // already stopped and lands on the next stop.
+        velocity: velocity ?? undefined,
       });
       if (Math.abs(stop - gesture.offset) <= FLOW_STOP_NEAR_PX) {
         store.setFlowOffset(stop, "cut");
