@@ -244,7 +244,7 @@
 
 /* The title bar: a darker band across the face's top, as a pane's own bar is.
    Mixed from the two inks the drawing already uses, so it can only ever land
-   between the card and its ground. It holds a session's live dot. */
+   between the card and its ground. */
 .layout-mini-face-bar {
   position: relative;
   flex: none;
@@ -256,17 +256,6 @@
       58%,
     var(--tug7-surface-global-primary-normal-sunken-rest)
   );
-}
-
-/* The dot sits at the bar's trailing end, centred on it, and may stand a
-   pixel proud of it — a six-pixel dot on a five-pixel bar reads as a light on
-   the bar rather than a hole in it. */
-.layout-mini-face-dot {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-end: 2px;
-  display: flex;
-  transform: translateY(-50%);
 }
 
 /* @tug-renders-on: --tug7-element-global-border-normal-strong-rest */

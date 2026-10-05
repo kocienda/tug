@@ -25,9 +25,7 @@
  *
  * Purely presentational: props in, CSS out, no store reads and no state ([L06]).
  * The live rails are passed down by the section so every drawing flips
- * together when a side changes. The one subscription under it is a session
- * face's live dot, a leaf of its own (`miniature-faces.tsx`) so a turn's
- * events repaint the dot and never the drawing.
+ * together when a side changes.
  *
  * @module components/layout/layout-miniature
  */

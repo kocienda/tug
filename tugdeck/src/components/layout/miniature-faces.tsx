@@ -5,17 +5,15 @@
  * The miniature drew every card as the same grey bar, so the picture stated
  * the arrangement and nothing about what was arranged. A face is the card
  * seen small: a title bar, the card kind's registered icon, and — for a
- * stack — the sheets of the cards behind it stepping out at the top. A
- * session wears its live dot in the bar, and the card the reader is in wears
- * the Key ink the flow window already uses for "what you are looking at".
+ * stack — the sheets of the cards behind it stepping out at the top. The card
+ * the reader is in wears the Key ink the flow window already uses for "what
+ * you are looking at".
  *
  * **Every fact here is one the deck already holds.** The icon is the one the
  * pane's own title bar draws (`CardState.icon`, else the registration's
  * `defaultMeta.icon`); the stack is the slot's panes front to back; "here" is
  * the pane the numbered pills mark. The section resolves them from its own
- * subscription and hands them down — the drawing reads no store but the one
- * leaf below, which is the live dot, and that is a leaf precisely so a turn's
- * every event repaints a five-pixel dot rather than the picture.
+ * subscription and hands them down; the drawing reads no store.
  *
  * **The block keeps its rect.** A stack's sheets and its front face are drawn
  * INSIDE the block's own box, stepping down and left from it, rather than
@@ -23,18 +21,14 @@
  * zones all stand on the block's rect, and a face that moved it would put
  * every one of them a few pixels off the card they mean.
  *
- * Laws: [L02] the binding and the phase enter through `useSyncExternalStore`
- *       (inside the dot's hooks); [L06] nothing here holds state.
+ * Laws: [L06] nothing here holds state.
  *
  * @module components/layout/miniature-faces
  */
 
-import React, { useSyncExternalStore } from "react";
+import React from "react";
 import { icons } from "lucide-react";
 
-import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
-import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
-import { cardIdentity } from "@/lib/card-identity";
 import type { SidebarSide } from "@/lib/layout-imposer";
 
 /** One card, as the miniature draws it. */
@@ -82,41 +76,12 @@ function iconFor(name: string | undefined): React.ComponentType<
     : (Icon as unknown as React.ComponentType<React.SVGProps<SVGSVGElement>>);
 }
 
-/**
- * A session card's live dot, or nothing for any other card.
- *
- * Its own leaf for the reason `SessionPhaseDot` is one: phase lives on the
- * card's session store, whose snapshot moves on every transcript event, and
- * the picture must not move with it. Drifted, because the faces are separate
- * sessions doing separate work — on one period a row of them reads as one
- * mechanism with several heads.
- *
- * The session is resolved through `cardIdentity`, the one door to what a card
- * holds; the binding store is subscribed only to hear that the answer may have
- * moved — a rotation re-addresses the card, and a dot holding the old segment
- * would fall idle while the session works.
- */
-function FaceDot({ cardId }: { cardId: string }): React.ReactElement | null {
-  const sessionId = useSyncExternalStore(
-    cardSessionBindingStore.subscribe,
-    () => cardIdentity(cardId).tugSessionId,
-  );
-  if (sessionId === null) return null;
-  return (
-    <span className="layout-mini-face-dot">
-      <SessionPhaseDot sessionId={sessionId} size={6} drift />
-    </span>
-  );
-}
-
 /** A face's contents: the title bar, and the icon under it. */
 function FaceBody({ face }: { face: MiniatureFace }): React.ReactElement {
   const Icon = iconFor(face.icon);
   return (
     <>
-      <span className="layout-mini-face-bar">
-        <FaceDot cardId={face.cardId} />
-      </span>
+      <span className="layout-mini-face-bar" />
       {Icon === null ? null : (
         <Icon className="layout-mini-face-icon" aria-hidden="true" />
       )}
@@ -192,7 +157,7 @@ export function MiniatureMemberFace({
 /**
  * A rail member's face: the icon alone. A rail is the frame around the
  * subject rather than the subject, so it says what each card IS and leaves
- * the title bar and the dot to the cards being arranged.
+ * the title bar to the cards being arranged.
  */
 export function MiniatureRailFace({
   face,
