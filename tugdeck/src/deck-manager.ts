@@ -171,6 +171,7 @@ import {
   type FlowBandEdges,
   wallRevealOffset,
   impositionLayout,
+  impositionResizeSlot,
   impositionGapBottomPx,
   IMPOSITION_GAP_PX,
   RAIL_EDGE_INSET_PX,
@@ -201,6 +202,7 @@ import {
   type ImpositionKind,
   type ColumnMode,
   type ImpositionLayout,
+  type ResizeSlot,
   type ColumnMoveTarget,
   type RailArrangement,
   type RailPolicy,
@@ -5946,9 +5948,10 @@ export class DeckManager implements IDeckManagerStore {
    *
    * `opts.evictSlot` releases a pane whose geometry was DERIVED back to free
    * pixels in the same commit — a slotted pane leaves its slot, and a pinned
-   * sidebar leaves its pin. **Both manual geometry gestures pass it**: the
-   * title-bar drag and the edge resize alike, because either one is the user
-   * placing the pane by hand and a hand-placed pane is not in an arrangement.
+   * sidebar leaves its pin. The title-bar drag always passes it, because a
+   * card dragged somewhere is a card placed by hand. The edge resize passes it
+   * only under the deck's "releases" rule; under "keeps its slot" it commits a
+   * raw width here without it, the way the width menu does.
    *
    * It stays an explicit option rather than a "geometry changed" heuristic
    * because plenty of commits change geometry without being that gesture — the
@@ -5999,7 +6002,16 @@ export class DeckManager implements IDeckManagerStore {
       panes: this.deckState.panes.map((s) => {
         if (s.id !== paneId) return s;
         const moved: TugPaneState = { ...s, position, size };
-        if (evictSlot) delete moved.slot;
+        // The slot's height goes with the slot: it means nothing to a free
+        // pane, whose height is `size.height`.
+        if (evictSlot) {
+          delete moved.slot;
+          delete moved.slotHeight;
+        }
+        if (opts?.slotHeight === null) delete moved.slotHeight;
+        else if (opts?.slotHeight !== undefined && !evictSlot) {
+          moved.slotHeight = opts.slotHeight;
+        }
         // The width stamp follows the width, in one place: a move that names a
         // preset records it, and any OTHER move that changes the width clears
         // it. That is what keeps a hand-dragged edge from leaving a card
@@ -6206,6 +6218,8 @@ export class DeckManager implements IDeckManagerStore {
         if (pane.slot === undefined) return pane;
         const next: TugPaneState = { ...pane };
         delete next.slot;
+        // The slot's height goes with the slot, as in `movePane`'s eviction.
+        delete next.slotHeight;
         const rect = this._readPaneFrameRect(pane.id);
         if (rect !== null) {
           next.position = { x: rect.x, y: rect.y };
@@ -6267,6 +6281,37 @@ export class DeckManager implements IDeckManagerStore {
     const imposition = this.deckState.imposition;
     if (impositionLayout(imposition) === layout) return;
     this._commitImposition({ ...imposition, layout }, this.deckState.panes);
+  }
+
+  /**
+   * Choose what an edge resize does to an imposed card's slot: keep it, or
+   * release the card into free pixels.
+   *
+   * A rule for the NEXT gesture, so nothing moves: every pane keeps its slot
+   * and its frame, and the commit carries the record alone. The rails are left
+   * where they stand — choosing how a later resize behaves is not one of the
+   * moments the deck may arrange itself.
+   */
+  setResizeSlot(resizeSlot: ResizeSlot): void {
+    const imposition = this.deckState.imposition;
+    if (impositionResizeSlot(imposition) === resizeSlot) return;
+    this._commitImposition(
+      { ...imposition, resizeSlot },
+      this.deckState.panes,
+      { retuneRails: false },
+    );
+  }
+
+  /**
+   * Give a slotted card back its run's full height: delete the height its
+   * bottom edge gave it, so it follows the run again. The width menu's Fill
+   * Height row. One write, through the same commit an edge resize takes, and a
+   * card that already fills its run is left alone.
+   */
+  fillPaneHeight(paneId: string): void {
+    const pane = this.deckState.panes.find((p) => p.id === paneId);
+    if (pane === undefined || pane.slotHeight === undefined) return;
+    this.movePane(paneId, pane.position, pane.size, { slotHeight: null });
   }
 
   /**

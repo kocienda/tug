@@ -318,7 +318,8 @@ export function duplicatedDeck(
  * slot — the same seat every other newcomer takes, so a moved card is not a
  * special case the column has to explain. A one-up destination imposes a
  * single place and the pane keeps its stored position and size instead, with
- * its old slot dropped.
+ * its old slot dropped. Either way the height it was given in that slot
+ * (`slotHeight`) is dropped with it: it was a height in the source's run.
  *
  * Neither deck's `hasFocus` is touched: that is the window's fact and belongs
  * to whichever deck is on screen.
@@ -348,7 +349,8 @@ export function moveCardBetweenDecks(
   const kind = dest.imposition.kind;
   const seatSlot =
     kind !== undefined && slotCount(kind) > 1 ? clampSlot(kind, 0) : undefined;
-  const { slot: _oldSlot, ...paneWithoutSlot } = pane;
+  const { slot: _oldSlot, slotHeight: _oldSlotHeight, ...paneWithoutSlot } =
+    pane;
   const arrived: TugPaneState =
     seatSlot === undefined
       ? paneWithoutSlot

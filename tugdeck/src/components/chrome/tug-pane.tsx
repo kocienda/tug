@@ -42,7 +42,7 @@ import {
   X,
   icons,
 } from "lucide-react";
-import type { CardState, TugPaneState } from "@/layout-tree";
+import type { CardState, DeckState, TugPaneState } from "@/layout-tree";
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import type { CardMeta, CardSizePolicy, LayoutRole } from "@/card-registry";
 import { DEFAULT_SIZE_POLICY, getRegistration } from "@/card-registry";
@@ -87,7 +87,17 @@ import { DeckManagerContext, useDeckManager } from "@/deck-manager-context";
 import { dispatchCommand } from "@/command-dispatch";
 import type { MovePaneOptions } from "@/deck-manager-store";
 import {
+  fitEdgeRate,
+  fitImposedLeft,
+  fitWidthForEdge,
+  flowResizeShift,
+  slotHeightAfterDrag,
+} from "@/lib/keep-slot-resize";
+import { startColumnSeamDrag } from "./column-seam-drag";
+import {
   imposeStyle,
+  travelFraction,
+  FLOW_STRIP_PROPERTY,
   type ColumnMemberPlacement,
   imposeSidebarStyle,
   type PinnedFrame,
@@ -432,6 +442,17 @@ export interface CardTitleBarProps {
    */
   onSetWidth?: (preset: ContentWidth) => void;
   /**
+   * Give this slotted card its run's full height again — the Fill Height row
+   * at the foot of the width popup, wired to the `fill-card-height` command.
+   * Present only where a card's bottom edge can give it a height of its own:
+   * alone or stacked in a slot. A split column's heights are its shares, and a
+   * free pane's height is not a slot's.
+   */
+  onFillHeight?: () => void;
+  /** Whether the card fills its run now, which checks the Fill Height row.
+   *  Read only beside {@link onFillHeight}. */
+  fillsHeight?: boolean;
+  /**
    * File the pane's active card into another workspace. Wired in `DeckCanvas`
    * to `moveCardToSpace`; [B04] holds, so the user stays where they are and
    * the card is announced only by the destination's count changing.
@@ -766,6 +787,8 @@ function CardTitleBar({
   placeArrangement,
   onArrangePlace,
   onSetWidth,
+  onFillHeight,
+  fillsHeight = true,
   onMoveToSpace,
   masthead = null,
   sidebar = false,
@@ -1684,14 +1707,33 @@ function CardTitleBar({
                   // longer painted. While it stands, the rollup is held.
                   open={widthMenuOpen}
                   onOpenChange={setWidthMenuOpen}
-                  items={CONTENT_WIDTH_PRESETS.map((preset) => ({
-                    id: preset,
-                    label: CONTENT_WIDTH_LABELS[preset],
-                    // No check at a custom width: `widthPreset` is null then, and
-                    // claiming the nearest preset would be a resting lie.
-                    selected: widthPreset === preset,
-                  }))}
-                  onSelect={(id) => onSetWidth(id as ContentWidth)}
+                  items={[
+                    ...CONTENT_WIDTH_PRESETS.map((preset) => ({
+                      id: preset,
+                      label: CONTENT_WIDTH_LABELS[preset],
+                      // No check at a custom width: `widthPreset` is null then, and
+                      // claiming the nearest preset would be a resting lie.
+                      selected: widthPreset === preset,
+                    })),
+                    // The way back from a height the card's bottom edge gave
+                    // it ([B07]): checked while the card fills its run, which
+                    // is the state choosing it puts the card in.
+                    ...(onFillHeight === undefined
+                      ? []
+                      : [
+                          { type: "separator" as const },
+                          {
+                            id: FILL_HEIGHT_ITEM,
+                            label: "Fill Height",
+                            selected: fillsHeight,
+                          },
+                        ]),
+                  ]}
+                  onSelect={(id) =>
+                    id === FILL_HEIGHT_ITEM
+                      ? onFillHeight?.()
+                      : onSetWidth(id as ContentWidth)
+                  }
                   data-testid="tug-pane-title-bar-width-menu"
                 />
               </span>
@@ -2067,6 +2109,57 @@ function releaseImposedFrame(
   return released;
 }
 
+/**
+ * What a slot-keeping width resize needs to know at pointer-down.
+ *
+ * In fit: the slot's travel fraction, the width the frame stands at, and the
+ * imposer's own `left` expression at a given width — which the gesture writes
+ * at pointer-up, so the frame is handed back to the slot already wearing the
+ * pin React is about to render.
+ *
+ * In flow: only the width. The card's left edge is the running sum of the
+ * slots before it, so it has nowhere to go; the right edge follows the hand
+ * and the slots after it travel with it, read from the deck's strip.
+ *
+ * In either, a member of a split column carries its place in the column: its
+ * height is its share of the run, so an inner top or bottom edge is the seam
+ * it borders, and the drag is the seam's own (`column-seam-drag.ts`).
+ *
+ * And in either, a card alone or stacked in its slot carries its height
+ * style: the bottom edge sets the height the card stands at from the top of
+ * its run, and `heightStyle` is the frame's vertical pins at a given height —
+ * `undefined` filling the run — so the gesture hands the frame back already
+ * wearing what React will render.
+ */
+type KeepSlotResize =
+  | {
+      layout: "fit";
+      fraction: number;
+      width: number;
+      imposedLeft: (width: number) => string;
+      column?: KeepSlotColumn;
+      heightStyle?: KeepSlotHeightStyle;
+    }
+  | {
+      layout: "flow";
+      width: number;
+      column?: KeepSlotColumn;
+      heightStyle?: KeepSlotHeightStyle;
+    };
+
+/** A slotted frame's vertical pins at `height`, or filling its run. */
+type KeepSlotHeightStyle = (
+  height: number | undefined,
+) => Pick<CSSProperties, "top" | "bottom" | "height" | "maxHeight">;
+
+/** A split column member's address: its slot, and where it stands among the
+ *  column's `count` members. Seam `index - 1` is above it, seam `index` below. */
+interface KeepSlotColumn {
+  slot: number;
+  index: number;
+  count: number;
+}
+
 /** Height of the title bar chrome inside `.tug-pane-body` (below the outer frame). */
 const HEADER_HEIGHT_PX = 28;
 const DEFAULT_MIN_CONTENT: { width: number; height: number } = { width: 100, height: 60 };
@@ -2211,6 +2304,12 @@ export interface TugPaneProps {
    * that takes its own width for its slot ignores this entirely.
    */
   contentWidthPx?: number;
+  /**
+   * Whether an edge resize of this pane, if it is imposed, keeps its slot —
+   * the deck's resize rule, resolved by `DeckCanvas` from the imposition.
+   * Absent reads as false, which is the old behaviour: a resize releases.
+   */
+  resizeKeepsSlot?: boolean;
   /**
    * Raise the pane a stack-picker row names. Wired in `DeckCanvas`, which is
    * where the store lives; the pane and its title bar only report the choice.
@@ -2366,6 +2465,23 @@ function cssLength(value: CSSProperties["left"]): string {
   return "0px";
 }
 
+/**
+ * Write a slotted frame's vertical pins inline, exactly as React would render
+ * them: an absent pin is cleared rather than left standing, so a frame handed
+ * back at the pins React already holds is a frame React need not touch.
+ */
+function writeHeightPins(
+  frame: HTMLElement,
+  pins: Pick<CSSProperties, "top" | "bottom" | "height" | "maxHeight">,
+): void {
+  const length = (value: CSSProperties["top"]): string =>
+    value === undefined || value === "" ? "" : cssLength(value);
+  frame.style.top = length(pins.top);
+  frame.style.bottom = length(pins.bottom);
+  frame.style.height = length(pins.height);
+  frame.style.maxHeight = length(pins.maxHeight);
+}
+
 // ---------------------------------------------------------------------------
 // Resize edge descriptors
 // ---------------------------------------------------------------------------
@@ -2385,6 +2501,9 @@ const NO_SPACES_VIEW: SpacesView = { spaces: [], ownSpaceId: undefined };
 type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
 const RESIZE_EDGES: ResizeEdge[] = ["n", "s", "e", "w", "nw", "ne", "sw", "se"];
+
+/** The width popup's Fill Height row — an id no width preset can take. */
+const FILL_HEIGHT_ITEM = "fill-height";
 
 // ---------------------------------------------------------------------------
 // TugPane
@@ -2483,6 +2602,7 @@ function TugPaneImpl({
   zIndex,
   placement,
   contentWidthPx,
+  resizeKeepsSlot = false,
   onRevealPane,
   onMoveToSpace,
   sidebarStack,
@@ -2560,6 +2680,10 @@ function TugPaneImpl({
   // identities do not churn with the arrangement.
   const derivedRef = useRef(pinned || imposed || bullseye);
   derivedRef.current = pinned || imposed || bullseye;
+  // The facts a slot-keeping width resize reads at pointer-down — refreshed
+  // every render beside the imposed style they mirror, and null whenever an
+  // edge resize of this pane releases it instead.
+  const keepSlotResizeRef = useRef<KeepSlotResize | null>(null);
   const activeCardId = activeCardIdFromProps ?? stackState.activeCardId;
 
   // Ref to the frame DOM element for appearance-zone style mutations.
@@ -4294,6 +4418,122 @@ function TugPaneImpl({
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const frame: HTMLDivElement = frameRef.current!;
 
+      // A slot-keeping width resize: the frame stays imposed, and the dragged
+      // edge is solved against the imposer's own rule so it stays under the
+      // pointer and the frames the gesture draws are the ones the commit
+      // draws. Resolved here, before anything is captured, because an edge the
+      // arrangement pins is not a handle at all — the render withholds it, and
+      // this refuses the one case the render cannot see: a fit card wider than
+      // the band, whose left edge stands at the band's start.
+      const keepSlot = keepSlotResizeRef.current;
+      // A split member's inner top or bottom edge is the seam it borders, and
+      // the press is handed to the seam's own drag — nothing of this machine
+      // runs, so nothing here captures the pointer or writes the frame.
+      if (keepSlot?.column !== undefined && (edge === "n" || edge === "s")) {
+        const { slot, index } = keepSlot.column;
+        startColumnSeamDrag(
+          slot,
+          edge === "n" ? index - 1 : index,
+          event.nativeEvent.pointerId,
+          event.clientY,
+        );
+        return;
+      }
+      let keepSlotDrag: {
+        side: "left" | "right";
+        fraction: number;
+        bandStart: number;
+        bandWidth: number;
+        startEdgeX: number;
+        imposedLeft: (width: number) => string;
+      } | null = null;
+      // The flow half: the deck as it stood at pointer-down, which the strip
+      // is re-asked against at every frame; every slotted frame and the `left`
+      // React gave it, so a slot the drag moves is moved from its own pin and
+      // a slot it leaves is handed straight back; and the element carrying the
+      // strip's length, which every frame's offset clamp reads.
+      let flowKeepSlotDrag: {
+        startWidth: number;
+        state: DeckState;
+        frames: Map<string, { el: HTMLElement; left: string }>;
+        stripHost: HTMLElement | null;
+      } | null = null;
+      // The height half: a card alone or stacked in its slot, whose bottom
+      // edge sets the height it stands at from the top of its run. Measured
+      // here, once — the run by laying the frame out at its fill pins for one
+      // read, the start by its own.
+      let heightKeepSlotDrag: {
+        style: KeepSlotHeightStyle;
+        runHeight: number;
+        startHeight: number;
+      } | null = null;
+      if (keepSlot?.heightStyle !== undefined && edge === "s") {
+        const saved = {
+          top: frame.style.top,
+          bottom: frame.style.bottom,
+          height: frame.style.height,
+          maxHeight: frame.style.maxHeight,
+        };
+        writeHeightPins(frame, keepSlot.heightStyle(undefined));
+        const runHeight = frame.offsetHeight;
+        writeHeightPins(frame, saved);
+        heightKeepSlotDrag = {
+          style: keepSlot.heightStyle,
+          runHeight,
+          startHeight: frame.offsetHeight,
+        };
+      } else if (keepSlot !== null && keepSlot.layout === "flow") {
+        if (edge !== "e") return;
+        const state = store.getSnapshot();
+        const canvas = paneCanvasOf(frame);
+        const frames = new Map<string, { el: HTMLElement; left: string }>();
+        for (const pane of state.panes) {
+          if (pane.slot === undefined) continue;
+          const el =
+            pane.id === id
+              ? frame
+              : canvas?.querySelector<HTMLElement>(
+                  `.tug-pane[data-pane-id="${CSS.escape(pane.id)}"]`,
+                );
+          if (el) frames.set(pane.id, { el, left: el.style.left });
+        }
+        let stripHost = frame.parentElement;
+        while (
+          stripHost !== null &&
+          stripHost.style.getPropertyValue(FLOW_STRIP_PROPERTY) === ""
+        ) {
+          stripHost = stripHost.parentElement;
+        }
+        flowKeepSlotDrag = {
+          startWidth: keepSlot.width,
+          state,
+          frames,
+          stripHost,
+        };
+      } else if (keepSlot !== null) {
+        const side = edge === "e" ? "right" : edge === "w" ? "left" : null;
+        const band = store.getBandEdges();
+        if (side === null || band === null) return;
+        const bandWidth = band.end - band.start;
+        if (fitEdgeRate(side, keepSlot.fraction, bandWidth, keepSlot.width) === 0) {
+          return;
+        }
+        const startLeftX = fitImposedLeft(
+          keepSlot.fraction,
+          band.start,
+          bandWidth,
+          keepSlot.width,
+        );
+        keepSlotDrag = {
+          side,
+          fraction: keepSlot.fraction,
+          bandStart: band.start,
+          bandWidth,
+          startEdgeX: side === "left" ? startLeftX : startLeftX + keepSlot.width,
+          imposedLeft: keepSlot.imposedLeft,
+        };
+      }
+
       const pid = event.nativeEvent.pointerId;
       frame.setPointerCapture(event.nativeEvent.pointerId);
 
@@ -4316,9 +4556,10 @@ function TugPaneImpl({
       const resizeCanvasBounds =
         paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
 
-      // Resizing releases an imposed pane from its slot, exactly as dragging
-      // does — and on the same terms: only once the pointer has travelled far
-      // enough for the gesture to be a resize rather than a click. Until the
+      // A resize that does not keep the slot releases an imposed pane from
+      // it, exactly as dragging does — and on the same terms: only once the
+      // pointer has travelled far enough for the gesture to be a resize
+      // rather than a click. Until the
       // latch below sets, nothing here has written to the frame, so the
       // release's measurement at latch time sees the same rect it would have
       // seen at pointer-down.
@@ -4354,7 +4595,14 @@ function TugPaneImpl({
         // store commit; reveal occluded panes now and hold hides until the
         // gesture ends.
         paneOcclusionGesture.begin();
-        if (derivedRef.current) {
+        // A slot-keeping resize leaves the frame imposed: its pins stand, and
+        // only `left` and `width` are written while the hand holds it.
+        if (
+          derivedRef.current &&
+          keepSlotDrag === null &&
+          flowKeepSlotDrag === null &&
+          heightKeepSlotDrag === null
+        ) {
           const frozen = releaseImposedFrame(frame, resizeCanvasBounds);
           released = frozen;
           startLeft = frozen.x;
@@ -4427,10 +4675,103 @@ function TugPaneImpl({
         }
       }
 
+      /**
+       * The width that puts the dragged edge under `pointer`, in the slot. No
+       * snap: ⌥ snaps a free rect to its neighbours, and a slotted card's
+       * edges are the arrangement's, not the hand's to align.
+       */
+      function keepSlotWidth(pointer: { x: number; y: number }): number {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const drag = keepSlotDrag!;
+        return fitWidthForEdge(
+          drag.side,
+          drag.startEdgeX + (pointer.x - startX) / resizeZoom,
+          drag.fraction,
+          drag.bandStart,
+          drag.bandWidth,
+          minSizeRef.current.width,
+          maxSizeRef.current?.width ?? Infinity,
+        );
+      }
+
+      /**
+       * The slot height under `pointer`: the bottom edge one for one with the
+       * hand, the top standing at the run's, inside the card's floor and the
+       * run. The run is the ceiling — a card cannot stand taller than the
+       * slot it stands in — and reaching it is the clear ([B04b]).
+       */
+      function slotDragHeight(pointer: { x: number; y: number }): number {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const drag = heightKeepSlotDrag!;
+        return Math.min(
+          drag.runHeight,
+          Math.max(
+            minSizeRef.current.height,
+            drag.startHeight + (pointer.y - startY) / resizeZoom,
+          ),
+        );
+      }
+
+      /**
+       * The flow width under `pointer`: the right edge one for one with the
+       * hand, inside the card's bounds. The left edge never moves, so the
+       * width is the start width plus the travel.
+       */
+      function flowKeepSlotWidth(pointer: { x: number; y: number }): number {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const drag = flowKeepSlotDrag!;
+        return Math.min(
+          maxSizeRef.current?.width ?? Infinity,
+          Math.max(
+            minSizeRef.current.width,
+            drag.startWidth + (pointer.x - startX) / resizeZoom,
+          ),
+        );
+      }
+
+      /**
+       * Draw the flow deck at width `w`: this frame's width, every slot the
+       * strip moves shifted from its own pin by the strip's own answer, every
+       * slot it does not handed back its pin, and the strip's length where the
+       * offset clamps read it. The strip is the canvas's own, so the commit
+       * re-lays out exactly this.
+       */
+      function applyFlowKeepSlot(w: number): void {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const drag = flowKeepSlotDrag!;
+        const strip = flowResizeShift(drag.state, id, w);
+        frame.style.width = `${w}px`;
+        if (strip === null) return;
+        for (const [paneId, { el, left }] of drag.frames) {
+          const dx = strip.shifts.get(paneId) ?? 0;
+          el.style.left = dx === 0 ? left : `calc(${left} + ${dx}px)`;
+        }
+        drag.stripHost?.style.setProperty(
+          FLOW_STRIP_PROPERTY,
+          `${strip.stripWidth}px`,
+        );
+      }
+
       function applyResizeFrame() {
         resizeRafId = null;
         if (!resizeActive) return;
         if (!latchResizeMove(latestResizePointer)) return;
+        if (heightKeepSlotDrag !== null) {
+          frame.style.bottom = "auto";
+          frame.style.maxHeight = "";
+          frame.style.height = `${slotDragHeight(latestResizePointer)}px`;
+          return;
+        }
+        if (flowKeepSlotDrag !== null) {
+          applyFlowKeepSlot(flowKeepSlotWidth(latestResizePointer));
+          return;
+        }
+        if (keepSlotDrag !== null) {
+          const w = keepSlotWidth(latestResizePointer);
+          frame.style.left = `${fitImposedLeft(keepSlotDrag.fraction, keepSlotDrag.bandStart, keepSlotDrag.bandWidth, w)}px`;
+          frame.style.width = `${w}px`;
+          return;
+        }
         const r = computeAndApplyResize(latestResizePointer, latestResizeModifier);
         frame.style.left = `${r.left}px`;
         frame.style.top = `${r.top}px`;
@@ -4478,6 +4819,61 @@ function TugPaneImpl({
         // Close the occlusion bracket opened at the move latch.
         paneOcclusionGesture.end();
 
+        if (heightKeepSlotDrag !== null) {
+          // Dragged to the run's end, the card fills its run again and the
+          // field is deleted ([B04b]); short of it, the height is written.
+          // Either way the frame is handed back wearing the pins React is
+          // about to render, so the commit moves nothing.
+          const next = slotHeightAfterDrag(
+            slotDragHeight({ x: e.clientX, y: e.clientY }),
+            heightKeepSlotDrag.runHeight,
+          );
+          writeHeightPins(frame, heightKeepSlotDrag.style(next ?? undefined));
+          onCardMoved(
+            id,
+            { x: position.x, y: position.y },
+            { width: size.width, height: next ?? size.height },
+            { slotHeight: next },
+          );
+          scrollEpisode.end();
+          return;
+        }
+
+        if (flowKeepSlotDrag !== null) {
+          // The strip at the final width is the strip the commit lays out, so
+          // every frame already stands where React is about to pin it; a
+          // moved slot's `left` is overwritten by the render that moves its
+          // strip place, and an unmoved one already wears its own pin.
+          const w = flowKeepSlotWidth({ x: e.clientX, y: e.clientY });
+          applyFlowKeepSlot(w);
+          onCardMoved(
+            id,
+            { x: position.x, y: position.y },
+            { width: w, height: size.height },
+          );
+          scrollEpisode.end();
+          return;
+        }
+
+        if (keepSlotDrag !== null) {
+          // Hand the frame back to its slot wearing the pin React is about to
+          // render for this width, so the commit moves nothing — the card is
+          // already where the imposer puts it ([B04]).
+          const w = keepSlotWidth({ x: e.clientX, y: e.clientY });
+          frame.style.left = keepSlotDrag.imposedLeft(w);
+          frame.style.width = `${w}px`;
+          // The width menu's commit: a raw width, no eviction, one write and
+          // no rail retune ([B03]). Position and height are the stored ones,
+          // which an imposed frame does not read.
+          onCardMoved(
+            id,
+            { x: position.x, y: position.y },
+            { width: w, height: size.height },
+          );
+          scrollEpisode.end();
+          return;
+        }
+
         // Compute final resize with snap applied first, THEN clear guides. [D03]
         const r = computeAndApplyResize({ x: e.clientX, y: e.clientY }, e.altKey);
         clearGuideElements(resizeGuideEls);
@@ -4486,9 +4882,8 @@ function TugPaneImpl({
         frame.style.width = `${r.width}px`;
         frame.style.height = `${r.height}px`;
 
-        // A resized pane leaves its slot, on the same footing as a dragged one:
-        // any manual geometry gesture releases the pane, and there is no
-        // control that does it any other way.
+        // Under the "releases" rule a resized pane leaves its slot, on the
+        // same footing as a dragged one.
         onCardMoved(
           id,
           { x: r.left, y: r.top },
@@ -4506,7 +4901,7 @@ function TugPaneImpl({
     },
     // minSizeRef.current is always current; position/size are start values read at resize-start.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [id, onCardMoved, position.x, position.y, size.width, size.height],
+    [id, onCardMoved, position.x, position.y, size.width, size.height, store],
   );
 
   // Deck-facing-edge resize for a pinned rail: the EMITTER half of the rail
@@ -4655,6 +5050,43 @@ function TugPaneImpl({
     widthPinned && contentWidthPx !== undefined
       ? Math.max(contentWidthPx, renderWidth)
       : renderWidth;
+  // The height a card's bottom edge gave it in its slot ([B06]). Read where
+  // the card stands alone or stacked in its slot, and nowhere else: a split
+  // column's heights are its shares, a height-pinned card's height is its
+  // own, and a bullseye, a rail, or a newcomer not yet seated has no slot run
+  // to stand in. Anchored at the top of the run, the way a folded card is — a
+  // row in a wall — and never taller than the run, which a window made
+  // shorter since the drag would otherwise push the card off its bottom.
+  const slotHeightApplies =
+    imposed &&
+    placement !== undefined &&
+    columnMember === undefined &&
+    !heightPinned &&
+    !bullseye &&
+    sidebarSide === undefined &&
+    arriving === undefined;
+  const slotHeightStyle: KeepSlotHeightStyle | undefined =
+    slotHeightApplies && placement !== undefined
+      ? (height) => {
+          const fill = imposeStyle(placement, slotWidth, pinnedFrame);
+          const pins = (style: CSSProperties) => ({
+            top: style.top,
+            bottom: style.bottom,
+            height: style.height,
+            maxHeight: style.maxHeight,
+          });
+          if (height === undefined) return pins(fill);
+          return pins({
+            ...imposeStyle(placement, slotWidth, {
+              ...pinnedFrame,
+              height,
+              anchor: "start",
+            }),
+            maxHeight: `calc(100% - ${cssLength(fill.top)} - ${cssLength(fill.bottom)})`,
+          });
+        }
+      : undefined;
+  const heldSlotHeight = slotHeightApplies ? stackState.slotHeight : undefined;
   // Bullseye's width is `comfy`, held between the stack's own bounds by the
   // same `resolveContentWidthPx` call the width doors make — not a fourth
   // number and not a second opinion about width ([D130]).
@@ -4673,6 +5105,12 @@ function TugPaneImpl({
     },
     [id],
   );
+
+  // The Fill Height row's act: the pane-addressed command, as the width rows
+  // take theirs ([L30]).
+  const handleFillHeight = useCallback(() => {
+    dispatchCommand(TUG_ACTIONS.FILL_CARD_HEIGHT, { paneId: id });
+  }, [id]);
 
   // The target button's act, on the same path the width control takes: the
   // pane-addressed command, naming this pane rather than "the pane I am in"
@@ -4786,9 +5224,14 @@ function TugPaneImpl({
               height: minSize.height,
               anchor: "end",
             })
-          : imposeStyle(placement, slotWidth, pinnedFrame, {
-              member: columnMember,
-            })
+          : slotHeightStyle !== undefined && heldSlotHeight !== undefined
+            ? {
+                ...imposeStyle(placement, slotWidth, pinnedFrame),
+                ...slotHeightStyle(heldSlotHeight),
+              }
+            : imposeStyle(placement, slotWidth, pinnedFrame, {
+                member: columnMember,
+              })
         : {
             left: position.x,
             top: position.y,
@@ -4804,6 +5247,71 @@ function TugPaneImpl({
     : sidebarSide === undefined && imposed && placement !== undefined
       ? railTravelOf(placement, slotWidth)
       : undefined;
+
+  // A slot-keeping resize, when the deck's rule says so and this pane is a
+  // card standing in its slot. Its frame stays imposed through the whole
+  // gesture, so the edges it offers are the ones the arrangement lets move. In
+  // fit: a left edge only where the slot has travel to give up, a right edge
+  // only where it is not the last slot's. In flow: the right edge alone — the
+  // left is the running sum of the slots before it. A width-locked card offers
+  // neither. Never a corner, and a top or bottom only where it borders a seam
+  // in a split column that shares its run: the column's outer edges are the
+  // run's, and an overflowing column's seams do not move.
+  const keepSlotColumn: KeepSlotColumn | undefined =
+    columnMember !== undefined &&
+    columnMember.count > 1 &&
+    columnMember.standing === "shared"
+      ? {
+          slot: columnMember.slot,
+          index: columnMember.index,
+          count: columnMember.count,
+        }
+      : undefined;
+  const keepSlotResize: KeepSlotResize | null =
+    !resizeKeepsSlot ||
+    !imposed ||
+    placement === undefined ||
+    bullseye ||
+    arriving !== undefined
+      ? null
+      : placement.flow !== undefined
+        ? {
+            layout: "flow",
+            width: renderWidth,
+            column: keepSlotColumn,
+            heightStyle: slotHeightStyle,
+          }
+        : {
+            layout: "fit",
+            fraction: travelFraction(placement),
+            width: renderWidth,
+            imposedLeft: (width: number) =>
+              String(
+                imposeStyle(placement, width, pinnedFrame, {
+                  member: columnMember,
+                }).left,
+              ),
+            column: keepSlotColumn,
+            heightStyle: slotHeightStyle,
+          };
+  keepSlotResizeRef.current = keepSlotResize;
+  const resizeEdges: readonly ResizeEdge[] =
+    keepSlotResize === null
+      ? RESIZE_EDGES
+      : RESIZE_EDGES.filter((edge) => {
+          const column = keepSlotResize.column;
+          if (edge === "n") return column !== undefined && column.index > 0;
+          if (edge === "s") {
+            if (keepSlotResize.heightStyle !== undefined) return true;
+            return column !== undefined && column.index < column.count - 1;
+          }
+          if (widthPinned) return false;
+          if (keepSlotResize.layout === "flow") return edge === "e";
+          return (
+            (edge === "w" && keepSlotResize.fraction > 0) ||
+            (edge === "e" && keepSlotResize.fraction < 1)
+          );
+        });
   // Whether this rail member's content follows a width drag live or waits
   // for the hand to rest — the registration's call, stamped where the draft
   // that holds it can read it (`rail-width-draft.ts`).
@@ -4968,9 +5476,10 @@ function TugPaneImpl({
     >
       {/* Resize handles. A pinned sidebar exposes only its deck-facing edge
           (west for a right-side rail, east for a left-side one).
-          Everything else exposes all eight, imposed or not: resizing an imposed
-          pane releases it from its slot, so there is no edge it needs to be
-          protected from. */}
+          A pane whose resize releases it exposes all eight, imposed or not:
+          it leaves its slot, so there is no edge it needs to be protected
+          from. A pane whose resize keeps its slot exposes only the edges the
+          arrangement lets move (`resizeEdges`). */}
       {/* `barSide`: a PARKED member keeps its rail edge, as its bar keeps its
           seat — the frame is inert and hidden, and swapping its one edge for
           a free pane's eight would be a mount the show pays for. */}
@@ -4997,7 +5506,7 @@ function TugPaneImpl({
           />
         )
       ) : (
-        RESIZE_EDGES.map((edge) => (
+        resizeEdges.map((edge) => (
           <div
             key={edge}
             className={`tug-pane-resize tug-pane-resize-${edge}`}
@@ -5023,6 +5532,12 @@ function TugPaneImpl({
               ? {
                   widthPreset: stackState.widthPreset ?? null,
                   onSetWidth: handleSetWidth,
+                  ...(slotHeightApplies
+                    ? {
+                        onFillHeight: handleFillHeight,
+                        fillsHeight: heldSlotHeight === undefined,
+                      }
+                    : {}),
                 }
               : {})}
             cardCount={cards?.length ?? 1}

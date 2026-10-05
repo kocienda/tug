@@ -140,6 +140,25 @@ export type ImpositionLayout = "fit" | "flow";
 export const DEFAULT_IMPOSITION_LAYOUT: ImpositionLayout = "flow";
 
 /**
+ * What an edge resize of an imposed card does to its slot.
+ *
+ * `"keep"`: the card changes size and stays where the arrangement put it, the
+ * way a width picked from the masthead menu does — the slot is the card's
+ * place, and its size is the card's own. `"release"`: the resize lifts the card
+ * out of the imposition into free pixels, as every edge resize did before the
+ * choice existed.
+ *
+ * Moving a card by its title bar is not covered: dragging a card somewhere is
+ * the gesture that means "out of the arrangement", whichever this says.
+ */
+export type ResizeSlot = "keep" | "release";
+
+/** What an edge resize does when the deck has never said: it keeps the slot.
+ *  The menu and the edge are two doors to the same width, and they should not
+ *  disagree about whether the card is still arranged. */
+export const DEFAULT_RESIZE_SLOT: ResizeSlot = "keep";
+
+/**
  * The deck-wide content width, as one of three named presets. Absent reads as
  * `"comfy"`, which is the width content cards have always opened at — so a blob
  * written before the presets existed migrates to exactly its own behavior.
@@ -304,6 +323,12 @@ export interface DeckImposition {
    * either mode.
    */
   layout?: ImpositionLayout;
+  /**
+   * What an edge resize does to an imposed card's slot; absent reads as
+   * {@link DEFAULT_RESIZE_SLOT} — the card keeps it. A deck-wide choice rather
+   * than a modifier, because ⌥ is already the resize's snap.
+   */
+  resizeSlot?: ResizeSlot;
   /**
    * Where each sidebar card stands, keyed by its registered `componentId`.
    *
@@ -1327,6 +1352,19 @@ export function impositionLayout(
   imposition: Pick<DeckImposition, "layout">,
 ): ImpositionLayout {
   return imposition.layout ?? DEFAULT_IMPOSITION_LAYOUT;
+}
+
+/** Narrow an unknown to a resize rule, for the blob and the action payload. */
+export function isResizeSlot(value: unknown): value is ResizeSlot {
+  return value === "keep" || value === "release";
+}
+
+/** What an edge resize does to a slot on this imposition. Total, like
+ *  {@link impositionLayout}: absent and never-chosen are the same answer. */
+export function impositionResizeSlot(
+  imposition: Pick<DeckImposition, "resizeSlot">,
+): ResizeSlot {
+  return imposition.resizeSlot ?? DEFAULT_RESIZE_SLOT;
 }
 
 /** How many slots the kind defines: 1 through 6. */

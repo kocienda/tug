@@ -191,6 +191,7 @@ import {
   SpaceLayerShownContext,
   type SpaceLayerShownSource,
 } from "./space-layer";
+import { registerColumnSeamDrag } from "./column-seam-drag";
 import {
   stillHiddenLayerLoops,
   stillLoopOnStart,
@@ -247,6 +248,7 @@ import {
   RAIL_TREATMENT_ATTRIBUTE,
   railSpanInset,
   sidebarWidthProperty,
+  impositionResizeSlot,
   type SidebarSide,
 } from "@/lib/layout-imposer";
 
@@ -616,17 +618,16 @@ function PlaceSeam({
   const memberPaneIdsRef = useRef(memberPaneIds);
   memberPaneIdsRef.current = memberPaneIds;
 
-  const handlePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const seam = event.currentTarget;
+  const seamRef = useRef<HTMLDivElement | null>(null);
+
+  // The drag, for a press already in progress — the seam's own, or one a
+  // column member's inner edge hands over (`column-seam-drag.ts`).
+  const beginDrag = useCallback(
+    (seam: HTMLElement, pointerId: number, startClientY: number) => {
       const container = seam.parentElement;
       if (container === null) return;
 
       const zoom = getTugZoom() || 1;
-      const startClientY = event.clientY;
       // The division the gesture starts from, and the run it is stated against
       // — the allocator's own, never a re-measure of the container. A seam
       // measuring its own run would be a second opinion about a number the
@@ -665,7 +666,7 @@ function PlaceSeam({
           ? startTop + height + seamPx
           : (startTop + height + seamPx / 2) / run;
 
-      seam.setPointerCapture(event.pointerId);
+      seam.setPointerCapture(pointerId);
       seam.setAttribute("data-gesture", "seam");
       // The place's members are the hand's for the duration — the two this
       // seam divides always, and, when the drag cascades past a floor, the
@@ -1029,6 +1030,33 @@ function PlaceSeam({
     [place, index, onCommit],
   );
 
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      beginDrag(event.currentTarget, event.pointerId, event.clientY);
+    },
+    [beginDrag],
+  );
+
+  // A column's seam is also the drag behind its members' inner edges: under
+  // the keep-slot rule a member's top or bottom edge that borders this seam
+  // starts this very gesture rather than one of its own.
+  // Registered by the seam's address alone and read through a ref, because
+  // `place` is a fresh object every render and a registration keyed on it
+  // would come off and go back on at every one.
+  const beginDragRef = useRef(beginDrag);
+  beginDragRef.current = beginDrag;
+  const columnSlot = place.kind === "column" ? place.slot : undefined;
+  useLayoutEffect(() => {
+    if (columnSlot === undefined) return;
+    return registerColumnSeamDrag(columnSlot, index, (pointerId, clientY) => {
+      const seam = seamRef.current;
+      if (seam !== null) beginDragRef.current(seam, pointerId, clientY);
+    });
+  }, [columnSlot, index]);
+
   // A double-click on a COLUMN seam divides the slot equally again — the one
   // arithmetic a place has that is not the hand's own division. A rail's seam
   // does nothing on a double-click: its sashes are the hand's, and nothing but
@@ -1062,6 +1090,7 @@ function PlaceSeam({
 
   return (
     <div
+      ref={seamRef}
       className="tug-place-seam"
       data-testid={
         place.kind === "rail" ? "tug-rail-seam" : "tug-column-seam"
@@ -1987,6 +2016,7 @@ const LayerPanes = memo(function LayerPanes({
                 : undefined
             }
             contentWidthPx={arr.contentWidthPx}
+            resizeKeepsSlot={impositionResizeSlot(deck.imposition) === "keep"}
             columnMember={arr.columnMemberByPaneId.get(stackState.id)}
             columnMode={arr.columnModeByPaneId.get(stackState.id)}
             arriving={arr.arrivingSeatByPaneId.get(stackState.id)}

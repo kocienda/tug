@@ -2365,6 +2365,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its door is the Fill Height row of the pane title bar's width popup.
+    id: TUG_ACTIONS.FILL_CARD_HEIGHT,
+    title: "Fill Card Height",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // Its doors are `toggle-card-fold` and a folded card's bidden surfaces —
     // both card-addressed gestures, and this is the one write path they
     // share.
@@ -2392,6 +2399,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     // Its door is the Layout card's Layout group.
     id: TUG_ACTIONS.SET_IMPOSITION_LAYOUT,
     title: "Set Imposition Layout",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its door is the Layout card's Resizing row.
+    id: TUG_ACTIONS.SET_RESIZE_SLOT,
+    title: "Set Resize Slot",
     routing: "registry",
     internal: true,
   },

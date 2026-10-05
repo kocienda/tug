@@ -312,6 +312,21 @@ export interface TugPaneState {
    */
   slot?: number;
   /**
+   * The height the user gave this card in its slot, in px, when it is not the
+   * run's. Absent means the card fills its run — the default, and the state a
+   * card returns to when its bottom edge is dragged back to the run's end or
+   * its width menu's Fill Height row is chosen; the key is deleted then rather
+   * than written at the run's height, so the card follows the run again when
+   * the window changes.
+   *
+   * Read only where the card stands alone in its slot or in a stacked one,
+   * which places it at the top of its run at this height. A split column
+   * divides its run by shares instead, and a pane that leaves its slot drops
+   * the field with the slot. Additive-optional like `slot?` — no
+   * serialization version bump.
+   */
+  slotHeight?: number;
+  /**
    * The pane wears its folded form: the masthead and the Z2 status row,
    * whose trailing edge carries the fold control, with the transcript and
    * the composer folded away.

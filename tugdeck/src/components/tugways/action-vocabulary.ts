@@ -1067,6 +1067,11 @@ export const TUG_ACTIONS = {
   //                 which one it is at. Its door is the pane title bar's width
   //                 popup.
   SET_CARD_WIDTH:         "set-card-width",
+  // FILL_CARD_HEIGHT: payload — `{ paneId }`. Give one slotted card its run's
+  //                   full height again, deleting the height its bottom edge
+  //                   gave it. Its door is the Fill Height row of the pane
+  //                   title bar's width popup.
+  FILL_CARD_HEIGHT:       "fill-card-height",
   // SET_BULLSEYE:   payload — `{ paneId }`. Put ONE named pane in bullseye, or
   //                 take it out when it is already there. The pane-addressed
   //                 sibling of `TOGGLE_BULLSEYE`, in the shape SET_PANE_WIDTH →
@@ -1088,6 +1093,11 @@ export const TUG_ACTIONS = {
   //                        the active card is revealed into view. Its door is
   //                        the rail Layouts section's Layout group.
   SET_IMPOSITION_LAYOUT:  "set-imposition-layout",
+  // SET_RESIZE_SLOT: payload — `{ resizeSlot }`. Choose what an edge resize
+  //                  does to an imposed card: `"keep"` its slot, changing only
+  //                  its size, or `"release"` it into free pixels. Its door is
+  //                  the Layout card's Resizing row.
+  SET_RESIZE_SLOT:        "set-resize-slot",
   // SET_SIDEBAR_SIDE: payload — `{ componentId, side }`. Move a sidebar card to
   //                   a deck edge, re-pinning it if it had been dragged loose.
   //                   Its door is the rail Layouts section's sidebar positions

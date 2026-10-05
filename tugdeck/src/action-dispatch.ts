@@ -51,6 +51,7 @@ import {
   isContentWidth,
   isImpositionKind,
   isImpositionLayout,
+  isResizeSlot,
   isColumnMode,
   isSidebarSide,
 } from "@/lib/layout-imposer";
@@ -753,6 +754,18 @@ export function initActionDispatch(
     deckManager.setPaneWidth(paneId, preset);
   });
 
+  // fill-card-height: give one slotted card its run's full height again.
+  // Dispatched by the Fill Height row of the pane title bar's width popup,
+  // which addresses the pane by id for the reason `set-card-width` does.
+  registerAction(TUG_ACTIONS.FILL_CARD_HEIGHT, (payload) => {
+    const paneId = payload.paneId;
+    if (typeof paneId !== "string") {
+      console.warn("fill-card-height: missing or invalid paneId", payload);
+      return;
+    }
+    deckManager.fillPaneHeight(paneId);
+  });
+
   // set-card-folded: write one card's pane into or out of the folded
   // form ([P02], Spec S01). Card-addressed rather than pane-addressed because
   // every door — the Z2 fold control, View ▸ Fold Card, and
@@ -813,6 +826,18 @@ export function initActionDispatch(
       return;
     }
     deckManager.setImpositionLayout(layout);
+  });
+
+  // set-resize-slot: choose whether an edge resize keeps an imposed card in its
+  // slot or releases it into free pixels. Dispatched by the Layout card's
+  // Resizing row. A rule for later gestures; nothing moves when it changes.
+  registerAction(TUG_ACTIONS.SET_RESIZE_SLOT, (payload) => {
+    const resizeSlot = payload.resizeSlot;
+    if (!isResizeSlot(resizeSlot)) {
+      console.warn("set-resize-slot: missing or invalid resizeSlot", payload);
+      return;
+    }
+    deckManager.setResizeSlot(resizeSlot);
   });
 
   // set-sidebar-side: choose the side of the deck a sidebar card holds — the

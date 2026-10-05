@@ -12,6 +12,7 @@ import { serializeDeck, deserializeDeck } from "./deck-blob-helpers";
 import { MAIN_SPACE_NAME, wrapAsMainSpace } from "../spaces";
 import {
   DEFAULT_IMPOSITION_KIND,
+  impositionResizeSlot,
   isSidebarPinned,
   sidebarSide,
   slotCount,
@@ -367,6 +368,106 @@ describe("serialize and deserialize (v4 wire)", () => {
       1080,
     );
     expect(garbled.imposition.layout).toBeUndefined();
+  });
+
+  test("the resize rule round-trips, and absent or unreadable reads as keeping the slot", () => {
+    // The rule is the deck's, so a reload keeps "Releases" once chosen. It is
+    // additive-optional with a default of keeping the slot, so a deck that
+    // never chose — and one whose blob carries a value nobody wrote — resizes
+    // without leaving the arrangement.
+    const base = { cards: [], panes: [], hasFocus: true };
+    const released = deserializeDeck(
+      JSON.stringify(
+        serializeDeck({
+          ...base,
+          imposition: {
+            kind: "three-up" as const,
+            sidebars: { dashes: { side: "right" as const } },
+            resizeSlot: "release" as const,
+          },
+        }),
+      ),
+      1920,
+      1080,
+    );
+    expect(released.imposition.resizeSlot).toBe("release");
+    expect(impositionResizeSlot(released.imposition)).toBe("release");
+
+    const absent = deserializeDeck(
+      JSON.stringify(
+        serializeDeck({
+          ...base,
+          imposition: { sidebars: { dashes: { side: "right" as const } } },
+        }),
+      ),
+      1920,
+      1080,
+    );
+    expect(absent.imposition.resizeSlot).toBeUndefined();
+    expect(impositionResizeSlot(absent.imposition)).toBe("keep");
+
+    const garbled = deserializeDeck(
+      JSON.stringify({
+        version: 4,
+        cards: [],
+        panes: [],
+        imposition: { kind: "three-up", sidebars: {}, resizeSlot: "evict" },
+      }),
+      1920,
+      1080,
+    );
+    expect(garbled.imposition.resizeSlot).toBeUndefined();
+    expect(impositionResizeSlot(garbled.imposition)).toBe("keep");
+  });
+
+  test("a slot height round-trips on a slotted pane, and only there", () => {
+    // Additive-optional: a card that was given a height in its slot comes back
+    // at it, a card that fills its run carries no field, and a value nobody
+    // could have written — or one left on a pane with no slot — restores as
+    // filling the run.
+    const pane = (id: string, extra: Record<string, unknown>) => ({
+      id,
+      position: { x: 0, y: 0 },
+      size: { width: 560, height: 620 },
+      cardIds: [`card-${id}`],
+      activeCardId: `card-${id}`,
+      title: "",
+      acceptsFamilies: ["standard"],
+      ...extra,
+    });
+    const blob = {
+      version: 4,
+      cards: ["a", "b", "c", "d", "e"].map((id) => ({
+        id: `card-${id}`,
+        componentId: "probe",
+        title: id,
+        closable: true,
+      })),
+      panes: [
+        pane("a", { slot: 0, slotHeight: 420 }),
+        pane("b", { slot: 1 }),
+        pane("c", { slot: 2, slotHeight: -5 }),
+        pane("d", { slot: 1, slotHeight: "tall" }),
+        pane("e", { slotHeight: 300 }),
+      ],
+      imposition: { kind: "three-up", sidebars: {} },
+    };
+    const restored = deserializeDeck(JSON.stringify(blob), 1920, 1080);
+    const heightOf = (id: string) =>
+      restored.panes.find((p) => p.id === id)?.slotHeight;
+    expect(heightOf("a")).toBe(420);
+    expect(heightOf("b")).toBeUndefined();
+    expect(heightOf("c")).toBeUndefined();
+    expect(heightOf("d")).toBeUndefined();
+    expect(heightOf("e")).toBeUndefined();
+
+    // And through a save: the field survives serialize → deserialize.
+    const again = deserializeDeck(
+      JSON.stringify(serializeDeck(restored)),
+      1920,
+      1080,
+    );
+    expect(again.panes.find((p) => p.id === "a")?.slotHeight).toBe(420);
   });
 
   test("serialize emits no flow offset — the viewport is session state", () => {

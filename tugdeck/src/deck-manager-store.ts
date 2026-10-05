@@ -41,6 +41,12 @@ export interface MovePaneOptions {
    * route. A pane at a width nobody named is at no preset.
    */
   widthPreset?: ContentWidth;
+  /**
+   * The height the card is given in its slot (`TugPaneState.slotHeight`). A
+   * number writes it; `null` deletes it, which is the card filling its run
+   * again; omitted leaves it as it stands.
+   */
+  slotHeight?: number | null;
 }
 
 /**

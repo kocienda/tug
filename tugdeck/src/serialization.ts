@@ -52,6 +52,7 @@ import {
   clampSlot,
   isImpositionKind,
   isImpositionLayout,
+  isResizeSlot,
   isColumnMode,
   isSidebarSide,
   DEFAULT_IMPOSITION_KIND,
@@ -651,6 +652,9 @@ function parseV4(
   // unreadable value is dropped rather than defaulted to flow — a mode is
   // something the user chose.
   const rawLayout = impositionRecord?.["layout"];
+  // Additive-optional too, and dropped the same way when unreadable: absent
+  // already means "keeps its slot", so a stray value falls to the default.
+  const rawResizeSlot = impositionRecord?.["resizeSlot"];
   const imposition: DeckImposition = {
     kind,
     contentWidth: isContentWidth(rawContentWidth)
@@ -660,6 +664,7 @@ function parseV4(
     ...(rails !== undefined ? { rails } : {}),
     ...(columns !== undefined ? { columns } : {}),
     ...(isImpositionLayout(rawLayout) ? { layout: rawLayout } : {}),
+    ...(isResizeSlot(rawResizeSlot) ? { resizeSlot: rawResizeSlot } : {}),
   };
 
   const panes: TugPaneState[] = [];
@@ -726,6 +731,18 @@ function parseV4(
     // line. Only `true` is honored; anything else restores as not folded.
     const folded = win["folded"] === true ? (true as const) : undefined;
 
+    // `slotHeight` is read for the same reason: an additive field the rebuild
+    // would otherwise drop. Only a positive finite number on a slotted pane is
+    // honored; anything else restores as filling its run.
+    const rawSlotHeight = win["slotHeight"];
+    const slotHeight =
+      slot !== undefined &&
+      typeof rawSlotHeight === "number" &&
+      Number.isFinite(rawSlotHeight) &&
+      rawSlotHeight > 0
+        ? rawSlotHeight
+        : undefined;
+
     panes.push({
       id,
       position: { x, y },
@@ -737,6 +754,7 @@ function parseV4(
       ...(widthPreset !== undefined ? { widthPreset } : {}),
       ...(slot !== undefined ? { slot } : {}),
       ...(folded !== undefined ? { folded } : {}),
+      ...(slotHeight !== undefined ? { slotHeight } : {}),
     });
   }
 

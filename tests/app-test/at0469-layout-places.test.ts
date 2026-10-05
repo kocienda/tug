@@ -358,12 +358,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         note(`rows: ${rows.join(", ")}`);
         expect(
-          rows.slice(0, 3),
-          "the three deck-wide rows lead, in a fixed order",
+          rows.slice(0, 4),
+          "the four deck-wide rows lead, in a fixed order",
         ).toEqual([
           "layout-card-kind",
           "layout-card-layout",
           "layout-card-width",
+          "layout-card-resize",
         ]);
         // Under them, the place rows — one per slot with something to arrange
         // (part 7); a rail gets none, because it is always divided — and under
@@ -372,13 +373,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // what the picture does not draw. The registry is a boot step, so that
         // count is fixed too.
         const placeRows = rows
-          .slice(3)
+          .slice(4)
           .filter((id) => /^layout-card-column-/.test(id));
         expect(
           rows.filter((id) => /^layout-card-rail-/.test(id)),
           "a rail has no arrangement row",
         ).toEqual([]);
-        const sidebarRows = rows.slice(3 + placeRows.length);
+        const sidebarRows = rows.slice(4 + placeRows.length);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",
@@ -1167,7 +1168,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         //
         // No rail row on either side. Slot 0 holds two cards and gets a row,
         // slot 1 holds one and gets none. The column rows come directly after
-        // Card Width, and the per-card rows last.
+        // the last deck-wide row, Resizing, and the per-card rows last.
         const order = await app.evalJS<string[]>(
           `Array.from(document.querySelectorAll('.layouts-section-row [data-testid^="layout-card-"]'))
             .map(function (el) { return el.getAttribute("data-testid"); })`,
@@ -1177,8 +1178,8 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           order.filter((id) => id.startsWith("layout-card-rail-")),
           "a rail has no arrangement row: it is always divided",
         ).toEqual([]);
-        expect(order.indexOf("layout-card-column-0"), "Column 1 follows Card Width").toBe(
-          order.indexOf("layout-card-width") + 1,
+        expect(order.indexOf("layout-card-column-0"), "Column 1 follows the deck-wide rows").toBe(
+          order.indexOf("layout-card-resize") + 1,
         );
         expect(
           order.indexOf("layout-card-column-1"),

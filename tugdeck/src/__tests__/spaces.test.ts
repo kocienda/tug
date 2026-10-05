@@ -384,6 +384,19 @@ describe("moveCardBetweenDecks ([B07])", () => {
     expect(column.shares).toEqual({ "p-b": 0.4 });
   });
 
+  test("drops the height the pane was given in its old slot", () => {
+    const deck = sourceDeck();
+    const source: DeckState = {
+      ...deck,
+      panes: deck.panes.map((p) => (p.id === "p-b" ? { ...p, slotHeight: 300 } : p)),
+    };
+    for (const kind of ["one-up", "two-up"] as const) {
+      const moved = moveCardBetweenDecks(source, destDeck(kind), "B")!;
+      // A height in the source's run is not one in the destination's.
+      expect("slotHeight" in moved.dest.panes[0]).toBe(false);
+    }
+  });
+
   test("clears the source's activePaneId when it named the moved pane", () => {
     const moved = moveCardBetweenDecks(sourceDeck(), destDeck("two-up"), "A")!;
 
