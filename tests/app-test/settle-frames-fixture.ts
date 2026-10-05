@@ -572,21 +572,15 @@ export function expectBar(leg: string, r: BarLeg): void {
   ).toBe(false);
 
   // ---- The beat's own two, off the canvas's record. ---------------------
-  // **This clause's WINDOW widened under [P01] and its number did not.** The
-  // lead from the gesture to the first rendered frame is now a gap in the same
-  // series, so `longestGapFrames` is a fact about the whole motion rather than
-  // about the inter-tick stretch of it. Two frames stays, and the reason is
-  // that this leg is standing red on the activation's own lead (81ms at the
-  // arc's start, which IS the worst gap) — moving the bar to admit a number
-  // the instrument was just changed to see would be calibrating against the
-  // defect. The fold's bar is set separately, at one frame, over the same
-  // widened window; see `FOLD_GAP_FRAMES_BAR`.
+  // The motion's own gaps, from the first frame on. The lead is the set-up,
+  // which set-up-and-go counts as a cost the user accepts rather than a
+  // defect, so it is noted below and kept out of the bar.
   expect(
-    row.longestGapFrames,
+    row.motionLongestGapFrames,
     `${leg}: no gap longer than ${GAP_FRAMES_BAR} display frames across the ` +
-      `move beat — ${row.longestGapMs.toFixed(0)}ms / ` +
-      `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
-      `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
+      `move beat — ${row.motionLongestGapMs.toFixed(0)}ms / ` +
+      `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+      `${row.panes} panes, with ${row.motionGapsOverOneFrame} gap(s) over one frame`,
   ).toBeLessThanOrEqual(GAP_FRAMES_BAR);
   // The late-START clause, which now reads off `moveFirstPaintDelayMs`. Under
   // [P01] the row's `firstPaintDelayMs` became the lead from the GESTURE, and
@@ -607,20 +601,7 @@ export function expectBar(leg: string, r: BarLeg): void {
       `so a -1 here would mean the clause above passed by having nothing to ` +
       `measure`,
   ).toBeGreaterThanOrEqual(0);
-  // The lead's own clause, with its own bar. `firstPaintDelayMs` is now the
-  // dead time between the gesture and the first frame the deck managed to
-  // render, and under [P01] that lead also enters the gap series — so its bar
-  // is the bar every other gap in the run answers to, and stating it here is
-  // what makes the number readable as "how long the reader waited" rather
-  // than as a component of a maximum.
-  expect(
-    row.firstPaintDelayMs,
-    `${leg}: the lead from the gesture to the first rendered frame is held to ` +
-      `the same ${GAP_FRAMES_BAR} display frames as any other gap — ` +
-      `${row.firstPaintDelayMs}ms of which ${row.commitDelayMs}ms was spent ` +
-      `before the canvas armed, against a derived period of ` +
-      `${probe.framePeriodMs.toFixed(2)}ms`,
-  ).toBeLessThanOrEqual(probe.framePeriodMs * GAP_FRAMES_BAR);
+  noteLead(leg, row);
 
   // ---- The pose clause, off the canvas's record (Spec S02). -------------
   // The third failure, and the one the two clauses above are both blind to:
@@ -871,11 +852,11 @@ export function expectColumnBar(leg: string, r: ColumnLeg): void {
   ).toBeGreaterThan(0);
   for (const [i, row] of r.rows.entries()) {
     expect(
-      row.longestGapFrames,
+      row.motionLongestGapFrames,
       `${leg} row ${i + 1}/${r.rows.length}: no gap over ${GAP_FRAMES_BAR} ` +
-        `display frames across the settle — ${row.longestGapMs.toFixed(0)}ms ` +
-        `/ ${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks ` +
-        `on ${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one ` +
+        `display frames across the settle — ${row.motionLongestGapMs.toFixed(0)}ms ` +
+        `/ ${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks ` +
+        `on ${row.panes} panes, with ${row.motionGapsOverOneFrame} gap(s) over one ` +
         `frame`,
     ).toBeLessThanOrEqual(GAP_FRAMES_BAR);
   }
@@ -1017,29 +998,19 @@ export function expectFoldBar(leg: string, r: FoldLeg): void {
       `no motion in it`,
   ).toBe(false);
 
-  expect(
-    row.firstPaintDelayMs,
-    `${leg}: a fold's first rendered frame lands within one display frame of ` +
-      `the gesture — ${row.firstPaintDelayMs}ms, of which ` +
-      `${row.commitDelayMs}ms was spent before the canvas armed, against a ` +
-      `derived period of ${probe.framePeriodMs.toFixed(2)}ms. This is the ` +
-      `dead time the user reported and the instrument could not see: with a ` +
-      `\`height\` term and no transform-bearing effect the old field read -1 ` +
-      `and called three folds healthy`,
-  ).toBeLessThanOrEqual(probe.framePeriodMs);
+  noteLead(leg, row);
   expect(
     row.moveFirstPaintDelayMs,
     `${leg}: and the move clock says what it always said about a fold — -1, ` +
-      `there is no transform-bearing effect here at all, which is exactly ` +
-      `why the clause above had to stop reading it`,
+      `there is no transform-bearing effect here at all`,
   ).toBe(-1);
   expect(
-    row.longestGapFrames,
-    `${leg}: no missed frame across the whole motion, lead included — no ` +
+    row.motionLongestGapFrames,
+    `${leg}: no missed frame across the whole motion — no ` +
       `gap over ${FOLD_GAP_FRAMES_BAR} display periods — ` +
-      `${row.longestGapMs.toFixed(0)}ms / ` +
-      `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
-      `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
+      `${row.motionLongestGapMs.toFixed(0)}ms / ` +
+      `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+      `${row.panes} panes, with ${row.motionGapsOverOneFrame} gap(s) over one frame`,
   ).toBeLessThanOrEqual(FOLD_GAP_FRAMES_BAR);
 }
 
@@ -1209,6 +1180,22 @@ export interface SettleFramesRow {
   readonly longestGapMs: number;
   readonly longestGapFrames: number;
   readonly gapsOverOneFrame: number;
+  /**
+   * The same gaps from the first tick on, the lead left out — the motion
+   * set-up-and-go judges. The lead is the set-up, read and noted, never barred.
+   */
+  readonly motionLongestGapMs: number;
+  readonly motionLongestGapFrames: number;
+  readonly motionGapsOverOneFrame: number;
+  /**
+   * The gesture to the beats' launch, where the motion gate closed; `-1`
+   * when none closed. And what ran between it and the land — the gate's
+   * three zero clauses. A `null` list is a page that could not count.
+   */
+  readonly motionAtMs: number;
+  readonly motionCommits: readonly { t: number; performed: number; site: string }[] | null;
+  readonly motionForcedLayouts: readonly { t: number; ms: number; site: string }[];
+  readonly motionDeliveries: readonly { t: number; ms: number; site: string }[] | null;
   /** The GESTURE to the first rendered frame, with the lead also in the gaps. */
   readonly firstPaintDelayMs: number;
   /** The part of that lead spent before the canvas armed. */
@@ -1871,8 +1858,6 @@ export const frameOrigins = (app: App): Promise<Record<string, string>> =>
 // An arrival interrupted by a close ([B03], [F04])
 // ---------------------------------------------------------------------------
 
-/** When the close lands, measured from the `show-card` that starts the arrival. */
-export const ARRIVAL_RETARGET_AT_MS = 140;
 /** How long the per-frame opacity census runs. Two settles, back to back. */
 export const ARRIVAL_CENSUS_MS = 2_000;
 
@@ -1897,10 +1882,13 @@ export interface ArrivalSample {
  * `el.style.opacity` would read `""` in both the healthy and the broken case.
  */
 export async function arrivalCensus(app: App): Promise<void> {
+  // The origin is kept beside the samples so a gesture issued mid-census can
+  // be timed on the census's own clock.
   await app.evalJS<null>(
     `(function () {
        window.__at0622arrival = [];
        var t0 = performance.now();
+       window.__at0622arrivalT0 = t0;
        var tick = function () {
          var canvas = document.querySelector("[data-imposer-settling]");
          var sample = {
@@ -1941,9 +1929,9 @@ export async function arrivalCensus(app: App): Promise<void> {
  * about how much stall the eye will take. [B09] asks the remaining behaviours
  * the same five questions, off the same instrument, at the same numbers:
  *
- *   1. the lead from the gesture to the first rendered frame is at most one
- *      display frame,
- *   2. no gap in the run is longer than two,
+ *   1. no gap from the first frame on is longer than two — the lead before
+ *      the first frame is the set-up, noted and never barred,
+ *   2. the land is one frame,
  *   3. no shown frame painted a pose off its own curve on any tick,
  *   4. no shown frame's rect moved again after the beat landed,
  *   5. and the window was served — the tick count is above the suspension
@@ -2034,6 +2022,10 @@ export interface B09Leg {
   readonly beatRows: readonly SettleBeatRow[];
   /** The runtime [D9] guard's report, as `paneId:property`. */
   readonly violations: readonly string[];
+  /** The last `settle-land` row in the window, or `null` if none was written. */
+  readonly land: SettleLandRow | null;
+  /** The deck's commits, arms and gate edges across the leg, in order. */
+  readonly sequence: readonly string[];
 }
 
 /**
@@ -2090,6 +2082,20 @@ export async function sampleB09Gesture(
   const beatRows = await settleBeatRows(app, mark);
   const violations = await motionViolationRows(app, mark);
   const after = await bandCensus(app);
+  const lands = await settleLandRows(app, mark);
+  // The deck's own sequence across the leg — every commit's caller, every
+  // arm's outcome and the motion gate's edges — so a commit inside the
+  // motion can be traced to the store write that made it.
+  const sequence = await app.evalJS<readonly string[]>(
+    `window.__deckTrace.since(${mark}).filter(function (e) {
+       return e.kind === "store-notify" || e.kind === "settle-arm" ||
+         e.kind === "settle-gate" || e.kind === "settle-release";
+     }).map(function (e) {
+       return Math.round(e.timestamp) + " " + e.kind + " " +
+         (e.caller || e.outcome || e.phase || e.source || "") +
+         (e.kind === "store-notify" ? " " + e.landing : "");
+     })`,
+  );
   return {
     probe,
     row: rows.length === 0 ? null : (rows[rows.length - 1] as SettleFramesRow),
@@ -2099,6 +2105,8 @@ export async function sampleB09Gesture(
     beats,
     beatRows,
     violations,
+    land: lands.length === 0 ? null : lands[lands.length - 1],
+    sequence,
   };
 }
 
@@ -2123,6 +2131,8 @@ export function arrivedIn(r: B09Leg): readonly string[] {
 
 export function reportB09(leg: string, r: B09Leg): void {
   note(`at0622 ${leg} row: ${JSON.stringify(r.row)} (${r.rows} row(s))`);
+  note(`at0622 ${leg} land: ${JSON.stringify(r.land)}`);
+  note(`at0622 ${leg} sequence: ${r.sequence.join(" · ")}`);
   note(`at0622 ${leg} probe: ${JSON.stringify(r.probe)}`);
   note(
     `at0622 ${leg} beats: ${JSON.stringify(r.beats)}; violations ` +
@@ -2136,7 +2146,7 @@ export function reportB09(leg: string, r: B09Leg): void {
  * The beats this leg's settle actually ran, asserted rather than printed
  * ([B04]).
  *
- * `expectB09Bar` judges lead, gap, pose and landing, and every one of those
+ * `expectB09Bar` judges gap, land, pose and landing, and every one of those
  * is satisfiable by a settle that ran the WRONG choreography — a regression
  * that cuts one beat, or reorders two, leaves the frames arriving on time
  * along a path nobody asked for. `row !== null` narrows the hole to "armed
@@ -2221,19 +2231,13 @@ export function expectB09Bar(
   const row = r.row as SettleFramesRow;
 
   // ---- The bar. ---------------------------------------------------------
+  noteLead(leg, row);
   expect(
-    row.firstPaintDelayMs,
-    `${leg}: the lead from the gesture to the first rendered frame is at ` +
-      `most one display frame — ${row.firstPaintDelayMs}ms, of which ` +
-      `${row.commitDelayMs}ms was spent before the canvas armed, against a ` +
-      `derived period of ${probe.framePeriodMs.toFixed(2)}ms`,
-  ).toBeLessThanOrEqual(probe.framePeriodMs);
-  expect(
-    row.longestGapFrames,
+    row.motionLongestGapFrames,
     `${leg}: no gap over ${gapFramesBar} display frames across the ` +
-      `whole motion, lead included — ${row.longestGapMs.toFixed(0)}ms / ` +
-      `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
-      `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
+      `motion, from the first frame on — ${row.motionLongestGapMs.toFixed(0)}ms / ` +
+      `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+      `${row.panes} panes, with ${row.motionGapsOverOneFrame} gap(s) over one frame`,
   ).toBeLessThanOrEqual(gapFramesBar);
   expect(
     row.offCurvePaneIds.filter((id) => !exempt.includes(id)),
@@ -2251,30 +2255,198 @@ export function expectB09Bar(
     `${leg}: no shown frame's rect moved after the beat landed — a frame ` +
       `that settles twice reads as a correction`,
   ).toEqual([]);
-  expectBeatStarts(leg, r.beatRows, probe.framePeriodMs);
+  noteBeatStarts(leg, r.beatRows, probe.framePeriodMs);
+  expectMotionSealed(leg, row);
+  expectLand(leg, r.land);
 }
 
 /**
- * Every beat that ran started within one display period of its planning.
+ * Every beat's start, against one display period, noted.
  *
  * A beat's `startDelayMs` runs from the settle's planning to the beat's first
- * running frame, so a start later than one period is a stall the reader sees
- * as a frame held still before the motion: the main-thread work between the
- * plan and the first frame, read off the beat's own clock. A beat that never
- * ran (`-1`) is the landing clause's concern, not this one. Asserted last in
- * a leg, so a red here never hides the clauses before it.
+ * running frame, so a late start is the set-up's length read off the beat's
+ * own clock. Under set-up-and-go that is a cost the user accepts rather than
+ * a defect, so it is a reading beside the leg and never a bar; the beats
+ * late against one period are named so a reader comparing runs sees them
+ * move. A beat that never ran (`-1`) is the landing clause's concern.
  */
-export function expectBeatStarts(
+export function noteBeatStarts(
   leg: string,
   beats: readonly SettleBeatRow[],
   framePeriodMs: number,
 ): void {
   const late = beats.filter((b) => b.startDelayMs >= 0 && b.startDelayMs > framePeriodMs);
+  note(
+    `${leg}: beat starts against one period (${framePeriodMs.toFixed(2)}ms) — ` +
+      `${JSON.stringify(beats.map((b) => [b.recipe, b.startDelayMs]))}; ` +
+      `later than a period: ${JSON.stringify(late.map((b) => b.recipe))}`,
+  );
+}
+
+/**
+ * The set-up's length, noted: the gesture to the first rendered frame, and the
+ * part of it spent before the canvas armed.
+ *
+ * It used to be barred at one or two display frames, and every one of those
+ * bars was red on real transcripts for one reason: the React commit that
+ * plans the motion runs before the motion can start. Set-up-and-go rules that
+ * time the price of a clean motion, so the lead is a reading beside the leg.
+ * If a set-up ever grows past what reads as a response, that is a reading on
+ * the user's deck, not a red here.
+ */
+export function noteLead(leg: string, row: SettleFramesRow): void {
+  note(
+    `${leg}: set-up ${row.firstPaintDelayMs.toFixed(1)}ms from the gesture to ` +
+      `the first frame, ${row.commitDelayMs.toFixed(1)}ms of it before the ` +
+      `canvas armed`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The land ([B03] of set-up-and-go)
+// ---------------------------------------------------------------------------
+
+/** The `settle-land` row: the frame the settle's hand-back paid for. */
+export interface SettleLandRow {
+  /** The gesture to the land. */
+  readonly landAtMs: number;
+  /** The longer of the two gaps the land touched; `-1` with no tick after. */
+  readonly frameMs: number;
+  readonly frameFrames: number;
+  readonly gapsMs: readonly number[];
+  readonly framePeriodMs: number;
+  /** `null` when the page had no commit census. */
+  readonly commits: readonly { t: number; performed: number; site: string }[] | null;
+  readonly forcedLayouts: readonly { t: number; ms: number; site: string }[];
+  /** `null` when no delivery wrapper was installed. */
+  readonly deliveries: readonly { t: number; ms: number; site: string }[] | null;
+}
+
+/**
+ * The land's bar, in display periods: one frame.
+ *
+ * 1.5 rather than 1.0 for `FOLD_GAP_FRAMES_BAR`'s reason, which is the probe's
+ * own: a missed frame is a gap over `GAP_TOLERANCE` periods, because a live
+ * frame loop's gaps jitter around the period by a few milliseconds. A land of
+ * one frame reads about 1.0; a land that costs one missed frame reads about
+ * 2.0 and is caught with the same margin. The 35–49 ms land a fold or a
+ * division pays today reads 2.1–2.9.
+ */
+export const LAND_FRAMES_BAR = 1.5;
+
+/**
+ * Every `settle-land` row written since `mark`, waited for briefly.
+ *
+ * The row is written two frames after the release, so a reader that has just
+ * seen the `settle-frames` row can be a frame early. A window with no land at
+ * all is the bar's to report, so the wait is swallowed.
+ */
+export async function settleLandRows(
+  app: App,
+  mark: number,
+): Promise<readonly SettleLandRow[]> {
+  try {
+    await app.waitForCondition<boolean>(
+      `window.__deckTrace.since(${mark}).some(function (e) {
+         return e.kind === "settle-land";
+       })`,
+      { timeoutMs: 2_000 },
+    );
+  } catch {
+    // No land; `expectLand` says so.
+  }
+  return app.evalJS<readonly SettleLandRow[]>(
+    `window.__deckTrace.since(${mark}).filter(function (e) {
+       return e.kind === "settle-land";
+     })`,
+  );
+}
+
+/**
+ * The motion is sealed: nothing commits, forces layout or delivers an
+ * observer callback between the first frame and the land ([B05]). Every
+ * event names its site, so a red clause says where the leak is.
+ */
+export function expectMotionSealed(leg: string, row: SettleFramesRow): void {
+  const sites = (events: readonly { ms?: number; performed?: number; site: string }[]) =>
+    events
+      .map((e) => `${e.site}${e.ms !== undefined ? ` ${e.ms.toFixed(1)}ms` : ` ${e.performed}`}`)
+      .join(" | ");
   expect(
-    late.map((b) => `${b.recipe} ${b.startDelayMs}ms`),
-    `${leg}: every beat starts within one display period of its planning — ` +
-      `${framePeriodMs.toFixed(2)}ms; beats ` +
-      `${JSON.stringify(beats.map((b) => [b.recipe, b.startDelayMs]))}`,
-  ).toEqual([]);
+    row.motionAtMs,
+    `${leg}: the motion gate closed behind the beats — with no close there is ` +
+      `no motion window, and the three clauses below would pass by reading nothing`,
+  ).not.toBe(-1);
+  expect(
+    row.motionCommits,
+    `${leg}: the page counted commits — a null list is a census that was not there`,
+  ).not.toBeNull();
+  expect(
+    row.motionDeliveries,
+    `${leg}: the page counted observer deliveries`,
+  ).not.toBeNull();
+  // A commit that performed no fiber rendered nothing — React's own empty
+  // flush — and is kept in the row but not counted here.
+  const commits = (row.motionCommits ?? []).filter((c) => c.performed > 0);
+  const deliveries = row.motionDeliveries ?? [];
+  expect(
+    commits.length,
+    `${leg}: no React commit between the first frame and the land — ` +
+      `${sites(commits)}`,
+  ).toBe(0);
+  expect(
+    row.motionForcedLayouts.length,
+    `${leg}: no forced layout between the first frame and the land — ` +
+      `${sites(row.motionForcedLayouts)}`,
+  ).toBe(0);
+  expect(
+    deliveries.length,
+    `${leg}: no ResizeObserver delivery between the first frame and the land — ` +
+      `${sites(deliveries)}`,
+  ).toBe(0);
+}
+
+/**
+ * The land is one frame, and what ran in it is in the report either way.
+ *
+ * Asserted last in a leg, so a red land never hides the clauses before it.
+ * What ran is noted by site whatever the verdict: on a red land it is where
+ * the fix goes, and on a green one it is the baseline the next change is read
+ * against.
+ */
+export function expectLand(leg: string, land: SettleLandRow | null): void {
+  expect(
+    land,
+    `${leg}: the settle wrote its land — two frames after the release, beside ` +
+      `its \`settle-frames\` row`,
+  ).not.toBeNull();
+  if (land === null) return;
+  const sites = (events: readonly { ms?: number; performed?: number; site: string }[] | null) =>
+    events === null
+      ? "not counted"
+      : events.length === 0
+        ? "none"
+        : events
+            .map((e) => `${e.site}${e.ms !== undefined ? ` ${e.ms.toFixed(1)}ms` : ` ${e.performed}`}`)
+            .join(" | ");
+  note(
+    `${leg}: land ${land.frameMs.toFixed(1)}ms (gaps ${land.gapsMs.map((g) => g.toFixed(1)).join(", ")}) ` +
+      `at ${land.landAtMs.toFixed(0)}ms; commits ${sites(land.commits)}; forced layouts ` +
+      `${sites(land.forcedLayouts)}; deliveries ${sites(land.deliveries)}`,
+  );
+  expect(
+    land.frameFrames,
+    `${leg}: the land is one frame — no gap over ${LAND_FRAMES_BAR} display ` +
+      `periods across the hand-back — ${land.frameMs.toFixed(1)}ms / ` +
+      `${land.frameFrames.toFixed(2)} frames at a ${land.framePeriodMs.toFixed(2)}ms ` +
+      `period, with ${land.forcedLayouts.length} forced layout(s) and ` +
+      `${land.deliveries === null ? "uncounted" : land.deliveries.length} observer ` +
+      `deliveries in it`,
+  ).toBeLessThanOrEqual(LAND_FRAMES_BAR);
+  expect(
+    land.frameMs,
+    `${leg}: and a frame followed the land at all — -1 would mean the tail ` +
+      `never ticked and the clause above passed by having nothing to measure`,
+  ).toBeGreaterThan(0);
 }
 

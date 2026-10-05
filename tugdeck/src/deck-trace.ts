@@ -82,6 +82,7 @@
 import { getDeckStore } from "./lib/deck-store-registry";
 import type { BeatKind } from "./lib/pane-flip";
 import type { BeatRow } from "./components/tugways/tug-animator";
+import type { LandReading, MotionEvents } from "./lib/land-frame-record";
 import { isFocusDestination } from "./deck-store-selectors";
 
 // ---------------------------------------------------------------------------
@@ -731,6 +732,14 @@ export type DeckTraceEvent = {
       source: "completion" | "sweep" | "unmount";
     }
   | {
+      // The motion gate's two edges ([B05] of set-up-and-go): "close" when a
+      // settle's beats launch, which is the motion's first frame, and "open"
+      // when it lets React back in — after the land, at a retarget, or at
+      // unmount. The motion verb reads the close as the motion's origin.
+      kind: "settle-gate";
+      phase: "close" | "open";
+    }
+  | {
       // The settle's own frame-gap record ([B10], [P09], Spec S03). Written
       // once per settle, at release, beside `settle-release` — never when no
       // settle ran, because the sampler that feeds it is armed by the settle
@@ -747,6 +756,20 @@ export type DeckTraceEvent = {
       longestGapMs: number;
       longestGapFrames: number;
       gapsOverOneFrame: number;
+      // The same gaps from the first tick on, the lead left out: the motion
+      // set-up-and-go judges, with the set-up beside it as a reading.
+      motionLongestGapMs: number;
+      motionLongestGapFrames: number;
+      motionGapsOverOneFrame: number;
+      // The motion's own origin — the gesture to when the beats launched and
+      // the motion gate closed behind them (`-1` when no gate closed) — and
+      // what ran between it and the land: the gate's zero-commit, zero-chain
+      // and zero-delivery clauses ([B05] of set-up-and-go). `null` lists are
+      // a page that could not count, never a count of none.
+      motionAtMs: number;
+      motionCommits: MotionEvents["commits"];
+      motionForcedLayouts: MotionEvents["forcedLayouts"];
+      motionDeliveries: MotionEvents["deliveries"];
       // The lead, and the two numbers that decompose it. `firstPaintDelayMs`
       // is the GESTURE to the first recorded tick — the dead time a reader
       // watches before anything moves, which every counter on this row used to
@@ -787,6 +810,15 @@ export type DeckTraceEvent = {
       longestOffCurveRunOffsetMs: number;
       violations: readonly string[];
     }
+  | ({
+      // The settle's land: the frame its hand-back paid for, and what ran in
+      // it — commits, forced layouts and `ResizeObserver` deliveries, each by
+      // site (`lib/land-frame-record.ts`). Written two ticks after the
+      // release, because the land's frame is painted after the `settle-frames`
+      // row above has closed. Armed with that row's kind and never without
+      // it: the tail is part of the same bench record.
+      kind: "settle-land";
+    } & LandReading)
   | ({
       // One beat's own row, written by the beat at its landing — the recipe
       // it ran, how many layers it moved, how long after planning its clock
@@ -989,7 +1021,9 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "settle-arm" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-release" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-gate" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-frames" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-land" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-beat" }>, StampedFields>
   | Omit<
       Extract<DeckTraceEvent, { kind: "settle-motion-violation" }>,

@@ -29,11 +29,19 @@
 //! `settle-beat` row the deck trace wrote in the window, whose `startDelayMs`
 //! is planning to the beat's first running frame. With `--chains` it also
 //! carries the forced-layout chain probe's reading over the drive.
+//!
+//! And each reading carries the **land**: the frame the settle's hand-back
+//! paid for, read off the same outside frames. The settle mark goes off inside
+//! the land's own task, so the land opens at the last frame before the off and
+//! closes at the second after it — the first runs ahead of the layout and
+//! observer deliveries the hand-back dirtied. What ran in that span is named
+//! by site: commits from the census, chains with `--chains`, and
+//! `ResizeObserver` deliveries from the lead recorder with `--tasks`.
 
 use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED};
 use crate::commands::deck_motion_slide::{
-    RawCommit, RawTell, census, commit_timings, ensure_recorder, origins_label, print_census,
-    script_page,
+    RawCommit, RawTask, RawTell, census, commit_timings, ensure_recorder, origins_label,
+    print_census, script_page,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -391,6 +399,184 @@ pub fn frame_gaps(frames: &[f64], end: Option<f64>) -> (Option<f64>, Option<f64>
     (Some(round1(lead)), Some(round1(longest)))
 }
 
+/// One thing that ran in the land's frame: a chain's paying read or an
+/// observer delivery, with its own time and who asked.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct LandSite {
+    /// Relative to the drive.
+    pub t: f64,
+    pub ms: f64,
+    pub site: String,
+}
+
+/// One commit in the land's frame.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct LandCommit {
+    pub t: f64,
+    pub performed: u64,
+    /// The component that asked first, or the one that performed most.
+    pub site: String,
+}
+
+/// The land: the frame the settle's hand-back paid for, and what ran in it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Land {
+    /// The settle mark's off, relative to the drive — inside the land's task.
+    pub at_ms: f64,
+    /// The last frame before the off to the first after, and that to the next.
+    pub gaps_ms: Vec<f64>,
+    /// The longer of the two; `None` when no frame followed the off.
+    pub frame_ms: Option<f64>,
+    /// `None` when the page had no commit census.
+    pub commits: Option<Vec<LandCommit>>,
+    /// `None` without `--chains`.
+    pub chains: Option<Vec<LandSite>>,
+    /// `None` without `--tasks`.
+    pub deliveries: Option<Vec<LandSite>>,
+}
+
+/// The land's span: the last frame before `off`, or `off` when none came
+/// before it, and up to two frames at or after it.
+pub fn land_span(frames: &[f64], off: f64) -> (f64, Vec<f64>) {
+    let mut before = off;
+    let mut after = Vec::new();
+    for &t in frames {
+        if t < off {
+            before = t;
+        } else if after.len() < 2 {
+            after.push(t);
+        }
+    }
+    (before, after)
+}
+
+/// Read the land around the settle mark's off. An event belongs to it when it
+/// began after the span's opening frame and at or before its closing one.
+pub fn land(
+    frames: &[f64],
+    off: f64,
+    commits: Option<&[RawCommit]>,
+    chains: Option<&[LandSite]>,
+    tasks: Option<&[RawTask]>,
+) -> Land {
+    let (before, after) = land_span(frames, off);
+    let mut gaps_ms = Vec::new();
+    let mut previous = before;
+    for &t in &after {
+        gaps_ms.push(round1(t - previous));
+        previous = t;
+    }
+    let end = after.last().copied().unwrap_or(off);
+    let inside = |t: f64| t > before && t <= end;
+    let (commits, chains, deliveries) = events_in(commits, chains, tasks, inside);
+    Land {
+        at_ms: off,
+        frame_ms: gaps_ms.iter().copied().reduce(f64::max),
+        gaps_ms,
+        commits,
+        chains,
+        deliveries,
+    }
+}
+
+/// The commits, chains and observer deliveries that began where `inside`
+/// says — the land's span, or the motion's.
+#[allow(clippy::type_complexity)]
+fn events_in(
+    commits: Option<&[RawCommit]>,
+    chains: Option<&[LandSite]>,
+    tasks: Option<&[RawTask]>,
+    inside: impl Fn(f64) -> bool,
+) -> (
+    Option<Vec<LandCommit>>,
+    Option<Vec<LandSite>>,
+    Option<Vec<LandSite>>,
+) {
+    (
+        commits.map(|commits| {
+            commits
+                .iter()
+                .filter(|c| inside(c.t))
+                .map(|c| LandCommit {
+                    t: c.t,
+                    performed: c.performed,
+                    site: c
+                        .origins
+                        .first()
+                        .or(c.top.first())
+                        .map_or_else(|| "-".to_string(), |(name, _)| name.clone()),
+                })
+                .collect()
+        }),
+        chains.map(|chains| chains.iter().filter(|c| inside(c.t)).cloned().collect()),
+        tasks.map(|tasks| {
+            tasks
+                .iter()
+                .filter(|task| task.kind == "resize-observer" && inside(task.start))
+                .map(|task| LandSite {
+                    t: task.start,
+                    ms: round1(task.end - task.start),
+                    site: if task.name.is_empty() {
+                        "anonymous".to_string()
+                    } else {
+                        task.name.clone()
+                    },
+                })
+                .collect()
+        }),
+    )
+}
+
+/// The motion: from the motion gate's last close before the land — the
+/// beats' launch — to the land, and what ran in it. Under set-up-and-go
+/// ([B05]) the three lists are empty and no gap is over one period.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Motion {
+    /// The gate's close, relative to the drive.
+    pub at_ms: f64,
+    /// The longest frame-to-frame gap whose opening frame came at or after
+    /// the close and whose closing frame came at or before the land's off;
+    /// `None` when no two frames fell inside.
+    pub longest_gap_ms: Option<f64>,
+    /// `None` when the page had no commit census.
+    pub commits: Option<Vec<LandCommit>>,
+    /// `None` without `--chains`.
+    pub chains: Option<Vec<LandSite>>,
+    /// `None` without `--tasks`.
+    pub deliveries: Option<Vec<LandSite>>,
+}
+
+/// Read the motion between the gate's last close before `off` and `off`.
+/// `None` when no close came before the land — a deck that predates the
+/// gate, or a settle that launched no beats.
+pub fn motion(
+    frames: &[f64],
+    gates: &[(f64, String)],
+    off: f64,
+    commits: Option<&[RawCommit]>,
+    chains: Option<&[LandSite]>,
+    tasks: Option<&[RawTask]>,
+) -> Option<Motion> {
+    let at = gates
+        .iter()
+        .filter(|(t, phase)| phase == "close" && *t <= off)
+        .map(|(t, _)| *t)
+        .reduce(f64::max)?;
+    let longest_gap_ms = frames
+        .windows(2)
+        .filter(|pair| pair[0] >= at && pair[1] <= off)
+        .map(|pair| round1(pair[1] - pair[0]))
+        .reduce(f64::max);
+    let (commits, chains, deliveries) = events_in(commits, chains, tasks, |t| t > at && t <= off);
+    Some(Motion {
+        at_ms: at,
+        longest_gap_ms,
+        commits,
+        chains,
+        deliveries,
+    })
+}
+
 /// One `settle-beat` row the deck trace recorded in the window.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -517,6 +703,12 @@ pub struct Reading {
     pub longest_gap_ms: Option<f64>,
     /// The chain probe's reading over the drive, with `--chains`.
     pub chains: Option<Value>,
+    /// The frame the settle's hand-back paid for; `None` when the settle mark
+    /// never went off, and for a switch, which sets none.
+    pub land: Option<Land>,
+    /// The motion between the gate's close and the land; `None` when the
+    /// settle mark never went off, for a switch, and on a deck with no gate.
+    pub motion: Option<Motion>,
     /// The pane the drive returned — an `appear`'s arriving pane.
     pub pane_id: Option<String>,
 }
@@ -534,6 +726,34 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
     let frames: Vec<f64> = list(raw, "frames").unwrap_or_default();
     let window = gesture_window(drive.gesture, &marks);
     let (lead_ms, longest_gap_ms) = frame_gaps(&frames, window.map(|w| w.1));
+    let land_chains: Option<Vec<LandSite>> = list(raw, "landChains");
+    let tasks: Option<Vec<RawTask>> = list(raw, "tasks");
+    let gates: Vec<(f64, String)> = list(raw, "gates").unwrap_or_default();
+    let motion_reading = (drive.gesture != "switch")
+        .then(|| window_of(&marks))
+        .flatten()
+        .and_then(|(_, off)| {
+            motion(
+                &frames,
+                &gates,
+                off,
+                raw_commits.as_deref(),
+                land_chains.as_deref(),
+                tasks.as_deref(),
+            )
+        });
+    let land = (drive.gesture != "switch")
+        .then(|| window_of(&marks))
+        .flatten()
+        .map(|(_, off)| {
+            land(
+                &frames,
+                off,
+                raw_commits.as_deref(),
+                land_chains.as_deref(),
+                tasks.as_deref(),
+            )
+        });
     let commits = match (&raw_commits, window) {
         (Some(commits), Some(window)) => window_commits(commits, &tells, window),
         _ => Vec::new(),
@@ -549,6 +769,8 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         lead_ms,
         longest_gap_ms,
         chains: raw.get("chains").filter(|v| !v.is_null()).cloned(),
+        land,
+        motion: motion_reading,
         pane_id: str_of(raw, "paneId"),
     }
 }
@@ -756,9 +978,9 @@ fn print_reading(index: usize, r: &Reading) {
 }
 
 /// What a reading says beyond its commits, as the human output prints it
-/// beneath the reading's header: the lead and longest gap, each beat's start
-/// delay and declared breaches, and the chain probe's count, ms and top five
-/// sites.
+/// beneath the reading's header: the lead and longest gap, the land and what
+/// ran in it, each beat's start delay and declared breaches, and the chain
+/// probe's count, ms and top five sites.
 pub fn reading_extras(r: &Reading) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
@@ -769,6 +991,78 @@ pub fn reading_extras(r: &Reading) -> String {
         ms(r.lead_ms),
         ms(r.longest_gap_ms)
     );
+    if let Some(land) = &r.land {
+        let gaps = land
+            .gaps_ms
+            .iter()
+            .map(|g| format!("{g:.1}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let count = |n: Option<usize>| n.map_or_else(|| "—".to_string(), |n| n.to_string());
+        let _ = writeln!(
+            out,
+            "   land {} ms at {:.1} (gaps {gaps}); commits {}, chains {}, deliveries {}",
+            ms(land.frame_ms),
+            land.at_ms,
+            count(land.commits.as_ref().map(Vec::len)),
+            count(land.chains.as_ref().map(Vec::len)),
+            count(land.deliveries.as_ref().map(Vec::len)),
+        );
+        for c in land.commits.iter().flatten() {
+            let _ = writeln!(
+                out,
+                "     commit t {:>7.1}  performed {:>5}  {}",
+                c.t, c.performed, c.site
+            );
+        }
+        for c in land.chains.iter().flatten() {
+            let _ = writeln!(
+                out,
+                "     chain  t {:>7.1}  {:>6.1} ms  {}",
+                c.t, c.ms, c.site
+            );
+        }
+        for d in land.deliveries.iter().flatten() {
+            let _ = writeln!(
+                out,
+                "     resize t {:>7.1}  {:>6.1} ms  {}",
+                d.t, d.ms, d.site
+            );
+        }
+    }
+    if let Some(motion) = &r.motion {
+        let count = |n: Option<usize>| n.map_or_else(|| "—".to_string(), |n| n.to_string());
+        let _ = writeln!(
+            out,
+            "   motion from {:.1} ms: longest gap {} ms; commits {}, chains {}, deliveries {}",
+            motion.at_ms,
+            ms(motion.longest_gap_ms),
+            count(motion.commits.as_ref().map(Vec::len)),
+            count(motion.chains.as_ref().map(Vec::len)),
+            count(motion.deliveries.as_ref().map(Vec::len)),
+        );
+        for c in motion.commits.iter().flatten() {
+            let _ = writeln!(
+                out,
+                "     commit t {:>7.1}  performed {:>5}  {}",
+                c.t, c.performed, c.site
+            );
+        }
+        for c in motion.chains.iter().flatten() {
+            let _ = writeln!(
+                out,
+                "     chain  t {:>7.1}  {:>6.1} ms  {}",
+                c.t, c.ms, c.site
+            );
+        }
+        for d in motion.deliveries.iter().flatten() {
+            let _ = writeln!(
+                out,
+                "     resize t {:>7.1}  {:>6.1} ms  {}",
+                d.t, d.ms, d.site
+            );
+        }
+    }
     for beat in &r.settle_beats {
         let declares = if beat.declares.is_empty() {
             "nothing".to_string()
@@ -1210,6 +1504,135 @@ mod tests {
             frame_gaps(&[8.0, 24.7, 41.4, 90.0, 400.0], None),
             (Some(8.0), Some(310.0))
         );
+    }
+
+    #[test]
+    fn the_motion_runs_from_the_last_gate_close_to_the_off() {
+        let frames = [10.0, 26.7, 90.0, 106.7, 150.0, 166.7, 183.4];
+        let gates = vec![
+            (5.0, "close".to_string()),
+            (60.0, "open".to_string()),
+            // The retarget's close is the motion that landed.
+            (95.0, "close".to_string()),
+            (300.0, "close".to_string()),
+        ];
+        let commits: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 80.0, "performed": 900, "origins": [["SetUp", 1]], "top": []},
+            {"t": 120.0, "performed": 4, "origins": [["SessionCard", 1]], "top": []},
+        ]))
+        .unwrap();
+        let m = motion(&frames, &gates, 170.0, Some(&commits), None, None).unwrap();
+        assert_eq!(m.at_ms, 95.0);
+        // 106.7 → 150 is inside; 90 → 106.7 opened before the close, and
+        // 166.7 → 183.4 closes after the off.
+        assert_eq!(m.longest_gap_ms, Some(43.3));
+        assert_eq!(
+            m.commits
+                .unwrap()
+                .iter()
+                .map(|c| c.site.as_str())
+                .collect::<Vec<_>>(),
+            vec!["SessionCard"]
+        );
+        assert_eq!((m.chains, m.deliveries), (None, None));
+        // No close before the land: a deck with no gate has no motion to read.
+        assert_eq!(motion(&frames, &[], 170.0, None, None, None), None);
+    }
+
+    #[test]
+    fn the_land_opens_before_the_off_and_closes_two_frames_after() {
+        // The off is inside the land's task; the first frame after it runs
+        // ahead of the layout, and the second pays for it.
+        let (before, after) = land_span(&[100.0, 116.7, 133.3, 136.0, 181.0, 197.7], 134.0);
+        assert_eq!((before, after), (133.3, vec![136.0, 181.0]));
+        // No frame before the off opens the span at the off itself.
+        assert_eq!(land_span(&[140.0], 134.0), (134.0, vec![140.0]));
+
+        let commits: Vec<RawCommit> = serde_json::from_value(json!([
+            {"t": 120.0, "performed": 9, "origins": [["Early", 1]], "top": []},
+            {"t": 150.0, "performed": 742, "origins": [["TugPaneImpl", 4]], "top": [["Presence", 40]]},
+            {"t": 160.0, "performed": 3, "origins": [], "top": [["TugButton2", 3]]},
+            {"t": 190.0, "performed": 2, "origins": [["Late", 1]], "top": []},
+        ]))
+        .unwrap();
+        let chains = vec![
+            LandSite {
+                t: 135.0,
+                ms: 31.0,
+                site: "_placeRunHeight".into(),
+            },
+            LandSite {
+                t: 90.0,
+                ms: 12.0,
+                site: "before".into(),
+            },
+        ];
+        let tasks: Vec<RawTask> = serde_json::from_value(json!([
+            {"kind": "resize-observer", "name": "", "start": 170.0, "end": 174.5},
+            {"kind": "timeout", "name": "tick", "start": 171.0, "end": 172.0},
+        ]))
+        .unwrap();
+        let l = land(
+            &[100.0, 116.7, 133.3, 136.0, 181.0, 197.7],
+            134.0,
+            Some(&commits),
+            Some(&chains),
+            Some(&tasks),
+        );
+        assert_eq!(l.gaps_ms, vec![2.7, 45.0]);
+        assert_eq!(l.frame_ms, Some(45.0));
+        let sites: Vec<&str> = l
+            .commits
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|c| c.site.as_str())
+            .collect();
+        assert_eq!(sites, vec!["TugPaneImpl", "TugButton2"]);
+        assert_eq!(l.chains.as_ref().unwrap().len(), 1);
+        let delivery = &l.deliveries.as_ref().unwrap()[0];
+        assert_eq!((delivery.ms, delivery.site.as_str()), (4.5, "anonymous"));
+        assert_eq!(l.deliveries.as_ref().unwrap().len(), 1);
+
+        // Without a census, chains or tasks the land still reads its frame.
+        let bare = land(&[100.0, 116.7, 133.3], 110.0, None, None, None);
+        assert_eq!(bare.frame_ms, Some(16.7));
+        assert_eq!(
+            (bare.commits, bare.chains, bare.deliveries),
+            (None, None, None)
+        );
+    }
+
+    #[test]
+    fn a_reading_carries_its_land() {
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "c1"}),
+            read: true,
+        };
+        let raw = json!({
+            "settle": [[2.0, true], [300.0, false]],
+            "frames": [131.0, 147.0, 284.0, 301.0, 347.0, 364.0],
+            "commits": null,
+        });
+        let r = reduce(&drive, &raw);
+        let land = r.land.as_ref().unwrap();
+        assert_eq!(land.frame_ms, Some(46.0));
+        let text = reading_extras(&r);
+        assert!(
+            text.contains(
+                "land 46.0 ms at 300.0 (gaps 17.0, 46.0); commits —, chains —, deliveries —"
+            ),
+            "{text}"
+        );
+
+        // A switch sets no settle mark and has no land.
+        let switch = Drive {
+            gesture: "switch",
+            args: json!({}),
+            read: true,
+        };
+        assert_eq!(reduce(&switch, &raw).land, None);
     }
 
     #[test]

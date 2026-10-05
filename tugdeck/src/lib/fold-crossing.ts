@@ -122,6 +122,23 @@ export interface StillCrossingEventDetail {
 }
 
 /**
+ * Stamped on the frame beside `STILL_CROSSING_ATTR` when the interior is held
+ * at its FINAL height rather than the larger of its two — a SETTLED still
+ * crossing. The interior is already laid out where it will land, so nothing
+ * inside it waits on the hold: a list view acts on its geometry at once
+ * instead of owing its pin to the crossing's end. Not React state ([L06]).
+ */
+export const STILL_SETTLED_ATTR = "data-still-settled";
+
+/**
+ * Dispatched on the frame when a still crossing is settled — in the set-up,
+ * before the first frame — so the interior pays what it would otherwise owe
+ * to the land: the pin, the restore, the extent rebase and the re-window, all
+ * against the geometry it lands at. Not cancelable, and does not bubble.
+ */
+export const STILL_CROSSING_SETTLED = "tug-still-crossing-settled";
+
+/**
  * The height the interior is held at under the still crossing, written where
  * `FOLD_HELD_HEIGHT_PROP` is and for the same reason. Its own property so the
  * pane-level hold reads one name whatever opened the crossing.
@@ -227,6 +244,72 @@ export function markStillCrossing(
   return markKind(STILL_KIND, frame, heldHeightPx);
 }
 
+/**
+ * Open or re-mark a SETTLED still crossing on `frame`, held at exactly
+ * `finalHeightPx` — the content height the frame lands at.
+ *
+ * This is the land pre-paid. Held at the larger of its two heights, the
+ * interior re-lays itself out at the land, when the hold comes off, and the
+ * list view pays its owed pin there: on a real transcript that is the one
+ * frame of 35–49 ms left in a height-bearing settle. Held at its final
+ * height, the interior is laid out where it lands before the first frame,
+ * and taking the hold off changes no geometry — though it still re-lays the
+ * card out at the same size, so the settle takes it off two paints past the
+ * land rather than in it.
+ *
+ * Unlike every other mark this one may LOWER a standing height. The rule
+ * against lowering protects a picture laid out at an open height from being
+ * re-laid-out mid-sweep; a settled hold has no such picture to protect, and
+ * a retarget runs its own set-up, so it lays the interior out at its new
+ * final height at once. Never for a fold, whose interior must stay laid out
+ * open while it folds.
+ *
+ * The interior hears of it only through
+ * {@link announceStillCrossingSettled}, which the caller makes once the
+ * frame's own holds are written, so what the interior reads is the geometry
+ * of the first frame.
+ */
+export function settleStillCrossing(
+  frame: HTMLElement,
+  finalHeightPx: number,
+): number {
+  // The standing record goes first so the mark below starts from nothing.
+  STILL_KIND.held.delete(frame);
+  frame.removeAttribute(STILL_CROSSING_ATTR);
+  const id = markKind(STILL_KIND, frame, finalHeightPx);
+  frame.setAttribute(STILL_SETTLED_ATTR, "");
+  return id;
+}
+
+/**
+ * Tell `frame`'s interior that its still crossing is settled, so it pays
+ * what it would otherwise owe to the land now. A no-op on a frame that is not
+ * settled.
+ */
+export function announceStillCrossingSettled(frame: HTMLElement): void {
+  const stamp = frame.getAttribute(STILL_CROSSING_ATTR);
+  if (stamp === null || !frame.hasAttribute(STILL_SETTLED_ATTR)) return;
+  frame.dispatchEvent(
+    new CustomEvent<StillCrossingEventDetail>(STILL_CROSSING_SETTLED, {
+      detail: { id: Number(stamp) },
+      cancelable: false,
+      bubbles: false,
+    }),
+  );
+}
+
+/**
+ * Whether `frame`'s interior is held at a height it will not land at — what
+ * an interior asks before it acts on its geometry. A settled crossing holds
+ * its interior where it lands, so it answers no.
+ */
+export function isInteriorHeld(frame: HTMLElement): boolean {
+  return (
+    frame.hasAttribute(STILL_CROSSING_ATTR) &&
+    !frame.hasAttribute(STILL_SETTLED_ATTR)
+  );
+}
+
 function markKind(
   kind: CrossingKind,
   frame: HTMLElement,
@@ -238,6 +321,9 @@ function markKind(
   const standing = frame.hasAttribute(kind.attr)
     ? (kind.held.get(frame)?.heightPx ?? null)
     : null;
+  // Any mark but a settle's holds a picture at an open height, so a frame it
+  // re-marks is no longer settled; `settleStillCrossing` sets it after this.
+  if (kind === STILL_KIND) frame.removeAttribute(STILL_SETTLED_ATTR);
   const heightPx = heldHeightOnMark(standing, heldHeightPx);
   const content = contentBoxOf(frame);
   kind.held.set(frame, { box: content, heightPx });
@@ -359,6 +445,7 @@ function endKind(
   if (stamp === null) return null;
   if (crossingId !== undefined && Number(stamp) !== crossingId) return null;
   frame.removeAttribute(kind.attr);
+  if (kind === STILL_KIND) frame.removeAttribute(STILL_SETTLED_ATTR);
   // The box the mark was written on, not the one the frame holds now: a pane
   // whose content box was replaced mid-crossing left the property on the old
   // element, and the new one never carried it.

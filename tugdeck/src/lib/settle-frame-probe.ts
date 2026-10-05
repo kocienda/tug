@@ -48,6 +48,7 @@
  */
 
 import { SHOWN_PANE_FRAMES } from "@/components/chrome/space-layer";
+import { landRecorder } from "@/lib/land-frame-record";
 
 /**
  * The properties a settling deck is allowed to animate.
@@ -222,6 +223,29 @@ export interface SettleFrameReading {
   readonly longestGapEndsAt: number;
   readonly gapsOverOneFrame: number;
   /**
+   * The longest gap from the FIRST TICK on — the motion's own gaps, the lead
+   * left out.
+   *
+   * {@link SettleFrameReading.longestGapMs} carries the lead as a leading gap,
+   * which made every gap bar a bar on the set-up's length too. Under
+   * set-up-and-go the set-up is a cost the user accepts and the motion is
+   * what is judged: no gap over one period from the first frame to the land.
+   * This is that half, beside the lead rather than folded into it.
+   */
+  readonly motionLongestGapMs: number;
+  /** {@link SettleFrameReading.motionLongestGapMs} in display frames. */
+  readonly motionLongestGapFrames: number;
+  /** Gaps from the first tick on that missed a frame (over {@link GAP_TOLERANCE} periods). */
+  readonly motionGapsOverOneFrame: number;
+  /**
+   * The gesture → the motion's first frame: when the beats launched and the
+   * motion gate closed behind them, so every tick from here to the land is
+   * the motion's and every one before it is the set-up's. `-1` when the
+   * settle opened no gate — a cut, or a caller with no gate to report — and
+   * the motion fields above then read from the first tick, as before.
+   */
+  readonly motionAtMs: number;
+  /**
    * The GESTURE → the first tick the run recorded. `-1` only when no tick ever
    * arrived.
    *
@@ -334,6 +358,10 @@ const EMPTY_READING: SettleFrameReading = {
   longestGapFrames: 0,
   longestGapEndsAt: -1,
   gapsOverOneFrame: 0,
+  motionLongestGapMs: 0,
+  motionLongestGapFrames: 0,
+  motionGapsOverOneFrame: 0,
+  motionAtMs: -1,
   firstPaintDelayMs: -1,
   commitDelayMs: 0,
   moveFirstPaintDelayMs: -1,
@@ -560,6 +588,7 @@ export function classifySettleFrames(
   samples: readonly SettleFrameSample[],
   armedAt?: number,
   gestureAt: number = armedAt ?? Number.NaN,
+  motionAt?: number,
 ): SettleFrameReading {
   if (samples.length === 0) return EMPTY_READING;
 
@@ -580,6 +609,21 @@ export function classifySettleFrames(
     originAt,
   );
   const { framePeriodMs, longestGapMs, gapsOverOneFrame, longestGapEndsAt } = cadence;
+  // The motion's own gaps: the lead is the series' first entry (`originAt` is
+  // always given here), and everything after it is tick to tick. With the
+  // motion's own origin, a gap belongs to the motion when the tick that
+  // opens it came after the beats launched — the set-up's React commit and
+  // its layout can land after the first tick (the store's notify waits past
+  // a paint), and those frames are the set-up's, not the motion's.
+  const ticks = samples.map((sample) => sample.t);
+  let motionLongestGapMs = 0;
+  let motionGapsOverOneFrame = 0;
+  for (let i = 1; i < cadence.gaps.length; i++) {
+    if (motionAt !== undefined && ticks[i - 1] < motionAt) continue;
+    const gap = cadence.gaps[i];
+    if (gap > motionLongestGapMs) motionLongestGapMs = gap;
+    if (gap > framePeriodMs * GAP_TOLERANCE) motionGapsOverOneFrame += 1;
+  }
 
   let moveBornAt: number | null = null;
   let moveAdvancedAt: number | null = null;
@@ -906,6 +950,10 @@ export function classifySettleFrames(
     longestGapFrames: longestGapMs / framePeriodMs,
     longestGapEndsAt,
     gapsOverOneFrame,
+    motionLongestGapMs,
+    motionLongestGapFrames: motionLongestGapMs / framePeriodMs,
+    motionGapsOverOneFrame,
+    motionAtMs: motionAt === undefined ? -1 : motionAt - originAt,
     firstPaintDelayMs: samples[0].t - originAt,
     commitDelayMs,
     moveFirstPaintDelayMs:
@@ -1290,10 +1338,14 @@ class SettleFrameProbe {
       // in-product record does not ask for it — nor for the rects, which feed
       // `rectsChangedAfterLanding` and are a forced layout per tick.
       this.samples.push(
-        sampleSettleFrame(scope, {
-          countFixedDescendants: true,
-          readRects: true,
-        }),
+        // Its rect read is a forced layout every tick, and through a land it
+        // pays the hand-back's layout early; the land record names it so.
+        landRecorder.aside("bench probe", () =>
+          sampleSettleFrame(scope, {
+            countFixedDescendants: true,
+            readRects: true,
+          }),
+        ),
       );
       this.handle = requestAnimationFrame(tick);
     };

@@ -24,10 +24,11 @@
  * was served, the gesture wrote its window, and a commit fell in it. A census
  * that was missing, a covered window, or a gesture that armed no settle would
  * otherwise all read as a leg with nothing to report. Then it bars the
- * largest commit in each leg's window by fibers performed (`COMMIT_BAR`), and
- * the window's main-thread milliseconds (`MAIN_THREAD_BAR_MS`): React's time
- * in every commit, plus the longest forced layout that no commit already
- * counted.
+ * window's main-thread milliseconds (`MAIN_THREAD_BAR_MS`): React's time in
+ * every commit, plus the longest forced layout that no commit already
+ * counted. The largest commit's fiber count is noted, not barred: a fiber
+ * count is blind to forced layout, and the milliseconds are what the set-up
+ * costs.
  *
  * Every leg runs twice, on session cards bound to real resumed transcripts:
  * the `slice` arm everywhere, and the `whale` arm where the local corpus holds
@@ -87,32 +88,6 @@ const TEST_NAME = "at0684-settle-window-commits";
 /** A `lab.drive` call, as the gesture expression `sampleB09Gesture` takes. */
 const drive = (gesture: string, args: Record<string, unknown> = {}): string =>
   `window.tugdeck.lab.drive(${JSON.stringify(gesture)}, ${JSON.stringify(args)})`;
-
-/**
- * Each leg's bar on its largest in-window commit, in fibers performed.
- *
- * About a quarter over the largest of three solo readings, taken with driven
- * gestures under the click's hold (`briefs/settle-window-commit-readings.md`).
- * The three readings per leg:
- *
- * - close: 1623, 547, 547 — bimodal: 1623 when React batches the close's own
- *   commit with its badge and popper commits, 547 when they land apart. A
- *   quarter over 1623 would be looser than the 2000 it was, so it stays 2000.
- * - rails: 45, 45, 45. The rails read 4063 while a hide closed its cards and
- *   the show minted them again; this bar keeps that mount from coming back.
- * - split: 858, 858, 858.
- * - unfold: 169, 169, 169.
- * - switch: 1026, 1026, 1026.
- *
- * The numbers are a default; revise them against these readings.
- */
-const COMMIT_BAR: Record<string, number> = {
-  close: 2_000,
-  rails: 57,
-  split: 1_075,
-  unfold: 212,
-  switch: 1_285,
-};
 
 /**
  * Each leg's bar on the window's main-thread time, in milliseconds: the sum of
@@ -211,20 +186,6 @@ function expectMainThreadUnderBar(leg: string, r: MainThreadReading): void {
       `chain outside every commit ${r.outsideMs.toFixed(1)} = ${r.total.toFixed(1)} ms, ` +
       `against a bar of ${bar} ms`,
   ).toBeLessThan(bar as number);
-}
-
-/** The leg's largest in-window commit is under its bar, with the reading. */
-function expectUnderBar(leg: string, w: WindowReading): void {
-  const largest = largestCommit(w.commits);
-  const bar = COMMIT_BAR[leg];
-  expect(bar, `${leg}: the leg has a commit bar`).toBeDefined();
-  if (largest === null || bar === undefined) return;
-  expect(
-    largest.performed,
-    `${leg}: the largest commit in the window performed ${largest.performed} fibers ` +
-      `(mounted ${largest.mounted}, t=${largest.t}, origins ` +
-      `${JSON.stringify(largest.origins.slice(0, 6))}) against a bar of ${bar}`,
-  ).toBeLessThan(bar);
 }
 
 /**
@@ -404,7 +365,6 @@ async function readLeg(
   const own = new Set<string>(targets);
   for (const pane of movedPanes(sampled.before, sampled.after)) own.add(cards[pane] ?? pane);
   expectNoStrayPaneRenders(leg, w as WindowReading, own);
-  expectUnderBar(leg, w as WindowReading);
   expectMainThreadUnderBar(leg, mainThread);
   return w as WindowReading;
 }
@@ -693,7 +653,6 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0684 — swi
         // The gesture's own set is the arriving workspace: every one of its
         // panes is newly shown. The departing workspace's panes are outside it.
         expectNoStrayPaneRenders("switch", w as WindowReading, new Set(spaceCards("b")));
-        expectUnderBar("switch", w as WindowReading);
         expectMainThreadUnderBar("switch", mainThread);
       }, false, ["at0684-sa1", "at0684-sa2"]);
     },

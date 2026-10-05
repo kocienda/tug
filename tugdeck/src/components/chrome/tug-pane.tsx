@@ -551,10 +551,16 @@ function sharedVerbRank(commandId: string): number {
 }
 const PLACE_VERB_EQUALIZE = "place:equalize";
 
+/**
+ * The place's arrangement, for the badge alone. Provided by
+ * {@link CardTitleBar} and read by {@link CardPlaceBadge}, so a change to it
+ * re-renders the badge and nothing else of the bar.
+ */
+const PlaceArrangementContext = createContext<CardTitleBarProps["placeArrangement"]>(undefined);
+
 interface CardPlaceBadgeProps {
   placePaneId: string | undefined;
   slotStack: readonly SlotStackEntry[];
-  placeArrangement: CardTitleBarProps["placeArrangement"];
   onArrangePlace: CardTitleBarProps["onArrangePlace"];
   onRevealPane: CardTitleBarProps["onRevealPane"];
   modalHeld: boolean;
@@ -577,13 +583,13 @@ interface CardPlaceBadgeProps {
 const CardPlaceBadge = memo(function CardPlaceBadge({
   placePaneId,
   slotStack: slotStackProp,
-  placeArrangement,
   onArrangePlace,
   onRevealPane,
   modalHeld,
   open,
   onOpenChange,
 }: CardPlaceBadgeProps) {
+  const placeArrangement = useContext(PlaceArrangementContext);
   const deck = useContext(DeckManagerContext);
   const source = useMemo(
     () => (deck === null || placePaneId === undefined ? null : placeSource(deck)),
@@ -766,9 +772,17 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
  *
  * Everything the bar draws that is not a prop it reads through its own
  * subscriptions ([L02]), so a bar whose props are equal has nothing to render.
+ *
+ * The one prop only the badge draws — `placeArrangement` — does not reach this
+ * body at all: {@link CardTitleBar} hands it to the badge through
+ * {@link PlaceArrangementContext} and tells the body only whether there is
+ * one. A split or a stack changes the arrangement on every member of its
+ * place, and as a prop it re-rendered each member's whole bar — its buttons,
+ * tooltips and poppers, two dozen per bar — inside the gesture's set-up, to
+ * redraw one glyph.
  */
-export const CardTitleBar = memo(React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
-function CardTitleBar({
+const CardTitleBarBody = memo(React.forwardRef<CardTitleBarHandle, CardTitleBarBodyProps>(
+function CardTitleBarBody({
   title,
   icon,
   closable = true,
@@ -784,7 +798,7 @@ function CardTitleBar({
   onRevealPane,
   bullseye = false,
   onToggleBullseye,
-  placeArrangement,
+  hasPlaceArrangement,
   onArrangePlace,
   onSetWidth,
   onFillHeight,
@@ -796,7 +810,7 @@ function CardTitleBar({
   cardFold = false,
   onClose,
   onDragStart,
-}: CardTitleBarProps, ref) {
+}: CardTitleBarBodyProps, ref) {
   // Whether this pane stands in a PLACE at all — a slot, or a rail. That is
   // the badge's whole condition now, and depth is no part of it: a card alone
   // in its column is standing in a place one card deep, which is a true fact
@@ -808,7 +822,7 @@ function CardTitleBar({
   // `slotStack.length > 1` survives as a fallback, not as a gate: a pane can
   // share a place while reaching the bar without an arrangement record, and
   // when it does the depth the title bar can see for itself still answers.
-  const hasPlace = placeArrangement !== undefined || slotStack.length > 1;
+  const hasPlace = hasPlaceArrangement || slotStack.length > 1;
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
   // card published them (the `cardTitleStore` precedent) — no cards-card import.
@@ -1873,7 +1887,6 @@ function CardTitleBar({
           <CardPlaceBadge
             placePaneId={placePaneId}
             slotStack={slotStack}
-            placeArrangement={placeArrangement}
             onArrangePlace={onArrangePlace}
             onRevealPane={onRevealPane}
             modalHeld={modalHeld}
@@ -1981,6 +1994,30 @@ function CardTitleBar({
         )}
       </div>
     </div>
+  );
+}), (prev, next) => plainEqual(prev, next));
+
+/** {@link CardTitleBar}'s body: every prop but the arrangement, which only the badge draws. */
+type CardTitleBarBodyProps = Omit<CardTitleBarProps, "placeArrangement"> & {
+  /** Whether the pane stands in a place with an arrangement record. */
+  hasPlaceArrangement: boolean;
+};
+
+/**
+ * The title bar: the arrangement to the badge through
+ * {@link PlaceArrangementContext}, every other prop to the memoized body,
+ * which a new arrangement does not reach.
+ */
+export const CardTitleBar = memo(React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
+function CardTitleBar({ placeArrangement, ...rest }: CardTitleBarProps, ref) {
+  return (
+    <PlaceArrangementContext.Provider value={placeArrangement}>
+      <CardTitleBarBody
+        ref={ref}
+        {...rest}
+        hasPlaceArrangement={placeArrangement !== undefined}
+      />
+    </PlaceArrangementContext.Provider>
   );
 }), (prev, next) => plainEqual(prev, next));
 

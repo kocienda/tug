@@ -470,7 +470,14 @@ function TelemetryBirthRow({
 /** Stable no-op subscribe for a card whose services aren't constructed yet. */
 const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 
-export function SessionMasthead({
+/**
+ * Memoized: its four props are an id, a card id, a host element and a flag,
+ * and everything else it draws it reads through its own subscriptions
+ * ([L02]). Unmemoized, every arrangement change that re-rendered its pane
+ * frame — a split, a stack, a seat — re-rendered it with nothing changed,
+ * inside the gesture's set-up.
+ */
+export const SessionMasthead = React.memo(function SessionMasthead({
   sessionId,
   cardId,
   accessoryHost = null,
@@ -937,4 +944,4 @@ export function SessionMasthead({
       )}
     </div>
   );
-}
+});

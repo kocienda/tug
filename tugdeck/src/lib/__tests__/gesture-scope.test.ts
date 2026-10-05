@@ -218,6 +218,76 @@ describe("GestureScope", () => {
     scope.tell(() => calls.push("held"));
     expect(calls).toEqual(["q"]);
   });
+
+  it("holds every tell and queued body while the motion gate is closed, and the last release runs them", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    const first = scope.holdMotion(10_000);
+    const second = scope.holdMotion(10_000);
+    expect(scope.isMotionHeld()).toBe(true);
+    scope.tell(() => calls.push("tell"));
+    scope.enqueue(() => calls.push("queued"));
+    first();
+    first();
+    expect(calls).toEqual([]);
+    second();
+    expect(calls).toEqual(["tell", "queued"]);
+    expect(scope.isMotionHeld()).toBe(false);
+  });
+
+  it("the end of a scope releases nothing the motion gate still holds", () => {
+    const { scope, flushes } = harness();
+    const calls: string[] = [];
+    scope.open("pointer");
+    const release = scope.holdMotion(10_000);
+    scope.tell(() => calls.push("tell"));
+    flushes[0]();
+    expect(scope.isPending()).toBe(false);
+    expect(calls).toEqual([]);
+    release();
+    expect(calls).toEqual(["tell"]);
+  });
+
+  it("a motion release while a scope is pending leaves the tells to the scope's release", () => {
+    const { scope, flushes } = harness();
+    const calls: string[] = [];
+    const release = scope.holdMotion(10_000);
+    scope.open("pointer");
+    scope.tell(() => calls.push("tell"));
+    release();
+    expect(calls).toEqual([]);
+    flushes[0]();
+    expect(calls).toEqual(["tell"]);
+  });
+
+  it("flushSync's drain still reaches what the motion gate holds", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    const release = scope.holdMotion(10_000);
+    scope.tell(() => calls.push("tell"));
+    flushThrough(scope, () => calls.push("body"));
+    expect(calls).toEqual(["tell", "body"]);
+    release();
+  });
+
+  it("the motion gate does not close with motion off", () => {
+    const { scope } = harness(false);
+    const calls: string[] = [];
+    scope.holdMotion(10_000);
+    expect(scope.isMotionHeld()).toBe(false);
+    scope.tell(() => calls.push("tell"));
+    expect(calls).toEqual(["tell"]);
+  });
+
+  it("the motion gate opens itself at its cap", async () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    scope.holdMotion(1);
+    scope.tell(() => calls.push("tell"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls).toEqual(["tell"]);
+    expect(scope.isMotionHeld()).toBe(false);
+  });
 });
 
 describe("flushThrough", () => {

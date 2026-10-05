@@ -523,6 +523,10 @@ const EVENT_FIXTURES: Record<
     kind: "settle-release",
     source: "completion",
   },
+  "settle-gate": {
+    kind: "settle-gate",
+    phase: "close",
+  },
   "settle-frames": {
     kind: "settle-frames",
     panes: 4,
@@ -534,6 +538,17 @@ const EVENT_FIXTURES: Record<
     commitDelayMs: 0,
     moveFirstPaintDelayMs: 0,
     violations: [],
+  },
+  "settle-land": {
+    kind: "settle-land",
+    landAtMs: 412,
+    frameMs: 17,
+    frameFrames: 1.02,
+    gapsMs: [4, 17],
+    framePeriodMs: 16.7,
+    commits: [],
+    forcedLayouts: [],
+    deliveries: null,
   },
   "settle-beat": {
     kind: "settle-beat",

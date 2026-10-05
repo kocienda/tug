@@ -1804,11 +1804,13 @@ body {
  * `data-still-crossing` is the imposer's mark, written on the frame for the
  * life of any tween that carries a real height term — a stack, a split, a
  * join, a leave, and a fold, which sets it beside its own
- * (`lib/fold-crossing.ts`). Inside it the card is laid out once at the LARGER
- * of its two heights and this box tweens past that height, so the card
- * overflows it — which is the whole design: one edge moves and nothing inside
- * the card re-flows, because a subtree with a definite height that does not
- * change is not dirtied by its ancestor's tween.
+ * (`lib/fold-crossing.ts`). Inside it the card is laid out once — at the
+ * height it lands at, or for a fold at the LARGER of its two — and this box
+ * tweens past that height, so the card overflows it or stands short of it —
+ * which is the whole design: one edge moves and nothing inside the card
+ * re-flows, because a subtree with a definite height that does not change is
+ * not dirtied by its ancestor's tween. Laid out where it lands, the card has
+ * nothing left to re-flow when the mark comes off (`data-still-settled`).
  *
  * `overflow: hidden` rather than the `auto` above, for the two things `auto`
  * would do with that overflow and neither of which belongs in a 400ms sweep:

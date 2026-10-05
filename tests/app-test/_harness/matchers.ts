@@ -255,6 +255,11 @@ export type DeckTraceEventShape = {
       source: "completion" | "sweep" | "unmount";
     }
   | {
+      /** The motion gate's edges: closed at the beats' launch, opened after. */
+      kind: "settle-gate";
+      phase: "close" | "open";
+    }
+  | {
       /** The settle's own frame-gap record, written once at release ([B10]). */
       kind: "settle-frames";
       panes: number;
@@ -270,6 +275,22 @@ export type DeckTraceEventShape = {
        *  settle carried no transform-bearing effect at all. */
       moveFirstPaintDelayMs: number;
       violations: readonly string[];
+    }
+  | {
+      /** The settle's land: the frame its hand-back paid for, and what ran
+       *  in it, written two ticks after the release. */
+      kind: "settle-land";
+      landAtMs: number;
+      /** The longer of the two gaps the land touched; `-1` with no tick after. */
+      frameMs: number;
+      frameFrames: number;
+      gapsMs: readonly number[];
+      framePeriodMs: number;
+      /** `null` when the page had no commit census. */
+      commits: readonly { t: number; performed: number; site: string }[] | null;
+      forcedLayouts: readonly { t: number; ms: number; site: string }[];
+      /** `null` when no delivery wrapper was installed. */
+      deliveries: readonly { t: number; ms: number; site: string }[] | null;
     }
   | {
       /** One beat's own row, written by the beat at its landing. */
@@ -375,7 +396,9 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-arm",
   "settle-retarget",
   "settle-release",
+  "settle-gate",
   "settle-frames",
+  "settle-land",
   "settle-beat",
   "settle-motion-violation",
   "opening-bid-mismatch",
@@ -640,6 +663,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `settle-retarget ${e.mode} beat=${fmt(e.beat)} pane=${fmt(e.paneId)}`;
     case "settle-release":
       return `settle-release ${e.source}`;
+    case "settle-gate":
+      return `settle-gate ${e.phase}`;
     case "settle-frames":
       return (
         `settle-frames panes=${e.panes} ticks=${e.ticks} ` +
@@ -647,6 +672,12 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
         `over1=${e.gapsOverOneFrame} firstPaint=${e.firstPaintDelayMs}ms ` +
         `commit=${e.commitDelayMs}ms movePaint=${e.moveFirstPaintDelayMs}ms ` +
         `violations=[${e.violations.join(", ")}]`
+      );
+    case "settle-land":
+      return (
+        `settle-land at=${e.landAtMs.toFixed(1)}ms frame=${e.frameMs.toFixed(1)}ms/` +
+        `${e.frameFrames.toFixed(2)}f commits=${e.commits === null ? "-" : e.commits.length} ` +
+        `forced=${e.forcedLayouts.length} deliveries=${e.deliveries === null ? "-" : e.deliveries.length}`
       );
     case "settle-beat":
       return (

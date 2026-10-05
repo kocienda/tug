@@ -150,7 +150,6 @@ import { mkTempTugbank, rmTempTugbank } from "./_harness/tugbank-helpers";
 import {
   AFTER_LAND_MS,
   ARRIVAL_CENSUS_MS,
-  ARRIVAL_RETARGET_AT_MS,
   B09_GAP_FRAMES_BAR,
   BAR_TIMEOUT_MS,
   BOOKKEEPING_KEYS,
@@ -176,7 +175,8 @@ import {
   blobFor,
   columnBlob,
   expectB09Bar,
-  expectBeatStarts,
+  expectLand,
+  noteBeatStarts,
   expectBeats,
   flashCensus,
   frameOrigins,
@@ -491,12 +491,17 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
             probe.firstPaintDelayMs,
             `and so is the probe's, from its`,
           ).toBeGreaterThanOrEqual(0);
+          // Agree to within a millisecond, not exactly: both readings are
+          // rounded to whole milliseconds off clocks that tick apart, so the
+          // same instant reads 24 on one and 25 on the other. A record written
+          // off an empty array or a pump that never ran misses by a frame,
+          // which this still catches.
           expect(
-            row.moveFirstPaintDelayMs,
+            Math.abs(row.moveFirstPaintDelayMs - probe.moveFirstPaintDelayMs),
             `one classifier over one gesture, so the move's own clock has to ` +
-              `agree: row ${row.moveFirstPaintDelayMs}ms vs probe ` +
-              `${probe.moveFirstPaintDelayMs}ms`,
-          ).toBe(probe.moveFirstPaintDelayMs);
+              `agree to within the rounding: row ${row.moveFirstPaintDelayMs}ms ` +
+              `vs probe ${probe.moveFirstPaintDelayMs}ms`,
+          ).toBeLessThanOrEqual(1);
 
           // ---- [D9]'s runtime guard. -----------------------------------
           const violations = await motionViolationRows(app, mark);
@@ -1265,7 +1270,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
   `at0622 — an arrival interrupted by a close keeps its hold [${arm.size}]`,
   () => {
     test(
-      "a card arriving, closed into at 140ms, never stands at full opacity before its arrive beat",
+      "a card arriving, closed into during its room beat, never stands at full opacity before its arrive beat",
       async () => {
         const { app, tugbankPath } = await launch(3, blobFor(3), undefined, { transcripts: arm.size });
         try {
@@ -1280,8 +1285,18 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
             `(window.__tug.dispatchControlAction("show-card", ` +
               `{ component: "session" }), null)`,
           );
-          await wait(ARRIVAL_RETARGET_AT_MS);
-          await app.evalJS<null>(`(window.__tug.closePane("at0622-p1"), null)`);
+          // The close lands while the arrival's `room` beat is running, read
+          // off the census rather than a fixed delay: a constant raced the
+          // arrival, and once the arrival had landed by then the leg read no
+          // retarget and could not reach the defect it tests.
+          await app.waitForCondition<boolean>(
+            `window.__at0622arrival.some(function (s) { return s.beat === "room"; })`,
+            { timeoutMs: 4_000 },
+          );
+          const closeAt = await app.evalJS<number>(
+            `(window.__tug.closePane("at0622-p1"), ` +
+              `performance.now() - window.__at0622arrivalT0)`,
+          );
           await wait(ARRIVAL_CENSUS_MS + 400);
           const samples = await app.evalJS<ArrivalSample[]>(
             `window.__at0622arrival`,
@@ -1344,7 +1359,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
             samples[firstArrive].t,
             `arrival/close: and the arrive beat began AFTER the close, ` +
               `which is what makes the pre-arrive window real`,
-          ).toBeGreaterThan(ARRIVAL_RETARGET_AT_MS);
+          ).toBeGreaterThan(closeAt);
 
           // ---- The claim. -----------------------------------------------
           const bare = samples
@@ -1581,7 +1596,8 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
               )}`,
           );
           expectBeats("disappear", disappear, ["depart", "room"]);
-          expectBeatStarts("disappear", disappear.beatRows, disappear.probe.framePeriodMs);
+          noteBeatStarts("disappear", disappear.beatRows, disappear.probe.framePeriodMs);
+          expectLand("disappear", disappear.land);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);
@@ -1647,15 +1663,15 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0622 — the
         );
         reportB09("go-to-slot forced", forced);
         expect(
-          (forced.row as SettleFramesRow).longestGapFrames,
+          (forced.row as SettleFramesRow).motionLongestGapFrames,
           `go-to-slot forced: a ${FORCED_STALL_MS}ms task planted inside the ` +
             `settle window must fail the bar the two legs above just ` +
             `passed — out read ` +
-            `${(out.row as SettleFramesRow).longestGapMs.toFixed(0)}ms / ` +
-            `${(out.row as SettleFramesRow).longestGapFrames.toFixed(2)} ` +
+            `${(out.row as SettleFramesRow).motionLongestGapMs.toFixed(0)}ms / ` +
+            `${(out.row as SettleFramesRow).motionLongestGapFrames.toFixed(2)} ` +
             `frames; forced reads ` +
-            `${(forced.row as SettleFramesRow).longestGapMs.toFixed(0)}ms / ` +
-            `${(forced.row as SettleFramesRow).longestGapFrames.toFixed(2)}. ` +
+            `${(forced.row as SettleFramesRow).motionLongestGapMs.toFixed(0)}ms / ` +
+            `${(forced.row as SettleFramesRow).motionLongestGapFrames.toFixed(2)}. ` +
             `Without this every green above is unfalsifiable: a sampler that ` +
             `stopped observing and a deck that stopped stalling read the same`,
         ).toBeGreaterThan(B09_GAP_FRAMES_BAR);

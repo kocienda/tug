@@ -113,7 +113,7 @@ import { TugConnection } from "./connection";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { flushSync, tellReactNow } from "@/lib/gesture-scope";
+import { afterGesture, flushSync, gestureScope, tellReactNow } from "@/lib/gesture-scope";
 
 import { DeckCanvas } from "./components/chrome/deck-canvas";
 import { ConfigureTug } from "./components/tugways/configure-tug";
@@ -1208,6 +1208,12 @@ export class DeckManager implements IDeckManagerStore {
 
   /** The one deferred notification in flight, coalescing every commit until it flushes. */
   private deferredNotify: { landing: CommitLanding; cancel: CancelAfterPaint } | null = null;
+  /**
+   * A notify held behind a settle's motion gate ([B05] of set-up-and-go),
+   * queued once into the gate's release; later commits under the same gate
+   * only widen its landing.
+   */
+  private gatedNotify: { landing: CommitLanding } | null = null;
 
   /**
    * The switch epoch's mark, with the deadline this writer owes behind it —
@@ -1412,6 +1418,25 @@ export class DeckManager implements IDeckManagerStore {
       perfMark("tug:react-notify-end");
     }
   };
+
+  /**
+   * Tell the subscribers when the motion gate opens. One queued tell per
+   * gate: a later commit under it only widens the landing it carries.
+   */
+  private _scheduleGatedNotify(landing: CommitLanding): void {
+    if (this.gatedNotify !== null) {
+      if (landing === "cross") this.gatedNotify.landing = "cross";
+      return;
+    }
+    const pending = { landing };
+    this.gatedNotify = pending;
+    afterGesture(() => {
+      if (this.gatedNotify === pending) this.gatedNotify = null;
+      perfMark("tug:react-notify");
+      this.subscribers.forEach((cb) => cb(pending.landing));
+      perfMark("tug:react-notify-end");
+    });
+  }
 
   /**
    * Tell the deferred subscribers after the next painted frame ([D204]). rAF
@@ -2869,6 +2894,8 @@ export class DeckManager implements IDeckManagerStore {
     const priorVote = this.inFlightDeferralVote;
     const vote = { flush: false };
     this.inFlightDeferralVote = vote;
+    // The motion gate this commit arrived under, if one is closed.
+    const gateBefore = gestureScope.motionGate();
     // Keys, not entries: the label is the call site's name for its door and
     // the thing the [B04] audit in `deck-manager-store.ts` lists by, not
     // something this pass reads — the per-subscriber marks that used to read
@@ -2892,6 +2919,15 @@ export class DeckManager implements IDeckManagerStore {
     // pass follows it before anything paints.
     if (vote.flush || !isTugMotionEnabled()) {
       tellReactNow(() => this.subscribers.forEach((cb) => cb(landing)));
+      return;
+    }
+    // A commit that arrived mid-motion and moved no settle — the arm left the
+    // same gate closed — is told after the land, with everything else the
+    // gate holds. A commit that did move one opened that gate in its arm: a
+    // retarget is told at once (the vote above), and a fresh settle defers
+    // past its own first paint as always, which is its set-up.
+    if (gateBefore !== null && gestureScope.motionGate() === gateBefore) {
+      this._scheduleGatedNotify(landing);
       return;
     }
     this._scheduleDeferredNotify(landing);

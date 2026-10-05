@@ -100,7 +100,11 @@ import {
   RESIZE_PRESERVE_END,
 } from "@/lib/resize-episode";
 import { SmartScroll } from "@/lib/smart-scroll";
-import { STILL_CROSSING_ATTR, STILL_CROSSING_END } from "@/lib/fold-crossing";
+import {
+  isInteriorHeld,
+  STILL_CROSSING_END,
+  STILL_CROSSING_SETTLED,
+} from "@/lib/fold-crossing";
 import {
   anchorDepthFromEnd,
   anchorRowIndexInWindow,
@@ -2214,6 +2218,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // the end of one. Local data, never React state ([L02], [L06]).
     const heldFrameRef = React.useRef<HTMLElement | null>(null);
     const owedRebaseRef = React.useRef(false);
+    // The scrollport size a settled crossing's set-up already answered, so
+    // the container observer's first delivery of that same size — in the
+    // first frame, a frame into the motion — re-windows nothing. Local
+    // data, never React state ([L02], [L06]).
+    const settledSizeRef = React.useRef<{ w: number; h: number } | null>(null);
     // One-shot arming flag for the clamp simulation the test surface
     // drives. See the displacement effect.
     const forceClampRef = React.useRef(false);
@@ -3610,9 +3619,24 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           clientHeight: el.clientHeight,
         });
       };
+      // A SETTLED crossing holds the interior at the height it lands at, so
+      // the land is paid here, in the set-up, before the first frame: what
+      // the hold owed so far, then what the container observer would do
+      // with the new scrollport — pin, restore, re-window — against the
+      // geometry the first frame paints. The size it answered is kept, so
+      // that frame's own delivery of it re-windows nothing mid-motion.
+      const onStillCrossingSettled = (): void => {
+        onStillCrossingEnd();
+        smartScroll.maybePinToBottom();
+        smartScroll.applyRestoreTarget();
+        settledSizeRef.current = { w: el.clientWidth, h: el.clientHeight };
+        pinRequestedRef.current = true;
+        scrollTick();
+      };
       if (heldFrame !== null) {
-        smartScroll.setHeldSource(() => heldFrame.hasAttribute(STILL_CROSSING_ATTR));
+        smartScroll.setHeldSource(() => isInteriorHeld(heldFrame));
         heldFrame.addEventListener(STILL_CROSSING_END, onStillCrossingEnd);
+        heldFrame.addEventListener(STILL_CROSSING_SETTLED, onStillCrossingSettled);
       }
       // Surface the initial follow-bottom intent: `onFollowBottomChanged`
       // fires only on transitions, so a consumer's observer would
@@ -4018,6 +4042,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         revealObserver.disconnect();
         revealSeamRef.current = null;
         heldFrame?.removeEventListener(STILL_CROSSING_END, onStillCrossingEnd);
+        heldFrame?.removeEventListener(STILL_CROSSING_SETTLED, onStillCrossingSettled);
         heldFrameRef.current = null;
         smartScroll.dispose();
         smartScrollRef.current = null;
@@ -4058,6 +4083,20 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       const el = scrollContainerRef.current;
       if (el === null) return;
       const observer = new ResizeObserver(() => {
+        // A size a settled crossing's set-up already answered: the pin,
+        // the restore and the re-window ran there, before the first frame,
+        // and this delivery is that frame reporting the same box. Re-running
+        // them would commit a frame into the motion for nothing. Read off a
+        // layout the delivery has already flushed, so it forces nothing.
+        const settled = settledSizeRef.current;
+        settledSizeRef.current = null;
+        if (
+          settled !== null &&
+          el.clientWidth === settled.w &&
+          el.clientHeight === settled.h
+        ) {
+          return;
+        }
         // **Synchronous bottom-pin.** Container resize changes the
         // absolute bottom position; pin synchronously so the bottom
         // region doesn't visibly drift mid-resize. Per-cell observers
@@ -4454,7 +4493,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       {
         const floorEl = extentFloorRef.current;
         if (floorEl !== null) {
-          if (heldFrameRef.current?.hasAttribute(STILL_CROSSING_ATTR) === true) {
+          const heldFrame = heldFrameRef.current;
+          if (heldFrame !== null && isInteriorHeld(heldFrame)) {
             owedRebaseRef.current = true;
           } else {
             scrollTop = settleExtentFloor({

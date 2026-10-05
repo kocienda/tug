@@ -225,6 +225,38 @@ describe("classifySettleFrames", () => {
     ).toBe(1);
   });
 
+  test("the motion's own gaps leave the lead out, and still see a missed frame", () => {
+    // Set-up-and-go: the set-up before the first frame is a cost the user
+    // accepts, and the motion from the first frame on is what is judged.
+    const clean = classifySettleFrames(run({ ticks: 40, quiet: 10 }), -10, -90);
+    expect(clean.longestGapMs, "the lead is still the run's longest gap").toBe(90);
+    expect(clean.motionLongestGapMs, "and the motion's longest is one period").toBe(PERIOD);
+    expect(clean.motionLongestGapFrames).toBeCloseTo(1, 5);
+    expect(clean.motionGapsOverOneFrame, "nothing in the motion was missed").toBe(0);
+
+    const stalled = classifySettleFrames(
+      run({ ticks: 40, quiet: 10, gapAt: { index: 14, extraMs: PERIOD * 2 } }),
+      -10,
+      -90,
+    );
+    expect(stalled.motionLongestGapMs, "a stall inside the motion is the motion's").toBe(
+      PERIOD * 3,
+    );
+    expect(stalled.motionGapsOverOneFrame).toBe(1);
+  });
+
+  test("with the motion's own origin, a frame the set-up's commit took before the beats launched is not the motion's", () => {
+    // The store's notify waits past a paint, so the set-up's React commit can
+    // land after the first tick; the gate's close is where the motion starts.
+    const ticks = run({ ticks: 40, quiet: 10, gapAt: { index: 14, extraMs: PERIOD * 2 } });
+    const launchedAfter = classifySettleFrames(ticks, -10, -90, PERIOD * 13 + 1);
+    expect(launchedAfter.motionGapsOverOneFrame, "the stall opened before the launch").toBe(0);
+    expect(launchedAfter.motionAtMs).toBeCloseTo(PERIOD * 13 + 91, 5);
+    const launchedBefore = classifySettleFrames(ticks, -10, -90, PERIOD * 12);
+    expect(launchedBefore.motionGapsOverOneFrame, "a stall after the launch is the motion's").toBe(1);
+    expect(classifySettleFrames(ticks, -10, -90).motionAtMs, "no gate, no origin").toBe(-1);
+  });
+
   test("the lead is counted as a gap and never as the display's period", () => {
     const reading = classifySettleFrames(
       run({ ticks: 40, quiet: 10 }),

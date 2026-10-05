@@ -16,7 +16,8 @@
 // every zero-timer heartbeat, every flip of the settle mark, every React
 // commit the census walked, every `settle-beat` row the deck trace recorded
 // (`settleBeats` — never `beats`, which is the heartbeat list), and with
-// `chains` the chain probe's reading over the drive. The shell end finds the
+// `chains` the chain probe's reading over the drive and each chain's paying
+// read relative to the drive (`landChains`). The shell end finds the
 // settle window and keeps the commits inside it, so that reduction is
 // unit-tested in Rust.
 //
@@ -135,6 +136,13 @@
               };
             })
         : null;
+      // The motion gate's edges, on the drive's clock: the last close before
+      // the land is the motion's first frame (set-up-and-go [B05]).
+      var gates = trace
+        ? trace.since(traceMark)
+            .filter(function (e) { return e.kind === "settle-gate"; })
+            .map(function (e) { return [rel(e.timestamp), e.phase]; })
+        : null;
       if (trace) trace.enable(traceWasOn);
       if (error) {
         resolve({ error: error });
@@ -145,7 +153,15 @@
         beats: beats.filter(function (t) { return t >= t0; }).map(rel),
         settle: marks.map(function (m) { return [rel(m[0]), m[1]]; }),
         settleBeats: settleBeats,
+        gates: gates,
         chains: chains,
+        // Each chain's paying read, on the drive's clock, so the shell end can
+        // place a chain in the land's frame.
+        landChains: chains && chains.chainTimes
+          ? chains.chainTimes.map(function (c) {
+              return { t: rel(c.t), ms: c.ms, site: String(c.site || "").split("\n")[0].trim() };
+            })
+          : null,
         paneId: paneId,
         visibility: document.visibilityState,
         tasks: tasks && tasks.map(function (e) {

@@ -27,6 +27,18 @@
  * runs, guarded, and the first error is rethrown once all have run, so a
  * fault is still loud and no component is left stale behind it.
  *
+ * The motion gate is the second hold, and it is the settle's ([B05] of
+ * set-up-and-go). Every gesture is store commit → React commit → plan →
+ * beats → land, and nothing may commit between the first frame and the land.
+ * The settle engine closes the gate when its beats launch and opens it after
+ * the land; while it is closed every tell and every `afterGesture` body is
+ * held exactly as a pending scope holds them, and the end of a scope releases
+ * nothing the gate still holds. A gesture that arrives mid-motion is a
+ * retarget: its arm opens the gate at once, so what was held joins the new
+ * gesture's set-up rather than its motion. The gate has a cap, like the
+ * session cards' hold, so a settle that never lands cannot hold React for
+ * good; the engine's release is what normally ends it.
+ *
  * Two bypasses. The wrapped `flushSync` is how code says "I need the DOM now":
  * it drains the held set and the queued `afterGesture` work inside react-dom's
  * flush and runs its body unheld — whether or not the drain threw — but leaves
@@ -107,6 +119,10 @@ export class GestureScope {
   private openedAt = 0;
   private cancelRelease: CancelAfterPaint | null = null;
   private bypass = 0;
+  /** Closed motion gates; the gate holds while any is closed. */
+  private motionHolds = 0;
+  /** Bumped at every close, so a caller can tell the gate it saw from a later one. */
+  private motionEpoch = 0;
   private held = new Set<() => void>();
   private queue: Array<() => void> = [];
   private readonly schedule: ScheduleRelease;
@@ -161,9 +177,51 @@ export class GestureScope {
     return this.pending;
   }
 
+  /** Whether a settle's motion gate is closed. */
+  isMotionHeld(): boolean {
+    return this.motionHolds > 0;
+  }
+
+  /**
+   * The closed gate's epoch, or `null` when the gate is open. Equal readings
+   * either side of some work mean the same gate stood closed across it: no
+   * settle opened it and closed another.
+   */
+  motionGate(): number | null {
+    return this.motionHolds > 0 ? this.motionEpoch : null;
+  }
+
+  /**
+   * Close the motion gate until the returned release runs, or `capMs`
+   * passes. No-op with motion off. The release is idempotent; the last one
+   * out runs everything held, unless a scope is still pending, whose own
+   * release then does.
+   */
+  holdMotion(capMs: number): () => void {
+    if (!this.motionEnabled()) return () => {};
+    this.motionHolds += 1;
+    this.motionEpoch += 1;
+    let open = true;
+    let cap: ReturnType<typeof setTimeout> | null = null;
+    const release = (): void => {
+      if (!open) return;
+      open = false;
+      if (cap !== null) clearTimeout(cap);
+      this.motionHolds -= 1;
+      if (this.motionHolds === 0 && !this.pending) this.runHeldAndQueued();
+    };
+    cap = setTimeout(release, capMs);
+    return release;
+  }
+
+  /** Whether a tell or a queued body waits now. */
+  private holding(): boolean {
+    return this.pending || this.motionHolds > 0;
+  }
+
   /** Called by the wrapped subscribe's callback. Holds or runs `cb`. */
   tell(cb: () => void): void {
-    if (this.bypass > 0 || !this.pending) {
+    if (this.bypass > 0 || !this.holding()) {
       cb();
       return;
     }
@@ -177,7 +235,7 @@ export class GestureScope {
 
   /** `afterGesture`'s body: queue into the pending release, or run now. */
   enqueue(fn: () => void): void {
-    if (!this.pending) {
+    if (!this.holding()) {
       fn();
       return;
     }
@@ -189,12 +247,15 @@ export class GestureScope {
     this.runHeldAndQueued();
   }
 
-  /** Run every held callback, then every queued fn, once, and end the scope. */
+  /**
+   * End the scope, and run every held callback, then every queued fn, once —
+   * unless the motion gate is closed, whose release then runs them.
+   */
   release(): void {
     this.pending = false;
     this.frameFired = false;
     this.cancelRelease = null;
-    this.runHeldAndQueued();
+    if (this.motionHolds === 0) this.runHeldAndQueued();
   }
 
   private runHeldAndQueued(): void {

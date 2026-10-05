@@ -39,7 +39,9 @@
  *    budget.
  *
  * Every beat's `startDelayMs` — how long after planning the beat's first
- * frame ran — is noted on every leg. It is read, not barred, here.
+ * frame ran — and the lead before the first frame are noted on every leg:
+ * they are the set-up, read and never barred. What is barred is the motion
+ * from the first frame on, and the land, which is one frame.
  *
  * `tug-list-view.tsx`, whose reaction to a height change is much of what a
  * bound card costs, is deliberately NOT named below: it stands at its recorded
@@ -61,7 +63,10 @@ import {
   GAP_FRAMES_BAR,
   SHOULD_RUN,
   blobFor,
-  expectBeatStarts,
+  expectLand,
+  expectMotionSealed,
+  noteBeatStarts,
+  noteLead,
   launch,
   paneHeightOf,
   railBlob,
@@ -194,11 +199,11 @@ function expectSeatBar(leg: string, r: SeatLeg): void {
   ).not.toBeNull();
   const row = r.sample.row as SettleFramesRow;
   expect(
-    row.longestGapFrames,
+    row.motionLongestGapFrames,
     `${leg}: no gap longer than ${GAP_FRAMES_BAR} display frames across the ` +
-      `motion — ${row.longestGapMs.toFixed(0)}ms / ` +
-      `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
-      `${row.panes} panes, with ${row.gapsOverOneFrame} gap(s) over one frame`,
+      `motion — ${row.motionLongestGapMs.toFixed(0)}ms / ` +
+      `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+      `${row.panes} panes, with ${row.motionGapsOverOneFrame} gap(s) over one frame`,
   ).toBeLessThanOrEqual(GAP_FRAMES_BAR);
   expect(
     row.moveFirstPaintDelayMs,
@@ -210,13 +215,7 @@ function expectSeatBar(leg: string, r: SeatLeg): void {
     row.moveFirstPaintDelayMs,
     `${leg}: and there WAS a move to be late`,
   ).toBeGreaterThanOrEqual(0);
-  expect(
-    row.firstPaintDelayMs,
-    `${leg}: the lead from the gesture to the first rendered frame is held to ` +
-      `the same ${GAP_FRAMES_BAR} display frames as any other gap — ` +
-      `${row.firstPaintDelayMs}ms, of which ${row.commitDelayMs}ms was spent ` +
-      `before the canvas armed`,
-  ).toBeLessThanOrEqual(probe.framePeriodMs * GAP_FRAMES_BAR);
+  noteLead(leg, row);
   expect(
     row.offCurveTicks,
     `${leg}: no shown frame painted a pose off its own settle's curve — ` +
@@ -247,13 +246,16 @@ function expectSeatBar(leg: string, r: SeatLeg): void {
         `violation: ${JSON.stringify(violations)}`,
     ).toEqual([]);
   }
-  expectBeatStarts(leg, r.sample.beatRows, probe.framePeriodMs);
+  noteBeatStarts(leg, r.sample.beatRows, probe.framePeriodMs);
+  expectMotionSealed(leg, row);
+  expectLand(leg, r.sample.land);
 }
 
 /**
  * The rail's bar: the gesture changed the band and was served, the canvas
- * wrote its record, no gap over two frames, and [D9]'s guard reports only
- * the rail retune's declared `height` and `width`.
+ * wrote its record, no gap over two frames from the first frame on, [D9]'s
+ * guard reports only the rail retune's declared `height` and `width`, and the
+ * land is one frame.
  */
 function expectRailBar(leg: string, r: B09Leg): void {
   expect(
@@ -267,12 +269,13 @@ function expectRailBar(leg: string, r: B09Leg): void {
   ).toBe(false);
   expect(r.row, `${leg}: the canvas armed a settle and wrote its record`).not.toBeNull();
   const row = r.row as SettleFramesRow;
+  noteLead(leg, row);
   expect(
-    row.longestGapFrames,
-    `${leg}: no gap over ${GAP_FRAMES_BAR} display frames across the whole ` +
-      `motion, lead included — ${row.longestGapMs.toFixed(0)}ms / ` +
-      `${row.longestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
-      `${row.panes} panes; lead ${row.firstPaintDelayMs}ms`,
+    row.motionLongestGapFrames,
+    `${leg}: no gap over ${GAP_FRAMES_BAR} display frames across the ` +
+      `motion, from the first frame on — ${row.motionLongestGapMs.toFixed(0)}ms / ` +
+      `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+      `${row.panes} panes`,
   ).toBeLessThanOrEqual(GAP_FRAMES_BAR);
   expect(
     violatedProperties(r.violations).filter((p) => p !== "height" && p !== "width"),
@@ -280,7 +283,9 @@ function expectRailBar(leg: string, r: B09Leg): void {
       `nothing else may be animated off the compositor: ` +
       `${JSON.stringify(r.violations)}`,
   ).toEqual([]);
-  expectBeatStarts(leg, r.beatRows, r.probe.framePeriodMs);
+  noteBeatStarts(leg, r.beatRows, r.probe.framePeriodMs);
+  expectMotionSealed(leg, row);
+  expectLand(leg, r.land);
 }
 
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
