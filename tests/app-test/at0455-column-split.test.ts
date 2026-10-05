@@ -175,14 +175,14 @@ function splitFrameCount(app: App): Promise<number> {
   );
 }
 
-/** A place's mark on the Layout drawing — the Layout card's door for its arrangement. */
+/** A place's toggle under the Layout card's strip — the card's door for its arrangement. */
 const placeMark = (key: string): string =>
   `[data-testid="layout-card-place-${key}"]`;
 
-/** Which slots the drawing currently marks, low to high. */
+/** Which slots the toggle row currently marks, low to high. */
 function markedSlots(app: App): Promise<number[]> {
   return app.evalJS<number[]>(
-    `Array.from(document.querySelectorAll('[data-testid="layout-card-places"] .layout-places-mark[data-place^="col-"]'))
+    `Array.from(document.querySelectorAll('[data-testid="layout-card-toggles"] .layout-places-mark[data-place^="col-"]'))
       .map(function (el) {
         return parseInt(el.getAttribute("data-place").replace("col-", ""), 10);
       })
@@ -583,7 +583,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         ).toEqual([0, 1, 2]);
         const survivor = await app.evalJS<string | null>(
           `(function () {
-            var el = document.querySelector('[data-testid="layout-card-places"] .layout-places-mark[data-place="col-0"]');
+            var el = document.querySelector('[data-testid="layout-card-toggles"] .layout-places-mark[data-place="col-0"]');
             return el === null ? null : el.getAttribute("data-mode");
           })()`,
         );

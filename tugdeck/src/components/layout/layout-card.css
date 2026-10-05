@@ -31,7 +31,7 @@
      the 3px padding, the 2px gaps — are deliberately fixed, because a picture
      this small reads by its separations and a scaled hairline is a blur. Turn
      it far enough down and those constants become the drawing's floor. */
-  --tugx-layouts-plan-mini-scale: 0.7;
+  --tugx-layouts-plan-mini-scale: 0.8333;
 
   /* What those two come to, and the only one of the three anything else
      reads. */
@@ -111,27 +111,31 @@
    overlay positions against this rather than against the plan, because the plan
    is `aria-hidden` and an overlay inside it would hide its own buttons from
    assistive technology along with the picture. */
-/* The plate: the drawing, the marks on it, and the numbered strip under it,
-   as one block. Its own gap is tighter than the section's, because the strip
-   is the plan's legend — the air between a picture and its legend has to read
-   as smaller than the air between that pair and the rows below.
+/* The plate: the drawing, the numbered strip under it, and the toggle row
+   under that, as one block. Its own gap is tighter than the section's,
+   because the strip and the toggles are the plan's legend — the air between a
+   picture and its legend has to read as smaller than the air between that
+   pair and the rows below.
 
-   Both numbers are wider than they were, and the amount is the focus ring's.
-   The ring lands on the places overlay, which is the drawing's box to the
-   pixel and stands four pixels out from it (`layout-places.css`), so it
-   reaches 5.5px below the picture — and at the four-pixel gap this started
-   at, it crossed the strip. A gap that merely CLEARS the ring is not enough
-   either: a ring landing a pixel or two short of the numbers reads as
-   touching them. So the gap is the ring's reach plus about as much air again
-   on the far side of it — 6.5px, enough that the two read as separate and
-   little enough that the legend stays the picture's. The section's gap moves
-   in step, so the legend still reads as closer to the picture than the rows
-   below are to either. */
+   The picture is no longer a Tab stop — its stack/split toggles moved to the
+   row under the strip, and the keyboard's ring with them — so the gap no
+   longer has to clear a ring standing four pixels out from the drawing. It
+   is the air a legend wants under a picture, and the toggle row closes up
+   beneath the strip on its own (below). */
 .layouts-plate {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 12px;
+  gap: 10px;
+}
+
+/* The toggle row is the strip's second line rather than a third element of
+   the plate, so it stands closer to the numbers than the numbers stand to
+   the picture: number → arrangement reads down one vertical. Pulled up into
+   the plate's gap rather than given a gap of its own, so the picture-to-strip
+   air above stays the plate's one number. */
+.layouts-plate > .layout-place-toggles {
+  margin-block-start: -6px;
 }
 
 .layouts-figure {

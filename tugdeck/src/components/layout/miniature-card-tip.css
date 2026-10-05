@@ -1,0 +1,60 @@
+/* @tug-pairings: none — every row here is drawn in the tooltip bubble's own
+   ink (`--tugx-tooltip-fg` on `--tugx-tooltip-bg`), inherited; this file sets
+   layout, weight and opacity only. The phase dot carries its own role colour
+   from the house indicator. */
+
+/* The tip's rows, a step apart: tight enough to read as one entity, loose
+   enough that "what it is", "where it stands" and "what a press does" read as
+   three statements rather than one paragraph. */
+.layout-tip {
+  gap: 3px;
+  max-inline-size: 300px;
+}
+
+/* The name, led by the card's icon as its pane's title bar leads with it. */
+.layout-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.layout-tip-icon {
+  flex: none;
+  inline-size: 14px;
+  block-size: 14px;
+  opacity: 0.85;
+}
+
+/* What the session is doing: the live dot, the phase word, and the arc. */
+.layout-tip-phase {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.layout-tip-arc {
+  opacity: 0.85;
+}
+
+/* A description is the user's own words, and can run long; it wraps rather
+   than widening the bubble past its cap. */
+.layout-tip-description {
+  overflow-wrap: anywhere;
+}
+
+/* Where it stands: set off from the identity rows above by space, the way the
+   commit tip sets off its shape line. */
+.layout-tip-place {
+  margin-top: 0.25rem;
+}
+
+.layout-tip-here {
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* What a press does — the quietest row, because it is the same sentence on
+   every card of a kind and a reader learns it once. */
+.layout-tip-hint {
+  font-size: var(--tug-font-size-xs);
+  opacity: 0.7;
+}

@@ -18,19 +18,24 @@
  *      mark says that slot's own stored arrangement.
  *   2. **A one-card split is visible**, drawn split: the arrangement is real,
  *      there is just nothing standing under it yet.
- *   3. **The marks land on the picture.** Each one is inside the block it
- *      belongs to, which is what makes it a mark on a place rather than a row
- *      of icons under a drawing.
+ *   3. **The marks stand under the places they name.** They live in a row
+ *      beneath the numbered strip, one under each number, and each stands
+ *      within its block's span — the drawing's blocks wear their cards'
+ *      faces, so the marks left the drawing for the legend.
  *   4. **A rail is a place too**, and wears the same vocabulary.
  *   5. **A mark is a button.** It answers a hand and does not audition, and
  *      every mark rests at one weight — the picture states arrangements, not
  *      how many cards stand under them.
- *   6. **A place wears ONE mark, and the note says which thing scrolls.** The
+ *   6. **Every block wears its card's face, and hovering one names the card.**
+ *      A stack shows its sheets behind the front card; the hover says what the
+ *      card is called, where it stands, what is behind it, and what a press
+ *      does.
+ *   7. **A place wears ONE mark, and the note says which thing scrolls.** The
  *      mark says stack or split and nothing more — the layout glyph it wore
  *      for a while is gone — and a rail put on flow through its mixer row
  *      draws as a strip in the miniature while the plan's note names the rail
  *      as the thing that scrolls.
- *   7. **A place's arrangement is a row in the mixer**, `Stack | Fit | Flow`
+ *   8. **A place's arrangement is a row in the mixer**, `Stack | Fit | Flow`
  *      per rail side and per slot with something to arrange. Stack writes the
  *      mode alone and the layout is remembered; Fit and Flow write the mode
  *      and the layout together. A rail row is disabled, never absent, while
@@ -43,6 +48,8 @@
  * @covers tugdeck/src/components/layout/layout-places.tsx
  * @covers tugdeck/src/components/layout/layout-miniature.tsx
  * @covers tugdeck/src/components/layout/layout-card.tsx
+ * @covers tugdeck/src/components/layout/miniature-faces.tsx
+ * @covers tugdeck/src/components/layout/miniature-card-tip.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -60,6 +67,8 @@ const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 const PLACES = '[data-testid="layout-card-places"]';
+/** The toggle row under the strip — where every slot's mark stands. */
+const TOGGLES = '[data-testid="layout-card-toggles"]';
 const mark = (key: string): string => `[data-testid="layout-card-place-${key}"]`;
 
 interface Rect {
@@ -199,10 +208,11 @@ async function cursorOnto(app: App, row: string, value: string): Promise<void> {
   throw new Error(`the cursor never reached ${row}/${value}`);
 }
 
-/** Take the ring off the rows and put it on the picture, whose marks audition
- *  nothing — the keyboard's way of ending an audition without pressing. */
+/** Take the ring off the rows and put it on the toggle row, whose marks
+ *  audition nothing — the keyboard's way of ending an audition without
+ *  pressing. */
 async function cursorOffTheRows(app: App): Promise<void> {
-  await tabUntilKbd(app, `[data-testid="layout-card-places"]`);
+  await tabUntilKbd(app, TOGGLES);
   await wait(300);
 }
 
@@ -218,7 +228,7 @@ function readMarks(app: App): Promise<Record<string, MarkFacts>> {
   return app.evalJS<Record<string, MarkFacts>>(
     `(function () {
       var out = {};
-      var nodes = document.querySelectorAll('${PLACES} .layout-places-mark[data-place]');
+      var nodes = document.querySelectorAll('${TOGGLES} .layout-places-mark[data-place]');
       Array.prototype.forEach.call(nodes, function (el) {
         var r = el.getBoundingClientRect();
         out[el.getAttribute("data-place")] = {
@@ -312,7 +322,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // whole set — a declared value would prove only that the rule exists.
         const weights = await app.evalJS<number[]>(
           `Array.prototype.map.call(
-            document.querySelectorAll('${PLACES} [data-testid^="layout-card-place-"]'),
+            document.querySelectorAll('${TOGGLES} [data-testid^="layout-card-place-"]'),
             function (el) { return Number(getComputedStyle(el).opacity); }
           )`,
         );
@@ -402,7 +412,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
   );
 
   test(
-    "a mark stands on the place it names",
+    "a mark stands under the place it names",
     async () => {
       const app = await launchTugApp();
       try {
@@ -417,27 +427,35 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         await wait(AFTER_LAND_MS);
 
         const marks = await readMarks(app);
-        // The overlay replicates the drawing's flex row rather than computing
-        // fractions of the frame, and this is the claim that says so: a mark
-        // whose geometry drifted by the drawing's padding or its 2px gap would
-        // sit outside the block it belongs to, or over its neighbour.
+        // The toggle row replicates the strip's flex row, which replicates the
+        // drawing's, and places each mark at the drawing's own span — this is
+        // the claim that says so: a mark whose geometry drifted by the
+        // drawing's padding or its 2px gap would stand under the neighbouring
+        // block instead of its own.
+        const stripBottom = await app.evalJS<number>(
+          `document.querySelector('[data-testid="flow-strip"]').getBoundingClientRect().bottom`,
+        );
         for (const slot of [0, 1, 2]) {
           const block = await blockRect(app, slot);
           const m = marks[`col-${slot}`];
           expect(block, `slot ${slot} is drawn`).not.toBeNull();
           expect(m, `slot ${slot} is marked`).toBeDefined();
           const r = m.rect!;
-          const center = (r.left + r.right) / 2;
+          // Fit stands each mark at its span's LEADING edge — the one part of
+          // a lapped card always visible — so the claim is that the mark
+          // starts inside its block's span.
+          const lead = r.left + 1;
           expect(
-            center >= block!.left && center <= block!.right,
-            `slot ${slot}'s mark stands within slot ${slot}'s block ` +
+            lead >= block!.left - 1 && lead <= block!.right,
+            `slot ${slot}'s mark stands under slot ${slot}'s block ` +
               `(mark ${Math.round(r.left)}–${Math.round(r.right)}, ` +
               `block ${Math.round(block!.left)}–${Math.round(block!.right)})`,
           ).toBe(true);
-          // At the foot of it, which is where the marks line up as one legend.
+          // Under the numbered strip: the marks are the legend's second line,
+          // not stickers on the drawing.
           expect(
-            r.bottom <= block!.bottom + 2 && r.bottom > block!.top,
-            `slot ${slot}'s mark sits at the foot of its block`,
+            r.top >= stripBottom - 1 && r.top > block!.bottom,
+            `slot ${slot}'s mark stands below the strip, off the drawing`,
           ).toBe(true);
         }
 
@@ -453,7 +471,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         const targets = await app.evalJS<Record<string, [number, number]>>(
           `(function () {
             var out = {};
-            var nodes = document.querySelectorAll('${PLACES} [data-testid^="layout-card-place-"]');
+            var nodes = document.querySelectorAll('${TOGGLES} [data-testid^="layout-card-place-"]');
             Array.prototype.forEach.call(nodes, function (el) {
               var r = el.getBoundingClientRect();
               out[el.getAttribute("data-testid")] = [r.width, r.height];
@@ -650,7 +668,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
   );
 
   test(
-    "the picture is one stop: arrows audition, Space commits",
+    "the toggle row is one stop: arrows walk it, Space commits",
     async () => {
       const app = await launchTugApp();
       try {
@@ -664,11 +682,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── One stop for the whole picture. ──
+        // ── One stop for the whole row. ──
         //
-        // Tab reaches the overlay itself, not a mark inside it: the marks are
-        // items the cursor walks, exactly as a segmented row's segments are.
-        // A stop per mark would make Tab crawl the drawing.
+        // Tab reaches the toggle row itself, not a mark inside it: the marks
+        // are items the cursor walks, exactly as a segmented row's segments
+        // are. A stop per mark would make Tab crawl the row. The drawing above
+        // is no stop at all — its parts take the pointer, and the keyboard
+        // reaches every card through the deck's own chords.
         // Seed the ring into the Layout card before walking it, exactly as at0454
         // does — Tab moves the ring within the key card, and without this the
         // walk starts wherever the deck happened to leave it.
@@ -688,19 +708,23 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           );
           if (at === null || walk[walk.length - 1] === at) break;
           walk.push(at);
-          // Stop on arrival: the claim is that the walk REACHES the picture,
-          // and stopping here leaves the ring on it for the arrows below.
-          if (at === "layout-card-places") break;
+          // Stop on arrival: the claim is that the walk REACHES the row, and
+          // stopping here leaves the ring on it for the arrows below.
+          if (at === "layout-card-toggles") break;
         }
         note(`ladder below Cards: ${walk.join(" -> ")}`);
         expect(
           walk,
-          "the picture is a rung on the ladder, not a control only a mouse can reach",
-        ).toContain("layout-card-places");
+          "the toggle row is a rung on the ladder, not a control only a mouse can reach",
+        ).toContain("layout-card-toggles");
+        expect(
+          walk,
+          "the drawing's overlay is not a stop of its own",
+        ).not.toContain("layout-card-places");
         const stops = await app.evalJS<number>(
-          `document.querySelectorAll('${PLACES}[data-tug-focusable]').length`,
+          `document.querySelectorAll('${TOGGLES}[data-tug-focusable]').length`,
         );
-        expect(stops, "the drawing registers exactly one focusable").toBe(1);
+        expect(stops, "the row registers exactly one focusable").toBe(1);
 
         // ── The cursor lands on a mark, and wears the mark's own hover face. ──
         //
@@ -712,7 +736,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // resting stroke is the drawing's neutral ink and the reached-for one
         // is the control accent, so the two are simply different colours.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${PLACES} [data-key-cursor]') !== null`,
+          `document.querySelector('${TOGGLES} [data-key-cursor]') !== null`,
           { timeoutMs: 4_000 },
         );
         await app.nativeKey("ArrowRight");
@@ -724,7 +748,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           previewing: boolean;
         }>(
           `(function () {
-            var el = document.querySelector('${PLACES} [data-key-cursor]');
+            var el = document.querySelector('${TOGGLES} [data-key-cursor]');
             var strokeOf = function (node) {
               return node === null
                 ? ""
@@ -733,7 +757,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
                     .trim();
             };
             var others = Array.prototype.filter.call(
-              document.querySelectorAll('${PLACES} [data-testid^="layout-card-place-"]'),
+              document.querySelectorAll('${TOGGLES} [data-testid^="layout-card-place-"]'),
               function (n) { return !n.hasAttribute("data-key-cursor"); }
             );
             return {
@@ -878,7 +902,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
   );
 
   test(
-    "a preview carries the marks with it",
+    "a preview moves the drawing, and the marks stay with the strip",
     async () => {
       const app = await launchTugApp();
       try {
@@ -892,71 +916,53 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── A row's preview restates the marks, at the LAYER's geometry. ──
+        // ── A row's preview moves the drawing; the marks stay put. ──
         //
-        // The rows audition under the KEYBOARD cursor; the marks do not, and
-        // neither does a pointer. So a preview moves the deck out from under a
-        // legend that would otherwise stay at the committed positions, and the
-        // ghost is what keeps the two together: it draws every mark again,
-        // inert, on the arrangement being auditioned. The live overlay steps
-        // back while it speaks, or two mark sets overlap — one of them at the
-        // wrong geometry.
+        // The rows audition under the KEYBOARD cursor. A preview swaps the
+        // drawing for the auditioned arrangement, and nothing on that drawing
+        // is a mark any more — the stack/split toggles stand in a row under the
+        // numbered strip, which states the deck as it IS, so they keep their
+        // committed places and their committed answers through any preview.
+        // The ghost copy of the marks that once rode each preview layer is
+        // gone with the marks it copied.
         await cursorOnto(app, "layout-card-width", "wide");
         await wait(400);
-        const ghostFacts = await app.evalJS<{
-          ghostMode: string | null;
+        const previewFacts = await app.evalJS<{
+          layerId: string | null;
+          ghosts: number;
+          marksOnLayer: number;
+          liveMode: string | null;
           liveOpacity: string;
-        } | null>(
+        }>(
           `(function () {
             var layer = document.querySelector('.layouts-plan-layer[data-plan-active]');
-            if (layer === null) return null;
-            var ghostMark = layer.querySelector('[data-testid="layout-card-places-ghost"] .layout-places-mark[data-place="col-1"]');
-            var live = document.querySelector('${PLACES} .layout-places-mark[data-place="col-1"]');
+            var live = document.querySelector('${TOGGLES} .layout-places-mark[data-place="col-1"]');
             return {
-              ghostMode: ghostMark === null ? null : ghostMark.getAttribute("data-mode"),
+              layerId: layer === null ? null : layer.getAttribute("data-plan-preview-id"),
+              ghosts: document.querySelectorAll('[data-testid="layout-card-places-ghost"]').length,
+              marksOnLayer: layer === null ? -1 : layer.querySelectorAll('.layout-places-mark').length,
+              liveMode: live === null ? null : live.getAttribute("data-mode"),
               liveOpacity: live === null ? "" : getComputedStyle(live).opacity,
             };
           })()`,
         );
-        expect(ghostFacts, "an active layer is showing").not.toBeNull();
+        expect(previewFacts.layerId, "the width preview is showing").toBe("width:wide");
+        expect(previewFacts.ghosts, "no ghost overlay rides any layer").toBe(0);
         expect(
-          ghostFacts!.ghostMode,
-          "the ghost restates what each place is set to — slot 1's stored split",
+          previewFacts.marksOnLayer,
+          "the previewed drawing carries no marks",
+        ).toBe(0);
+        expect(
+          previewFacts.liveMode,
+          "the toggle row keeps stating slot 1's stored split through the preview",
         ).toBe("split");
         expect(
-          Number(ghostFacts!.liveOpacity),
-          "the live marks step back while a preview shows",
-        ).toBe(0);
+          Number(previewFacts.liveOpacity),
+          "and keeps standing at full weight",
+        ).toBe(1);
         note(
-          `width preview: ghost restates col-1 as split, live marks at opacity ${ghostFacts!.liveOpacity}`,
+          `width preview: ${previewFacts.marksOnLayer} marks on the layer, toggle col-1 ${previewFacts.liveMode}`,
         );
-
-        // And they land on the PREVIEWED drawing's blocks rather than the
-        // committed ones — the marks travel with what they annotate.
-        const carried = await app.evalJS<{
-          layerId: string | null;
-          inside: boolean;
-        }>(
-          `(function () {
-            var layer = document.querySelector('.layouts-plan-layer[data-plan-active]');
-            if (layer === null) return { layerId: null, inside: false };
-            var block = layer.querySelectorAll(".layout-mini-field .layout-mini-block")[0];
-            var ghostMark = layer.querySelector('[data-testid="layout-card-places-ghost"] .layout-places-mark[data-place="col-0"]');
-            if (!block || ghostMark === null) return { layerId: layer.getAttribute("data-plan-preview-id"), inside: false };
-            var b = block.getBoundingClientRect();
-            var m = ghostMark.getBoundingClientRect();
-            var c = (m.left + m.right) / 2;
-            return {
-              layerId: layer.getAttribute("data-plan-preview-id"),
-              inside: c >= b.left && c <= b.right && m.bottom <= b.bottom + 2,
-            };
-          })()`,
-        );
-        expect(carried.layerId).toBe("width:wide");
-        expect(
-          carried.inside,
-          "the ghost's mark stands inside the PREVIEWED drawing's block",
-        ).toBe(true);
 
         // ── A rail is drawn divided, in the committed layer and every
         //    proposal alike. ──
@@ -999,7 +1005,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "and so does the proposal — a rail has one picture",
         ).toBe(2);
 
-        // ── Taking the cursor off the rows brings the live marks back. ──
+        // ── Taking the cursor off the rows clears the preview. ──
         //
         // The audition raised for the silhouette count is still standing, so
         // this reads the drop rather than staging one.
@@ -1008,7 +1014,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         const after = await app.evalJS<{ previewing: boolean; liveOpacity: string }>(
           `(function () {
             var plan = document.querySelector('[data-testid="layout-card-plan"]');
-            var live = document.querySelector('${PLACES} .layout-places-mark[data-place="col-0"]');
+            var live = document.querySelector('${TOGGLES} .layout-places-mark[data-place="col-0"]');
             return {
               previewing: plan !== null && plan.hasAttribute("data-previewing"),
               liveOpacity: live === null ? "" : getComputedStyle(live).opacity,
@@ -1018,7 +1024,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         expect(after.previewing, "the preview cleared").toBe(false);
         expect(
           Number(after.liveOpacity),
-          "and the live marks stand again",
+          "and the toggles stand as they did",
         ).toBe(1);
 
         // ── A POINTER auditions nothing, wherever it rests. ──
@@ -1051,6 +1057,125 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
   );
 
   test(
+    "every block wears its card's face, and hovering one names the card",
+    async () => {
+      const app = await launchTugApp();
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="layout-card-target-block-0"]') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        // ── The faces: one per occupied slot, a sheet behind a stack. ──
+        //
+        // Slot 0 holds two cards stacked, slot 1 one, slot 2 none. A faced
+        // block draws its front card's face, and a stack draws a sheet per
+        // card behind the front one stepping out at the top. An empty slot
+        // stays a bare block — there is no card to draw. Read off the
+        // committed layer's live DOM.
+        const faces = await app.evalJS<{
+          faced: number[];
+          sheets: Record<string, number>;
+          icons: Record<string, number>;
+          railIcons: number;
+          rects: Record<string, [number, number]>;
+        }>(
+          `(function () {
+            var layer = document.querySelector('.layouts-plan-layer[data-plan-layer="committed"]');
+            var blocks = layer.querySelectorAll(".layout-mini-field .layout-mini-block");
+            var faced = [], sheets = {}, icons = {}, rects = {};
+            Array.prototype.forEach.call(blocks, function (el, i) {
+              if (el.hasAttribute("data-faced")) faced.push(i);
+              sheets[i] = el.querySelectorAll(".layout-mini-sheet").length;
+              icons[i] = el.querySelectorAll(".layout-mini-face-icon").length;
+              var r = el.getBoundingClientRect();
+              var t = document.querySelector('[data-testid="layout-card-target-block-' + i + '"]');
+              var tr = t === null ? null : t.getBoundingClientRect();
+              rects[i] = [r.left - (tr ? tr.left : NaN), r.width - (tr ? tr.width : NaN)];
+            });
+            return {
+              faced: faced,
+              sheets: sheets,
+              icons: icons,
+              railIcons: layer.querySelectorAll(".layout-mini-rail-icon").length,
+              rects: rects,
+            };
+          })()`,
+        );
+        note(
+          `faced ${JSON.stringify(faces.faced)}, sheets ${JSON.stringify(faces.sheets)}, ` +
+            `icons ${JSON.stringify(faces.icons)}, rail icons ${faces.railIcons}`,
+        );
+        expect(faces.faced, "the two occupied slots wear faces; the empty one does not").toEqual([0, 1]);
+        expect(faces.sheets["0"], "the two-card stack shows one sheet behind its front").toBe(1);
+        expect(faces.sheets["1"], "a lone card shows none").toBe(0);
+        expect(faces.icons["0"], "a face carries its card's icon").toBe(1);
+        expect(faces.icons["2"], "the empty slot carries none").toBe(0);
+        expect(faces.railIcons, "the rail's one card wears its icon").toBe(1);
+        // The block keeps its rect: the faces draw INSIDE it, so the target
+        // standing on it still covers exactly the card it names.
+        for (const slot of ["0", "1", "2"]) {
+          const [dl, dw] = faces.rects[slot];
+          expect(Math.abs(dl), `slot ${slot}'s face leaves its block where its target is`).toBeLessThan(1);
+          expect(Math.abs(dw), `and as wide`).toBeLessThan(1);
+        }
+
+        // ── The hover names the card, its place, and what is behind it. ──
+        //
+        // The target is a TugTooltip trigger; a pointer resting on it opens
+        // the bubble. The tip resolves the card's name through the one
+        // identity door, so it reads the seeded card's own title.
+        await app.evalJS<null>(
+          `(function () {
+            var el = document.querySelector('[data-testid="layout-card-target-block-0"]');
+            var opts = { bubbles: true, cancelable: true, pointerType: "mouse" };
+            el.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false, pointerType: "mouse" }));
+            el.dispatchEvent(new PointerEvent("pointermove", opts));
+            return null;
+          })()`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="layout-card-tip"]') !== null`,
+          { timeoutMs: 5_000 },
+        );
+        const tip = await app.getElementText('[data-testid="layout-card-tip"]');
+        note(`slot 1 tip: ${tip.replace(/\s+/g, " ")}`);
+        expect(tip, "the tip names the front card").toMatch(/Card [AB]/);
+        expect(tip, "and its place and depth").toContain("Slot 1 · front of 2");
+        expect(tip, "and the card behind it").toMatch(/Behind it: Card [AB]/);
+        expect(tip, "and what a press does").toContain("Click to bring it forward");
+
+        // ── An empty slot's hover says so, and what a press there does. ──
+        await app.evalJS<null>(
+          `(function () {
+            var el = document.querySelector('[data-testid="layout-card-target-block-2"]');
+            var opts = { bubbles: true, cancelable: true, pointerType: "mouse" };
+            el.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false, pointerType: "mouse" }));
+            el.dispatchEvent(new PointerEvent("pointermove", opts));
+            return null;
+          })()`,
+        );
+        await app.waitForCondition<boolean>(
+          `(function () {
+            var c = document.querySelector('.tug-tooltip-content');
+            return c !== null && c.textContent.indexOf("Slot 3 is empty") >= 0;
+          })()`,
+          { timeoutMs: 5_000 },
+        );
+        note("slot 3 tip: Slot 3 is empty");
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
     "a place wears one mark, and the note says which thing scrolls",
     async () => {
       const app = await launchTugApp();
@@ -1074,7 +1199,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           `(function () {
             var out = {};
             Array.prototype.forEach.call(
-              document.querySelectorAll('${PLACES} .layout-places-mark[data-place]'),
+              document.querySelectorAll('${TOGGLES} .layout-places-mark[data-place]'),
               function (el) {
                 out[el.getAttribute("data-place")] =
                   el.querySelectorAll('[data-testid^="layout-card-place-"]').length;
@@ -1088,7 +1213,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         expect(affordances["col-0"], "and so does the stacked one").toBe(1);
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll('${PLACES} [data-place-layout], ${PLACES} [data-testid$="-layout"]').length`,
+            `document.querySelectorAll('${TOGGLES} [data-place-layout], ${TOGGLES} [data-testid$="-layout"]').length`,
           ),
           "no mark carries a layout — glyph or attribute",
         ).toBe(0);
@@ -1104,10 +1229,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await wait(AFTER_LAND_MS);
         const railMarks = await app.evalJS<number>(
-          `document.querySelectorAll('${PLACES} .layout-places-mark[data-place^="rail-"]').length`,
+          `document.querySelectorAll('${TOGGLES} .layout-places-mark[data-place^="rail-"], ${PLACES} .layout-places-mark').length`,
         );
-        note(`rail marks on the picture: ${railMarks}`);
-        expect(railMarks, "no mark stands over either rail").toBe(0);
+        note(`rail marks, and marks on the picture: ${railMarks}`);
+        expect(
+          railMarks,
+          "no mark stands for either rail, and none stands on the drawing",
+        ).toBe(0);
       } finally {
         await app.close();
       }

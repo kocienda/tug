@@ -62,6 +62,46 @@ export function frontPaneOfSlot(
 }
 
 /**
+ * Every pane standing in `slot`, FRONT first — the slot's stack as the reader
+ * meets it. Panes are z-ordered by array position, end highest, so this walks
+ * `state.panes` backwards. Empty when the slot is empty or nothing is imposed.
+ */
+export function slotStackOf(
+  state: DeckState,
+  slot: number,
+): readonly TugPaneState[] {
+  const kind = state.imposition.kind;
+  if (kind === undefined) return [];
+  const stack: TugPaneState[] = [];
+  for (let i = state.panes.length - 1; i >= 0; i--) {
+    const pane = state.panes[i];
+    if (pane.slot !== undefined && clampSlot(kind, pane.slot) === slot) {
+      stack.push(pane);
+    }
+  }
+  return stack;
+}
+
+/**
+ * The pane the reader is IN, as the Layout card states it: the active pane
+ * when it holds a slot, else the FRONTMOST pane that does — the card the
+ * reader was in before they stepped into a rail, which is what "my card"
+ * means while they are looking at the picture of the deck. `null` when no
+ * pane holds a slot.
+ *
+ * One rule for the numbered pill the strip fills, the Key-inked face, and the
+ * hover that says "you are here", so the three cannot name different cards.
+ */
+export function readerPaneIdOf(state: DeckState): string | null {
+  const active = state.panes.find((p) => p.id === state.activePaneId);
+  if (active?.slot !== undefined) return active.id;
+  for (let i = state.panes.length - 1; i >= 0; i--) {
+    if (state.panes[i].slot !== undefined) return state.panes[i].id;
+  }
+  return null;
+}
+
+/**
  * The card a press on a column block raises, or `null` for an empty slot.
  *
  * A press goes to the slot's FRONT pane. A press "in succession" — when the

@@ -25,7 +25,9 @@
  *
  * Purely presentational: props in, CSS out, no store reads and no state ([L06]).
  * The live rails are passed down by the section so every drawing flips
- * together when a side changes.
+ * together when a side changes. The one subscription under it is a session
+ * face's live dot, a leaf of its own (`miniature-faces.tsx`) so a turn's
+ * events repaint the dot and never the drawing.
  *
  * @module components/layout/layout-miniature
  */
@@ -54,6 +56,15 @@ import {
   type ImpositionLayout,
   type SidebarSide,
 } from "@/lib/layout-imposer";
+
+import {
+  MiniatureMemberFace,
+  MiniatureRailFace,
+  MiniatureStackFaces,
+  sheetsFor,
+  type MiniatureFace,
+  type MiniatureFaces,
+} from "@/components/layout/miniature-faces";
 
 /** The width a rail contributes to the drawing, in the same nominal pixels the
  *  content-width presets are stated in — a rail's customary standing width.
@@ -252,6 +263,13 @@ export interface LayoutMiniatureProps {
   flowStripPx?: number;
   /** @see {@link LayoutMiniatureProps.flowOffsetPx} */
   flowSlots?: readonly MiniatureFlowSlot[];
+  /**
+   * What stands in each place, for the committed drawing alone: each block
+   * then draws its card's face rather than a bare bar ([miniature-faces]).
+   * Absent — on every proposal layer — the blocks are drawn plain, because a
+   * proposal is an arrangement nobody has stood the deck's cards in.
+   */
+  faces?: MiniatureFaces;
 }
 
 /** The air between two members of a divided rail, in percent of the drawing's
@@ -345,10 +363,13 @@ function Rail({
   widthPct,
   members,
   overflow,
+  faces,
 }: {
   widthPct: number;
   members: readonly MiniatureMemberSpan[];
   overflow: boolean;
+  /** The side's faces in rail order, on the committed drawing. */
+  faces?: readonly MiniatureFace[];
 }): React.ReactElement {
   // The spans are `miniatureGeometry`'s, from the side's own allocation when
   // there is one and the anonymous one a proposal gets otherwise ([P09]).
@@ -378,7 +399,9 @@ function Rail({
             key={index}
             className="layout-mini-rail-member"
             style={{ top: `${top}%`, bottom: `${100 - top - span}%` }}
-          />
+          >
+            <MiniatureRailFace face={faces?.[index]} />
+          </span>
         );
       })}
     </span>
@@ -735,6 +758,7 @@ export function LayoutMiniature({
   flowBandPx,
   flowStripPx,
   flowSlots,
+  faces,
 }: LayoutMiniatureProps): React.ReactElement {
   const left = rails.left ?? 0;
   const right = rails.right ?? 0;
@@ -857,6 +881,7 @@ export function LayoutMiniature({
           widthPct={railPct}
           members={geometry.rails.left?.members ?? []}
           overflow={geometry.rails.left?.overflow ?? false}
+          faces={faces?.rails.left}
         />
       ) : null}
       <span className="layout-mini-field">
@@ -878,13 +903,28 @@ export function LayoutMiniature({
             // split draws, and for the same reason. A hand-dragged ratio is not
             // what the picture is answering.
             if (block.members === undefined) {
+              // A face, when the deck says who stands here: the front card,
+              // with the sheets of the cards behind it stepping out at the
+              // top. `--sheets` is the one number every layer inside reads,
+              // and the block keeps its rect either way.
+              const slotFaces = faces?.slots[block.slot];
+              const faced = slotFaces !== undefined && slotFaces.length > 0;
               return (
                 <span
                   key={block.slot}
                   className="layout-mini-block"
                   data-band={block.slot % 2 === 0 ? "even" : "odd"}
-                  style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
-                />
+                  data-faced={faced ? "" : undefined}
+                  style={
+                    {
+                      left: `${block.leftPct}%`,
+                      width: `${block.widthPct}%`,
+                      "--sheets": sheetsFor(slotFaces),
+                    } as React.CSSProperties
+                  }
+                >
+                  {faced ? <MiniatureStackFaces faces={slotFaces} /> : null}
+                </span>
               );
             }
             // Past two members the column stops dividing and starts scrolling
@@ -900,6 +940,7 @@ export function LayoutMiniature({
             const overflow = block.overflow;
             const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
             const slide = fraction * 100;
+            const memberFaces = faces?.members[block.slot];
             return block.members.map((member) => {
               const { index: m, topPct: memberTop, spanPct: span } = member;
               const top = memberTop - slide;
@@ -926,6 +967,7 @@ export function LayoutMiniature({
                   data-band={block.slot % 2 === 0 ? "even" : "odd"}
                   data-column-member=""
                   data-column-overflow={overflow ? "" : undefined}
+                  data-faced={memberFaces?.[m] !== undefined ? "" : undefined}
                   style={
                     {
                       left: `${block.leftPct}%`,
@@ -936,7 +978,9 @@ export function LayoutMiniature({
                         committed && slideExpr !== null ? slideExpr : undefined,
                     } as React.CSSProperties
                   }
-                />
+                >
+                  <MiniatureMemberFace face={memberFaces?.[m]} />
+                </span>
               );
             });
           })}
@@ -966,6 +1010,7 @@ export function LayoutMiniature({
           widthPct={railPct}
           members={geometry.rails.right?.members ?? []}
           overflow={geometry.rails.right?.overflow ?? false}
+          faces={faces?.rails.right}
         />
       ) : null}
       {/*

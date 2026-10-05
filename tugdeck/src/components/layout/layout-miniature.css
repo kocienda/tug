@@ -174,6 +174,142 @@
   border-color: transparent;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Faces — the card standing in each place, seen small.
+
+   A faced block stops painting itself and lets its layers paint: the front
+   card's face, and behind it up to two sheets for the cards stacked under it.
+   Every layer sits INSIDE the block's own box, stepping three pixels down and
+   two left per card nearer the reader, so the block keeps the rect the
+   overlay's targets, the strip's segments and the drop zones all stand on.
+   `--sheets` (set inline, 0–2) is the stack's depth and `--sheet` (1–2) a
+   sheet's place in it; those two numbers are the whole geometry.
+
+   The face is drawn in the block's own ink — `--tugx-layout-mini-card`, so fit's
+   banding still alternates it — and keeps the block's ground stroke, which is
+   what cuts the edge between two lapped cards. The sheets mix that ink toward
+   the ground a step per card back, so depth reads as distance.
+
+   The card the reader is in wears the Key ink on its bar and its icon — the
+   axis the flow window already spends on "what you are looking at", and the
+   same fact the filled pill states one row down.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.layout-mini[data-committed="true"] .layout-mini-block[data-faced] {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.layout-mini-face,
+.layout-mini-sheet {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 1px;
+  border: 1px solid var(--tug7-surface-global-primary-normal-sunken-rest);
+}
+
+/* @tug-renders-on: --tug7-element-global-border-normal-strong-rest */
+.layout-mini-face {
+  inset-block: calc(var(--sheets, 0) * 3px) 0;
+  inset-inline: 0 calc(var(--sheets, 0) * 2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: clip;
+  background-color: var(
+    --tugx-layout-mini-card,
+    var(--tug7-element-global-border-normal-strong-rest)
+  );
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* A split member's face fills its member block whatever `--sheets` the
+   column inherits — a member is one card, never a stack. */
+.layout-mini-block[data-column-member] > .layout-mini-face {
+  inset: 0;
+}
+
+.layout-mini-sheet {
+  inset-block: calc((var(--sheets, 0) - var(--sheet)) * 3px)
+    calc(var(--sheet) * 3px);
+  inset-inline: calc(var(--sheet) * 2px)
+    calc((var(--sheets, 0) - var(--sheet)) * 2px);
+  background-color: color-mix(
+    in srgb,
+    var(--tugx-layout-mini-card, var(--tug7-element-global-border-normal-strong-rest))
+      calc(100% - var(--sheet) * 24%),
+    var(--tug7-surface-global-primary-normal-sunken-rest)
+  );
+}
+
+/* The title bar: a darker band across the face's top, as a pane's own bar is.
+   Mixed from the two inks the drawing already uses, so it can only ever land
+   between the card and its ground. It holds a session's live dot. */
+.layout-mini-face-bar {
+  position: relative;
+  flex: none;
+  inline-size: 100%;
+  block-size: 5px;
+  background-color: color-mix(
+    in srgb,
+    var(--tugx-layout-mini-card, var(--tug7-element-global-border-normal-strong-rest))
+      58%,
+    var(--tug7-surface-global-primary-normal-sunken-rest)
+  );
+}
+
+/* The dot sits at the bar's trailing end, centred on it, and may stand a
+   pixel proud of it — a six-pixel dot on a five-pixel bar reads as a light on
+   the bar rather than a hole in it. */
+.layout-mini-face-dot {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: 2px;
+  display: flex;
+  transform: translateY(-50%);
+}
+
+/* @tug-renders-on: --tug7-element-global-border-normal-strong-rest */
+.layout-mini-face-icon {
+  flex: none;
+  margin-block: auto;
+  inline-size: 12px;
+  block-size: 12px;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  opacity: 0.85;
+}
+
+.layout-mini-face[data-here] .layout-mini-face-bar {
+  background-color: var(--tug7-element-tone-icon-normal-active-rest);
+}
+
+/* @tug-renders-on: --tug7-element-global-border-normal-strong-rest */
+.layout-mini-face[data-here] .layout-mini-face-icon {
+  color: var(--tug7-element-tone-icon-normal-active-rest);
+  opacity: 1;
+}
+
+/* A rail member says what it is and no more: its icon, centred, in the rail's
+   quieter voice. */
+.layout-mini-rail-member {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* @tug-renders-on: --tug7-element-global-divider-normal-separator-rest */
+.layout-mini-rail-icon {
+  flex: none;
+  inline-size: 10px;
+  block-size: 10px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-element-global-divider-normal-separator-rest */
+.layout-mini-rail-icon[data-here] {
+  color: var(--tug7-element-tone-icon-normal-active-rest);
+}
+
 /* The flow viewport: how much of an overflowing strip is on screen. Drawn as a
    bracket over the cards rather than a fill behind them, because it is a
    statement about the FRAME the deck looks through, not about the cards it

@@ -16,10 +16,13 @@
  * (the axes are enumerable, the registry is a boot step), so the card's
  * height never moves as cards do.
  *
- * **Arrangement questions are asked on the drawing.** Whether a slot or a rail
- * stacks or splits is a fact about a place the picture is already drawing — so
- * it is stated and changed there, by {@link LayoutPlaces}, and the schematic's
- * whole vocabulary is stack versus split. Placement is not the picture's
+ * **Arrangement questions are asked at the picture.** Whether a slot stacks or
+ * splits is a fact about a place the picture is already drawing — so it is
+ * stated and changed in a row of toggles standing under the numbered strip,
+ * one under each number ({@link LayoutPlaceToggles}), and the drawing itself
+ * states what stands in each place: every block wears its card's face, and
+ * hovering one names the card and its session ({@link MiniatureCardTip}).
+ * Placement is not the picture's
  * question: which side a card holds is asked once, in words, by its row above,
  * because the row can also say "not on the deck at all" and the picture cannot
  * press what it does not draw. This card used to re-describe every per-place
@@ -138,8 +141,19 @@ import type {
 } from "@/components/layout/layout-miniature";
 import {
   LayoutPlaces,
+  LayoutPlaceToggles,
   MiniatureWindowGrip,
 } from "@/components/layout/layout-places";
+import { MiniatureCardTip } from "@/components/layout/miniature-card-tip";
+import type {
+  MiniatureFace,
+  MiniatureFaces,
+} from "@/components/layout/miniature-faces";
+import {
+  readerPaneIdOf,
+  slotStackOf,
+  type MiniatureTarget,
+} from "@/components/layout/miniature-gestures";
 import { FlowStrip } from "@/components/layout/flow-strip";
 import type { FlowStripTravel } from "@/components/layout/flow-strip";
 import { raiseCard } from "@/focus-transfer";
@@ -154,7 +168,7 @@ import { useMiniatureWindowDrag } from "@/components/layout/use-miniature-window
 import type { TugSlotState } from "@/components/tugways/tug-slot";
 import type { LayoutPlace } from "@/components/layout/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
-import { getAllRegistrations } from "@/card-registry";
+import { getAllRegistrations, getRegistration } from "@/card-registry";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { useStoreDerived } from "@/lib/use-store-derived";
 import type { IDeckManagerStore } from "@/deck-manager-store";
@@ -296,10 +310,11 @@ const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER =
  *  drawing rather than the lid over what is no longer drawn. */
 const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 21;
 
-/** The picture's own stop. One stop for the whole drawing rather than one per
- *  mark: a stop per affordance would make Tab crawl the picture, and the marks
- *  are items within it exactly as a segmented group's segments are items within
- *  it. The order is a sort key rather than a count, so it is set past every row
+/** The picture's stop — the toggle row under the strip. One stop for every
+ *  slot's toggle rather than one per toggle: a stop per affordance would make
+ *  Tab crawl the row, and the toggles are items within it exactly as a
+ *  segmented group's segments are items within it. The order is a sort key
+ *  rather than a count, so it is set past every row
  *  the card can grow — two stops sharing an order would share one focus key
  *  ([Q12]) and the engine resolves a key to exactly one stop, leaving the other
  *  unreachable by any addressed placement. */
@@ -565,6 +580,76 @@ function useRailMembers(): Partial<
   );
 }
 
+/**
+ * What stands in each place, as the committed miniature draws it — every
+ * block's face ([miniature-faces]).
+ *
+ * Read with the snapshot ([L02]) and kept by value, so an activation that
+ * moves only the strip renders nothing here; one that changes which card is
+ * in front, or which card the reader is in, renders the faces it touches.
+ *
+ * The icon is the one the pane's title bar draws: the card's own, else its
+ * registration's. "Here" is the reader's pane by the one rule the numbered
+ * pill uses ({@link readerPaneIdOf}) for a slot, and the active pane for a
+ * rail — a rail card is "here" only while the reader is actually in it.
+ */
+function useCommittedFaces(): MiniatureFaces | null {
+  return useDeckDerived((deck): MiniatureFaces | null => {
+    if (deck === null) return null;
+    const kind = deck.imposition.kind;
+    if (kind === undefined) return null;
+    const reader = readerPaneIdOf(deck);
+    const cardsById = new Map(deck.cards.map((card) => [card.id, card]));
+    const faceOf = (
+      pane: { id: string; activeCardId: string },
+      here: boolean,
+    ): MiniatureFace => {
+      const card = cardsById.get(pane.activeCardId);
+      const icon =
+        card?.icon ??
+        (card === undefined
+          ? undefined
+          : getRegistration(card.componentId)?.defaultMeta.icon);
+      return { paneId: pane.id, cardId: pane.activeCardId, icon, here };
+    };
+    const slots: Record<number, readonly MiniatureFace[]> = {};
+    for (let slot = 0; slot < slotCount(kind); slot++) {
+      const stack = slotStackOf(deck, slot);
+      if (stack.length > 0) {
+        slots[slot] = stack.map((pane) => faceOf(pane, pane.id === reader));
+      }
+    }
+    const panesById = new Map(deck.panes.map((pane) => [pane.id, pane]));
+    const members: Record<number, readonly MiniatureFace[]> = {};
+    for (const column of deckColumnsOf(deck, null)) {
+      if (column.mode !== "split" || column.members.length < 2) continue;
+      members[column.slot] = column.members.flatMap((paneId) => {
+        const pane = panesById.get(paneId);
+        return pane === undefined ? [] : [faceOf(pane, pane.id === reader)];
+      });
+    }
+    const rails: Partial<Record<SidebarSide, readonly MiniatureFace[]>> = {};
+    for (const side of SIDES) {
+      rails[side] = railMembersOf(deck, side).flatMap(({ paneId }) => {
+        const pane = panesById.get(paneId);
+        return pane === undefined
+          ? []
+          : [faceOf(pane, pane.id === deck.activePaneId)];
+      });
+    }
+    return { slots, members, rails };
+  });
+}
+
+/**
+ * The hover for one part of the miniature. Stable for the card's life: the
+ * tip reads everything it says from the stores itself, and only while its
+ * bubble is open.
+ */
+function miniatureTipFor(target: MiniatureTarget): React.ReactNode {
+  return <MiniatureCardTip target={target} />;
+}
+
 /** The deck's live flow SHAPE, in the numbers the committed miniature draws
  *  from — see {@link useCommittedFlow}. The offset is deliberately not here:
  *  it moves on every slide, and {@link useCommittedFlowOffset} is its door. */
@@ -784,11 +869,9 @@ function CommittedFlowStrip({
         strip === null || band === null || band <= 0
           ? null
           : { strip, band, offset: deck.flowOffset ?? 0 };
-      const active = deck.panes.find((p) => p.id === deck.activePaneId);
-      const standing =
-        active?.slot !== undefined
-          ? active
-          : [...deck.panes].reverse().find((p) => p.slot !== undefined);
+      // The reader's pane, by the one rule the faces and the hover share.
+      const readerId = readerPaneIdOf(deck);
+      const standing = deck.panes.find((p) => p.id === readerId);
       const marked =
         standing?.slot === undefined
           ? undefined
@@ -881,15 +964,6 @@ interface PlanLayer {
   layout: ImpositionLayout;
   /** Which slots this drawing divides, and into how many shares. */
   columnSplits: Record<number, number>;
-  /**
-   * The marks this layer's drawing wears — the places overlay again, inert,
-   * at THIS arrangement's geometry and modes. Without it a preview moved the
-   * deck under a set of marks that stayed at the committed positions, so the
-   * picture auditioned a change while its own legend flatly contradicted it.
-   */
-  ghost: {
-    columns: readonly LayoutPlace[];
-  };
 }
 
 /**
@@ -948,18 +1022,6 @@ const PreviewLayers = memo(function PreviewLayers({
             layout={layer.layout}
             columnSplits={layer.columnSplits}
             flowBandPx={bandPx}
-          />
-          {/* The layer's own marks, inert, at the layer's geometry — the
-              live overlay steps back while a preview shows, so the ghost
-              is the only legend on the auditioned drawing. */}
-          <LayoutPlaces
-            kind={layer.kind}
-            rails={layer.rails}
-            width={layer.width}
-            layout={layer.layout}
-            band={bandPx}
-            columns={layer.ghost.columns}
-            ghost
           />
         </div>
       ))}
@@ -1178,6 +1240,8 @@ export function LayoutContent(
   const railMembers = useRailMembers();
   const { onWindowPointerDown } = useMiniatureWindowDrag();
   const committedColumnOffsets = useCommittedColumnOffsets();
+  // What stands in each place — the committed drawing's faces.
+  const faces = useCommittedFaces();
   // The arrangeable places, for the overlay that draws them on the picture:
   // EVERY slot the kind defines, occupied or not, each carrying its STORED
   // arrangement. An arrangement outlives its membership all the way to zero,
@@ -1405,13 +1469,6 @@ export function LayoutContent(
   // Every layer draws the deck's CURRENT column arrangement — a preview changes
   // one axis and states what the others would keep. Folded in once, after the
   // list, rather than repeated in each literal.
-  //
-  // The base ghost: the committed marks restated. Deck-wide previews (layout,
-  // width) change no place, so their ghosts are the marks as they stand — at
-  // the LAYER's geometry, which is the whole point: the marks travel with the
-  // blocks they annotate.
-  const baseGhost = { columns: columnPlaces };
-
   const layers: PlanLayer[] = [
     ...IMPOSITION_KINDS.map((k) => ({
       previewId: `kind:${k}`,
@@ -1421,10 +1478,6 @@ export function LayoutContent(
       rails,
       width: contentWidth,
       layout,
-      // A different kind reshuffles which cards share which slot, and that
-      // redistribution is the imposer's to make — so the ghost claims nothing
-      // about columns at all.
-      ghost: { columns: [] },
     })),
     ...LAYOUTS.map((mode) => ({
       previewId: `layout:${mode}`,
@@ -1434,7 +1487,6 @@ export function LayoutContent(
       rails,
       width: contentWidth,
       layout: mode,
-      ghost: baseGhost,
     })),
     ...CONTENT_WIDTH_PRESETS.map((preset) => ({
       previewId: `width:${preset}`,
@@ -1444,12 +1496,11 @@ export function LayoutContent(
       rails,
       width: preset,
       layout,
-      ghost: baseGhost,
     })),
     // One per registered sidebar card and side — registered, not open,
     // because the sidebar rows preview showing a hidden card. The layer's
     // rails place that card on the stated side whether or not it is open now,
-    // and its ghost members do the same.
+    // and its members do the same.
     ...sidebars.flatMap((entry) =>
       SIDES.map((side) => ({
         previewId: `side:${entry.componentId}:${side}`,
@@ -1465,7 +1516,6 @@ export function LayoutContent(
         }),
         width: contentWidth,
         layout,
-        ghost: { columns: columnPlaces },
       })),
     ),
     // And one per card for Off: the deck without it. For a card already
@@ -1485,7 +1535,6 @@ export function LayoutContent(
         rails: counts,
         width: contentWidth,
         layout,
-        ghost: { columns: columnPlaces },
       };
     }),
   ].map((layer) => ({ ...layer, columnSplits }));
@@ -1608,16 +1657,16 @@ export function LayoutContent(
               columnOffsets={committedColumnOffsets ?? undefined}
               railAllocations={committedAllocations.rails}
               columnAllocations={committedAllocations.columns}
+              faces={faces ?? undefined}
             />
           </div>
           <PreviewLayers layers={deferredLayers} bandPx={deferredBandPx} />
         </div>
 
-        {/* The places, over whichever layer is showing — anchored to the figure
-            rather than mounted inside a layer, because the layers swap by
-            `display` and a mark inside the committed one would vanish the
-            moment its own hover raised a preview, un-hover itself, and
-            oscillate. */}
+        {/* The targets, over whichever layer is showing — anchored to the
+            figure rather than mounted inside a layer, because the layers swap
+            by `display` and a target inside the committed one would vanish
+            the moment a preview showed. Each carries its card's hover. */}
         <LayoutPlaces
           kind={kind}
           rails={rails}
@@ -1633,9 +1682,6 @@ export function LayoutContent(
                   slots: committedFlow.slots,
                 }
           }
-          columns={columnPlaces}
-          focusGroup={LAYOUT_FOCUS_GROUP}
-          focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
           columnSplits={columnSplits}
           columnAllocations={committedAllocations.columns}
           columnOffsets={committedColumnOffsets ?? undefined}
@@ -1643,6 +1689,7 @@ export function LayoutContent(
           railAllocations={committedAllocations.rails}
           railMembers={railMembers}
           onTargetPointerDown={onTargetPointerDown}
+          tipFor={miniatureTipFor}
           windowGrip={
             <CommittedWindowGrip
               geometry={stripGeometry.geometry}
@@ -1671,6 +1718,20 @@ export function LayoutContent(
         rails={stripGeometry.basis}
         onPreview={previewFlow}
         onGoTo={goToSlot}
+      />
+
+      {/* The toggles: each slot's stack/split arrangement, one under each
+          number, at the strip's own geometry. They stood at the foot of
+          each block once, on the drawing; the blocks now wear their cards'
+          faces, and the eye runs number → arrangement down one vertical.
+          The picture's keyboard stop is this row. */}
+      <LayoutPlaceToggles
+        columns={columnPlaces}
+        spans={stripGeometry.spans}
+        rails={stripGeometry.basis}
+        layout={layout}
+        focusGroup={LAYOUT_FOCUS_GROUP}
+        focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
       />
       </div>
 

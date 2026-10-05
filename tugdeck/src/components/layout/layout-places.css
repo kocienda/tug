@@ -1,50 +1,35 @@
 /**
- * layout-places.css — the places overlay's box, which is the drawing's box.
+ * layout-places.css — the targets standing on the drawing, and the toggles
+ * standing under the strip.
  *
- * The overlay has to land on the picture to the pixel, and the picture is not a
- * grid of percentages: `.layout-mini` is a flex row with a 1px border, 3px of
- * padding and a 2px gap, and its rails are flex children sized by basis while
- * its field takes what is left. So this file does not attempt to *compute*
- * where anything is — it restates that box exactly and lets the same numbers
- * from `miniatureGeometry` flow into the same properties. Any of those three
- * lengths changing in `layout-miniature.css` must change here in the same
- * commit; they are one box described twice because one element cannot both
- * paint the deck and take a press for each of its parts.
+ * Both have to land on something else to the pixel, and neither is a grid of
+ * percentages. `.layout-mini` is a flex row with a 1px border, 3px of padding
+ * and a 2px gap, its rails flex children sized by basis and its field taking
+ * what is left; `.flow-strip` restates the same row without the block padding.
+ * So this file does not attempt to *compute* where anything is — it restates
+ * those boxes exactly and lets the same numbers from `miniatureGeometry` flow
+ * into the same properties. Any of those lengths changing in
+ * `layout-miniature.css` or `flow-strip.css` must change here in the same
+ * commit.
  *
  * The overlay stands OUTSIDE the plan's layers. Those swap by `display`, so an
- * overlay parked inside the committed layer would disappear the moment its own
- * hover raised a preview — and disappearing under the pointer un-hovers it,
- * which clears the preview, which brings it back. Anchored to the plan's own
- * box, bottom-aligned and at the drawing's width, it coincides with whichever
- * layer is showing and stays put while the drawing beneath auditions a change.
+ * overlay parked inside the committed layer would disappear the moment a
+ * preview showed. Anchored to the plan's own box, bottom-aligned and at the
+ * drawing's width, it coincides with whichever layer is showing.
  *
  * @tug-pairings
  * | Element                                             | Surface                                             | Role          | Context                       |
  * |-----------------------------------------------------|-----------------------------------------------------|---------------|-------------------------------|
- * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-border-normal-strong-rest     | informational | .layout-places mark at rest   |
- * | --tug7-surface-global-primary-normal-default-rest   | --tug7-element-global-text-normal-default-rest      | control       | .layout-places mark on hover  |
+ * | --tug7-element-global-text-normal-default-rest      | --tug7-surface-global-primary-normal-default-rest   | informational | .layout-places-mark at rest   |
+ * | --tug7-surface-global-primary-normal-default-rest   | --tug7-element-global-text-normal-default-rest      | control       | .layout-places-mark on hover  |
  * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-border-normal-strong-rest     | control       | .layout-places-target on a block, under the hand |
  * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-divider-normal-separator-rest | control       | .layout-places-target on a rail member, under the hand |
  * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-border-normal-strong-rest     | control       | .layout-places-window frame, under the hand or dragging |
  *
- * The surface in the first row is a border token, and that is not a slip: a
- * mark stands on a drawn BLOCK, and `layout-miniature.css` paints its blocks
- * with `--tug7-element-global-border-normal-strong-rest`. Pairing the mark
- * against the section's background instead would be checking the contrast of
- * two things that never touch.
- *
- * At rest the mark is drawn in the picture's own ink, not the control palette.
- * The drawing is chrome — global neutrals — and a mark on it painted in the
- * accent would claim to be the live thing on a surface where nothing is live:
- * where a card is standing is the deck's resting fact, true whether or not
- * anybody is reaching for it. Under the hand it becomes a control and says so
- * by inverting: the page's own two colours, swapped.
- *
- * The same rule governs every other part of the picture. The drawing is chrome
- * at rest, and the overlay above it answers a hand: one invisible target per
- * column block, split member and rail member, each drawing nothing until the
- * pointer is on it, and then a one-pixel frame in the page's text ink — the
- * part under the hand lit, and nothing else.
+ * The drawing is chrome at rest, and the overlay above it answers a hand: one
+ * invisible target per column block, split member and rail member, each
+ * drawing nothing until the pointer is on it, and then a one-pixel frame in
+ * the page's text ink — the part under the hand lit, and nothing else.
  */
 
 .layout-places {
@@ -68,52 +53,10 @@
   border: 1px solid transparent;
 
   /* The plan sets `pointer-events: none` over the whole drawing, because the
-     drawing paints the deck and this overlay is what takes the hand — its
-     marks, and the targets standing on every block and member beneath them.
-     So the pointer comes back here.
-
-     It comes back on the WHOLE box rather than on the marks alone, and that is
-     load-bearing rather than lazy: the focus engine's walk excludes any
-     registered element that computes `pointer-events: none`
-     (`isRecordInteractive` in `focus-manager.ts`), on the sound principle that
-     the ring must never land on something a press cannot reach. An inert root
-     therefore takes the picture out of the Tab walk entirely — registered,
-     visible, and silently unreachable by keyboard. Nothing is lost by letting
-     the box take the pointer: a hover on the box's empty air resolves to no
-     preview id, which is the same as no hover at all. */
+     drawing paints the deck and this overlay is what takes the hand. The
+     box's own air takes it too, so a press in a gap lands on nothing rather
+     than falling through to the plan. */
   pointer-events: auto;
-
-  /* And because it is reachable, it RINGS — the whole picture is one Tab stop
-     and the ring lands on this box, which is the drawing's box to the pixel.
-     The language's default 2px offset is authored for a control standing in
-     its own air; here the ring is a rectangle around a rectangle, with the
-     numbered strip below it and the picture's own border a pixel or two
-     inside, so at the default it touched both. Pushed out, it reads as a mark
-     ABOUT the picture rather than as another line in it.
-
-     The room it needs is reserved in `layout-card.css`: the plate's gap is
-     what stands between this ring and the strip's first pill, and the plan
-     layer's gap is what stands between it and the note above, so the three
-     numbers move together. The ring itself is declared below rather than
-     here — see why. */
-}
-
-/* The offset is written as `outline-offset` on the ringed element, NOT as
-   `--tugx-focus-ring-offset` on the box above, which is how it was first cut
-   and which was wrong in a way the picture showed immediately. That property
-   is a CUSTOM property, and custom properties inherit: declared on this box
-   it reached every mark inside it too, and a mark's cursor ring — a
-   `[data-key-cursor]` outline reading the same var — was pushed out with it,
-   off the block it belongs to and across the drawing's own frame. One
-   element wanted a wider ring; the declaration handed one to
-   everything under it.
-
-   `outline-offset` is not inherited, so it says what it means. At (0,2,0) it
-   also outranks the language's own (0,1,0) rule without touching it, and the
-   two suppressions that matter — the backgrounded window and the
-   non-engaged deck — work by clearing `outline`, which this leaves alone. */
-.layout-places[data-key-view-kbd] {
-  outline-offset: 4px;
 }
 
 /* One side's strip. Width comes from the same flex-basis the drawing's rail
@@ -137,9 +80,10 @@
   min-inline-size: 0;
 }
 
-/* A slot's block, at the same left and width the drawing gave it. It is only
-   the mark's frame: full height, so it takes no pointer, or it would swallow
-   every press meant for the targets beneath it. The mark inside takes its own. */
+/* A slot's block, at the same left and width the drawing gave it. It draws
+   nothing and takes no pointer — it is the box a drag measures that slot's
+   landing from (`use-miniature-gestures.ts`), standing for every slot whether
+   or not a card is there to press. */
 .layout-places-block {
   position: absolute;
   inset-block: 0;
@@ -148,9 +92,8 @@
 
 /* The targets' layer: the field's box, clipped as the drawing's run is, so an
    overflowing column's member targets run off the bottom with the members they
-   stand on. It renders before the marks and so beneath them. The marks must
-   not clip — their ring and hover chip reach past the block — which is why the
-   clip is this layer's and not the field's. */
+   stand on. The window grip renders after it and does not clip — its frame
+   stands two pixels proud of the cards. */
 .layout-places-run {
   position: absolute;
   inset: 0;
@@ -159,9 +102,9 @@
 
 /* One part of the drawing, ready for a hand. Nothing at rest — the drawing is
    chrome, and a picture whose every block wore a frame would read as a form —
-   and under the hand a one-pixel frame in the page's text ink, the same pair
-   the marks rest in and the most legible the theme has. A part that is a
-   drag's source keeps the light for the length of the drag. */
+   and under the hand a one-pixel frame in the page's text ink, the most
+   legible pair the theme has. A part that is a drag's source keeps the light
+   for the length of the drag. */
 .layout-places-target {
   position: absolute;
   border-radius: 1px;
@@ -216,8 +159,8 @@
    outside the grip's padding box — so its centre line is at -1px.
 
    TUNE: the band's thickness is the open question of whether the frame is a
-   big enough target in a picture about 210px wide. It is one property so it
-   can be judged in the hand and moved in one place. */
+   big enough target in a picture this small. It is one property so it can be
+   judged in the hand and moved in one place. */
 .layout-places-window-edge {
   position: absolute;
   pointer-events: auto;
@@ -256,125 +199,101 @@
   cursor: grabbing;
 }
 
-/* The mark itself, at the foot of the part it belongs to. The foot rather than
-   the middle because a block's middle is where the card's own content would be
-   in the real deck, and because a row of marks along one line reads as one
-   legend for the picture rather than as scattered stickers.
-
-   Centred across the block, except in fit — see below. */
-.layout-places-mark {
-  position: absolute;
-  inset-block-end: 1px;
-  inset-inline: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  /* One inset, read from whichever end the mark is standing at, so the two
-     alignments are one rule with one number rather than two declarations that
-     can drift apart. */
-  padding-inline: 2px;
-
-  /* The mark takes its own press, above the block target beneath it. */
-  pointer-events: auto;
-
-  /* **Body in the ink, seams in the ground.** A mark stands ON a drawn block,
-     and a block is painted with `--tug7-element-global-border-normal-strong-rest`
-     — a border token used as a surface (`layout-miniature.css`). So that token
-     is the mark's GROUND, never its ink, and the first cut had it as both: the
-     slice stroke and the ladder's lines were the block's own colour, which made
-     the split glyph a drawing of a block on a block. It survived at all only
-     because a slice has a fill to read by; the ladder, which is lines and
-     nothing else, simply vanished.
-
-     The ink is the page's own text colour, which is the one pairing guaranteed
-     to read in every theme — and it has to be, because the block is a MID tone
-     in both polarities: the sunken surface used here before sat 340 steps below
-     it in the dark themes and only 170 above it in the light ones, so the same
-     declaration gave a legible glyph on one side and a wash on the other.
-     Text ink lands 320 below and 590 above, and in the direction the reader's
-     eye is already calibrated for. */
-  --tugx-column-badge-fill: var(--tug7-element-global-text-normal-default-rest);
-  --tugx-column-badge-accent: var(--tug7-element-global-text-normal-default-rest);
-  --tugx-column-badge-stroke: var(--tug7-element-global-border-normal-strong-rest);
+/* While a preview shows, the targets stand down altogether. A preview is the
+   keyboard's alone, and a part lit under the pointer over a DIFFERENT
+   arrangement would name a card that is not where the picture shows it. */
+.layouts-plan[data-previewing] + .layout-places .layout-places-target {
+  pointer-events: none;
+  box-shadow: none;
 }
 
-/* In fit the mark stands at the block's leading edge instead.
- *
- * A slot's anchor in fit is a fraction of the band, so a chain wider than the
- * band laps: card k+1 is drawn over card k's trailing part, and the only part
- * of card k left showing is a strip at its LEADING edge. A mark centred across
- * the block therefore lands under the next card — every mark but the last
- * buried, a row of glyphs half-swallowed by the blocks in front of them, which
- * is both unreadable and, since the mark is a control, a target the pointer
- * cannot always reach.
- *
- * The leading edge is the one part of a lapped card that is always visible, by
- * the geometry rather than by luck: the lap always eats the trailing end. So
- * the marks stand there, and they still land along one line — the same legend
- * they were before, read from a different end.
- *
- * The rails keep the centre. A rail is pinned to its canvas edge and holds its
- * own width; nothing ever laps it, so nothing is bought by moving its mark. */
-.layout-places[data-layout="fit"] .layout-places-block > .layout-places-mark {
+.layouts-plan[data-previewing] + .layout-places .layout-places-window-edge {
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   The toggles, under the strip
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* `.flow-strip`'s box, restated: the same width, the same inline padding and
+   transparent border, the same gap — so its field is the strip's field and a
+   toggle stands under its number. One button tall. */
+.layout-place-toggles {
+  display: flex;
+  gap: 2px;
+  inline-size: var(--tugx-layouts-plan-mini-width);
+  block-size: var(--tug-button-xs-height);
+  margin-inline: auto;
+  padding-inline: 3px;
+  box-sizing: border-box;
+  border-inline: 1px solid transparent;
+}
+
+/* The row is one Tab stop, and its ring is the row's box. The language's
+   default 2px offset would land the ring on the pills directly above, so it
+   is pulled in to sit on the row itself. `outline-offset` rather than the
+   custom property, which would inherit into every toggle's own cursor ring. */
+.layout-place-toggles[data-key-view-kbd] {
+  outline-offset: 1px;
+}
+
+.layout-place-toggles-rail {
+  flex: 0 0 auto;
+}
+
+.layout-place-toggles-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+/* A slot's cell, at its span. The toggle is centred in it, as the number above
+   is centred in its segment. */
+.layout-place-toggles-cell {
+  position: absolute;
+  inset-block: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* In fit the toggle stands at the cell's leading edge instead. A slot's anchor
+   in fit is a fraction of the band, so a chain wider than the band laps, and
+   the only part of a lapped card left showing is a strip at its LEADING edge —
+   a toggle centred across the span would stand under the next card's. The
+   leading edge is the one part always visible, by the geometry. */
+.layout-place-toggles[data-layout="fit"] .layout-place-toggles-cell {
   justify-content: flex-start;
 }
 
-/* A mark's own keyboard mark rides the Accent axis, like every keyboard mark
-   in the app.
+/* The glyph on the page: body in the text ink, seams in the page's own
+   surface, which is what it stands on. */
+.layout-places-mark {
+  display: flex;
+  --tugx-column-badge-fill: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-column-badge-accent: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-column-badge-stroke: var(--tug7-surface-global-primary-normal-default-rest);
+}
 
-   It has to be said at all because a mark is a `ghost`/`action` button, and
-   `internal/tug-button.css` points every action button's ring at the action
-   role's blue — right everywhere else, and a collision here: the drawing's
-   other blue rectangle is the flow window, which says what is IN VIEW. Two
-   blue rectangles a few pixels apart meaning two unrelated things is the
-   confusion this picture was just corrected for. One hue per fact — orange is
-   the keyboard, and it is orange at both scales here (this ring, and the
-   picture's own ring around the whole drawing); key is the view.
+/* A toggle's own keyboard mark rides the Accent axis, like every keyboard mark
+   in the app. It has to be said because a toggle is a `ghost`/`action` button,
+   and `internal/tug-button.css` points every action button's ring at the action
+   role's blue — the hue the flow window and the filled pill above already spend
+   on "what you are looking at". One hue per fact: orange is the keyboard.
 
-   On the BUTTON rather than on `.layout-places-mark`, because the button
-   declares the property on itself and an element's own declaration beats an
-   inherited one however close the ancestor is. */
+   On the BUTTON rather than on the mark, because the button declares the
+   property on itself and an element's own declaration beats an inherited one. */
 .layout-places-mark .tug-icon-button {
   --tugx-focus-ring: var(--tug7-element-global-fill-normal-accent-rest);
 }
 
-/* Every mark rests at ONE weight. An earlier cut whispered the marks with
-   fewer than two cards under them, on the theory that a place with nothing to
-   arrange should say so quietly — but a picture whose glyphs sit at two tints
-   reads as a rendering fault before it reads as a distinction, and the
-   distinction was not one the reader had asked about. What a mark is for is
-   stating the arrangement, and every place has one of those. */
-
-/* Under the hand a mark becomes what it always was underneath: a control, and
-   it says so with an OPAQUE chip. The ghost emphasis's own hover surface is a
-   14%-alpha wash, which is right on a card and illegible here: the drawing
-   beneath is a mid-neutral, so a translucent tint over it lands a step from
-   where it started and the glyph goes on competing with the block behind it.
-
-   Rest stays neutral: where a card is standing is the deck's resting fact, true
-   whether or not anybody is reaching for it, so spending the accent to state it
-   would leave the picture permanently lit with nothing happening.
-
-   The keyboard cursor takes the same appearance, because standing on a mark and
-   pointing at one mean the same thing here: the press is what changes the deck. */
+/* Under the hand, and under the keyboard cursor, a toggle says it is a control
+   with an OPAQUE chip: the page's own two colours, swapped — text ink as the
+   ground, the page's surface as the glyph. The most legible pair the theme
+   has, in every theme, by construction. */
 .layout-places-mark .tug-icon-button:hover,
 .layout-places-mark .tug-icon-button[data-key-cursor] {
-  /* The chip is the page's own two colours, SWAPPED — text ink as the ground,
-     the page's surface as the glyph. Which makes it the most legible pair the
-     theme has, in every theme, by construction: it is the contrast of body
-     text on its own background, and nothing a palette does to one polarity can
-     weaken it without making prose unreadable first.
-
-     The accent chip this replaced was the obvious choice and the wrong one. It
-     borrows the app's filled-action pair, which measures WCAG 2.87 and
-     perceptual 39 in five of the six themes — a saturated ground carrying
-     near-white ink is inherently about 3:1 — so a mark asked to be legible
-     would have been drawn in the one family that cannot be. It also would have
-     claimed the accent for a hover, on a drawing whose whole argument is that
-     nothing here is live. */
   background-color: var(--tug7-element-global-text-normal-default-rest);
-  /* The same rule as at rest, over a new ground: body in the ink, seams in
-     whatever the glyph is standing on — which under the hand is the chip. */
   --tugx-column-badge-fill: var(--tug7-surface-global-primary-normal-default-rest);
   --tugx-column-badge-accent: var(
     --tug7-surface-global-primary-normal-default-rest
@@ -384,63 +303,10 @@
 
 /* The glyph's size. Written with the mark's class in front of it because a
    glyph mounted inside a `TugButton` meets `.tug-button svg { width: 1rem }` —
-   one specificity step above a bare class, and enough to blow the drawing up to
-   sixteen pixels inside a picture three hundred wide. */
+   one specificity step above a bare class. */
 .layout-places-mark .tug-column-badge-glyph {
-  inline-size: var(--tugx-layout-places-glyph-width, 17px);
-  block-size: var(--tugx-layout-places-glyph-height, 20px);
+  inline-size: var(--tugx-layout-places-glyph-width, 13px);
+  block-size: var(--tugx-layout-places-glyph-height, 16px);
   flex: none;
   overflow: visible;
-}
-
-/* ---- The ghost: a preview layer's copy of this readout ---- */
-
-/* The whole ghost is inert, children included — every `pointer-events: auto`
-   above is for the live instrument, and a ghost that took the pointer would
-   steal the very hover that raised its layer, un-hover it, and oscillate. The
-   live overlay beneath keeps the hover; this one only shows where the marks
-   would stand. */
-.layout-places-ghost,
-.layout-places-ghost * {
-  pointer-events: none;
-}
-
-/* A ghost glyph sits where the live mark's button would: same footprint, so a
-   place that does not move between committed and preview reads as the same
-   mark restated rather than as a second one appearing beside the first. */
-.layout-places-ghost-glyph {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  inline-size: var(--tug-button-sm-height);
-  block-size: var(--tug-button-sm-height);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.layout-places-ghost-glyph .tug-column-badge-glyph {
-  inline-size: var(--tugx-layout-places-glyph-width, 17px);
-  block-size: var(--tugx-layout-places-glyph-height, 20px);
-  flex: none;
-  overflow: visible;
-}
-
-/* While a preview shows, the live marks step back: the ghost standing in the
-   active layer is the honest statement of where every mark would be, and two
-   overlapping mark sets — one at the committed geometry, one at the preview's —
-   would be noise. Opacity rather than display, because the hidden marks must
-   keep their hit areas: the hovered one is what is HOLDING the preview up. */
-.layouts-plan[data-previewing] + .layout-places .layout-places-mark {
-  opacity: 0;
-}
-
-/* And the targets stand down altogether. A preview is the keyboard's alone,
-   and a part lit under the pointer over a DIFFERENT arrangement would name a
-   card that is not where the picture shows it. */
-.layouts-plan[data-previewing] + .layout-places .layout-places-target {
-  pointer-events: none;
-  box-shadow: none;
-}
-
-.layouts-plan[data-previewing] + .layout-places .layout-places-window-edge {
-  pointer-events: none;
 }
