@@ -79,6 +79,16 @@ Do **not** run `just app-test-all` on your own initiative. Run the full corpus o
 
 Bare `just app-test` (no arguments) is a curated **core tier** of ~20 tests — one per load-bearing surface — for a fast read on whether the app fundamentally works. It is deliberately not everything. `just app-test <files…>` runs exactly what you name.
 
+### One run per step, and know its cost
+
+The general rule rides the implement skill (`tugplug/skills/arc-implement/SKILL.md`): a checkpoint is a verdict, not a probe, so the slow layer runs once, after the step's last edit, and never as the loop you iterate in. What is true of this checkout alone:
+
+- **Costs.** `just app-test-build` is a full `build-app` (~2 min). A settle-frames file (`at0622`, `at0690`) is 160 s alone; a 20-file derived selection is 4–6 min. `tugtool apptest history <file>` carries the last recorded time, so say the number before you launch.
+- **The gate.** App-test invocations serialize machine-wide behind `tugtool host gate --name apptest`. Two arcs implementing at once each wait on the other's run, and the "batch contention" that sends a session back to re-run files alone is usually the neighbour's `build-app` and cargo build. A waiting invocation prints who holds the gate; read that line before deciding anything is flaky.
+- **Known reds leave the batch.** If the history shows a file red at the base and the step does not claim to fix it, run the rest and name it in the report. Carrying `at0622` into a 20-file batch is 163 s for a verdict you already have.
+- **Core tier once per arc.** The CORE TIER ADVISED advisory fires on any touch under `_harness/`. Answer it on the first step that changes a harness file's existing behaviour; a step that only adds a matcher nobody imports yet does not re-run it.
+- **Past five minutes on one file, the app is wedged.** Stop the run, record it as a machine state, relaunch. The 2026-10-05 core-tier run that took 91 minutes had four files at 17–19 min each; nothing in it was a test result.
+
 ### The output is the report
 
 The recipe prints one progress line per file as each finishes (`n/N`, elapsed, status, counts, and a red file's first failure), then a finished report: a per-file result table, a `Diagnostics:` section carrying every `note()` the tests asked to be seen, a `Failures:` section giving each failure's message and its location in the test file, and a closing `VERDICT:` line. Per-file `bun` streams are suppressed by default (`TUG_APPTEST_STREAM=1` restores them verbatim), so a green one-file run is about twenty lines. Run a long selection in the background and read its output file as it grows; the progress lines are there for exactly that. There is nothing a filter can extract that the summary has not already extracted.
