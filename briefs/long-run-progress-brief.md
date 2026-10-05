@@ -2,7 +2,7 @@
 
 # Live progress for long shell runs, tied to the running Bash block
 
-**Purpose:** A long command run from a Session card — an app-test selection, `just test`, `build-app` — shows nothing but a spinner and a clock until it exits. The 2026-10-03 "progress lines" work was meant to fix that and changed nothing the user can see, because it improved text on a channel that is closed while the command runs.
+**Purpose:** A long command run from a Session card — an app-test selection, `just test`, `bun test`, `build-app` — shows nothing but a spinner and a clock until it exits, and when it does exit the model has usually filtered its output down to a line that cannot name a failure, so the run is wasted and launched again. The 2026-10-03 "progress lines" work was meant to fix the first half and changed nothing the user can see, because it improved text on a channel that is closed while the command runs and discarded after it.
 
 ---
 
@@ -13,6 +13,8 @@ The user asked for *substantially better feedback* on long app-test runs. The wo
 Two days later, watching the `slow-app-tests` arc's audit stage, the user saw a Bash block sit for **7m 15s** with no content at all and called the effort a total failure: "over 7m of dead space. It can't be like this." The block was `just test > /tmp/slow-app-tests-just-test.log 2>&1` — not an app-test, and its output redirected to a file the card never sees.
 
 This brief says why the effort could not have worked, and what shape does.
+
+Later the same day, in `set-up-and-go-fixups` (`frisky-booth`), the implement stage ran the entire `tugdeck` unit suite through `| tail -4`, reported "3 fail", and wrote: *"Three unit tests fail somewhere in the full suite, and I don't know which yet."* It then launched the whole suite a second time to recover the names. The user's words: "we wasted the time to do that entire test run, since we're going to have to find which tests went red. WE MUST STOP THIS MADNESS." Live progress and a durable record are the same defect seen at two moments: during the run nothing is visible, and after it nothing is kept.
 
 ---
 
@@ -36,6 +38,14 @@ This brief says why the effort could not have worked, and what shape does.
 
 **[F09] The app-test recipe already computes every line that should be shown.** `report_progress` in `Justfile:2166` prints `n/N  mm:ss  [STATUS] file (passed/total) secs` plus a red file's first failure or a `WEDGED` cap note; `tugtool apptest record` is called at the end. The lines exist; they go to stdout and nowhere else. **(verified)**
 
+**[F10] A full suite was run and could not name its own failures.** Session `16d5f6d5` ran `cd ../tugdeck && … bun test 2>&1 | tail -4` — the whole `tugdeck` suite, 10,194 tests in 335 s — and received four lines: `3 fail` and the totals. The `(fail) …` lines bun prints are in the body the filter discarded. The next command was `bun test 2>&1 | grep -E "^\(fail\)"`: the same 335 s again, for the names; the user interrupted it. Two full-suite launches for one answer, and zero names. The step itself needed `src/lib` (5,353 tests, 52 s), which it had already run green. **(verified)** — the tool inputs and results in the session's transcript.
+
+**[F11] bun can write a record beside its console output, today.** `bun test <file> --reporter=junit --reporter-outfile=<path>` printed the usual `0 fail / Ran 7 tests` on the console and wrote a JUnit document naming every suite, file and test with its time and failures. Nothing about the console changed. A record that survives any filter on stdout is one flag away. **(verified)** — probed on `src/lib/__tests__/fold-crossing.test.ts`. `cargo nextest` has a junit reporter under a profile; the app-test recipe already records through `tugtool apptest record`.
+
+**[F12] The "about 40 s" premise for bare `bun test` is stale.** `.tugtool/config.toml` makes bare `bun test` the deck surface's check with the comment "About 40 s, once per arc." Two measurements today: 335 s in `16d5f6d5`, and 336 s in the `slow-app-tests` audit, where `layout-imposer-solutions.test.ts` alone ran 239 s against a 45 s expectation and its sibling timed out at 5 s — both passing alone, failing under the one-process suite's load. **(verified)** for the timings. That the three fails in `16d5f6d5` are those two plus one is inference; nothing recorded can confirm it, which is [F10]'s point.
+
+**[F13] The gate grammar has no notion of a filtered long run.** `tugchanges-core::shell_ops` classifies command heads and redirect targets to decide what a command writes; a pipe that consumes a test run's stdout is not something it looks at. **(verified)** — `tugrust/crates/tugchanges-core/src/shell_ops.rs`.
+
 ---
 
 ## Decisions {#decisions}
@@ -54,11 +64,18 @@ This brief says why the effort could not have worked, and what shape does.
 
 **[B07] The advice in `CLAUDE.md` and the README to "run in the background and read the file as it grows" is withdrawn as the mechanism.** It may stay as a note about reading results, but nothing about the user's feedback depends on the model's behaviour once [B01] holds.
 
+**[B08] Every long run leaves a record beside stdout, and a failure is named by reading it, never by running again.** The recipes that run tests write a per-test record — `bun test` through its junit reporter [F11], `cargo nextest` through its junit profile, app-test through `apptest record` as now — and hand it to one ledger verb (`tugtool test record`, a sibling of `apptest record`, keyed by checkout and session like `apptest_results.db`). One reader, `tugtool test last [--failures]`, prints the last run's failing tests with file, name and message. The sentence "I don't know which yet" becomes impossible: the names are in the ledger whatever happened to stdout. Recording is telemetry-grade and never fails a run. This is [B01] at the other end of the run — what the strip showed live, the ledger keeps.
+
+**[B09] The gate denies a long run whose stdout is consumed by anything but `tee`.** For the heads that are long and whose output is the report — `bun test`, `cargo nextest`, `cargo test`, `just test*`, `just app-test*`, `just build-app`, `just app-test-build` — a command that pipes their stdout into `tail`, `head`, `grep`, `wc` or anything else, or redirects it to a file, is refused by `tugtool hook pre-tool-use`, and the refusal names the shape to write instead: the command bare (with `2>&1` if wanted, and `| tee <file>` if a copy is wanted), and `tugtool test last --failures` for the names afterwards. Advice to the contrary has failed twice in two days — `CLAUDE.md` already says "there is nothing a filter can extract that the summary has not already extracted", and [F03] and [F10] are what happened next. The file-ops gate is the precedent: deny the shapes that provably lose information, say what to write instead. The filter's only honest motive — keeping a large result out of the model's context — is served by the harness itself, which spills an oversize tool result to a file and hands back a preview, and by [B08], which makes the names recoverable without the body.
+
+**[B10] Bare `bun test` on the deck is the audit's one-process check, not a step's checkpoint, and its cost is written truthfully.** The config comment's "about 40 s" is replaced with the measured figure, and the implement skill's fast-layer rule is what a step runs: the files the step touched. The one-process run exists to catch a cross-file leak, which is the audit's question. A step that runs it anyway has spent five minutes on the audit's job and gets no credit for it.
+
 ---
 
 ## Open Questions {#open-questions}
 
 - **Does `updatedInput` from a PreToolUse hook reach the Bash subprocess in Claude Code 2.1.285 with a prefixed environment assignment intact?** The field exists in the binary [F06]; what is unverified is (a) that Bash honours it, (b) that it still applies when the hook returns no `permissionDecision` and the user is prompted instead, and (c) that the transcript and the deck keep showing the model's original command. One experiment settles it: a PreToolUse hook that returns `updatedInput` with the command `export TUG_TOOL_USE_ID=<tool_use_id>; <command>`, then a Bash call that prints that variable. Hooks are snapshotted at session start, so the experiment runs in a fresh session with the hook in `.claude/settings.local.json`. A *no* on (a) or (b) selects [B03]; a *no* on (c) is a question for the user, since the rendered command would then carry the prefix.
+- **What becomes of `layout-imposer-solutions.test.ts` inside the one-process suite?** It runs 239 s under suite load against a 45 s expectation and passes alone [F12]. Whether its budget is a defect in the test, a real regression in the allocator, or a reason to run it outside the one-process suite is a reading of that file nobody has done; [B08]'s record is what makes the next red in it attributable. The user's call once the reading exists.
 
 ---
 
@@ -68,10 +85,11 @@ This brief says why the effort could not have worked, and what shape does.
 - **More or better advice to the model.** `CLAUDE.md` already says to run long selections in the background and read the file; the next session did not [F03]. Guidance can shape a report after the fact; it cannot make a running block say anything.
 - **A session-level polling reader of the output file.** The product has no polling (`[[no-polling-in-the-product]]`); the recipe knows when a file finishes and pushes then.
 - **Associating a report by process ancestry or timing.** The shell's pid chain reaches `CLAUDE_PID` but Claude Code publishes no pid→tool-use map, and two parallel tool calls start within milliseconds. Rejected in favour of the hook carrying the id [B02].
-- **Rendering the whole progress history in the running block.** One latest line, with counts; the full report arrives as stdout at exit and is the record. Scrollback in a running block is a second terminal.
+- **Rendering the whole progress history in the running block.** One latest line, with counts; the full report arrives as stdout at exit and the ledger [B08] is the record. Scrollback in a running block is a second terminal.
+- **Teaching the model to filter better.** `| grep "^(fail)"` is the better filter and it still cost a second full run [F10]. The answer is a record that needs no filter and a gate on the filters, not a smarter filter.
 
 ---
 
 ## Exit {#exit}
 
-**An arc.** The first thing it does is the experiment in Open Questions, because it chooses between [B02] and [B03] and everything downstream reads the same `TUG_TOOL_USE_ID`. Then, in roughly this order: tugcode forwards `tool_progress` and the deck ticks the streaming block from it [B04]; the hook emits the id (or registers the open call) [B02]/[B03]; a `tugtool progress` verb posts to tugcast and tugcast broadcasts a session-scoped, tool-use-keyed frame [B06]; the Bash block renders the latest line while streaming [B05]; the recipes call the verb, app-test first since its lines already exist [F09], then `test-ts`, `test-rust`, `build-app`; and the `CLAUDE.md`/README advice is rewritten [B07]. The verdict is the gesture that started this: `just test` from a Session card, watched for seven minutes, with something true on the block the whole time.
+**An arc.** Two things come first because the rest reads them: the record [B08] — the junit flags on the recipes, `tugtool test record|last`, and the gate [B09] that sends the model to it — since those end the reruns today with no deck work at all; and the experiment in Open Questions, because it chooses between [B02] and [B03] and everything downstream reads the same `TUG_TOOL_USE_ID`. Then, in roughly this order: tugcode forwards `tool_progress` and the deck ticks the streaming block from it [B04]; the hook emits the id (or registers the open call) [B02]/[B03]; a `tugtool progress` verb posts to tugcast and tugcast broadcasts a session-scoped, tool-use-keyed frame [B06]; the Bash block renders the latest line while streaming [B05]; the recipes call the verb, app-test first since its lines already exist [F09], then `test-ts`, `test-rust`, `build-app`; the config comment and the `CLAUDE.md`/README advice are rewritten [B07][B10]. The verdict is the two gestures that started this: `just test` from a Session card, watched for seven minutes, with something true on the block the whole time — and a red full suite whose failing tests are named by one `tugtool test last --failures`, with no second run.
