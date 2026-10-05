@@ -1,0 +1,448 @@
+/* @tug-pairings: none — a design spike. Every rule here paints a mock of the
+   Layout plate, which has its own tokens in `layout-miniature.css`; nothing
+   in this file ships. */
+
+.sp-mp-intro,
+.sp-mp-note {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-mp-intro {
+  max-inline-size: 560px;
+}
+
+.sp-mp-note {
+  max-inline-size: 250px;
+}
+
+.sp-mp-proposals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  align-items: flex-start;
+}
+
+.sp-mp-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sp-mp-tag {
+  font-size: 0.75rem;
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* ---------------------------------------------------------------------------
+ * The plate — the Layout card's own frame, restated
+ * ---------------------------------------------------------------------------*/
+
+.sp-mp-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  min-inline-size: 250px;
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: var(--tug-radius-sm);
+  background-color: var(--tug7-surface-global-primary-normal-default-rest);
+}
+
+.sp-mp-caption {
+  font-size: var(--tugx-header-title-size);
+  line-height: var(--tugx-header-title-lh);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  white-space: nowrap;
+}
+
+.sp-mp-caption-kind {
+  font-weight: var(--tug-font-weight-bold);
+}
+
+.sp-mp-caption-sep {
+  white-space: pre;
+  font-weight: var(--tug-font-weight-normal);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-mp-plate-note {
+  margin-block: -6px 2px;
+  font-size: var(--tug-font-size-sm);
+  line-height: var(--tug-line-height-normal);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * The miniature — `.layout-mini`'s box
+ * ---------------------------------------------------------------------------*/
+
+.sp-mp-mini {
+  display: flex;
+  position: relative;
+  gap: 2px;
+  aspect-ratio: 16 / 10;
+  padding: 3px;
+  box-sizing: border-box;
+  border: 1px solid var(--tug7-element-global-divider-normal-separator-rest);
+  border-radius: 2px;
+  background-color: var(--tug7-surface-global-primary-normal-sunken-rest);
+  overflow: clip;
+  /* The card tone every block is painted in — the real drawing's token. */
+  --sp-mp-card: var(--tug7-element-global-border-normal-strong-rest);
+  --sp-mp-ground: var(--tug7-surface-global-primary-normal-sunken-rest);
+  --sp-mp-rail-ink: var(--tug7-element-global-divider-normal-separator-rest);
+  --sp-mp-key: var(--tug7-element-tone-icon-normal-active-rest);
+}
+
+.sp-mp-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.sp-mp-slot {
+  position: absolute;
+  inset-block: 0;
+}
+
+.sp-mp-block {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 1px;
+  border: 1px solid var(--sp-mp-ground);
+  background-color: var(--sp-mp-card);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow: clip;
+}
+
+.sp-mp-rail {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.sp-mp-rail-member {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 1px;
+  background-color: var(--sp-mp-rail-ink);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The window: the real drawing's committed bracket. */
+.sp-mp-window {
+  position: absolute;
+  inset-block: -2px;
+  box-sizing: border-box;
+  border: 2px solid var(--sp-mp-key);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* Today's mark, at the foot of the block. */
+.sp-mp-mark {
+  position: absolute;
+  inset-block-end: 1px;
+  inset-inline: 0;
+  display: flex;
+  justify-content: flex-start;
+  padding-inline: 2px;
+  --tugx-column-badge-fill: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-column-badge-accent: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-column-badge-stroke: var(--sp-mp-card);
+}
+
+.sp-mp-mark .tug-column-badge-glyph {
+  inline-size: 17px;
+  block-size: 20px;
+  flex: none;
+  overflow: visible;
+}
+
+/* ---- A1 · Glyphs ---- */
+
+.sp-mp-icon {
+  inline-size: 12px;
+  block-size: 12px;
+  flex: none;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  opacity: 0.85;
+}
+
+.sp-mp-icon-rail {
+  inline-size: 10px;
+  block-size: 10px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-mp-count {
+  position: absolute;
+  inset-block-end: 2px;
+  inset-inline-end: 2px;
+  min-inline-size: 11px;
+  padding-inline: 2px;
+  box-sizing: border-box;
+  border-radius: 2px;
+  font-size: 8px;
+  line-height: 11px;
+  font-weight: var(--tug-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  background-color: var(--tug7-element-global-text-normal-default-rest);
+  color: var(--tug7-surface-global-primary-normal-default-rest);
+}
+
+/* ---- A2 · Faces ---- */
+
+.sp-mp-block[data-treatment="faces"] {
+  justify-content: flex-start;
+}
+
+.sp-mp-face-bar {
+  inline-size: 100%;
+  block-size: 4px;
+  flex: none;
+  position: relative;
+  background-color: color-mix(
+    in srgb,
+    var(--sp-mp-card) 62%,
+    var(--sp-mp-ground)
+  );
+}
+
+.sp-mp-icon-face {
+  margin-block-start: auto;
+  margin-block-end: auto;
+}
+
+/* The sheets a stack leaves showing behind its front card: each one a step
+   up and a step in, quieter the further back it stands. */
+.sp-mp-sheet {
+  position: absolute;
+  inset-inline: calc(var(--sheet) * 2px) calc(var(--sheet) * -1px);
+  inset-block: calc(var(--sheet) * -2px) calc(var(--sheet) * 2px);
+  border-radius: 1px;
+  border: 1px solid var(--sp-mp-ground);
+  background-color: color-mix(
+    in srgb,
+    var(--sp-mp-card) calc(100% - var(--sheet) * 18%),
+    var(--sp-mp-ground)
+  );
+}
+
+.sp-mp-block[data-stacked] {
+  inset-inline: 0 2px;
+}
+
+/* A session with a turn in flight. */
+.sp-mp-dot {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 2px;
+  margin-block: auto;
+  inline-size: 3px;
+  block-size: 3px;
+  border-radius: 50%;
+  background-color: var(--tugx-accent);
+  animation: sp-mp-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sp-mp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ---- A3 · Tints ---- */
+
+.sp-mp-block[data-treatment="tinted"][data-kind="file"],
+.sp-mp-block[data-treatment="tinted"][data-kind="diff"] {
+  background-color: color-mix(
+    in srgb,
+    var(--sp-mp-card) 70%,
+    var(--tug7-element-global-text-normal-default-rest)
+  );
+}
+
+.sp-mp-block[data-treatment="tinted"][data-here] {
+  border: 2px solid var(--sp-mp-key);
+}
+
+/* ---- A4 · Labels ---- */
+
+.sp-mp-label {
+  font-size: 9px;
+  line-height: 1;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.02em;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  white-space: nowrap;
+}
+
+.sp-mp-rail-member .sp-mp-label {
+  font-size: 8px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The reader's card, on every treatment that marks one. */
+.sp-mp-block[data-treatment="faces"][data-here] .sp-mp-face-bar,
+.sp-mp-block[data-treatment="glyphs"][data-here] .sp-mp-icon,
+.sp-mp-block[data-treatment="labels"][data-here] .sp-mp-label {
+  color: var(--sp-mp-key);
+  opacity: 1;
+}
+
+.sp-mp-block[data-treatment="faces"][data-here] .sp-mp-face-bar {
+  background-color: var(--sp-mp-key);
+}
+
+/* ---------------------------------------------------------------------------
+ * The legend — the strip's box, restated
+ * ---------------------------------------------------------------------------*/
+
+.sp-mp-strip {
+  display: flex;
+  gap: 2px;
+  padding-inline: 3px;
+  box-sizing: border-box;
+  border-inline: 1px solid transparent;
+}
+
+.sp-mp-strip-rail {
+  flex: 0 0 auto;
+}
+
+.sp-mp-strip-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.sp-mp-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* B1 — the glyph row. One cell per slot at the block's span, the toggle
+   centred in it. */
+.sp-mp-glyph-row .sp-mp-strip-field {
+  block-size: 20px;
+}
+
+.sp-mp-glyph-cell {
+  position: absolute;
+  inset-block: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sp-mp-glyph-row .tug-column-badge-glyph {
+  inline-size: 13px;
+  block-size: 16px;
+  flex: none;
+  overflow: visible;
+  --tugx-column-badge-fill: currentcolor;
+  --tugx-column-badge-accent: currentcolor;
+  --tugx-column-badge-stroke: var(--tug7-surface-global-primary-normal-default-rest);
+}
+
+/* B2 — the two-storey pill: a slot chip grown a second storey. Drawn in the
+   slot's own vocabulary — 1px border, 2px radius, tabular digit — so a run of
+   them reads as the pills it replaces. */
+.sp-mp-two-storey-row .sp-mp-strip-field {
+  block-size: 34px;
+}
+
+.sp-mp-two-storey {
+  display: inline-flex;
+  flex-direction: column;
+  inline-size: 17px;
+  box-sizing: border-box;
+  border: 1px solid var(--tug7-element-control-border-tinted-action-rest);
+  border-radius: 2px;
+  overflow: clip;
+  background-color: var(--tug7-surface-control-primary-tinted-action-rest);
+  color: var(--tug7-element-control-text-tinted-action-rest);
+}
+
+.sp-mp-storey {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.sp-mp-storey-number {
+  block-size: 17px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.sp-mp-storey-glyph {
+  block-size: 15px;
+  border-block-start: 1px solid
+    var(--tug7-element-control-border-tinted-action-rest);
+}
+
+.sp-mp-storey-glyph .tug-column-badge-glyph {
+  inline-size: 10px;
+  block-size: 12px;
+  flex: none;
+  overflow: visible;
+  --tugx-column-badge-fill: currentcolor;
+  --tugx-column-badge-accent: currentcolor;
+  --tugx-column-badge-stroke: var(--tug7-surface-control-primary-tinted-action-rest);
+}
+
+.sp-mp-storey:hover {
+  background-color: color-mix(
+    in srgb,
+    currentcolor 12%,
+    transparent
+  );
+}
+
+/* The reader's slot: the accent fills the NUMBER storey only, the glyph stays
+   a control — which is the pick the note says the chip has to make. */
+.sp-mp-two-storey[data-here] .sp-mp-storey-number {
+  background-color: var(--tug7-surface-control-primary-filled-action-rest);
+  color: var(--tug7-element-control-text-filled-action-rest);
+}
+
+.sp-mp-two-storey[data-here] {
+  border-color: var(--tug7-surface-control-primary-filled-action-rest);
+}
+
+/* B3 — the active column's own control. */
+.sp-mp-active-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}

@@ -45,6 +45,7 @@ import { spike as focusLanguageSpike } from "./spike-focus-language";
 import { spike as lightChromeSpike } from "./spike-light-chrome";
 import { spike as askDialogHeightSpike } from "./spike-ask-dialog-height";
 import { spike as arcCommandsSpike } from "./spike-arc-commands";
+import { spike as miniaturePlusSpike } from "./spike-miniature-plus";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -111,6 +112,7 @@ export const SPIKES: readonly SpikeDef[] = [
   placeCoordinateSpike,
   joinReportSpike,
   arcCommandsSpike,
+  miniaturePlusSpike,
   // Settled references: these began as spikes and closed into the reference
   // for their subject. They stay here rather than becoming permanent gallery
   // furniture, so the graduation path — durable content into tuglaws/, file
