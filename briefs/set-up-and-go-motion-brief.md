@@ -64,7 +64,7 @@ All numbers are from `briefs/real-transcript-motion-readings.md` (`## Close-out`
 
 **[B08] The workspace switch is its own body of work.** [F07] is a different cause at a different scale, and it has the asks brief's own line ("never pauses, delays, or drops frames"). It is decomposed with the same instruments (`--tasks`, chains, the land record) before anything is decided, and it is not folded into the settle work.
 
-**[B09] The four test defects in [F08] are fixed on `main` directly, before the arc opens.** The row-against-probe clause takes a one-millisecond tolerance. The interrupted-arrival leg issues its close relative to the arrival's `room` beat rather than at a constant. Go-to-slot's lead clause goes with [B02]. `COMMIT_BAR` is removed. None of these is a design decision and none should ride an arc.
+**[B09] The four test defects in [F08] are fixed before the arc joins.** The row-against-probe clause takes a one-millisecond tolerance. The interrupted-arrival leg issues its close relative to the arrival's `room` beat rather than at a constant. Go-to-slot's lead clause goes with [B02]. `COMMIT_BAR` is removed. None of these is a design decision. They were meant to land on `main` before the arc opened and did not. On 2026-10-05 the user ruled that the arc carries the two still open (the tolerance and the close timing), and the arc joins with `at0622` green.
 
 **[B10] The user's deck remains the reading of record, and the readings follow set-up-and-go.** Each change lands with `tugtool deck motion settle` on the user's deck, with the land frame and the in-motion gaps as the numbers that decide, and the set-up's length recorded beside them. The real-transcript brief's [B03] and the doctrine line it added stand.
 
@@ -92,7 +92,7 @@ All numbers are from `briefs/real-transcript-motion-readings.md` (`## Close-out`
 
 ## Exit {#exit}
 
-**An arc, after [B09] lands on `main`.** Its shape, in the order the work must land:
+**An arc, carrying [B09].** Its shape, in the order the work must land:
 
 1. The land instrument: the settle's record gains the land frame's duration and what ran in it, with the one-period bar on it in `at0622` and `at0690`; the set-up's lead and beat starts become notes. Read on both arms and the user's deck to establish the land's baseline by site.
 2. The motion gate ([B05]): every store's React-facing notify held from the first frame to the land, with the instrument's zero-commit, zero-chain, zero-delivery clauses. Read first on the gestures that are already clean inside ([F01]), where it should change nothing.
@@ -100,4 +100,4 @@ All numbers are from `briefs/real-transcript-motion-readings.md` (`## Close-out`
 4. The flow slide onto the same shape ([B06]), with the swipe path read before it is touched.
 5. The set-up shrunk where cheap ([B07]), read with `MAIN_THREAD_BAR_MS` and the user's deck.
 
-Each lands with the user's deck read before and after. The arc is done when every gesture reads zero gaps over one period inside the motion and a one-frame land on the whale arm and the user's deck, or when a gesture that cannot is named with its cost and its cause. The workspace switch ([B08]) is briefed on its own once its decomposition is read.
+Each lands with the user's deck read before and after. The arc is done when every gesture reads zero gaps over one period inside the motion and a one-frame land on the whale arm and the user's deck, or when a gesture that cannot is named with its cost and its cause. The workspace switch ([B08]) is worked on `main` from 2026-10-05, outside this arc, to close `at0643`'s in-motion gap.
