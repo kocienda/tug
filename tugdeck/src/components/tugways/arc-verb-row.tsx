@@ -21,6 +21,14 @@
  * still at the trailing edge, rather than leaving Unbind stranded on the first
  * line with Replay and Discard wrapped under the act. Every verb stays legible.
  *
+ * **A narrow host can ask for the words on hover** (`labels="on-hover"`). The
+ * Arcs card at the sidebar's width is that host: there each verb rests as its
+ * icon and opens into icon and word while the pointer is on it or the keyboard
+ * has focused it. The reveal is CSS alone ([L06]); the word is always in the
+ * DOM, the accessible label never changes, and the tooltip still says the
+ * whole sentence. The Changes shade and the ARC popup have the room, and keep
+ * the words shown.
+ *
  * The transport verbs press through {@link useArcTransportPress}, the one wire
  * path `arc_run` / `arc_resume` / `arc_stop` take. Every other verb is the
  * surface's to perform, through `onVerb`: the surfaces already own those
@@ -152,6 +160,14 @@ export interface ArcVerbRowProps {
    * hangs a confirm off the row it sits in.
    */
   onVerb: (kind: ArcSurfaceVerbKind, anchor: HTMLButtonElement | null) => void;
+  /**
+   * `shown` — every verb is icon and word (default).
+   * `on-hover` — every verb rests as its icon and shows its word under hover
+   * or keyboard focus, for a host too narrow for the words.
+   * @selector [data-labels="shown"] | [data-labels="on-hover"]
+   * @default "shown"
+   */
+  labels?: "shown" | "on-hover";
 }
 
 /** One verb's button, in the row's one form. */
@@ -194,7 +210,7 @@ function VerbButton({
           onPress(ref.current);
         }}
       >
-        {verb.word}
+        <span className="tug-arc-verb-word">{verb.word}</span>
       </TugPushButton>
     </TugTooltip>
   );
@@ -227,6 +243,7 @@ export function ArcVerbRow({
   verbs,
   voice,
   onVerb,
+  labels = "shown",
 }: ArcVerbRowProps): React.ReactElement | null {
   const { next, view, housekeeping } = verbs;
   if (next === null && view === null && housekeeping.length === 0) return null;
@@ -240,7 +257,7 @@ export function ArcVerbRow({
     };
 
   return (
-    <div className="tug-arc-verb-row" data-slot="arc-verb-row">
+    <div className="tug-arc-verb-row" data-slot="arc-verb-row" data-labels={labels}>
       {next === null ? null : next.kind === "join" ? (
         <VerbButton
           verb={next}

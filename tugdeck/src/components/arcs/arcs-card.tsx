@@ -865,6 +865,7 @@ function PlanVerbRow({ row }: { row: DocumentArcRow }): React.ReactElement {
         verbs={set}
         voice={followed?.tugSessionId ?? bound}
         onVerb={onVerb}
+        labels="on-hover"
       />
     </span>
   );
@@ -1044,6 +1045,7 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             verbs={verbs.set}
             voice={verbs.voice}
             onVerb={verbs.onVerb}
+            labels="on-hover"
           />
         </span>
         {verbs.menu}
