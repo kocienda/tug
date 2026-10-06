@@ -1820,8 +1820,8 @@ export function useSettleEngine({
           endStillCrossing(entry.el);
         }
         // And a frame a retarget took over that no Last pass has read since.
-(retargetedFramesRef.current);
-(armHeldRef.current);
+        endCrossingsNotCarried(retargetedFramesRef.current);
+        endArmHeldNotCarried(armHeldRef.current);
         // After the frames, so the flush inside carries their hand-back.
         //
         // And the frames that never reached a tween record: an arrival whose
@@ -2713,8 +2713,8 @@ export function useSettleEngine({
         endFoldCrossing(entry.el);
         endStillCrossing(entry.el);
       }
-(retargetedFramesRef.current);
-(armHeldRef.current);
+      endCrossingsNotCarried(retargetedFramesRef.current);
+      endArmHeldNotCarried(armHeldRef.current);
       for (const [, handle] of settleEpisodesRef.current) handle.end();
       settleEpisodesRef.current.clear();
       settleFirstRectsRef.current.clear();
@@ -2828,8 +2828,8 @@ export function useSettleEngine({
     }
     if (el === null || firstRects.size === 0) {
       // Nothing is carried on, so every frame a retarget took is ended here.
-(retargetedFramesRef.current);
-(armHeldRef.current);
+      endCrossingsNotCarried(retargetedFramesRef.current);
+      endArmHeldNotCarried(armHeldRef.current);
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -2870,8 +2870,8 @@ export function useSettleEngine({
     // no First rects, so there is nothing here to carry and every frame would
     // otherwise read as an arrival and be faded up ([P02]).
     if (!isTugMotionEnabled() || settleSwitchingRef.current) {
-(retargetedFramesRef.current);
-(armHeldRef.current);
+      endCrossingsNotCarried(retargetedFramesRef.current);
+      endArmHeldNotCarried(armHeldRef.current);
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
