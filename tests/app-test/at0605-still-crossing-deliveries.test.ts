@@ -399,11 +399,32 @@ for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(`AT
 
         // ── A mode flip: one survivor, growing then shrinking ────────────
         const stacked = assertStill("stack", await census(app, setColumnMode("stack")));
-        expect(stacked.length, "a stack holds its survivor").toBe(1);
+        // The survivor grows under its settled crossing, and the HELD
+        // member — kept at the tile it is leaving behind the survivor — is
+        // a still crossing opened at arm at that tile's content height
+        // ([B04] of `briefs/column-pin-at-the-set-up-brief.md`), so its
+        // root stays definite through the commit's full-run layout and its
+        // scroller never grows or clamps. Both pass the three claims above.
+        expect(
+          stacked.length,
+          `a stack holds its survivor and its held member — ${JSON.stringify(stacked)}`,
+        ).toBe(2);
         await wait(AFTER_LAND_MS);
 
         const split = assertStill("split", await census(app, setColumnMode("split")));
-        expect(split, "the split shrinks the same survivor back").toEqual(stacked);
+        // The survivor shrinks back under its still crossing, and the
+        // REVEALED member is a settled still crossing at its tile as well
+        // ([B02] of `briefs/column-pin-at-the-set-up-brief.md`): its
+        // geometry does not change, but its transcript's bottom pin is paid
+        // in the set-up rather than on a gate-held delivery. Both pass the
+        // three claims above; this clause says how many the split holds.
+        expect(split, "the split shrinks the same survivor back").toEqual(
+          expect.arrayContaining(stacked),
+        );
+        expect(
+          split.length,
+          `the split holds its survivor and its revealed member — ${JSON.stringify(split)}`,
+        ).toBe(2);
       } finally {
         await app.close();
       }

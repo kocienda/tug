@@ -310,7 +310,15 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // named beside it, but the card is the fixture; the handler the assertion
     // is about lives nowhere but here, and naming only the card would leave
     // the press covered by nothing.
-    "tugdeck/src/components/tugways/tug-list-view.tsx": 21,
+    //
+    // Deleted at 21 and re-added at 22 when at0708 (the column pin at the
+    // set-up) arrived, which is what the ratchet asks of a widening. What
+    // that test pins is the transcript's bottom pin across a split and a
+    // stack, and the door that pays it at a shrink's land —
+    // `onStillCrossingClosed` — is this module's and nobody else's; the
+    // settle engine and the crossing module that open the other two doors
+    // are named beside it.
+    "tugdeck/src/components/tugways/tug-list-view.tsx": 22,
 };
 
 /**

@@ -2228,6 +2228,12 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // first frame, a frame into the motion — re-windows nothing. Local
     // data, never React state ([L02], [L06]).
     const settledSizeRef = React.useRef<{ w: number; h: number } | null>(null);
+    // The scrollport size the container observer, or a crossing door, last
+    // answered — the size the interior was held at through a still
+    // crossing, since the gate holds every delivery for its length. Read
+    // against the scroller's size when a crossing closes: a difference is a
+    // shrink whose land is owed here ([B03] of column-pin-at-the-set-up).
+    const answeredSizeRef = React.useRef<{ w: number; h: number } | null>(null);
     // One-shot arming flag for the clamp simulation the test surface
     // drives. See the displacement effect.
     const forceClampRef = React.useRef(false);
@@ -3660,15 +3666,50 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         smartScroll.maybePinToBottom();
         smartScroll.applyRestoreTarget();
         settledSizeRef.current = { w: el.clientWidth, h: el.clientHeight };
+        answeredSizeRef.current = settledSizeRef.current;
         pinRequestedRef.current = true;
         scrollTick();
       };
-      // The crossing's end clears the answered size too, so one no delivery
+      // A crossing that was NOT settled — a shrink, held at its starting
+      // size for the motion — lands here, in the land's task, with the hold
+      // just dropped: the scroller is at its landed size and nothing has
+      // paid for it, because the container observer's delivery of the new
+      // box is held until the gate opens three paints later, and the
+      // transcript would stand off its bottom until then ([F02] of
+      // `briefs/column-pin-at-the-set-up-brief.md`). So when the scroller's
+      // size differs from the one last answered, the land is paid the way
+      // the settled door pays the set-up — pin, restore, re-window — and
+      // the size is recorded so the held delivery is swallowed. The layout
+      // the size read forces is the reflow the shrink ruling already owes
+      // at the land ([B03]). A settled crossing's size was answered in the
+      // set-up and matches, so it pays nothing twice.
+      //
+      // Only against a size that WAS answered. A list view that mounted
+      // inside the motion — an arriving card's — has had no delivery yet
+      // (its first is gate-held) and no hold to land from; paying here
+      // would force its first layout into the land and commit a re-window
+      // the held delivery is about to do anyway, which is a frame and a
+      // half on a card appearing into a column.
+      //
+      // The crossing's end then clears the answered size, so one no delivery
       // came for cannot swallow a later resize to the same box. Queued behind
       // the gate's held deliveries, so the first frame's own delivery of that
       // size — held until the gate opens — is still answered by it.
       const onStillCrossingClosed = (): void => {
         onStillCrossingEnd();
+        const answered = answeredSizeRef.current;
+        if (answered !== null) {
+          const w = el.clientWidth;
+          const h = el.clientHeight;
+          if (answered.w !== w || answered.h !== h) {
+            smartScroll.maybePinToBottom();
+            smartScroll.applyRestoreTarget();
+            settledSizeRef.current = { w, h };
+            answeredSizeRef.current = settledSizeRef.current;
+            pinRequestedRef.current = true;
+            scrollTick();
+          }
+        }
         afterGesture(() => {
           settledSizeRef.current = null;
         });
@@ -4134,6 +4175,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // layout the delivery has already flushed, so it forces nothing.
         const settled = settledSizeRef.current;
         settledSizeRef.current = null;
+        answeredSizeRef.current = { w: el.clientWidth, h: el.clientHeight };
         if (
           settled !== null &&
           el.clientWidth === settled.w &&

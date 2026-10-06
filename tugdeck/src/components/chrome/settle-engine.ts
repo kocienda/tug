@@ -2317,7 +2317,18 @@ export function useSettleEngine({
             const frame = frameById.get(paneId);
             const height = firstFolds.get(paneId)?.contentHeight ?? 0;
             if (frame === undefined || height <= 0) continue;
-            if (holdPlan.covered.has(paneId)) continue;
+            // A split's REVEALED member is skipped: its tile is smaller than
+            // the height it stands at, and the Last pass settles it at the
+            // tile instead ([B02] of column-pin-at-the-set-up). A stack's
+            // HELD member is marked here, at the tile's content height it
+            // stands at: the commit lays its frame out at the full run, and
+            // with no definite root height the scroller grew to it, any
+            // forced layout before the tween pass's inline tile hold clamped
+            // its scroll to that larger viewport's maximum, and the hold then
+            // returned a scroller 441 px off its bottom ([F03], [B04]). The
+            // tween pass adopts this mark in the covered branch and ends it
+            // with the cover.
+            if (holdPlan.covered.has(paneId) && !holdPlan.held.has(paneId)) continue;
             const wasFolded = beforeById.get(paneId)?.folded === true;
             const willFold = afterById.get(paneId)?.folded === true;
             // An UNFOLD is left to the Last pass. The card is folded on screen
@@ -2904,6 +2915,8 @@ export function useSettleEngine({
       frame: HTMLElement;
       anims: TugAnimation[];
       restores: Array<() => void>;
+      /** The settled still crossing a split's revealed member opened, ended with the cover. */
+      stillCrossingId: number | null;
     }> = [];
     // The choreography, for this settle. The move beat IS the crossing;
     // `shrink` and `grow` are the resize beats' shorter windows, and
@@ -3273,10 +3286,56 @@ export function useSettleEngine({
             transform: { dx, dy, sx: 1 },
             height: firstRect.height,
           });
+          // The still crossing `arm` opened at the tile's content height,
+          // under a fresh id so this settle's completion owns its end: the
+          // root stayed definite through the commit's full-run layout, so
+          // the scroller never grew and nothing clamped ([B04]). Ended with
+          // the cover in both release loops, after the inline tile hold's
+          // restore, so the reflow to the full run lands under the survivor.
+          //
+          // A FOLD this stack interrupted is not carried by the cover: the
+          // member neither tweens nor folds under it, so the fold's crossing
+          // is ended here — as `endCrossingsNotCarried` ended it before the
+          // arm held this member — and a still crossing is opened in its
+          // place at the First content height, since the fold's end takes
+          // the arm's still mark off with it.
+          if (frame.hasAttribute(FOLD_CROSSING_ATTR)) {
+            endFoldCrossing(frame);
+            const firstHeight = firstFolds.get(paneId)?.contentHeight ?? 0;
+            stillCrossingId =
+              firstHeight > 0 ? markStillCrossing(frame, firstHeight) : null;
+          } else {
+            stillCrossingId = adoptStillCrossing(frame);
+          }
+        } else {
+          // A split's REVEALED member is a settled still crossing at its
+          // tile ([B02] of `briefs/column-pin-at-the-set-up-brief.md`). Its
+          // geometry does not change — the commit already cut it to the
+          // tile — but the only thing that paid its transcript's bottom pin
+          // was the list view's container observer, and that delivery is
+          // gate-held: the interior stood 441 px off its bottom for the
+          // whole motion and snapped when the gate opened. Marked at the
+          // content height it already stands at, so the root is held where
+          // it is, and pushed onto `settledFrames`, so the announce pass
+          // below pays the pin, the restore, the extent rebase and the
+          // re-window before the gate closes and records the size the held
+          // delivery is then swallowed by. The mark ends with the cover.
+          //
+          // Carried, the frame is out of `endCrossingsNotCarried`'s reach, so
+          // a fold this split interrupted is ended here, as the held branch
+          // ends one: the member neither tweens nor folds under the cover,
+          // and a settled still mark beside a standing fold would leave the
+          // fold's held height on the card after the land.
+          if (frame.hasAttribute(FOLD_CROSSING_ATTR)) endFoldCrossing(frame);
+          const tileContentHeight = contentBoxHeight(frame);
+          if (tileContentHeight !== null && tileContentHeight > 0) {
+            stillCrossingId = settleStillCrossing(frame, tileContentHeight);
+            settledFrames.push(frame);
+          }
         }
         frame.setAttribute("data-imposer-covered", "");
         settleTweensRef.current.set(paneId, { el: frame, anims, restores });
-        covered.push({ paneId, frame, anims, restores });
+        covered.push({ paneId, frame, anims, restores, stillCrossingId });
         continue;
       } else {
         const { dx, dy, sx } = flipDelta(firstRect, lastRect);
@@ -3563,6 +3622,12 @@ export function useSettleEngine({
         .filter((c) => c.stillCrossingId !== null)
         .map((c) => c.frame),
     );
+    // A covered member holding a still crossing — a stack's held member on
+    // the arm's mark, a split's revealed member on its settled one — is
+    // carried too: its end is the cover's, in the release loops.
+    for (const c of covered) {
+      if (c.stillCrossingId !== null) carriedStill.add(c.frame);
+    }
     endCrossingsNotCarried(retargetedFramesRef.current, carriedStill);
     endArmHeldNotCarried(armHeldRef.current, carriedStill);
     // The shadow strips, planned AFTER every frame so the answer to "did this
@@ -4420,6 +4485,7 @@ export function useSettleEngine({
             if (taken(c.frame)) continue;
             for (const restore of c.restores) restore();
             clearFlip(c.paneId, c.frame, c.anims);
+            if (c.stillCrossingId !== null) endStillCrossing(c.frame, c.stillCrossingId);
           }
           for (const c of choreography) {
             if (taken(c.frame)) continue;
@@ -4466,6 +4532,7 @@ export function useSettleEngine({
       for (const c of covered) {
         for (const restore of c.restores) restore();
         clearFlip(c.paneId, c.frame, c.anims);
+        if (c.stillCrossingId !== null) endStillCrossing(c.frame, c.stillCrossingId);
         endEpisode(c.paneId);
       }
     }
