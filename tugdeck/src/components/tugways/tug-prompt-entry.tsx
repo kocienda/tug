@@ -94,7 +94,10 @@ import {
   insertSubstrateAt,
   processAttachmentFiles,
 } from "./tug-text-editor/drop-extension";
-import { insertPickedFile } from "./tug-text-editor/insert-picked-file";
+import {
+  insertPickedFile,
+  withInsertFilePath,
+} from "./insert-picked-file";
 import type { InlineCommandMatcher } from "@/lib/inline-command-ghost";
 import { formatAtomTextAsValues } from "@/lib/atom-text";
 import {
@@ -3303,15 +3306,14 @@ export const TugPromptEntry = React.forwardRef<
           exitCommitMode();
         }
       },
-      // ⌘I / Session ▸ Insert File…. Registered HERE and nowhere above:
+      // ⇧⌘I / Session ▸ Insert File…. Registered HERE and nowhere above:
       // the command inserts at a caret, so the composer holding focus is
       // the only responder that can answer it. That is also the item's
       // gate — an unhandled chain walk is what dims the menu item when
-      // focus sits in the transcript.
+      // focus sits in the transcript. The chord arrives with no path, and
+      // `withInsertFilePath` runs the host's panel for one.
       [TUG_ACTIONS.INSERT_FILE]: (event: ActionEvent) => {
-        const path = (event.value as { path?: unknown } | undefined)?.path;
-        if (typeof path !== "string" || path === "") return;
-        insertFilePath(path);
+        withInsertFilePath(event.value, insertFilePath);
       },
       [TUG_ACTIONS.REMOVE_ATTACHMENT]: (event: ActionEvent) => {
         // The preview's ✕ / Delete controls dispatch the atom id of the

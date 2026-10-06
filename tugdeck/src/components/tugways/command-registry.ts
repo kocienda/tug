@@ -1738,9 +1738,12 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "Insert File…",
     routing: "first-responder",
     menuItemId: "session.insertFile",
-    // Menu-eligible on purpose: the panel that produces the path is the
-    // host's, so the chord has to reach the menu item rather than the JS
-    // funnel, where the command would dispatch with no file chosen.
+    // Menu-eligible, so the Session menu item carries the chord. The web
+    // view sees a key equivalent before AppKit's menu scan does, though, so
+    // the JS funnel is what actually catches ⇧⌘I and dispatches the command
+    // with no path; the handlers ask the host's panel for one
+    // (`withInsertFilePath`) rather than treating a missing path as nothing
+    // to do.
     //
     // ⇧⌘I, not ⌃⌘I — the ⌃ seat went to AI Model, and the I stayed here for
     // Insert. The two share a letter on purpose: both are composer gestures

@@ -241,6 +241,7 @@ import {
   transcriptToMarkdown,
 } from "@/lib/transcript-export";
 import { isPathPickerAvailable, pickPath } from "@/lib/native-path-picker";
+import { withInsertFilePath } from "../insert-picked-file";
 import {
   beginDirectoryChange,
   directoryChangeRefusal,
@@ -4467,11 +4468,12 @@ export function SessionCardBody({
       // transcript walks past the composer entirely, and a command the card
       // can plainly perform must not dim because focus is one seat over. The
       // delegate focuses the editor before inserting, so the path always
-      // lands where the user will type next.
+      // lands where the user will type next. The ⇧⌘I chord arrives with no
+      // path, and `withInsertFilePath` runs the host's panel for one.
       [TUG_ACTIONS.INSERT_FILE]: (event: ActionEvent) => {
-        const path = (event.value as { path?: unknown } | undefined)?.path;
-        if (typeof path !== "string" || path === "") return;
-        entryDelegateRef.current?.insertFilePath(path);
+        withInsertFilePath(event.value, (path) =>
+          entryDelegateRef.current?.insertFilePath(path),
+        );
       },
       // Swift Session-menu "Show/Hide Changes" and the ⌃⌘C deck twin — toggle
       // the Changes shade. Showing Changes is the landing the card is mated to,

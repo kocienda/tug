@@ -14,7 +14,8 @@
  * ## Shape
  *
  * One bound Session card. The `insert-file` control — the frame the host's
- * NSOpenPanel sends — is dispatched twice through the real control door:
+ * NSOpenPanel sends — is dispatched twice through the real control door, and
+ * then the chord is pressed:
  *
  *   **An image becomes an image atom.** A real PNG on disk lands as a
  *   `data-atom-type="image"` chip labelled `image-1`, and no `file` atom
@@ -23,9 +24,17 @@
  *   **Anything else stays a file atom.** A `.txt` path lands as a
  *   `data-atom-type="file"` chip whose value is the absolute path.
  *
+ *   **The chord asks for a path.** In the shipping app the web view sees
+ *   ⇧⌘I before AppKit's menu scan does, so the deck's key funnel catches it
+ *   and dispatches Insert File with no path — which used to return, so the
+ *   keystroke was eaten and nothing happened. A ⇧⌘I keydown is fired into
+ *   the page (the harness's native keystroke reaches the menu first, which
+ *   is not the path a user's press takes), the host's `choosePath` panel is
+ *   stubbed to answer with the PNG, and a second image atom has to land.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @covers tugdeck/src/components/tugways/tug-text-editor/insert-picked-file.ts
+ * @covers tugdeck/src/components/tugways/insert-picked-file.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/drop-extension.ts
  */
 
@@ -139,6 +148,34 @@ describe.skipIf(!SHOULD_RUN)(
             fileValue,
             "axis file: a non-image path is a file atom carrying its absolute path",
           ).toBe(txtPath);
+
+          // ── The chord asks the host's panel for a path ──────────────
+          await app.nativeClickAtElement(EDITOR_CONTENT);
+          await app.evalJS<void>(
+            `(function(){
+              var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.choosePath;
+              var answer = function(m){
+                window.__at0709Asked = m;
+                setTimeout(function(){ window.__tugBridge.onPathChosen(m.id, ${JSON.stringify(pngPath)}); }, 0);
+              };
+              Object.defineProperty(h, "postMessage", { value: answer, configurable: true, writable: true });
+              var target = document.activeElement || document.body;
+              target.dispatchEvent(new KeyboardEvent("keydown", {
+                key: "i", code: "KeyI", metaKey: true, shiftKey: true,
+                bubbles: true, cancelable: true,
+              }));
+            })()`,
+          );
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(atomOfType("image"))}).length === 2`,
+            { timeoutMs: 15_000 },
+          );
+          expect(
+            await app.evalJS<string | null>(
+              `window.__at0709Asked ? window.__at0709Asked.kind : null`,
+            ),
+            "axis chord: ⇧⌘I with no path asks the host for a file",
+          ).toBe("file");
         } finally {
           rmSync(fixtureDir, { recursive: true, force: true });
         }
