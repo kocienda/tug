@@ -148,8 +148,8 @@ export function ShellExchangeBlock({
   const headerActions =
     sendAsMessageButton !== null || addContextButton !== null ? (
       <>
-        {sendAsMessageButton}
         {addContextButton}
+        {sendAsMessageButton}
       </>
     ) : null;
 
