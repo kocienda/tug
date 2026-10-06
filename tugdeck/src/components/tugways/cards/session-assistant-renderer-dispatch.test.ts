@@ -25,6 +25,7 @@ import React from "react";
 
 import {
   KIND_RENDERERS,
+  NullToolBlock,
   VALIDATED_CC_VERSION,
   _resetDriftLogForTests,
   _resetToolBlockRegistryForTests,
@@ -596,6 +597,13 @@ describe("detectToolCallDrift", () => {
       return;
     }
     expect(detectToolCallDrift(fakeToolCall(sample))).toBeNull();
+  });
+
+  it("does not flag SubagentHandback, and routes it to NullToolBlock", () => {
+    // Subagent-only: it is absent from the session's init tool list,
+    // so no capabilities capture can classify it — the policy must.
+    expect(detectToolCallDrift(fakeToolCall("SubagentHandback"))).toBeNull();
+    expect(resolveToolBlock("SubagentHandback")).toBe(NullToolBlock);
   });
 
   it("does not flag a registered wrapper with no shape schema", () => {

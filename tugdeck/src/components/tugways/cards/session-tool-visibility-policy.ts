@@ -185,6 +185,13 @@ export const TOOL_VISIBILITY_POLICY: ReadonlyArray<ToolVisibilityEntry> = [
     reviewedAt: "2026-05-24",
   },
   {
+    name: "subagenthandback",
+    visibility: "hidden",
+    rationale:
+      "A subagent's call to deliver its report; the report arrives in the parent as a message from that agent, so the call row only says \"read it there.\" Subagent-only, so it never appears in the init tool list a capabilities capture records.",
+    reviewedAt: "2026-10-06",
+  },
+  {
     name: "toolsearch",
     visibility: "hidden",
     rationale:
