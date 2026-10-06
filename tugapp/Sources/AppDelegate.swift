@@ -2723,6 +2723,27 @@ extension AppDelegate: BridgeDelegate {
             }
             return
         }
+        // `insert` kind: Session ▸ Insert File…'s own panel, for the ⇧⌘I
+        // chord, which the deck catches before AppKit's menu scan and so
+        // reaches here instead of `insertFile(_:)`. Any file at all — a
+        // prompt may name anything, and an image becomes an attachment — so
+        // no content types, unlike the text-only `file` kind below.
+        if kind == "insert" {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.message = "Choose a file to insert"
+            panel.prompt = "Insert"
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK, let url = panel.url else {
+                    completion(nil)
+                    return
+                }
+                completion(url.path)
+            }
+            return
+        }
         let wantFile = kind == "file"
         let panel = NSOpenPanel()
         panel.canChooseFiles = wantFile

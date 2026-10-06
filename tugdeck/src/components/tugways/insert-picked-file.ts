@@ -59,7 +59,7 @@ export function withInsertFilePath(
     insert(path);
     return;
   }
-  void pickPath("file").then((picked) => {
+  void pickPath("insert").then((picked) => {
     if (picked !== null && picked !== "") insert(picked);
   });
 }

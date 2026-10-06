@@ -174,8 +174,8 @@ describe.skipIf(!SHOULD_RUN)(
             await app.evalJS<string | null>(
               `window.__at0709Asked ? window.__at0709Asked.kind : null`,
             ),
-            "axis chord: ⇧⌘I with no path asks the host for a file",
-          ).toBe("file");
+            "axis chord: ⇧⌘I with no path asks for Insert File's any-file panel",
+          ).toBe("insert");
         } finally {
           rmSync(fixtureDir, { recursive: true, force: true });
         }

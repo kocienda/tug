@@ -19,9 +19,11 @@
 /**
  * What the picker selects. `directory` / `file` run an NSOpenPanel;
  * `save` runs an NSSavePanel choosing a NEW file path (Move To… /
- * Save As… — the web layer performs the actual write).
+ * Save As… — the web layer performs the actual write). `file` is
+ * restricted to text types; `insert` is Session ▸ Insert File…'s panel,
+ * which takes any file.
  */
-export type PathPickerKind = "directory" | "file" | "save";
+export type PathPickerKind = "directory" | "file" | "save" | "insert";
 
 /** The host→web bridge object; only the path callback concerns us here. */
 interface TugBridge {
