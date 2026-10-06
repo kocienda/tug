@@ -49,6 +49,7 @@ import {
 } from "@/components/tugways/tug-column-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugLabel } from "@/components/tugways/tug-label";
+import { useMotionHold } from "@/lib/motion-guard";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 
@@ -161,6 +162,13 @@ function blockRects(count: number): { left: number; width: number }[] {
 
 type Treatment = "today" | "glyphs" | "faces" | "tinted" | "labels";
 
+/** The in-flight dot; its pulse runs as long as it is mounted, so it holds
+ *  motion for that long. */
+function WorkingDot(): React.ReactElement {
+  useMotionHold(true);
+  return <span className="sp-mp-dot" />;
+}
+
 /** What one card's block carries, under a treatment. */
 function CardContent({
   card,
@@ -187,7 +195,7 @@ function CardContent({
       return (
         <>
           <span className="sp-mp-face-bar">
-            {card.working ? <span className="sp-mp-dot" /> : null}
+            {card.working ? <WorkingDot /> : null}
           </span>
           <Icon className="sp-mp-icon sp-mp-icon-face" aria-hidden="true" />
         </>

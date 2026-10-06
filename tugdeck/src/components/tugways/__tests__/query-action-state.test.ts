@@ -161,8 +161,8 @@ describe("key-card-scoped validation and state", () => {
 describe("the key card's content responder is found once, not once per ask", () => {
   const saved = (globalThis as { document?: unknown }).document;
   afterEach(() => {
-    if (saved === undefined) delete (globalThis as { document?: unknown }).document;
-    else (globalThis as { document?: unknown }).document = saved;
+    // Assigned, never `delete`d — see `list-view-reveal.test.ts`.
+    (globalThis as { document?: unknown }).document = saved;
   });
 
   /** Card elements whose subtree holds the named content responders. */

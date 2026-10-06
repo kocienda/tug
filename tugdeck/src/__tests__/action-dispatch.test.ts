@@ -268,7 +268,7 @@ describe("initActionDispatch: source-tree", () => {
 
     expect(posted.length).toBe(1);
 
-    delete (globalThis as Record<string, unknown>).webkit;
+    (globalThis as Record<string, unknown>).webkit = undefined;
   });
 });
 

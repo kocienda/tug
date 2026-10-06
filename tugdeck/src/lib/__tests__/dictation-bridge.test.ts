@@ -176,8 +176,8 @@ describe("the host handler", () => {
   beforeEach(() => {
     savedWebkit = w.webkit;
     savedBridge = w.__tugBridge;
-    delete w.webkit;
-    delete w.__tugBridge;
+    w.webkit = undefined;
+    w.__tugBridge = undefined;
     setDictationListener(null);
   });
 
@@ -238,7 +238,7 @@ describe("installDictationBridge", () => {
 
   beforeEach(() => {
     savedBridge = w.__tugBridge;
-    delete w.__tugBridge;
+    w.__tugBridge = undefined;
     setDictationListener(null);
   });
 

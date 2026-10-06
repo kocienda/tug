@@ -126,11 +126,8 @@ function uninstallFakes(): void {
   window.clearTimeout = origClearTimeout;
   (globalThis as unknown as { WebSocket: typeof globalThis.WebSocket })
     .WebSocket = origWebSocket;
-  if (origDocument === undefined) {
-    delete (globalThis as { document?: unknown }).document;
-  } else {
-    (globalThis as { document?: unknown }).document = origDocument;
-  }
+  // Assigned, never `delete`d — see `list-view-reveal.test.ts`.
+  (globalThis as { document?: unknown }).document = origDocument;
   lastWs = null;
 }
 

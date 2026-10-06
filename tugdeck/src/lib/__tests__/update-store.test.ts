@@ -387,8 +387,8 @@ describe("update-store: the bridge and the action", () => {
   beforeEach(() => {
     savedBridge = w.__tugBridge;
     savedWebkit = w.webkit;
-    delete w.__tugBridge;
-    delete w.webkit;
+    w.__tugBridge = undefined;
+    w.webkit = undefined;
   });
 
   afterEach(() => {

@@ -64,8 +64,10 @@ describe("scheduleAfterPaint", () => {
     timers.clear();
     const g = globalThis as unknown as Record<string, unknown>;
     for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete g[key];
-      else g[key] = value;
+      // Assigned, never `delete`d: deleting a global leaves JSC unable to
+      // cache global lookups for the rest of the run, slowing every later
+      // file (the allocator sweep ran ~24x slow).
+      g[key] = value;
     }
   });
 

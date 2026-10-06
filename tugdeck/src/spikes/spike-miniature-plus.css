@@ -250,6 +250,7 @@
 }
 
 /* A session with a turn in flight. */
+/* @tug-motion-hold ./spike-miniature-plus.tsx */
 .sp-mp-dot {
   position: absolute;
   inset-block: 0;
@@ -259,7 +260,7 @@
   block-size: 3px;
   border-radius: 50%;
   background-color: var(--tugx-accent);
-  animation: sp-mp-pulse 1.6s ease-in-out infinite;
+  animation: sp-mp-pulse 1.6s ease-in-out var(--tug-loop-iterations, infinite);
 }
 
 @keyframes sp-mp-pulse {

@@ -86,8 +86,10 @@ afterEach(() => {
   if (priorGlobals !== null) {
     const globals = globalThis as Record<string, unknown>;
     for (const [key, value] of Object.entries(priorGlobals)) {
-      if (value === undefined) delete globals[key];
-      else globals[key] = value;
+      // Assigned, never `delete`d: deleting a global leaves JSC unable to
+      // cache global lookups for the rest of the run, slowing every later
+      // file (the allocator sweep ran ~24x slow).
+      globals[key] = value;
     }
     priorGlobals = null;
   }

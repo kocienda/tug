@@ -1441,8 +1441,7 @@ fn current_cached_metrics(
     claude_session_id: &str,
 ) -> Option<SessionScanMetrics> {
     let (dir, _) = claude_project_dir(ledger.claude_projects_root(), project_dir);
-    let (file_size, file_mtime) =
-        stat_size_mtime(&dir.join(format!("{claude_session_id}.jsonl")))?;
+    let (file_size, file_mtime) = stat_size_mtime(&dir.join(format!("{claude_session_id}.jsonl")))?;
     let row = ledger.get_scan_cache(claude_session_id).ok().flatten()?;
     if row.file_size != file_size || row.file_mtime != file_mtime {
         return None;
