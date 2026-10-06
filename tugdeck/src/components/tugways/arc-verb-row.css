@@ -32,23 +32,29 @@
   flex: 0 0 auto;
 }
 
-/* Words on hover: at rest a verb is its icon alone, square, so the whole row
-   fits one line at the sidebar's width; under the pointer or keyboard focus it
-   opens into the icon and word it is everywhere else. Hover only ever grows the
-   button under the pointer, so the reveal cannot hover itself away. */
-.tug-arc-verb-row[data-labels="on-hover"] .tug-arc-verb:not(:hover):not(:focus-visible) {
+/* Words on hover, for the housekeeping verbs only: the next step and the view
+   keep their words, because a whole row of bare glyphs did not read. At rest a
+   housekeeping verb is its icon alone, square, so the row fits one line at the
+   sidebar's width; under the pointer or keyboard focus it opens into the icon
+   and word it is everywhere else. Hover only ever grows the button under the
+   pointer, so the reveal cannot hover itself away. */
+.tug-arc-verb-row[data-labels="on-hover"]
+  .tug-arc-verb-row-housekeeping
+  .tug-arc-verb:not(:hover):not(:focus-visible) {
   padding-inline: calc(
     (var(--tug-button-2xs-height) - var(--tug-button-2xs-icon-size)) / 2
   );
 }
 
 .tug-arc-verb-row[data-labels="on-hover"]
+  .tug-arc-verb-row-housekeeping
   .tug-arc-verb:not(:hover):not(:focus-visible)
   .tug-button-icon-text {
   gap: 0;
 }
 
 .tug-arc-verb-row[data-labels="on-hover"]
+  .tug-arc-verb-row-housekeeping
   .tug-arc-verb:not(:hover):not(:focus-visible)
   .tug-arc-verb-word {
   display: none;

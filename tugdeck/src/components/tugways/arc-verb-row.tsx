@@ -21,13 +21,15 @@
  * still at the trailing edge, rather than leaving Unbind stranded on the first
  * line with Replay and Discard wrapped under the act. Every verb stays legible.
  *
- * **A narrow host can ask for the words on hover** (`labels="on-hover"`). The
- * Arcs card at the sidebar's width is that host: there each verb rests as its
- * icon and opens into icon and word while the pointer is on it or the keyboard
- * has focused it. The reveal is CSS alone ([L06]); the word is always in the
- * DOM, the accessible label never changes, and the tooltip still says the
- * whole sentence. The Changes shade and the ARC popup have the room, and keep
- * the words shown.
+ * **A narrow host can ask for the housekeeping words on hover**
+ * (`labels="on-hover"`). The Arcs card at the sidebar's width is that host:
+ * there the next step and the view keep their words, and each housekeeping
+ * verb rests as its icon and opens into icon and word while the pointer is on
+ * it or the keyboard has focused it. A whole row of bare glyphs was tried and
+ * did not read; the act and the view are the verbs a reader scans for. The
+ * reveal is CSS alone ([L06]); the word is always in the DOM, the accessible
+ * label never changes, and the tooltip still says the whole sentence. The
+ * Changes shade and the ARC popup have the room, and keep the words shown.
  *
  * The transport verbs press through {@link useArcTransportPress}, the one wire
  * path `arc_run` / `arc_resume` / `arc_stop` take. Every other verb is the
@@ -162,8 +164,9 @@ export interface ArcVerbRowProps {
   onVerb: (kind: ArcSurfaceVerbKind, anchor: HTMLButtonElement | null) => void;
   /**
    * `shown` — every verb is icon and word (default).
-   * `on-hover` — every verb rests as its icon and shows its word under hover
-   * or keyboard focus, for a host too narrow for the words.
+   * `on-hover` — the housekeeping verbs rest as their icons and show their
+   * words under hover or keyboard focus, for a host too narrow for every word.
+   * The next step and the view are always icon and word.
    * @selector [data-labels="shown"] | [data-labels="on-hover"]
    * @default "shown"
    */
