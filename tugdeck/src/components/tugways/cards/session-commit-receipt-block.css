@@ -56,6 +56,6 @@
    block only: the inline inset is the shared `.tugx-commit-message` rule's,
    which lines the message up with the file rows beneath it. */
 [data-slot="commit-receipt-detail"] {
-  padding-block: var(--tug-space-sm);
+  padding-block: var(--tugx-block-receipt-inset-block);
 }
 

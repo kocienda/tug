@@ -255,4 +255,18 @@ body {
   --tugx-filerow-name-size:   var(--tug-font-size-2xs);
   --tugx-filerow-text-color:  var(--tugx-block-text-color);
   --tugx-filerow-meta-color:  var(--tug7-element-global-text-normal-muted-rest);
+
+  /* ------------------------------------------------------------------ *
+   * Receipt inset. The one inner inset every framed receipt and        *
+   * response surface in the transcript pads its body with — the       *
+   * `/commit` receipt's. Inline it is the compact list row's own       *
+   * content inset (its padding plus the standing indicator gutter),   *
+   * so receipt prose lines up with the compact file rows beneath it;   *
+   * block it is one small step. Read from here, never restated as a    *
+   * calc, so the next receipt cannot drift from the ones beside it.    *
+   * ------------------------------------------------------------------ */
+  --tugx-block-receipt-inset-inline: calc(
+    var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
+  );
+  --tugx-block-receipt-inset-block:  var(--tug-space-sm);
 }

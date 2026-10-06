@@ -149,17 +149,11 @@
   --tugx-commit-message-size: var(--tug-font-size-xs);
   --tugx-commit-message-leading: 1.45;
   /* Line up with the file list below it. Both surfaces set the message over a
-     `compact` `TugChangesList`, so the message takes that row's own content
-     inset — its inline padding plus the row's standing leading gutter — read
-     from the row's tokens rather than copied as a number. */
-  padding-inline-start: calc(
-    var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
-  );
-  /* The trailing edge takes the same inset, so a wrapped message line stops
-     short of the frame instead of running into it. */
-  padding-inline-end: calc(
-    var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
-  );
+     `compact` `TugChangesList`, so the message takes the receipt inset — that
+     row's own content inset, its inline padding plus the row's standing
+     leading gutter. The trailing edge takes the same inset, so a wrapped
+     message line stops short of the frame instead of running into it. */
+  padding-inline: var(--tugx-block-receipt-inset-inline);
   font-family: var(--tugx-commit-message-font, var(--tug-font-family-mono));
   font-size: var(--tugx-commit-message-size);
   line-height: var(--tugx-commit-message-leading);

@@ -799,12 +799,12 @@ function QuestionDeclinedSummary({
 
 /**
  * The durable Q&A record — the SAME `QuestionSummaryList` the live wizard's
- * rail renders, so the two read as one artifact and hold position across the
- * morph. The rows are static (no `onActivate`); an answered question is `done`
- * (success check), an empty one `pending` (muted ring). A progress summary
- * above the rows occupies the same vertical box as the live action bar (a
- * button-height row with the dialog's action margins, [reserved space]) so the
- * rows don't shift when the wizard becomes this record.
+ * rail renders, so the two read as one artifact and hold their horizontal
+ * position across the morph. The rows are static (no `onActivate`); an
+ * answered question is `done` (success check), an empty one `pending` (muted
+ * ring). A progress summary above the rows takes its own line height rather
+ * than the live action bar's button box: once the buttons are gone the record
+ * is allowed to be shorter than the wizard was.
  */
 function AnsweredQuestionSummary({
   entries,

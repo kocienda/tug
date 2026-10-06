@@ -43,5 +43,5 @@
    the block padding the commit receipt's detail states, for the same reason —
    the chrome's body region carries none of its own. */
 [data-slot="push-receipt-detail"] {
-  padding-block: var(--tug-space-sm);
+  padding-block: var(--tugx-block-receipt-inset-block);
 }

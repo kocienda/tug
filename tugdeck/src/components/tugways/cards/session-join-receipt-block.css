@@ -37,14 +37,10 @@
    (identity, message, file rows) share one left edge. Muted: it is the row's
    provenance, not its content. */
 .join-receipt-identity {
-  padding-block-start: var(--tug-space-sm);
-  /* The same inset the message and the file rows take, read from the row's own
-     tokens rather than copied as a number — the identical calc
-     `.tugx-commit-message` uses, so the three body regions share one left
-     edge instead of agreeing by coincidence. */
-  padding-inline-start: calc(
-    var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
-  );
+  padding-block-start: var(--tugx-block-receipt-inset-block);
+  /* The receipt inset `.tugx-commit-message` reads, so the three body regions
+     share one left edge from one token instead of agreeing by coincidence. */
+  padding-inline-start: var(--tugx-block-receipt-inset-inline);
   color: var(--tugx-block-text-color-muted);
   /* The receipt's own face: this line is the join's provenance, set in the
      same prose the message below it reads in. It carried a second mono pin of
@@ -66,7 +62,7 @@
    its spacing. The inline inset comes from the shared `.tugx-commit-message`. */
 [data-slot="join-receipt-detail"],
 [data-slot="discard-receipt-detail"] {
-  padding-block: var(--tug-space-sm);
+  padding-block: var(--tugx-block-receipt-inset-block);
 }
 
 /* The arc's record as the boundary's fold body ([B02]). It wears

@@ -56,7 +56,6 @@
  * marker, and the declined / empty states. */
 
 body {
-  --tugx-askquestion-list-padding:     var(--tug-space-md);
   --tugx-askquestion-pair-gap:         var(--tug-space-2xs);
   --tugx-askquestion-marker-size:      0.875rem;
   --tugx-askquestion-question-size:    0.8125rem;
@@ -65,51 +64,46 @@ body {
 
   --tugx-askquestion-question-color:  var(--tug7-element-global-text-normal-default-rest);
   --tugx-askquestion-muted-color:     var(--tug7-element-global-text-normal-muted-rest);
-
-  /* The progress summary aligns to the shared row's marker column — same
-   * inline padding + leading gutter the rows use ([L20] read-only refs). */
-  --tugx-askquestion-row-padding-inline: var(--tugx-list-row-padding-inline, 14px);
-  --tugx-askquestion-row-gutter:         var(--tugx-list-row-indicator-gutter, 0.2rem);
 }
 
-/* Answered record wrapper — a flex column with the live wizard body's own gap,
- * so the summary→rows rhythm equals the live action-bar→rail rhythm. */
+/* ---- The receipt inset ----
+ *
+ * Every surface this block paints — the live wizard, the answered record, the
+ * declined reply, the salvage form, the empty state — sits at the receipt
+ * inset every framed receipt in the transcript reads. The rows are the shared
+ * `QuestionSummaryList`, whose base inset stays its own for its other hosts;
+ * here its inline padding narrows to the compact row's, so a row's content
+ * starts at compact + gutter: the receipt inset. Both the live wizard and the
+ * record mount under this slot, so the wizard → record morph holds the rows
+ * still horizontally — the wizard's summary and button cluster read the same
+ * `--tugx-qrow-*` tokens the rows do. */
+[data-slot="ask-user-question-tool-block"] {
+  --tugx-qrow-pad-inline: var(--tugx-list-row-padding-inline-compact);
+}
+
+/* Answered record wrapper — a flex column with the live wizard body's own gap
+ * between the summary line and the rows, and the receipt's block inset above
+ * the summary and below the last row. */
 .ask-user-question-tool-block-answered {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-sm);
+  padding-block: var(--tugx-block-receipt-inset-block);
 }
 
 /* ---- Progress summary header ----
  *
- * Mirrors the live wizard's top action bar so the question rows hold their
- * vertical position when the wizard morphs into this record: the SAME summary
- * text + leading indent (aligned to the marker column), occupying the SAME box
- * (a button-height content row with the dialog's action-row block margins). The
- * buttons are gone post-submit, but the space they held is reserved here so the
- * rows below don't jump up.
+ * The live wizard's summary text at the same leading indent (the rows' marker
+ * column), so the morph holds it still horizontally. It takes its own line
+ * height rather than reserving the action bar's button box: once the buttons
+ * are gone the record is allowed to be shorter than the wizard was.
  *
  * @tug-renders-on: --tugx-block-bg */
 .ask-user-question-tool-block-summary {
-  display: flex;
-  align-items: center;
-  min-height: var(--tug-button-xs-height, 1.5rem);
-  margin-block: var(--tug-space-md) var(--tug-space-md);
-  padding-inline-start: calc(
-    var(--tugx-askquestion-row-padding-inline) + var(--tugx-askquestion-row-gutter)
-  );
+  padding-inline-start: calc(var(--tugx-qrow-pad-inline) + var(--tugx-qrow-gutter));
   font-size:   var(--tugx-idialog-description-size);
   line-height: var(--tugx-idialog-description-leading);
   opacity:     var(--tugx-idialog-description-opacity);
-}
-
-/* ---- List ---------------------------------------------------------- */
-
-/* The answered rows are the shared `QuestionSummaryList` (this class is on its
- * root). The summary header above supplies the lead-in, so the list takes no
- * top padding; a md tail keeps the last row off the chrome edge. */
-.ask-user-question-tool-block-list {
-  padding-block: 0 var(--tugx-askquestion-list-padding);
 }
 
 /* ---- Status marker (the declined-notice's leading glyph) ----------- */
@@ -138,7 +132,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--tugx-askquestion-pair-gap);
-  padding: var(--tugx-askquestion-list-padding);
+  padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
 }
 
 .ask-user-question-tool-block-declined-notice {
@@ -164,7 +158,7 @@ body {
  *
  * @tug-renders-on: --tugx-block-bg */
 .ask-user-question-tool-block-empty {
-  padding: var(--tugx-askquestion-list-padding);
+  padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
   color: var(--tugx-askquestion-muted-color);
   font-size: var(--tugx-askquestion-answer-size);
   font-style: italic;
@@ -186,7 +180,7 @@ body {
  */
 
 body {
-  --tugx-askquestion-salvage-padding: var(--tug-space-md);
+  --tugx-askquestion-salvage-padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
   --tugx-askquestion-salvage-gap:     var(--tug-space-lg);
   --tugx-askquestion-salvage-banner-padding: var(--tug-space-sm) var(--tug-space-md);
   --tugx-askquestion-salvage-banner-bg:      var(--tugx-block-tone-caution-bg);

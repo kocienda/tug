@@ -11,7 +11,7 @@
  * The stat row (`+N` / `−M` / file count) and the branch / hash chips are
  * all `TugBadge`s, so their color and shape are the badge's own — this
  * file adds only layout. The receipt-specific bits below (header line,
- * file list, message body) paint one hop from a `--tug7-*` / `--tug-*`
+ * file list) paint one hop from a `--tug7-*` / `--tug-*`
  * base ([L17]).
  */
 
@@ -19,17 +19,30 @@
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-xs);
-  /* The chrome body has no padding by design ("body-kind owns its own");
-     inset the receipt so it doesn't smash the frame edge. Horizontal is
-     the file-row grammar's inset, which is also the header strip's, so the
-     body's left edge lines up under the header's dot — and with the left
-     edge of a `/match` or `/search` result. */
+  /* The scope's own inset, which the History list root keeps. The
+     transcript's "Git Commit" block replaces it with the receipt inset
+     below, keyed on its slot. */
   padding: var(--tug-space-sm) var(--tugx-filerow-inset);
   font-family: var(--tugx-filerow-name-font);
   color: var(--tugx-filerow-text-color);
 }
 
-/* The message / files disclosures use the shared `BlockDisclosure`,
+/* The transcript's "Git Commit" block. `.tugx-commit` is also the shared
+   commit scope class the History list wears, so what is this block's alone
+   is keyed on its slot. It names the same act the `/commit` receipt does, so
+   it takes the receipt inset every framed receipt in the transcript reads. */
+[data-slot="commit-block"] {
+  padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
+}
+
+/* The shared message well brings the receipt inset with it, for hosts whose
+   body pads block-only. Here the block's own padding already is that inset,
+   so the well sits on it rather than doubling it. */
+[data-slot="commit-block"] .tugx-commit-message {
+  padding-inline: 0;
+}
+
+/* The files disclosure uses the shared `BlockDisclosure`,
    whose label + chevron default to the interactive "active" blue. In the
    receipt the label is a `TugLabel` proposal caption, so neutralize the
    blue to the muted caption tone — the chevron (currentColor) follows. */
@@ -165,17 +178,4 @@
 
 .tugx-commit-stat-num--del {
   color: var(--tugx-block-tone-remove-color);
-}
-
-/* ---- Message body (inside a BlockDisclosure) --------------------- */
-
-.tugx-commit-body {
-  font-size: var(--tug-font-size-sm);
-  line-height: 1.5;
-  color: var(--tugx-block-text-color-muted);
-  white-space: pre-wrap;
-}
-
-.tugx-commit-body-line {
-  min-height: 1em;
 }

@@ -7,8 +7,10 @@
  * and this renders the receipt *inside* that frame — the summary set as
  * a title, a branch `TugBadge` + a click-to-copy short-hash
  * `TugCopyBadge`, three borderless stat `TugBadge`s (neutral `+N` / `−M`
- * deltas + a file-count `action` badge), and `BlockDisclosure` sections for the message
- * body and an optional per-file breakdown.
+ * deltas + a file-count `action` badge), the message body in the shared
+ * `CommitMessage` well — the `/commit` receipt's own message layout, so the
+ * two blocks that name one act lay it out alike — and a `BlockDisclosure`
+ * for an optional per-file breakdown.
  *
  * Routing intent (not yet wired): `BashToolBlock` swaps this in for a
  * `git commit` command the same way it swaps `DiffBlock` in for
@@ -55,6 +57,7 @@ import { TugCopyBadge } from "@/components/tugways/tug-copy-badge";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { MiddleEllipsisPath } from "@/components/tugways/blocks/middle-ellipsis-path";
 import { BlockDisclosure } from "@/components/tugways/blocks/block-bits/block-disclosure";
+import { CommitMessage } from "@/components/tugways/commit-presentation";
 
 // ---------------------------------------------------------------------------
 // Data shape
@@ -324,7 +327,9 @@ export interface CommitBlockProps {
  * The commit receipt body — rendered inside a `BlockChrome` whose
  * header carries the lifecycle dot + "Git Commit" name and the
  * {@link CommitHeaderTarget} (summary + branch / hash badges). The body
- * holds the three stat `TugBadge`s and the message / file disclosures.
+ * holds the three stat `TugBadge`s, the message in the `/commit` receipt's
+ * `.tugx-commit-message` well, and the file disclosure. The root wears the
+ * receipt face, so the message reads as prose there too.
  */
 export function CommitBlock({ commit }: CommitBlockProps): React.ReactElement {
   const { body, filesChanged, insertions, deletions, files } = commit;
@@ -332,7 +337,7 @@ export function CommitBlock({ commit }: CommitBlockProps): React.ReactElement {
   const hasFiles = files !== undefined && files.length > 0;
 
   return (
-    <div className="tugx-commit" data-slot="commit-block">
+    <div className="tugx-commit tugx-commit-receipt" data-slot="commit-block">
       <div className="tugx-commit-stat">
         <TugBadge
           emphasis="ghost"
@@ -346,6 +351,12 @@ export function CommitBlock({ commit }: CommitBlockProps): React.ReactElement {
           {`${filesChanged} ${filesChanged === 1 ? "file" : "files"}`}
         </TugBadge>
       </div>
+
+      {/* The message reads as the `/commit` receipt's does — the shared well,
+          open, and ABOVE the file list, which can run arbitrarily long. */}
+      {hasBody && (
+        <CommitMessage body={body.join("\n")} dataSlot="commit-block-message" />
+      )}
 
       {hasFiles && (
         <BlockDisclosure
@@ -383,26 +394,6 @@ export function CommitBlock({ commit }: CommitBlockProps): React.ReactElement {
               </li>
             ))}
           </ul>
-        </BlockDisclosure>
-      )}
-
-      {hasBody && (
-        <BlockDisclosure
-          className="tugx-commit-disclosure"
-          defaultOpen
-          summary={
-            <TugLabel emphasis="proposal" size="2xs">
-              message
-            </TugLabel>
-          }
-        >
-          <div className="tugx-commit-body">
-            {body.map((line, i) => (
-              <div key={i} className="tugx-commit-body-line">
-                {line}
-              </div>
-            ))}
-          </div>
         </BlockDisclosure>
       )}
     </div>

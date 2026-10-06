@@ -133,15 +133,13 @@ body {
 }
 
 /* Progress summary — indented so its left edge aligns with the rail's status
- * markers below it (the rail rows place their marker at the list-row inline
- * padding plus the leading gutter from the row's edge). */
+ * markers below it, read from the rail rows' own inset tokens — so a host that
+ * narrows the rows (the transcript's question block) moves the summary with
+ * them, and the wizard → record morph holds it still. */
 .session-question-dialog-nav-summary {
   flex: 1 1 auto;
   min-width: 0;
-  padding-inline-start: calc(
-    var(--tugx-list-row-padding-inline, 14px) +
-    var(--tugx-list-row-indicator-gutter, 0.2rem)
-  );
+  padding-inline-start: calc(var(--tugx-qrow-pad-inline) + var(--tugx-qrow-gutter));
   font-size:   var(--tugx-idialog-description-size);
   line-height: var(--tugx-idialog-description-leading);
   opacity:     var(--tugx-idialog-description-opacity);
@@ -151,13 +149,14 @@ body {
 /* The control cluster — pushed to the trailing edge; each button a uniform
  * width with a comfortable gap so the four read as a balanced set. The
  * trailing margin aligns the cluster's right edge with the question rows'
- * right edge (their inline padding) and gives Submit air off the block edge. */
+ * right edge (their own inline padding token) and gives Submit air off the
+ * block edge. */
 .session-question-dialog-actionbar-buttons {
   flex: 0 0 auto;
   display: flex;
   gap: var(--tug-space-sm);
   margin-inline-start: auto;
-  margin-inline-end: var(--tugx-list-row-padding-inline, 14px);
+  margin-inline-end: var(--tugx-qrow-pad-inline);
 }
 
 .session-question-dialog-actionbar-buttons .tug-button {
