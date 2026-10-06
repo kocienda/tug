@@ -201,10 +201,9 @@ jobs:
           name: Tug ${{ steps.version.outputs.version }}
           files: products/Tug.dmg
           body: |
-            Tug ${{ steps.version.outputs.version }}
+            To install, download `Tug.dmg`, open it, and drag Tug into your Applications folder.
 
-            Download `Tug.dmg` and drag Tug to Applications. Installed copies
-            update themselves from here on.
+            Tug has an update feature built into the app, so there’s no need to come back here for new versions.
 
             Built from commit ${{ github.sha }}.
           token: ${{ secrets.GITHUB_TOKEN }}
