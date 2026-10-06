@@ -268,14 +268,10 @@
   opacity: 0.85;
 }
 
+/* The card the reader is in says so with its title bar alone; the icon keeps
+   its resting ink, so the face carries one mark of "here", not two. */
 .layout-mini-face[data-here] .layout-mini-face-bar {
   background-color: var(--tug7-element-tone-icon-normal-active-rest);
-}
-
-/* @tug-renders-on: --tug7-element-global-border-normal-strong-rest */
-.layout-mini-face[data-here] .layout-mini-face-icon {
-  color: var(--tug7-element-tone-icon-normal-active-rest);
-  opacity: 1;
 }
 
 /* A rail member says what it is and no more: its icon, centred, in the rail's
