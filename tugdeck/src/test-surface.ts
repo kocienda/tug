@@ -50,6 +50,7 @@ import { raiseCard, transferFocusForActivation } from "./focus-transfer";
 import { getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
 import { gestureScope } from "./lib/gesture-scope";
+import { tearDownSettleForTest } from "./components/chrome/settle-engine";
 import {
   _ingestOverviewFrameForTest,
   _ingestOverviewPageForTest,
@@ -427,8 +428,12 @@ import {
  * after the next painted frame, so a click's store-driven DOM is not there
  * when the click returns; the harness's `click` waits this out instead of
  * each test learning about the hold. Additive; major stays `2`.
+ *
+ * `2.27.0`: adds {@link TugTestSurface.tearDownSettle}, the door onto the
+ * settle's `"unmount"` exit with the frames still mounted. Additive; major
+ * stays `2`.
  */
-export const SURFACE_VERSION = "2.26.0" as const;
+export const SURFACE_VERSION = "2.27.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1691,6 +1696,14 @@ export interface TugTestSurface {
    * no tick to plant it on.
    */
   forceSettleStall(ms: number): void;
+
+  /**
+   * Run the settle engine's teardown — the body the canvas's unmount runs —
+   * with the frames still mounted, then re-arm it (SURFACE_VERSION 2.27.0).
+   * The one way a test reaches the `"unmount"` exit mid-settle and can still
+   * read what it left on the frames.
+   */
+  tearDownSettle(): void;
 
   /**
    * Exercise the store's gesture transaction (SURFACE_VERSION 2.11.0) and
@@ -3133,6 +3146,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     forceSettleStall(ms: number): void {
       settleFrameProbe.forceStall(ms);
+    },
+
+    tearDownSettle(): void {
+      tearDownSettleForTest();
     },
 
     probeStripCommit(

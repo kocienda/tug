@@ -149,6 +149,17 @@ export const tugTheme: Extension = EditorView.theme({
     height: "100%",
   },
 
+  // CodeMirror's screen-reader live region. Its base theme writes it
+  // `position: fixed; top: -10000px`, and every pane frame carries a standing
+  // promotion, which makes the frame — not the viewport — the containing
+  // block for a fixed descendant: the rule `audit-motion.ts` holds every
+  // frame to, and the settle probe's `fixedDescendants` counts one per
+  // editor. `absolute` keeps it as far off-screen under the editor root, and
+  // the region still announces, which is all it is for.
+  ".cm-announced": {
+    position: "absolute",
+  },
+
   // Editable text surface. The native WebKit contentEditable caret
   // is suppressed (`caret-color: transparent`) because its paint
   // cache stales across layout-shifting transitions; the visible

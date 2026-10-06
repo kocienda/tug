@@ -296,12 +296,20 @@ export const gestureScope = new GestureScope();
  * kept, in order, and handed over once at its release, as one call carrying
  * every entry: both observers report changes, so the last entry for a target
  * is its standing state and nothing is lost.
+ *
+ * Returns the held callback and its release. The release drops what is kept
+ * and makes the queued hand-over a no-op, and the observer built on the
+ * callback calls it from `disconnect` ({@link observeHeld}): a card unmounting
+ * under a settle disconnects its observers mid-motion, and a delivery kept for
+ * it would otherwise run at the gate's release against a detached target.
+ * The shape is `wrapSubscribe`'s `forget` ([L27]: every acquisition returns
+ * its release). An observer observed again after a disconnect holds afresh.
  */
 export function holdDeliveries<E, O>(
   cb: (entries: E[], observer: O) => void,
   scope: GestureScope = gestureScope,
   heldWhen: (entries: E[]) => boolean = () => true,
-): (entries: E[], observer: O) => void {
+): HeldDelivery<E, O> {
   let kept: { entries: E[]; observer: O } | null = null;
   // Once a delivery is kept, every later one is kept behind it, so the
   // callback sees them in the order the platform made them.
@@ -324,7 +332,35 @@ export function holdDeliveries<E, O>(
     });
   };
   HELD_CALLBACKS.set(held, holds as (entries: unknown[]) => boolean);
-  return held;
+  return {
+    callback: held,
+    release: () => {
+      kept = null;
+    },
+  };
+}
+
+/** What {@link holdDeliveries} returns: the callback the platform is handed, and its release. */
+export interface HeldDelivery<E, O> {
+  callback: (entries: E[], observer: O) => void;
+  release: () => void;
+}
+
+/**
+ * Construct `Native` on a held delivery whose `disconnect` releases what the
+ * gate kept for it, before the platform's own disconnect.
+ */
+export function observeHeld<E, O, T extends { disconnect(): void }>(
+  construct: (callback: (entries: E[], observer: O) => void) => T,
+  delivery: HeldDelivery<E, O>,
+): T {
+  const observer = construct(delivery.callback);
+  const disconnect = observer.disconnect;
+  observer.disconnect = function (this: T): void {
+    delivery.release();
+    disconnect.call(this);
+  };
+  return observer;
 }
 
 const HELD_CALLBACKS = new WeakMap<object, (entries: unknown[]) => boolean>();
@@ -372,7 +408,8 @@ function insideHeldInterior(entries: unknown[]): boolean {
  * refinement — and holding those would hold the settle itself.
  */
 export function heldResizeObserver(callback: ResizeObserverCallback): ResizeObserver {
-  return new ResizeObserver(holdDeliveries(callback));
+  const delivery = holdDeliveries<ResizeObserverEntry, ResizeObserver>(callback);
+  return observeHeld((cb) => new ResizeObserver(cb), delivery);
 }
 
 /**
@@ -388,7 +425,8 @@ function installIntersectionHold(): void {
     callback: IntersectionObserverCallback,
     options?: IntersectionObserverInit,
   ): IntersectionObserver {
-    return new Native(holdDeliveries(callback), options);
+    const delivery = holdDeliveries<IntersectionObserverEntry, IntersectionObserver>(callback);
+    return observeHeld((cb) => new Native(cb, options), delivery);
   } as unknown as typeof IntersectionObserver;
   Wrapped.prototype = Native.prototype;
   window.IntersectionObserver = Wrapped;
@@ -409,13 +447,12 @@ function installInteriorResizeHold(): void {
   const Native = window.ResizeObserver;
   if (typeof Native !== "function") return;
   const Wrapped = function (callback: ResizeObserverCallback): ResizeObserver {
-    return new Native(
-      holdDeliveries<ResizeObserverEntry, ResizeObserver>(
-        callback,
-        gestureScope,
-        insideHeldInterior,
-      ),
+    const delivery = holdDeliveries<ResizeObserverEntry, ResizeObserver>(
+      callback,
+      gestureScope,
+      insideHeldInterior,
     );
+    return observeHeld((cb) => new Native(cb), delivery);
   } as unknown as typeof ResizeObserver;
   Wrapped.prototype = Native.prototype;
   window.ResizeObserver = Wrapped;

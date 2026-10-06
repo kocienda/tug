@@ -25,7 +25,12 @@
 
 import type { RefObject } from "react";
 import { useCallback, useRef, useLayoutEffect } from "react";
-import { afterGesture, gestureScope } from "@/lib/gesture-scope";
+import {
+  afterGesture,
+  gestureScope,
+  tellReactNow,
+  useSyncExternalStore,
+} from "@/lib/gesture-scope";
 import {
   planBeat,
   type Beat,
@@ -47,8 +52,6 @@ import {
   adoptFoldCrossing,
   adoptStillCrossing,
   announceStillCrossingSettled,
-  endFoldCrossing,
-  endStillCrossing,
   FOLD_CROSSING_ATTR,
   holdStillWidth,
   markFoldCrossing,
@@ -84,7 +87,6 @@ import {
   type SettleTakeDetail,
   type SettleTakeFlowDetail,
 } from "@/lib/settle-take";
-import { cardServicesStore } from "@/lib/card-services-store";
 import {
   classifyLand,
   classifyMotionEvents,
@@ -131,6 +133,7 @@ import {
   FLOW_OFFSET_FRAME_READERS,
   writeCanvasFlowOffset,
 } from "./flow-offset";
+import { SettleCrossings } from "./settle-crossings";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_SWITCHING_ATTRIBUTE,
@@ -540,65 +543,6 @@ function landDepartingTarget(target: DepartingTarget): void {
 }
 
 /**
- * End the crossing on every frame a retarget took over that the settle
- * replacing it does not carry on, and forget them all.
- *
- * A crossing is ended by the completion of the settle that opened or adopted
- * it, and a retarget's generation bump turns the interrupted settle's
- * completion into a no-op. So a frame the replacement settle takes over has
- * exactly two futures: the new Last pass adopts its crossing under a fresh id
- * — it carries the frame with a height term — or nothing ever ends it, and the
- * card stands held at a box it no longer has with its end never announced.
- * A covered member of a flipped column, a frame that only slides, an arrival
- * and a departure are all the second case. `carried` is the first: every
- * frame this settle holds a still crossing for, which every adopted fold is
- * too ([L32]: one path ends a crossing on every exit).
- */
-function endCrossingsNotCarried(
-  frames: Set<HTMLElement>,
-  carried: ReadonlySet<HTMLElement> = new Set(),
-): void {
-  for (const frame of frames) {
-    if (carried.has(frame)) continue;
-    endFoldCrossing(frame);
-    endStillCrossing(frame);
-  }
-  frames.clear();
-}
-
-/**
- * End the still crossing `arm` opened on every frame the Last pass did not go
- * on to carry, and forget them all.
- *
- * `arm` holds a frame from the store's word alone: the frame the new
- * arrangement will resize is held at its First content height before React
- * commits that arrangement, so the commit's height change never reaches the
- * interior. The Last pass confirms each with a re-mark (never lowering) when
- * the frame really carries a height term, and from then on the tween that
- * carries it owns the end. A frame it never confirmed — the prediction
- * over-marked it, or a path out of the pass carried nothing — is ended here,
- * on that path, and announces its end like every other ([L32]).
- *
- * Each frame is ended by the door `arm` opened it with: a frame whose folded
- * state flips was opened as a fold crossing — both marks, so a fold's still
- * mark is never on without its fold mark and the card's picture never hangs
- * from the wrong edge — and is ended as one, which announces the fold's end
- * to whatever is waiting on it. Every other frame was opened as a still
- * crossing, and a fold standing from an earlier settle is that settle's to end.
- */
-function endArmHeldNotCarried(
-  frames: Map<HTMLElement, "fold" | "still">,
-  carried: ReadonlySet<HTMLElement> = new Set(),
-): void {
-  for (const [frame, kind] of frames) {
-    if (carried.has(frame)) continue;
-    if (kind === "fold") endFoldCrossing(frame);
-    else endStillCrossing(frame);
-  }
-  frames.clear();
-}
-
-/**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
  * the settle the whole choreography is measured against — and the two resize
  * beats have recipes of their own in `lib/imposer-motion.ts`.
@@ -677,6 +621,32 @@ export interface SettleEngineDeps {
 }
 
 /**
+ * A test door onto the arm effect's teardown — the body that runs when the
+ * canvas unmounts, and when the effect's dependencies change identity with
+ * the frames still mounted. Each call re-runs the effect, so the teardown runs
+ * against live frames a test can still read, which is the one way to reach
+ * the `"unmount"` exit mid-settle without taking the deck down. Nothing in the
+ * product calls it; the test surface's `tearDownSettle` does.
+ *
+ * Told through {@link tellReactNow}: the door is called mid-settle, with the
+ * motion gate closed, and a held tell would run the teardown only after the
+ * settle it was meant to interrupt had landed.
+ */
+let settleTeardownGeneration = 0;
+const settleTeardownListeners = new Set<() => void>();
+export function tearDownSettleForTest(): void {
+  settleTeardownGeneration += 1;
+  tellReactNow(() => {
+    for (const listener of settleTeardownListeners) listener();
+  });
+}
+const subscribeSettleTeardown = (listener: () => void): (() => void) => {
+  settleTeardownListeners.add(listener);
+  return () => settleTeardownListeners.delete(listener);
+};
+const readSettleTeardown = (): number => settleTeardownGeneration;
+
+/**
  * The deck's settle. Called once, by the canvas, where the settle has always
  * run in its body.
  *
@@ -692,6 +662,9 @@ export function useSettleEngine({
   shownArrangement,
   deriveArrangement,
 }: SettleEngineDeps) {
+  // The test door's generation, read only as a dependency of the arm effect
+  // below, so a call re-runs that effect's teardown ({@link tearDownSettleForTest}).
+  const teardownForTest = useSyncExternalStore(subscribeSettleTeardown, readSettleTeardown);
   // ---------------------------------------------------------------------------
   // Settling into a new arrangement
   // ---------------------------------------------------------------------------
@@ -762,8 +735,8 @@ export function useSettleEngine({
    */
   const settleSweepRef = useRef<((windowMs: number) => void) | null>(null);
   /**
-   * Releases the session stores' notification hold, once per settle, and
-   * records which clock did it. The settle's own completion is the release
+   * Releases the settle — the frame record, the motion gate, the pending
+   * arrivals — once per settle, and records which clock did it. The settle's own completion is the release
    * on the normal path — after the final beat's last tween, on the far side
    * of every frame's residue, fold crossing and resize episode ([B04] of
    * `three-beat-settle`); the window sweep and the unmount are the guards
@@ -1016,19 +989,14 @@ export function useSettleEngine({
    */
   const settleTweensRef = useRef<Map<string, SettleTween>>(new Map());
   /**
-   * The frames a retarget's `arm` took over mid-settle, from the cancel until
-   * the next Last pass says which of their crossings it carries on. That pass
-   * ends every other one ({@link endCrossingsNotCarried}); the sweep and the
-   * unmount teardown end whatever a Last pass never reached.
+   * Every crossing the settle holds open, from the door that opened it to the
+   * exit that ends it (`settle-crossings.ts`): the frames `arm` held on the
+   * store's word and the frames a retarget took over, until a Last pass
+   * carries or ends each; and the marks a launched settle carries, until its
+   * completion ends them by id. The sweep and the unmount end whatever is
+   * left.
    */
-  const retargetedFramesRef = useRef<Set<HTMLElement>>(new Set());
-  /**
-   * The frames `arm` holds on the store's word, before the commit that
-   * resizes them, from that `arm` until a Last pass confirms or ends
-   * each ({@link endArmHeldNotCarried}). The sweep, a later `arm` and the
-   * unmount teardown end whatever no Last pass reached.
-   */
-  const armHeldRef = useRef<Map<HTMLElement, "fold" | "still">>(new Map());
+  const crossingsRef = useRef(new SettleCrossings());
   /**
    * What the canvas last rendered — the deck, its arrangement, and how it
    * derives one — read by `arm` for the near side of its prediction. Written
@@ -1263,34 +1231,6 @@ export function useSettleEngine({
    */
   const settleCommitSeqRef = useRef(0);
 
-  // Hold every session card's notifications for the length of the
-  // gesture, and release them on the same edges the tweens land on.
-  //
-  // A React commit landing INSIDE the window is not merely one more
-  // commit: measured on release, the settle alone cost 343 walk samples
-  // and a commit stream alone 654, but the two together cost 1809 —
-  // 81% above their sum, with median frame delivery going 17ms to 20ms
-  // and four times the dropped frames
-  // (`arc/jul30-perf-brief.md#s5-imposer`). A commit while a
-  // transform animation is running dirties compositing with the
-  // animation's extent already reserved, which forces exactly the
-  // recompute that reservation exists to avoid.
-  //
-  // Nothing is dropped — the events reduce and run their effects as
-  // they arrive, and only the React notification waits, flushing once
-  // at release. The cap is the store's own guard against a holder that
-  // never comes back; release below is what normally ends it.
-  const holdSessions = useCallback((capMs: number) => {
-    cardServicesStore.forEachCodeSessionStore((store) => {
-      store.holdNotifications(capMs);
-    });
-  }, []);
-  const releaseSessions = useCallback(() => {
-    cardServicesStore.forEachCodeSessionStore((store) => {
-      store.releaseNotifications();
-    });
-  }, []);
-
   // The lifecycle, on a ref so the settle's effects do not re-key on it. The
   // canvas renders inside `CardLifecycleContext.Provider` (see the provider
   // list in `DeckManager`'s `reactRoot.render`), so this is non-null in the
@@ -1462,9 +1402,7 @@ export function useSettleEngine({
       const seen = frame.getBoundingClientRect();
       for (const restore of running.restores) restore();
       clearFlipRef.current(paneId, frame, running.anims);
-      endFoldCrossing(frame);
-      endStillCrossing(frame);
-      retargetedFramesRef.current.delete(frame);
+      crossingsRef.current.release(frame);
       const episode = settleEpisodesRef.current.get(paneId);
       if (episode !== undefined) {
         episode.end();
@@ -1756,7 +1694,6 @@ export function useSettleEngine({
     ): void => {
       if (settleReleasedRef.current) return;
       settleReleasedRef.current = true;
-      releaseSessions();
       // Before the release row, so a reader scanning the trace meets the
       // numbers and then the release that ended them.
       stopSettleFrameRecord(source !== "unmount");
@@ -1810,18 +1747,14 @@ export function useSettleEngine({
           // the same captured value again and writes nothing new.
           for (const restore of entry.restores) restore();
           clearFlip(paneId, entry.el, entry.anims);
-          // Same sweep for the fold mark: a crossing whose completion handler
-          // never landed would leave the interior held and the card waiting on
-          // an end that is not coming. Unguarded by id, because the window is
-          // over and no crossing of any vintage should outlive it. The still
-          // crossing too: a fold's end takes it off, but most held frames
-          // were never folding.
-          endFoldCrossing(entry.el);
-          endStillCrossing(entry.el);
         }
-        // And a frame a retarget took over that no Last pass has read since.
-        endCrossingsNotCarried(retargetedFramesRef.current);
-        endArmHeldNotCarried(armHeldRef.current);
+        // Same sweep for the crossings: one whose completion never landed
+        // would leave the interior held and the card waiting on an end that
+        // is not coming, and a frame `arm` held or a retarget took that no
+        // Last pass has read since is in the same place. Unguarded by id,
+        // because the window is over and no crossing of any vintage should
+        // outlive it.
+        crossingsRef.current.endAll();
         // After the frames, so the flush inside carries their hand-back.
         //
         // And the frames that never reached a tween record: an arrival whose
@@ -2293,8 +2226,7 @@ export function useSettleEngine({
       // Only when measuring: a prelaunched flow slide changes no heights, and
       // under reduced motion there is no tween for a hold to stand under.
       {
-        const stale = new Map(armHeldRef.current);
-        armHeldRef.current.clear();
+        const finishArm = crossingsRef.current.beginArm();
         if (measure) {
           const rendered = renderedRef.current;
           const afterDeck = store.getPicture();
@@ -2342,11 +2274,10 @@ export function useSettleEngine({
             const folds = wasFolded !== willFold;
             if (folds) markFoldCrossing(frame, height);
             else markStillCrossing(frame, height);
-            armHeldRef.current.set(frame, folds ? "fold" : "still");
-            stale.delete(frame);
+            crossingsRef.current.hold(frame, folds ? "fold" : "still");
           }
         }
-        endArmHeldNotCarried(stale);
+        finishArm();
       }
 
       // The shadow strips, once rather than per frame: there is one per SIDE,
@@ -2461,7 +2392,7 @@ export function useSettleEngine({
           clearFlip(paneId, frame, running.anims);
           // Its crossing, if it has one, is the next Last pass's to carry on
           // or to end: the cancel just made the old completion a no-op.
-          retargetedFramesRef.current.add(frame);
+          crossingsRef.current.retake(frame);
         }
       }
       // The strips' residue goes back on the same tick, after the last
@@ -2663,19 +2594,13 @@ export function useSettleEngine({
       }
       const windowMs = settleMs * getTugTiming();
 
-      // The cap is generous against the window it guards — it is a
-      // wedge guard, not a second clock, and firing it early would
-      // reintroduce the very commit the hold is here to keep out. Sized
-      // here against the crossing's nominal; the Last pass re-holds against
-      // the choreography's total once it knows the beats.
       perfMark("tug:arm-planned");
       if (motion) {
         settleReleasedRef.current = false;
-        holdSessions(Math.max(2 * windowMs, 1000));
         startSettleFrameRecord(el);
       }
 
-      // Generous against the window it guards, like the hold's cap: the
+      // Generous against the window it guards: the
       // sweep is a wedge guard behind the settle's own completion, and one
       // armed at exactly the crossing's duration would win the race with the
       // last tween's `finished` by a frame and release from the wrong clock.
@@ -2710,11 +2635,8 @@ export function useSettleEngine({
       for (const [paneId, entry] of [...settleTweensRef.current]) {
         for (const anim of entry.anims) anim.cancel("snap-to-end");
         clearFlip(paneId, entry.el, entry.anims);
-        endFoldCrossing(entry.el);
-        endStillCrossing(entry.el);
       }
-      endCrossingsNotCarried(retargetedFramesRef.current);
-      endArmHeldNotCarried(armHeldRef.current);
+      crossingsRef.current.endAll();
       for (const [, handle] of settleEpisodesRef.current) handle.end();
       settleEpisodesRef.current.clear();
       settleFirstRectsRef.current.clear();
@@ -2748,7 +2670,7 @@ export function useSettleEngine({
       // is exactly why the drop has to be made here by hand.
       dropPendingFlash();
     };
-  }, [store, holdSessions, releaseSessions, openMotionGate, openMotionGateAfterLand, closeMotionGate]);
+  }, [store, openMotionGate, openMotionGateAfterLand, closeMotionGate, teardownForTest]);
 
   // Last, and the tween. Declared AFTER the inset effect above, and that order
   // is load-bearing: React runs layout effects in declaration order, and the
@@ -2828,8 +2750,8 @@ export function useSettleEngine({
     }
     if (el === null || firstRects.size === 0) {
       // Nothing is carried on, so every frame a retarget took is ended here.
-      endCrossingsNotCarried(retargetedFramesRef.current);
-      endArmHeldNotCarried(armHeldRef.current);
+      // A settle an earlier pass launched still carries its own.
+      crossingsRef.current.closePass();
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -2870,8 +2792,7 @@ export function useSettleEngine({
     // no First rects, so there is nothing here to carry and every frame would
     // otherwise read as an arrival and be faded up ([P02]).
     if (!isTugMotionEnabled() || settleSwitchingRef.current) {
-      endCrossingsNotCarried(retargetedFramesRef.current);
-      endArmHeldNotCarried(armHeldRef.current);
+      crossingsRef.current.closePass();
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
@@ -3295,12 +3216,10 @@ export function useSettleEngine({
           //
           // A FOLD this stack interrupted is not carried by the cover: the
           // member neither tweens nor folds under it, so the fold's crossing
-          // is ended here — as `endCrossingsNotCarried` ended it before the
-          // arm held this member — and a still crossing is opened in its
-          // place at the First content height, since the fold's end takes
-          // the arm's still mark off with it.
-          if (frame.hasAttribute(FOLD_CROSSING_ATTR)) {
-            endFoldCrossing(frame);
+          // is yielded here, and a still crossing is opened in its place at
+          // the First content height, since the fold's end takes the arm's
+          // still mark off with it.
+          if (crossingsRef.current.yieldFold(frame)) {
             const firstHeight = firstFolds.get(paneId)?.contentHeight ?? 0;
             stillCrossingId =
               firstHeight > 0 ? markStillCrossing(frame, firstHeight) : null;
@@ -3321,12 +3240,11 @@ export function useSettleEngine({
           // re-window before the gate closes and records the size the held
           // delivery is then swallowed by. The mark ends with the cover.
           //
-          // Carried, the frame is out of `endCrossingsNotCarried`'s reach, so
-          // a fold this split interrupted is ended here, as the held branch
-          // ends one: the member neither tweens nor folds under the cover,
+          // A fold this split interrupted is yielded here, as the held branch
+          // yields one: the member neither tweens nor folds under the cover,
           // and a settled still mark beside a standing fold would leave the
           // fold's held height on the card after the land.
-          if (frame.hasAttribute(FOLD_CROSSING_ATTR)) endFoldCrossing(frame);
+          crossingsRef.current.yieldFold(frame);
           const tileContentHeight = contentBoxHeight(frame);
           if (tileContentHeight !== null && tileContentHeight > 0) {
             stillCrossingId = settleStillCrossing(frame, tileContentHeight);
@@ -3450,6 +3368,11 @@ export function useSettleEngine({
         // commit per frame. Held at the final width on a growth — settled,
         // so its pin is paid in the set-up — and at the starting width on a
         // shrink, for the shrink's reason above.
+        //
+        // A fold this settle interrupted on a frame whose height no longer
+        // moves is not carried — no tween will end it — so it is yielded
+        // before the still mark, whose own end the fold's would take.
+        if (widthTweens && !heightTweens) crossingsRef.current.yieldFold(frame);
         if (heightTweens || widthTweens) {
           const folding =
             opensFoldCrossing || frame.hasAttribute(FOLD_CROSSING_ATTR);
@@ -3611,25 +3534,24 @@ export function useSettleEngine({
         continue;
       }
     }
-    // Every frame a retarget took over whose crossing the loop above did not
-    // adopt — covered, sliding, arriving or gone — has its crossing ended
-    // now, while the rest of the settle is planned.
-    // And every frame `arm` held on the store's word that this pass found
-    // carrying no height term: the prediction over-marked it, and its hold
-    // comes off here, in the pass that knows.
-    const carriedStill = new Set(
-      choreography
-        .filter((c) => c.stillCrossingId !== null)
-        .map((c) => c.frame),
-    );
-    // A covered member holding a still crossing — a stack's held member on
-    // the arm's mark, a split's revealed member on its settled one — is
-    // carried too: its end is the cover's, in the release loops.
-    for (const c of covered) {
-      if (c.stillCrossingId !== null) carriedStill.add(c.frame);
+    // Every crossing this pass carries is handed to the record under the id
+    // it carries it with, and ended by the completion through it. A covered
+    // member holding a still crossing — a stack's held member on the arm's
+    // mark, a split's revealed member on its settled one — is carried too:
+    // its end is the cover's, in the release loops. Then every frame a
+    // retarget took over or `arm` held that nothing carried — covered,
+    // sliding, arriving, gone, or over-predicted — is ended now, in the pass
+    // that knows.
+    const crossings = crossingsRef.current;
+    for (const c of choreography) {
+      if (c.crossingId === null && c.stillCrossingId === null) continue;
+      crossings.carry(c.frame, { fold: c.crossingId, still: c.stillCrossingId });
     }
-    endCrossingsNotCarried(retargetedFramesRef.current, carriedStill);
-    endArmHeldNotCarried(armHeldRef.current, carriedStill);
+    for (const c of covered) {
+      if (c.stillCrossingId === null) continue;
+      crossings.carry(c.frame, { fold: null, still: c.stillCrossingId });
+    }
+    crossings.closePass();
     // The shadow strips, planned AFTER every frame so the answer to "did this
     // side's rail survive?" is in hand. A strip is the rail's depth, and it
     // moves exactly as the rail does or it is not that — every case below is
@@ -3914,7 +3836,6 @@ export function useSettleEngine({
       if (totalMs > crossing.durationMs) {
         const totalWindowMs = totalMs * getTugTiming();
         settleSweepRef.current?.(Math.max(2 * totalWindowMs, 1000));
-        holdSessions(Math.max(2 * totalWindowMs, 1000));
       }
       // The land, pre-paid ([B04]): each settled interior pays its pin, its
       // restore, its extent rebase and its re-window now, inside the set-up
@@ -4485,12 +4406,10 @@ export function useSettleEngine({
             if (taken(c.frame)) continue;
             for (const restore of c.restores) restore();
             clearFlip(c.paneId, c.frame, c.anims);
-            if (c.stillCrossingId !== null) endStillCrossing(c.frame, c.stillCrossingId);
+            crossings.end(c.frame, { fold: null, still: c.stillCrossingId });
           }
           for (const c of choreography) {
             if (taken(c.frame)) continue;
-            if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
-            if (c.stillCrossingId === null) continue;
             // A settled crossing's mark comes off here, in the land's own
             // task, like every other: its interior already stands where it
             // lands, and the held height lives on the card root alone, under
@@ -4498,7 +4417,7 @@ export function useSettleEngine({
             // taking it off restyles one element rather than the card. The
             // `overflow` and `position` the mark flips back cost about a
             // millisecond between them at the same size.
-            endStillCrossing(c.frame, c.stillCrossingId);
+            crossings.end(c.frame, { fold: c.crossingId, still: c.stillCrossingId });
           }
           for (const c of choreography) {
             if (!c.reflowsAtLand) {
@@ -4532,7 +4451,7 @@ export function useSettleEngine({
       for (const c of covered) {
         for (const restore of c.restores) restore();
         clearFlip(c.paneId, c.frame, c.anims);
-        if (c.stillCrossingId !== null) endStillCrossing(c.frame, c.stillCrossingId);
+        crossings.end(c.frame, { fold: null, still: c.stillCrossingId });
         endEpisode(c.paneId);
       }
     }

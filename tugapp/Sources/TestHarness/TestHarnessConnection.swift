@@ -101,7 +101,15 @@ final class TestHarnessConnection {
     /// session cards standing split in one column) does not fit the
     /// default 80%-of-screen window at all, and the drag under test
     /// cannot move until it does. Additive; major stays `1`.
-    static let surfaceVersion = "1.10.0"
+    ///
+    /// `1.11.0`: adds `setPageZoom` — the web view's page zoom set for
+    /// this launch alone, never persisted. A fixture whose floors need more
+    /// CSS height than the screen's window can give (two session cards
+    /// split in one column, on a laptop display) zooms out to fit rather
+    /// than reading a seam that cannot move. Gestures still land: native
+    /// events map through `CoordMapping`, which scales by the zoom.
+    /// Additive; major stays `1`.
+    static let surfaceVersion = "1.11.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -240,6 +248,9 @@ final class TestHarnessConnection {
             let width = (obj["width"] as? Double) ?? (obj["width"] as? Int).map(Double.init)
             let height = (obj["height"] as? Double) ?? (obj["height"] as? Int).map(Double.init)
             dispatchSetWindowContentSize(id: id, width: width, height: height)
+        case "setPageZoom":
+            let zoom = (obj["zoom"] as? Double) ?? (obj["zoom"] as? Int).map(Double.init)
+            dispatchSetPageZoom(id: id, zoom: zoom)
         default:
             respondError(id: id, name: "NotImplemented", message: "Unknown method: \(method)")
         }
@@ -522,6 +533,23 @@ final class TestHarnessConnection {
                 "width": Double(content.width),
                 "height": Double(content.height),
             ]])
+        }
+    }
+
+    /// Set the page zoom for this launch, clamped to the app's own range and
+    /// written to the web view alone: the user's persisted zoom is the View
+    /// menu's (`MainWindow.setPageZoom`), and a launch under the harness pins
+    /// 1.0 at start, so nothing set here reaches the next launch. Responds
+    /// with the zoom the view took.
+    private func dispatchSetPageZoom(id: Int, zoom: Double?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard let webView = self.webView, let zoom = zoom else {
+                self.respondError(id: id, name: "ZoomError", message: "no web view or no zoom")
+                return
+            }
+            webView.pageZoom = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, CGFloat(zoom)))
+            self.respond(id: id, ok: true, payload: ["value": Double(webView.pageZoom)])
         }
     }
 

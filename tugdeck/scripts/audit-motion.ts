@@ -2,8 +2,9 @@
 /**
  * audit-motion.ts — the deck's stylesheet motion tripwire.
  *
- * Five rules: two about the settle window, two about every loop that runs for
- * as long as the deck is up, and one about who makes the deck's motion at all.
+ * Six rules: two about the settle window, two about every loop that runs for
+ * as long as the deck is up, one about who makes the deck's motion at all, and
+ * one about which motion is allowed to run on layout.
  * The first four share a scanner because they ask the same question of the
  * same text: what does this declaration put on the main thread, and for how
  * long.
@@ -156,6 +157,29 @@
  * standing CSS entrances not yet moved. A clock that animates nothing is the
  * animator's too — `timelineMark()` — so the settle's beat markers are not an
  * exception to carve out.
+ *
+ * **Rule 6 — motion on a layout property is declared.**
+ *
+ * A tween or a transition on `width`, `height`, an inset, a margin, a padding,
+ * a flex or grid track, or `all` re-lays-out its box on every frame it runs.
+ * The settle's own crossings carry that cost by decision ([D9]), and the
+ * runtime rows name them. Motion elsewhere on the deck pays the same cost, and
+ * neither rule 2 (which reads only selectors under a frame) nor the sampler
+ * (which reads only the settle window) sees it. So every such site is declared
+ * in {@link LAYOUT_MOTION_CARVE_OUTS}, by file, with the properties it may
+ * animate and the ending it was given. The two endings it can carry are
+ * "main-thread by design", with the reason, and "moves to transform/opacity",
+ * which leaves the list once it has moved. A third ending, removal, never
+ * appears here at all. A new site, or a new property on a declared file, is a
+ * hit, so the inventory cannot grow without somebody writing its reason down.
+ *
+ * Two halves. In a stylesheet, a `transition` or `transition-property` naming
+ * a layout property. In TypeScript, a call to TugAnimator's `animate` (by
+ * whatever name the file imports it) or to a group's `.animate(` whose
+ * argument text carries a layout property as an object key. The TypeScript
+ * half reads keyframes written in the call, and only those: keyframes built in
+ * a variable first are not followed. That is how the settle's height crossing
+ * is written, and it is the settle-frames rows that name that crossing.
  *
  * **What rule 3 cannot see, and who sees it instead.** The census flags an
  * animation whose target is an SVG element as never accelerated; this cannot,
@@ -312,7 +336,7 @@ export interface Hit {
   readonly path: string;
   readonly line: number;
   readonly selector: string;
-  readonly rule: 1 | 2 | 3 | 4 | 5;
+  readonly rule: 1 | 2 | 3 | 4 | 5 | 6;
   readonly detail: string;
 }
 
@@ -1283,7 +1307,14 @@ export const MOTION_CARVE_OUTS: ReadonlyMap<string, string> = new Map([
   // [L14]: Radix Presence owns enter and exit for these surfaces through CSS
   // `@keyframes` and `data-state`, because it waits on `animationend`, which
   // WAAPI does not fire.
-  ["tugdeck/src/components/tugways/tug-accordion.css", "[L14] Radix Accordion"],
+  // The accordion's keyframes run on `height`, which rule 6 does not read (it
+  // reads transitions and tweens), so its layout ending is recorded here:
+  // main-thread by design, a section's open and close where the content below
+  // has to move and only layout moves it, one-shot on the user's toggle.
+  [
+    "tugdeck/src/components/tugways/tug-accordion.css",
+    "[L14] Radix Accordion; its height keyframes are main-thread by design",
+  ],
   ["tugdeck/src/components/tugways/tug-alert.css", "[L14] Radix AlertDialog"],
   ["tugdeck/src/components/tugways/tug-menu.css", "[L14] Radix menus"],
   ["tugdeck/src/components/tugways/tug-popover.css", "[L14] Radix Popover"],
@@ -1433,6 +1464,223 @@ export function scanEntranceKeyframes(
 }
 
 // ---------------------------------------------------------------------------
+// Rule 6
+// ---------------------------------------------------------------------------
+
+/** The properties whose motion re-lays-out the box, in kebab-case. */
+const LAYOUT_PROPERTIES =
+  /^(?:width|height|min-width|max-width|min-height|max-height|top|left|right|bottom|inset(?:-[a-z-]+)?|margin(?:-[a-z-]+)?|padding(?:-[a-z-]+)?|flex|flex-grow|flex-shrink|flex-basis|gap|row-gap|column-gap|grid-template-[a-z]+|all)$/;
+
+/** One declared site of layout motion: what it may animate, and why. */
+export interface LayoutMotionCarveOut {
+  readonly properties: readonly string[];
+  readonly ending: string;
+}
+
+/**
+ * Every file whose motion runs on layout, the properties it may animate, and
+ * the ending each was given. Repository-relative, exact.
+ */
+export const LAYOUT_MOTION_CARVE_OUTS: ReadonlyMap<string, LayoutMotionCarveOut> =
+  new Map([
+    [
+      "tugdeck/src/components/chrome/rail-width-draft.ts",
+      {
+        properties: ["width", "left"],
+        ending:
+          "main-thread by design: the rail's spring back from an over-limit drag, one-shot on the hand's release and outside any settle; a rail's width is its layout, and a scale would distort the card in it",
+      },
+    ],
+    [
+      "tugdeck/src/components/jots/jots-card.tsx",
+      {
+        properties: ["height"],
+        ending:
+          "main-thread by design: a jot's well opening and closing in its list, where the rows below have to move and only layout moves them; one-shot, inside the Jots card alone",
+      },
+    ],
+    [
+      "tugdeck/src/components/tugways/tug-split-pane.tsx",
+      {
+        properties: ["flex-grow"],
+        ending:
+          "main-thread by design: a split panel's snap to a size, which the panel library lays out by flex-grow; one-shot, on the user's own gesture",
+      },
+    ],
+    [
+      "tugdeck/styles/chrome.css",
+      {
+        properties: ["height"],
+        ending:
+          "main-thread by design: [D07]'s window-shade collapse, stood down under a gesture, a pointer-owned frame, a settle and a workspace switch",
+      },
+    ],
+    [
+      "tugdeck/src/components/layout/layout-miniature.css",
+      {
+        properties: ["left", "width", "top", "bottom"],
+        ending:
+          "main-thread by design for now: the Layout card's miniature eases on the settle's own clock, so it runs inside every settle window; small absolute boxes, and the first place to look when a settle stalls with a Layout card on screen",
+      },
+    ],
+    [
+      "tugdeck/src/components/layout/layout-places.css",
+      {
+        properties: ["left", "width"],
+        ending:
+          "main-thread by design for now: the places strip's window, on the same settle clock as the miniature, and read with it",
+      },
+    ],
+    [
+      "tugdeck/src/components/tugways/tug-choice-group.css",
+      {
+        properties: ["width"],
+        ending:
+          "main-thread by design: the segment indicator's 160ms slide on a choice, one absolute pill",
+      },
+    ],
+    [
+      "tugdeck/src/components/tugways/internal/tug-progress-pulsing-dot.css",
+      {
+        properties: ["width", "height"],
+        ending:
+          "main-thread by design: the dot figure's presence settling in or out, a one-shot on its own small box and never on the breathing loop's",
+      },
+    ],
+    [
+      "tugdeck/src/components/tugways/internal/tug-progress-bar.css",
+      {
+        properties: ["width"],
+        ending:
+          "main-thread by design: a determinate fill following its value, absolute in a clipped track",
+      },
+    ],
+    [
+      "tugdeck/src/components/tugways/tug-linear-gauge.css",
+      {
+        properties: ["width"],
+        ending: "main-thread by design: a gauge's fill following its value, 80ms",
+      },
+    ],
+    [
+      "tugdeck/src/components/tugways/chrome/session-thinking-block.css",
+      {
+        properties: ["grid-template-rows"],
+        ending:
+          "main-thread by design: a thinking block's collapse, where the transcript below has to move and only layout moves it; one-shot, on the user's toggle",
+      },
+    ],
+    [
+      "tugdeck/src/components/tugways/tug-tab-bar.css",
+      {
+        properties: ["left", "min-height"],
+        ending:
+          "main-thread by design: the insert indicator following a tab drag, and a single-tab accessory opening its drop zone under one",
+      },
+    ],
+  ]);
+
+/** The properties rule 6 reports in one declared file, or every one in an undeclared file. */
+function undeclaredLayout(
+  rel: string,
+  properties: readonly string[],
+  carveOuts: ReadonlyMap<string, LayoutMotionCarveOut>,
+): string[] {
+  const allowed = new Set(carveOuts.get(rel)?.properties ?? []);
+  return [...new Set(properties)].filter(
+    (property) => LAYOUT_PROPERTIES.test(property) && !allowed.has(property),
+  );
+}
+
+/**
+ * Rule 6's stylesheet half: every `transition` or `transition-property` that
+ * names a layout property the file has not declared. Pure over the file's text.
+ */
+export function scanLayoutTransitions(
+  raw: string,
+  rel: string,
+  carveOuts: ReadonlyMap<string, LayoutMotionCarveOut> = LAYOUT_MOTION_CARVE_OUTS,
+): Hit[] {
+  const hits: Hit[] = [];
+  for (const block of cssBlocks(stripComments(raw))) {
+    const shorthand = valueOf(block.body, "transition");
+    const longhand = valueOf(block.body, "transition-property");
+    const named = [
+      ...(shorthand === null ? [] : leadingIdentifiers(shorthand)),
+      ...(longhand === null
+        ? []
+        : splitTopLevel(longhand, ",").map((property) => property.trim())),
+    ];
+    const undeclared = undeclaredLayout(rel, named, carveOuts);
+    if (undeclared.length === 0) continue;
+    hits.push({
+      path: rel,
+      line: block.lineOf(/transition/),
+      selector: block.prelude.replace(/\s+/g, " ").trim(),
+      rule: 6,
+      detail: `a transition on layout (${undeclared.join(", ")}) that is not declared`,
+    });
+  }
+  return hits;
+}
+
+/** TugAnimator's `animate`, by every name a file imports it under. */
+const ANIMATOR_IMPORT = /import\s*\{([^}]*)\}\s*from\s*"[^"]*tug-animator"/g;
+
+/** An object key in a keyframe: a bare camelCase identifier and its colon. */
+const KEYFRAME_KEY = /\b([a-z][A-Za-z]*)\s*:/g;
+
+/**
+ * Rule 6's TypeScript half: every TugAnimator tween whose keyframes, written
+ * in the call, animate a layout property the file has not declared. Pure over
+ * the file's text.
+ */
+export function scanLayoutTweens(
+  raw: string,
+  rel: string,
+  carveOuts: ReadonlyMap<string, LayoutMotionCarveOut> = LAYOUT_MOTION_CARVE_OUTS,
+): Hit[] {
+  const code = codeOnly(raw);
+  const verbs = new Set<string>();
+  for (const match of raw.matchAll(ANIMATOR_IMPORT)) {
+    for (const spec of match[1].split(",")) {
+      const named = /^\s*animate(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(spec);
+      if (named !== null) verbs.add(named[1] ?? "animate");
+    }
+  }
+  const groups = new Set(
+    Array.from(code.matchAll(GROUP_BINDING), (match) => match[1]),
+  );
+  if (verbs.size === 0 && groups.size === 0) return [];
+  const hits: Hit[] = [];
+  for (const match of code.matchAll(/(?:([A-Za-z_$][\w$]*)\s*\??\.\s*)?([A-Za-z_$][\w$]*)\s*\(/g)) {
+    const [, receiver, callee] = match;
+    const tween =
+      receiver === undefined
+        ? verbs.has(callee)
+        : callee === "animate" && groups.has(receiver);
+    if (!tween) continue;
+    let end = (match.index ?? 0) + match[0].length;
+    for (let depth = 1; end < code.length && depth > 0; end += 1) {
+      if (code[end] === "(") depth += 1;
+      else if (code[end] === ")") depth -= 1;
+    }
+    const args = code.slice((match.index ?? 0) + match[0].length, end);
+    const keys = Array.from(args.matchAll(KEYFRAME_KEY), (key) => kebab(key[1]));
+    const undeclared = undeclaredLayout(rel, keys, carveOuts);
+    if (undeclared.length === 0) continue;
+    hits.push({
+      path: rel,
+      line: lineAt(code, match.index ?? 0),
+      selector: `${receiver === undefined ? "" : `${receiver}.`}${callee}(`,
+      rule: 6,
+      detail: `a TugAnimator tween on layout (${undeclared.join(", ")}) that is not declared`,
+    });
+  }
+  return hits;
+}
+
+// ---------------------------------------------------------------------------
 // The filesystem, which only `main()` reads
 // ---------------------------------------------------------------------------
 
@@ -1478,10 +1726,12 @@ function main(): void {
       ? [
           ...scanCss(source.text, source.path, context),
           ...scanEntranceKeyframes(source.text, source.path, context),
+          ...scanLayoutTransitions(source.text, source.path),
         ]
       : [
           ...scanTs(source.text, source.path, context),
           ...scanRawAnimate(source.text, source.path),
+          ...scanLayoutTweens(source.text, source.path),
         ],
   );
 
@@ -1511,6 +1761,9 @@ function main(): void {
         `  rule 5: motion goes through TugAnimator — \`animate()\`, a \`group()\`, a Beat, ` +
         `or \`timelineMark()\` for a clock. A surface whose motion genuinely belongs ` +
         `elsewhere is declared in \`MOTION_CARVE_OUTS\` with its reason.\n` +
+        `  rule 6: motion on a layout property re-lays-out its box every frame. Move it to ` +
+        `\`transform\` or \`opacity\`, remove it, or declare the file and the property in ` +
+        `\`LAYOUT_MOTION_CARVE_OUTS\` with the ending it was given.\n` +
         `  A hit is a finding to read, not a reason to loosen the rule.`,
     );
     process.exit(1);

@@ -616,19 +616,6 @@ export class CodeSessionStore {
    */
   private _trailingNotify: unknown | null = null;
 
-  /**
-   * Whether a caller is holding this store's notifications for the
-   * duration of something it is showing — see
-   * {@link holdNotifications}. Held is not the same as replaying: the
-   * hold has no phase of its own and no threshold, it simply ends when
-   * the holder says so or when the watchdog decides the holder is not
-   * coming back.
-   */
-  private _held = false;
-
-  /** The watchdog handle that ends a hold nobody released. */
-  private _holdWatchdog: unknown | null = null;
-
   constructor(options: CodeSessionStoreOptions) {
     this.conn = options.conn;
     this.lifecycle = options.lifecycle;
@@ -1955,14 +1942,6 @@ export class CodeSessionStore {
    */
   dispose(): void {
     if (this._disposed) return;
-    // An open hold ends here rather than outliving the store: the
-    // watchdog is cancelled and anything held rides the teardown flush
-    // below, so a card torn down mid-gesture strands nothing.
-    this._held = false;
-    if (this._holdWatchdog !== null) {
-      this.timerSource.clearTimeout(this._holdWatchdog);
-      this._holdWatchdog = null;
-    }
     // Teardown flush of an open replay fold — nothing is ever
     // stranded: listeners still attached observe the final reduced
     // state in one last snapshot tick before they're cleared.
@@ -2504,19 +2483,9 @@ export class CodeSessionStore {
         origin === "wire" &&
         state.phase === "replaying" &&
         event.type !== "replay_started";
-      // A hold defers on the same terms and for the same reason, just
-      // with a different stop condition: the replay fold ends when the
-      // phase does, a hold ends when the holder releases it. Wire-only
-      // is the shared rule — a local action is the user's own gesture
-      // and must never look ignored, and a timer tick is what keeps the
-      // soft-budget banner honest.
-      if (defer || (this._held && origin === "wire")) {
+      if (defer) {
         this._foldPending += 1;
-        // The threshold is the replay fold's, and only the replay fold's:
-        // a hold has a caller who knows when it ends, and flushing out
-        // from under that caller mid-gesture is the cost it asked not to
-        // pay. A hold that runs long is the watchdog's problem.
-        if (defer && this._foldPending >= REPLAY_FOLD_FLUSH_THRESHOLD) {
+        if (this._foldPending >= REPLAY_FOLD_FLUSH_THRESHOLD) {
           this._flushReplayFold();
         }
       } else if (
@@ -2596,79 +2565,6 @@ export class CodeSessionStore {
   private _flushReplayFold(): void {
     if (this._foldPending === 0) return;
     this._publishAndNotify();
-  }
-
-  /**
-   * Hold listener notifications until {@link releaseNotifications}.
-   *
-   * Wire events keep reducing and keep running their effects — nothing
-   * is dropped, delayed, or re-requested, and a synchronous read still
-   * has to wait for the flush exactly as it does under the replay fold.
-   * What waits is the React notification, so a caller that is in the
-   * middle of showing the user something can finish showing it before
-   * the tree re-renders underneath.
-   *
-   * The imposer's arrangement settle is the first caller, and the
-   * numbers behind it are worth keeping: a React commit landing inside
-   * the gesture window costs far more than the same commit landing
-   * outside it — measured 1809 walk samples for settle-plus-commits
-   * against 343 and 654 for each alone, so 81% above what the two cost
-   * added together, with median frame delivery going 17ms to 20ms
-   * (`arc/jul30-perf-brief.md#s5-imposer`). A commit during a
-   * running transform animation dirties compositing while the
-   * animation's extent is reserved, which forces exactly the recompute
-   * the reservation exists to avoid.
-   *
-   * Local actions and timer ticks are never held: the user's own
-   * gesture must never look ignored, and the soft-budget banner has to
-   * stay honest. Both also flush anything the hold has accumulated.
-   *
-   * `capMs` arms a watchdog that releases the hold on its own. That is
-   * not the clock — the holder's release is the clock — it is the guard
-   * against a holder that throws, unmounts, or otherwise never comes
-   * back, which would leave the card showing stale content with no way
-   * back ([L23]). Re-holding while already held re-arms the watchdog
-   * rather than nesting; there is no depth count, because a caller that
-   * needs one is really two callers and should say so.
-   */
-  holdNotifications(capMs: number): void {
-    this._held = true;
-    // A coalesce flush armed before the hold would fire a frame into it
-    // and publish mid-window — the exact commit the holder asked to
-    // keep out. Absorb it: the timer is cancelled and the reductions it
-    // carried ride the release flush instead.
-    if (this._trailingNotify !== null) {
-      this.timerSource.clearTimeout(this._trailingNotify);
-      this._trailingNotify = null;
-      this._foldPending += 1;
-    }
-    if (this._holdWatchdog !== null) {
-      this.timerSource.clearTimeout(this._holdWatchdog);
-    }
-    this._holdWatchdog = this.timerSource.setTimeout(() => {
-      this._holdWatchdog = null;
-      this.releaseNotifications();
-    }, capMs);
-  }
-
-  /**
-   * End a hold and publish once if anything accumulated under it.
-   *
-   * Idempotent, and safe to call when no hold is open — a caller
-   * releasing on a teardown path should not have to know whether it
-   * ever held.
-   */
-  releaseNotifications(): void {
-    if (this._holdWatchdog !== null) {
-      this.timerSource.clearTimeout(this._holdWatchdog);
-      this._holdWatchdog = null;
-    }
-    if (!this._held) return;
-    this._held = false;
-    if (this._disposed) return;
-    if (this._foldPending > 0) {
-      this._publishAndNotify();
-    }
   }
 
   // ---------------------------------------------------------------------

@@ -127,6 +127,20 @@
 
     var rel = function (t) { return Math.round((t - t0) * 10) / 10; };
 
+    // The shown frames' ids and rounded rects, as one string — the band the
+    // verdict compares to tell a shrink, whose land is paid by ruling.
+    function band() {
+      return Array.prototype.map.call(
+        document.querySelectorAll("[data-space-layer][data-space-shown] .tug-pane[data-pane-id]"),
+        function (el) {
+          var r = el.getBoundingClientRect();
+          return el.getAttribute("data-pane-id") + "@" + Math.round(r.left) + "," +
+            Math.round(r.top) + "+" + Math.round(r.width) + "x" + Math.round(r.height);
+        }
+      ).join(" ");
+    }
+    var bandBefore = "";
+
     function finish(error) {
       done = true;
       observer.disconnect();
@@ -154,6 +168,17 @@
             .filter(function (e) { return e.kind === "settle-gate"; })
             .map(function (e) { return [rel(e.timestamp), e.phase]; })
         : null;
+      // The deck's own rows, written only while the record switch is on
+      // (`__tugMotion.record`): the verdict's input. `null` when it is off,
+      // which the shell end reports rather than reading as green.
+      var engine = trace && trace.isKindEnabled("settle-frames")
+        ? {
+            frames: trace.since(traceMark).filter(function (e) { return e.kind === "settle-frames"; }),
+            lands: trace.since(traceMark).filter(function (e) { return e.kind === "settle-land"; }),
+            before: bandBefore,
+            after: band(),
+          }
+        : null;
       if (trace) trace.enable(traceWasOn);
       if (error) {
         resolve({ error: error });
@@ -166,6 +191,7 @@
         sheds: sheds.filter(function (t) { return t >= t0; }).map(rel),
         settleBeats: settleBeats,
         gates: gates,
+        engine: engine,
         chains: chains,
         // Each chain's paying read, on the drive's clock, so the shell end can
         // place a chain in the land's frame.
@@ -222,6 +248,7 @@
             trace.enable(true);
             traceMark = trace.mark();
           }
+          bandBefore = band();
           // Armed last, just before the drive, so the probe's log is the
           // gesture's own; `stacks: false` unless this is the census drive.
           if (args.chains) motion.chains("arm", { stacks: !!args.chainStacks });

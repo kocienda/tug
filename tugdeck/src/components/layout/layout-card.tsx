@@ -125,7 +125,6 @@ import "./layout-card.css";
 import React, {
   memo,
   useCallback,
-  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -133,6 +132,7 @@ import React, {
 } from "react";
 
 import { deepEqual } from "@/lib/deep-equal";
+import { useAfterMotion } from "@/lib/use-after-motion";
 
 import { LayoutMiniature } from "@/components/layout/layout-miniature";
 import type {
@@ -978,11 +978,13 @@ interface PlanLayer {
  * commit as the change, which is to say inside the settle the change was
  * animating through: 1100–1600 performed fibres per column division, twice
  * again on a close (`at0654`'s commit census, 2026-09-30). None of them is on
- * screen while that happens. Behind `useDeferredValue` the urgent commit keeps
- * the previous layers and this component bails; React then renders the new
- * ones at transition priority, in slices it yields between, and a preview
- * catches up a few frames after the deck does — before any hand can reach
- * its row.
+ * screen while that happens. Behind {@link useAfterMotion} the urgent commit
+ * keeps the previous layers and this component bails; once the motion gate
+ * opens React renders the new ones at transition priority, in slices it yields
+ * between, and a preview catches up just after the deck lands — before any
+ * hand can reach its row. Plain `useDeferredValue` deferred the render but not
+ * its commit, which React landed whenever it finished: on a column rejoin,
+ * 677 fibres 70 ms into the motion the set-up had just launched.
  */
 const PreviewLayers = memo(function PreviewLayers({
   layers,
@@ -1538,10 +1540,10 @@ export function LayoutContent(
       };
     }),
   ].map((layer) => ({ ...layer, columnSplits }));
-  // The preview layers render a few frames behind the deck, off the settle —
+  // The preview layers render just behind the deck, after its settle lands —
   // see `PreviewLayers`.
-  const deferredLayers = useDeferredValue(layers);
-  const deferredBandPx = useDeferredValue(committedFlow?.bandPx);
+  const deferredLayers = useAfterMotion(layers);
+  const deferredBandPx = useAfterMotion(committedFlow?.bandPx);
 
   // There is deliberately no layer per ARRANGEMENT proposal — no
   // `columnmode:<slot>:<mode>`, no `railmode:<side>:<mode>`. A layer exists to

@@ -10,7 +10,7 @@
  * then jump when the beat landed.
  *
  * The probe activates the last card of a flow deck so every band frame
- * slides, presses a moving pane's title bar while it travels, drags it down
+ * slides, presses a moving pane's grab handle while it travels, drags it down
  * and holds it still through the moment the slide would have landed. While the
  * pointer is still, the frame must stand still too: the offset between the
  * frame and the pointer may not move by more than a pixel.
@@ -40,7 +40,14 @@ const TEST_NAME = "at0686-drag-takes-frame-from-settle";
 const COUNT = 6;
 const PANE_ID = "at0622-p2";
 const FRAME = `[data-space-layer][data-space-shown] .tug-pane[data-pane-id="${PANE_ID}"]`;
-const BAR = `${FRAME} .tug-pane-title-bar`;
+/**
+ * The press goes on the grab handle, the one surface a content card's drag
+ * starts from (`06889db93`). The bar's centre was pressed until the settle
+ * fixture bound every card to a real transcript, whose masthead fills that
+ * centre: the press then landed on the title text, started no gesture, and
+ * the pane was never pointer-owned.
+ */
+const BAR = `${FRAME} .tug-pane-title-bar .tug-pane-grab-handle`;
 /** How far down the drag carries the pane. */
 const DRAG_DY = 120;
 /** How long the pointer is held still after the trail: past the slide's land. */
@@ -102,15 +109,26 @@ describe.skipIf(!SHOULD_RUN)("at0686 — a drag begun mid-settle owns its frame"
             return { x: r.left + r.width / 2, y: r.top + r.height / 2, t: performance.now() };
           })()`,
         );
-        await wait(60);
+        // The grab is timed from the slide's first moving frame, not from the
+        // dispatch. Under set-up-and-go the frame stands at First for the
+        // lead, which varies run to run (70 ms and longer on real
+        // transcripts), so a fixed wait sometimes pressed before the settle
+        // launched and read a take of a frame that was not sliding yet.
+        await app.waitForCondition<boolean>(
+          `(function () {
+            var s = window.__at0686.samples;
+            return s.length > 1 && Math.abs(s[s.length - 1].left - s[0].left) > 20;
+          })()`,
+          { timeoutMs: 2_000 },
+        );
         const from = await app.evalJS<{ x: number; y: number; t: number }>(
           `(function () {
             var r = document.querySelector(${JSON.stringify(BAR)}).getBoundingClientRect();
             return { x: r.left + r.width / 2, y: r.top + r.height / 2, t: performance.now() };
           })()`,
         );
-        // Where the bar was at the dispatch and when it was read again: on a
-        // deck whose gesture stalls, the second read lands late in the slide.
+        // Where the bar was at the dispatch, and where and when the slide's
+        // first moving frames had carried it.
         note(
           `at0686 grab: bar at dispatch x=${grab.x.toFixed(1)}, ` +
             `read ${(from.t - grab.t).toFixed(1)} ms later at x=${from.x.toFixed(1)}`,

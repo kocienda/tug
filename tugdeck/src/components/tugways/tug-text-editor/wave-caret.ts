@@ -22,8 +22,8 @@
 import "../internal/tug-progress-wave.css";
 import "./wave-caret.css";
 
-import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
-import type { DecorationSet, ViewUpdate } from "@codemirror/view";
+import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import type { DecorationSet } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 
@@ -98,92 +98,45 @@ const waveCaretField = StateField.define<DecorationSet>({
  * caret, and a caret is never off screen, so the state that lights the glyph is
  * the state that pins the view. Nothing outside has to remember to scroll.
  *
- * It is held on EVERY FRAME, not on every delta, because the things that break
- * it are not all deltas. CodeMirror estimates the height of a line it has not
- * laid out and corrects the estimate a pass later; the field itself is still
- * auto-growing toward its cap, which changes how much of the document fits;
- * a font finishes loading and every wrapped line re-wraps. Each of those moves
- * the end of the document out from under a scroll already written, and a pin
- * that answers only document changes sees none of them. Answering the causes
- * one at a time is how the wave ends up under the fold for a beat, which is
- * what reads as the text jumping.
+ * The end moves for more reasons than a delta. CodeMirror estimates the height
+ * of a line it has not laid out and corrects the estimate a pass later; the
+ * field itself is still auto-growing toward its cap, which changes how much of
+ * the document fits; a font finishes loading and every wrapped line re-wraps.
+ * Each of those moves the end of the document out from under a scroll already
+ * written. None of them is invisible to CodeMirror, though: each lands in its
+ * own measure cycle and reaches the view as an update flagged
+ * `heightChanged`, `geometryChanged` or `viewportChanged`. So the pin answers
+ * the editor's own updates — a delta, the edit that lights the glyph, and
+ * every measured change — and nothing else. It runs exactly while the data
+ * moves and stops with it, which a per-frame pump could not: that one wrote
+ * the scroller on every frame for as long as the glyph was lit, whether or not
+ * anything had moved ([L13], [D7]).
  *
- * So the pin states the invariant instead of chasing its violations: on each
- * frame the wave is lit, the scroller is at its end. One property write per
- * frame, for the seconds a message takes to write, and the glyph cannot be
- * anywhere but on screen when the frame is painted.
- *
- * Not an [L05] frame-wait: nothing here is waiting for a React commit, or for
- * anything else. The invariant is stated on whatever frames the window is
- * given, and a window that is given none (a covered one suspends animation
- * entirely) still gets the pin on every delta through `update`.
- */
-const waveCaretPin = ViewPlugin.fromClass(
-  class {
-    private frame: number | null = null;
-
-    constructor(view: EditorView) {
-      this.sync(view);
-    }
-
-    update(update: ViewUpdate): void {
-      this.sync(update.view);
-    }
-
-    destroy(): void {
-      this.stop();
-    }
-
-    /** Run exactly while the glyph is lit. */
-    private sync(view: EditorView): void {
-      const lit = view.state.field(waveCaretField).size > 0;
-      if (!lit) {
-        this.stop();
-        return;
-      }
-      if (this.frame !== null) return;
-      const tick = (): void => {
-        pinToEnd(view);
-        this.frame = requestAnimationFrame(tick);
-      };
-      this.frame = requestAnimationFrame(tick);
-    }
-
-    private stop(): void {
-      if (this.frame === null) return;
-      cancelAnimationFrame(this.frame);
-      this.frame = null;
-    }
-  },
-);
-
-/** The whole of the pin: the scroller, at its end. */
-function pinToEnd(view: EditorView): void {
-  view.scrollDOM.scrollTop = view.scrollDOM.scrollHeight;
-}
-
-/**
- * The same pin, on the delta itself.
- *
- * An `updateListener` and not the plugin's own `update`, which is the mistake
+ * An `updateListener` and not a view plugin's `update`, which is the mistake
  * worth naming: a view plugin is updated BEFORE the view writes the DOM, so a
  * scroller read there reports the height of the document as it was, and pinning
  * to it leaves the field exactly one delta's worth of text short of the end —
  * which is where the wave was found, every time, hanging just under the bottom
- * edge. An update listener runs after the write, against the document that is
- * now on screen.
- *
- * This is what carries a window that never animates; the per-frame pin above
- * carries everything that moves the end after the delta has been written.
+ * edge. A listener runs after the write, and after the measure that flagged a
+ * height or geometry change, against the document that is now on screen. A
+ * covered window that is given no frames still gets every delta, because a
+ * delta's update is dispatched synchronously.
  */
-const waveCaretDeltaPin = EditorView.updateListener.of((update) => {
+const waveCaretPin = EditorView.updateListener.of((update) => {
   if (update.state.field(waveCaretField).size === 0) return;
-  pinToEnd(update.view);
+  const lit = update.startState.field(waveCaretField).size === 0;
+  if (
+    !lit &&
+    !update.docChanged &&
+    !update.heightChanged &&
+    !update.geometryChanged &&
+    !update.viewportChanged
+  ) {
+    return;
+  }
+  const scroller = update.view.scrollDOM;
+  scroller.scrollTop = scroller.scrollHeight;
 });
 
 /** Install in the editor's host extensions; inert until `setWaveCaretActive`. */
-export const waveCaretExtension: Extension = [
-  waveCaretField,
-  waveCaretPin,
-  waveCaretDeltaPin,
-];
+export const waveCaretExtension: Extension = [waveCaretField, waveCaretPin];

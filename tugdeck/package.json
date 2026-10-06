@@ -12,6 +12,7 @@
     "audit:tokens": "bun run scripts/audit-tokens.ts",
     "audit:visibility": "bun run scripts/audit-visibility.ts",
     "audit:motion": "bun run scripts/audit-motion.ts",
+    "lint": "oxlint -c .oxlintrc.json --deny-warnings src",
     "audit:type-alignment": "bun run scripts/audit-type-alignment.ts",
     "audit:theme-contrast": "bun run scripts/audit-theme-contrast.ts",
     "audit:gamut": "bun run scripts/audit-gamut.ts",
@@ -91,6 +92,7 @@
     "bun-types": "^1.3.11",
     "fake-indexeddb": "^6.0.0",
     "jsdom": "^28.1.0",
+    "oxlint": "^1.87.0",
     "postcss": "^8.5.8",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"

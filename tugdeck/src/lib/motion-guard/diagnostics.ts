@@ -66,6 +66,7 @@ import {
 } from "./offscreen";
 import { liveMarks, type LiveMarksReading } from "./one-live-mark";
 import { motionBreaker } from "./breaker";
+import { adoptRecordFlagAtLoad, recordSwitch, type RecordReading } from "./record-switch";
 import {
   burst,
   renderCostProbe,
@@ -209,6 +210,13 @@ export interface TugMotionDiagnostics {
   probe(): ProbeReading;
   /** Still every long-running loop, or let them run again ([P06]). The only writer. */
   demote(on: boolean): ProbeReading;
+  /**
+   * The record switch (`record-switch.ts`): turn the motion instruments on or
+   * off, or with no argument report where they stand. MUTATES, so it has the
+   * same standing as `demote` — reached only through the gated eval door or
+   * the Session card's `/motion-record`.
+   */
+  record(on?: boolean): RecordReading;
   /**
    * The off-screen rule: how many figures are watched and how many are out of
    * view and stilled. With an argument, turn the rule off or on — diagnostics
@@ -610,6 +618,10 @@ export const tugMotion: TugMotionDiagnostics = {
     return tugMotion.probe();
   },
 
+  record(on) {
+    return recordSwitch(on);
+  },
+
   offscreen(on) {
     if (on !== undefined) setOffscreenPause(on);
     return {
@@ -656,4 +668,5 @@ export function installMotionDiagnostics(): void {
     tugMotion.__stream = setStreaming;
   }
   window.__tugMotion = tugMotion;
+  adoptRecordFlagAtLoad();
 }

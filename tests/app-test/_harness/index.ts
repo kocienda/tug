@@ -168,8 +168,12 @@ export type {
  * `1.10.0`: adds `setWindowContentSize` — the window's content sized to
  * the test's ask, clamped to its screen, for fixtures the default
  * 80%-of-screen window cannot hold. Additive; major stays `1`.
+ *
+ * `1.11.0`: adds `setPageZoom` — the page zoom for this launch alone, never
+ * persisted, for a fixture whose floors need more CSS height than the
+ * screen's window can give. Additive; major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.10.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.11.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -861,6 +865,14 @@ export class App {
     height?: number;
   }): Promise<{ width: number; height: number }> {
     return client.setWindowContentSize(this as HarnessCaller, size);
+  }
+
+  /**
+   * Set the page zoom for this launch, never persisted — see
+   * `client.setPageZoom`. Resolves with the zoom the view took.
+   */
+  setPageZoom(zoom: number): Promise<number> {
+    return client.setPageZoom(this as HarnessCaller, zoom);
   }
 
   /** Unlink every screenshot this app handed out. Idempotent. */

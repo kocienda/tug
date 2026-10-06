@@ -1165,6 +1165,18 @@ export function setWindowContentSize(
   return caller.rpcCall("setWindowContentSize", params);
 }
 
+/**
+ * Set the web view's page zoom for this launch (surface `1.11.0`), clamped to
+ * the app's range and never persisted. Resolves with the zoom the view took.
+ *
+ * For a fixture that needs more CSS height than its screen's window can give:
+ * zoomed out, the same window holds more CSS px, and native gestures still
+ * land where they are aimed because `CoordMapping` scales by the zoom.
+ */
+export function setPageZoom(caller: HarnessCaller, zoom: number): Promise<number> {
+  return caller.rpcCall("setPageZoom", { zoom });
+}
+
 // ---- native gestures ----
 
 export interface NativeClickOptions {

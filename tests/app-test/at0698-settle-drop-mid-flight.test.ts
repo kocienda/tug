@@ -14,6 +14,7 @@
  * one file and so selected — and paid for — all of them on a change to any one.
  *
  * @covers tugdeck/src/components/chrome/settle-engine.ts
+ * @covers tugdeck/src/components/chrome/settle-crossings.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -33,8 +34,11 @@ import {
   blobFor,
   home,
   launch,
+  pauseAnimationsFor,
   releaseSources,
   residualTranslates,
+  resumePausedAnimations,
+  tearDownSettle,
   traceMark,
   traceWithSettleFrames,
   wait,
@@ -43,6 +47,8 @@ import {
 
 const TEST_NAME = "at0698-settle-drop-mid-flight";
 const ARMS = transcriptArms();
+/** The sweep leg's wait: the sweep guards twice the settle's window, floored at a second, and room after. */
+const SWEEP_WAIT_MS = 3_000;
 
 // ---------------------------------------------------------------------------
 // The cancel guarantee
@@ -59,23 +65,21 @@ const ARMS = transcriptArms();
  * afterwards" is a claim that has to be made on each exit separately rather
  * than inferred from a gesture that completed.
  *
- * Three gestures, one per leg: a settle carrying a task three times longer than
- * its own window, a retarget dispatched mid-beat, and a space switch thrown at
- * a settle in flight. What each asserts is the same thing — once the deck is at
- * rest, no shown frame computes a translate — because a frame at rest is
- * committed at Last and the imposer owns nothing on it.
+ * Five legs: a settle carrying a task three times longer than its own window,
+ * a retarget dispatched mid-beat, a space switch thrown at a settle in flight,
+ * a settle whose animations are paused so the window sweep releases it, and a
+ * settle whose engine is torn down mid-beat. What each asserts is the same
+ * thing — once the deck is at rest, no shown frame computes a translate —
+ * because a frame at rest is committed at Last and the imposer owns nothing on
+ * it.
  *
- * **What these legs do NOT yet prove, measured rather than assumed.** Each one
- * `note()`s which clock released, and on every run so far all three have
- * released from `"completion"`. So the residue claim is established over three
- * real gestures, and the two exits that run no landing — the window sweep and
- * the canvas unmount — have not been reached by any of them: the stall does not
- * outlast the settle's own completion handler, and a space switch swaps the
- * shown layer without tearing this canvas down. The legs are named for the
- * gestures they make rather than for exits they do not reach, because a leg
- * that claimed the sweep and released from completion would be a green proving
- * a different thing than the one on its label. Reaching those two clocks wants
- * a door this file does not have.
+ * The first three release from `"completion"`: the stall does not outlast the
+ * settle's own completion handler, and a space switch swaps the shown layer
+ * without tearing this canvas down. They are named for the gestures they make
+ * rather than for exits they do not reach. The last two each assert the clock
+ * that released — `"sweep"` and `"unmount"` — because a leg that claimed an
+ * exit and released from completion would be a green proving a different
+ * thing than the one on its label.
  */
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
   `at0698 — a settle dropped mid-flight leaves no frame at its origin [${arm.size}]`,
@@ -228,9 +232,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           note(
             `at0698 cancel/exits covered: stall=${JSON.stringify(stalledExits)} ` +
               `retarget=${JSON.stringify(retargetExits)} ` +
-              `switch=${JSON.stringify(unmountExits)} — the "sweep" and ` +
-              `"unmount" clocks are NOT among them, so [B02]'s "every exit" ` +
-              `is satisfied for completion-released gestures only`,
+              `switch=${JSON.stringify(unmountExits)}`,
           );
           expect(
             [...returnedResidue],
@@ -238,6 +240,60 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
               `every frame at Last. A pane named here kept an origin pose ` +
               `across a teardown that ran no landing — the one exit where ` +
               `nothing is left to put it right`,
+          ).toEqual([]);
+
+          // ---- Leg 4: the window sweep. ---------------------------------
+          //
+          // Every animation the settle launches is paused as it starts, so
+          // none finishes and no completion lands: the settle's window timer
+          // is the exit that releases it, and its snap-to-end is the only
+          // thing that puts the frames at Last.
+          await home(app);
+          mark = await traceMark(app);
+          await wait(120);
+          await activateLast(app, 4);
+          await pauseAnimationsFor(app, 600);
+          await wait(SWEEP_WAIT_MS);
+          await resumePausedAnimations(app);
+          const sweepExits = await releaseSources(app, mark);
+          const sweepResidue = await residualTranslates(app);
+          note(
+            `at0698 cancel/sweep: exits=${JSON.stringify(sweepExits)} ` +
+              `residue=${JSON.stringify(sweepResidue)}`,
+          );
+          expect(
+            sweepExits,
+            `sweep leg: the paused settle was released by the window sweep`,
+          ).toContain("sweep");
+          expect(
+            [...sweepResidue],
+            `sweep leg: and the sweep left every frame at Last`,
+          ).toEqual([]);
+
+          // ---- Leg 5: the teardown. ------------------------------------
+          //
+          // The engine's teardown — the canvas unmount's body — runs inside
+          // the move beat, with the frames still mounted to be read.
+          await home(app);
+          mark = await traceMark(app);
+          await wait(120);
+          await activateLast(app, 4);
+          await wait(80);
+          await tearDownSettle(app);
+          await wait(AFTER_LAND_MS * 2);
+          const teardownExits = await releaseSources(app, mark);
+          const teardownResidue = await residualTranslates(app);
+          note(
+            `at0698 cancel/teardown: exits=${JSON.stringify(teardownExits)} ` +
+              `residue=${JSON.stringify(teardownResidue)}`,
+          );
+          expect(
+            teardownExits,
+            `teardown leg: the settle was released by the unmount's teardown`,
+          ).toContain("unmount");
+          expect(
+            [...teardownResidue],
+            `teardown leg: and the teardown left every frame at Last`,
           ).toEqual([]);
         } finally {
           await app.close();

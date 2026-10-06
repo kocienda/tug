@@ -70,10 +70,13 @@ import {
   budgetCensus,
   blobFor,
   columnBlob,
+  expectBar,
   flashCensus,
   home,
   launch,
   motionViolationRows,
+  report,
+  sampleBarActivation,
   settleFrameRows,
   traceMark,
   traceWithSettleFrames,
@@ -346,6 +349,17 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
             `and the record and the guard are split from one field, so they ` +
               `cannot disagree`,
           ).toEqual([...violations]);
+
+          // ---- The activation's bar. -----------------------------------
+          // One more activation, read by both instruments over their own
+          // windows and held to the bar `expectBar` states: the move beat's
+          // gaps and late start off the canvas's record, the pose clause off
+          // it too, and the opacity, rect and fixed-descendant census off the
+          // bench probe.
+          const bar = await sampleBarActivation(app, 4, 0);
+          report("activation bar probe", bar.probe);
+          note(`at0697 activation bar row: ${JSON.stringify(bar.row)}`);
+          expectBar("activation bar", bar);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);

@@ -99,6 +99,10 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         DeckMotionCommands::Demote { state, .. } => {
             format!("window.__tugMotion.demote({})", state == "on")
         }
+        DeckMotionCommands::Record { state, .. } => match state.as_deref() {
+            Some(state) => format!("window.__tugMotion.record({})", state == "on"),
+            None => "window.__tugMotion.record()".to_string(),
+        },
         DeckMotionCommands::Chains {
             mode, no_stacks, ..
         } => {
@@ -141,6 +145,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Input { target }
         | DeckMotionCommands::Probe { target }
         | DeckMotionCommands::Demote { target, .. }
+        | DeckMotionCommands::Record { target, .. }
         | DeckMotionCommands::Chains { target, .. }
         | DeckMotionCommands::Gesture { target, .. }
         | DeckMotionCommands::Slide { target, .. }
@@ -162,6 +167,9 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
     match cmd {
         DeckMotionCommands::Enable { .. } => set_eval_opt_in(port, true, json_output),
         DeckMotionCommands::Disable { .. } => set_eval_opt_in(port, false, json_output),
+        DeckMotionCommands::Record { state, reload, .. } => {
+            run_record(port, state.as_deref(), reload, json_output)
+        }
         DeckMotionCommands::Slide {
             from,
             to,
@@ -321,6 +329,114 @@ fn set_eval_opt_in(port: u16, on: bool, json_output: bool) -> Result<i32, String
     Ok(0)
 }
 
+/// How long a reloaded deck is given to come back recording.
+const RECORD_RELOAD_WAIT_S: u64 = 90;
+
+/// `record`: throw the deck's switch, and with `--reload` bring in what only a
+/// load can install, then report.
+fn run_record(
+    port: u16,
+    state: Option<&str>,
+    reload: bool,
+    json_output: bool,
+) -> Result<i32, String> {
+    let code = match state {
+        Some(state) => format!("window.__tugMotion.record({})", state == "on"),
+        None => "window.__tugMotion.record()".to_string(),
+    };
+    let mut value = match post_eval(port, &code)? {
+        EvalOutcome::Gated => {
+            eprintln!("{EVAL_GATED_REMEDY}");
+            return Ok(EXIT_GATED);
+        }
+        EvalOutcome::Ok(value) => value,
+    };
+    let waiting = !record_next_load(&value).is_empty();
+    if reload && state == Some("on") && waiting {
+        if !json_output {
+            eprintln!(
+                "reloading the deck to install {} (a relaunch sheds it)",
+                record_next_load(&value).join(" and ")
+            );
+        }
+        // The reload can take the reply with it; what matters is what comes back.
+        let _ = post_eval(
+            port,
+            "(setTimeout(function () { window.location.reload(); }, 50), null)",
+        );
+        let mut back = None;
+        for _ in 0..RECORD_RELOAD_WAIT_S {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if let Ok(EvalOutcome::Ok(v)) = post_eval(port, "window.__tugMotion.record()")
+                && v.get("recording").and_then(|r| r.as_bool()) == Some(true)
+                && record_next_load(&v).is_empty()
+            {
+                back = Some(v);
+                break;
+            }
+        }
+        value = back.ok_or_else(|| {
+            format!("the deck did not come back recording within {RECORD_RELOAD_WAIT_S} s")
+        })?;
+    }
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+    } else {
+        println!("{}", record_summary(&value));
+    }
+    Ok(0)
+}
+
+/// What the switch says waits on the next load.
+fn record_next_load(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("nextLoad")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The switch's reading, as one line.
+pub fn record_summary(value: &serde_json::Value) -> String {
+    let flag = |key: &str| value.get(key).and_then(|v| v.as_bool()) == Some(true);
+    if !flag("recording") {
+        return "motion recording off".to_string();
+    }
+    let kinds: Vec<&str> = value
+        .get("kinds")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+    let census = if flag("census") {
+        "commit census walking"
+    } else {
+        "no commit census"
+    };
+    let lead = if flag("leadRecorder") {
+        "lead recorder in the page"
+    } else {
+        "no lead recorder"
+    };
+    let next = record_next_load(value);
+    let next = if next.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; {} on the next load ('--reload' brings it now)",
+            next.join(" and ")
+        )
+    };
+    format!(
+        "motion recording on: {} kind(s) ({}); {census}; {lead}{next}",
+        kinds.len(),
+        kinds.join(", ")
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Text rendering — one function per subcommand, over the raw result
 // ---------------------------------------------------------------------------
@@ -344,6 +460,7 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Input { .. } => render_input(value),
         DeckMotionCommands::Probe { .. } => render_probe(value),
         DeckMotionCommands::Demote { .. } => fallback(value),
+        DeckMotionCommands::Record { .. } => println!("{}", record_summary(value)),
         DeckMotionCommands::Chains { mode, .. } => render_chains(mode, value),
         DeckMotionCommands::Gesture { mode, .. } => render_gesture(mode, value),
         DeckMotionCommands::Enable { .. }
@@ -1063,6 +1180,60 @@ mod tests {
             eval_code_for(&off).as_deref(),
             Some("window.__tugMotion.demote(false)")
         );
+    }
+
+    #[test]
+    fn record_sends_a_boolean_and_bare_reports() {
+        let record = |state: Option<&str>| DeckMotionCommands::Record {
+            state: state.map(str::to_string),
+            reload: false,
+            target: target(),
+        };
+        assert_eq!(
+            eval_code_for(&record(Some("on"))).as_deref(),
+            Some("window.__tugMotion.record(true)")
+        );
+        assert_eq!(
+            eval_code_for(&record(Some("off"))).as_deref(),
+            Some("window.__tugMotion.record(false)")
+        );
+        assert_eq!(
+            eval_code_for(&record(None)).as_deref(),
+            Some("window.__tugMotion.record()")
+        );
+    }
+
+    #[test]
+    fn record_summary_names_what_it_armed_and_what_waits_on_a_load() {
+        let off = serde_json::json!({"recording": false});
+        assert_eq!(record_summary(&off), "motion recording off");
+        let on = serde_json::json!({
+            "recording": true,
+            "kinds": ["settle-frames", "settle-land", "settle-beat", "space-switch-frames"],
+            "census": false,
+            "leadRecorder": false,
+            "nextLoad": ["commit census", "lead recorder"],
+        });
+        let line = record_summary(&on);
+        assert!(
+            line.starts_with("motion recording on: 4 kind(s) (settle-frames, "),
+            "{line}"
+        );
+        assert!(line.contains("no commit census"), "{line}");
+        assert!(
+            line.contains("commit census and lead recorder on the next load"),
+            "{line}"
+        );
+        let loaded = serde_json::json!({
+            "recording": true, "kinds": ["settle-frames"], "census": true,
+            "leadRecorder": true, "nextLoad": [],
+        });
+        let line = record_summary(&loaded);
+        assert!(
+            line.contains("commit census walking; lead recorder in the page"),
+            "{line}"
+        );
+        assert!(!line.contains("next load"), "{line}");
     }
 
     #[test]

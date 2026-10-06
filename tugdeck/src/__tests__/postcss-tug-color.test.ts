@@ -37,7 +37,7 @@ function processDecl(value: string): string {
 /** Run the plugin and expect a build error; return the message. */
 function processDeclExpectError(value: string): string {
   try {
-    postcss([postcssTugColor()]).process(`a { color: ${value}; }`, { from: undefined }).css;
+    postcss([postcssTugColor()]).process(`a { color: ${value}; }`, { from: undefined }).sync();
     throw new Error(`Expected a PostCSS error for '${value}', but it succeeded`);
   } catch (e) {
     if (e instanceof Error) return e.message;

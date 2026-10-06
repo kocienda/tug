@@ -1693,7 +1693,10 @@ mod tests {
         let min = Duration::from_secs(MIN_DEBRIS_AGE_SECS);
         let max = Duration::from_secs(SEEDED_TRANSCRIPT_MAX_AGE_SECS);
         let mut report = sweep_seeded_transcripts(&projects, &tmp, min, max, SweepMode::Report);
-        assert!(orphan.exists() && quiet.exists(), "report mode removes nothing");
+        assert!(
+            orphan.exists() && quiet.exists(),
+            "report mode removes nothing"
+        );
         let mut applied = sweep_seeded_transcripts(&projects, &tmp, min, max, SweepMode::Apply);
         let mut expected = vec![orphan.clone(), quiet.clone()];
         expected.sort();

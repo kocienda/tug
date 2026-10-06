@@ -34,9 +34,11 @@ import {
   BAR_TIMEOUT_MS,
   SHOULD_RUN,
   blobFor,
+  expectFoldBar,
   home,
   launch,
   report,
+  reportFold,
   sampleBarActivation,
   sampleFold,
   traceWithSettleFrames,
@@ -68,6 +70,10 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
 
           const fold = await sampleFold(app, true, 0);
           note(`at0696 spend-once fold row: ${JSON.stringify(fold.row)}`);
+          reportFold("fold", fold);
+          // The fold's own bar ([B01]): every frame of a height-bearing
+          // motion arrives, off the canvas's record from the gesture on.
+          expectFoldBar("fold", fold);
           expect(
             fold.row.commitDelayMs,
             `the fold itself DID measure from its stamp — a zero here would ` +

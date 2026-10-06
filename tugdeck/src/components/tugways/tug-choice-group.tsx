@@ -337,6 +337,14 @@ export const TugChoiceGroup = React.forwardRef<HTMLDivElement, TugChoiceGroupPro
     // again on every change; both paths route through
     // `measureIndicator` so the rendered indicator always reflects
     // the segment's current geometry [L06].
+    //
+    // Keyed on the items' VALUES, not the array: a caller that builds its
+    // items afresh each render (the Layout card's rows) handed every render a
+    // new observer, and a new observer delivers once on attach — a forced
+    // read of every segment's `offsetLeft` on the next rendering update, which
+    // on a settle's retarget is inside the running motion. The same values
+    // are the same buttons, already observed.
+    const itemsKey = items.map((item) => item.value).join("\u0000");
     React.useLayoutEffect(() => {
       const segs = segmentRefs.current.filter(
         (el): el is HTMLButtonElement => el !== null,
@@ -345,7 +353,7 @@ export const TugChoiceGroup = React.forwardRef<HTMLDivElement, TugChoiceGroupPro
       const observer = new ResizeObserver(measureIndicator);
       for (const seg of segs) observer.observe(seg);
       return () => observer.disconnect();
-    }, [items, measureIndicator]);
+    }, [itemsKey, measureIndicator]);
 
     // Chain dispatch [L11]: targeted dispatch of `selectValue` to
     // the parent responder. Arrow keys move selection (not just

@@ -416,6 +416,17 @@ function median(values: readonly number[]): number | null {
  * both of its ends are: a gap with one contended end was contended. A caller
  * that has no such reading passes nothing, and every tick counts as quiet,
  * which is the same answer the fallback chain gives.
+ *
+ * **And the quiet answer is never longer than the run's own.** "Quiet" means
+ * no move exists yet, which a settle's own row cannot tell from "the set-up is
+ * still running": its sampler starts at the arm, so its quiet ticks are the
+ * set-up's frames, a handful of gaps each as long as the set-up made it. The
+ * median of three such gaps read 90 and 101 ms on a column rejoin, and a
+ * 152 ms stall inside the motion then scored 1.69 frames. A display does not
+ * run slower than most of the frames it delivered, so the period is the
+ * smaller of the two medians: the quiet one still wins where a long task
+ * would otherwise set the rate, and the run's own wins where the quiet
+ * stretch was not quiet.
  */
 function deriveFramePeriodMs(
   ticks: readonly number[],
@@ -430,7 +441,10 @@ function deriveFramePeriodMs(
       quietGaps.push(gap);
     }
   }
-  return median(quietGaps) ?? median(allGaps) ?? FALLBACK_FRAME_PERIOD_MS;
+  const quietMedian = median(quietGaps);
+  const allMedian = median(allGaps);
+  if (quietMedian !== null && allMedian !== null) return Math.min(quietMedian, allMedian);
+  return quietMedian ?? allMedian ?? FALLBACK_FRAME_PERIOD_MS;
 }
 
 /**

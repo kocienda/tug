@@ -127,6 +127,19 @@ const PANE_WIDTH = 1000;
  */
 const WINDOW_HEIGHT = 1700;
 
+/**
+ * The CSS height the column needs: two 600px floors, the drag and its 20px
+ * margin, and the canvas's own insets, with a little to spare. A window that
+ * takes less — the ask is clamped to the screen, and a laptop's built-in
+ * display gives about 1250px — is zoomed out until its content holds this many
+ * CSS px (`setPageZoom`, for this launch only). The cards are widened by the
+ * same factor, so each still covers the screen area it would at 1.0: a
+ * frame's repaint cost scales with that area ([F06]), and a zoomed-out card
+ * that shrank with the zoom would be read against a cheaper drag. On a tall
+ * enough display the zoom stays 1.0 and nothing here changes.
+ */
+const COLUMN_CSS_HEIGHT = 1400;
+
 /** The two session cards, upper then lower, standing split in slot 0 — the
  *  members the seam divides, and the ones every reading is about. */
 const DIVIDED = ["S1", "S2"] as const;
@@ -188,7 +201,7 @@ const wait = (ms: number): Promise<void> =>
 /** Two session cards sharing slot 0, split, with no stored shares; a third
  *  session card in slot 1; and a right rail of Cards, Jots and Layout — the
  *  deck a working session sits in, so the frame's cost is the deck's. */
-function deckShape() {
+function deckShape(paneWidth: number) {
   const railPane = (id: string, cardId: string, title: string) => ({
     id,
     position: { x: 0, y: 0 },
@@ -214,7 +227,7 @@ function deckShape() {
       ...SESSIONS.map((id) => ({
         id: PANE_OF[id],
         position: { x: 40, y: 40 },
-        size: { width: PANE_WIDTH, height: 400 },
+        size: { width: paneWidth, height: 400 },
         cardIds: [id],
         activeCardId: id,
         title: "",
@@ -298,11 +311,18 @@ async function settled(app: App): Promise<void> {
 async function openColumn(app: App): Promise<void> {
   await app.enableDeckTrace(true);
   const took = await app.setWindowContentSize({ height: WINDOW_HEIGHT });
+  const zoom =
+    took.height >= COLUMN_CSS_HEIGHT
+      ? 1
+      : await app.setPageZoom(Math.floor((took.height / COLUMN_CSS_HEIGHT) * 100) / 100);
+  const paneWidth = Math.round(PANE_WIDTH / zoom);
   note(
     "at0626 window",
-    `content ${took.width}×${took.height} (asked for a height of ${WINDOW_HEIGHT})`,
+    `content ${took.width}×${took.height} (asked for a height of ${WINDOW_HEIGHT}); ` +
+      `page zoom ${zoom.toFixed(2)}, so ${Math.round(took.height / zoom)} CSS px tall ` +
+      `and session cards ${paneWidth}px wide`,
   );
-  await app.seedDeckState({ state: deckShape(), focusCardId: "S1" });
+  await app.seedDeckState({ state: deckShape(paneWidth), focusCardId: "S1" });
   for (const card of SESSIONS) {
     await app.waitForCondition<boolean>(
       `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered(${JSON.stringify(card)})`,

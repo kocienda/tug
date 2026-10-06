@@ -29,10 +29,12 @@
        vendor chunk evaluates, so a wrapper installed afterwards never sees
        them.
 
-       It is installed ONLY when the verb asked for it — a sessionStorage flag
-       the verb sets before reloading the deck, which a relaunch sheds. Off it,
-       none of this runs. On it and unarmed, every wrapper passes straight
-       through; the verb arms it for one click's window at a time.
+       It is installed ONLY when a hand asked for it — the `tug-lead-recorder`
+       sessionStorage flag `slide --tasks` sets before reloading the deck, or
+       the `tug-motion-record` flag the record switch sets (`tugtool deck
+       motion record on`, `/motion-record on`). A relaunch sheds both. Off
+       them, none of this runs. On one and unarmed, every wrapper passes
+       straight through; the verb arms it for one click's window at a time.
 
        What it cannot see is left unattributed rather than guessed: listeners
        already registered for native events, `await` on a native promise, and
@@ -40,7 +42,10 @@
   <script>
     (function () {
       var wanted = false;
-      try { wanted = window.sessionStorage.getItem("tug-lead-recorder") === "1"; } catch (e) {}
+      try {
+        wanted = window.sessionStorage.getItem("tug-lead-recorder") === "1" ||
+          window.sessionStorage.getItem("tug-motion-record") === "1";
+      } catch (e) {}
       if (!wanted) return;
       var native = {
         setTimeout: window.setTimeout.bind(window),
@@ -183,9 +188,11 @@
        timestamp; read it with window.__tugCommits.since(t).
 
        It is installed ONLY in test mode, or beside the lead recorder above —
-       and there it walks only while the recorder is armed. The walk is a
-       whole-tree diff on every React commit — the most expensive instrument
-       on the deck, and one that runs on the shipping path for nobody.
+       and there it walks only while the recorder is armed, or while the
+       record switch is on (`__tugCommits.record`, which a load under the
+       `tug-motion-record` flag starts on). The walk is a whole-tree diff on
+       every React commit — the most expensive instrument on the deck, and one
+       that runs on the shipping path for nobody who did not ask for it.
        `__tugTestMode` is written by a WKUserScript at atDocumentStart, so it
        is already there when this runs; off both, the hook is never installed
        and react-dom takes its ordinary no-devtools path. -->
@@ -195,6 +202,8 @@
       var lead = window.__tugLead;
       if (!testMode && !lead) return;
       if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
+      var recording = false;
+      try { recording = window.sessionStorage.getItem("tug-motion-record") === "1"; } catch (e) {}
       var commits = [];
       function nameOf(type) {
         if (typeof type === "string") return type;
@@ -336,7 +345,7 @@
           lead.takeRead();
         },
         onCommitFiberRoot: function (_id, root) {
-          if (!testMode && !lead.armed()) return;
+          if (!testMode && !recording && !(lead && lead.armed())) return;
           var commit = census(root);
           // What the walk itself cost, so a reading can set it aside, and
           // which recorded callback the commit ran inside.
@@ -353,7 +362,10 @@
       window.__tugCommits = {
         since: function (t) { return commits.filter(function (c) { return c.t >= t; }); },
         all: function () { return commits.slice(); },
-        renderers: function () { return renderers.size; }
+        renderers: function () { return renderers.size; },
+        // The record switch: walk every commit, armed recorder or not. Takes
+        // effect at once; returns whether the census now walks.
+        record: function (on) { recording = on === true; return recording || testMode; }
       };
     })();
   </script>

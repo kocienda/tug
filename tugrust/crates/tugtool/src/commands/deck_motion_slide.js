@@ -229,6 +229,20 @@
     beat();
 
     var before = focusedPaneId();
+    // The deck's own rows, read from here when the record switch is on.
+    var trace = window.__deckTrace || null;
+    var traceMark = trace ? trace.mark() : 0;
+    function band() {
+      return Array.prototype.map.call(
+        document.querySelectorAll("[data-space-layer][data-space-shown] .tug-pane[data-pane-id]"),
+        function (el) {
+          var r = el.getBoundingClientRect();
+          return el.getAttribute("data-pane-id") + "@" + Math.round(r.left) + "," +
+            Math.round(r.top) + "+" + Math.round(r.width) + "x" + Math.round(r.height);
+        }
+      ).join(" ");
+    }
+    var bandBefore = band();
     var queries = args.queries ? queryRecorder(args.leadMs) : null;
     // Two frames of recorder, then `prerollMs` of heartbeat before the click:
     // the click lands into a chain that is already running rather than one it
@@ -275,6 +289,16 @@
             // read right after the disarm that ended the recording.
             var tells = args.tasks ? lead.tells() : null;
             var rel = function (t) { return Math.round((t - click) * 10) / 10; };
+            // The verdict's input: the deck's own rows over the click, which
+            // it writes only while the record switch is on; `null` otherwise.
+            var engine = trace && trace.isKindEnabled("settle-frames")
+              ? {
+                  frames: trace.since(traceMark).filter(function (e) { return e.kind === "settle-frames"; }),
+                  lands: trace.since(traceMark).filter(function (e) { return e.kind === "settle-land"; }),
+                  before: bandBefore,
+                  after: band(),
+                }
+              : null;
             resolve({
               title: titleOf(row),
               // Strictly after: the page clock is coarse, so a frame that ran
@@ -289,6 +313,7 @@
                 .map(rel),
               settle: marks.map(function (m) { return [rel(m[0]), m[1]]; }),
               moved: focusedPaneId() !== before,
+              engine: engine,
               visibility: document.visibilityState,
               queries: queries ? queries.rows() : null,
               queryCalls: queries

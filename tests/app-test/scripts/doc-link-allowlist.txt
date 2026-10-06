@@ -55,10 +55,8 @@ tugdeck/src/lib/card-services-store.ts arc/dev-atoms.md
 tugdeck/src/lib/card-services-store.ts arc/tugplan-session-mid-turn-replay.md
 tugdeck/src/lib/card-session-binding-store.ts arc/tugplan-session-connection-health.md
 tugdeck/src/lib/code-session-store.ts arc/dev-atoms.md
-tugdeck/src/lib/code-session-store.ts arc/jul30-perf-brief.md
 tugdeck/src/lib/code-session-store.ts arc/tugplan-session-wake.md
 tugdeck/src/lib/code-session-store/__tests__/code-session-store.control-forward.test.ts arc/archive/dev-interactive-dialogs.md
-tugdeck/src/lib/code-session-store/__tests__/notification-hold.test.ts arc/jul30-perf-brief.md
 tugdeck/src/lib/code-session-store/events.ts arc/tugplan-session-wake.md
 tugdeck/src/lib/code-session-store/lifecycle-state.ts arc/tugplan-session-wake.md
 tugdeck/src/lib/code-session-store/reducer.ts arc/archive/dev-interactive-dialogs.md

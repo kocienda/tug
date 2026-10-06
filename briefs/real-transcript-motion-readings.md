@@ -998,3 +998,72 @@ The root's background is transparent, so the band shows the content box's own ba
 Which bears on [B02]'s cover. The chrome is 91 px tall (frame 1,176 against content 1,085), so a chrome that slides cannot cover 576 px. The column's neighbour rides the same edge as the frame it would cover, so it cannot cover the strip either. The band is the settled hold's alone. The hold before it held a shrink at its larger, starting height, which leaves no strip to show. On a growth the larger height and the final height are the same height, so the band exists on shrinks alone.
 
 **The ruling.** The user chose to hold a shrink at its starting height, so it shows no band and pays its land relayout, while a growth keeps the settled hold. `settle-engine.ts` settles a frame only when its content does not shrink. This revises [B02] of `briefs/set-up-and-go-fixups-brief.md`.
+
+## The user's deck, before the set-up cuts
+
+The deck the user works in, read before the `motion-audit-fixups` arc's set-up cuts reach it, so the same gestures can be read again once they have. Taken 2026-10-06 18:30–18:32 UTC.
+
+- **Build:** instance `release-main`, the user's `Tug.app` from `DerivedData/Tug/Build/Products/Release`, built from `main`. It carries none of the arc's work, so this is the before half. The after half is read on the same deck once the arc has joined, because the user's deck runs `main`. **Reader:** the arc worktree's debug `tugtool`.
+- **The deck:** two Session cards in the flow (slot 0, 675 × 1,200, and slot 1, 675 × 1,067) and five rail cards (jots, arcs and overview on the left, workspaces and layout on the right). The census read 23,533–23,719 elements, against 14,723–16,358 on 2026-10-05 and H4's 8,067.
+- **Rest:** every reading ran with the loops stilled by `tugtool deck motion demote on` and restored after it. Each rest check passed at 5–10 updates/s; the first `slot` attempt was refused at 11 and read on a later try.
+- **Commands:** `tugtool deck motion settle` with `--count 3 --chains --json`, as on 2026-10-05. `slot` sent slot 1's card to slot 2 and back. `sidebar` read `--component layout`, and `fit` drove once. Two flags were left off on purpose:
+  - `--tasks` reloads the deck on its first run, and this is the deck the user was working in.
+  - `split` needs two cards in one column, which would have meant re-arranging both of the user's cards.
+- **Put back:** both cards ended in their own slots at their own sizes, with every rail showing. The outputs are in the arc's documents under `step7-user-deck-before/`.
+
+| Run | Drive | Lead ms | Longest gap ms | Land frame ms | Beats: start ms | Chains: n / longest / total ms |
+|---|---|---|---|---|---|---|
+| `slot` | 1: slot | 38 | 46 | 20 | move 46 | 8 / 8 / 11 |
+|  | 2: slot | 37 | 47 | 19 | move 46 | 8 / 7 / 10 |
+|  | 3: slot | 39 | 47 | 19 | move 46 | 8 / 8 / 11 |
+| `rails` | 1: rails | 15 | 297 | 100 | room 295, arrive 295 | 6 / 100 / 215 |
+|  | 2: rails | 14 | 293 | 104 | room 291, arrive 291 | 6 / 101 / 212 |
+|  | 3: rails | 14 | 294 | 107 | room 292, arrive 292 | 6 / 100 / 212 |
+| `sidebar` | 1: sidebar | 31 | 129 | 23 | room 129, arrive 129 | 9 / 86 / 89 |
+|  | 2: sidebar | 55 | 119 | 25 | depart 118, room 118 | 10 / 78 / 100 |
+|  | 3: sidebar | 29 | 127 | 24 | room 127, arrive 127 | 9 / 89 / 90 |
+| `fit` | 1: fit | 14 | 162 | 23 | shrink 162, move 162, grow 162 | 4 / 97 / 126 |
+
+The first beats against 2026-10-05's on the same deck:
+- **`rails`:** 291–295 ms, against 159–163.
+- **`sidebar`:** 118–129 ms, against 86–98.
+- **`fit`:** 162 ms, against 90.
+
+The deck has grown by half again since then, and the set-up's forced layouts grew with it. `slot` starts at 46 ms because slot 2 held no card, so the gesture only moved.
+
+**The chains, by call site.** Each read here is the canvas container's own size, and each pays a layout of what the commit wrote before it:
+- **`rails`:** three forced layouts in one task — a `clientHeight` read at 78 ms, a second `clientHeight` read after a run of `setAttribute` and `setProperty` writes at 99 ms, and `_flowBandEdges` ← `getBandWidth` reading `clientWidth` at 29 ms.
+- **`sidebar`:** two, at 11 ms and 74 ms.
+- **`fit`:** two, at 97 ms and 28 ms.
+
+The harness's chain census names the `clientHeight` reader: `_placeRunHeight` ← `getColumnRunHeight`, called from a layout effect straight after the commit's attribute writes. The canvas's arrangement effect has that shape: it reads the run height, writes the arrangement variables, then reads the band width, which is two layouts of one commit.
+
+**The cut.** The deck manager now keeps the container's client size, dropping it on the window's `resize` and the container's own `ResizeObserver`, so those reads force nothing. The one layout left falls to the settle's Last pass, which has to measure the new geometry anyway.
+
+## The column rejoin's grow beat
+
+`at0708`'s rejoin stacks four split columns again at once, and six frames grow. The readings below were taken 2026-10-06 on the harness, each from one stylesheet rule injected before the gesture. A timestamp-only frame recorder read each one; an earlier recorder that read geometry on every tick forced a layout on each one and invented gaps.
+
+- **Where the cost sits.** In the grow beat only the six frames' `height` tweens run, and frames take 26–43 ms, with a 120–170 ms stall in about one run in four. The same tweens cost nothing while held through their delay in the move beat.
+- **Paint, not layout.** `visibility: hidden` on the transcript list views keeps their layout, drops their paint, and removes the cost.
+- **Not these:** cell exposure (`content-visibility: visible` on every cell), containment on the held card root (`strict`, `size layout`, or any one kind), a compositing layer on that root, the bottom anchor, `overflow: clip` on the content box, scrollbars, sticky descendants, the scroller's radius, and `pointer-events: none`.
+- **What ends it.** `overflow-y: hidden` on the list view's scroller for the crossing gives a clean grow beat in all six runs. The cost is WebKit updating each transcript's async-scrolling layer while the clip around it moves on every frame, once per growing frame.
+- **Why that is not yet a fix.** Toggling `overflow` costs about 25 ms in the motion's first frame and about 70 ms in the land. Keyed on the resize episode, so that it went on in the set-up, it stretched the set-up to about 470 ms and the first motion frame to 113 ms. It also hides each transcript's scrollbar thumb for the length of the crossing.
+
+**The frame period.** The settle row's frame period used to come from its quiet ticks. The row's sampler starts at the arm, so those ticks were the set-up's few slow frames, and in some runs their median read 90–101 ms. A 152 ms stall inside the motion then scored 1.69 frames. `deriveFramePeriodMs` now takes the smaller of that median and the run's own. Read that way, the rejoin measured 1.94, 2.13, 2.53 and 8.18 frames over four runs, and the division 1.53–2.06, against a bar of 2.
+
+## The streaming floor
+
+The audit read the floor with its own session mid-turn: `tugtool deck motion rest` measured 41 updates/s over the 2 ms floor, holding the main thread 280 ms/s, with the worst gap 56 ms, at 11,422 elements. `bisect` priced the wave at 4 ms and the nine pulsing dots at 3 ms. The readings below ask whether the Overview's size is that floor. They were taken on the user's release deck (`release-main`, built from `main`) on 2026-10-06, about 18:55 UTC.
+
+- **The deck:** 26,348 elements, 2,009 stacking contexts and 7,926 render-layer candidates over 13 panes. The Overview is the largest pane at 10,922 elements: one column of 150 cells, carrying 10,845 elements, 1,034 stacking contexts, 2,536 candidates and 150 sticky pins. Next come this arc's own Session card (6,828) and one parked workspace layer (4,980).
+- **The walk** (`deck motion walk --arms overview-skip,overview-absent`, 3 rounds × 30 frames, with the 37 running animations quieted for each burst):
+  - **Baseline:** a 7 ms walk at p50 (5.9 ms by mean) over a 2 ms floor.
+  - **Overview cells skipped:** saves 4 ms at p50 (3.6 by mean), about 0.34–0.38 ms per thousand elements.
+  - **Overview removed:** saves 3 ms at p50 (2.1 by mean).
+  - **The reading:** the Overview carries about half of the walk on this deck, a few milliseconds a frame. That is a share of a 16.7 ms frame, not the whole of a dropped one. The walk restored the Overview's display and left it scrolled to its bottom, where a following feed stands.
+- **Rest** (`deck motion rest`): 18 updates/s, holding the main thread 99 ms/s, worst gap 10 ms. With the long-running loops stilled (`demote on`): 16 updates/s and 69 ms/s.
+  - **The condition:** no other session was streaming, but this arc's own turn was open while it ran a tool. So it is the nearest to a quiet deck a session can take, not a deck with nothing running.
+  - **Against the mid-turn reading:** 99 ms/s against 280 ms/s. Most of the floor the audit measured is the streaming turn's own work, and the loops account for about 30 ms/s of what is left.
+
+Whether the Overview should stay this large — 150 cells, each a full transcript entry with its own sticky pin — is a product call, and it is the user's.

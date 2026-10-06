@@ -28,7 +28,17 @@
  * through the stack, and asserts that once the deck is quiet neither mark nor
  * the held height is left on the pane.
  *
+ * Two more legs take the same fold through the two exits no completion runs
+ * on. The window sweep: at the same third of the travel every animation on
+ * the page is paused, so the fold's tween never finishes and the settle's
+ * window timer is what releases it. The unmount: at the same third the settle
+ * engine's teardown runs — the body the canvas's unmount runs — with the frame
+ * still mounted. Each asserts the clock that released and that no crossing
+ * stands once it has, because those two exits end what the settle holds open
+ * with nothing behind them to end it later.
+ *
  * @covers tugdeck/src/components/chrome/settle-engine.ts
+ * @covers tugdeck/src/components/chrome/settle-crossings.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  */
 
@@ -45,13 +55,24 @@ import {
   columnBlob,
   home,
   launch,
+  pauseAnimationsJs,
+  releaseSources,
+  resumePausedAnimations,
+  traceMark,
+  traceWithSettleFrames,
   wait,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0689-retarget-ends-crossings";
 const FRAME = `[data-space-layer][data-space-shown] .tug-pane[data-pane-id="${FOLD_PANE_ID}"]`;
-/** How long the sampler runs after the fold's dispatch: the fold, the stack that interrupts it, and room after. */
+/** How long the sampler runs after the fold's dispatch: the fold, the gesture that interrupts it, and room after. */
 const SAMPLE_MS = 2_000;
+/** The sweep leg's: the sweep is a wedge guard at twice the settle's window, floored at a second, behind the paused fold. */
+const SWEEP_SAMPLE_MS = 3_500;
+
+/** What interrupts the fold, planted on the sampler's trigger frame. */
+const STACK_JS = `window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "stack" })`;
+const TEARDOWN_JS = `window.__tug.tearDownSettle()`;
 
 /** The frame's laid-out height, unrounded. */
 const frameHeight = (app: App): Promise<number> =>
@@ -84,15 +105,17 @@ interface Reading {
 }
 
 /**
- * Dispatch the fold, and from inside the frame sampler stack the column on the
- * first frame the crossing stands with a third of the travel from `from` to
- * `to` covered.
+ * Dispatch the fold, and from inside the frame sampler run `act` on the first
+ * frame the crossing stands with a third of the travel from `from` to `to`
+ * covered.
  */
 async function foldInterrupted(
   app: App,
   folded: boolean,
   from: number,
   to: number,
+  act: string = STACK_JS,
+  sampleMs: number = SAMPLE_MS,
 ): Promise<Reading> {
   const third = Math.abs(to - from) / 3;
   await app.evalJS<null>(
@@ -121,17 +144,17 @@ async function foldInterrupted(
           if (rec.triggeredAt === null && fold && Math.abs(height - ${from}) >= ${third}) {
             rec.triggeredAt = t;
             rec.triggeredHeight = height;
-            window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "stack" });
+            ${act};
           }
         }
-        if (t < ${SAMPLE_MS}) requestAnimationFrame(tick);
+        if (t < ${sampleMs}) requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
       window.__tug.dispatchControlAction("set-card-folded", { cardId: ${JSON.stringify(FOLD_CARD_ID)}, folded: ${folded} });
       return null;
     })()`,
   );
-  await wait(SAMPLE_MS + 300);
+  await wait(sampleMs + 300);
   return app.evalJS<Reading>(`window.__at0685`);
 }
 
@@ -166,12 +189,14 @@ function expectEnded(label: string, r: Reading): void {
   ).toEqual({ fold: false, still: false, held: false });
 }
 
-describe.skipIf(!SHOULD_RUN)("at0689 — a retarget ends every crossing it does not carry on", () => {
+describe.skipIf(!SHOULD_RUN)("at0689 — every exit ends the crossings a settle holds open", () => {
   test(
     "a fold and an unfold interrupted by stacking their column leave no crossing standing",
     async () => {
       const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME);
       try {
+        // The release rows the exit legs read are the deck trace's.
+        await traceWithSettleFrames(app);
         await home(app);
         await columnMode(app, "split");
         await wait(AFTER_LAND_MS);
@@ -191,6 +216,42 @@ describe.skipIf(!SHOULD_RUN)("at0689 — a retarget ends every crossing it does 
         await columnMode(app, "split");
         await wait(AFTER_LAND_MS);
         expectEnded("unfold", await foldInterrupted(app, false, folded, open));
+
+        // The window sweep: the fold paused a third of the way, so the sweep
+        // is the only exit left to release it.
+        await columnMode(app, "split");
+        await wait(AFTER_LAND_MS);
+        let mark = await traceMark(app);
+        const swept = await foldInterrupted(
+          app,
+          true,
+          open,
+          folded,
+          pauseAnimationsJs(SWEEP_SAMPLE_MS),
+          SWEEP_SAMPLE_MS,
+        );
+        await resumePausedAnimations(app);
+        const sweptBy = await releaseSources(app, mark);
+        note("sweep exits", JSON.stringify(sweptBy));
+        expect(
+          sweptBy,
+          "sweep leg: the paused fold was released by the window sweep, " +
+            "not by a completion — a green here proves the sweep only if it ran",
+        ).toContain("sweep");
+        expectEnded("sweep", swept);
+
+        // The unmount: the engine's teardown runs a third of the way through
+        // the unfold, with the frame still mounted to be read.
+        await wait(AFTER_LAND_MS);
+        mark = await traceMark(app);
+        const tornDown = await foldInterrupted(app, false, folded, open, TEARDOWN_JS);
+        const tornDownBy = await releaseSources(app, mark);
+        note("unmount exits", JSON.stringify(tornDownBy));
+        expect(
+          tornDownBy,
+          "unmount leg: the unfold was released by the teardown",
+        ).toContain("unmount");
+        expectEnded("unmount", tornDown);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

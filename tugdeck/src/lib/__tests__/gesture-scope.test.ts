@@ -6,6 +6,7 @@ import {
   GestureScope,
   holdDeliveries,
   installGestureScope,
+  observeHeld,
   wrapSubscribe,
   wrappedSubscribeFor,
 } from "../gesture-scope";
@@ -404,7 +405,7 @@ describe("holdDeliveries", () => {
   it("delivers at once with the gate open", () => {
     const { scope } = harness();
     const seen: number[][] = [];
-    holdDeliveries<IntersectionObserverEntry, IntersectionObserver>((es) => seen.push(es.map((e) => e.intersectionRatio)), scope)(
+    holdDeliveries<IntersectionObserverEntry, IntersectionObserver>((es) => seen.push(es.map((e) => e.intersectionRatio)), scope).callback(
       [entry(1)],
       observer,
     );
@@ -414,7 +415,7 @@ describe("holdDeliveries", () => {
   it("keeps every delivery under a closed gate and hands them over once, in order, at its release", () => {
     const { scope } = harness();
     const seen: number[][] = [];
-    const cb = holdDeliveries<IntersectionObserverEntry, IntersectionObserver>((es) => seen.push(es.map((e) => e.intersectionRatio)), scope);
+    const cb = holdDeliveries<IntersectionObserverEntry, IntersectionObserver>((es) => seen.push(es.map((e) => e.intersectionRatio)), scope).callback;
     const release = scope.holdMotion(10_000);
     cb([entry(1)], observer);
     cb([entry(0), entry(0.5)], observer);
@@ -423,5 +424,48 @@ describe("holdDeliveries", () => {
     expect(seen).toEqual([[1, 0, 0.5]]);
     cb([entry(1)], observer);
     expect(seen).toEqual([[1, 0, 0.5], [1]]);
+  });
+
+  it("drops a kept delivery when its observer disconnects before the gate opens", () => {
+    // A card unmounting under a settle disconnects its observer mid-motion;
+    // what the gate kept for it must not run at the release against a
+    // detached target.
+    const { scope } = harness();
+    const seen: number[][] = [];
+    let platformDisconnects = 0;
+    const delivery = holdDeliveries<IntersectionObserverEntry, IntersectionObserver>(
+      (es) => seen.push(es.map((e) => e.intersectionRatio)),
+      scope,
+    );
+    const held = observeHeld(
+      (cb) => ({
+        deliver: cb,
+        disconnect: () => {
+          platformDisconnects += 1;
+        },
+      }),
+      delivery,
+    );
+    const release = scope.holdMotion(10_000);
+    held.deliver([entry(1)], observer);
+    held.disconnect();
+    release();
+    expect(seen).toEqual([]);
+    expect(platformDisconnects).toBe(1);
+  });
+
+  it("holds afresh for an observer observed again after a disconnect", () => {
+    const { scope } = harness();
+    const seen: number[][] = [];
+    const delivery = holdDeliveries<IntersectionObserverEntry, IntersectionObserver>(
+      (es) => seen.push(es.map((e) => e.intersectionRatio)),
+      scope,
+    );
+    const release = scope.holdMotion(10_000);
+    delivery.callback([entry(1)], observer);
+    delivery.release();
+    delivery.callback([entry(0.5)], observer);
+    release();
+    expect(seen).toEqual([[0.5]]);
   });
 });

@@ -32,7 +32,10 @@
  * @module lib/slash-commands
  */
 
-import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
+// The constant from its leaf: `tug-atom-img` pulls in a graph that reaches
+// `slash-supported`, which imports this module back before it has finished.
+import { TUG_ATOM_CHAR } from "./tug-atom-char";
+import type { AtomSegment } from "./tug-atom-img";
 
 /** One locally-handled slash command's static descriptor. */
 export interface LocalSlashCommandSpec {
@@ -257,6 +260,13 @@ export const LOCAL_SLASH_COMMANDS = [
   {
     name: "logout",
     description: "Log out of Claude and return to setup",
+  },
+  // The motion instruments' switch, the Session card's door onto the same
+  // switch as `tugtool deck motion record` (`lib/motion-guard/record-switch.ts`).
+  {
+    name: "motion-record",
+    description: "Record the deck's motion — on, off, or bare to report",
+    takesArgs: true,
   },
 ] as const satisfies readonly LocalSlashCommandSpec[];
 

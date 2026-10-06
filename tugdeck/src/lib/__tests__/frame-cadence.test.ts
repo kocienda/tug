@@ -83,6 +83,23 @@ describe("classifyFrameCadence", () => {
   });
 
   /**
+   * A settle's own row starts at the arm, so its "quiet" ticks are the
+   * set-up's frames: a few gaps, each as long as the set-up made it. Their
+   * median is not the display's rate, and a stall in the motion read against
+   * it scores under a frame. The run's own median caps it.
+   */
+  test("a quiet stretch slower than the run does not set the period", () => {
+    // Three quiet gaps of 90 ms (the set-up), then thirty frames at 16 ms
+    // carrying one 150 ms stall.
+    const series = [0, 90, 180, 270];
+    for (let i = 1; i <= 30; i += 1) series.push(270 + i * PERIOD + (i >= 20 ? 134 : 0));
+    const quiet = series.map((_, i) => i <= 3);
+    const reading = classifyFrameCadence(series, quiet);
+    expect(reading.framePeriodMs, "the run's own frames set the rate").toBe(PERIOD);
+    expect(reading.longestGapMs / reading.framePeriodMs).toBeGreaterThan(9);
+  });
+
+  /**
    * The origin's whole purpose. The dead time before `ticks[0]` has no
    * `ticks[i] - ticks[i-1]` entry, so a freeze between the gesture and the
    * first rendering opportunity was invisible here by construction — and it is

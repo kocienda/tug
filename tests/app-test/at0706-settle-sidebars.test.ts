@@ -10,6 +10,14 @@
  * the same reading `FOLD_GAP_FRAMES_BAR` forgives, over a settle whose commit
  * retunes every rail at once. The instrument and the clause are unchanged.
  *
+ * **The sidebars-show leg's land bar is 2.0 frames, not 1.5** — re-budgeted
+ * by the user on 2026-10-06. It read 25–32 ms (1.47–1.88 frames) across
+ * runs, and a mutation probe over the land frame found only compositing
+ * hand-backs in it: the arrive beat's inline opacity and `translateX(0)` off
+ * the rails, the session panes' FLIP transforms off, and two marks no
+ * stylesheet keys on. No commit, forced layout, delivery or layout write
+ * lands there. The hide's land, without the rails' hand-back, reads 20–22 ms.
+ *
  * The instrument, the fixture decks, the transcript arms and the bar are
  * `settle-frames-fixture.ts`'s; this file is one gesture's legs. Every card is
  * a session card bound to a real resumed transcript, and every leg runs on the
@@ -54,6 +62,10 @@ const ARMS = transcriptArms();
 /** The resize-to-fit leg's gap bar — re-budgeted from 2 by the user on
  *  2026-10-03 after reading 2.06–2.18 on every run (see the header). */
 const RESIZE_TO_FIT_GAP_FRAMES_BAR = 2.5;
+
+/** The sidebars-show leg's land bar — re-budgeted from 1.5 by the user on
+ *  2026-10-06 after reading 1.47–1.88 frames (see the header). */
+const SIDEBARS_SHOW_LAND_FRAMES_BAR = 2.0;
 
 /**
  * The sidebars, and the retune that follows a resize — the last two of
@@ -194,7 +206,13 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
             `sidebars show: and the frame held invisible is one that arrived ` +
               `— ${show.probe.minOpacityPaneId} against ${JSON.stringify(arrived)}`,
           ).toContain(show.probe.minOpacityPaneId);
-          expectB09Bar("sidebars show", show, arrived);
+          expectB09Bar(
+            "sidebars show",
+            show,
+            arrived,
+            undefined,
+            SIDEBARS_SHOW_LAND_FRAMES_BAR,
+          );
           expectB09Bar("resize to fit", retune, [], RESIZE_TO_FIT_GAP_FRAMES_BAR);
         } finally {
           await app.close();

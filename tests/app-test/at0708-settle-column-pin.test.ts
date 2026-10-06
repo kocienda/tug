@@ -49,11 +49,13 @@ import {
   BAR_TIMEOUT_MS,
   SHOULD_RUN,
   SHOWN_FRAMES,
+  type ColumnLeg,
   type SettleLandRow,
   bandCensus,
   columnBlob,
   home,
   launch,
+  sampleColumnGesture,
   settleLandRows,
   traceMark,
   traceWithSettleFrames,
@@ -362,6 +364,8 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
     let tugbankPath = "";
     let split: Leg | null = null;
     let stack: Leg | null = null;
+    let divide: ColumnLeg | null = null;
+    let rejoin: ColumnLeg | null = null;
 
     beforeAll(async () => {
       const launched = await launch(8, columnBlob(), TEST_NAME, { transcripts: arm.size });
@@ -373,11 +377,44 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
       report(`split [${arm.size}]`, split);
       stack = await sampleColumnMode(app, "stack");
       report(`stack [${arm.size}]`, stack);
+      // Every column divided and stacked again, by the fixture's own
+      // sampler, for the height-bearing gesture's gap bar.
+      divide = await sampleColumnGesture(app, "split");
+      note(`at0708 divide [${arm.size}] rows: ${JSON.stringify(divide.rows)}`);
+      rejoin = await sampleColumnGesture(app, "stack");
+      note(`at0708 rejoin [${arm.size}] rows: ${JSON.stringify(rejoin.rows)}`);
     }, BAR_TIMEOUT_MS);
 
     afterAll(async () => {
       if (app !== null) await app.close();
       if (tugbankPath !== "") rmTempTugbank(tugbankPath);
+    });
+
+    test("every column divided, then stacked again: served and recorded, the gaps read", () => {
+      expect(divide, "the division was sampled").not.toBeNull();
+      expect(rejoin, "the rejoin was sampled").not.toBeNull();
+      // Both legs are read, not barred, by the user's ruling (2026-10-06).
+      // Their motion gaps sit on and over the bar — the division 1.5–2.1
+      // frames, the rejoin 1.9–8.2 — from the grow beat's cost: WebKit
+      // updates each transcript's async-scrolling layer while the clip around
+      // it moves every frame, once per growing frame, and a rejoin grows six.
+      // Freezing the scrollers' overflow for the crossing ends it, but moves
+      // about 100 ms into the set-up and the land and hides every scrollbar
+      // thumb while it runs, so it was declined
+      // (`briefs/real-transcript-motion-readings.md`, "The column rejoin's
+      // grow beat"). What stands asserted is what keeps the reading honest:
+      // the window was served and every settle wrote its row.
+      for (const [label, leg] of [["divide", divide], ["rejoin", rejoin]] as const) {
+        const r = leg as ColumnLeg;
+        expect(r.probe.suspended, `${label}: the window was served`).toBe(false);
+        expect(r.rows.length, `${label}: the canvas armed a settle and wrote its record`).toBeGreaterThan(0);
+        for (const [i, row] of r.rows.entries()) {
+          note(
+            `${label} [${arm.size}] row ${i + 1}: motion gap ${row.motionLongestGapMs.toFixed(0)}ms / ` +
+              `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks — read, not barred`,
+          );
+        }
+      }
     });
 
     test("the fixture's slot 0 members were following before the split", () => {

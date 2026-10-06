@@ -1226,6 +1226,31 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// Switch the deck's motion instruments on or off; bare, report them.
+    ///
+    /// Off by default, and on only by hand, for this page session: `on` arms
+    /// the deck trace and the four recording kinds the settle and the switch
+    /// write (`settle-frames`, `settle-land`, `settle-beat`,
+    /// `space-switch-frames`), and the commit census where it is in the page.
+    /// The lead recorder and the census install only at load, so `on` also
+    /// sets the flag that brings them with the next load, and says which wait
+    /// on it; `--reload` reloads the deck now so they come in. A relaunch
+    /// sheds all of it. `off` puts the trace back as `on` found it; every row
+    /// already recorded stays readable.
+    ///
+    /// With it on, `settle` and `slide` print a verdict line per reading, off
+    /// the deck's own rows, against the app-tests' bar.
+    Record {
+        /// `on` or `off`; omitted, report where the switch stands.
+        #[arg(value_parser = ["on", "off"])]
+        state: Option<String>,
+        /// With `on`, reload the deck when the lead recorder or the commit
+        /// census is not yet in the page, and wait for it to come back.
+        #[arg(long)]
+        reload: bool,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// The read→write→read chains under a gesture, by call site.
     ///
     /// `arm` before the gesture, `read` after it, `disarm` to put the wrapped

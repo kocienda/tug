@@ -720,7 +720,7 @@ export type DeckTraceEvent = {
       beat: BeatKind | null;
     }
   | {
-      // Fired when a settle releases the session stores' notification hold.
+      // Fired when a settle releases: its motion gate opens and its records close.
       // `source` names which clock released it: "completion" is the settle's
       // own — after the final beat's last tween has finished and every
       // frame's residue, fold crossing and resize episode have been ended,

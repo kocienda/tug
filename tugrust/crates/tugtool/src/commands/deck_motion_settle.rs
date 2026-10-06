@@ -806,6 +806,9 @@ pub struct Reading {
     pub motion: Option<Motion>,
     /// The pane the drive returned — an `appear`'s arriving pane.
     pub pane_id: Option<String>,
+    /// The bar over the deck's own rows (`deck_motion_verdict.rs`); `None`
+    /// when the record switch was off and the page wrote none.
+    pub verdict: Option<crate::commands::deck_motion_verdict::Verdict>,
 }
 
 /// Reduce one `record` op's raw result to a reading.
@@ -874,6 +877,10 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         land,
         motion: motion_reading,
         pane_id: str_of(raw, "paneId"),
+        verdict: crate::commands::deck_motion_verdict::verdict_of(
+            raw.get("engine"),
+            crate::commands::deck_motion_verdict::Bars::for_drive(drive.gesture, &drive.args),
+        ),
     }
 }
 
@@ -1228,6 +1235,17 @@ pub fn reading_extras(r: &Reading) -> String {
                     num(site, "ms")
                 );
             }
+        }
+    }
+    match &r.verdict {
+        Some(v) => {
+            let _ = writeln!(out, "   {}", v.line());
+        }
+        None => {
+            let _ = writeln!(
+                out,
+                "   no verdict: the deck wrote no rows of its own — 'tugtool deck motion record on' arms them"
+            );
         }
     }
     out
@@ -1749,6 +1767,52 @@ mod tests {
         let early = land(&frames, 134.0, Some(120.0), None, None, None);
         assert_eq!(early.shed_ms, None);
         assert_eq!(early.gaps_ms.len(), 2);
+    }
+
+    #[test]
+    fn a_reading_carries_the_verdict_off_the_decks_own_rows_when_recording() {
+        let drive = Drive {
+            gesture: "split",
+            args: json!({}),
+            read: true,
+        };
+        let row = json!({
+            "kind": "settle-frames", "motionLongestGapMs": 50.0,
+            "motionLongestGapFrames": 3.0, "offCurvePaneIds": [],
+            "motionAtMs": 120.0, "motionCommits": [], "motionDeliveries": [],
+            "motionForcedLayouts": [], "firstPaintDelayMs": 98.0,
+        });
+        let raw = json!({
+            "settle": [[2.0, true], [300.0, false]],
+            "frames": [131.0, 147.0, 284.0, 301.0, 347.0, 364.0],
+            "commits": null,
+            "engine": {
+                "frames": [row],
+                "lands": [{"kind": "settle-land", "frameMs": 17.0, "frameFrames": 1.0}],
+                "before": "p1@0,0+800x600", "after": "p1@0,0+800x600",
+            },
+        });
+        let r = reduce(&drive, &raw);
+        let text = reading_extras(&r);
+        assert!(
+            text.contains("verdict RED: gap RED (50 ms / 3.00 frames against 2)"),
+            "{text}"
+        );
+        assert!(text.contains("lead 98.0 ms, not barred"), "{text}");
+
+        // With the switch off the page sends no rows, and the reading says how
+        // to get a verdict rather than printing none silently.
+        let raw = json!({
+            "settle": [[2.0, true], [300.0, false]],
+            "frames": [131.0, 147.0],
+            "commits": null,
+            "engine": null,
+        });
+        let text = reading_extras(&reduce(&drive, &raw));
+        assert!(
+            text.contains("no verdict: the deck wrote no rows of its own"),
+            "{text}"
+        );
     }
 
     #[test]

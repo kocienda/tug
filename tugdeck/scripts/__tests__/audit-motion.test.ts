@@ -20,6 +20,10 @@
  * declarations — so its fixtures go through its own two scanners, and the
  * carve-out list is checked against the files it names.
  *
+ * Rule 6 has two scanners as well, over stylesheets and over TugAnimator
+ * calls, and its carve-out list carries properties as well as files, so a
+ * declared file is still read for a property it did not declare.
+ *
  * Run: `cd tugdeck && bun test ./scripts/__tests__` — the path is explicit
  * because `bunfig.toml` pins `[test] root = "src"`, so a bare `bun test` never
  * discovers a file outside it.
@@ -32,9 +36,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
   collectMotionContext,
+  LAYOUT_MOTION_CARVE_OUTS,
   MOTION_CARVE_OUTS,
   scanCss,
   scanEntranceKeyframes,
+  scanLayoutTransitions,
+  scanLayoutTweens,
   scanRawAnimate,
   scanTs,
   type Hit,
@@ -942,6 +949,100 @@ describe("rule 5 — motion goes through the animator", () => {
     for (const [rel, reason] of MOTION_CARVE_OUTS) {
       expect(fs.existsSync(path.join(repoRoot, rel)), rel).toBe(true);
       expect(reason.trim().length, rel).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("rule 6 — motion on a layout property is declared", () => {
+  const NONE = new Map();
+  const declared = (properties: string[]) =>
+    new Map([["fixture", { properties, ending: "the fixture's ending" }]]);
+
+  test("a transition on a layout property is a hit, on its line", () => {
+    const hits = scanLayoutTransitions(
+      `.a { color: red; }\n.b {\n  transition: height 200ms ease;\n}\n`,
+      "fixture",
+      NONE,
+    );
+    expect(rules(hits)).toEqual([6]);
+    expect(hits[0].line).toBe(3);
+    expect(hits[0].selector).toBe(".b");
+  });
+
+  test("the longhand and `all` are read too", () => {
+    expect(
+      rules(scanLayoutTransitions(`.b { transition-property: left, transform; }`, "fixture", NONE)),
+    ).toEqual([6]);
+    expect(rules(scanLayoutTransitions(`.b { transition: all 120ms; }`, "fixture", NONE))).toEqual([6]);
+  });
+
+  test("a transition on transform, opacity or colour is not layout", () => {
+    expect(
+      scanLayoutTransitions(
+        `.b { transition: transform 200ms var(--e, ease), opacity 1s, background-color 80ms; }\n.c { transition: none; }`,
+        "fixture",
+        NONE,
+      ),
+    ).toEqual([]);
+  });
+
+  test("a declared file passes its own properties and no others", () => {
+    expect(
+      scanLayoutTransitions(`.b { transition: width 80ms; }`, "fixture", declared(["width"])),
+    ).toEqual([]);
+    const hits = scanLayoutTransitions(
+      `.b { transition: width 80ms, height 80ms; }`,
+      "fixture",
+      declared(["width"]),
+    );
+    expect(hits.map((hit) => hit.detail)).toEqual([
+      "a transition on layout (height) that is not declared",
+    ]);
+  });
+
+  test("a TugAnimator tween on layout is a hit, by the name it was imported under", () => {
+    for (const binding of ["animate", "animate as tugAnimate"]) {
+      const verb = binding === "animate" ? "animate" : "tugAnimate";
+      const hits = scanLayoutTweens(
+        `import { ${binding} } from "@/components/tugways/tug-animator";\n${verb}(el, [{ flexGrow: "1" }, { flexGrow: "2" }], { duration: 100 });\n`,
+        "fixture",
+        NONE,
+      );
+      expect(hits.map((hit) => [hit.rule, hit.line, hit.selector])).toEqual([[6, 2, `${verb}(`]]);
+    }
+  });
+
+  test("a group's tween is read; a tween on transform and opacity is not a hit", () => {
+    const source =
+      `import { group } from "./tug-animator";\nconst g = group({ duration: 100 });\n` +
+      `g.animate(el, [{ width: "1px" }, { width: "2px" }]);\n` +
+      `g.animate(el, [{ transform: "none", opacity: 1 }]);\n`;
+    const hits = scanLayoutTweens(source, "fixture", NONE);
+    expect(hits.map((hit) => [hit.line, hit.selector])).toEqual([[3, "g.animate("]]);
+  });
+
+  test("an `animate` that is not the animator's is rule 5's, not this rule's", () => {
+    expect(
+      scanLayoutTweens(`import { animate } from "motion";\nanimate(el, { height: 0 });\n`, "fixture", NONE),
+    ).toEqual([]);
+  });
+
+  test("a declared file passes its own property", () => {
+    expect(
+      scanLayoutTweens(
+        `import { animate } from "./tug-animator";\nanimate(el, [{ height: "0px" }]);\n`,
+        "fixture",
+        declared(["height"]),
+      ),
+    ).toEqual([]);
+  });
+
+  test("every declared site names a file that exists, its properties and its ending", () => {
+    const repoRoot = path.resolve(import.meta.dir, "../../..");
+    for (const [rel, { properties, ending }] of LAYOUT_MOTION_CARVE_OUTS) {
+      expect(fs.existsSync(path.join(repoRoot, rel)), rel).toBe(true);
+      expect(properties.length, rel).toBeGreaterThan(0);
+      expect(ending.trim().length, rel).toBeGreaterThan(0);
     }
   });
 });

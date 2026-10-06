@@ -306,6 +306,7 @@ import { useTugbankValue } from "@/lib/use-tugbank-value";
 import { useHostFacts } from "@/lib/host-facts-store";
 import { probeDirExistence } from "@/lib/dir-existence";
 import { requestLogout } from "@/lib/logout-store";
+import { recordSwitch } from "@/lib/motion-guard/record-switch";
 import {
   putSessionRecentProjects,
   putFindOptions,
@@ -3941,6 +3942,26 @@ export function SessionCardBody({
     // (confirm → interrupt every turn → `claude_logout` → ConfigureTug reopens);
     // the same nonce the File-menu "Log out…" bumps, so there's one flow.
     logout: () => requestLogout(),
+    // `/motion-record on|off` — the motion instruments' switch, the same one
+    // `tugtool deck motion record` throws: off by default, on by hand for this
+    // page session, and never persisted. Bare reports where it stands. The
+    // bulletin says what it armed and what waits on a reload.
+    "motion-record": (args) => {
+      const notify = paneBulletinRef.current;
+      const word = args.trim().toLowerCase();
+      if (word !== "" && word !== "on" && word !== "off") {
+        notify?.caution("/motion-record takes on or off");
+        return;
+      }
+      const r = recordSwitch(word === "" ? undefined : word === "on");
+      if (!r.recording) {
+        notify?.success("Motion recording off");
+        return;
+      }
+      const pending =
+        r.nextLoad.length === 0 ? "" : ` — ${r.nextLoad.join(" and ")} on the next load`;
+      notify?.success(`Motion recording on: ${r.kinds.length} kinds${pending}`);
+    },
     // `/commit` — enters commit mode ([P03]/[P09]): the commit sheet rises
     // and the prompt entry becomes the message editor. A `/commit <message>`
     // seeds the composer with the args as an edited draft ([P05]); the `now`

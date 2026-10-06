@@ -87,8 +87,7 @@ export const ATOM_RECESS = {
 
 // ---- Types ----
 
-/** U+FFFC — Object Replacement Character representing an atom in the text flow. */
-export const TUG_ATOM_CHAR = "\uFFFC";
+export { TUG_ATOM_CHAR } from "./tug-atom-char";
 
 /**
  * Segment type used by TugTextEngine.

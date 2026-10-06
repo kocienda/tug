@@ -1005,6 +1005,32 @@ function shouldRestoreInTestMode(): boolean {
 
 export class DeckManager implements IDeckManagerStore {
   private container: HTMLElement;
+
+  /**
+   * The container's client size, read once and kept until it can have moved.
+   *
+   * The run and band measurements ({@link _placeRunHeight},
+   * {@link _flowBandEdges}) read nothing but the canvas container, whose size
+   * moves with the window and nothing the deck commits. Read live, each one
+   * forced a layout of whatever the commit had just written, and the
+   * arrangement effect reads one, writes the arrangement variables, and reads
+   * the other: on a 23,000-element deck a rail show paid three layouts in one
+   * task (78, 99 and 29 ms), two of them of an arrangement about to be
+   * replaced. Kept here, those reads cost nothing, and the settle's own Last
+   * pass — which has to measure the new geometry anyway — pays the one
+   * layout there is.
+   *
+   * Dropped on the two edges that can move it: the window's `resize`, which
+   * fires before anything in that frame reads, and the container's own
+   * `ResizeObserver`, which catches host chrome resizing the canvas without
+   * one. The container sits outside every held interior, so the motion gate
+   * never holds that delivery (`lib/gesture-scope.ts`).
+   */
+  private containerSize: { width: number; height: number } | null = null;
+  private readonly containerSizeObserver: ResizeObserver | null;
+  private readonly dropContainerSize = (): void => {
+    this.containerSize = null;
+  };
   private connection: TugConnection;
 
   /**
@@ -2577,6 +2603,10 @@ export class DeckManager implements IDeckManagerStore {
     this.initialFocusedCardId = dropBootState ? undefined : initialFocusedCardId;
 
     container.style.position = "relative";
+    this.containerSizeObserver =
+      typeof ResizeObserver === "function" ? new ResizeObserver(this.dropContainerSize) : null;
+    this.containerSizeObserver?.observe(container);
+    window.addEventListener("resize", this.dropContainerSize);
 
     this.reactRoot = createRoot(container);
 
@@ -5281,7 +5311,18 @@ export class DeckManager implements IDeckManagerStore {
     const top = kind === "rail" ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
     const bottom =
       kind === "rail" ? railGapBottomPx() : impositionGapBottomPx();
-    return this.container.clientHeight - top - bottom;
+    return this._containerClientSize().height - top - bottom;
+  }
+
+  /** The container's client size, from {@link containerSize}. */
+  private _containerClientSize(): { width: number; height: number } {
+    if (this.containerSize === null) {
+      this.containerSize = {
+        width: this.container.clientWidth,
+        height: this.container.clientHeight,
+      };
+    }
+    return this.containerSize;
   }
 
   /**
@@ -5972,7 +6013,7 @@ export class DeckManager implements IDeckManagerStore {
       }
       railWidths[side] = width;
     }
-    return flowBandEdges(this.container.clientWidth, railWidths);
+    return flowBandEdges(this._containerClientSize().width, railWidths);
   }
 
   /**
@@ -8724,6 +8765,8 @@ export class DeckManager implements IDeckManagerStore {
     for (const watch of [...this.arrivalWatches.values()]) watch.dispose();
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
+    this.containerSizeObserver?.disconnect();
+    window.removeEventListener("resize", this.dropContainerSize);
     this.lifecycleCascade.dispose();
   }
 }

@@ -558,6 +558,91 @@ const PLACE_VERB_EQUALIZE = "place:equalize";
  */
 const PlaceArrangementContext = createContext<CardTitleBarProps["placeArrangement"]>(undefined);
 
+/**
+ * The Fill Height row's two facts, for the width menu alone. Provided by
+ * {@link CardTitleBar} and read by {@link CardWidthMenu}, for the reason
+ * {@link PlaceArrangementContext} exists: a split or a stack flips whether a
+ * slotted card's height is its own on every member of the column, and as
+ * props the pair re-rendered each member's whole bar — its buttons, tooltips
+ * and poppers — to redraw one check in a closed menu. The census read that
+ * commit at 971–2,123 performed fibres on a nine-pane column flip, landing
+ * inside the motion on every retarget.
+ */
+const FillHeightContext = createContext<
+  { onFillHeight: () => void; fillsHeight: boolean } | undefined
+>(undefined);
+
+interface CardWidthMenuProps {
+  widthPreset: CardTitleBarProps["widthPreset"];
+  onSetWidth: (preset: ContentWidth) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+/**
+ * The width control's menu: the presets, and below them the Fill Height row
+ * where a card's height is its own. Its own component so it can read that row
+ * from {@link FillHeightContext} without the bar taking it as props.
+ */
+const CardWidthMenu = memo(function CardWidthMenu({
+  widthPreset,
+  onSetWidth,
+  open,
+  onOpenChange,
+}: CardWidthMenuProps) {
+  const fill = useContext(FillHeightContext);
+  return (
+    <TugPopupMenu
+      trigger={
+        <TugButton
+          subtype="icon"
+          emphasis="ghost"
+          role="action"
+          size="sm"
+          icon={<MoveHorizontal />}
+          aria-label="Card width"
+          data-testid="tug-pane-title-bar-width-button"
+        />
+      }
+      align="end"
+      // Controlled, and only because the rollup needs the answer. The menu
+      // portals its rows outside the card, so the pointer travelling to a
+      // width row leaves the title bar, ends its hover, and would collapse
+      // the row this trigger is standing in — leaving an open menu hanging off
+      // an anchor that is no longer painted. While it stands, the rollup is
+      // held.
+      open={open}
+      onOpenChange={onOpenChange}
+      items={[
+        ...CONTENT_WIDTH_PRESETS.map((preset) => ({
+          id: preset,
+          label: CONTENT_WIDTH_LABELS[preset],
+          // No check at a custom width: `widthPreset` is null then, and
+          // claiming the nearest preset would be a resting lie.
+          selected: widthPreset === preset,
+        })),
+        // The way back from a height the card's bottom edge gave it ([B07]):
+        // checked while the card fills its run, which is the state choosing
+        // it puts the card in.
+        ...(fill === undefined
+          ? []
+          : [
+              { type: "separator" as const },
+              {
+                id: FILL_HEIGHT_ITEM,
+                label: "Fill Height",
+                selected: fill.fillsHeight,
+              },
+            ]),
+      ]}
+      onSelect={(id) =>
+        id === FILL_HEIGHT_ITEM ? fill?.onFillHeight() : onSetWidth(id as ContentWidth)
+      }
+      data-testid="tug-pane-title-bar-width-menu"
+    />
+  );
+});
+
 interface CardPlaceBadgeProps {
   placePaneId: string | undefined;
   slotStack: readonly SlotStackEntry[];
@@ -801,8 +886,6 @@ function CardTitleBarBody({
   hasPlaceArrangement,
   onArrangePlace,
   onSetWidth,
-  onFillHeight,
-  fillsHeight = true,
   onMoveToSpace,
   masthead = null,
   sidebar = false,
@@ -1700,55 +1783,11 @@ function CardTitleBarBody({
               }
             >
               <span className="tug-pane-title-bar-tooltip-anchor">
-                <TugPopupMenu
-                  trigger={
-                    <TugButton
-                      subtype="icon"
-                      emphasis="ghost"
-                      role="action"
-                      size="sm"
-                      icon={<MoveHorizontal />}
-                      aria-label="Card width"
-                      data-testid="tug-pane-title-bar-width-button"
-                    />
-                  }
-                  align="end"
-                  // Controlled, and only because the rollup needs the answer.
-                  // The menu portals its rows outside the card, so the pointer
-                  // travelling to a width row leaves the title bar, ends its
-                  // hover, and would collapse the row this trigger is standing
-                  // in — leaving an open menu hanging off an anchor that is no
-                  // longer painted. While it stands, the rollup is held.
+                <CardWidthMenu
+                  widthPreset={widthPreset}
+                  onSetWidth={onSetWidth}
                   open={widthMenuOpen}
                   onOpenChange={setWidthMenuOpen}
-                  items={[
-                    ...CONTENT_WIDTH_PRESETS.map((preset) => ({
-                      id: preset,
-                      label: CONTENT_WIDTH_LABELS[preset],
-                      // No check at a custom width: `widthPreset` is null then, and
-                      // claiming the nearest preset would be a resting lie.
-                      selected: widthPreset === preset,
-                    })),
-                    // The way back from a height the card's bottom edge gave
-                    // it ([B07]): checked while the card fills its run, which
-                    // is the state choosing it puts the card in.
-                    ...(onFillHeight === undefined
-                      ? []
-                      : [
-                          { type: "separator" as const },
-                          {
-                            id: FILL_HEIGHT_ITEM,
-                            label: "Fill Height",
-                            selected: fillsHeight,
-                          },
-                        ]),
-                  ]}
-                  onSelect={(id) =>
-                    id === FILL_HEIGHT_ITEM
-                      ? onFillHeight?.()
-                      : onSetWidth(id as ContentWidth)
-                  }
-                  data-testid="tug-pane-title-bar-width-menu"
                 />
               </span>
             </TugTooltip>
@@ -1997,8 +2036,14 @@ function CardTitleBarBody({
   );
 }), (prev, next) => plainEqual(prev, next));
 
-/** {@link CardTitleBar}'s body: every prop but the arrangement, which only the badge draws. */
-type CardTitleBarBodyProps = Omit<CardTitleBarProps, "placeArrangement"> & {
+/**
+ * {@link CardTitleBar}'s body: every prop but the arrangement, which only the
+ * badge draws, and the Fill Height pair, which only the width menu draws.
+ */
+type CardTitleBarBodyProps = Omit<
+  CardTitleBarProps,
+  "placeArrangement" | "onFillHeight" | "fillsHeight"
+> & {
   /** Whether the pane stands in a place with an arrangement record. */
   hasPlaceArrangement: boolean;
 };
@@ -2009,14 +2054,23 @@ type CardTitleBarBodyProps = Omit<CardTitleBarProps, "placeArrangement"> & {
  * which a new arrangement does not reach.
  */
 export const CardTitleBar = memo(React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
-function CardTitleBar({ placeArrangement, ...rest }: CardTitleBarProps, ref) {
+function CardTitleBar(
+  { placeArrangement, onFillHeight, fillsHeight = true, ...rest }: CardTitleBarProps,
+  ref,
+) {
+  const fill = useMemo(
+    () => (onFillHeight === undefined ? undefined : { onFillHeight, fillsHeight }),
+    [onFillHeight, fillsHeight],
+  );
   return (
     <PlaceArrangementContext.Provider value={placeArrangement}>
-      <CardTitleBarBody
-        ref={ref}
-        {...rest}
-        hasPlaceArrangement={placeArrangement !== undefined}
-      />
+      <FillHeightContext.Provider value={fill}>
+        <CardTitleBarBody
+          ref={ref}
+          {...rest}
+          hasPlaceArrangement={placeArrangement !== undefined}
+        />
+      </FillHeightContext.Provider>
     </PlaceArrangementContext.Provider>
   );
 }), (prev, next) => plainEqual(prev, next));
