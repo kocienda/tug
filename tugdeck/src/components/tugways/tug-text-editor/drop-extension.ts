@@ -116,14 +116,29 @@ import { hasJotDrag, readJotDrag } from "@/lib/jot-drag";
 const DROP_Y_OFFSET_RATIO = -0.8;
 
 /** File extensions classified as images for the default file→atom map. */
-const IMG_EXTS: ReadonlySet<string> = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "svg",
-  "webp",
-]);
+const IMG_MIME_BY_EXT: Readonly<Record<string, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+};
+const IMG_EXTS: ReadonlySet<string> = new Set(Object.keys(IMG_MIME_BY_EXT));
+
+/**
+ * The MIME type of an image a path names, or `null` when its extension is not
+ * one the attachment pipeline turns into an image atom. For a door that holds
+ * a path rather than a dropped `File` — Session ▸ Insert File… — and has to
+ * read the bytes itself: the downsampler classifies by `Blob.type`, and a
+ * blob read off `/api/fs/bytes` arrives typed as an opaque download.
+ */
+export function imageMimeForPath(path: string): string | null {
+  const basename = path.slice(path.lastIndexOf("/") + 1);
+  const dot = basename.lastIndexOf(".");
+  if (dot <= 0) return null;
+  return IMG_MIME_BY_EXT[basename.slice(dot + 1).toLowerCase()] ?? null;
+}
 
 /**
  * Drags the editor claims: a file drag (images → atoms, everything else →
