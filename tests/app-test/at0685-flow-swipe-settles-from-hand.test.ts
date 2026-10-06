@@ -135,6 +135,12 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
+  expectMotionSealed,
+  settleFrameRows,
+  traceMark,
+  traceWithSettleFrames,
+} from "./settle-frames-fixture";
+import {
   FLOW_WHEEL_HUMP_PX,
   IMPOSITION_GAP_PX,
 } from "../../tugdeck/src/lib/layout-imposer";
@@ -441,6 +447,8 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         const restLeft = await paneLeft(app);
 
         // ── The swipe, sampled the whole way through ─────────────────────────
+        await traceWithSettleFrames(app);
+        const mark = await traceMark(app);
         await startSwipe(app, {
           deltas: repeat(DELTA_PX, DELTA_COUNT),
           gapMs: DELTA_GAP_MS,
@@ -511,6 +519,13 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           Math.abs((await paneLeft(app)) - (restLeft - SLOT_PITCH_PX)),
           "the card ends on the next slot's stop",
         ).toBeLessThanOrEqual(TOL);
+
+        // The motion is sealed, read with the swipe's carve-out: the
+        // prelaunch's own commit is noted, and nothing else may land between
+        // the first frame and the land.
+        const rows = await settleFrameRows(app, mark);
+        expect(rows.length, "the swipe's settle wrote its record").toBeGreaterThan(0);
+        expectMotionSealed("swipe", rows[rows.length - 1], "swipe");
       } finally {
         await app.close();
       }

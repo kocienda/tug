@@ -48,6 +48,8 @@
  * @module lib/land-frame-record
  */
 
+import { isDeliveryHeld } from "./gesture-scope";
+
 /** A geometry read slower than this paid a style or layout flush. */
 export const FORCED_READ_FLOOR_MS = 1;
 
@@ -88,6 +90,13 @@ export interface LandInput {
   readonly ticks: readonly number[];
   /** A moment inside the land's own task, on the ticks' clock. */
   readonly landAt: number;
+  /**
+   * A moment just before the last settled mark came off, when that was after
+   * the land's task — a hand-back paid late. The span then closes two ticks
+   * past it rather than two past the land, so the late cost is the land's.
+   * Absent when every mark came off in the land's task.
+   */
+  readonly shedAt?: number;
   /** The settle's origin, so the land can be placed along it. */
   readonly gestureAt: number;
   readonly framePeriodMs: number;
@@ -102,14 +111,17 @@ export interface LandInput {
 export interface LandReading {
   /** The gesture to the land, in ms. */
   readonly landAtMs: number;
+  /** The gesture to the late shed, in ms; `null` when nothing shed late. */
+  readonly shedAtMs: number | null;
   /**
-   * The longer of the two gaps the land touched: the last tick before it to
-   * the first after, and that to the next. `-1` when no tick followed.
+   * The longest gap the land touched: the last tick before it to the first
+   * after, and each one on to the second tick past the late shed, or past the
+   * land when nothing shed late. `-1` when no tick followed.
    */
   readonly frameMs: number;
   /** {@link LandReading.frameMs} in display frames. */
   readonly frameFrames: number;
-  /** Both gaps, in order. */
+  /** Every gap in the span, in order: two, or more for a late shed. */
   readonly gapsMs: readonly number[];
   readonly framePeriodMs: number;
   /** The commits in the land's span; `null` with no census. */
@@ -125,17 +137,24 @@ export interface LandReading {
  *
  * The span opens at the last tick before `landAt` and closes at the second
  * tick at or after it, or the first when only one came; an event belongs to
- * the land when it began inside it. A land with no tick before it opens at
- * `landAt` itself, which only drops the part of the frame before the land's
- * own task — the arm of a settle that landed on its first tick has no earlier
- * tick to offer.
+ * the land when it began inside it. A settled mark that came off after the
+ * land's task (`shedAt`) moves the close to the second tick at or after the
+ * shed: a hand-back paid late is a late land, not a cost past the record.
+ *
+ * A land with no tick before it opens at `landAt` itself, which only drops
+ * the part of the frame before the land's own task — the arm of a settle that
+ * landed on its first tick has no earlier tick to offer.
  */
 export function classifyLand(input: LandInput): LandReading {
   const { ticks, landAt } = input;
   const before = landOpensAt(ticks, landAt);
+  const closeAt = Math.max(landAt, input.shedAt ?? landAt);
   const after: number[] = [];
+  let pastClose = 0;
   for (const t of ticks) {
-    if (t >= landAt && after.length < 2) after.push(t);
+    if (t < landAt || pastClose >= 2) continue;
+    after.push(t);
+    if (t >= closeAt) pastClose += 1;
   }
   const gapsMs: number[] = [];
   let previous = before;
@@ -149,6 +168,8 @@ export function classifyLand(input: LandInput): LandReading {
   const frameMs = gapsMs.length === 0 ? -1 : Math.max(...gapsMs);
   return {
     landAtMs: landAt - input.gestureAt,
+    shedAtMs:
+      input.shedAt === undefined ? null : input.shedAt - input.gestureAt,
     frameMs,
     frameFrames: frameMs < 0 ? -1 : frameMs / input.framePeriodMs,
     gapsMs,
@@ -416,6 +437,13 @@ function installDeliveryWrapper(): void {
     callback: ResizeObserverCallback,
   ): ResizeObserver {
     return new Native((entries, observer) => {
+      // A delivery the motion gate is keeping runs nothing now; it is
+      // counted where it runs, at the gate's release ([B05] of
+      // set-up-and-go-fixups).
+      if (isDeliveryHeld(callback, entries)) {
+        callback(entries, observer);
+        return;
+      }
       landRecorder.deliver(() => callback(entries, observer), entries);
     });
   } as unknown as typeof ResizeObserver;

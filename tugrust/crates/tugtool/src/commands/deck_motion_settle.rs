@@ -34,7 +34,9 @@
 //! paid for, read off the same outside frames. The settle mark goes off inside
 //! the land's own task, so the land opens at the last frame before the off and
 //! closes at the second after it — the first runs ahead of the layout and
-//! observer deliveries the hand-back dirtied. What ran in that span is named
+//! observer deliveries the hand-back dirtied. A settled still-crossing mark
+//! that comes off after the off moves the close to the second frame past it,
+//! so a hand-back paid late reads as a late land. What ran in that span is named
 //! by site: commits from the census, chains with `--chains`, and
 //! `ResizeObserver` deliveries from the lead recorder with `--tasks`.
 //!
@@ -429,9 +431,13 @@ pub struct LandCommit {
 pub struct Land {
     /// The settle mark's off, relative to the drive — inside the land's task.
     pub at_ms: f64,
-    /// The last frame before the off to the first after, and that to the next.
+    /// The last settled still-crossing mark's removal, when it came after the
+    /// off: a hand-back paid late. `None` when every one came off by the off.
+    pub shed_ms: Option<f64>,
+    /// The last frame before the off to the first after, and each one on to
+    /// the second frame past the late shed, or past the off.
     pub gaps_ms: Vec<f64>,
-    /// The longer of the two; `None` when no frame followed the off.
+    /// The longest; `None` when no frame followed the off.
     pub frame_ms: Option<f64>,
     /// `None` when the page had no commit census.
     pub commits: Option<Vec<LandCommit>>,
@@ -442,15 +448,22 @@ pub struct Land {
 }
 
 /// The land's span: the last frame before `off`, or `off` when none came
-/// before it, and up to two frames at or after it.
-pub fn land_span(frames: &[f64], off: f64) -> (f64, Vec<f64>) {
+/// before it, and every frame at or after it up to the second at or after the
+/// close — `off`, or the late `shed` when a settled mark came off after it
+/// (set-up-and-go-fixups [B04]): a hand-back paid late is a late land.
+pub fn land_span(frames: &[f64], off: f64, shed: Option<f64>) -> (f64, Vec<f64>) {
+    let close = shed.map_or(off, |s| s.max(off));
     let mut before = off;
     let mut after = Vec::new();
+    let mut past_close = 0;
     for &t in frames {
         if t < off {
             before = t;
-        } else if after.len() < 2 {
+        } else if past_close < 2 {
             after.push(t);
+            if t >= close {
+                past_close += 1;
+            }
         }
     }
     (before, after)
@@ -461,11 +474,13 @@ pub fn land_span(frames: &[f64], off: f64) -> (f64, Vec<f64>) {
 pub fn land(
     frames: &[f64],
     off: f64,
+    shed: Option<f64>,
     commits: Option<&[RawCommit]>,
     chains: Option<&[LandSite]>,
     tasks: Option<&[RawTask]>,
 ) -> Land {
-    let (before, after) = land_span(frames, off);
+    let shed = shed.filter(|&s| s > off);
+    let (before, after) = land_span(frames, off, shed);
     let mut gaps_ms = Vec::new();
     let mut previous = before;
     for &t in &after {
@@ -477,6 +492,7 @@ pub fn land(
     let (commits, chains, deliveries) = events_in(commits, chains, tasks, inside);
     Land {
         at_ms: off,
+        shed_ms: shed,
         frame_ms: gaps_ms.iter().copied().reduce(f64::max),
         gaps_ms,
         commits,
@@ -803,6 +819,7 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
     let raw_commits: Option<Vec<RawCommit>> = list(raw, "commits");
     let tells: Vec<RawTell> = list(raw, "tells").unwrap_or_default();
     let frames: Vec<f64> = list(raw, "frames").unwrap_or_default();
+    let sheds: Vec<f64> = list(raw, "sheds").unwrap_or_default();
     let window = gesture_window(drive.gesture, &marks);
     let (lead_ms, longest_gap_ms) = frame_gaps(&frames, window.map(|w| w.1));
     let land_chains: Option<Vec<LandSite>> = list(raw, "landChains");
@@ -828,6 +845,7 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
             land(
                 &frames,
                 off,
+                sheds.iter().copied().reduce(f64::max),
                 raw_commits.as_deref(),
                 land_chains.as_deref(),
                 tasks.as_deref(),
@@ -1105,9 +1123,12 @@ pub fn reading_extras(r: &Reading) -> String {
             .collect::<Vec<_>>()
             .join(", ");
         let count = |n: Option<usize>| n.map_or_else(|| "—".to_string(), |n| n.to_string());
+        let shed = land
+            .shed_ms
+            .map_or_else(String::new, |s| format!(", shed late at {s:.1}"));
         let _ = writeln!(
             out,
-            "   land {} ms at {:.1} (gaps {gaps}); commits {}, chains {}, deliveries {}",
+            "   land {} ms at {:.1}{shed} (gaps {gaps}); commits {}, chains {}, deliveries {}",
             ms(land.frame_ms),
             land.at_ms,
             count(land.commits.as_ref().map(Vec::len)),
@@ -1649,10 +1670,10 @@ mod tests {
     fn the_land_opens_before_the_off_and_closes_two_frames_after() {
         // The off is inside the land's task; the first frame after it runs
         // ahead of the layout, and the second pays for it.
-        let (before, after) = land_span(&[100.0, 116.7, 133.3, 136.0, 181.0, 197.7], 134.0);
+        let (before, after) = land_span(&[100.0, 116.7, 133.3, 136.0, 181.0, 197.7], 134.0, None);
         assert_eq!((before, after), (133.3, vec![136.0, 181.0]));
         // No frame before the off opens the span at the off itself.
-        assert_eq!(land_span(&[140.0], 134.0), (134.0, vec![140.0]));
+        assert_eq!(land_span(&[140.0], 134.0, None), (134.0, vec![140.0]));
 
         let commits: Vec<RawCommit> = serde_json::from_value(json!([
             {"t": 120.0, "performed": 9, "origins": [["Early", 1]], "top": []},
@@ -1681,6 +1702,7 @@ mod tests {
         let l = land(
             &[100.0, 116.7, 133.3, 136.0, 181.0, 197.7],
             134.0,
+            None,
             Some(&commits),
             Some(&chains),
             Some(&tasks),
@@ -1701,12 +1723,32 @@ mod tests {
         assert_eq!(l.deliveries.as_ref().unwrap().len(), 1);
 
         // Without a census, chains or tasks the land still reads its frame.
-        let bare = land(&[100.0, 116.7, 133.3], 110.0, None, None, None);
+        let bare = land(&[100.0, 116.7, 133.3], 110.0, None, None, None, None);
+        assert_eq!(bare.shed_ms, None);
         assert_eq!(bare.frame_ms, Some(16.7));
         assert_eq!(
             (bare.commits, bare.chains, bare.deliveries),
             (None, None, None)
         );
+    }
+
+    #[test]
+    fn a_late_shed_reads_on_to_two_frames_past_it() {
+        // The settle mark went off at 134 and the last settled mark two
+        // frames later: the cost it paid lands in the frame after the shed,
+        // and the land reaches it.
+        let frames = [
+            100.0, 116.7, 133.3, 136.0, 152.7, 169.3, 171.0, 214.0, 230.7,
+        ];
+        let (_, after) = land_span(&frames, 134.0, Some(170.0));
+        assert_eq!(after, vec![136.0, 152.7, 169.3, 171.0, 214.0]);
+        let l = land(&frames, 134.0, Some(170.0), None, None, None);
+        assert_eq!(l.shed_ms, Some(170.0));
+        assert_eq!(l.frame_ms, Some(43.0));
+        // A shed at or before the off is not a late one.
+        let early = land(&frames, 134.0, Some(120.0), None, None, None);
+        assert_eq!(early.shed_ms, None);
+        assert_eq!(early.gaps_ms.len(), 2);
     }
 
     #[test]

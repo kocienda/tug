@@ -202,7 +202,10 @@ describe.skipIf(!SHOULD_RUN)("at0664 — the Theme menu acts on the current work
             found: true,
             state: 1,
           });
-          expect((await app.menuItemState(`view.theme.${THEME_ONE}`)).state).toBe(0);
+          expect(await app.menuItemState(`view.theme.${THEME_ONE}`)).toMatchObject({
+            found: true,
+            state: 0,
+          });
 
           // (3) Apply To All Workspaces: every record, nothing on screen, and
           // then nothing left for it to do.

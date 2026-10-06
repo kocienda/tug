@@ -102,8 +102,9 @@ async function foldInterrupted(
       var heldOn = function (frame) {
         var box = frame.querySelector(".tug-pane-content");
         if (box === null) return false;
-        for (var i = 0; i < box.children.length; i += 1) {
-          var s = box.children[i].style;
+        var roots = box.querySelectorAll("[data-card-host] > *");
+        for (var i = 0; i < roots.length; i += 1) {
+          var s = roots[i].style;
           if (s.getPropertyValue("--tugx-fold-held-height") !== "" ||
               s.getPropertyValue("--tugx-still-held-height") !== "") return true;
         }

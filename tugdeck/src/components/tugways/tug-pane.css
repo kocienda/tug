@@ -1858,8 +1858,8 @@ body {
  * opt-in: for the length of the crossing the card root has a definite pixel
  * height and every box inside it keeps the layout it had.
  *
- * `--tugx-still-held-height` is the imposer's, written on the content box's
- * children for the tween's life beside the mark this rule is keyed on. It
+ * `--tugx-still-held-height` is the imposer's, written on the card root for
+ * the tween's life beside the mark this rule is keyed on. It
  * replaces whatever the root's own height resolved against — for most cards a
  * `height: 100%` of the box that is tweening, which re-laid-out the whole
  * interior at every intermediate height the settle passed through.
@@ -1882,9 +1882,47 @@ body {
  * On the frame's mark, because the height arrives with the mark and the two
  * must go on and come off together: a card holding a height after the mark is
  * gone is propped open, and one marked with no height has nothing to hold.
+ *
+ * Registered NON-INHERITING, and written on the root that reads it. An
+ * unregistered custom property inherits, so a held height written above the
+ * root reached every element in the card, and taking it off at the land
+ * restyled all of them at the same size: 8–15 ms on a real transcript, against
+ * about 2 ms with the value on the root alone. The fold's copy, which nothing
+ * reads, is registered the same way so writing it costs nothing either.
  */
-.tug-pane[data-still-crossing] .tug-pane-content [data-card-host] > * {
+@property --tugx-still-held-height {
+  syntax: "*";
+  inherits: false;
+}
+
+@property --tugx-fold-held-height {
+  syntax: "*";
+  inherits: false;
+}
+
+.tug-pane[data-still-crossing]:not([data-still-height-free]) .tug-pane-content [data-card-host] > * {
   height: var(--tugx-still-held-height);
+}
+
+/*
+ * The same hold on the inline axis, for a frame whose WIDTH tweens — a
+ * bullseye, a sidebar's rail. A list view under a widening frame re-windows
+ * its rows at every width it passes through, one commit per frame; held at
+ * one definite width it is delivered nothing. Keyed on its own mark, because
+ * a crossing with no width term must leave the root's own width alone. One
+ * with no height term leaves the root's height alone in turn
+ * (`data-still-height-free`, on the rule above): the box keeps its height, so
+ * a `height: 100%` root holds itself, and a `height: auto` root that lets the
+ * content box scroll would otherwise become its own scroller at the box's
+ * height, collapsing the box's extent and clamping the reader to the top.
+ */
+@property --tugx-still-held-width {
+  syntax: "*";
+  inherits: false;
+}
+
+.tug-pane[data-still-crossing][data-still-width] .tug-pane-content [data-card-host] > * {
+  width: var(--tugx-still-held-width);
 }
 
 /*

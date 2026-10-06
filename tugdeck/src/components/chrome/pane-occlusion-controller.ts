@@ -73,6 +73,7 @@
  */
 
 import { useLayoutEffect, useMemo, useRef } from "react";
+import { afterGesture, gestureScope } from "@/lib/gesture-scope";
 import { useStoreDerived } from "@/lib/use-store-derived";
 
 import { useDeckManager } from "@/deck-manager-context";
@@ -430,6 +431,13 @@ export function usePaneOcclusionController(
     verifyHides: () => {
       const root = deckRootRef.current;
       if (root === null || gestureDepth > 0) return;
+      // Its geometry reads are a forced layout, so a timer that fires while
+      // a settle's beats run waits for the motion gate to open rather than
+      // reading mid-motion ([B05] of set-up-and-go-fixups).
+      if (gestureScope.isMotionHeld()) {
+        afterGesture(() => passesRef.current.verifyHides());
+        return;
+      }
       const { frames, occluded } = computeOccludedSet(root, activePaneId);
       if (anyFrameAnimating(frames, root)) {
         hideTimerRef.current = window.setTimeout(() => {

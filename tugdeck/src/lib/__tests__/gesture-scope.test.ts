@@ -4,6 +4,7 @@ import { AFTER_PAINT_DEADLINE_MS, type AfterPaintOptions } from "../after-paint"
 import {
   flushThrough,
   GestureScope,
+  holdDeliveries,
   installGestureScope,
   wrapSubscribe,
   wrappedSubscribeFor,
@@ -235,6 +236,17 @@ describe("GestureScope", () => {
     expect(scope.isMotionHeld()).toBe(false);
   });
 
+  it("a cap-fired release opens the gate and tells the holder; a normal one does not", async () => {
+    const { scope } = harness();
+    const capped: string[] = [];
+    scope.holdMotion(1, () => capped.push("cap"));
+    const released = scope.holdMotion(10_000, () => capped.push("never"));
+    released();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(capped).toEqual(["cap"]);
+    expect(scope.isMotionHeld()).toBe(false);
+  });
+
   it("the end of a scope releases nothing the motion gate still holds", () => {
     const { scope, flushes } = harness();
     const calls: string[] = [];
@@ -382,5 +394,34 @@ describe("installGestureScope", () => {
 
     remove();
     expect(removed).toEqual(added);
+  });
+});
+
+describe("holdDeliveries", () => {
+  const entry = (ratio: number) => ({ intersectionRatio: ratio }) as IntersectionObserverEntry;
+  const observer = {} as IntersectionObserver;
+
+  it("delivers at once with the gate open", () => {
+    const { scope } = harness();
+    const seen: number[][] = [];
+    holdDeliveries<IntersectionObserverEntry, IntersectionObserver>((es) => seen.push(es.map((e) => e.intersectionRatio)), scope)(
+      [entry(1)],
+      observer,
+    );
+    expect(seen).toEqual([[1]]);
+  });
+
+  it("keeps every delivery under a closed gate and hands them over once, in order, at its release", () => {
+    const { scope } = harness();
+    const seen: number[][] = [];
+    const cb = holdDeliveries<IntersectionObserverEntry, IntersectionObserver>((es) => seen.push(es.map((e) => e.intersectionRatio)), scope);
+    const release = scope.holdMotion(10_000);
+    cb([entry(1)], observer);
+    cb([entry(0), entry(0.5)], observer);
+    expect(seen).toEqual([]);
+    release();
+    expect(seen).toEqual([[1, 0, 0.5]]);
+    cb([entry(1)], observer);
+    expect(seen).toEqual([[1, 0, 0.5], [1]]);
   });
 });

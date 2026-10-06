@@ -940,3 +940,61 @@ The bars are a lead of one period (17 ms), no gap over two periods (34 ms), and 
 ### The verdict
 
 Not every leg is green, and not every gesture is within its bar. So, by the rule that no red is carried, the arc stops here on the user's choice: fix the planning commit's cost on this arc, or change the tests.
+
+## The user's deck, after the join
+
+The height-bearing gestures on the user's own release deck, read after `29b69a6cb` joined. Taken 2026-10-05 16:38–16:41 UTC. Unlike H1–H4, which read a scripted instance stood up from the arc's worktree, this is the deck the user works in.
+
+- **Build:** instance `release-main`, `Tug.app` in `DerivedData/Tug/Build/Products/Release`, version `0.8.16 (29b69a6cb)`, built two minutes after the join.
+- **The deck:** three Session cards in the flow (slots 0, 1 and 2, each one card, slim width, 1,099–1,200 px tall) and five rail cards (jots, arcs, layout, overview, workspaces). The census read 14,723–16,358 elements over the run, against H4's 8,067; the deck's live sessions kept writing to it.
+- **Rest.** At rest the deck read 17–26 updates/s, holding the main thread 141 ms/s: 63 long-running loops, mostly progress dots on live sessions, this one among them. Every reading ran with the loops stilled by `tugtool deck motion demote on`, restored by `demote off` after each, and every reading's own rest check then passed (1–9 updates/s).
+- **Commands:** `tugtool deck motion settle` with `--count 3 --chains --json`, on slot 1's card where a card is named. `split` ran on slot 2 with slot 1's card assigned into it first, so the column held two cards; on a one-card column it moves nothing. `sidebar` read `--component layout`. `fit` drives once. The deck was put back afterwards: every card unfolded, slot 1's card in slot 1.
+
+| Run | Drive | Lead ms | Longest gap ms | Land frame ms (land at) | Beats: start ms (landing) | Chains: n / longest / total ms |
+|---|---|---|---|---|---|---|
+| `fold` | 1: unfold | 16 | 52 | 35 (351) | grow 52 (finished) | 5 / 2 / 2 |
+|  | 2: fold | 31 | 31 | 27 (341) | shrink 24 (finished) | 5 / 2 / 2 |
+|  | 3: unfold | 15 | 56 | 35 (367) | grow 56 (finished) | 7 / 2 / 2 |
+| `unfold` | 1: fold | 33 | 38 | 38 (754) | shrink 28 (finished), move 28 (finished) | 7 / 5 / 7 |
+|  | 2: unfold | 16 | 49 | 35 (351) | grow 48 (finished) | 12 / 3 / 4 |
+|  | 3: fold | 28 | 28 | 27 (342) | shrink 26 (finished) | 4 / 1 / 1 |
+| `split` | 1: split | 13 | 100 | 20 (529) | room 100 (finished) | 9 / 61 / 79 |
+|  | 2: split | 16 | 102 | 32 (548) | room 101 (finished) | 9 / 60 / 85 |
+|  | 3: split | 17 | 89 | 19 (520) | room 89 (finished) | 8 / 59 / 73 |
+| `slot` | 1: slot | 28 | 104 | 18 (784) | move 103 (finished), grow 103 (finished) | 8 / 59 / 62 |
+|  | 2: slot | 27 | 109 | 23 (788) | shrink 110 (finished), move 110 (finished) | 10 / 61 / 63 |
+|  | 3: slot | 25 | 101 | 18 (768) | move 101 (finished), grow 101 (finished) | 10 / 57 / 59 |
+| `rails` | 1: rails | 19 | 162 | 74 (890) | room 160 (finished), arrive 160 (finished) | 7 / 61 / 120 |
+|  | 2: rails | 15 | 161 | 74 (873) | room 159 (finished), arrive 159 (finished) | 10 / 61 / 120 |
+|  | 3: rails | 16 | 165 | 76 (892) | room 163 (finished), arrive 163 (finished) | 7 / 62 / 123 |
+| `sidebar` | 1: sidebar | 23 | 93 | 24 (771) | room 93 (finished), arrive 93 (finished) | 9 / 59 / 60 |
+|  | 2: sidebar | 23 | 86 | 25 (762) | depart 86 (finished), room 86 (finished) | 16 / 56 / 64 |
+|  | 3: sidebar | 26 | 97 | 21 (771) | room 98 (finished), arrive 98 (finished) | 9 / 61 / 62 |
+| `fit` | 1: fit | 15 | 90 | 19 (1001) | shrink 90 (finished), move 90 (finished), grow 90 (finished) | 6 / 70 / 70 |
+
+Beside H4: fold and unfold read as they did there (first beat 24–56 ms, longest chain 1–5 ms). Split, slot, sidebar and fit start their first beat at 86–110 ms behind a forced-layout chain of 56–70 ms, and rails at 159–163 ms behind two chains totalling 120 ms, about twice H4's 81–87; this deck is nearly twice H4's census. The land frame is one period on slot, split and fit (18–23 ms, with one split at 32), 21–25 ms on sidebar, 27–38 ms on fold and unfold, and 74–76 ms on rails, so the land record reads more than one frame on every gesture but those three.
+
+### The shrink
+
+[F02]'s band, read frame by frame on this deck rather than by eye: the release deck has no screen-capture door, and this shell has no screen-recording permission. A `requestAnimationFrame` sampler (`.tug/arcs/set-up-and-go-fixups/step1/sampler.js`) read every still-crossing frame's box, its content box and the held card root inside it, while slot 1's card was driven into slot 2's column. Both cards in the column shrank, frame 1,176 → 600 px, content box 1,085 → 509 px, each held at its final 509 px, settled, and anchored at the bottom (`data-still-anchor="bottom"`: both transcripts were following).
+
+| Frame | ms from arm | Content box px | Held root px | Band at top px |
+|---|---|---|---|---|
+| set-up | 36 | 1,085 | 1,085 | 0 |
+| 1 | 165 | 1,085 | 509 | 576 |
+| 2 | 191 | 928 | 509 | 419 |
+| 3 | 207 | 800 | 509 | 291 |
+| 4 | 214 | 755 | 509 | 246 |
+| 5 | 228 | 682 | 509 | 173 |
+| 6 | 245 | 620 | 509 | 111 |
+| 7 | 262 | 579 | 509 | 70 |
+| 8 | 279 | 553 | 509 | 44 |
+| 10 | 312 | 527 | 509 | 18 |
+| 13 | 362 | 513 | 509 | 4 |
+| 16 | 412 | 509 | 509 | 0 |
+
+The root's background is transparent, so the band shows the content box's own background (`oklch(0.31 0.01 263)`), with nothing in it. On the frame before the motion that strip held 576 px of transcript rows. They vanish at the first frame, leaving a blank strip between the masthead and the transcript that closes over about 250 ms. **The band is visible** (verified), and on a bottom-anchored transcript it sits at the top, under the chrome, not at the moving edge.
+
+Which bears on [B02]'s cover. The chrome is 91 px tall (frame 1,176 against content 1,085), so a chrome that slides cannot cover 576 px. The column's neighbour rides the same edge as the frame it would cover, so it cannot cover the strip either. The band is the settled hold's alone. The hold before it held a shrink at its larger, starting height, which leaves no strip to show. On a growth the larger height and the final height are the same height, so the band exists on shrinks alone.
+
+**The ruling.** The user chose to hold a shrink at its starting height, so it shows no band and pays its land relayout, while a growth keeps the settled hold. `settle-engine.ts` settles a frame only when its content does not shrink. This revises [B02] of `briefs/set-up-and-go-fixups-brief.md`.

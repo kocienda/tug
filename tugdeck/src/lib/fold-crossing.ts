@@ -20,7 +20,7 @@
  *   `overflow: hidden` so the overflowing interior draws no scrollbar and takes
  *   no wheel, and the card root taking a definite height — keys on the still
  *   crossing's mark below, which a fold sets beside this one.
- * - the held height on the content box's children: the LARGER of the two
+ * - the held height on the card root: the LARGER of the two
  *   content heights, First on the fold in and Last on the unfold, since in both
  *   directions that is the open one ([F06]). The number the hold resolves
  *   against is `STILL_HELD_HEIGHT_PROP`; `FOLD_HELD_HEIGHT_PROP` carries the
@@ -146,6 +146,27 @@ export const STILL_CROSSING_SETTLED = "tug-still-crossing-settled";
 export const STILL_HELD_HEIGHT_PROP = "--tugx-still-held-height";
 
 /**
+ * The width the interior is held at under a still crossing whose frame's
+ * width tweens, written beside `STILL_HELD_HEIGHT_PROP` and read only while
+ * {@link STILL_WIDTH_ATTR} is on the frame. A crossing that carries no width
+ * term leaves the root's own width alone.
+ */
+export const STILL_HELD_WIDTH_PROP = "--tugx-still-held-width";
+
+/** Stamped on the frame while its still crossing holds a width as well. */
+export const STILL_WIDTH_ATTR = "data-still-width";
+
+/**
+ * Stamped beside {@link STILL_WIDTH_ATTR} when the crossing carries no height
+ * term: the box's height does not change, so the root keeps its own. A root
+ * whose height is `auto` — a card that lets the content box do its scrolling
+ * — held at the box's height would become its own scroller, the content box's
+ * extent would collapse to the box, and the reader's place would clamp to the
+ * top.
+ */
+export const STILL_HEIGHT_FREE_ATTR = "data-still-height-free";
+
+/**
  * Declared by a card ROOT, never by the imposer: which edge its held picture
  * hangs from. Absent means the top. `"bottom"` hangs it from the content box's
  * bottom for the length of a still crossing that is not a fold, so content the
@@ -164,6 +185,14 @@ export const STILL_ANCHOR_ATTR = "data-still-anchor";
  * other imposer duration by `--tug-timing`.
  */
 export const FOLD_PREPARE_MS = 25;
+
+/**
+ * {@link FOLD_PREPARE_MS} for a settle that reveals an arrival: two and a half
+ * 60Hz frames, so the frame where the revealed card is first laid out and the
+ * frame where its passive effects' observers first deliver are both inside
+ * it, and the one after that never is.
+ */
+export const ARRIVAL_PREPARE_MS = 42;
 
 let nextCrossingId = 1;
 
@@ -203,6 +232,23 @@ export function heldHeightOnMark(
   nextPx: number,
 ): number {
   return standingPx === null ? nextPx : Math.max(standingPx, nextPx);
+}
+
+/**
+ * The card roots under a content box — where a held height is written. The
+ * content box's child is the portal slot and the slot's is the card host, both
+ * `display: contents`, so the root is the first box below the clip.
+ *
+ * On the root and nowhere above it, because the property is registered
+ * non-inheriting (`tug-pane.css`): written on the slot, as it once was, it was
+ * inherited by every element in the card, and taking it off restyled all of
+ * them — 8–15 ms on a real transcript, paid at the land, for a value only the
+ * root reads.
+ */
+function heldTargetsOf(content: HTMLElement): HTMLElement[] {
+  return Array.from(
+    content.querySelectorAll<HTMLElement>(":scope [data-card-host] > *"),
+  );
 }
 
 /** The pane's content box — the element that clips the held interior. */
@@ -323,19 +369,57 @@ function markKind(
     : null;
   // Any mark but a settle's holds a picture at an open height, so a frame it
   // re-marks is no longer settled; `settleStillCrossing` sets it after this.
-  if (kind === STILL_KIND) frame.removeAttribute(STILL_SETTLED_ATTR);
+  if (kind === STILL_KIND) {
+    frame.removeAttribute(STILL_SETTLED_ATTR);
+    // A width is held only by the settle that sets it, after this mark.
+    releaseWidth(frame, kind.held.get(frame)?.box ?? contentBoxOf(frame));
+  }
   const heightPx = heldHeightOnMark(standing, heldHeightPx);
   const content = contentBoxOf(frame);
   kind.held.set(frame, { box: content, heightPx });
   if (content !== null) {
-    for (const child of content.children) {
-      if (child instanceof HTMLElement) {
-        child.style.setProperty(kind.prop, `${heightPx}px`);
-      }
+    for (const root of heldTargetsOf(content)) {
+      root.style.setProperty(kind.prop, `${heightPx}px`);
     }
   }
   frame.setAttribute(kind.attr, String(id));
   return id;
+}
+
+/**
+ * Hold the interior of a still-crossing `frame` at `widthPx` as well as its
+ * height — for a frame whose width tweens ([B05] of set-up-and-go-fixups).
+ * `heightHeld` is whether the crossing carries a height term too; one that
+ * does not leaves the root's own height alone ({@link STILL_HEIGHT_FREE_ATTR}).
+ *
+ * The height hold's argument holds on the other axis: a list view under a
+ * widening frame re-windows its rows at every width it passes through, one
+ * React commit per animation frame. Held at one definite width, the scrollport
+ * does not resize and nothing is delivered. Call after the mark, which clears
+ * any width a previous crossing held; the crossing's end takes it off.
+ */
+export function holdStillWidth(
+  frame: HTMLElement,
+  widthPx: number,
+  heightHeld: boolean,
+): void {
+  const content = STILL_KIND.held.get(frame)?.box ?? contentBoxOf(frame);
+  if (content === null || widthPx <= 0) return;
+  for (const root of heldTargetsOf(content)) {
+    root.style.setProperty(STILL_HELD_WIDTH_PROP, `${widthPx}px`);
+  }
+  frame.setAttribute(STILL_WIDTH_ATTR, "");
+  if (!heightHeld) frame.setAttribute(STILL_HEIGHT_FREE_ATTR, "");
+}
+
+function releaseWidth(frame: HTMLElement, content: HTMLElement | null): void {
+  if (!frame.hasAttribute(STILL_WIDTH_ATTR)) return;
+  frame.removeAttribute(STILL_WIDTH_ATTR);
+  frame.removeAttribute(STILL_HEIGHT_FREE_ATTR);
+  if (content === null) return;
+  for (const root of heldTargetsOf(content)) {
+    root.style.removeProperty(STILL_HELD_WIDTH_PROP);
+  }
 }
 
 /**
@@ -450,12 +534,11 @@ function endKind(
   // whose content box was replaced mid-crossing left the property on the old
   // element, and the new one never carried it.
   const content = kind.held.get(frame)?.box ?? contentBoxOf(frame);
+  if (kind === STILL_KIND) releaseWidth(frame, content);
   kind.held.delete(frame);
   if (content !== null) {
-    for (const child of content.children) {
-      if (child instanceof HTMLElement) {
-        child.style.removeProperty(kind.prop);
-      }
+    for (const root of heldTargetsOf(content)) {
+      root.style.removeProperty(kind.prop);
     }
   }
   if (kind === STILL_KIND) {
@@ -490,6 +573,13 @@ export function contentBoxHeight(frame: HTMLElement): number | null {
   const content = contentBoxOf(frame);
   if (content === null) return null;
   return layoutPxOf(content.getBoundingClientRect().height, getTugZoom());
+}
+
+/** {@link contentBoxHeight}'s twin on the inline axis, in the pane's own px. */
+export function contentBoxWidth(frame: HTMLElement): number | null {
+  const content = contentBoxOf(frame);
+  if (content === null) return null;
+  return layoutPxOf(content.getBoundingClientRect().width, getTugZoom());
 }
 
 /**

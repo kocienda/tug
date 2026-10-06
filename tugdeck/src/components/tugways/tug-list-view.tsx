@@ -86,7 +86,12 @@
 import "./tug-list-view.css";
 
 import React from "react";
-import { afterGesture, useSyncExternalStore } from "@/lib/gesture-scope";
+import {
+  afterGesture,
+  gestureScope,
+  heldResizeObserver,
+  useSyncExternalStore,
+} from "@/lib/gesture-scope";
 
 import { currentGesture, targetRefusesFocus } from "@/gesture-interpreter";
 import {
@@ -2684,7 +2689,24 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // tick (so the second render reads a real `clientHeight`).
     // Triggers a reducer increment which forces React to re-execute
     // the component body and recompute the windowed slice.
-    const [, scrollTick] = React.useReducer((x: number) => x + 1, 0);
+    const [, renderTick] = React.useReducer((x: number) => x + 1, 0);
+    // While a settle's motion gate is closed the re-window waits for it to
+    // open, coalesced to one ([B05] of set-up-and-go-fixups): the set-up
+    // windowed the rows for the scrollport the motion lands at, so a tick
+    // mid-motion has nothing to draw but a React commit under the beats.
+    const tickHeldRef = React.useRef(false);
+    const scrollTick = React.useCallback((): void => {
+      if (!gestureScope.isMotionHeld()) {
+        renderTick();
+        return;
+      }
+      if (tickHeldRef.current) return;
+      tickHeldRef.current = true;
+      afterGesture(() => {
+        tickHeldRef.current = false;
+        renderTick();
+      });
+    }, []);
 
     // [L04] settle-handshake release, shared by the two cell-observer
     // sites that can witness a batch settle: the normal post-measurement
@@ -3192,7 +3214,12 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         liveExtentsRef.current.clear();
       }
       prevDataSourceForClearRef.current = dataSource;
-      const observer = new ResizeObserver((entries) => {
+      // Held by the motion gate: a frame whose width grows re-flows every
+      // row, and the re-measure would otherwise cascade a pin, a re-window
+      // and a commit through the motion's frames. The set-up's own wave is
+      // delivered before the gate closes; what follows waits for the land
+      // ([B05] of set-up-and-go-fixups).
+      const observer = heldResizeObserver((entries) => {
         // A scroller with no rendered box — `display: none`, the state
         // every inactive card tab sits in — reports EVERY observed cell
         // at 0×0. Writing those zeros into the ledger poisons eviction's
@@ -3479,7 +3506,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           scrollTick();
         }
       };
-      const widthObserver = new ResizeObserver(() => {
+      // Held by the motion gate, with the cell observer ([B05] of
+      // set-up-and-go-fixups): a width the set-up settled re-windows once,
+      // there, and nothing mid-motion.
+      const widthObserver = heldResizeObserver(() => {
         const width = scroller.clientWidth;
         // Width 0 is a hidden scroller (`display: none` — an inactive
         // card tab), not a width change. Skip WITHOUT updating
@@ -3536,7 +3566,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     React.useLayoutEffect(() => {
       const winEl = listWindowElRef.current;
       if (winEl === null) return;
-      const gapObserver = new ResizeObserver(() => {
+      const gapObserver = heldResizeObserver(() => {
         // Hidden (display:none tab): no meaningful layout to sync against.
         if (winEl.offsetWidth === 0) return;
         if (syncRowGap()) scrollTick();
@@ -3633,9 +3663,19 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         pinRequestedRef.current = true;
         scrollTick();
       };
+      // The crossing's end clears the answered size too, so one no delivery
+      // came for cannot swallow a later resize to the same box. Queued behind
+      // the gate's held deliveries, so the first frame's own delivery of that
+      // size — held until the gate opens — is still answered by it.
+      const onStillCrossingClosed = (): void => {
+        onStillCrossingEnd();
+        afterGesture(() => {
+          settledSizeRef.current = null;
+        });
+      };
       if (heldFrame !== null) {
         smartScroll.setHeldSource(() => isInteriorHeld(heldFrame));
-        heldFrame.addEventListener(STILL_CROSSING_END, onStillCrossingEnd);
+        heldFrame.addEventListener(STILL_CROSSING_END, onStillCrossingClosed);
         heldFrame.addEventListener(STILL_CROSSING_SETTLED, onStillCrossingSettled);
       }
       // Surface the initial follow-bottom intent: `onFollowBottomChanged`
@@ -3999,7 +4039,9 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         },
       });
       revealSeamRef.current = revealSeam;
-      const revealObserver = new ResizeObserver(() => {
+      // Held by the motion gate, with the list view's other observers
+      // ([B05] of set-up-and-go-fixups).
+      const revealObserver = heldResizeObserver(() => {
         if (el.clientWidth === 0 || el.clientHeight === 0) {
           revealSeam.noteBoxLost();
           return;
@@ -4041,7 +4083,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         el.removeEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
         revealObserver.disconnect();
         revealSeamRef.current = null;
-        heldFrame?.removeEventListener(STILL_CROSSING_END, onStillCrossingEnd);
+        heldFrame?.removeEventListener(STILL_CROSSING_END, onStillCrossingClosed);
         heldFrame?.removeEventListener(STILL_CROSSING_SETTLED, onStillCrossingSettled);
         heldFrameRef.current = null;
         smartScroll.dispose();
@@ -4082,7 +4124,9 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     React.useLayoutEffect(() => {
       const el = scrollContainerRef.current;
       if (el === null) return;
-      const observer = new ResizeObserver(() => {
+      // Held by the motion gate, with the cell observer: the re-window it
+      // runs waits for the land ([B05] of set-up-and-go-fixups).
+      const observer = heldResizeObserver(() => {
         // A size a settled crossing's set-up already answered: the pin,
         // the restore and the re-window ran there, before the first frame,
         // and this delivery is that frame reporting the same box. Re-running

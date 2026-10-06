@@ -105,6 +105,7 @@ import type { BlockAltitude } from "./block-strip";
 import { BlockNoticeBand, type BlockNotice } from "./block-notice";
 import type { ToolResultSummary } from "./tool-result-summary";
 import type { CautionFlag, ToolBlockStatus } from "./types";
+import { heldResizeObserver } from "@/lib/gesture-scope";
 
 /**
  * Map the chrome's body-composition `status` onto a header-dot
@@ -434,7 +435,9 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
     // writing the real one back on the unfold, was one inherited-property
     // write per tool block in the frame after each, under the fold's edge.
     let written = -1;
-    const observer = new ResizeObserver((entries) => {
+    // Held by the motion gate ([B05] of set-up-and-go-fixups): a header a
+    // growing clip brings on screen reports at the land, not mid-motion.
+    const observer = heldResizeObserver((entries) => {
       const entry = entries[0];
       if (entry === undefined) return;
       // `borderBoxSize` is preferred — it reports the box-model height

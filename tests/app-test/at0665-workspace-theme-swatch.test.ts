@@ -368,7 +368,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           });
           const deadline = Date.now() + 8_000;
           let checked = await app.menuItemState(`view.theme.${THEME_ACTIVE_PICK}`);
-          while (checked.state !== 1 && Date.now() < deadline) {
+          while (!(checked.found && checked.state === 1) && Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 100));
             checked = await app.menuItemState(`view.theme.${THEME_ACTIVE_PICK}`);
           }

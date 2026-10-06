@@ -390,6 +390,7 @@ describe.skipIf(!SHOULD_RUN)(
       "the caret blinks in the composer — owed: no app-test card takes real " +
         "keyboard focus, so `.cm-focused` never sets and the caret layer " +
         "mounts with `animation-name: none`",
+      () => {},
     );
 
     test(

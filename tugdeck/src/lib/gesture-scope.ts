@@ -195,9 +195,10 @@ export class GestureScope {
    * Close the motion gate until the returned release runs, or `capMs`
    * passes. No-op with motion off. The release is idempotent; the last one
    * out runs everything held, unless a scope is still pending, whose own
-   * release then does.
+   * release then does. `onCap` runs after a cap-fired release only, so a
+   * holder can drop its handle and leave the state a normal release leaves.
    */
-  holdMotion(capMs: number): () => void {
+  holdMotion(capMs: number, onCap?: () => void): () => void {
     if (!this.motionEnabled()) return () => {};
     this.motionHolds += 1;
     this.motionEpoch += 1;
@@ -210,7 +211,10 @@ export class GestureScope {
       this.motionHolds -= 1;
       if (this.motionHolds === 0 && !this.pending) this.runHeldAndQueued();
     };
-    cap = setTimeout(release, capMs);
+    cap = setTimeout(() => {
+      release();
+      onCap?.();
+    }, capMs);
     return release;
   }
 
@@ -278,6 +282,146 @@ export class GestureScope {
 
 /** The singleton the hook and the verbs use. */
 export const gestureScope = new GestureScope();
+
+/**
+ * Pure: an observer callback that waits out a closed motion gate ([B05] of
+ * set-up-and-go-fixups) — for `IntersectionObserver` and `ResizeObserver`
+ * alike.
+ *
+ * The platform delivers both in the rendering update, after layout, and what
+ * answers them is not ours to sequence: CodeMirror answers an intersection
+ * with a synchronous `view.measure()`, and the pane chrome's observers re-read
+ * and re-truncate at every width a tweening frame passes through. Each is a
+ * read and a write mid-motion. While the gate is closed the deliveries are
+ * kept, in order, and handed over once at its release, as one call carrying
+ * every entry: both observers report changes, so the last entry for a target
+ * is its standing state and nothing is lost.
+ */
+export function holdDeliveries<E, O>(
+  cb: (entries: E[], observer: O) => void,
+  scope: GestureScope = gestureScope,
+  heldWhen: (entries: E[]) => boolean = () => true,
+): (entries: E[], observer: O) => void {
+  let kept: { entries: E[]; observer: O } | null = null;
+  // Once a delivery is kept, every later one is kept behind it, so the
+  // callback sees them in the order the platform made them.
+  const holds = (entries: E[]): boolean =>
+    scope.isMotionHeld() && (kept !== null || heldWhen(entries));
+  const held = (entries: E[], observer: O): void => {
+    if (!holds(entries)) {
+      cb(entries, observer);
+      return;
+    }
+    if (kept !== null) {
+      kept.entries.push(...entries);
+      return;
+    }
+    kept = { entries: [...entries], observer };
+    scope.enqueue(() => {
+      const due = kept;
+      kept = null;
+      if (due !== null) cb(due.entries, due.observer);
+    });
+  };
+  HELD_CALLBACKS.set(held, holds as (entries: unknown[]) => boolean);
+  return held;
+}
+
+const HELD_CALLBACKS = new WeakMap<object, (entries: unknown[]) => boolean>();
+
+/**
+ * Whether a delivery of `entries` to `callback` is being kept by the gate
+ * right now — what the land record's delivery counter asks, so a delivery
+ * the gate held is counted where it runs, at the release, and not where it
+ * was offered.
+ */
+export function isDeliveryHeld(callback: object, entries: unknown[]): boolean {
+  return HELD_CALLBACKS.get(callback)?.(entries) ?? false;
+}
+
+/**
+ * Whether every entry's target stands inside a still-crossing pane's content
+ * box — the held interior, which the crossing's own argument says delivers
+ * nothing while the edge moves. What it does deliver is the interior meeting
+ * the clip, a cell the growing box brings on screen, and that waits for the
+ * land like the rest ([B05] of set-up-and-go-fixups).
+ */
+function insideHeldInterior(entries: unknown[]): boolean {
+  return (
+    entries.length > 0 &&
+    entries.every((entry) => {
+      const target = (entry as { target?: unknown }).target;
+      return (
+        target instanceof Element &&
+        target.closest(".tug-pane[data-still-crossing] .tug-pane-content") !== null
+      );
+    })
+  );
+}
+
+/**
+ * A `ResizeObserver` whose deliveries wait out a closed motion gate — for an
+ * observer that answers a size the settle tweens, and whose answer is a
+ * read and a write that has no business landing mid-motion: the pane chrome
+ * re-reading its accessory and re-truncating its activity line at every width
+ * a bullseye passes through.
+ *
+ * Opt-in by site for an observer outside any held interior — the pane chrome
+ * — which the constructor's own hold leaves alone, because the deck's layout
+ * answers its observers mid-settle — a fold's height, a card host's
+ * refinement — and holding those would hold the settle itself.
+ */
+export function heldResizeObserver(callback: ResizeObserverCallback): ResizeObserver {
+  return new ResizeObserver(holdDeliveries(callback));
+}
+
+/**
+ * Every `IntersectionObserver` constructed from here on is held by the gate.
+ * Nothing in the deck's own layout answers an intersection, so the hold is
+ * installed on the constructor rather than opted into by site.
+ */
+function installIntersectionHold(): void {
+  if (typeof window === "undefined") return;
+  const Native = window.IntersectionObserver;
+  if (typeof Native !== "function") return;
+  const Wrapped = function (
+    callback: IntersectionObserverCallback,
+    options?: IntersectionObserverInit,
+  ): IntersectionObserver {
+    return new Native(holdDeliveries(callback), options);
+  } as unknown as typeof IntersectionObserver;
+  Wrapped.prototype = Native.prototype;
+  window.IntersectionObserver = Wrapped;
+}
+
+installIntersectionHold();
+
+/**
+ * Every `ResizeObserver` constructed from here on holds the deliveries that
+ * land wholly inside a held interior. One outside it — the deck's own
+ * layout, a card host, the canvas — is delivered as the platform makes it,
+ * because the settle answers those mid-motion. Installed when this module
+ * evaluates, which `lib/land-frame-record.ts` guarantees comes first, so its
+ * delivery counter wraps this one and counts a held delivery where it runs.
+ */
+function installInteriorResizeHold(): void {
+  if (typeof window === "undefined") return;
+  const Native = window.ResizeObserver;
+  if (typeof Native !== "function") return;
+  const Wrapped = function (callback: ResizeObserverCallback): ResizeObserver {
+    return new Native(
+      holdDeliveries<ResizeObserverEntry, ResizeObserver>(
+        callback,
+        gestureScope,
+        insideHeldInterior,
+      ),
+    );
+  } as unknown as typeof ResizeObserver;
+  Wrapped.prototype = Native.prototype;
+  window.ResizeObserver = Wrapped;
+}
+
+installInteriorResizeHold();
 
 /** Pure: the subscribe React is handed. */
 export function wrapSubscribe(

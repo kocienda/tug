@@ -25,7 +25,7 @@
 
 import type { RefObject } from "react";
 import { useCallback, useRef, useLayoutEffect } from "react";
-import { gestureScope } from "@/lib/gesture-scope";
+import { afterGesture, gestureScope } from "@/lib/gesture-scope";
 import {
   planBeat,
   type Beat,
@@ -41,6 +41,8 @@ import {
 } from "@/lib/resize-episode";
 import {
   contentBoxHeight,
+  contentBoxWidth,
+  ARRIVAL_PREPARE_MS,
   FOLD_PREPARE_MS,
   adoptFoldCrossing,
   adoptStillCrossing,
@@ -48,6 +50,7 @@ import {
   endFoldCrossing,
   endStillCrossing,
   FOLD_CROSSING_ATTR,
+  holdStillWidth,
   markFoldCrossing,
   markStillCrossing,
   settleStillCrossing,
@@ -511,6 +514,15 @@ interface DepartingTarget {
 const SETTLE_DEPARTING_ATTR = "data-settle-departing";
 
 /**
+ * The most ticks the land's tail reads past the release while it waits for a
+ * settled mark to come off. The mark comes off in the land's own task, so the
+ * tail is two ticks unless a hand-back was deferred; eight frames is room for
+ * any deferral worth reading and short enough that a stranded mark cannot keep
+ * the tail alive.
+ */
+const LAND_TAIL_CAP_TICKS = 8;
+
+/**
  * A departing target's landing ([P06], Spec S02 step 7). A CLOSING frame
  * keeps its hold and goes to an inline `opacity: 0`: its fade has ended (or
  * never ran) and `fill: none` would otherwise hand it back at full opacity
@@ -839,11 +851,14 @@ export function useSettleEngine({
   const motionGateRef = useRef<{
     release: (() => void) | null;
     cancelOpen: CancelAfterPaint | null;
-  }>({ release: null, cancelOpen: null });
+    cancelClose: CancelAfterPaint | null;
+  }>({ release: null, cancelOpen: null, cancelClose: null });
   const openMotionGate = useCallback((): void => {
     const gate = motionGateRef.current;
     gate.cancelOpen?.();
     gate.cancelOpen = null;
+    gate.cancelClose?.();
+    gate.cancelClose = null;
     const release = gate.release;
     gate.release = null;
     release?.();
@@ -852,7 +867,17 @@ export function useSettleEngine({
   const closeMotionGate = useCallback(
     (capMs: number): void => {
       openMotionGate();
-      motionGateRef.current.release = gestureScope.holdMotion(capMs);
+      // The cap drops the handle too, so a capped gate leaves the state an
+      // opened one does and the trace records one open per close.
+      const release = gestureScope.holdMotion(capMs, () => {
+        const gate = motionGateRef.current;
+        if (gate.release !== release) return;
+        gate.cancelOpen?.();
+        gate.cancelOpen = null;
+        gate.release = null;
+        deckTrace.record({ kind: "settle-gate", phase: "open" });
+      });
+      motionGateRef.current.release = release;
       // The motion's origin is stamped after the closing task's synchronous
       // work, not here. The Last pass closes the gate from inside the set-up
       // commit's layout effects, and the commit census stamps that commit
@@ -866,12 +891,52 @@ export function useSettleEngine({
     },
     [openMotionGate],
   );
+  /**
+   * Close the gate two paints late, for a settle whose set-up runs into its
+   * first frames: an arrival's revealed card is laid out for the first time
+   * in the frame after its commit, and the observers its passive effects
+   * attach after that paint deliver in the frame after that. The beats are
+   * held off by the arrival's prepare beat across both, so those frames stand
+   * at First and the motion opens on the frame after, sealed.
+   */
+  const closeMotionGateAfterPaint = useCallback(
+    (capMs: number): void => {
+      openMotionGate();
+      const gate = motionGateRef.current;
+      // And not while the gesture's own scope is still pending: its release
+      // runs after a paint too, and the store tells it holds commit there —
+      // set-up work, which would otherwise land just behind the gate.
+      const tryClose = (): void => {
+        if (gestureScope.isPending()) {
+          gate.cancelClose = scheduleAfterPaint(tryClose);
+          return;
+        }
+        gate.cancelClose = null;
+        closeMotionGate(capMs);
+      };
+      gate.cancelClose = scheduleAfterPaint(() => {
+        gate.cancelClose = scheduleAfterPaint(tryClose);
+      });
+    },
+    [openMotionGate, closeMotionGate],
+  );
   const openMotionGateAfterLand = useCallback((): void => {
     const gate = motionGateRef.current;
+    // A late close still waiting on its paints is owed nothing now: the
+    // settle it was for has landed. Left standing, it would close the gate
+    // after the motion, and every tell would wait out the cap.
+    gate.cancelClose?.();
+    gate.cancelClose = null;
     if (gate.release === null) return;
     gate.cancelOpen?.();
+    // Three paints, not two: a release fires from an animation's finish,
+    // inside a frame's update, so the first paint is that same frame's. Two
+    // let the held work in at the start of the frame that closes the land,
+    // which the land then paid for ([B05] of set-up-and-go-fixups).
     gate.cancelOpen = scheduleAfterPaint(() => {
-      gate.cancelOpen = scheduleAfterPaint(openMotionGate);
+      gate.cancelOpen = scheduleAfterPaint(() => {
+        gate.cancelOpen = scheduleAfterPaint(openMotionGate);
+      });
     });
   }, [openMotionGate]);
   /**
@@ -899,7 +964,10 @@ export function useSettleEngine({
    * the fold does not move.
    */
   const settleFirstFoldsRef = useRef<
-    Map<string, { folded: boolean; contentHeight: number | null }>
+    Map<
+      string,
+      { folded: boolean; contentHeight: number | null; contentWidth: number | null }
+    >
   >(new Map());
   /**
    * Which edge each frame stood pinned to before the commit, by pane id —
@@ -1627,6 +1695,13 @@ export function useSettleEngine({
      * it is the second that closes the land's frame — see
      * `lib/land-frame-record.ts`. Two frame callbacks and done: nothing here
      * outlives the settle by more than the frame it is measuring ([D1]).
+     *
+     * Unless a settled mark is still on when the tail starts. Then the
+     * hand-back is not all paid in the land's task, and the tail reads on
+     * until the mark has come off and two ticks past it, so the late cost is
+     * the land's frame rather than one the record closed before ([B04] of
+     * `set-up-and-go-fixups`). Capped, so a mark nobody takes off cannot keep
+     * a frame callback alive.
      */
     const startLandTail = (
       settleTicks: readonly number[],
@@ -1637,6 +1712,12 @@ export function useSettleEngine({
       const land = settleFramesRef.current.land;
       const ticks = [...settleTicks];
       let after = 0;
+      const marked = (): boolean =>
+        document.querySelector(`[${STILL_SETTLED_ATTR}]`) !== null;
+      // `undefined` while nothing is owed; `null` while a mark is still on;
+      // the moment just before it was seen gone, once it is.
+      let shedAt: number | null | undefined = marked() ? null : undefined;
+      let pastShed = 0;
       const finish = (): void => {
         if (land.raf !== null) cancelAnimationFrame(land.raf);
         land.raf = null;
@@ -1644,6 +1725,7 @@ export function useSettleEngine({
         const reading = classifyLand({
           ticks,
           landAt,
+          shedAt: shedAt ?? undefined,
           gestureAt,
           framePeriodMs,
           ...landRecorder.take(ticks[0] ?? landAt),
@@ -1652,9 +1734,17 @@ export function useSettleEngine({
         deckTrace.record({ kind: "settle-land", ...reading });
       };
       const tick = (): void => {
-        ticks.push(performance.now());
+        const previous = ticks[ticks.length - 1] ?? landAt;
+        const now = performance.now();
+        ticks.push(now);
         after += 1;
-        if (after >= 2) finish();
+        // The mark came off somewhere since the previous tick, so the shed is
+        // placed just after it: this tick may run ahead of what it dirtied,
+        // and the next one closes the frame that paid.
+        if (shedAt === null && !marked()) shedAt = previous + 0.001;
+        if (typeof shedAt === "number") pastShed += 1;
+        const owed = shedAt === null || (typeof shedAt === "number" && pastShed < 2);
+        if ((after >= 2 && !owed) || after >= LAND_TAIL_CAP_TICKS) finish();
         else land.raf = requestAnimationFrame(tick);
       };
       land.finish = finish;
@@ -2125,6 +2215,7 @@ export function useSettleEngine({
           firstFolds.set(paneId, {
             folded: frame.hasAttribute("data-folded"),
             contentHeight: contentBoxHeight(frame),
+            contentWidth: contentBoxWidth(frame),
           });
         }
         // The edge, for the departure this frame may make. Read for every
@@ -2876,6 +2967,12 @@ export function useSettleEngine({
       crossingId: number | null;
       /** The still crossing's id — set on every frame with a height term, folding or not. */
       stillCrossingId: number | null;
+      /**
+       * Whether the frame's interior is held at its STARTING width — a width
+       * shrink — so it re-flows only when the hold comes off at the land, and
+       * its resize episode has to outlive that re-flow.
+       */
+      reflowsAtLand?: boolean;
     }
     const choreography: Choreographed[] = [];
     // Whether this settle OPENED a fold crossing — a fold or an unfold it is
@@ -3047,6 +3144,8 @@ export function useSettleEngine({
     // interiors once every hold is written, so what each reads is the
     // geometry of the first frame.
     const settledFrames: HTMLElement[] = [];
+    // A frame whose interior width is settled at its final size this pass.
+    let widthSettles = false;
     for (const frame of el.querySelectorAll<HTMLElement>(
       SHOWN_PANE_FRAMES,
     )) {
@@ -3144,6 +3243,7 @@ export function useSettleEngine({
       // settle has already re-marked the frame.
       let crossingId: number | null = null;
       let stillCrossingId: number | null = null;
+      let reflowsAtLand = false;
       if (holdPlan.covered.has(paneId)) {
         // A member a column mode flip committed behind its survivor. It does
         // not travel and it does not fade ([B02] of
@@ -3218,6 +3318,15 @@ export function useSettleEngine({
         // is a forced layout of the card at its far-side height — 3–4ms on a
         // 1630px session card, paid in the frame that launches the motion.
         const lastContentHeight = heightTweens ? contentBoxHeight(frame) : null;
+        // A width term holds the interior too, so its height is read here
+        // whether or not it tweens, and its width beside it — both before any
+        // mark below is written.
+        const heldContentHeight = heightTweens
+          ? lastContentHeight
+          : widthTweens
+            ? contentBoxHeight(frame)
+            : null;
+        const lastContentWidth = widthTweens ? contentBoxWidth(frame) : null;
         if (
           heightTweens &&
           firstFold !== undefined &&
@@ -3267,21 +3376,64 @@ export function useSettleEngine({
         // at its final height in the set-up, the interior has nothing left
         // to do when the hold comes off. A fold keeps the open picture: its
         // interior must stay laid out open while it folds.
-        if (heightTweens) {
+        //
+        // So does a SHRINK. Held at its final height, a shrinking interior is
+        // shorter than the box until the edge arrives, and the strip it does
+        // not cover is bare background: on a following transcript, 576px of
+        // rows gone at the first frame of a column join, under the chrome,
+        // where no neighbour can cover it. A growth's final height is its
+        // larger one, so the settled hold costs it nothing; a shrink holds its
+        // starting height and pays its land.
+        //
+        // A WIDTH term is held on the same terms ([B05] of
+        // set-up-and-go-fixups): a list view under a widening frame
+        // re-windowed its rows at every width the tween passed through, one
+        // commit per frame. Held at the final width on a growth — settled,
+        // so its pin is paid in the set-up — and at the starting width on a
+        // shrink, for the shrink's reason above.
+        if (heightTweens || widthTweens) {
           const folding =
             opensFoldCrossing || frame.hasAttribute(FOLD_CROSSING_ATTR);
-          if (!folding && lastContentHeight !== null && lastContentHeight > 0) {
-            stillCrossingId = settleStillCrossing(frame, lastContentHeight);
+          const heightShrinks =
+            heightTweens &&
+            firstFold?.contentHeight != null &&
+            lastContentHeight !== null &&
+            lastContentHeight < firstFold.contentHeight;
+          const widthShrinks =
+            widthTweens &&
+            firstFold?.contentWidth != null &&
+            lastContentWidth !== null &&
+            lastContentWidth < firstFold.contentWidth;
+          const shrinks = heightShrinks || widthShrinks;
+          if (
+            !folding &&
+            !shrinks &&
+            heldContentHeight !== null &&
+            heldContentHeight > 0
+          ) {
+            stillCrossingId = settleStillCrossing(frame, heldContentHeight);
             settledFrames.push(frame);
           } else {
             const stillHeight = Math.max(
               firstFold?.contentHeight ?? 0,
-              lastContentHeight ?? 0,
+              heldContentHeight ?? 0,
             );
             stillCrossingId =
               stillHeight > 0
                 ? markStillCrossing(frame, stillHeight)
                 : adoptStillCrossing(frame);
+          }
+          if (widthTweens && stillCrossingId !== null) {
+            if (!widthShrinks) widthSettles = true;
+            else reflowsAtLand = true;
+            holdStillWidth(
+              frame,
+              Math.max(
+                widthShrinks ? (firstFold?.contentWidth ?? 0) : 0,
+                lastContentWidth ?? 0,
+              ),
+              heightTweens,
+            );
           }
         }
         // A frame that did not move and did not change size gets no animation
@@ -3395,6 +3547,7 @@ export function useSettleEngine({
           handBack,
           crossingId,
           stillCrossingId,
+          reflowsAtLand,
         });
         continue;
       }
@@ -3669,7 +3822,24 @@ export function useSettleEngine({
       // than two, so the second frame is always inside it and the third never
       // is. A crossing this settle merely adopted is already travelling and
       // pays nothing.
-      const prepareMs = opensFoldCrossing ? FOLD_PREPARE_MS : 0;
+      //
+      // An ARRIVAL takes a prepare beat for the same reason, one frame
+      // longer: the revealed card is laid out for the first time in the frame
+      // after its commit, and the observers its passive effects attach after
+      // that paint deliver in the frame after that ([B05] of
+      // set-up-and-go-fixups). Its gate closes after both, so what lands in
+      // them is the set-up's.
+      //
+      // So does a frame whose WIDTH settles at its final size: its interior
+      // re-flows at the new width in the set-up, and the observers inside it
+      // answer that in the same two frames an arrival's do.
+      const lateClose = arrivals.length > 0 || widthSettles;
+      const prepareMs =
+        lateClose
+          ? ARRIVAL_PREPARE_MS
+          : opensFoldCrossing
+            ? FOLD_PREPARE_MS
+            : 0;
       const totalMs =
         prepareMs +
         launched.reduce(
@@ -3691,7 +3861,9 @@ export function useSettleEngine({
       // set-up commit's layout effect, so that commit is in, and nothing
       // after it may tell React before the land. The cap is the hold's, a
       // wedge guard behind the release that normally opens it.
-      closeMotionGate(Math.max(2 * totalMs * getTugTiming(), 1000));
+      const gateCapMs = Math.max(2 * totalMs * getTugTiming(), 1000);
+      if (lateClose) closeMotionGateAfterPaint(gateCapMs);
+      else closeMotionGate(gateCapMs);
       // Every launched beat's effect is created in THIS frame, each held off
       // by the sum of the durations of the launched beats before it, and the
       // chain that used to sequence them is gone. That chain cost a frame at
@@ -4253,23 +4425,35 @@ export function useSettleEngine({
             if (taken(c.frame)) continue;
             if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
             if (c.stillCrossingId === null) continue;
-            // A settled crossing's mark comes off past the land ([B04]): its
-            // interior already stands where it lands, so the mark changes no
-            // pixel — but taking it off flips the root's `position` and the
-            // box's `overflow` back, which re-lays the whole card out at the
-            // same size (20–25 ms on a real transcript). Two paints on, with
-            // the motion gate, nothing is moving to pay for it. Guarded by
-            // id, so a settle that took the frame over in between keeps it.
-            if (c.frame.hasAttribute(STILL_SETTLED_ATTR)) {
-              const { frame, stillCrossingId } = c;
-              scheduleAfterPaint(() =>
-                scheduleAfterPaint(() => endStillCrossing(frame, stillCrossingId)),
-              );
-            } else {
-              endStillCrossing(c.frame, c.stillCrossingId);
-            }
+            // A settled crossing's mark comes off here, in the land's own
+            // task, like every other: its interior already stands where it
+            // lands, and the held height lives on the card root alone, under
+            // a property that does not inherit (`lib/fold-crossing.ts`), so
+            // taking it off restyles one element rather than the card. The
+            // `overflow` and `position` the mark flips back cost about a
+            // millisecond between them at the same size.
+            endStillCrossing(c.frame, c.stillCrossingId);
           }
-          for (const c of choreography) endEpisode(c.paneId);
+          for (const c of choreography) {
+            if (!c.reflowsAtLand) {
+              endEpisode(c.paneId);
+              continue;
+            }
+            // A width shrink re-flows its interior only now, as its hold
+            // comes off, and a scroller's anchor (CodeMirror's line, the
+            // generic element anchor) can only land a re-flow its episode
+            // is still open for. The re-wrap is laid out in the next frame,
+            // CodeMirror measures it in the frame after, and its observers
+            // may be held until the gate opens — so the episode ends two
+            // frames past the gate's release. Its own handle, never its pane
+            // id: a settle armed in between owns the pane's next episode.
+            const handle = settleEpisodesRef.current.get(c.paneId);
+            if (handle === undefined) continue;
+            settleEpisodesRef.current.delete(c.paneId);
+            afterGesture(() =>
+              requestAnimationFrame(() => requestAnimationFrame(() => handle.end())),
+            );
+          }
           for (const { paneId } of arrivals) endEpisode(paneId);
           for (const { paneId } of covered) endEpisode(paneId);
           settleBeatRef.current = null;

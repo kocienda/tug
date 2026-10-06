@@ -79,6 +79,7 @@ import {
 } from "lucide-react";
 
 import { Operator } from "@/components/tugways/tug-icons";
+import { heldResizeObserver } from "@/lib/gesture-scope";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -360,7 +361,8 @@ class PinStackController {
     // relayout can queue further observer notifications within the
     // same delivery pass ("ResizeObserver loop completed with
     // undelivered notifications").
-    this.observer = new ResizeObserver((entries) => {
+    // Held by the motion gate ([B05] of set-up-and-go-fixups).
+    this.observer = heldResizeObserver((entries) => {
       const entry = entries[entries.length - 1];
       if (entry === undefined) return;
       const boxes = entry.borderBoxSize;
@@ -531,7 +533,8 @@ export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
     // initial delivery provides the real height rAF-coalesced, and the
     // static CSS fallback covers the frame before it lands.
     let rafId = 0;
-    const observer = new ResizeObserver((entries) => {
+    // Held by the motion gate ([B05] of set-up-and-go-fixups).
+    const observer = heldResizeObserver((entries) => {
       const entry = entries[0];
       if (entry === undefined) return;
       const boxes = entry.borderBoxSize;

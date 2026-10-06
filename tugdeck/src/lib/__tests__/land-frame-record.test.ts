@@ -100,6 +100,38 @@ describe("classifyLand", () => {
     expect(r.gapsMs.map((g) => Math.round(g * 10) / 10)).toEqual([10, 16.7]);
     expect(r.forcedLayouts).toEqual([]);
   });
+
+  test("nothing shed late reads two gaps and no shed", () => {
+    const r = classifyLand(input({ ticks: [100, 116.7, 133.3, 150], landAt: 110 }));
+    expect(r.gapsMs.length).toBe(2);
+    expect(r.shedAtMs).toBeNull();
+  });
+
+  test("a mark shed after the land reads on to two ticks past the shed", () => {
+    // The hand-back's last mark came off two frames after the land, and its
+    // cost lands in the frame after that: the record has to reach it.
+    const r = classifyLand(
+      input({
+        ticks: [100, 116.7, 133.3, 150, 190, 206.7, 223.3],
+        landAt: 110,
+        shedAt: 150.001,
+        gestureAt: 10,
+        forcedReads: [{ t: 160, ms: 25, site: "the late mark-off" }],
+      }),
+    );
+    expect(r.gapsMs.map((g) => Math.round(g * 10) / 10)).toEqual([16.7, 16.6, 16.7, 40, 16.7]);
+    expect(r.frameMs).toBe(40);
+    expect(Math.round(r.shedAtMs! * 1000) / 1000).toBe(140.001);
+    expect(r.forcedLayouts.map((e) => e.site)).toEqual(["the late mark-off"]);
+  });
+
+  test("a shed at or before the land changes nothing", () => {
+    const plain = classifyLand(input({ ticks: [100, 116.7, 133.3, 150], landAt: 110 }));
+    const early = classifyLand(
+      input({ ticks: [100, 116.7, 133.3, 150], landAt: 110, shedAt: 105 }),
+    );
+    expect(early.gapsMs).toEqual(plain.gapsMs);
+  });
 });
 
 describe("landOpensAt", () => {

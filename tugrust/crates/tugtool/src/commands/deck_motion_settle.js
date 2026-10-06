@@ -29,6 +29,10 @@
   "use strict";
 
   var SETTLE = "data-imposer-settling";
+  // A settled still crossing's mark. The land is not over until every one has
+  // come off, so each removal is recorded and the land reads two frames past
+  // the last (set-up-and-go-fixups [B04]).
+  var STILL_SETTLED = "data-still-settled";
 
   if (args.op === "where") {
     var diag = window.tugdeck && window.tugdeck.diag;
@@ -85,6 +89,7 @@
     var frames = [];
     var beats = [];
     var marks = [];
+    var sheds = [];
     var done = false;
     var t0 = 0;
     // The deck trace is enabled for the drive alone, so its `settle-beat` rows
@@ -104,13 +109,19 @@
     var observer = new MutationObserver(function (records) {
       var now = performance.now();
       records.forEach(function (m) {
+        if (m.attributeName === STILL_SETTLED) {
+          if (!m.target.hasAttribute(STILL_SETTLED)) sheds.push(now);
+          return;
+        }
         // The container's mark alone: each frame carries a copy, set and
         // cleared with it, and only the container's says when the settle is.
         if (m.target.classList.contains("tug-pane")) return;
         marks.push([now, m.target.hasAttribute(SETTLE)]);
       });
     });
-    observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: [SETTLE] });
+    observer.observe(document.body, {
+      attributes: true, subtree: true, attributeFilter: [SETTLE, STILL_SETTLED],
+    });
     requestAnimationFrame(frame);
     beat();
 
@@ -152,6 +163,7 @@
         frames: frames.filter(function (t) { return t > t0; }).map(rel),
         beats: beats.filter(function (t) { return t >= t0; }).map(rel),
         settle: marks.map(function (m) { return [rel(m[0]), m[1]]; }),
+        sheds: sheds.filter(function (t) { return t >= t0; }).map(rel),
         settleBeats: settleBeats,
         gates: gates,
         chains: chains,

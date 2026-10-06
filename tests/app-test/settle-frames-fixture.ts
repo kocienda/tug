@@ -2355,7 +2355,28 @@ export function expectB09Bar(
   ).toEqual([]);
   noteBeatStarts(leg, r.beatRows, probe.framePeriodMs);
   expectMotionSealed(leg, row);
-  expectLand(leg, r.land);
+  expectLand(leg, r.land, bandShrinks(r.before, r.after));
+}
+
+/**
+ * Whether any frame standing on both sides of the band got smaller on either
+ * axis — read off the band strings (`id@x,y+WxH`), so the leg says it rather
+ * than the test naming it.
+ */
+export function bandShrinks(before: string, after: string): boolean {
+  const sizes = (band: string): Map<string, [number, number]> => {
+    const out = new Map<string, [number, number]>();
+    for (const m of band.matchAll(/(\S+)@-?[\d.]+,-?[\d.]+\+([\d.]+)x([\d.]+)/g)) {
+      out.set(m[1], [Number(m[2]), Number(m[3])]);
+    }
+    return out;
+  };
+  const was = sizes(before);
+  for (const [id, [w, h]] of sizes(after)) {
+    const prior = was.get(id);
+    if (prior !== undefined && (w < prior[0] - 0.5 || h < prior[1] - 0.5)) return true;
+  }
+  return false;
 }
 
 /**
@@ -2464,8 +2485,15 @@ export async function settleLandRows(
  * The motion is sealed: nothing commits, forces layout or delivers an
  * observer callback between the first frame and the land ([B05]). Every
  * event names its site, so a red clause says where the leak is.
+ *
+ * `gesture` applies that gesture's carve-out, if it has one
+ * ({@link SEALED_CARVE_OUTS}); every other gesture reads all three clauses.
  */
-export function expectMotionSealed(leg: string, row: SettleFramesRow): void {
+export function expectMotionSealed(
+  leg: string,
+  row: SettleFramesRow,
+  gesture?: SealedGesture,
+): void {
   const sites = (events: readonly { ms?: number; performed?: number; site: string }[]) =>
     events
       .map((e) => `${e.site}${e.ms !== undefined ? ` ${e.ms.toFixed(1)}ms` : ` ${e.performed}`}`)
@@ -2487,15 +2515,31 @@ export function expectMotionSealed(leg: string, row: SettleFramesRow): void {
   // flush — and is kept in the row but not counted here.
   const commits = (row.motionCommits ?? []).filter((c) => c.performed > 0);
   const deliveries = row.motionDeliveries ?? [];
+  // Carved out by site ([B05] of set-up-and-go-fixups): the bench probe's own
+  // rect read. While beats run, the frame owes the layout its running
+  // animations dirty, and a sync read in the frame's rAF pays it early — on
+  // the user's deck, 3–4 ms on every tick of a `go` and 0 at rest, with no
+  // DOM mutation anywhere in the motion. That is the frame's own layout paid
+  // by the instrument, not a layout the deck forced; every other site,
+  // the in-product sampler's included, still counts.
+  const forced = row.motionForcedLayouts.filter((e) => e.site !== "[bench probe]");
+  const carveOut = gesture === undefined ? undefined : SEALED_CARVE_OUTS[gesture];
+  if (carveOut?.commits === true) {
+    note(
+      `${leg}: ${commits.length} commit(s) inside the motion, carved out — ` +
+        `${carveOut.reason}${commits.length > 0 ? ` — ${sites(commits)}` : ""}`,
+    );
+  } else {
+    expect(
+      commits.length,
+      `${leg}: no React commit between the first frame and the land — ` +
+        `${sites(commits)}`,
+    ).toBe(0);
+  }
   expect(
-    commits.length,
-    `${leg}: no React commit between the first frame and the land — ` +
-      `${sites(commits)}`,
-  ).toBe(0);
-  expect(
-    row.motionForcedLayouts.length,
+    forced.length,
     `${leg}: no forced layout between the first frame and the land — ` +
-      `${sites(row.motionForcedLayouts)}`,
+      `${sites(forced)}`,
   ).toBe(0);
   expect(
     deliveries.length,
@@ -2503,6 +2547,28 @@ export function expectMotionSealed(leg: string, row: SettleFramesRow): void {
       `${sites(deliveries)}`,
   ).toBe(0);
 }
+
+/** The gestures that carry a carve-out from the sealed-motion clause. */
+export type SealedGesture = keyof typeof SEALED_CARVE_OUTS;
+
+/**
+ * The sealed-motion clause's carve-outs, keyed on the gesture rather than on
+ * the reading, so an exception is a named fact a leg reads rather than a site
+ * a red happened to name.
+ *
+ * `swipe` — the hand-lift prelaunch: a swipe's settle launches from the hand
+ * while the strip is still moving, so its gate closes in the arm and its own
+ * React commit goes through the deferred notify, which tells React now and
+ * bypasses the gate on purpose ([B06] of set-up-and-go-motion). Its commits
+ * are noted, not counted; forced layouts and deliveries still are.
+ */
+export const SEALED_CARVE_OUTS = {
+  swipe: {
+    commits: true,
+    reason:
+      "the swipe's prelaunch commits under the gate by design ([B06] of set-up-and-go-motion)",
+  },
+} as const;
 
 /**
  * The land is one frame, and what ran in it is in the report either way.
@@ -2512,7 +2578,11 @@ export function expectMotionSealed(leg: string, row: SettleFramesRow): void {
  * the fix goes, and on a green one it is the baseline the next change is read
  * against.
  */
-export function expectLand(leg: string, land: SettleLandRow | null): void {
+export function expectLand(
+  leg: string,
+  land: SettleLandRow | null,
+  shrinks = false,
+): void {
   expect(
     land,
     `${leg}: the settle wrote its land — two frames after the release, beside ` +
@@ -2532,7 +2602,13 @@ export function expectLand(leg: string, land: SettleLandRow | null): void {
       `at ${land.landAtMs.toFixed(0)}ms; commits ${sites(land.commits)}; forced layouts ` +
       `${sites(land.forcedLayouts)}; deliveries ${sites(land.deliveries)}`,
   );
-  expect(
+  // A shrink pays its land, by the user's ruling ([B02] of
+  // set-up-and-go-fixups, revised): its interior holds its starting size, so
+  // it shows no bare band in the motion and re-flows at the land. Its land is
+  // recorded above and not barred; a growth still is.
+  if (shrinks) {
+    note(`${leg}: a frame shrinks, so its land is paid by ruling — ${land.frameMs.toFixed(1)}ms`);
+  } else expect(
     land.frameFrames,
     `${leg}: the land is one frame — no gap over ${LAND_FRAMES_BAR} display ` +
       `periods across the hand-back — ${land.frameMs.toFixed(1)}ms / ` +

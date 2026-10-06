@@ -32,7 +32,7 @@ import React, {
   useState,
   type CSSProperties,
 } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { heldResizeObserver, useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   Blocks,
   ChevronsDownUp,
@@ -3201,7 +3201,9 @@ function TugPaneImpl({
     // shown frame paints. The height it reports is the tab bar's real one
     // whether the pane is on screen or parked — a hidden pane is laid out
     // ([B02]) — so nothing here is a reading about an ancestor's `display`.
-    const ro = new ResizeObserver(() => {
+    // Held by the motion gate: a frame whose width tweens resizes the
+    // accessory at every frame, and only its height is wanted.
+    const ro = heldResizeObserver(() => {
       setAccessoryHeight(el.getBoundingClientRect().height);
     });
     ro.observe(el);

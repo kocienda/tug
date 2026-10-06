@@ -35,6 +35,7 @@ import "./tug-activity-line.css";
 import React from "react";
 
 import { textMeasurer, whenFaceLoaded } from "@/lib/font-metrics";
+import { heldResizeObserver } from "@/lib/gesture-scope";
 import { cn } from "@/lib/utils";
 
 /**
@@ -253,7 +254,9 @@ function useMiddleTruncation(
     const parent = run?.parentElement;
     if (run === undefined || run === null) return;
     if (parent === undefined || parent === null) return;
-    const observer = new ResizeObserver(() => {
+    // Held by the motion gate: the run re-truncates once, at the land, not
+    // at every width a tweening frame passes through.
+    const observer = heldResizeObserver(() => {
       measure();
     });
     observer.observe(parent);
