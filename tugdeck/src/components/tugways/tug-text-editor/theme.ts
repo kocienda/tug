@@ -105,6 +105,10 @@ const TOKENS = {
   contentFgDisabled: "var(--tug7-element-field-text-normal-plain-disabled)",
   contentBgReadonly: "var(--tug7-surface-field-primary-normal-plain-readonly)",
   contentFgReadonly: "var(--tug7-element-field-text-normal-plain-readonly)",
+  // Placeholder hint — CM6's stock theme paints `.cm-placeholder` a flat
+  // `#888`; this is the theme's tinted placeholder token, the same one
+  // `tug-input` / `tug-textarea` paint `::placeholder` with.
+  placeholderFg: "var(--tug7-element-field-text-normal-placeholder-rest)",
   // Caret stroke color — applied to the `.tug-text-editor-caret` marker
   // painted by `caret-layer.ts`, NOT to `.cm-content`'s caret-color
   // (that's `transparent` to suppress the native caret).
@@ -248,6 +252,7 @@ export const tugTheme: Extension = EditorView.theme({
   // baseline as typed text, so there is no jump on first keystroke.
   ".cm-placeholder": {
     verticalAlign: "baseline",
+    color: TOKENS.placeholderFg,
   },
 
   // Atom widgets render via `tug-atom-img.ts` as `<img>` elements carrying an
