@@ -15,13 +15,20 @@
   gap: 0;
 }
 
-/* This sheet owns only the bar's VERTICAL placement. The bar's own layout —
-   full-width / left-anchored track, indeterminate barber-pole with no value —
-   is the TugProgressIndicator's standard `variant="bar"` behavior, not the
-   sheet's concern. */
+/* This sheet owns the bar's placement: its vertical margin, and a width a
+   touch narrower than the sheet's content (95%), centered. The bar's own
+   behavior — the indeterminate barber-pole with no value — is the
+   TugProgressIndicator's standard `variant="bar"`, not the sheet's concern.
+   The width rule is scoped through the sheet and the variant attribute so it
+   outranks the variant's own `width: 100%`. */
 .compaction-progress-sheet-bar {
   margin-top: 0;
   margin-bottom: var(--tugx-sheet-space-b);
+}
+
+.compaction-progress-sheet .compaction-progress-sheet-bar[data-variant="bar"] {
+  width: 95%;
+  align-self: center;
 }
 
 /* Spacing below the bar is the bar's own margin — drop the shared actions
