@@ -90,6 +90,12 @@ fn print_report(r: &SweepReport, verb: &str, quiet: bool) {
     );
     section(
         verb,
+        "seeded app-test transcripts",
+        &strs(&r.seeded_transcripts_removed),
+        quiet,
+    );
+    section(
+        verb,
         "legacy default-server sessions",
         &r.legacy_sessions_killed,
         quiet,

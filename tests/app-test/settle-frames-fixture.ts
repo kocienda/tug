@@ -82,12 +82,10 @@
  */
 
 import { expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import type { SettleFrameReading } from "./_harness/client";
+import { testTmpDir } from "./_harness/test-cleanup";
 import { bindAndSettle, type TranscriptSize } from "./real-transcript-fixture";
 import {
   mkTempTugbank,
@@ -118,9 +116,7 @@ export const TEST_TIMEOUT_MS = 300_000;
 let quietProjectDir: string | null = null;
 function quietProject(): string {
   if (quietProjectDir === null) {
-    const dir = mkdtempSync(join(tmpdir(), "tug-settle-quiet-project-"));
-    quietProjectDir = dir;
-    process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
+    quietProjectDir = testTmpDir("settle-quiet-project-");
   }
   return quietProjectDir;
 }
@@ -732,14 +728,13 @@ export async function launch(
   );
   if (opts.leadRecorder === true) await installLeadRecorder(app);
   const standing = await deckStanding(app);
-  const bound = await bindAndSettle(app, sessionCardsOf(blob), {
+  await bindAndSettle(app, sessionCardsOf(blob), {
     size: opts.transcripts ?? "slice",
     whaleCards: opts.whaleCards ?? DEFAULT_WHALE_CARDS,
     label: testName,
   });
-  // The seeded copies live under `~/.claude/projects/`; they go when the test
-  // process does, whichever way it ends.
-  process.on("exit", () => bound.cleanup());
+  // The seeded copies under `~/.claude/projects/` remove themselves when the
+  // test run ends (each seeder registers with `onTestRunEnd`).
   // A binding activates the card it binds, so the deck can end on the last
   // card bound with the strip slid to it. Every leg was written against the
   // deck as it stood at launch, so put the focus back where it was.

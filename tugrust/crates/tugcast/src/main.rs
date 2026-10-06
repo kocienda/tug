@@ -140,6 +140,7 @@ async fn main() {
                     tmp_files = r.tmp_files_removed.len(),
                     tmp_dirs = r.tmp_dirs_removed.len(),
                     data_dirs = r.apptest_data_dirs_removed.len(),
+                    seeded_transcripts = r.seeded_transcripts_removed.len(),
                     processes = r.processes_killed.len(),
                     legacy_sessions = r.legacy_sessions_killed.len(),
                     "janitor: swept leaked runtime debris"

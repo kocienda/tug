@@ -33,6 +33,8 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { onTestRunEnd } from "../_harness/test-cleanup";
+
 export const FIXTURES_DIR = import.meta.dir;
 export const SESSIONS_DIR = join(FIXTURES_DIR, "sessions");
 
@@ -96,7 +98,7 @@ export async function seedFixtureSession(
   if (opts.sessionId !== undefined) sessionId = opts.sessionId;
 
   const projectDir = realpathSync(
-    mkdtempSync(join(tmpdir(), `fixture-${label}-`)),
+    mkdtempSync(join(tmpdir(), `tug-scratch-fixture-${label}-`)),
   );
   const seededClaudeDir = join(
     homedir(),
@@ -124,6 +126,15 @@ export async function seedFixtureSession(
   });
   writeFileSync(jsonlPath, rewritten.join("\n") + "\n", "utf8");
 
+  // The seeded copy has served its purpose when the test run ends, whichever
+  // way it ends; `cleanup()` releases it sooner. Anything a SIGKILL strands is
+  // swept by the janitor (`tugcore::janitor::sweep_seeded_transcripts`).
+  const release = (): void => {
+    rmSync(seededClaudeDir, { recursive: true, force: true });
+    rmSync(projectDir, { recursive: true, force: true });
+  };
+  const dropTask = onTestRunEnd(release);
+
   return {
     fixture: name,
     sessionId,
@@ -131,8 +142,8 @@ export async function seedFixtureSession(
     seededClaudeDir,
     jsonlPath,
     cleanup() {
-      rmSync(seededClaudeDir, { recursive: true, force: true });
-      rmSync(projectDir, { recursive: true, force: true });
+      dropTask();
+      release();
     },
   };
 }

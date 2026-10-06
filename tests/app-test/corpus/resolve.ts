@@ -36,6 +36,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Manifest, SelectedSnapshot } from "./harvest";
 
+import { onTestRunEnd } from "../_harness/test-cleanup";
+
 export type { Manifest, SelectedSnapshot };
 
 export const CORPUS_DIR = import.meta.dir;
@@ -102,7 +104,7 @@ export async function seedSnapshot(
 ): Promise<SeededCorpusSession> {
   const source = snapshotSource(snap);
   const projectDir = realpathSync(
-    mkdtempSync(join(tmpdir(), `corpus-${label}-`)),
+    mkdtempSync(join(tmpdir(), `tug-scratch-corpus-${label}-`)),
   );
   const seededClaudeDir = join(
     homedir(),
@@ -113,6 +115,14 @@ export async function seedSnapshot(
   mkdirSync(seededClaudeDir, { recursive: true });
   const sessionId = opts.sessionId ?? snap.id;
   const jsonlPath = join(seededClaudeDir, `${sessionId}.jsonl`);
+  // Registered before the first byte is written, so a seed that throws midway
+  // still goes. The copy has served its purpose when the run ends; `cleanup()`
+  // releases it sooner, and the janitor sweeps what a SIGKILL strands.
+  const release = (): void => {
+    rmSync(seededClaudeDir, { recursive: true, force: true });
+    rmSync(projectDir, { recursive: true, force: true });
+  };
+  const dropTask = onTestRunEnd(release);
 
   const out = createWriteStream(jsonlPath);
   const rl = createInterface({
@@ -146,8 +156,8 @@ export async function seedSnapshot(
     seededClaudeDir,
     jsonlPath,
     cleanup() {
-      rmSync(seededClaudeDir, { recursive: true, force: true });
-      rmSync(projectDir, { recursive: true, force: true });
+      dropTask();
+      release();
     },
   };
 }

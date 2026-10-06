@@ -302,8 +302,9 @@ async function activeCardOf(app: App): Promise<string | null> {
  *
  * A binding activates the card it binds, so the deck can end on the last card
  * bound. Every test was written against the deck as it stood before binding,
- * so the card focused then is focused again. The seeded copies are removed
- * when the test process exits, whichever way it ends.
+ * so the card focused then is focused again. The seeded copies remove
+ * themselves when the test run ends (each seeder registers with
+ * `onTestRunEnd`).
  */
 export async function bindForTest(
   app: App,
@@ -312,7 +313,6 @@ export async function bindForTest(
 ): Promise<BoundTranscripts> {
   const before = await activeCardOf(app);
   const bound = await bindAndSettle(app, cardIds, opts);
-  process.on("exit", () => bound.cleanup());
   if (before !== null && (await activeCardOf(app)) !== before) {
     await app.evalJS<null>(
       `(window.__tug.dispatchControlAction("focus-session-card", ` +

@@ -44,6 +44,8 @@ pub struct SweepReport {
     pub tmp_files_removed: Vec<PathBuf>,
     pub tmp_dirs_removed: Vec<PathBuf>,
     pub apptest_data_dirs_removed: Vec<String>,
+    /// Transcript directories app-tests seeded under `~/.claude/projects`.
+    pub seeded_transcripts_removed: Vec<PathBuf>,
     pub processes_killed: Vec<(i32, String)>,
     pub legacy_sessions_killed: Vec<String>,
 }
@@ -57,6 +59,7 @@ impl SweepReport {
             && self.tmp_files_removed.is_empty()
             && self.tmp_dirs_removed.is_empty()
             && self.apptest_data_dirs_removed.is_empty()
+            && self.seeded_transcripts_removed.is_empty()
             && self.processes_killed.is_empty()
             && self.legacy_sessions_killed.is_empty()
     }
@@ -206,6 +209,12 @@ pub const TMP_DEBRIS_MAX_AGE_SECS: u64 = 24 * 60 * 60;
 /// unattended sweep from deleting it.
 pub const MIN_DEBRIS_AGE_SECS: u64 = 10 * 60;
 
+/// A seeded transcript whose temp project still exists is reclaimed once
+/// nothing has written to it for this long. An app-test file is capped at a
+/// few minutes of wall time (`wedge-cap.ts`), so two hours of silence is a
+/// SIGKILLed runner, never a live one.
+pub const SEEDED_TRANSCRIPT_MAX_AGE_SECS: u64 = 2 * 60 * 60;
+
 /// Suffix marking a data dir that has passed every gate and is being
 /// deleted. The rename is what makes an interrupted deletion recoverable
 /// — see [`sweep_apptest_data_dirs`].
@@ -265,6 +274,86 @@ pub fn sweep_tmp_debris(
         }
     }
     (files, dirs)
+}
+
+/// `~/.claude/projects`, where Claude Code keeps one transcript directory
+/// per project, named by its encoded path.
+pub fn claude_projects_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude").join("projects"))
+}
+
+/// Claude Code's project-directory encoding: `/` and `.` become `-`.
+fn encode_claude_project(path: &Path) -> String {
+    path.to_string_lossy().replace(['/', '.'], "-")
+}
+
+/// Remove transcript directories app-tests seeded under `projects` that
+/// their runner no longer needs.
+///
+/// A test seeds a transcript by making a temp project under `tmp` and
+/// writing `projects/<encoded temp project>/<id>.jsonl`. The runner removes
+/// both when it ends, but a SIGKILLed runner removes neither, and at
+/// ~140 MB a seed they once piled up to 87 GB — which also made every
+/// `claude /usage` scan of local sessions take over a minute.
+///
+/// Not by name alone: a candidate must encode a temp project under `tmp`
+/// whose basename is a registered [`TMP_PREFIXES`] directory class, and it
+/// goes only when that temp project is gone and nothing in the transcript
+/// directory was written within `min_age`, or when nothing in it was
+/// written within `max_age`.
+pub fn sweep_seeded_transcripts(
+    projects: &Path,
+    tmp: &Path,
+    min_age: Duration,
+    max_age: Duration,
+    mode: SweepMode,
+) -> Vec<PathBuf> {
+    let mut removed = Vec::new();
+    let Ok(tmp) = fs::canonicalize(tmp) else {
+        return removed;
+    };
+    let encoded_tmp = format!("{}-", encode_claude_project(&tmp));
+    let Ok(entries) = fs::read_dir(projects) else {
+        return removed;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(rest) = name.strip_prefix(&encoded_tmp) else {
+            continue;
+        };
+        let Some(spec) = match_prefix(rest) else {
+            continue;
+        };
+        if !matches!(spec.kind, TmpKind::Dir | TmpKind::Any) {
+            continue;
+        }
+        let path = entry.path();
+        if !fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir()) {
+            continue;
+        }
+        // A live run appends to its transcript, which moves the file's
+        // mtime but not the directory's, so read the newest of both.
+        let written_within = |age: Duration| {
+            fs::read_dir(&path)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|e| e.metadata().ok())
+                .chain(fs::metadata(&path).ok())
+                .any(|m| !older_than(&m, age))
+        };
+        // `mkdtemp` names carry no `/` or `.`, so `rest` is the basename.
+        let project_gone = !tmp.join(rest).exists();
+        let window = if project_gone { min_age } else { max_age };
+        if written_within(window) {
+            continue;
+        }
+        if !mode.applies() || fs::remove_dir_all(&path).is_ok() {
+            removed.push(path);
+        }
+    }
+    removed
 }
 
 /// Unlink socket files under `tmp` that no listener answers for.
@@ -646,6 +735,17 @@ pub fn sweep_all(mode: SweepMode) -> SweepReport {
         sweep_tmux_servers(&tmux_socket_dir(), min_age, mode);
     let apptest_data_dirs_removed =
         sweep_apptest_data_dirs(&crate::instances_root(), min_age, mode);
+    let seeded_transcripts_removed = claude_projects_dir()
+        .map(|projects| {
+            sweep_seeded_transcripts(
+                &projects,
+                &tmp,
+                min_age,
+                Duration::from_secs(SEEDED_TRANSCRIPT_MAX_AGE_SECS),
+                mode,
+            )
+        })
+        .unwrap_or_default();
     let processes_killed = sweep_reparented_processes(min_age, mode);
     let legacy_sessions_killed = sweep_legacy_default_sessions(min_age, mode);
 
@@ -656,6 +756,7 @@ pub fn sweep_all(mode: SweepMode) -> SweepReport {
         tmp_files_removed,
         tmp_dirs_removed,
         apptest_data_dirs_removed,
+        seeded_transcripts_removed,
         processes_killed,
         legacy_sessions_killed,
     }
@@ -1554,6 +1655,57 @@ mod tests {
         assert_eq!(applied_sockets, sockets);
         assert!(!litter.exists());
         assert!(!dead_sock.exists());
+    }
+
+    /// A seeded transcript goes once its temp project is gone or it has
+    /// gone quiet; a live seed, an unregistered name and a real project
+    /// all stay.
+    #[test]
+    fn seeded_transcripts_go_when_their_run_is_over() {
+        let root = tempfile::tempdir().unwrap();
+        let tmp = root.path().join("T");
+        let projects = root.path().join("projects");
+        fs::create_dir_all(&tmp).unwrap();
+        fs::create_dir_all(&projects).unwrap();
+        let enc = encode_claude_project(&fs::canonicalize(&tmp).unwrap());
+
+        let seed = |label: &str, keep_project: bool, secs: u64| -> PathBuf {
+            if keep_project {
+                fs::create_dir(tmp.join(label)).unwrap();
+            }
+            let dir = projects.join(format!("{enc}-{label}"));
+            fs::create_dir(&dir).unwrap();
+            let jsonl = dir.join("s.jsonl");
+            fs::write(&jsonl, b"{}\n").unwrap();
+            age(&jsonl, secs);
+            age(&dir, secs);
+            dir
+        };
+        let orphan = seed("tug-scratch-fixture-rt-a1B2c3", false, 20 * 60);
+        let quiet = seed("at0622-x9Y8z7", true, 3 * 60 * 60);
+        let live = seed("tug-scratch-corpus-rt-q1W2e3", true, 20 * 60);
+        let fresh_orphan = seed("tug-scratch-fixture-rt-r4T5y6", false, 0);
+        let unregistered = seed("someone-elses-k1L2m3", false, 3 * 60 * 60);
+        let real = projects.join("-Users-me-src-app");
+        fs::create_dir(&real).unwrap();
+        age(&real, 30 * 24 * 60 * 60);
+
+        let min = Duration::from_secs(MIN_DEBRIS_AGE_SECS);
+        let max = Duration::from_secs(SEEDED_TRANSCRIPT_MAX_AGE_SECS);
+        let mut report = sweep_seeded_transcripts(&projects, &tmp, min, max, SweepMode::Report);
+        assert!(orphan.exists() && quiet.exists(), "report mode removes nothing");
+        let mut applied = sweep_seeded_transcripts(&projects, &tmp, min, max, SweepMode::Apply);
+        let mut expected = vec![orphan.clone(), quiet.clone()];
+        expected.sort();
+        report.sort();
+        applied.sort();
+        assert_eq!(report, expected);
+        assert_eq!(applied, expected);
+        assert!(!orphan.exists() && !quiet.exists());
+        assert!(live.exists(), "a seed its runner still writes stays");
+        assert!(fresh_orphan.exists(), "the age floor holds");
+        assert!(unregistered.exists(), "never by name alone");
+        assert!(real.exists(), "a real project is never a candidate");
     }
 
     /// The same guarantee for the two passes that reach outside
