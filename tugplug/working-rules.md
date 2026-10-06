@@ -16,7 +16,9 @@ When the user asks for something to be removed, remove that thing. A scope word 
 
 ## A failing test has three endings
 
-The code is fixed, the test is changed, or the test is deleted. "Carried", "standing red", "pre-existing" and "known failure" are not endings. Never write one into a brief, a plan, or a report as an outcome, even one a document permits. A red suite teaches everyone to skim past red. If a red cannot be fixed within reach, deleting the test or changing what it asserts is a question for the user, not an entry on a carry list.
+The code is fixed, the test is changed, or the test is deleted. "Carried", "standing red", "pre-existing" and "known failure" are not endings. Never write one into a brief, a plan, or a report as an outcome, even one a document permits. A red suite teaches everyone to skim past red.
+
+**Fixing the code is the default ending, and it is never asked.** A red whose cause is a product defect is fixed: in the step that found it, or, when the brief already assigns that cause to a later step, in that step, with the assertion landed there beside the fix and the brief saying so in the same turn. "Within reach" means the arc, never the one step in hand, so a fix that lives three steps on is in reach, and whether the arc should fix it is not a question either: the arc that surfaced the defect owns it. The user's question survives only when no fix exists at all, and then it is one question, which of the other two endings, never a choice with "fix it" among its options. An ask that offers "fix it" beside a carve-out is a stop over nothing, and the same stop the recommendation rule forbids: the option you would fix is the default, so take it.
 
 ## Never re-point another decision's test
 
