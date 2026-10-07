@@ -118,6 +118,10 @@ interface StripReading {
   width: number;
   rungs: string | null;
   shown: string[];
+  /** Each shown cell's border-box width, CSS px, by priority. */
+  cells: Record<string, number>;
+  /** How far the row's content runs past its box; 0 when it fits. */
+  overflow: number;
 }
 
 function readStrip(app: App): Promise<StripReading> {
@@ -130,10 +134,19 @@ function readStrip(app: App): Promise<StripReading> {
   var shown = [].slice.call(bar.querySelectorAll('[data-slot="tug-status-cell"][data-priority]'))
     .filter(function (c) { return getComputedStyle(c).display !== "none"; })
     .map(function (c) { return c.getAttribute("data-priority"); });
+  var cells = {};
+  [].slice.call(bar.querySelectorAll('[data-slot="tug-status-cell"][data-priority]'))
+    .forEach(function (c) {
+      if (getComputedStyle(c).display === "none") return;
+      cells[c.getAttribute("data-priority")] = Math.round(c.getBoundingClientRect().width * 10) / 10;
+    });
+  var row = bar.firstElementChild;
   return {
     width: Math.round(box * 1000) / 1000,
     rungs: bar.getAttribute("data-width-rungs"),
     shown: shown,
+    cells: cells,
+    overflow: row === null ? 0 : Math.max(0, row.scrollWidth - row.clientWidth),
   };
 })()`);
 }
@@ -163,6 +176,17 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
 
         for (const zoom of ZOOM_FACTORS) {
           expect(readings[String(zoom)].shown).toEqual(baseline.shown);
+          // The cells are the same boxes at every factor — a budget in a
+          // unit the zoom moves (`ch` did: 90px at 100 %, 101.25px at 80 %)
+          // grows the cells inside a strip that does not grow, and the row
+          // runs out of its box.
+          for (const [priority, width] of Object.entries(baseline.cells)) {
+            expect(
+              Math.abs(readings[String(zoom)].cells[priority] - width),
+              `${priority} cell at ${zoom}`,
+            ).toBeLessThanOrEqual(1);
+          }
+          expect(readings[String(zoom)].overflow, `row overflow at ${zoom}`).toBe(0);
         }
       } finally {
         await app.close();

@@ -600,11 +600,11 @@ describe.skipIf(!SHOULD_RUN)(
             `arc ${ARC_NAME}, step 1 of 3, in implement`,
           );
           // **The box did not move between readings.** A word and a pair of
-          // numbers are the same 17ch box: the width is authored per
+          // numbers are the same 10.2em box (17ch of the cell's face): the width is authored per
           // `data-priority`, never sized to what the cell happens to say, so a
           // reading that ticks never shoves the cells beside it.
           expect(arcBox.width).toBe(bare.width);
-          expect(arcBox.authored).toBe("17ch");
+          expect(arcBox.authored).toBe("10.2em");
 
           // ── And the click opens the cockpit detail ────────────────────────
           await app.click(CELL);
