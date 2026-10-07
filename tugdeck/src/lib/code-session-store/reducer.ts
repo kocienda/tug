@@ -687,6 +687,11 @@ export interface CodeSessionState {
    */
   replayEverCompleted: boolean;
   /**
+   * MONOTONIC: the transcript list's first settle after the initial
+   * resume replay has been raised (see `CodeSessionSnapshot`).
+   */
+  coldRevealSettled: boolean;
+  /**
    * Recency-window metadata from the most recent `replay_complete`
    * (which slice is loaded; whether older turns remain). `null` until
    * a windowed replay completes. Mirrored to
@@ -1307,6 +1312,7 @@ export function createInitialState(
     committedMsgIds: new Set(),
     lastReplayResult: null,
     replayEverCompleted: false,
+    coldRevealSettled: false,
     replayWindow: null,
     sessionCreatedAtMs: null,
     replayPrependActive: false,
@@ -5676,6 +5682,19 @@ function clearedWireError(state: CodeSessionState): CodeSessionState {
     : state;
 }
 
+/**
+ * The transcript host's first settle after the initial resume replay.
+ * Monotonic and idempotent: a second call (the host's settle bound firing
+ * after a real settle, or a reconnect's settle) returns the same state ref
+ * so no subscriber churns.
+ */
+function handleColdRevealSettled(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (state.coldRevealSettled) return { state, effects: [] };
+  return { state: { ...state, coldRevealSettled: true }, effects: [] };
+}
+
 function handleTransportSettled(
   state: CodeSessionState,
 ): { state: CodeSessionState; effects: Effect[] } {
@@ -7821,6 +7840,8 @@ export function reduce(
       return handleTransportOpen(state);
     case "transport_settled":
       return handleTransportSettled(state);
+    case "cold_reveal_settled":
+      return handleColdRevealSettled(state);
     case "error":
       return handleWireError(state, event);
     case "resume_failed":

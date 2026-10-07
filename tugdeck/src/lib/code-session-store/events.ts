@@ -1007,6 +1007,16 @@ export interface TransportSettledEvent {
 }
 
 /**
+ * Internal event dispatched by `notifyColdRevealSettled` when the
+ * transcript host's list raises its first settle after the initial resume
+ * replay (or the host's settle bound runs out). Flips the monotonic
+ * `coldRevealSettled`, which releases `TugRestoreGate`'s hold on the card.
+ */
+export interface ColdRevealSettledEvent {
+  type: "cold_reveal_settled";
+}
+
+/**
  * Internal event that re-seeds a freshly constructed store's send queue
  * with messages stranded when the previous store for this card was
  * disposed.
@@ -1720,6 +1730,7 @@ export type CodeSessionEvent =
   | TransportCloseEvent
   | TransportOpenEvent
   | TransportSettledEvent
+  | ColdRevealSettledEvent
   | SeedQueuedSendsEvent
   | NetworkPathSatisfiedEvent
   | ResumeFailedEvent

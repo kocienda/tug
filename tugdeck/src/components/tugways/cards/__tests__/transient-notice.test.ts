@@ -58,6 +58,7 @@ function baseSnap(
     lastError: null,
     lastReplayResult: null,
     replayEverCompleted: false,
+    coldRevealSettled: false,
     replayWindow: null,
     sessionCreatedAtMs: null,
     loadingPrevious: false,

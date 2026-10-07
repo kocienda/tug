@@ -947,6 +947,7 @@ export class CodeSessionStore {
       lastError: this.state.lastError,
       lastReplayResult: this.state.lastReplayResult,
       replayEverCompleted: this.state.replayEverCompleted,
+      coldRevealSettled: this.state.coldRevealSettled,
       replayWindow: this.state.replayWindow,
       sessionCreatedAtMs: this.state.sessionCreatedAtMs,
       loadingPrevious: this.state.replayPrependActive,
@@ -1238,6 +1239,22 @@ export class CodeSessionStore {
   notifyResumeBindingLanded(): void {
     if (this._disposed) return;
     this.dispatch({ type: "bind_resume_acknowledged" });
+  }
+
+  /**
+   * System notification: the transcript host's list has raised its first
+   * settle after the initial resume replay, or the host's settle bound
+   * ran out. The reducer flips the monotonic `coldRevealSettled`, which
+   * is what releases `TugRestoreGate`'s hold on this card
+   * (`deriveColdRevealPending`). Idempotent; a no-op once settled.
+   *
+   * Public because the dispatch source is the transcript host, and
+   * routing through a named method keeps `dispatch` private, mirroring
+   * `notifyTransportSettled()`.
+   */
+  notifyColdRevealSettled(): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "cold_reveal_settled" });
   }
 
   /**

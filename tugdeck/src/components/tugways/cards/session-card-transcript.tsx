@@ -187,7 +187,10 @@ import {
   SessionTranscriptTopRow,
   SessionLoadOverlay,
 } from "@/components/tugways/cards/session-load-control-bar";
-import { deriveColdRestoreActive } from "@/components/tugways/cards/session-card-restore-gate";
+import {
+  COLD_REVEAL_SETTLE_BOUND_MS,
+  deriveColdRestoreActive,
+} from "@/components/tugways/cards/session-card-restore-gate";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
@@ -2317,6 +2320,8 @@ export const SessionTranscriptHost = forwardRef<
   // duration in the dev panel so the post-reveal settle is measurable.
   const settleStartRef = useRef<number | null>(null);
   const handleFirstSettle = useCallback(() => {
+    // The reveal is over: the restore gate lets go of this card.
+    codeSessionStore.notifyColdRevealSettled();
     setSettlingAfterLoad(false);
     const start = settleStartRef.current;
     if (start !== null) {
@@ -2614,6 +2619,21 @@ export const SessionTranscriptHost = forwardRef<
   if (listMounted && settleStartRef.current === null) {
     settleStartRef.current = Date.now();
   }
+
+  // The reveal's horizon ([L33]). `TugRestoreGate` holds this card from
+  // the list's first mount until `onFirstSettle` reports the reveal over,
+  // and a list that never measures must not hold an app-wide gate: past
+  // the bound the host reports the reveal settled anyway. One-shot, armed
+  // at the mount, cleared by unmount; the notify is idempotent so firing
+  // after a real settle changes nothing.
+  useEffect(() => {
+    if (!listMounted) return;
+    const id = setTimeout(
+      () => codeSessionStore.notifyColdRevealSettled(),
+      COLD_REVEAL_SETTLE_BOUND_MS,
+    );
+    return () => clearTimeout(id);
+  }, [listMounted, codeSessionStore]);
 
   // Reveal edge: arm `settlingAfterLoad` so `batchLoading` (the scroll-battery
   // freeze AND the card-save gate) spans the post-reveal settle even when the

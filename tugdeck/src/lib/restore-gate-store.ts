@@ -24,7 +24,7 @@ import { useSyncExternalStore } from "react";
 
 import { cardServicesStore } from "./card-services-store";
 import type { CodeSessionStore } from "./code-session-store";
-import { deriveColdRestoreActive } from "@/components/tugways/cards/session-card-restore-gate";
+import { deriveRestoreGateHold } from "@/components/tugways/cards/session-card-restore-gate";
 
 /** What the gate knows, and what its surface renders. */
 export interface RestoreGateSnapshot {
@@ -103,10 +103,10 @@ class RestoreGateStore {
   }
 
   /**
-   * Fold the live set into a snapshot. The predicate is the same
-   * `deriveColdRestoreActive` the per-card placeholder reads, so the
-   * app-modal and the card gate can never disagree about what
-   * "restoring" means.
+   * Fold the live set into a snapshot. The predicate is
+   * `deriveRestoreGateHold`: the replay window the per-card strip reads
+   * (`deriveColdRestoreActive`) plus the reveal behind it, so the gate
+   * stays up until the restored transcript is actually on screen.
    */
   private _recompute(): void {
     let cards = 0;
@@ -114,7 +114,7 @@ class RestoreGateStore {
     let turnsTarget = 0;
     cardServicesStore.forEachCodeSessionStore((store) => {
       const s = store.getSnapshot();
-      if (!deriveColdRestoreActive(s)) return;
+      if (!deriveRestoreGateHold(s)) return;
       cards += 1;
       turnsLoaded += s.transcript.length;
       turnsTarget += s.restoreWindowTurns;

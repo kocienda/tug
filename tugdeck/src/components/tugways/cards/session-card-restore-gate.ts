@@ -31,17 +31,26 @@
  * flashes and hops. Saying "busy" for exactly as long as the app is busy
  * costs the user nothing they actually had, and it is true.
  *
- * The gate has no dismiss and its close is `replay_complete`, a frame
- * nothing on a wire guarantees, so a relay that dies mid-bracket could
- * once hold the whole app behind it on every launch. The replay silence
- * deadline (`REPLAY_SILENCE_DEADLINE_MS`, `code-session-store/reducer.ts`)
- * bounds that: a card that hears nothing for the deadline raises an error
- * on itself, which drops it out of the fold and shows the failure on that
- * card alone. The gate was deleted once under [L33] in favour of the
- * per-card strip alone, and then a deck-owned reveal cover; both left the
- * deck looking blank or live while it was neither, and the gate was
- * brought back by decision on 2026-10-07. See the note at the permitted
- * shape in `tuglaws/no-wait-without-a-horizon.md`.
+ * The gate holds a card for two windows in a row, and it is the second
+ * that makes it honest. The replay window is this predicate, and it is
+ * short: a windowed replay ingests in under 100 ms. The reveal behind
+ * it — the list's first mount at `replay_complete` and the settle of
+ * its heights — is `deriveColdRevealPending`, and it is the stretch
+ * measured at around three seconds on the release deck, during which
+ * the card still shows nothing. A gate keyed on the replay alone closed
+ * before the reveal and so was never seen; that is the shape that was
+ * rebuilt twice and shipped blank cards both times. `deriveRestoreGateHold`
+ * is the union, and `restore-gate-store.ts` folds it across the deck.
+ *
+ * The gate has no dismiss, so every window it holds has a horizon. The
+ * replay window ends on `replay_complete` or the silence deadline
+ * (`REPLAY_SILENCE_DEADLINE_MS`), which raises an error on the card and
+ * drops it out of the fold. The reveal ends on the list's first settle or
+ * `COLD_REVEAL_SETTLE_BOUND_MS`, and any `lastError` ends both. The gate
+ * was deleted once under [L33] in favour of the per-card strip alone, and
+ * then a deck-owned reveal cover; it was brought back by decision on
+ * 2026-10-07. See the permitted shape in
+ * `tuglaws/no-wait-without-a-horizon.md`.
  *
  * Pure module — no DOM, no React, no time source.
  *
@@ -61,6 +70,50 @@ export interface ColdRestoreSignals {
   sessionMode: CodeSessionSnapshot["sessionMode"];
   replayPreflightActive: boolean;
   lastError: CodeSessionSnapshot["lastError"];
+}
+
+/**
+ * What `deriveColdRevealPending` reads: the replay-window signals plus
+ * the two monotonic latches around the reveal.
+ */
+export interface ColdRevealSignals extends ColdRestoreSignals {
+  replayEverCompleted: boolean;
+  coldRevealSettled: boolean;
+}
+
+/**
+ * How long the transcript host waits for its first settle after the
+ * initial resume replay before reporting it settled anyway, so a list
+ * that never measures (a card with no size, a bug) cannot hold the
+ * app-wide gate. Measured settles run about 0.3–3 s on the release deck;
+ * this is the horizon [L33] asks of the wait, not a budget.
+ */
+export const COLD_REVEAL_SETTLE_BOUND_MS = 10_000;
+
+/**
+ * True from the initial resume replay's `replay_complete` until the
+ * transcript list's first settle — the reveal. The replay window closes
+ * before the restored transcript is on screen: the list mounts on the
+ * commit after `replay_complete` and its heights settle over the next
+ * frames, and that stretch is where the main thread is busiest and the
+ * card still shows nothing. `TugRestoreGate` holds across it.
+ *
+ * Gated to `sessionMode === "resume"` for the same reason as the replay
+ * predicate, and forced false by any `lastError`: an errored card mounts
+ * its banner and must never hold the gate.
+ */
+export function deriveColdRevealPending(s: ColdRevealSignals): boolean {
+  if (s.lastError !== null) return false;
+  if (s.sessionMode !== "resume") return false;
+  return s.replayEverCompleted && !s.coldRevealSettled;
+}
+
+/**
+ * The whole window `TugRestoreGate` holds a card for: the replay window
+ * and the reveal behind it, as one stretch.
+ */
+export function deriveRestoreGateHold(s: ColdRevealSignals): boolean {
+  return deriveColdRestoreActive(s) || deriveColdRevealPending(s);
 }
 
 /**

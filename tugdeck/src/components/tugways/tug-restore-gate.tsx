@@ -22,17 +22,22 @@
  * app-modals never stack.
  *
  * No dismiss: there is nothing behind it to interact with. It closes
- * when the app can answer again.
+ * when the app can answer again — which is not `replay_complete`. The
+ * replay ingests in under 100 ms; the reveal behind it, the list's
+ * first mount and the settle of its heights, is the seconds-long
+ * stretch where the card still shows nothing. A card counts toward this
+ * gate for both (`deriveRestoreGateHold`), and the gate lets go on the
+ * card's first settle.
  *
- * What makes "busy" checkable is the replay silence deadline
- * (`REPLAY_SILENCE_DEADLINE_MS`, `code-session-store/reducer.ts`). A
- * card counts toward this gate only while its restore is still being
- * fed: one that has sat in `replaying` for the deadline with no frame
- * arriving raises an error on itself, which drops it out of the fold
- * and shows the failure on that card alone. So the gate can outlast
- * the work by at most the deadline, and one card's lost frame can
- * never hold every other card behind a modal with no way out — which,
- * with no dismiss, is the only way out there is.
+ * Every window the gate holds has a horizon. The replay window ends on
+ * the silence deadline (`REPLAY_SILENCE_DEADLINE_MS`,
+ * `code-session-store/reducer.ts`): a card that has sat in `replaying`
+ * for the deadline with no frame arriving raises an error on itself,
+ * which drops it out of the fold and shows the failure on that card
+ * alone. The reveal ends on `COLD_REVEAL_SETTLE_BOUND_MS` if the list
+ * never settles. So one card's lost frame or unmeasured list can never
+ * hold every other card behind a modal with no way out — which, with no
+ * dismiss, is the only way out there is.
  *
  * @module components/tugways/tug-restore-gate
  */

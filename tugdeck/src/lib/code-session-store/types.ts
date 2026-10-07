@@ -1356,6 +1356,19 @@ export interface CodeSessionSnapshot {
   replayEverCompleted: boolean;
 
   /**
+   * MONOTONIC: has the transcript list raised its first settle after the
+   * initial resume replay? The reveal — the list's first mount and the
+   * settle of its measured heights — is the stretch after
+   * `replay_complete` where the restored transcript is not yet on screen
+   * and the main thread is busy drawing it; `TugRestoreGate` holds over
+   * it (`deriveColdRevealPending`). Set by `notifyColdRevealSettled`,
+   * which the transcript host calls from `onFirstSettle` or at its
+   * settle bound. Never resets: a later reconnect replays onto a list
+   * the user is already looking at, which is not a reveal.
+   */
+  coldRevealSettled: boolean;
+
+  /**
    * Recency-window metadata from the most recent `replay_complete`:
    * which slice of the session is loaded and whether older turns remain
    * to page in. `null` until a windowed replay completes (a full /
