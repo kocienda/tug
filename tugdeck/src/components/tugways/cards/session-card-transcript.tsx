@@ -188,7 +188,6 @@ import {
   SessionLoadOverlay,
 } from "@/components/tugways/cards/session-load-control-bar";
 import { deriveColdRestoreActive } from "@/components/tugways/cards/session-card-restore-gate";
-import { restoreRevealStore } from "@/lib/restore-reveal-store";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
@@ -2318,8 +2317,6 @@ export const SessionTranscriptHost = forwardRef<
   // duration in the dev panel so the post-reveal settle is measurable.
   const settleStartRef = useRef<number | null>(null);
   const handleFirstSettle = useCallback(() => {
-    // The reveal is over: the deck's busy cover no longer counts this card.
-    restoreRevealStore.settled(cardId);
     setSettlingAfterLoad(false);
     const start = settleStartRef.current;
     if (start !== null) {
@@ -2330,7 +2327,7 @@ export const SessionTranscriptHost = forwardRef<
       logSessionLifecycle("perf.transcript_settle", summary);
       tugDevLogStore.info("perf", "transcript_settle", summary);
     }
-  }, [codeSessionStore, cardId]);
+  }, [codeSessionStore]);
   const batchLoading = loadActive || settlingAfterLoad;
 
   // Lab-only A/B arm for the tile ledger (scrolling-memory-diet §G2): the
@@ -2603,55 +2600,13 @@ export const SessionTranscriptHost = forwardRef<
   // the narrowed [DT10] visibility gate instead. The whole decision
   // is store-derived through `useSyncExternalStore` ([L02]); no
   // component state, no effect.
-  const storeReady = useSyncExternalStore(
+  const listMounted = useSyncExternalStore(
     codeSessionStore.subscribe,
     useCallback(() => {
       const s = codeSessionStore.getSnapshot();
       return s.replayEverCompleted || !deriveColdRestoreActive(s);
     }, [codeSessionStore]),
   );
-
-  // The reveal queue ([B02]). The first mount after a cold restore is the
-  // uninterruptible task the deck's busy cover exists for, so it does not
-  // run inline at `replay_complete`: the card enqueues, the deck raises the
-  // cover and waits for it to composite, and the list mounts when the queue
-  // admits this card. Only that first mount waits. A card that was never
-  // held (no cold restore), a later mount, and the reconnect paint gate are
-  // untouched, and a card that errors mounts at once so its banner shows,
-  // leaving the queue as it goes. `wasHeldRef` and `revealedRef` are
-  // ref-in-render latches (idempotent): held once, revealed once.
-  const replayCompletedClean = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    useCallback(() => {
-      const s = codeSessionStore.getSnapshot();
-      return s.replayEverCompleted && s.lastError === null;
-    }, [codeSessionStore]),
-  );
-  const revealAdmitted = useSyncExternalStore(
-    restoreRevealStore.subscribe,
-    useCallback(() => restoreRevealStore.isAdmitted(cardId), [cardId]),
-  );
-  const wasHeldRef = useRef(false);
-  const revealedRef = useRef(false);
-  if (!storeReady) wasHeldRef.current = true;
-  let revealPending =
-    wasHeldRef.current && replayCompletedClean && !revealedRef.current;
-  if (revealPending && revealAdmitted) {
-    revealedRef.current = true;
-    revealPending = false;
-  }
-  const listMounted = storeReady && !revealPending;
-  useLayoutEffect(() => {
-    if (revealPending) {
-      restoreRevealStore.setKeyCard(deck.getFirstResponderCardId());
-      restoreRevealStore.enqueue(cardId);
-    } else if (!revealedRef.current) {
-      // Errored, or never held: nothing of this card's under the cover.
-      restoreRevealStore.removed(cardId);
-    }
-  }, [revealPending, cardId, deck]);
-  // A card that unmounts leaves the queue, queued or in flight.
-  useLayoutEffect(() => () => restoreRevealStore.removed(cardId), [cardId]);
 
   // Stamp the reveal moment for the settle timer the first time the list
   // mounts — the next paint shows the transcript, and the heights settle

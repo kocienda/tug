@@ -7,55 +7,41 @@
  * `phase === "replaying"` → `replay_complete`. `deriveColdRestoreActive`
  * is true for the whole of that walk and false outside it.
  *
- * It is read by two surfaces, and neither of them is a gate over the
- * card anymore. `SessionCardServicesGate` reads it only to settle the
- * restore bookkeeping — the body mounts THROUGH the replay window and
- * paints progressively, and the one window that still routes to the
- * `SessionRestoring` placeholder is `transportState === "restoring"`,
- * which this predicate has nothing to do with. What the user sees
- * during a replay is the `Z0` load-control bar's restore strip
- * (`session-load-control-bar.tsx`), whose restore arm is this predicate
- * alone. So while `deriveColdRestoreActive` is true the card is visibly
- * restoring, and the deck around it is untouched.
+ * It is read by three surfaces. `SessionCardServicesGate` reads it only
+ * to settle the restore bookkeeping — the body mounts THROUGH the replay
+ * window and paints progressively, and the one window that still routes
+ * to the `SessionRestoring` placeholder is `transportState ===
+ * "restoring"`, which this predicate has nothing to do with. The `Z0`
+ * load-control bar's restore strip (`session-load-control-bar.tsx`)
+ * reads it as its restore arm, so while `deriveColdRestoreActive` is true
+ * the card is visibly restoring. And `restore-gate-store.ts` folds it
+ * across every live card for `TugRestoreGate`, the app-wide blocking
+ * modal at the deck root.
  *
- * ## The app-modal this replaced, and why it is not coming back
+ * ## The app-modal, and why it stands
  *
- * There used to be a second reader of this predicate: `TugRestoreGate`,
- * an app-wide blocking modal at the deck root, folded across every live
- * card by `restore-gate-store.ts`. Its argument was real and is worth
- * keeping. A cold restore's reveal — mounting, laying out and measuring
- * a whole reconstructed transcript — is one uninterruptible task on the
- * single main thread every card in the one `WKWebView` shares. While it
- * runs the app answers nothing: not the restoring card, not its
- * neighbours, not the composer you are typing into. The chrome goes on
- * painting its last frame throughout, so the app *looks* live while it
- * drops every keystroke on the floor. Chunking the reveal so input could
- * interleave was tried and rejected — a transcript filling in behind the
- * user flashes and hops. Saying "busy" for exactly as long as the app is
- * busy costs the user nothing they actually had, and it is true.
+ * A cold restore's reveal — mounting, laying out and measuring a whole
+ * reconstructed transcript — is one uninterruptible task on the single
+ * main thread every card in the one `WKWebView` shares. While it runs
+ * the app answers nothing: not the restoring card, not its neighbours,
+ * not the composer you are typing into. The chrome goes on painting its
+ * last frame throughout, so the app *looks* live while it drops every
+ * keystroke on the floor. Chunking the reveal so input could interleave
+ * was tried and rejected — a transcript filling in behind the user
+ * flashes and hops. Saying "busy" for exactly as long as the app is busy
+ * costs the user nothing they actually had, and it is true.
  *
- * It was removed anyway, because the modal had no dismiss and its only
- * close was `replay_complete` — a frame nothing guarantees. A relay that
- * died mid-bracket left the whole app behind an undismissable panel with
- * the offending card unreachable behind it, on every launch. A silence
- * deadline was added to bound that, and a modal whose safety rests on a
- * timer is the wrong construction rather than a mis-tuned one: one card's
- * lost frame must not be able to hold the entire app, however briefly.
- * So `replaying` is now a state of one card, shown by that card's own
- * `Z0` restore strip over a body that stays mounted and usable — and a
- * card that gives up says so in its own pane banner. Neither costs the
- * deck around it anything.
- *
- * What the modal was *right* about is the reveal, and the reveal alone.
- * Its honest successor is built, and it does not key off this predicate.
- * A card whose replay has completed enqueues its first list mount on the
- * deck's reveal queue (`lib/restore-reveal-queue.ts`, driven by
- * `lib/restore-reveal-store.ts`). The queue raises `TugRestoreRevealCover`,
- * waits for it to composite, admits one reveal per task, and lifts the
- * cover on the frame after the last reveal settles. Every open and close is
- * the deck's own work, a frame or a task or a settle, so the window it
- * covers is the one the reveal takes and never the one the relay takes. A
- * card still inside this predicate's window is not under it.
+ * The gate has no dismiss and its close is `replay_complete`, a frame
+ * nothing on a wire guarantees, so a relay that dies mid-bracket could
+ * once hold the whole app behind it on every launch. The replay silence
+ * deadline (`REPLAY_SILENCE_DEADLINE_MS`, `code-session-store/reducer.ts`)
+ * bounds that: a card that hears nothing for the deadline raises an error
+ * on itself, which drops it out of the fold and shows the failure on that
+ * card alone. The gate was deleted once under [L33] in favour of the
+ * per-card strip alone, and then a deck-owned reveal cover; both left the
+ * deck looking blank or live while it was neither, and the gate was
+ * brought back by decision on 2026-10-07. See the note at the permitted
+ * shape in `tuglaws/no-wait-without-a-horizon.md`.
  *
  * Pure module — no DOM, no React, no time source.
  *

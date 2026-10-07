@@ -121,7 +121,7 @@ import { TugLogout } from "./components/tugways/tug-logout";
 import { writeCanvasFlowOffset } from "./components/chrome/flow-offset";
 import { ConfigureTugRequest } from "./components/tugways/configure-tug-request";
 import { TugVersionGate } from "./components/tugways/tug-version-gate";
-import { TugRestoreRevealCover } from "./components/tugways/tug-restore-reveal-cover";
+import { TugRestoreGate } from "./components/tugways/tug-restore-gate";
 import { ErrorBoundary } from "./components/chrome/error-boundary";
 import {
   CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
@@ -2724,15 +2724,18 @@ export class DeckManager implements IDeckManagerStore {
             store: this.rateLimitStore,
           }),
           React.createElement(DeckCanvas, {}),
-          // App-wide busy cover over a cold restore's reveals. Up only while
-          // the deck's own reveal queue is running a Session card's first
-          // transcript mount; nothing from the wire holds it ([L33]).
-          React.createElement(TugRestoreRevealCover, {}),
           // App-wide blocking "update macOS" gate. Opens only when the host
           // version is known-below its line's floor; takes precedence over
           // ConfigureTug (which suppresses itself while the gate is open) so the
           // two app-modals never stack (Spec S02). Renders nothing otherwise.
           React.createElement(TugVersionGate, {}),
+          // App-wide blocking restore gate. A cold restore's reveal is one
+          // uninterruptible task on the thread every card shares, so the app
+          // answers nothing while it runs; the gate says so for exactly that
+          // long instead of painting a live-looking deck that drops input.
+          // Suppresses itself under the version gate (Spec S02) and renders
+          // nothing once the restores land.
+          React.createElement(TugRestoreGate, {}),
           // App-wide blocking setup wizard. Covers the deck until Claude Code
           // is installed, signed in, and the first session is opened — auth is
           // strictly required for an AI IDE. Renders nothing once set up.
