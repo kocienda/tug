@@ -377,23 +377,14 @@
   --tugx-z2-control-gap: var(--tug-space-xs);
   --tugx-z2-row-inset: var(--tug-space-xs);
   --tugx-z2-cell-gap: 27px;
-  /* In `em`, never `ch`. The budgets were authored in `ch` (the cells' 10px
-     Plex Sans gives 1ch = 6px = 0.6em, so 15ch is 9em), and the design prose
-     in `tug-status-cell.css` still counts in ch. Under the host's page zoom
-     WebKit resolves `ch` from the zoomed face's "0" advance, which at this
-     size quantizes: 15ch read 90px at 100 % and 101.25px at 80 %, and the
-     row overflowed the strip it fits at 100 %. `em` is the font size and
-     nothing else, so it holds ([B09] of view-zoom-performance-and-feedback:
-     a zoom changes scale and nothing else). Every consumer is at the cell's
-     10px, which is what makes the conversion exact. */
-  --tugx-z2-cell-state: 10.8em;
-  --tugx-z2-cell-time: 9em;
-  --tugx-z2-cell-context: 10.8em;
-  --tugx-z2-cell-tasks: 10.2em;
-  --tugx-z2-cell-jobs: 8.4em;
-  --tugx-z2-cell-tasks-arc: 10.2em;
-  --tugx-z2-cell-jobs-arc: 5.4em;
-  --tugx-z2-cell-context-arc: 8.4em;
+  --tugx-z2-cell-state: 18ch;
+  --tugx-z2-cell-time: 15ch;
+  --tugx-z2-cell-context: 18ch;
+  --tugx-z2-cell-tasks: 17ch;
+  --tugx-z2-cell-jobs: 14ch;
+  --tugx-z2-cell-tasks-arc: 17ch;
+  --tugx-z2-cell-jobs-arc: 9ch;
+  --tugx-z2-cell-context-arc: 14ch;
   /* Measured: the resting cells' own row is 35.8px (an 11px legend apparatus,
      its 5px tick excursion, the 2px stack gap, the 18px value row, and the
      fraction the cell stack's own boxes carry), which builds the 53.8px strip

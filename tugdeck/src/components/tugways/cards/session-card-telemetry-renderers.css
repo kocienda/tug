@@ -637,9 +637,8 @@ body[data-tug-motion="off"]
 
   /* Cell-width fallback — the generous default each cell inherits
      before its own `[data-priority]` rule (in `tug-status-cell.css`)
-     overrides it to a content-sized width. In `em`, as the cell budgets
-     are: `ch` moves under the host's page zoom (`session-card.css`). */
-  --tugx-session-status-cell-width: 12.6em;
+     overrides it to a content-sized width. */
+  --tugx-session-status-cell-width: 21ch;
 
   /* The one height every cell's value row holds, whichever construction it is
      built from — see `.session-telemetry-status-value-wrap` in

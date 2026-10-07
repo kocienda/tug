@@ -93,9 +93,6 @@
    faces fit inside them, which the measurements below record.
 
    Widest face → measured need, at 1ch ≈ 6.8px:
-   (The budgets are counted in ch here and declared in em in
-   `session-card.css` — 1ch = 0.6em at the cells' face — because `ch`
-   moves under the host's page zoom and `em` does not; see the token block.)
      STATE    "Disconnected"   61px  (value wins; between STATE's two dots the
                                       whole wrap needs 124.6px, which is 16.6
                                       over 18ch's 108px — the cell has always
@@ -178,19 +175,19 @@
    108 and at 15ch it drops under TIME, and neither the slack nor the hierarchy
    survives the other. */
 .session-telemetry-status-cell[data-priority="state"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-state, 10.8em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-state, 18ch);
 }
 .session-telemetry-status-cell[data-priority="time"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-time, 9em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-time, 15ch);
 }
 .session-telemetry-status-cell[data-priority="context"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-context, 10.2em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-context, 17ch);
 }
 .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks, 7.8em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks, 13ch);
 }
 .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs, 7.8em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs, 13ch);
 }
 
 /* The ARC reading needs STATE's box, because it wears STATE's shape.
@@ -252,15 +249,15 @@
    cells are the same five numbers at each. */
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks-arc, 10.2em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks-arc, 17ch);
 }
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs-arc, 5.4em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs-arc, 9ch);
 }
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="context"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-context-arc, 8.4em);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-context-arc, 14ch);
 }
 .session-telemetry-status-value-wrap {
   /* Wrap centers its single child value across the whole cell — so values
