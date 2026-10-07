@@ -336,9 +336,8 @@ describe.skipIf(!SHOULD_RUN)("at0277 — sidebar row accessories answer the keyb
             `document.querySelector('[data-testid="layout-card-zoom"][data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
-          // The Zoom row is next, its cursor parked on 100 %: three Downs to
-          // the end of its run, and one more off it.
-          for (let i = 0; i < 3; i += 1) await app.nativeKey("ArrowDown");
+          // The Zoom row is next, its cursor parked on 100 % — the last of
+          // its run — so one more Down is off its end.
           await app.nativeKey("ArrowDown");
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-testid="layout-card-layout"][data-key-view-kbd]') !== null`,

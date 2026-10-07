@@ -15,6 +15,7 @@ import {
   layoutPxAt,
   normalizeFactor,
   pageZoomLevelOf,
+  pageZoomRowLevels,
   requestPageZoom,
   viewportPxAt,
 } from "../page-zoom-store";
@@ -231,8 +232,16 @@ describe("the zoom levels", () => {
 
   test("a factor is read as its level within rounding, and between levels as none", () => {
     expect(pageZoomLevelOf(0.9)).toBe(0.9);
-    expect(pageZoomLevelOf(0.6700000000000001)).toBe(0.67);
-    expect(pageZoomLevelOf(0.7)).toBeNull();
+    expect(pageZoomLevelOf(0.7000000000000001)).toBe(0.7);
+    expect(pageZoomLevelOf(0.75)).toBeNull();
+  });
+
+  test("the Zoom row offers the four everyday levels, and the standing factor in its place when it is another", () => {
+    expect(pageZoomRowLevels(0.9)).toEqual([0.7, 0.8, 0.9, 1]);
+    expect(pageZoomRowLevels(0.9000000000000001)).toEqual([0.7, 0.8, 0.9, 1]);
+    expect(pageZoomRowLevels(1.25)).toEqual([0.7, 0.8, 0.9, 1, 1.25]);
+    expect(pageZoomRowLevels(0.5)).toEqual([0.5, 0.7, 0.8, 0.9, 1]);
+    expect(pageZoomRowLevels(0.75)).toEqual([0.7, 0.75, 0.8, 0.9, 1]);
   });
 
   test("a level is requested of the host's `pageZoom` handler, and nothing happens with no host", () => {

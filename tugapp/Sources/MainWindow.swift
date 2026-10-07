@@ -443,15 +443,16 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     // The factor is one of `pageZoomLevels`, and Zoom In / Zoom Out step along
     // them rather than by a fixed increment: fine steps near 100 %, where the
     // choice is about comfort, coarse ones toward the ends, where it is about
-    // fitting more deck or reading from further back. The Layout card's Zoom
-    // row offers the same list (`PAGE_ZOOM_LEVELS` in
-    // `tugdeck/src/lib/page-zoom-store.ts` — keep the two in lockstep). The
+    // fitting more deck or reading from further back. The deck holds the same
+    // list (`PAGE_ZOOM_LEVELS` in `tugdeck/src/lib/page-zoom-store.ts` — keep
+    // the two in lockstep), and the Layout card's Zoom row offers the four
+    // everyday ones from it (`PAGE_ZOOM_ROW_LEVELS`). The
     // ends are the bounds. Only the app-test harness sets a factor between
     // levels (`applyPageZoom`), for geometry it wants to read at any scale.
     private static let pageZoomDefaultsKey = "WebViewPageZoom"
     /// The last factor other than 100 %, which Toggle Actual Size returns to.
     private static let pageZoomAwayDefaultsKey = "WebViewPageZoomAway"
-    static let pageZoomLevels: [CGFloat] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.25, 1.5, 2.0]
+    static let pageZoomLevels: [CGFloat] = [0.5, 0.7, 0.8, 0.9, 1.0, 1.25, 1.5, 2.0]
     static let minPageZoom: CGFloat = pageZoomLevels.first!
     static let maxPageZoom: CGFloat = pageZoomLevels.last!
     static let defaultPageZoom: CGFloat = 1.0

@@ -103,6 +103,13 @@ function noteText(app: App): Promise<string> {
   return app.evalJS<string>(`document.querySelector(${JSON.stringify(NOTE)})?.textContent ?? ""`);
 }
 
+/** The Zoom row's segment labels, in order. */
+function labels(app: App): Promise<string[]> {
+  return app.evalJS<string[]>(
+    `Array.from(document.querySelectorAll('${ZOOM_GROUP} [data-choice-value]')).map(function (el) { return el.textContent; })`,
+  );
+}
+
 async function clickLevel(app: App, level: string): Promise<void> {
   await app.click(`${ZOOM_GROUP} [data-choice-value="${level}"]`);
   await wait(SETTLE_MS);
@@ -132,14 +139,11 @@ describe.skipIf(!SHOULD_RUN)("AT0718: View › Zoom levels, the Layout card's Zo
     async () => {
       const app = await standUp();
       try {
-        const levels = await app.evalJS<string[]>(
-          `Array.from(document.querySelectorAll('${ZOOM_GROUP} [data-choice-value]')).map(function (el) { return el.textContent; })`,
-        );
-        expect(levels, "the row offers the eight levels").toEqual([
-          "50", "67", "80", "90", "100", "125", "150", "200",
+        expect(await labels(app), "the row offers the four everyday levels").toEqual([
+          "70", "80", "90", "100",
         ]);
-        // Eight segments in a rail at its narrow width: the group stays
-        // inside the card, like every other row.
+        // The row in a rail at its narrow width stays inside the card, like
+        // every other row.
         const fit = await app.evalJS<{ group: number; card: number }>(
           `(function () {
             var group = document.querySelector('${ZOOM_GROUP}').getBoundingClientRect();
@@ -165,12 +169,29 @@ describe.skipIf(!SHOULD_RUN)("AT0718: View › Zoom levels, the Layout card's Zo
 
         await key(app, "-", ["cmd"]);
         await key(app, "-", ["cmd"]);
-        expect(await factor(app), "⌘− twice steps down two levels").toBeCloseTo(0.67, 5);
+        await key(app, "-", ["cmd"]);
+        expect(await factor(app), "⌘− steps down past the row's levels").toBeCloseTo(0.5, 5);
+        expect(await labels(app), "a level off the row joins it as a fifth segment, in order").toEqual([
+          "50", "70", "80", "90", "100",
+        ]);
+        expect(await selected(app), "and it is the one selected").toBe("0.5");
 
-        // A factor between levels — only the harness sets one — selects no
-        // segment, and the next step lands on a level rather than 10 % on.
-        expect(await app.setPageZoom(0.7)).toBeCloseTo(0.7, 5);
-        expect(await selected(app), "between levels, nothing is selected").toBe("");
+        await clickLevel(app, "0.9");
+        expect(await factor(app)).toBeCloseTo(0.9, 5);
+        expect(await labels(app), "back on the row, the fifth segment goes").toEqual([
+          "70", "80", "90", "100",
+        ]);
+
+        for (let i = 0; i < 2; i += 1) await key(app, "=", ["cmd"]);
+        expect(await factor(app), "⌘= steps up past 100 %").toBeCloseTo(1.25, 5);
+        expect(await labels(app), "above the row, the fifth segment trails it").toEqual([
+          "70", "80", "90", "100", "125",
+        ]);
+
+        // A factor between levels — only the harness sets one — is shown the
+        // same way, and the next step lands on a level rather than 10 % on.
+        expect(await app.setPageZoom(0.75)).toBeCloseTo(0.75, 5);
+        expect(await selected(app), "between levels, the factor is its own segment").toBe("0.75");
         await key(app, "=", ["cmd"]);
         expect(await factor(app), "a step from between levels lands on the next one").toBeCloseTo(
           0.8,
@@ -196,21 +217,21 @@ describe.skipIf(!SHOULD_RUN)("AT0718: View › Zoom levels, the Layout card's Zo
           expect(item.enabled, "at 100 % with nothing chosen, there is nowhere to go").toBe(false);
         }
 
-        await clickLevel(app, "1.25");
-        expect(await factor(app)).toBeCloseTo(1.25, 5);
+        await clickLevel(app, "0.8");
+        expect(await factor(app)).toBeCloseTo(0.8, 5);
 
         await key(app, "0", ["cmd", "alt"]);
-        expect(await factor(app), "⌥⌘0 from 125 % goes to 100 %").toBeCloseTo(1, 5);
+        expect(await factor(app), "⌥⌘0 from 80 % goes to 100 %").toBeCloseTo(1, 5);
 
         await key(app, "0", ["cmd", "alt"]);
-        expect(await factor(app), "⌥⌘0 from 100 % goes back to 125 %").toBeCloseTo(1.25, 5);
+        expect(await factor(app), "⌥⌘0 from 100 % goes back to 80 %").toBeCloseTo(0.8, 5);
 
         // ⌘0 to 100 % keeps the level too: it is the last one chosen that
         // isn't 100 %.
         await key(app, "0", ["cmd"]);
         expect(await factor(app)).toBeCloseTo(1, 5);
         await key(app, "0", ["cmd", "alt"]);
-        expect(await factor(app), "⌥⌘0 after ⌘0 still goes back").toBeCloseTo(1.25, 5);
+        expect(await factor(app), "⌥⌘0 after ⌘0 still goes back").toBeCloseTo(0.8, 5);
       } finally {
         await app.close();
       }

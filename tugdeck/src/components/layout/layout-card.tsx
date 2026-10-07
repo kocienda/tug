@@ -225,8 +225,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import {
-  PAGE_ZOOM_LEVELS,
-  pageZoomLevelOf,
+  pageZoomRowLevels,
   requestPageZoom,
   usePageZoom,
 } from "@/lib/page-zoom-store";
@@ -1375,10 +1374,10 @@ export function LayoutContent(
           return;
         }
         if (sender === ZOOM_SENDER_ID) {
-          // A request: the host owns the factor, and its answer is what moves
-          // the row (`requestPageZoom`).
-          const level = pageZoomLevelOf(Number(value));
-          if (level !== null) requestPageZoom(level);
+          // A request: the host owns the factor, reads it as its nearest
+          // level, and its answer is what moves the row (`requestPageZoom`).
+          const factor = Number(value);
+          if (Number.isFinite(factor)) requestPageZoom(factor);
           return;
         }
         if (sender === KIND_SENDER_ID && isImpositionKind(value)) {
@@ -1599,16 +1598,20 @@ export function LayoutContent(
     label: CONTENT_WIDTH_LABELS[preset],
   }));
 
-  // The zoom levels, as bare numbers the way Slots shows bare digits; the
-  // caption says what they are. A factor between levels (only the app-test
-  // harness sets one) selects no segment.
-  const zoomItems: TugChoiceItem[] = PAGE_ZOOM_LEVELS.map((level) => ({
+  // The four everyday levels, as bare numbers the way Slots shows bare
+  // digits; the caption says what they are. A zoom stepped to any other level
+  // with ⌘+ / ⌘− shows as a fifth segment in its place, selected, so the row
+  // always says where the deck stands (`pageZoomRowLevels`).
+  const zoomRow = pageZoomRowLevels(zoom);
+  const zoomItems: TugChoiceItem[] = zoomRow.map((level) => ({
     value: String(level),
     label: String(Math.round(level * 100)),
     "aria-label": `${Math.round(level * 100)} percent`,
     tooltip: `${Math.round(level * 100)}%`,
   }));
-  const zoomLevel = pageZoomLevelOf(zoom);
+  const zoomValue = String(
+    zoomRow.find((level) => Math.abs(level - zoom) < 0.005) ?? zoom,
+  );
 
   // One row per registered sidebar card: Off, or a side — show/hide and
   // placement as one question, because "where is it" and "is it there at all"
@@ -1839,7 +1842,7 @@ export function LayoutContent(
             />
           </div>
 
-          {/* View › Zoom, the same levels ⌘+ and ⌘− step along. It scales the
+          {/* View › Zoom, its everyday levels; ⌘+ and ⌘− reach the rest. It scales the
               deck rather than arranging it, so it does not audition: no
               `data-preview-axis`. */}
           <div className="layouts-section-row">
@@ -1853,7 +1856,7 @@ export function LayoutContent(
             </TugLabel>
             <TugChoiceGroup
               items={zoomItems}
-              value={zoomLevel === null ? "" : String(zoomLevel)}
+              value={zoomValue}
               senderId={ZOOM_SENDER_ID}
               size="xs"
               sidePadding="xs"

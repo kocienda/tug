@@ -308,15 +308,34 @@ export function usePageZoom(): PageZoomSnapshot {
 }
 
 /**
- * The zoom levels, in order: what View › Zoom In and Zoom Out step along and
- * what the Layout card's Zoom row offers. Fine near 100 %, coarse toward the
- * ends, which are the bounds. The host owns them (`MainWindow.pageZoomLevels`
- * in `tugapp/Sources/MainWindow.swift` — keep the two in lockstep); only the
- * app-test harness ever sets a factor between them.
+ * The zoom levels, in order: what View › Zoom In and Zoom Out step along.
+ * Fine near 100 %, coarse toward the ends, which are the bounds. The host owns
+ * them (`MainWindow.pageZoomLevels` in `tugapp/Sources/MainWindow.swift` —
+ * keep the two in lockstep); only the app-test harness ever sets a factor
+ * between them.
  */
 export const PAGE_ZOOM_LEVELS: readonly number[] = [
-  0.5, 0.67, 0.8, 0.9, 1, 1.25, 1.5, 2,
+  0.5, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2,
 ];
+
+/**
+ * The levels the Layout card's Zoom row always offers: the everyday ones, a
+ * deck drawn a little smaller to fit more of it. The rest stay a ⌘+ / ⌘−
+ * away, and the row shows the standing factor as one more segment when it is
+ * none of these (`pageZoomRowLevels`).
+ */
+export const PAGE_ZOOM_ROW_LEVELS: readonly number[] = [0.7, 0.8, 0.9, 1];
+
+/**
+ * What the Zoom row offers at `factor`: the four everyday levels, plus
+ * `factor` itself in numeric order when it is not one of them, so the row
+ * always shows where the deck stands.
+ */
+export function pageZoomRowLevels(factor: number): number[] {
+  const near = (level: number): boolean => Math.abs(level - factor) < 0.005;
+  if (PAGE_ZOOM_ROW_LEVELS.some(near)) return [...PAGE_ZOOM_ROW_LEVELS];
+  return [...PAGE_ZOOM_ROW_LEVELS, factor].sort((a, b) => a - b);
+}
 
 /** The level `factor` stands at, or null between levels (a harness factor). */
 export function pageZoomLevelOf(factor: number): number | null {

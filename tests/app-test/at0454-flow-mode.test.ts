@@ -843,9 +843,8 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           `document.querySelector('[data-testid="layout-card-zoom"][data-key-view-kbd]') !== null`,
           { timeoutMs: 3_000 },
         );
-        // The Zoom row sits between them, its cursor parked on 100 %: walk it
-        // to the end of its run (three Downs to 200) and off.
-        for (let i = 0; i < 3; i += 1) await app.nativeKey("ArrowDown");
+        // The Zoom row sits between them, its cursor parked on 100 % — the
+        // last of its run — so one more Down is off its end.
         await app.nativeKey("ArrowDown");
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-layout"][data-key-view-kbd]') !== null`,
