@@ -1,0 +1,49 @@
+/* @tug-pairings: none — a design spike. The blocks under study paint with
+   their own production tokens; the rules here only lay out captions around
+   them, and nothing in this file ships. */
+
+.sp-pg-intro,
+.sp-pg-caption,
+.sp-pg-note {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-pg-intro,
+.sp-pg-note {
+  max-inline-size: 560px;
+}
+
+.sp-pg-tag {
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-pg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-inline-size: 640px;
+}
+
+.sp-pg-census {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-end;
+}
+
+.sp-pg-census-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.sp-pg-census-label {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
