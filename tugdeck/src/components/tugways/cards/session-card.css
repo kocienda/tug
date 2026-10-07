@@ -421,16 +421,15 @@
      per [L16]). */
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
   border-bottom: 1px solid var(--tug7-element-global-border-normal-default-rest);
-  /* `position: sticky; bottom: 0` + `z-index: 1`, and the two answer
-     different questions.
+  /* `position: relative` + `z-index: 1` at rest, and `position: sticky;
+     bottom: 0` for the length of a still crossing (the rule after this one).
 
      The z-index is the paint order: `TugListView`'s scroller (inside
      `.session-card-transcript`) sets `position: relative` and so paints in the
      positioned-descendants phase of the surrounding stacking context. The bar
      must be a positioned element with a higher z-index so its own paint lands
      above the scroller's positioned subtree rather than under the transcript.
-     `sticky` is a positioned value, so it carries that exactly as `relative`
-     did.
+     `relative` and `sticky` are both positioned values, so either carries it.
 
      `bottom: 0` is Z2's whole motion through a fold ([B02] of
      `session-fold-still-interior`). INERT in the open form: the card fills the
@@ -441,12 +440,22 @@
      the unfold, at the frame's own speed, and cannot reverse because the
      imposer's spring cannot.
 
+     Sticky only while a crossing is in flight, because "inert at rest" is not
+     true under View › Zoom. Inside the deck root's `transform: scale(f)`,
+     WebKit takes the scrollport's edge for a sticky box as its height times
+     f, so at rest it holds Z2 that far up the card whenever the entry region
+     is shorter than (1 − f) of it: at 80 % a Session card stood Z2 a band
+     above its composer with transcript showing in the gap (read off the
+     harness, at0715). A strip that is not sticky at rest cannot be held at
+     rest, and the crossing's two ends have no overflow, so the switch moves
+     nothing.
+
      The containing block is `.session-card-top-column`, of which this is the
      last child; the scrollport it is held against is `.tug-pane-content`.
      `.tug-pane-chrome` and `.tug-pane-body` between them are `overflow: clip`
      rather than `hidden` precisely so neither becomes a scroll container that
      would trap this ([F07]) — do not change either to `hidden`. */
-  position: sticky;
+  position: relative;
   bottom: 0;
   z-index: 1;
   /* Establish a CSS containment context so the combined status-row
@@ -456,6 +465,12 @@
      this container by name rather than the nearest unnamed ancestor. */
   container-type: inline-size;
   container-name: session-status;
+}
+
+/* Z2's fold ride: sticky against the pane's content box while the pane holds
+   the card through a crossing. See the note on `position` above. */
+.tug-pane[data-still-crossing] .session-card-status-bar {
+  position: sticky;
 }
 
 /* When Z2 has no content, the wrapper renders as an empty `<div>`
@@ -1522,7 +1537,7 @@
        tween;
      - `.tug-pane-content` clips it (`tug-pane.css`), so the overflow draws no
        scrollbar and takes no wheel;
-     - Z2 is `position: sticky; bottom: 0`, so the browser holds it at the
+     - Z2 is `position: sticky; bottom: 0` for the crossing, so the browser holds it at the
        visible bottom edge: it travels UP on the fold and DOWN on the unfold,
        at the frame's own speed, and cannot reverse because the spring cannot
        ([B02]).
