@@ -1040,6 +1040,59 @@ The harness's chain census names the `clientHeight` reader: `_placeRunHeight` �
 
 **The cut.** The deck manager now keeps the container's client size, dropping it on the window's `resize` and the container's own `ResizeObserver`, so those reads force nothing. The one layout left falls to the settle's Last pass, which has to measure the new geometry anyway.
 
+## The user's deck, after the set-up cuts
+
+The same deck, read twice after `cd6930a2f` joined. The first reading found a 50 ms gap inside the motion on rails and fit that nothing recorded could explain; the second was taken to name it.
+
+### The first reading
+
+Taken 2026-10-06 about 23:40 UTC on `release-main`, whose `Info.plist` names `cd6930a2f` as its build commit. The deck had been relaunched and held 8,209–8,349 elements, against 23,500 for the before readings above, so the shapes compare and the absolutes do not. Loops were stilled with `demote on` and recording was on. `--tasks` was not used, so the commit census and lead recorder were not in the page. The auditing session was streaming into the deck. Each gesture was driven by `tugtool deck motion settle --count 3 --chains --json`.
+
+| Gesture | Lead ms | First beat ms | First beat before | Forced layout in set-up | Mid-motion gap | Land |
+|---|---|---|---|---|---|---|
+| rails ×3 | 12–16 | 100–109 | 291–295 | one, 38–41 ms | 50–52 ms, 2.94–3.06 frames against 2 | 55–66 ms, passes by the shrink ruling |
+| sidebar ×3 | 22–24 | 65–73 | 118–129 | none over 2 ms | 18–23 ms, 1.06–1.35 frames | 17–23 ms, 1.00–1.24 frames |
+| fit ×1 | 11 | 62 | 162 | none | 50 ms, 2.94 frames against 2.5 | 19 ms, 1.12 frames |
+
+The rails set-up's one forced layout is a `clientHeight` read in a `useLayoutEffect` of `tug-list-view.tsx`, the effect beside `auditLedger`. Its `settle-frames` rows read a 51–53 ms gap with no forced layout in it. Without the census, nothing said what ran there.
+
+### The second reading
+
+- **When and what.** 2026-10-06, 23:51:38–23:52:16 UTC, the same `release-main` build (`cd6930a2f`, version 0.8.17), read by the arc worktree's debug `tugtool`. Rails ran `--count 3` and fit ran once, each with `--tasks --chains --json`. The outputs are in the arc's documents under `step3-user-deck-after/`, with each drive's deck trace beside it.
+- **Instruments in the page.** The verb has no `--reload`, because `--tasks` reloads the deck itself when the lead recorder is missing. The deck was reloaded once at the start with the record and lead-recorder flags set. The page then held the commit census and the lead recorder (`page.json`), and the verb found them installed. Loops were stilled with `demote on` and recording was on. At the end, loops ran again, recording was off, both flags were cleared, the deck was reloaded clean, and the eval door was shut.
+- **The bar.** This build predates `__tugMotion.settleVerdict`, so the reading bundled `tugdeck/src/lib/motion-guard/settle-bar.ts` as of `53f5eff71` and installed it on the page's handle first. The verdicts below are the shared bar's own clauses.
+- **The deck.** 12,356–12,531 elements after the reload. Rest passed at 6 updates/s before rails, holding 182 ms/s, and at 1 update/s and 4 ms/s before fit.
+- **Streaming.** No session wrote a turn into the deck while the reading ran. This arc's own session sat inside the one tool call that took it. Feed updates still arrived: the commits in each window name `drainFrames` ×102–174 and `_onFeedUpdate` ×17–29 as their causes. A live session's status row, with its pulsing progress dot, committed in three of the four drives.
+
+| Drive | Lead ms | First beat ms | Gap from the first frame (deck / outside) | Inside the motion | Land |
+|---|---|---|---|---|---|
+| rails 1 | 8 | 116 | 45 ms, 2.65 frames / 48 ms | `SessionTelemetryStatusRow2`, 35 fibers, 0 ms React | 46 ms, 2.71 frames, passes by the shrink ruling |
+| rails 2 | 16 | 117 | 53 ms, 3.12 frames / 53 ms | `SessionTelemetryStatusRow2`, 35 fibers; `CardHostImpl`, 3,677 fibers, 11 ms React, from a feed update with a `flushSync` | 45 ms, 2.65 frames, passes by the shrink ruling |
+| rails 3 | 13 | 130 | 47 ms, 2.76 frames / 64 ms | nothing: no commit, no forced layout, no observer delivery | 60 ms, 3.53 frames, passes by the shrink ruling |
+| fit | 14 | 102 | 31 ms, 1.82 frames / 29 ms | `SessionTelemetryStatusRow2`, 35 fibers; two `ResizeObserver` deliveries on `div.overview-transcript` (1.0 and 0.0 ms) | 19 ms, 1.12 frames |
+
+Each rails drive's set-up holds one 617-fiber commit of 103–125 ms React, caused through `forEach < withBypass`, and 28–41 ms inside forced-layout chains, all before the first beat. That is the set-up [B04] leaves in place, and it costs more here than in the first reading.
+
+### The cause of the gap
+
+**The cause is not named.** The reading rules out what its instruments count, and it did not record what is left.
+
+- **Ruled out: a React commit.** Rails 3 had no commit inside its motion and still read a 47 ms gap (64 ms on the outside recorder). On rails 1 and 2, the commits inside the motion took 0 ms and 11 ms of React time, against gaps of 45 and 53 ms.
+- **Ruled out: a forced layout.** No drive had a forced layout inside its motion, with the chain probe armed on every one.
+- **Ruled out: an observer delivery.** None arrived on rails. Fit's two cost 1 ms together.
+- **Left:** a main-thread task the commit census does not see, or the rendering update itself — style, paint and compositing — which none of these instruments time. The gap persists on rails at 45–53 ms whatever ran in the motion. On fit it is down from 50 ms in the first reading to 31 ms.
+- **Missing: the lead recorder's tasks.** The page returns every task the lead recorder saw (`tasks` in `deck_motion_settle.js`), but `tugtool deck motion settle` uses them only to attribute commits. It never prints a task that sat in a gap.
+- **Missing: where the gap sits.** Neither the `settle-frames` row nor the verb's JSON places the gap inside the motion: not which beat it falls in, and not which frame ends it.
+
+The next reading needs both: the recorder's tasks laid against each motion gap, and the render-cost probe armed across the motion so a long rendering update is a number rather than an inference.
+
+### The verdict on the true bar
+
+- **Rails show: RED on gap** on all three drives, at 2.65–3.12 frames against 2. Sealed is RED on rails 1 and 2, from the feed-driven commits, and green on rails 3. The land passes by the shrink ruling, because the flow panes narrow as the rails come in.
+- **Rails show, off-curve: RED as recorded, and that was the verb's own defect, now fixed.** It read 26–27 ticks on five panes: Workspaces, Overview, Layout, Arcs and Jots, every one a rail member (read off each pane's `data-rail-member` on the live deck). These panes are the frames a show brings in, and `at0706` exempts exactly them. The verb missed them because its band census counted every pane in the shown layer, parked rail members included. So the arriving rail frames looked as if they had been standing before the show, and `arrivedIn` found nothing.
+- **The band fix.** Both page scripts now take the band from the product's `SHOWN_PANE_FRAMES` through `__tugMotion.settleBand()`. On a deck without that handle, they fall back to the app-tests' selector, `:not([data-rail-parked]):not([data-departing])`. With that band the five frames arrive, and the off-curve clause exempts them the way the test does.
+- **Fit: gap green** at 1.82 frames against 2.5. Off-curve and the land are green. Sealed is RED: a 35-fiber status-row commit and two `ResizeObserver` deliveries on the Overview's transcript ran inside the motion.
+
 ## The column rejoin's grow beat
 
 `at0708`'s rejoin stacks four split columns again at once, and six frames grow. The readings below were taken 2026-10-06 on the harness, each from one stylesheet rule injected before the gesture. A timestamp-only frame recorder read each one; an earlier recorder that read geometry on every tick forced a layout on each one and invented gaps.

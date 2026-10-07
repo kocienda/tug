@@ -214,11 +214,12 @@ function inactiveSingleTabDeckShape() {
 const RAIL_WIDTH = 420;
 /** Wide enough that five of them overrun any band this harness opens. */
 const FLOW_PANE_WIDTH = 700;
-/** How far the wheel pans the strip — half a pane, so the target straddles
- *  the band's near edge with its title bar's trailing end still in the clear. */
-const PAN_PX = 350;
-/** The wheel gesture commits after an idle window (`FLOW_WHEEL_IDLE_MS` = 180);
- *  this clears it, and the reveal's settle, with room. */
+/** How far the strip stands slid under the band — half a pane, so the target
+ *  straddles the band's near edge with its title bar's trailing end still in
+ *  the clear. Seeded as the deck's `flowOffset`, not panned: a wheel pan now
+ *  jumps a whole slot, so no wheel delta can stop the strip half a pane in. */
+const HALF_PANE_OFFSET_PX = 350;
+/** A seed's settle, and the reveal's, cleared with room. */
 const AFTER_SETTLE_MS = 900;
 /** Frames are measured in device pixels; a rounded pin is within a pixel. */
 const TOL = 2;
@@ -370,30 +371,6 @@ function paneRect(
       return { left: box.left, right: box.right };
     })()`,
   );
-}
-
-/**
- * Pan the flow strip by `deltaX` through the deck's own wheel handler — the
- * gesture a trackpad sends, so the offset that lands is one the product
- * clamped and committed rather than one this test wrote into the store.
- *
- * The listener is on the canvas container, which is the element carrying
- * `data-deck-canvas-background` itself rather than a child of it.
- */
-async function panBand(app: App, deltaX: number): Promise<void> {
-  await app.evalJS<null>(
-    `(function () {
-      var el = document.querySelector("[data-deck-canvas-background]");
-      el.dispatchEvent(new WheelEvent("wheel", {
-        deltaX: ${deltaX},
-        deltaY: 0,
-        bubbles: true,
-        cancelable: true,
-      }));
-      return null;
-    })()`,
-  );
-  await pause(AFTER_SETTLE_MS);
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -704,7 +681,14 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── The fixture earns its assertion ─────────────────────────────
           const bandBox = await band(app);
-          await panBand(app, PAN_PX);
+          // The strip half a pane under the band. A wheel pan cannot place it
+          // there any more — it jumps a whole slot, so 350 px of wheel moves
+          // the deck 705 — so the deck is seeded again with the offset, and
+          // without a focus card, so no activation runs its reveal over it.
+          await app.seedDeckState({
+            state: { ...flowDeckShape(), flowOffset: HALF_PANE_OFFSET_PX },
+          });
+          await pause(AFTER_SETTLE_MS);
           const before = await paneRect(app, "p1");
           const offsetBefore = await app.evalJS<number>(
             `window.tugdeck.diag.getDeckState().flowOffset || 0`,

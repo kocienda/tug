@@ -88,6 +88,21 @@ import type { SettleFrameReading } from "./_harness/client";
 import { testTmpDir } from "./_harness/test-cleanup";
 import { bindAndSettle, type TranscriptSize } from "./real-transcript-fixture";
 import {
+  DEFAULT_SETTLE_BARS,
+  GAP_FRAMES_BAR as SETTLE_GAP_FRAMES_BAR,
+  LAND_FRAMES_BAR as SETTLE_LAND_FRAMES_BAR,
+  SEALED_CARVE_OUTS,
+  arrivedIn as arrivedInBand,
+  bandShrinks,
+  gapClause,
+  landClause,
+  offCurveClause,
+  sealedClause,
+  settleSites,
+  type SealedGesture,
+  type SettleBars,
+} from "../../tugdeck/src/lib/motion-guard/settle-bar";
+import {
   mkTempTugbank,
   rmTempTugbank,
   seedTugbankForLaunch,
@@ -2090,8 +2105,11 @@ export async function arrivalCensus(app: App): Promise<void> {
  * activation's does not get a looser number for being cheaper, and one whose
  * motion is more expensive does not get a looser number for being expensive.
  * A leg that reads red against this stays red and is recorded.
+ *
+ * The clauses and their numbers live in `tugdeck/src/lib/motion-guard/settle-bar.ts`,
+ * the one implementation `tugtool deck motion settle` also consults in the page.
  */
-export const B09_GAP_FRAMES_BAR = 2;
+export const B09_GAP_FRAMES_BAR = SETTLE_GAP_FRAMES_BAR;
 
 /**
  * Every shown pane, id and rounded rect, as one comparable string.
@@ -2269,11 +2287,7 @@ export async function sampleB09Gesture(
  * in exempts nobody.
  */
 export function arrivedIn(r: B09Leg): readonly string[] {
-  const before = new Set(r.before.split(" ").map((s) => s.split("@")[0]));
-  return r.after
-    .split(" ")
-    .map((s) => s.split("@")[0])
-    .filter((id) => id !== "" && !before.has(id));
+  return arrivedInBand(r.before, r.after);
 }
 
 export function reportB09(leg: string, r: B09Leg): void {
@@ -2352,8 +2366,7 @@ export function expectB09Bar(
   leg: string,
   r: B09Leg,
   exempt: readonly string[] = [],
-  gapFramesBar: number = B09_GAP_FRAMES_BAR,
-  landFramesBar: number = LAND_FRAMES_BAR,
+  bars: SettleBars = DEFAULT_SETTLE_BARS,
 ): void {
   const { probe } = r;
 
@@ -2380,24 +2393,25 @@ export function expectB09Bar(
 
   // ---- The bar. ---------------------------------------------------------
   noteLead(leg, row);
+  const gap = gapClause(row, bars.gapFrames);
   expect(
-    row.motionLongestGapFrames,
-    `${leg}: no gap over ${gapFramesBar} display frames across the ` +
-      `motion, from the first frame on — ${row.motionLongestGapMs.toFixed(0)}ms / ` +
-      `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
+    gap.pass,
+    `${leg}: no gap over ${bars.gapFrames} display frames across the ` +
+      `motion, from the first frame on — ${gap.detail}, over ${row.ticks} ticks on ` +
       `${row.panes} panes, with ${row.motionGapsOverOneFrame} gap(s) over one frame`,
-  ).toBeLessThanOrEqual(gapFramesBar);
+  ).toBe(true);
+  const offCurve = offCurveClause(row, exempt);
   expect(
-    row.offCurvePaneIds.filter((id) => !exempt.includes(id)),
+    offCurve.pass,
     `${leg}: no shown frame painted a pose off its own settle's curve at any ` +
-      `tick — ${row.offCurveTicks} of ${row.ticks} ticks were off, on ` +
-      `[${row.offCurvePaneIds.join(", ")}], longest run ` +
+      `tick — ${offCurve.detail}; ${row.offCurveTicks} of ${row.ticks} ticks ` +
+      `were off, on [${row.offCurvePaneIds.join(", ")}], longest run ` +
       `${row.longestOffCurveRunTicks} ticks from ` +
       `${row.longestOffCurveRunOffsetMs}ms` +
       (exempt.length === 0 ? "" : `, with [${exempt.join(", ")}] exempt`) +
       `. A frame that arrives on time carrying the wrong pose shows the ` +
       `reader none of the travel`,
-  ).toEqual([]);
+  ).toBe(true);
   expect(
     [...probe.rectsChangedAfterLanding],
     `${leg}: no shown frame's rect moved after the beat landed — a frame ` +
@@ -2405,29 +2419,11 @@ export function expectB09Bar(
   ).toEqual([]);
   noteBeatStarts(leg, r.beatRows, probe.framePeriodMs);
   expectMotionSealed(leg, row);
-  expectLand(leg, r.land, bandShrinks(r.before, r.after), landFramesBar);
+  expectLand(leg, r.land, bandShrinks(r.before, r.after), bars.landFrames);
 }
 
-/**
- * Whether any frame standing on both sides of the band got smaller on either
- * axis — read off the band strings (`id@x,y+WxH`), so the leg says it rather
- * than the test naming it.
- */
-export function bandShrinks(before: string, after: string): boolean {
-  const sizes = (band: string): Map<string, [number, number]> => {
-    const out = new Map<string, [number, number]>();
-    for (const m of band.matchAll(/(\S+)@-?[\d.]+,-?[\d.]+\+([\d.]+)x([\d.]+)/g)) {
-      out.set(m[1], [Number(m[2]), Number(m[3])]);
-    }
-    return out;
-  };
-  const was = sizes(before);
-  for (const [id, [w, h]] of sizes(after)) {
-    const prior = was.get(id);
-    if (prior !== undefined && (w < prior[0] - 0.5 || h < prior[1] - 0.5)) return true;
-  }
-  return false;
-}
+/** Whether any frame standing on both sides of the band got smaller (`settle-bar.ts`). */
+export { bandShrinks };
 
 /**
  * Every beat's start, against one display period, noted.
@@ -2499,9 +2495,9 @@ export interface SettleLandRow {
  * frame loop's gaps jitter around the period by a few milliseconds. A land of
  * one frame reads about 1.0; a land that costs one missed frame reads about
  * 2.0 and is caught with the same margin. The 35–49 ms land a fold or a
- * division pays today reads 2.1–2.9.
+ * division pays today reads 2.1–2.9. The number lives in `settle-bar.ts`.
  */
-export const LAND_FRAMES_BAR = 1.5;
+export const LAND_FRAMES_BAR = SETTLE_LAND_FRAMES_BAR;
 
 /**
  * Every `settle-land` row written since `mark`, waited for briefly.
@@ -2544,81 +2540,24 @@ export function expectMotionSealed(
   row: SettleFramesRow,
   gesture?: SealedGesture,
 ): void {
-  const sites = (events: readonly { ms?: number; performed?: number; site: string }[]) =>
-    events
-      .map((e) => `${e.site}${e.ms !== undefined ? ` ${e.ms.toFixed(1)}ms` : ` ${e.performed}`}`)
-      .join(" | ");
-  expect(
-    row.motionAtMs,
-    `${leg}: the motion gate closed behind the beats — with no close there is ` +
-      `no motion window, and the three clauses below would pass by reading nothing`,
-  ).not.toBe(-1);
-  expect(
-    row.motionCommits,
-    `${leg}: the page counted commits — a null list is a census that was not there`,
-  ).not.toBeNull();
-  expect(
-    row.motionDeliveries,
-    `${leg}: the page counted observer deliveries`,
-  ).not.toBeNull();
-  // A commit that performed no fiber rendered nothing — React's own empty
-  // flush — and is kept in the row but not counted here.
-  const commits = (row.motionCommits ?? []).filter((c) => c.performed > 0);
-  const deliveries = row.motionDeliveries ?? [];
-  // Carved out by site ([B05] of set-up-and-go-fixups): the bench probe's own
-  // rect read. While beats run, the frame owes the layout its running
-  // animations dirty, and a sync read in the frame's rAF pays it early — on
-  // the user's deck, 3–4 ms on every tick of a `go` and 0 at rest, with no
-  // DOM mutation anywhere in the motion. That is the frame's own layout paid
-  // by the instrument, not a layout the deck forced; every other site,
-  // the in-product sampler's included, still counts.
-  const forced = row.motionForcedLayouts.filter((e) => e.site !== "[bench probe]");
-  const carveOut = gesture === undefined ? undefined : SEALED_CARVE_OUTS[gesture];
-  if (carveOut?.commits === true) {
-    note(
-      `${leg}: ${commits.length} commit(s) inside the motion, carved out — ` +
-        `${carveOut.reason}${commits.length > 0 ? ` — ${sites(commits)}` : ""}`,
-    );
-  } else {
-    expect(
-      commits.length,
-      `${leg}: no React commit between the first frame and the land — ` +
-        `${sites(commits)}`,
-    ).toBe(0);
+  // The clause is `settle-bar.ts`'s — the bench probe's own rect read carved
+  // out of the forced layouts by site, a commit that performed no fiber not
+  // counted, and the gesture's carve-out applied. A census the page did not
+  // have reads `null`, which fails here: a harness deck always has them.
+  const sealed = sealedClause(row, gesture);
+  if (gesture !== undefined && SEALED_CARVE_OUTS[gesture].commits) {
+    note(`${leg}: sealed — ${sealed.detail}`);
   }
   expect(
-    forced.length,
-    `${leg}: no forced layout between the first frame and the land — ` +
-      `${sites(forced)}`,
-  ).toBe(0);
-  expect(
-    deliveries.length,
-    `${leg}: no ResizeObserver delivery between the first frame and the land — ` +
-      `${sites(deliveries)}`,
-  ).toBe(0);
+    sealed.pass,
+    `${leg}: nothing committed, forced layout or delivered an observer ` +
+      `callback between the first frame and the land, and the page counted ` +
+      `all three — ${sealed.detail}`,
+  ).toBe(true);
 }
 
-/** The gestures that carry a carve-out from the sealed-motion clause. */
-export type SealedGesture = keyof typeof SEALED_CARVE_OUTS;
-
-/**
- * The sealed-motion clause's carve-outs, keyed on the gesture rather than on
- * the reading, so an exception is a named fact a leg reads rather than a site
- * a red happened to name.
- *
- * `swipe` — the hand-lift prelaunch: a swipe's settle launches from the hand
- * while the strip is still moving, so its gate closes in the arm and its own
- * React commit goes through the deferred notify, which tells React now and
- * bypasses the gate on purpose ([B06] of set-up-and-go-motion). Its commits
- * are noted, not counted; forced layouts and deliveries still are.
- */
-export const SEALED_CARVE_OUTS = {
-  swipe: {
-    commits: true,
-    reason:
-      "the swipe's prelaunch commits under the gate by design ([B06] of set-up-and-go-motion)",
-  },
-} as const;
+/** The sealed clause's carve-outs, keyed on the gesture (`settle-bar.ts`). */
+export { SEALED_CARVE_OUTS, type SealedGesture };
 
 /**
  * The land is one frame, and what ran in it is in the report either way.
@@ -2640,14 +2579,7 @@ export function expectLand(
       `its \`settle-frames\` row`,
   ).not.toBeNull();
   if (land === null) return;
-  const sites = (events: readonly { ms?: number; performed?: number; site: string }[] | null) =>
-    events === null
-      ? "not counted"
-      : events.length === 0
-        ? "none"
-        : events
-            .map((e) => `${e.site}${e.ms !== undefined ? ` ${e.ms.toFixed(1)}ms` : ` ${e.performed}`}`)
-            .join(" | ");
+  const sites = settleSites;
   note(
     `${leg}: land ${land.frameMs.toFixed(1)}ms (gaps ${land.gapsMs.map((g) => g.toFixed(1)).join(", ")}) ` +
       `at ${land.landAtMs.toFixed(0)}ms; commits ${sites(land.commits)}; forced layouts ` +
@@ -2659,19 +2591,17 @@ export function expectLand(
   // recorded above and not barred; a growth still is.
   if (shrinks) {
     note(`${leg}: a frame shrinks, so its land is paid by ruling — ${land.frameMs.toFixed(1)}ms`);
-  } else expect(
-    land.frameFrames,
+  }
+  const landed = landClause(land, shrinks, landFramesBar);
+  expect(
+    landed.pass,
     `${leg}: the land is one frame — no gap over ${landFramesBar} display ` +
-      `periods across the hand-back — ${land.frameMs.toFixed(1)}ms / ` +
-      `${land.frameFrames.toFixed(2)} frames at a ${land.framePeriodMs.toFixed(2)}ms ` +
-      `period, with ${land.forcedLayouts.length} forced layout(s) and ` +
+      `periods across the hand-back, and a frame followed it at all — ` +
+      `${landed.detail} at a ` +
+      `${land.framePeriodMs.toFixed(2)}ms period, with ` +
+      `${land.forcedLayouts.length} forced layout(s) and ` +
       `${land.deliveries === null ? "uncounted" : land.deliveries.length} observer ` +
       `deliveries in it`,
-  ).toBeLessThanOrEqual(landFramesBar);
-  expect(
-    land.frameMs,
-    `${leg}: and a frame followed the land at all — -1 would mean the tail ` +
-      `never ticked and the clause above passed by having nothing to measure`,
-  ).toBeGreaterThan(0);
+  ).toBe(true);
 }
 

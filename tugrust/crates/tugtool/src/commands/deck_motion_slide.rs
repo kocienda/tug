@@ -105,8 +105,9 @@ pub struct ClickReading {
     /// Whether focus moved to another pane. A click that moved nothing slid
     /// nothing, and its numbers describe an idle deck.
     pub moved: bool,
-    /// The bar over the deck's own rows for the click's settle
-    /// (`deck_motion_verdict.rs`); `None` when the record switch was off.
+    /// The bar over the deck's own rows for the click's settle, as the page
+    /// computed it (`deck_motion_verdict.rs`); `None` when the record switch
+    /// was off.
     pub verdict: Option<crate::commands::deck_motion_verdict::Verdict>,
 }
 
@@ -217,10 +218,7 @@ pub fn reduce(raw: &Value) -> ClickReading {
         settle_on_ms,
         settle_off_ms,
         moved: raw.get("moved").and_then(|m| m.as_bool()).unwrap_or(false),
-        verdict: crate::commands::deck_motion_verdict::verdict_of(
-            raw.get("engine"),
-            crate::commands::deck_motion_verdict::Bars::DEFAULT,
-        ),
+        verdict: crate::commands::deck_motion_verdict::verdict_of(raw.get("engine")),
     }
 }
 

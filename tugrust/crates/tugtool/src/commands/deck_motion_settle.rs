@@ -806,8 +806,9 @@ pub struct Reading {
     pub motion: Option<Motion>,
     /// The pane the drive returned — an `appear`'s arriving pane.
     pub pane_id: Option<String>,
-    /// The bar over the deck's own rows (`deck_motion_verdict.rs`); `None`
-    /// when the record switch was off and the page wrote none.
+    /// The bar over the deck's own rows, as the page computed it
+    /// (`deck_motion_verdict.rs`); `None` when the record switch was off and
+    /// the page wrote none.
     pub verdict: Option<crate::commands::deck_motion_verdict::Verdict>,
 }
 
@@ -877,10 +878,7 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         land,
         motion: motion_reading,
         pane_id: str_of(raw, "paneId"),
-        verdict: crate::commands::deck_motion_verdict::verdict_of(
-            raw.get("engine"),
-            crate::commands::deck_motion_verdict::Bars::for_drive(drive.gesture, &drive.args),
-        ),
+        verdict: crate::commands::deck_motion_verdict::verdict_of(raw.get("engine")),
     }
 }
 
@@ -1776,20 +1774,18 @@ mod tests {
             args: json!({}),
             read: true,
         };
-        let row = json!({
-            "kind": "settle-frames", "motionLongestGapMs": 50.0,
-            "motionLongestGapFrames": 3.0, "offCurvePaneIds": [],
-            "motionAtMs": 120.0, "motionCommits": [], "motionDeliveries": [],
-            "motionForcedLayouts": [], "firstPaintDelayMs": 98.0,
-        });
         let raw = json!({
             "settle": [[2.0, true], [300.0, false]],
             "frames": [131.0, 147.0, 284.0, 301.0, 347.0, 364.0],
             "commits": null,
             "engine": {
-                "frames": [row],
+                "frames": [{"kind": "settle-frames"}],
                 "lands": [{"kind": "settle-land", "frameMs": 17.0, "frameFrames": 1.0}],
                 "before": "p1@0,0+800x600", "after": "p1@0,0+800x600",
+                "verdict": {
+                    "clauses": [{"name": "gap", "pass": false, "detail": "50 ms / 3.00 frames against 2"}],
+                    "leadMs": 98.0,
+                },
             },
         });
         let r = reduce(&drive, &raw);

@@ -28,6 +28,7 @@
  * @covers tugdeck/src/sidebar-toggle.ts
  * @covers tugdeck/src/lib/gesture-drivers.ts
  * @covers tugdeck/src/deck-manager-store.ts
+ * @covers tugdeck/src/lib/motion-guard/settle-bar.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -55,17 +56,16 @@ import {
   windowCommits,
   transcriptArms,
 } from "./settle-frames-fixture";
+import { settleBarsFor } from "../../tugdeck/src/lib/motion-guard/settle-bar";
 
 const TEST_NAME = "at0706-settle-sidebars";
 const ARMS = transcriptArms();
 
-/** The resize-to-fit leg's gap bar — re-budgeted from 2 by the user on
- *  2026-10-03 after reading 2.06–2.18 on every run (see the header). */
-const RESIZE_TO_FIT_GAP_FRAMES_BAR = 2.5;
-
-/** The sidebars-show leg's land bar — re-budgeted from 1.5 by the user on
- *  2026-10-06 after reading 1.47–1.88 frames (see the header). */
-const SIDEBARS_SHOW_LAND_FRAMES_BAR = 2.0;
+/** The two re-budgeted legs' bars — resize-to-fit's gap and the sidebars'
+ *  show land, by the user's rulings (see the header). They live in
+ *  `settle-bar.ts`, the one table `tugtool deck motion settle` also reads. */
+const RESIZE_TO_FIT_BARS = settleBarsFor("fit");
+const SIDEBARS_SHOW_BARS = settleBarsFor("sidebar-show");
 
 /**
  * The sidebars, and the retune that follows a resize — the last two of
@@ -210,10 +210,9 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
             "sidebars show",
             show,
             arrived,
-            undefined,
-            SIDEBARS_SHOW_LAND_FRAMES_BAR,
+            SIDEBARS_SHOW_BARS,
           );
-          expectB09Bar("resize to fit", retune, [], RESIZE_TO_FIT_GAP_FRAMES_BAR);
+          expectB09Bar("resize to fit", retune, [], RESIZE_TO_FIT_BARS);
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);

@@ -67,6 +67,8 @@ import {
 import { liveMarks, type LiveMarksReading } from "./one-live-mark";
 import { motionBreaker } from "./breaker";
 import { adoptRecordFlagAtLoad, recordSwitch, type RecordReading } from "./record-switch";
+import { settleVerdictOfDrive, type SettleEngineRows, type SettleVerdict } from "./settle-bar";
+import { SHOWN_PANE_FRAMES } from "@/components/chrome/space-layer";
 import {
   burst,
   renderCostProbe,
@@ -258,6 +260,27 @@ export interface TugMotionDiagnostics {
     mode: "arm" | "read" | "disarm",
     ms?: number,
   ): GestureFrameArmReading | GestureFrameReading;
+  /**
+   * The settle bar over a drive's own rows (`settle-bar.ts`) — the same
+   * clauses the app-tests assert, so `tugtool deck motion settle` prints the
+   * verdict the page computed rather than keeping a copy of the bar. Pure: it
+   * reads the rows it is handed and nothing else.
+   */
+  settleVerdict(
+    engine: SettleEngineRows,
+    gesture?: string,
+    args?: { readonly open?: unknown } | null,
+  ): SettleVerdict | null;
+  /**
+   * Every shown pane frame, id and rounded rect (`id@x,y+WxH`), as one string
+   * — the band the settle bar's `arrivedIn` and `bandShrinks` read. Taken over
+   * the product's own `SHOWN_PANE_FRAMES`, so a parked rail member or a
+   * departing frame is not standing, exactly as the app-tests' census has it.
+   * A verb that read every pane in the layer instead would see a rail's
+   * frames as standing before the show that brings them in, and never earn
+   * the arrived exemption.
+   */
+  settleBand(): string;
   /** Clear the probe's samples and the input ring, and throw the switch back. */
   reset(): void;
   /** Test-mode only: the driver that lights the walk ([D5], #forcing-probe). */
@@ -645,6 +668,20 @@ export const tugMotion: TugMotionDiagnostics = {
     if (mode === "arm") return armGestureFrames(ms);
     if (mode === "disarm") return disarmGestureFrames();
     return readGestureFrames();
+  },
+
+  settleVerdict(engine, gesture, args) {
+    return settleVerdictOfDrive(engine, gesture, args);
+  },
+
+  settleBand() {
+    return Array.from(document.querySelectorAll(SHOWN_PANE_FRAMES), (el) => {
+      const r = el.getBoundingClientRect();
+      return (
+        `${el.getAttribute("data-pane-id")}@${Math.round(r.left)},${Math.round(r.top)}` +
+        `+${Math.round(r.width)}x${Math.round(r.height)}`
+      );
+    }).join(" ");
   },
 
   reset() {

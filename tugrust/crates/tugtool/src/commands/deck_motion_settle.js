@@ -130,8 +130,15 @@
     // The shown frames' ids and rounded rects, as one string — the band the
     // verdict compares to tell a shrink, whose land is paid by ruling.
     function band() {
+      // The product's own census of shown frames (`settleBand`), so a parked
+      // rail member is not standing — the band the app-tests read. A deck that
+      // predates the handle gets the same selector spelled out.
+      var handle = window.__tugMotion;
+      if (handle && typeof handle.settleBand === "function") return handle.settleBand();
       return Array.prototype.map.call(
-        document.querySelectorAll("[data-space-layer][data-space-shown] .tug-pane[data-pane-id]"),
+        document.querySelectorAll(
+          "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]:not([data-rail-parked]):not([data-departing])",
+        ),
         function (el) {
           var r = el.getBoundingClientRect();
           return el.getAttribute("data-pane-id") + "@" + Math.round(r.left) + "," +
@@ -179,6 +186,14 @@
             after: band(),
           }
         : null;
+      // The verdict over them, by the page's own bar (`settle-bar.ts`) — the
+      // one the app-tests assert — so the shell end only prints it. A deck that
+      // predates the shared bar says so rather than reading as no verdict.
+      if (engine) {
+        engine.verdict = motion && typeof motion.settleVerdict === "function"
+          ? motion.settleVerdict(engine, args.gesture, args.args)
+          : { error: "this deck predates the shared settle bar (__tugMotion.settleVerdict)" };
+      }
       if (trace) trace.enable(traceWasOn);
       if (error) {
         resolve({ error: error });

@@ -233,8 +233,14 @@
     var trace = window.__deckTrace || null;
     var traceMark = trace ? trace.mark() : 0;
     function band() {
+      // The product's own census of shown frames (`settleBand`); a deck that
+      // predates the handle gets the same selector spelled out.
+      var handle = window.__tugMotion;
+      if (handle && typeof handle.settleBand === "function") return handle.settleBand();
       return Array.prototype.map.call(
-        document.querySelectorAll("[data-space-layer][data-space-shown] .tug-pane[data-pane-id]"),
+        document.querySelectorAll(
+          "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]:not([data-rail-parked]):not([data-departing])",
+        ),
         function (el) {
           var r = el.getBoundingClientRect();
           return el.getAttribute("data-pane-id") + "@" + Math.round(r.left) + "," +
@@ -299,6 +305,13 @@
                   after: band(),
                 }
               : null;
+            // The verdict over them, by the page's own bar (`settle-bar.ts`);
+            // a slide carries no leg of its own, so it reads the default bar.
+            if (engine) {
+              engine.verdict = window.__tugMotion && typeof window.__tugMotion.settleVerdict === "function"
+                ? window.__tugMotion.settleVerdict(engine)
+                : { error: "this deck predates the shared settle bar (__tugMotion.settleVerdict)" };
+            }
             resolve({
               title: titleOf(row),
               // Strictly after: the page clock is coarse, so a frame that ran
