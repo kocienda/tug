@@ -24,9 +24,9 @@
  * finished while the composer was still growing, and the growth pushed Z2 and
  * the picture back UP. The remedy is that the transition is gone: the row is
  * `1fr` in the picture and `0fr` at rest, a cut under Z2 where nothing is
- * visible, and Z2's ride is `position: sticky; bottom: 0` — an offset the
- * browser resolves against the shrinking box, which cannot reverse because the
- * spring cannot.
+ * visible, and Z2 rides the shrinking box — absolutely positioned for the
+ * crossing, its bottom the lesser of its seat's and the clip's, an offset the
+ * browser resolves at layout, which cannot reverse because the spring cannot.
  *
  * So the claims are about POSITION, which is what the reader actually sees, and
  * every one of them is read over the frames the imposer itself marks as the

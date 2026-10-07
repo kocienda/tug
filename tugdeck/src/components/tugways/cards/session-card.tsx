@@ -76,6 +76,7 @@ import {
 import type { ArcJoinActions } from "./session-changes/session-changes-arc-join";
 import { SessionHistoryView } from "./session-history/session-history-view";
 import { SessionTelemetryStatusRow } from "./session-card-telemetry-renderers";
+import { useZ2SeatHold } from "./use-z2-seat-hold";
 import { COMPACTION_CANCEL_FOCUS_KEY } from "./session-card-telemetry-renderers";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
 import { formatPathChipText } from "../chrome/path-chip-format";
@@ -2227,6 +2228,12 @@ export function SessionCardBody({
   // on the far side — inside a hidden layer, which is why the effect
   // below reads `layerShown` before it plays anything.
   const sessionCardRootRef = useRef<HTMLDivElement | null>(null);
+
+  // Z2's seat, and the callback ref that keeps it the strip's height
+  // (`use-z2-seat-hold.ts`): the in-flow box the strip leaves behind while it
+  // rides a crossing's closing edge.
+  const z2SeatRef = useRef<HTMLDivElement | null>(null);
+  const z2StripRef = useZ2SeatHold(z2SeatRef);
 
   // Whether this card's workspace layer is the shown one. `DeckCanvas`
   // provides it per layer; the fade effect below reads it at mount to
@@ -5092,6 +5099,13 @@ export function SessionCardBody({
             </cycle.CycleScope>
           ) : null}
           <div
+            ref={z2SeatRef}
+            className="session-card-z2-seat"
+            data-slot="session-card-z2-seat"
+            aria-hidden="true"
+          />
+          <div
+            ref={z2StripRef}
             className="session-card-status-bar"
             data-slot="session-card-status-bar"
           >

@@ -1821,9 +1821,12 @@ body {
  * `hidden` rather than `clip` because this box is meant to be a scroll
  * container — `hidden` is `clip` plus scrollability, and it is the form that
  * keeps the box's own scroll position addressable while the clip is on.
- * `.tug-pane-chrome` and `.tug-pane-body` above stay `clip` for the opposite
- * reason: neither should be a scroll container at all, which is what keeps a
- * sticky descendant legal ([F07]).
+ * Its `position: relative` is what a card's riding strip is placed against: a
+ * Session card's Z2 is absolutely positioned through a crossing and anchored
+ * to its own seat, so its bottom is this box's bottom, the closing edge
+ * (`session-card.css`). That is a layout fact rather than a scroll one, so it
+ * holds under View › Zoom's scale, where `position: sticky` against this box
+ * did not.
  */
 .tug-pane[data-still-crossing] .tug-pane-content {
   overflow: hidden;
@@ -1845,9 +1848,7 @@ body {
  * The tier has since been squared with what Z2 measures
  * (`FOLDED_CARD_HEIGHT_PX`), so there is no overhang to clip today. This
  * rule is what makes that a pixel of slack rather than the only thing standing
- * between a type-metric change and a strip that re-lays-out on every fold. Z2
- * is `position: sticky` against this box, and `hidden` keeps it a scroll
- * container, so the sticky stays legal ([F07]) exactly as it does above.
+ * between a type-metric change and a strip that re-lays-out on every fold.
  */
 .tug-pane[data-folded="true"] .tug-pane-content {
   overflow: hidden;
@@ -1939,8 +1940,8 @@ body {
  * at every intermediate height, so neither end of the crossing pops.
  *
  * Never during a fold crossing: the fold's status row rides the closing edge
- * by `position: sticky` against a TOP-anchored interior, and when both marks
- * are on the frame the fold's picture wins.
+ * of a TOP-anchored interior, and when both marks are on the frame the fold's
+ * picture wins.
  */
 .tug-pane[data-still-crossing]:not([data-fold-crossing])
   .tug-pane-content

@@ -124,6 +124,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { testTmpDir } from "./_harness/test-cleanup";
+import {
+  mkTempTugbank,
+  rmTempTugbank,
+  seedTugbankForLaunch,
+  tugbankWrite,
+} from "./_harness/tugbank-helpers";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 import {
   pickerPanelNaturalHeight,
@@ -819,8 +826,22 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
   test(
     "a card added on the production path bids what it measured, and the picker reports the same number",
     async () => {
+      // The picker opens on `default-project-path`, seeded here with an empty
+      // directory. Left unseeded, a debug build opens it on the source tree,
+      // and whatever sessions are live there on this machine add rows to the
+      // picker this test needs to be the one-row one.
+      const tugbankPath = mkTempTugbank();
+      seedTugbankForLaunch(tugbankPath);
+      tugbankWrite(
+        tugbankPath,
+        "dev.tugapp.app",
+        "default-project-path",
+        "string",
+        testTmpDir("at0569-quiet-project-"),
+      );
       const app = await launchTugApp({
         testName: "at0569-measured-bid",
+        env: { TUGBANK_PATH: tugbankPath },
       });
       try {
         // No Session card and no seeded bid in this fixture: the card arrives
@@ -947,6 +968,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         ).toEqual([]);
       } finally {
         await app.close();
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,

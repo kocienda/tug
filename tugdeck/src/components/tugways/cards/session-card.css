@@ -421,42 +421,24 @@
      per [L16]). */
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
   border-bottom: 1px solid var(--tug7-element-global-border-normal-default-rest);
-  /* `position: relative` + `z-index: 1` at rest, and `position: sticky;
-     bottom: 0` for the length of a still crossing (the rule after this one).
+  /* `position: relative` + `z-index: 1`, in flow at rest. For the length of a
+     still crossing the strip leaves the flow and rides the clip's closing edge
+     (the rules after this one).
 
      The z-index is the paint order: `TugListView`'s scroller (inside
      `.session-card-transcript`) sets `position: relative` and so paints in the
      positioned-descendants phase of the surrounding stacking context. The bar
      must be a positioned element with a higher z-index so its own paint lands
      above the scroller's positioned subtree rather than under the transcript.
-     `relative` and `sticky` are both positioned values, so either carries it.
+     `relative` and the crossing's `absolute` are both positioned values, so
+     either carries it.
 
-     `bottom: 0` is Z2's whole motion through a fold ([B02] of
-     `session-fold-still-interior`). INERT in the open form: the card fills the
-     pane's content box exactly, so there is no overflow for the strip to be
-     held back from. During a crossing the card is held at its open height and
-     the content box shrinks past Z2's natural place, so the browser holds the
-     strip at the visible bottom edge — it travels up on the fold and down on
-     the unfold, at the frame's own speed, and cannot reverse because the
-     imposer's spring cannot.
-
-     Sticky only while a crossing is in flight, because "inert at rest" is not
-     true under View › Zoom. Inside the deck root's `transform: scale(f)`,
-     WebKit takes the scrollport's edge for a sticky box as its height times
-     f, so at rest it holds Z2 that far up the card whenever the entry region
-     is shorter than (1 − f) of it: at 80 % a Session card stood Z2 a band
-     above its composer with transcript showing in the gap (read off the
-     harness, at0715). A strip that is not sticky at rest cannot be held at
-     rest, and the crossing's two ends have no overflow, so the switch moves
-     nothing.
-
-     The containing block is `.session-card-top-column`, of which this is the
-     last child; the scrollport it is held against is `.tug-pane-content`.
-     `.tug-pane-chrome` and `.tug-pane-body` between them are `overflow: clip`
-     rather than `hidden` precisely so neither becomes a scroll container that
-     would trap this ([F07]) — do not change either to `hidden`. */
+     Never `position: sticky`, at rest or in motion. Inside the deck root's
+     View › Zoom `transform: scale(f)`, WebKit takes a sticky box's scrollport
+     edge as its height times f against the box's unscaled position, so a
+     sticky Z2 stood a band above its composer at rest (at0715) and popped a
+     third of the card up on the first frame of a fold (at0716). */
   position: relative;
-  bottom: 0;
   z-index: 1;
   /* Establish a CSS containment context so the combined status-row
      renderer's container queries can target this host. `inline-size`
@@ -467,10 +449,79 @@
   container-name: session-status;
 }
 
-/* Z2's fold ride: sticky against the pane's content box while the pane holds
-   the card through a crossing. See the note on `position` above. */
+/* Z2's seat: the strip's previous sibling, empty and zero-height at rest. */
+.session-card-z2-seat {
+  flex: 0 0 auto;
+}
+
+@property --tugx-z2-seat-height {
+  syntax: "*";
+  inherits: false;
+}
+
+/* Z2's ride through a still crossing — a fold above all, where the card is
+   held at its open height and the pane's content box closes past the strip's
+   place ([B02] of `session-fold-still-interior`, as revised by
+   `motion-under-zoom`). The strip holds its rest position until the closing
+   edge reaches it and then rides the edge: up on the fold, down on the
+   unfold, at the frame's own speed, and it cannot reverse because the
+   imposer's spring cannot.
+
+   Resolved at layout by anchor positioning, in layout px throughout, so the
+   zoom's scale never enters it and no number is animated but the frame's
+   height. Three pieces:
+
+     - the seat stays in flow at the strip's height, which
+       `use-z2-seat-hold.ts` publishes, so nothing in the column re-flows when
+       the strip leaves it; its box is the strip's rest position, named as an
+       anchor;
+     - the strip is `position: absolute`, and for the crossing's length the
+       column stands down its own `position: relative`, so the strip's
+       containing block is the pane's content box (`position: relative` in
+       `tug-pane.css`), the clip whose bottom IS the closing edge. Nothing
+       between them is positioned: the card root and its host are not, and
+       the card's size containment is not layout containment;
+     - `bottom: max(0px, anchor(--z2-seat bottom))` is the seat's height above
+       the clip's bottom while the edge is below the seat, and zero once the
+       edge has passed it — the strip's bottom on the edge.
+
+   The anchor resolves to this card's seat alone: an anchor must sit inside
+   the strip's containing block, and every other card's seat is inside
+   another pane. */
+.tug-pane[data-still-crossing] .session-card-z2-seat {
+  height: var(--tugx-z2-seat-height);
+  anchor-name: --z2-seat;
+}
+
+.tug-pane[data-still-crossing] .session-card-top-column {
+  position: static;
+}
+
 .tug-pane[data-still-crossing] .session-card-status-bar {
-  position: sticky;
+  position: absolute;
+  left: anchor(--z2-seat left);
+  right: anchor(--z2-seat right);
+  top: auto;
+  bottom: max(0px, anchor(--z2-seat bottom));
+}
+
+/* The Changes shade's box keeps the column's box through a crossing. The
+   column is the wrapper's containing block at rest (`inset: 0`); with the
+   column standing down for the strip above, the wrapper is placed on the
+   column's own edges instead — its first child's top and the seat's bottom,
+   which is the column's last in-flow box — so a shade standing over a card
+   through a stack or a split covers exactly what it covered at rest. */
+.tug-pane[data-still-crossing] .session-card-top-column > :first-child {
+  anchor-name: --session-column-head;
+}
+
+.tug-pane[data-still-crossing]
+  .session-card-top-column
+  > .session-view-pane[data-view="changes"] {
+  top: anchor(--session-column-head top);
+  bottom: anchor(--z2-seat bottom);
+  left: anchor(--z2-seat left);
+  right: anchor(--z2-seat right);
 }
 
 /* When Z2 has no content, the wrapper renders as an empty `<div>`
@@ -1537,17 +1588,22 @@
        tween;
      - `.tug-pane-content` clips it (`tug-pane.css`), so the overflow draws no
        scrollbar and takes no wheel;
-     - Z2 is `position: sticky; bottom: 0` for the crossing, so the browser holds it at the
-       visible bottom edge: it travels UP on the fold and DOWN on the unfold,
-       at the frame's own speed, and cannot reverse because the spring cannot
+     - Z2 leaves the flow for the crossing, absolutely positioned against the
+       clip and anchored to its seat, with its bottom the lesser of the seat's
+       bottom and the clip's: it holds its place until the closing edge
+       reaches it, then travels UP on the fold and DOWN on the unfold, at the
+       frame's own speed, and cannot reverse because the spring cannot
        ([B02]).
 
    That last one is the whole of Z2's motion, and it is an offset resolved at
    layout rather than a re-layout of the strip: the cells, the gaps and the
    control keep the boxes they had, and the glyph is the only thing in Z2 that
-   changes. Sticky rather than a transform on the imposer's keyframes because
-   the browser is already computing that edge; a transform would be a second
-   copy of the same number kept in step by hand.
+   changes. A layout position rather than a transform on the imposer's
+   keyframes because the browser is already computing that edge; a transform
+   would be a second copy of the same number kept in step by hand. Not
+   `position: sticky`, which was this ride once: under View › Zoom's scale
+   WebKit resolves a sticky box's scrollport edge in scaled px against the
+   box's unscaled place, and Z2 popped a third of the card on the first frame.
 
    The entry region's row is `1fr` in the picture and `0fr` at `settled`, a
    CUT under Z2 where nothing is visible ([B03], [F08]). It carried a

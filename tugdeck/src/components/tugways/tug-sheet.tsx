@@ -111,6 +111,7 @@ import { CardIdContext } from "@/lib/card-id-context";
 import { readSettleMs } from "@/lib/layout-imposer";
 import { getTugTiming, isTugMotionEnabled } from "@/components/tugways/scale-timing";
 import { IMPOSER_SETTLE_END } from "@/lib/settle-notice";
+import { STILL_CROSSING_ATTR } from "@/lib/fold-crossing";
 import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
 import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
 import { SHEET_CANVAS_GAP } from "@/lib/sheet-reservation";
@@ -333,6 +334,53 @@ const SHEET_SETTLE_DROP_PX = 48;
  * row's own keyframe delay; change one and change the other.
  */
 const SETTLE_HANDOFF_SPLIT = 0.55;
+
+/**
+ * The `settle` exit's timing, on the crossing's own clock when one is running.
+ *
+ * The cover is closed from the run's derivation, which reacts to the card's
+ * fold in a React commit that lands partway INTO the crossing, not at its
+ * first frame. An exit that started its full settle duration from there held
+ * through the rest of the crossing and lowered after the land — the panel
+ * still standing when the edge arrived and the row already up beneath it.
+ * So the exit is measured against the pane frame's own height animation,
+ * the one number the crossing tweens: it lasts what is left of that
+ * animation, and its hold ends where the crossing's split falls. With no
+ * crossing running the settle duration and the split stand as they are.
+ *
+ * `durationMs` is UNSCALED, the form the animator scales by `--tug-timing`
+ * once; `holdMs` is wall time.
+ */
+function settleExitTiming(
+  contentEl: HTMLElement,
+): { durationMs: number; split: number; holdMs: number } {
+  const timing = getTugTiming();
+  const settleMs = readSettleMs(contentEl);
+  const frame = contentEl.closest<HTMLElement>(".tug-pane");
+  if (frame !== null && frame.hasAttribute(STILL_CROSSING_ATTR)) {
+    for (const animation of frame.getAnimations()) {
+      const effect = animation.effect;
+      if (!(effect instanceof KeyframeEffect) || effect.target !== frame) continue;
+      if (!effect.getKeyframes().some((k) => "height" in k)) continue;
+      const computed = effect.getComputedTiming();
+      const total = Number(computed.endTime);
+      const elapsed = computed.localTime;
+      if (typeof elapsed !== "number" || !(total > 0)) continue;
+      const remaining = Math.max(total - elapsed, 1);
+      const holdMs = Math.max(SETTLE_HANDOFF_SPLIT * total - elapsed, 0);
+      return {
+        durationMs: remaining / timing,
+        split: Math.min(holdMs / remaining, 1),
+        holdMs,
+      };
+    }
+  }
+  return {
+    durationMs: settleMs,
+    split: SETTLE_HANDOFF_SPLIT,
+    holdMs: settleMs * timing * SETTLE_HANDOFF_SPLIT,
+  };
+}
 
 const SHEET_PRESENTATION_MOTION: Record<TugSheetPresentation, SheetPresentationMotion> = {
   // Empty both ways. Nothing reads these — the enter and exit effects return
@@ -1512,6 +1560,10 @@ export function TugSheetContent({
     if (!layerShown) return;
     const canvas = paneCanvasOf(paneFrameEl);
     const measure = (): void => {
+      // Never through a still crossing ([B03] of `motion-under-zoom`): the
+      // clip stands frozen for its length (below), and a measure here would
+      // write a `bottom` against a frame whose height is mid-tween.
+      if (paneFrameEl.hasAttribute(STILL_CROSSING_ATTR)) return;
       // The canvas box first, and REFUSE on a reading that is not one ([B03]).
       // A deck mid-mount has not been laid out, and a canvas scrolled off the
       // window has a box with nothing of it on screen; both answer a rect at
@@ -1589,6 +1641,47 @@ export function TugSheetContent({
       if (topInset !== null) clip.style.top = `${topInset}px`;
     };
     measure();
+    // Frozen through a still crossing. The clip's `bottom` is an inset from
+    // the FRAME's bottom, and the frame's height is the one number a crossing
+    // tweens, so a clip left on its inset closes with the frame: the
+    // bottom-justified panel rides the closing edge up, and once the band is
+    // shorter than the panel it squeezes it, which re-fires the content
+    // observer into a measure mid-tween and moves it again. So on the mark's
+    // arrival the clip is re-stated as the box it already is — its top and
+    // height in layout px, which the zoom's scale never enters — and the panel
+    // holds still while the `settle` exit lowers it on its own clock. The
+    // mark's removal hands the clip back to its inset with a fresh measure.
+    //
+    // A `MutationObserver` delivers in the microtask after the imposer's
+    // write, so the freeze lands before the crossing's first frame lays out.
+    const freeze = (): void => {
+      const frame = layoutRectOf(paneFrameEl);
+      const box = layoutRectOf(clip);
+      clip.style.top = `${box.top - frame.top}px`;
+      clip.style.height = `${box.height}px`;
+      clip.style.bottom = "auto";
+    };
+    const thaw = (): void => {
+      clip.style.height = "";
+      measure();
+    };
+    // A run that starts under the mark (a sheet raised mid-crossing, or this
+    // effect re-running through one) has had its `measure()` refused above,
+    // so it starts frozen: the clip holds the box it has, and the mark's
+    // removal is still the measure it is owed.
+    let frozen = paneFrameEl.hasAttribute(STILL_CROSSING_ATTR);
+    if (frozen) freeze();
+    const crossing = new MutationObserver(() => {
+      const marked = paneFrameEl.hasAttribute(STILL_CROSSING_ATTR);
+      if (marked === frozen) return;
+      frozen = marked;
+      if (marked) freeze();
+      else thaw();
+    });
+    crossing.observe(paneFrameEl, {
+      attributes: true,
+      attributeFilter: [STILL_CROSSING_ATTR],
+    });
     const observer = new ResizeObserver(measure);
     observer.observe(bottomAnchorEl);
     // The panel's own height is an input now: an accordion row opening inside
@@ -1601,6 +1694,7 @@ export function TugSheetContent({
     canvas?.addEventListener(IMPOSER_SETTLE_END, measure);
     return () => {
       observer.disconnect();
+      crossing.disconnect();
       window.removeEventListener("resize", measure);
       canvas?.removeEventListener(IMPOSER_SETTLE_END, measure);
       // Leave no inline geometry behind. The anchor no longer changes under a
@@ -1610,6 +1704,7 @@ export function TugSheetContent({
       // the other frame is state nothing else will ever clear.
       clip.style.bottom = "";
       clip.style.top = "";
+      clip.style.height = "";
     };
   }, [bottomAnchorEl, paneFrameEl, mounted, layerShown]);
 
@@ -2138,11 +2233,14 @@ export function TugSheetContent({
     // panel, so an override anywhere up the tree retimes this with everything
     // else it retimes; the animator applies `--tug-timing` once on top, exactly
     // as it does for a token.
+    //
+    // Measured against the crossing that is already running, when there is
+    // one, so the lowering lands with the edge (`settleExitTiming`).
+    const settle =
+      presentation === "settle" ? settleExitTiming(contentEl) : null;
     const g = group({
       duration:
-        presentation === "settle"
-          ? readSettleMs(contentEl)
-          : "--tug-motion-duration-moderate",
+        settle !== null ? settle.durationMs : "--tug-motion-duration-moderate",
     });
     const isShade = presentation === "shade";
     const motion =
@@ -2162,10 +2260,10 @@ export function TugSheetContent({
     // delay, so the group still owns one duration and one finished promise.
     const exitFrames = isShade
       ? withShadeOpacity(motion.exit, readShadeAlpha(contentEl), 0)
-      : presentation === "settle"
+      : settle !== null
         ? [
             { ...motion.exit[0], offset: 0 },
-            { ...motion.exit[0], offset: SETTLE_HANDOFF_SPLIT },
+            { ...motion.exit[0], offset: settle.split },
             { ...motion.exit[1], offset: 1 },
           ]
         : motion.exit;
@@ -2229,9 +2327,10 @@ export function TugSheetContent({
         contentEl !== null &&
         isTugMotionEnabled()
       ) {
-        const holdMs =
-          readSettleMs(contentEl) * getTugTiming() * SETTLE_HANDOFF_SPLIT;
-        window.setTimeout(() => paneScrim.hide(), holdMs);
+        window.setTimeout(
+          () => paneScrim.hide(),
+          settleExitTiming(contentEl).holdMs,
+        );
         return;
       }
       paneScrim.hide();
