@@ -47,13 +47,15 @@
  * deck around it anything.
  *
  * What the modal was *right* about is the reveal, and the reveal alone.
- * An honest successor would not key off this predicate at all: it would
- * be armed immediately before the body's first paint and disarmed on the
- * commit after it, bounding a task whose length the deck can see for
- * itself rather than one that waits on a wire. Nothing today needs that,
- * because the window it covers is the one the reveal takes and not the
- * one the relay takes. If a hang is ever reported *inside* the reveal,
- * that is the shape to build, and it belongs to the reveal, not here.
+ * Its honest successor is built, and it does not key off this predicate.
+ * A card whose replay has completed enqueues its first list mount on the
+ * deck's reveal queue (`lib/restore-reveal-queue.ts`, driven by
+ * `lib/restore-reveal-store.ts`). The queue raises `TugRestoreRevealCover`,
+ * waits for it to composite, admits one reveal per task, and lifts the
+ * cover on the frame after the last reveal settles. Every open and close is
+ * the deck's own work, a frame or a task or a settle, so the window it
+ * covers is the one the reveal takes and never the one the relay takes. A
+ * card still inside this predicate's window is not under it.
  *
  * Pure module — no DOM, no React, no time source.
  *

@@ -74,6 +74,16 @@ The restore bracket's only deadline was re-armed by every wire frame, including 
 
 **The rule it yields.** This is [L33]'s second clause and it is the one that generalizes furthest. A wait is staged at the granularity of the thing that is waiting. A softened modal — one with a Cancel button, or a timeout — was considered and rejected: it keeps the construction in which one card's trouble is everybody's.
 
+### The permitted shape: an app-wide cover whose close is the deck's own work
+
+**Shape.** A surface over the whole window that covers a stretch when the deck itself cannot answer, opened and closed by nothing but the deck's own work.
+
+The gate above was deleted, but the thing it said was true. A cold restore's reveal, which is a Session card's first transcript list commit and the settle behind it, is one uninterruptible task on the main thread every card shares. Measured on five large transcripts it ran 150–450 ms per card, and in that time the app answers nothing while its chrome keeps painting its last frame. A deck that looks ready while dropping input is the deception the gate existed to prevent.
+
+**The horizon.** `TugRestoreRevealCover` (`tugdeck/src/components/tugways/tug-restore-reveal-cover.tsx`) rides the deck's reveal queue (`tugdeck/src/lib/restore-reveal-queue.ts`, driven by `restore-reveal-store.ts`). A card enqueues only after its replay has completed, so a card still on the wire never holds the cover; its own `Z0` strip says it is loading. The queue raises the cover, waits two frames for it to composite, admits one reveal per task, and lifts on the frame after the last one settles. Every input to the rule is a frame, a task, a settle, or a card's removal, all of them the deck's own. Two bounds measured on the deck's clock cover a settle that never comes and a window whose frames have stopped. The cover lifts between reveals while other cards are still restoring, and it shows no count, because a count would promise a finish it does not keep.
+
+**The rule it yields.** The second clause forbids an app-wide modal that depends on anything outside the deck, not every app-wide surface. A cover whose open and close are both the deck's own work satisfies it rather than standing as an exception. The test is the same one: *if the thing you are waiting on never answers, what does the user see?* Here the thing waited on is a task the deck is running. It cannot fail to answer except by the deck itself hanging, and in that case no surface of any kind would help. If a later change ever puts a wire frame into this cover's open or close, the cover has become the deleted gate again.
+
 ### An unbounded `await` on another process's bookkeeping
 
 **Shape.** `await someInternalPromise` with no race, on the path a user gesture takes.

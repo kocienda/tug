@@ -24,7 +24,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type NativeModifier } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -115,7 +115,7 @@ async function clickLevel(app: App, level: string): Promise<void> {
   await wait(SETTLE_MS);
 }
 
-async function key(app: App, k: string, modifiers: string[]): Promise<void> {
+async function key(app: App, k: string, modifiers: readonly NativeModifier[]): Promise<void> {
   await app.nativeKey(k, modifiers);
   await wait(SETTLE_MS);
 }
