@@ -16,6 +16,8 @@
  * | tool-block expand   | a gesture on a row near the window edge losing its    |
  * |                     | block, or the document mis-sizing after the re-measure|
  * | no suspensions      | the mode silently falling back to mounting everything |
+ * | zoom keeps ledger   | a View › Zoom step wiping the ledger on device-pixel  |
+ * |                     | snapping and mounting the whole transcript at once    |
  * | hide/show ledger    | a `display:none` spell (an inactive card tab) firing  |
  * |                     | 0×0 ResizeObserver entries into the ledger and wiping |
  * |                     | it via the width invalidator — scroll geometry then   |
@@ -40,7 +42,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -633,6 +635,164 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
   return { h: el.scrollHeight };
 })()`);
         expect(Math.abs(settled.h - full.h)).toBeLessThanOrEqual(2);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a page-zoom step keeps the ledger: no suspension, no whole-transcript mount",
+    async () => {
+      const app = await standUp("at0330-zoom");
+      try {
+        await scrollTo(app, 0.5);
+        const before = await app.evalJS<{
+          cells: number;
+          fallbacks: number;
+          w: number;
+        }>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return {
+    cells: el.querySelectorAll("[data-tug-list-cell-index]").length,
+    fallbacks: Number(el.getAttribute("data-evict-fallbacks") || "-1"),
+    w: el.clientWidth,
+  };
+})()`);
+        expect(before.cells).toBeLessThan(TURNS);
+
+        // Arm the instruments before the zoom: the most cells ever mounted
+        // (the over-mount is transient, so a read after settle cannot see
+        // it) and the frame series (the freeze is a gap in it).
+        await app.evalJS<boolean>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var rec = { maxCells: 0, frames: [], on: true };
+  var count = function () {
+    var n = el.querySelectorAll("[data-tug-list-cell-index]").length;
+    if (n > rec.maxCells) rec.maxCells = n;
+  };
+  rec.mo = new MutationObserver(count);
+  rec.mo.observe(el, { childList: true, subtree: true });
+  var tick = function (t) { rec.frames.push(t); if (rec.on) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  count();
+  window.__at0330Zoom = rec;
+  return true;
+})()`);
+
+        const read = (): Promise<{
+          cells: number;
+          maxCells: number;
+          fallbacks: number;
+          active: boolean;
+          w: number;
+          worstGap: number;
+        }> =>
+          app.evalJS(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var rec = window.__at0330Zoom;
+  var worst = 0;
+  for (var i = 1; i < rec.frames.length; i += 1) {
+    worst = Math.max(worst, rec.frames[i] - rec.frames[i - 1]);
+  }
+  var out = {
+    cells: el.querySelectorAll("[data-tug-list-cell-index]").length,
+    maxCells: rec.maxCells,
+    fallbacks: Number(el.getAttribute("data-evict-fallbacks") || "-1"),
+    active: el.hasAttribute("data-evict-active"),
+    w: el.clientWidth,
+    worstGap: Math.round(worst),
+  };
+  rec.maxCells = out.cells;
+  rec.frames = [];
+  return out;
+})()`);
+
+        const out = await app.setPageZoom(0.9);
+        expect(out).toBeCloseTo(0.9, 5);
+        // Past the width settle (200 ms) and the re-observe deliveries.
+        await new Promise((r) => setTimeout(r, 1500));
+        const zoomed = await read();
+
+        await app.setPageZoom(1);
+        await new Promise((r) => setTimeout(r, 1500));
+        const restored = await read();
+
+        // A double-tap: the second chord lands while the first step's
+        // relayout may still be in flight. Each "before" notice is stamped
+        // against the frame series, and every frame carries the ratio it
+        // painted at, so the second step's arrival is counted in frames.
+        await app.evalJS<boolean>(`(function () {
+  var rec = window.__at0330Zoom;
+  rec.ratios = [];
+  rec.wills = [];
+  var tick = function (t) { rec.ratios.push([t, window.devicePixelRatio]); if (rec.on) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  var bridge = window.__tugBridge;
+  rec.will = bridge.onPageZoomWillChange;
+  bridge.onPageZoomWillChange = function (report) {
+    rec.wills.push([performance.now(), report.factor]);
+    return rec.will(report);
+  };
+  rec.baseRatio = window.devicePixelRatio;
+  return true;
+})()`);
+        await app.setPageZoom(0.9);
+        await app.setPageZoom(0.8);
+        await new Promise((r) => setTimeout(r, 1500));
+        const doubleTap = await app.evalJS<{
+          framesToSecond: number;
+          msToSecond: number;
+        }>(`(function () {
+  var rec = window.__at0330Zoom;
+  window.__tugBridge.onPageZoomWillChange = rec.will;
+  var second = rec.wills[rec.wills.length - 1];
+  var target = rec.baseRatio * 0.8;
+  var frames = 0;
+  var ms = -1;
+  for (var i = 0; i < rec.ratios.length; i += 1) {
+    if (rec.ratios[i][0] < second[0]) continue;
+    frames += 1;
+    if (Math.abs(rec.ratios[i][1] - target) < 1e-3) { ms = Math.round(rec.ratios[i][0] - second[0]); break; }
+  }
+  return { framesToSecond: ms < 0 ? -1 : frames, msToSecond: ms };
+})()`);
+        const tapped = await read();
+        await app.setPageZoom(1);
+
+        await app.evalJS<boolean>(`(function () {
+  var rec = window.__at0330Zoom;
+  rec.on = false;
+  rec.mo.disconnect();
+  delete window.__at0330Zoom;
+  return true;
+})()`);
+
+        note("zoom 0.9 → 1.0, then a 0.9 → 0.8 double-tap, on a 60-turn evicted transcript", {
+          widths: [before.w, zoomed.w, restored.w],
+          cells: [before.cells, zoomed.cells, restored.cells],
+          maxCells: [zoomed.maxCells, restored.maxCells, tapped.maxCells],
+          worstGapMs: [zoomed.worstGap, restored.worstGap, tapped.worstGap],
+          doubleTap,
+        });
+
+        for (const step of [zoomed, restored, tapped]) {
+          // The zoom never suspended eviction…
+          expect(step.fallbacks).toBe(before.fallbacks);
+          expect(step.active).toBe(true);
+          // …so nothing near the whole transcript ever mounted. The window
+          // grows only with the taller CSS-px viewport a zoom-out gives it.
+          expect(step.maxCells).toBeLessThan(TURNS);
+          // And the relayout that remains stays under the quarter second the
+          // zoom readout is the whole cover for.
+          expect(step.worstGap).toBeLessThan(250);
+        }
+        // The second chord of a double-tap is painted in the first or second
+        // frame after its notice: the frame it relays out in, or the one
+        // after — never queued behind the first step's work.
+        expect(doubleTap.framesToSecond).toBeGreaterThan(0);
+        expect(doubleTap.framesToSecond).toBeLessThanOrEqual(2);
       } finally {
         await app.close();
       }

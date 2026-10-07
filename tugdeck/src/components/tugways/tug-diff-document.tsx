@@ -64,6 +64,19 @@ import {
   diffStatusLetter,
   fileStatLabel,
 } from "@/lib/git-diff-store";
+import { useWidthRungs, type WidthRung } from "@/lib/width-rungs";
+
+/**
+ * The header's compact rungs, in the document's content-box CSS px: at or
+ * under 900 the control words drop, at or under 700 the summary does too
+ * (`tug-diff-document.css`). Measured here rather than by `@container`, which
+ * WebKit answers against the zoomed width, so the header reads the same at
+ * every page zoom ([B09] of view-zoom-performance-and-feedback).
+ */
+const DIFF_HEADER_WIDTH_RUNGS: readonly WidthRung[] = [
+  { name: "compact", maxWidth: 900 },
+  { name: "no-summary", maxWidth: 700 },
+];
 
 // ---------------------------------------------------------------------------
 // Public props
@@ -315,11 +328,19 @@ export function TugDiffDocument({
   const allKeys = useMemo(() => files.map(fileKey), [files]);
   const expandAll = useCallback(() => setOpenKeys(allKeys), [allKeys]);
   const collapseAll = useCallback(() => setOpenKeys([]), []);
+  const rungsRef = useWidthRungs(DIFF_HEADER_WIDTH_RUNGS);
+  const rootRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      (responderRef as (el: HTMLDivElement | null) => void)(el);
+      rungsRef(el);
+    },
+    [responderRef, rungsRef],
+  );
 
   return (
     <ResponderScope>
       <div
-        ref={responderRef as (el: HTMLDivElement | null) => void}
+        ref={rootRef}
         data-slot="tug-diff-document"
         className={`tug-diff-document${className ? ` ${className}` : ""}`}
       >

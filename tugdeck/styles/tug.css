@@ -31,7 +31,6 @@
    ========================================================================= */
 
 :root {
-  --tug-zoom: 1;
   --tug-timing: 1;
   --tug-motion: 1;
 
@@ -126,9 +125,6 @@ body[data-tug-motion="off"] *::after {
 }
 
 body {
-  /* Global scale via CSS zoom — affects all dimensions including layout boxes */
-  zoom: var(--tug-zoom);
-
   /* Never fake a weight or an italic. We bundle the complete IBM Plex
    * Sans + Mono families (every weight + true italic), so a real face
    * always exists; this forces the browser to use it (or fall back to a

@@ -25,7 +25,10 @@
   --tugx-block-code-font-size: var(--tug-font-size-xs);
   /* The header's compact form is a size question about the document itself,
      not about the window: the same document renders in a full-width sheet and
-     in an 800px card. Query the document, not the viewport. */
+     in an 800px card. Measure the document, not the viewport — through
+     `data-width-rungs` (`DIFF_HEADER_WIDTH_RUNGS`), not a container query,
+     which WebKit answers against the zoomed width. The containment stays: the
+     document's width is its host's, never its content's. */
   container-type: inline-size;
 }
 
@@ -131,19 +134,17 @@
    an icon-only segment is still "Side by side" and the button is still
    "Expand All" to a screen reader. Absolute positioning also takes the run out
    of flow, so the segment's icon/label gap collapses with it. */
-@container (max-width: 900px) {
-  .tug-diff-document-header .tug-group-item-label,
-  .tug-diff-document-header-wide {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    border: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+.tug-diff-document[data-width-rungs~="compact"] .tug-diff-document-header .tug-group-item-label,
+.tug-diff-document[data-width-rungs~="compact"] .tug-diff-document-header-wide {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Compact header, second rung — the slim card (675). With the control words
@@ -157,18 +158,16 @@
 
    Hidden the same way as the rung above — clipped, not `display: none`, so a
    screen reader still hears the totals. */
-@container (max-width: 700px) {
-  .tug-diff-document-summary {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    border: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+.tug-diff-document[data-width-rungs~="no-summary"] .tug-diff-document-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .tug-diff-document-binary-note {

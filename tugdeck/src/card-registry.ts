@@ -93,7 +93,7 @@ export const DEFAULT_LAYOUT_ROLE: LayoutRole = "content";
  * tuning block. The fraction is what the tier has to clear, and rounding it
  * down cost a pixel the strip then overflowed by: `.tug-pane-content` is
  * `overflow: auto`, so a 0.8px overhang raised a real scrollbar, the scrollbar
- * took 12px of the pane's inline size, and Z2's `@container` rungs read the
+ * took 12px of the pane's inline size, and Z2's width rungs read the
  * narrower box and dropped the TIME cell — the folded card's instruments
  * re-laid-out against a width nothing had changed. A folded card never scrolls
  * (`tug-pane.css` holds that structurally now); this number is what keeps it

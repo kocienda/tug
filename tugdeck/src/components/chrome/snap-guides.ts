@@ -44,18 +44,18 @@ export interface GuideElements {
  * Reading the actual delta (rather than assuming a box model) keeps snap guides
  * landing on the visible border exactly, whatever the border/box-sizing turns
  * out to be. All cards share this geometry, so one measurement per gesture
- * suffices. Returned in layout px (÷ zoom).
+ * suffices.
  */
-export function measureGuideEdgeOffsets(frame: HTMLElement, zoom = 1): GuideEdgeOffsets {
+export function measureGuideEdgeOffsets(frame: HTMLElement): GuideEdgeOffsets {
   const chrome = frame.querySelector(".tug-pane-chrome");
   if (!chrome) return ZERO_EDGE_OFFSETS;
   const f = frame.getBoundingClientRect();
   const c = chrome.getBoundingClientRect();
   return {
-    left: (c.left - f.left) / zoom,
-    right: (c.right - f.right) / zoom,
-    top: (c.top - f.top) / zoom,
-    bottom: (c.bottom - f.bottom) / zoom,
+    left: c.left - f.left,
+    right: c.right - f.right,
+    top: c.top - f.top,
+    bottom: c.bottom - f.bottom,
   };
 }
 
@@ -63,16 +63,13 @@ export function measureGuideEdgeOffsets(frame: HTMLElement, zoom = 1): GuideEdge
  * Snapshot all `.tug-pane[data-pane-id]` elements as canvas-relative Rects.
  * Optionally excludes a pane by ID.
  *
- * `getBoundingClientRect` returns visual (post-`body { zoom }`) pixels, but card
- * frames are positioned with `style.left/top` in layout pixels. Dividing by
- * `zoom` yields layout-space rects so they line up with the moving frame's
- * position and size (which come from layout-space `style`/`offsetWidth`). All
- * snap math then runs in one consistent space.
+ * `getBoundingClientRect` and the frames' `style.left/top` are both CSS px —
+ * a page zoom scales the two together — so the rects line up with the moving
+ * frame's position and size and all snap math runs in one space.
  */
 export function snapshotCardRects(
   canvasBounds: DOMRect | null,
   excludeId?: string,
-  zoom = 1,
 ): { id: string; rect: Rect }[] {
   const results: { id: string; rect: Rect }[] = [];
   // Every pane is a snap candidate — including a pinned rail. A free pane
@@ -89,10 +86,10 @@ export function snapshotCardRects(
     results.push({
       id: paneId,
       rect: {
-        x: (domRect.left - (canvasBounds ? canvasBounds.left : 0)) / zoom,
-        y: (domRect.top - (canvasBounds ? canvasBounds.top : 0)) / zoom,
-        width: domRect.width / zoom,
-        height: domRect.height / zoom,
+        x: domRect.left - (canvasBounds ? canvasBounds.left : 0),
+        y: domRect.top - (canvasBounds ? canvasBounds.top : 0),
+        width: domRect.width,
+        height: domRect.height,
       },
     });
   });

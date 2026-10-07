@@ -446,28 +446,110 @@ class PinStackController {
 
 const pinStackControllers = new Map<HTMLElement, PinStackController>();
 
-/** Nearest overflow-scrolling ancestor — the pin's sticky containing scrollport. */
-function findScrollAncestor(el: HTMLElement): HTMLElement | null {
+/**
+ * Nearest overflow-scrolling ancestor — the pin's sticky containing
+ * scrollport. `memo` maps an element already walked to the nearest
+ * scrolling element at or above it, so entries resolved in one batch read
+ * the computed style of a shared ancestor once.
+ */
+function findScrollAncestor(
+  el: HTMLElement,
+  memo: Map<HTMLElement, HTMLElement | null>,
+): HTMLElement | null {
+  const walked: HTMLElement[] = [];
+  let result: HTMLElement | null = null;
   let p: HTMLElement | null = el.parentElement;
   while (p !== null && p !== document.body) {
+    const known = memo.get(p);
+    if (known !== undefined) {
+      result = known;
+      break;
+    }
     const overflowY = getComputedStyle(p).overflowY;
-    if (overflowY === "auto" || overflowY === "scroll") return p;
+    if (overflowY === "auto" || overflowY === "scroll") {
+      result = p;
+      memo.set(p, p);
+      break;
+    }
+    walked.push(p);
     p = p.parentElement;
   }
-  return null;
+  for (const w of walked) memo.set(w, result);
+  return result;
+}
+
+interface PendingPinEntry {
+  root: HTMLElement;
+  pin: HTMLElement;
+  fallback: () => () => void;
+  release: (() => void) | null;
+  cancelled: boolean;
+}
+
+let pendingPinEntries: PendingPinEntry[] = [];
+let pinFlushQueued = false;
+
+/**
+ * Resolve every registration the commit queued, in one pass. The lookup
+ * reads computed style, and a read with the document's style dirty forces
+ * a full style resolve; done per entry inside the commit, interleaved
+ * with other effects' DOM writes, each read paid that resolve again — a
+ * transcript mounting a few hundred entries spent seconds in it ([F06] of
+ * view-zoom-performance-and-feedback). Deferred to a microtask, the reads
+ * land after every layout effect of the commit and before paint, and
+ * nothing in the pass writes style, so the batch pays one resolve.
+ */
+function flushPendingPinEntries(): void {
+  pinFlushQueued = false;
+  const batch = pendingPinEntries;
+  pendingPinEntries = [];
+  const memo = new Map<HTMLElement, HTMLElement | null>();
+  for (const entry of batch) {
+    if (entry.cancelled) continue;
+    const scroller = findScrollAncestor(entry.pin, memo);
+    entry.release =
+      scroller === null
+        ? entry.fallback()
+        : joinPinStack(scroller, entry.root, entry.pin);
+  }
 }
 
 /**
- * Join the scroller's shared controller. Returns the release, [L27]-style,
- * or null when the entry has no scroll ancestor (gallery hosts, bare test
- * mounts) and the caller should fall back to a local measurement.
+ * Queue the entry to join its scroller's shared controller, or — when it
+ * has no scroll ancestor (gallery hosts, bare test mounts) — to run
+ * `fallback`, which installs a local measurement and returns its release.
+ * Returns the release, [L27]-style, valid whether or not the queue has
+ * flushed yet.
  */
 function registerPinStackEntry(
   root: HTMLElement,
   pin: HTMLElement,
-): (() => void) | null {
-  const scroller = findScrollAncestor(pin);
-  if (scroller === null) return null;
+  fallback: () => () => void,
+): () => void {
+  const entry: PendingPinEntry = {
+    root,
+    pin,
+    fallback,
+    release: null,
+    cancelled: false,
+  };
+  pendingPinEntries.push(entry);
+  if (!pinFlushQueued) {
+    pinFlushQueued = true;
+    queueMicrotask(flushPendingPinEntries);
+  }
+  return () => {
+    entry.cancelled = true;
+    entry.release?.();
+    entry.release = null;
+  };
+}
+
+function joinPinStack(
+  scroller: HTMLElement,
+  root: HTMLElement,
+  pin: HTMLElement,
+): () => void {
   let controller = pinStackControllers.get(scroller);
   if (controller === undefined) {
     controller = new PinStackController(scroller);
@@ -479,6 +561,42 @@ function registerPinStackEntry(
     if (controller.unregister(registration)) {
       pinStackControllers.delete(scroller);
     }
+  };
+}
+
+/**
+ * No scroll ancestor (gallery hosts, bare test mounts): nothing can stick,
+ * so stuck detection is moot, but descendant chrome still reads the height
+ * variable — measure this entry's own pin onto its root. NOTE: no
+ * synchronous `getBoundingClientRect` seed. That forced layout read,
+ * interleaved per-entry with the write below, makes an all-rich transcript
+ * mount O(n²); the ResizeObserver's initial delivery provides the real
+ * height rAF-coalesced, and the static CSS fallback covers the frame
+ * before it lands.
+ */
+function measurePinLocally(root: HTMLElement, pin: HTMLElement): () => void {
+  let rafId = 0;
+  // Held by the motion gate ([B05] of set-up-and-go-fixups).
+  const observer = heldResizeObserver((entries) => {
+    const entry = entries[0];
+    if (entry === undefined) return;
+    const boxes = entry.borderBoxSize;
+    const next =
+      boxes !== undefined && boxes.length > 0
+        ? boxes[0].blockSize
+        : entry.contentRect.height;
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+      root.style.setProperty(
+        "--tugx-pin-stack-top",
+        `${Math.ceil(next) + PIN_TIER_GAP_PX}px`,
+      );
+    });
+  });
+  observer.observe(pin);
+  return () => {
+    cancelAnimationFrame(rafId);
+    observer.disconnect();
   };
 }
 
@@ -513,48 +631,18 @@ export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
   // measurement (`--tugx-pin-stack-top` on the scroller) and one
   // scroll-driven stuck pass (`data-stuck` on the pin) for every entry
   // the scroller hosts. See PinStackController for the full contract.
-  // [L03] useLayoutEffect runs before paint so registration precedes
-  // the first sticky pass in the children. [L06] the height variable
-  // and the stuck flag are DOM writes, never React state. [L27] the
-  // registration returns its release.
+  // [L03] useLayoutEffect queues the registration inside the commit, and
+  // the queue resolves in the microtask after it — still before paint, so
+  // registration precedes the first sticky pass in the children. [L06]
+  // the height variable and the stuck flag are DOM writes, never React
+  // state. [L27] the registration returns its release.
   React.useLayoutEffect(() => {
     const root = rootRef.current;
     const header = pinRef.current;
     if (root === null || header === null) return;
-    const release = registerPinStackEntry(root, header);
-    if (release !== null) return release;
-
-    // No scroll ancestor (gallery hosts, bare test mounts): nothing can
-    // stick, so stuck detection is moot, but descendant chrome still
-    // reads the height variable — measure this entry's own pin onto its
-    // root. NOTE: no synchronous `getBoundingClientRect` seed. That
-    // forced layout read, interleaved per-entry with the write below,
-    // makes an all-rich transcript mount O(n²); the ResizeObserver's
-    // initial delivery provides the real height rAF-coalesced, and the
-    // static CSS fallback covers the frame before it lands.
-    let rafId = 0;
-    // Held by the motion gate ([B05] of set-up-and-go-fixups).
-    const observer = heldResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry === undefined) return;
-      const boxes = entry.borderBoxSize;
-      const next =
-        boxes !== undefined && boxes.length > 0
-          ? boxes[0].blockSize
-          : entry.contentRect.height;
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        root.style.setProperty(
-          "--tugx-pin-stack-top",
-          `${Math.ceil(next) + PIN_TIER_GAP_PX}px`,
-        );
-      });
-    });
-    observer.observe(header);
-    return () => {
-      cancelAnimationFrame(rafId);
-      observer.disconnect();
-    };
+    return registerPinStackEntry(root, header, () =>
+      measurePinLocally(root, header),
+    );
   }, []);
 
   return (

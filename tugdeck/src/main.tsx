@@ -27,6 +27,7 @@ import {
 import { initRecentDocuments } from "./lib/recent-documents";
 import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installNetworkPathBridge } from "./lib/network-path-store";
+import { installPageZoomBridge } from "./lib/page-zoom-store";
 import { installUpdateBridge } from "./lib/update-store";
 import { installDictationBridge } from "./lib/dictation-bridge";
 import { installScrollPhaseBridge } from "./lib/scroll-phase-bridge";
@@ -664,6 +665,12 @@ async function withBootHorizon<T>(
   // arrive — the host starts its monitor on `frontendReady`, which the deck
   // signals after this point. See `lib/network-path-store.ts`.
   installNetworkPathBridge();
+
+  // Receive the host's page-zoom notices: the standing factor on every
+  // `frontendReady`, and a View › Zoom step's "before" and "after". Installed
+  // before the host's first push, for the same reason as the receiver above.
+  // See `lib/page-zoom-store.ts`.
+  installPageZoomBridge();
 
   // Receive the host's click-through activation point: the click that brings a
   // backgrounded Tug.app forward never reaches the document, so the host hands

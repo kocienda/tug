@@ -201,7 +201,7 @@ async function census(
 async function conditions(
   app: App,
   arrived: string,
-): Promise<{ motion: number; timing: number; zoom: number; marked: boolean }> {
+): Promise<{ motion: number; timing: number; marked: boolean }> {
   return app.evalJS(
     `(function () {
        var root = getComputedStyle(document.documentElement);
@@ -209,7 +209,6 @@ async function conditions(
        return {
          motion: parseFloat(root.getPropertyValue("--tug-motion")),
          timing: parseFloat(root.getPropertyValue("--tug-timing")),
-         zoom: parseFloat(root.getPropertyValue("--tug-zoom")),
          marked: el !== null && el.hasAttribute("data-zoom"),
        };
      })()`,
@@ -369,7 +368,7 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
           "at0631 out",
           `${out.length} frames, ${out.filter((s) => s.litCount > 0).length} with rectangles lit,` +
             ` max planted ${Math.max(...out.map((s) => s.planted))};` +
-            ` motion=${outWhy.motion} timing=${outWhy.timing} zoom=${outWhy.zoom} data-zoom=${outWhy.marked}`,
+            ` motion=${outWhy.motion} timing=${outWhy.timing} data-zoom=${outWhy.marked}`,
         );
         expect(
           out.length,
