@@ -97,7 +97,12 @@ import {
 } from "@/components/tugways/body-kinds/commit-block";
 
 import { BlockChrome } from "../../blocks/block-chrome";
-import { BlockNoticeBand, type BlockNotice } from "../../blocks/block-notice";
+import {
+  BlockNoticeBand,
+  NOTICE_GLYPH_SIZE,
+  type BlockNotice,
+} from "../../blocks/block-notice";
+import { TugProgressIndicator } from "../../tug-progress-indicator";
 import { useRunProgress } from "../../blocks/run-progress-context";
 import { formatRunProgressLine } from "@/lib/run-progress-store";
 import type { ToolResultSummary } from "../../blocks/tool-result-summary";
@@ -269,16 +274,36 @@ export function tryParseBashDiff(
 
 /**
  * The running command's latest progress report, as one line on the notice
- * band's surface. It subscribes to its own call's entry, so a report a
- * second re-renders this band and nothing else; with no report yet it
- * renders nothing, and the block looks as it always has.
+ * band's surface. It leads with a ring filled to `done / total` when the
+ * report carries a total, and with the `progress` tone's spinner when it
+ * does not; both paint in the header dot's running role. It subscribes to
+ * its own call's entry, so a report a second re-renders this band and
+ * nothing else; with no report yet it renders nothing, and the block looks
+ * as it always has.
  */
 export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => {
   const progress = useRunProgress(toolUseId);
   if (progress?.text === undefined) return null;
+  const ring =
+    progress.total !== undefined ? (
+      <TugProgressIndicator
+        variant="ring"
+        size={NOTICE_GLYPH_SIZE}
+        role="action"
+        state="running"
+        value={progress.done}
+        max={progress.total}
+        aria-label="Progress"
+      />
+    ) : undefined;
   return (
     <div data-slot="bash-live-band" className="bash-live-band">
-      <BlockNoticeBand tone="info" maxLines={1} text={formatRunProgressLine(progress)} />
+      <BlockNoticeBand
+        tone="progress"
+        maxLines={1}
+        icon={ring}
+        text={formatRunProgressLine(progress)}
+      />
     </div>
   );
 };

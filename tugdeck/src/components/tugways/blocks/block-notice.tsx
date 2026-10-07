@@ -11,8 +11,11 @@
  * states (it sits OUTSIDE the chrome's collapse guard, unlike the body).
  *
  * It is general, not error-specific: `tone` selects the icon + its color
- * (`error`/`warning`/`info`/`success`), so any tool can surface a warning or
- * an info note through the same facility. The text stays neutral and the band
+ * (`error`/`warning`/`info`/`success`/`progress`), so any tool can surface a
+ * warning, an info note, or a running command's live progress through the
+ * same facility. `progress` leads with a spinner in the header's running-dot
+ * role; a caller that knows `done / total` overrides it with a filled ring
+ * (`BashLiveBand`). The text stays neutral and the band
  * rides the same quiet strip surface as the header/footer — only the icon
  * carries the tone color, matching the chrome's "the lifecycle dot carries
  * status, no heavy color band" philosophy. The text clamps at `maxLines`
@@ -37,9 +40,10 @@ import React from "react";
 import { AlertCircle, AlertTriangle, CircleCheck, Info } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 
 /** Tone of a notice band — selects the leading icon and its color. */
-export type BlockNoticeTone = "error" | "warning" | "info" | "success";
+export type BlockNoticeTone = "error" | "warning" | "info" | "success" | "progress";
 
 /**
  * The data a tool block hands to the chrome's `notice` slot. `text` is the
@@ -56,12 +60,29 @@ export interface BlockNotice {
   maxLines?: number;
 }
 
-/** Default leading icon per tone — all already in the tugways lucide set. */
+/** Glyph-box diameter of a notice's leading icon, in CSS px. */
+export const NOTICE_GLYPH_SIZE = 14;
+
+/**
+ * Default leading icon per tone. The static tones are lucide glyphs tinted by
+ * `data-tone`; `progress` is a spinner that paints its own color in the
+ * header lifecycle dot's running role (`action`), so the two read as one
+ * signal.
+ */
 const DEFAULT_ICON: Readonly<Record<BlockNoticeTone, React.ReactNode>> = {
   error: <AlertCircle aria-hidden="true" />,
   warning: <AlertTriangle aria-hidden="true" />,
   info: <Info aria-hidden="true" />,
   success: <CircleCheck aria-hidden="true" />,
+  progress: (
+    <TugProgressIndicator
+      variant="spinner"
+      size={NOTICE_GLYPH_SIZE}
+      role="action"
+      state="running"
+      aria-label="Running"
+    />
+  ),
 };
 
 const DEFAULT_MAX_LINES = 3;
