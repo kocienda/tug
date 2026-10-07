@@ -224,6 +224,12 @@ import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
+import {
+  PAGE_ZOOM_LEVELS,
+  pageZoomLevelOf,
+  requestPageZoom,
+  usePageZoom,
+} from "@/lib/page-zoom-store";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import {
   LAYOUT_MIXER_OPEN_DOMAIN,
@@ -246,6 +252,7 @@ const KIND_SENDER_ID = "layout-card-kind";
 const LAYOUT_SENDER_ID = "layout-card-layout";
 const WIDTH_SENDER_ID = "layout-card-width";
 const RESIZE_SENDER_ID = "layout-card-resize";
+const ZOOM_SENDER_ID = "layout-card-zoom";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
 
@@ -258,6 +265,7 @@ const KIND_CAPTION_ID = "layout-card-kind-caption";
 const LAYOUT_CAPTION_ID = "layout-card-layout-caption";
 const WIDTH_CAPTION_ID = "layout-card-width-caption";
 const RESIZE_CAPTION_ID = "layout-card-resize-caption";
+const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
 
 /** The deck rows' focus orders. Distinct, and declared rather than defaulted,
  *  because they are separate stops: sharing an order would give two groups one
@@ -266,7 +274,7 @@ const RESIZE_CAPTION_ID = "layout-card-resize-caption";
  *  separately ordered is also what makes them separate rows of this card's arrow
  *  plane, so a vertical arrow steps from one group to the next.
  *
- *  Four deck rows, fixed, then the place rows: two rail rows that are always
+ *  Five deck rows, fixed, then the place rows: two rail rows that are always
  *  there, and a column row per slot with something to arrange ([B08]). The
  *  place rows' orders are keyed by side and by slot rather than counted, so a
  *  slot's row inserting itself moves no other row's order.
@@ -279,16 +287,17 @@ const RESIZE_CAPTION_ID = "layout-card-resize-caption";
  *  switchable; what is gone is a row asking the reader to choose in a card
  *  otherwise entirely about the deck. */
 const LAYOUTS_KIND_FOCUS_ORDER = 0;
-const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
-const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
-const LAYOUTS_RESIZE_FOCUS_ORDER = 3;
+const LAYOUTS_ZOOM_FOCUS_ORDER = 1;
+const LAYOUTS_LAYOUT_FOCUS_ORDER = 2;
+const LAYOUTS_WIDTH_FOCUS_ORDER = 3;
+const LAYOUTS_RESIZE_FOCUS_ORDER = 4;
 
 /** The column rows' orders, directly under Resizing — one per slot the kind
  *  defines, dense over the rows actually rendered (a slot with nothing to
  *  arrange has no row, so its order is simply unused). The sidebar rows start
  *  past the last slot any kind can define, so no two stops can share an order
  *  however the deck is shaped. */
-const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 4;
+const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 5;
 
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
@@ -914,19 +923,26 @@ function CommittedFlowStrip({
  * The card count is a DIGIT, matching the Slots control's own segments (`1 2 3
  * 4 5 6`) rather than the caption's spelled-out kind — the note reads as a
  * reading of the controls, which is what it is.
+ *
+ * Under View › Zoom the width is said with the factor it is drawn at (`675 px
+ * each at 90%`): the px are the deck's own, which a zoom scales rather than
+ * changes, so the number stays true and the factor says why it looks smaller.
+ * At 100% the clause is absent, so the familiar deck reads as it always has.
  */
 function planNote(
   kind: ImpositionKind,
   width: ContentWidth,
   layout: ImpositionLayout = "fit",
   flowingRails: readonly SidebarSide[] = [],
+  zoom = 1,
 ): string {
   const slots = slotCount(kind);
   const px = CONTENT_WIDTH_PX[width];
+  const at = zoom === 1 ? "" : ` at ${Math.round(zoom * 100)}%`;
   const cards =
     slots === 1
-      ? `1 card at a time, ${px} px wide`
-      : `${slots} cards side by side, ${px} px each`;
+      ? `1 card at a time, ${px} px wide${at}`
+      : `${slots} cards side by side, ${px} px each${at}`;
   // What the modes actually differ about, said once: fit spends the crowding
   // on overlap, flow spends it on the right edge. The clause is on flow only —
   // fit is the deck the reader already knows, and a note that explained both
@@ -1087,6 +1103,8 @@ export function LayoutContent(
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
   const layout = impositionLayout(imposition);
   const sidebars = sidebarEntries();
+  // The View › Zoom factor, for the Zoom row and the note ([L02]).
+  const zoom = usePageZoom().factor;
   // Whether the mixer rows stand open. Deck-wide tugbank state, read through
   // `useTugbankValue` ([L02]) rather than held in a `useState` cell, so the
   // fold survives a reload and a card remount alike. Absent means open: the
@@ -1356,6 +1374,13 @@ export function LayoutContent(
           }
           return;
         }
+        if (sender === ZOOM_SENDER_ID) {
+          // A request: the host owns the factor, and its answer is what moves
+          // the row (`requestPageZoom`).
+          const level = pageZoomLevelOf(Number(value));
+          if (level !== null) requestPageZoom(level);
+          return;
+        }
         if (sender === KIND_SENDER_ID && isImpositionKind(value)) {
           dispatchCommand("set-imposition", { kind: value });
         }
@@ -1475,7 +1500,7 @@ export function LayoutContent(
     ...IMPOSITION_KINDS.map((k) => ({
       previewId: `kind:${k}`,
       caption: [KIND_LABELS[k], CONTENT_WIDTH_LABELS[contentWidth]],
-      note: planNote(k, contentWidth, layout, flowingRails),
+      note: planNote(k, contentWidth, layout, flowingRails, zoom),
       kind: k,
       rails,
       width: contentWidth,
@@ -1484,7 +1509,7 @@ export function LayoutContent(
     ...LAYOUTS.map((mode) => ({
       previewId: `layout:${mode}`,
       caption: [KIND_LABELS[kind], LAYOUT_LABELS[mode]],
-      note: planNote(kind, contentWidth, mode, flowingRails),
+      note: planNote(kind, contentWidth, mode, flowingRails, zoom),
       kind,
       rails,
       width: contentWidth,
@@ -1493,7 +1518,7 @@ export function LayoutContent(
     ...CONTENT_WIDTH_PRESETS.map((preset) => ({
       previewId: `width:${preset}`,
       caption: [KIND_LABELS[kind], CONTENT_WIDTH_LABELS[preset]],
-      note: planNote(kind, preset, layout, flowingRails),
+      note: planNote(kind, preset, layout, flowingRails, zoom),
       kind,
       rails,
       width: preset,
@@ -1510,7 +1535,7 @@ export function LayoutContent(
         // The arrangement is unchanged by a rail moving sides, so the note
         // stands as it is: the caption says what the preview would change,
         // the note what it would leave alone.
-        note: planNote(kind, contentWidth, layout, flowingRails),
+        note: planNote(kind, contentWidth, layout, flowingRails, zoom),
         kind,
         rails: railsFor(imposition, openSidebars, {
           componentId: entry.componentId,
@@ -1532,7 +1557,7 @@ export function LayoutContent(
       return {
         previewId: `side:${entry.componentId}:off`,
         caption: [`${entry.title} Off`],
-        note: planNote(kind, contentWidth, layout, flowingRails),
+        note: planNote(kind, contentWidth, layout, flowingRails, zoom),
         kind,
         rails: counts,
         width: contentWidth,
@@ -1573,6 +1598,17 @@ export function LayoutContent(
     value: preset,
     label: CONTENT_WIDTH_LABELS[preset],
   }));
+
+  // The zoom levels, as bare numbers the way Slots shows bare digits; the
+  // caption says what they are. A factor between levels (only the app-test
+  // harness sets one) selects no segment.
+  const zoomItems: TugChoiceItem[] = PAGE_ZOOM_LEVELS.map((level) => ({
+    value: String(level),
+    label: String(Math.round(level * 100)),
+    "aria-label": `${Math.round(level * 100)} percent`,
+    tooltip: `${Math.round(level * 100)}%`,
+  }));
+  const zoomLevel = pageZoomLevelOf(zoom);
 
   // One row per registered sidebar card: Off, or a side — show/hide and
   // placement as one question, because "where is it" and "is it there at all"
@@ -1644,7 +1680,7 @@ export function LayoutContent(
             <div className="layouts-plan-summary">
               <PlanCaption values={committedCaption} />
               <span className="layouts-plan-note">
-                {planNote(kind, contentWidth, layout, flowingRails)}
+                {planNote(kind, contentWidth, layout, flowingRails, zoom)}
               </span>
             </div>
             <CommittedMiniature
@@ -1800,6 +1836,32 @@ export function LayoutContent(
               focusOrder={LAYOUTS_KIND_FOCUS_ORDER}
               aria-labelledby={KIND_CAPTION_ID}
               data-testid="layout-card-kind"
+            />
+          </div>
+
+          {/* View › Zoom, the same levels ⌘+ and ⌘− step along. It scales the
+              deck rather than arranging it, so it does not audition: no
+              `data-preview-axis`. */}
+          <div className="layouts-section-row">
+            <TugLabel
+              id={ZOOM_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Zoom
+            </TugLabel>
+            <TugChoiceGroup
+              items={zoomItems}
+              value={zoomLevel === null ? "" : String(zoomLevel)}
+              senderId={ZOOM_SENDER_ID}
+              size="xs"
+              sidePadding="xs"
+              reselect
+              focusGroup={LAYOUT_FOCUS_GROUP}
+              focusOrder={LAYOUTS_ZOOM_FOCUS_ORDER}
+              aria-labelledby={ZOOM_CAPTION_ID}
+              data-testid="layout-card-zoom"
             />
           </div>
 

@@ -307,6 +307,41 @@ export function usePageZoom(): PageZoomSnapshot {
   return useSyncExternalStore(pageZoomStore.subscribe, pageZoomStore.getSnapshot);
 }
 
+/**
+ * The zoom levels, in order: what View › Zoom In and Zoom Out step along and
+ * what the Layout card's Zoom row offers. Fine near 100 %, coarse toward the
+ * ends, which are the bounds. The host owns them (`MainWindow.pageZoomLevels`
+ * in `tugapp/Sources/MainWindow.swift` — keep the two in lockstep); only the
+ * app-test harness ever sets a factor between them.
+ */
+export const PAGE_ZOOM_LEVELS: readonly number[] = [
+  0.5, 0.67, 0.8, 0.9, 1, 1.25, 1.5, 2,
+];
+
+/** The level `factor` stands at, or null between levels (a harness factor). */
+export function pageZoomLevelOf(factor: number): number | null {
+  return PAGE_ZOOM_LEVELS.find((level) => Math.abs(level - factor) < 0.005) ?? null;
+}
+
+interface PageZoomMessageHost {
+  webkit?: {
+    messageHandlers?: {
+      pageZoom?: { postMessage: (value: unknown) => void };
+    };
+  };
+}
+
+/**
+ * Ask the host for a level. The host owns the factor and its persistence, so
+ * this is a request: the factor arrives back through `onPageZoomApply`, which
+ * is what moves the store, the readout and every surface that reads them. A
+ * deck with no host (a browser tab) has nothing to ask, and nothing happens.
+ */
+export function requestPageZoom(factor: number): void {
+  const w = globalThis as unknown as PageZoomMessageHost;
+  w.webkit?.messageHandlers?.pageZoom?.postMessage({ factor });
+}
+
 /** The host→web bridge object; only the zoom callbacks concern us here. */
 interface TugBridge {
   onPageZoom?: (report: Record<string, unknown>) => void;

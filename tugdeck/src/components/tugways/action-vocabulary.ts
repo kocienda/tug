@@ -755,6 +755,9 @@ export const TUG_ACTIONS = {
   //                  How pages are grouped and laid out.
   // ZOOM_IN / ZOOM_OUT: payload — none. Step the surface's zoom ladder.
   // ZOOM_ACTUAL:     payload — none. Return to 1:1.
+  // ZOOM_TOGGLE_ACTUAL: payload — none. View › Toggle Actual Size: the page
+  //                  zoom to 100 % and back to the last other level. The
+  //                  host performs it; no surface answers it.
   // ZOOM_TO_FIT:     payload — `value: "width" | "page"`. Fit the current
   //                  page to the surface by width, or whole. A fit is stored
   //                  as the choice rather than the scale it measured, so it
@@ -764,6 +767,7 @@ export const TUG_ACTIONS = {
   ZOOM_IN: "zoom-in",
   ZOOM_OUT: "zoom-out",
   ZOOM_ACTUAL: "zoom-actual",
+  ZOOM_TOGGLE_ACTUAL: "zoom-toggle-actual",
   ZOOM_TO_FIT: "zoom-to-fit",
 
   // ---- Accordion / section ----

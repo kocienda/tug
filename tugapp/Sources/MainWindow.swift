@@ -438,17 +438,47 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     // face at 9 zoomed px under it, so below 90 % the type stopped shrinking
     // while the boxes kept going, and no host door lifts that floor. The
     // user's chosen zoom persists to `UserDefaults` and is reapplied on
-    // launch, before the web view is revealed. Bounds and step match the
-    // menu's expectations: 50%–200% in 10% increments.
+    // launch, before the web view is revealed.
+    //
+    // The factor is one of `pageZoomLevels`, and Zoom In / Zoom Out step along
+    // them rather than by a fixed increment: fine steps near 100 %, where the
+    // choice is about comfort, coarse ones toward the ends, where it is about
+    // fitting more deck or reading from further back. The Layout card's Zoom
+    // row offers the same list (`PAGE_ZOOM_LEVELS` in
+    // `tugdeck/src/lib/page-zoom-store.ts` — keep the two in lockstep). The
+    // ends are the bounds. Only the app-test harness sets a factor between
+    // levels (`applyPageZoom`), for geometry it wants to read at any scale.
     private static let pageZoomDefaultsKey = "WebViewPageZoom"
-    static let minPageZoom: CGFloat = 0.5
-    static let maxPageZoom: CGFloat = 2.0
-    static let pageZoomStep: CGFloat = 0.1
+    /// The last factor other than 100 %, which Toggle Actual Size returns to.
+    private static let pageZoomAwayDefaultsKey = "WebViewPageZoomAway"
+    static let pageZoomLevels: [CGFloat] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.25, 1.5, 2.0]
+    static let minPageZoom: CGFloat = pageZoomLevels.first!
+    static let maxPageZoom: CGFloat = pageZoomLevels.last!
     static let defaultPageZoom: CGFloat = 1.0
+
+    /// The level nearest `zoom` — what a persisted factor from before the
+    /// levels, or one between them, is read as.
+    static func nearestPageZoomLevel(_ zoom: CGFloat) -> CGFloat {
+        return pageZoomLevels.min(by: { abs($0 - zoom) < abs($1 - zoom) })!
+    }
+
+    /// Comparison slack for factors: a level read back from `Double` is not
+    /// bit-identical to the literal.
+    static let pageZoomEpsilon: CGFloat = 0.005
 
     /// The View › Zoom factor the deck is drawn at — stored state, applied by
     /// the deck to its own root. Never `webView.pageZoom`.
     private var zoomFactor: CGFloat = MainWindow.defaultPageZoom
+
+    /// The last factor other than 100 % the user chose, or nil if they never
+    /// have. Toggle Actual Size (⌥⌘0) goes there from 100 %.
+    private(set) var pageZoomAway: CGFloat?
+
+    /// Whether a zoom choice is written to `UserDefaults`. Not under the
+    /// app-test harness, which drives the View menu and the Layout card's
+    /// Zoom row like a user and must not move the user's own zoom.
+    private let persistsPageZoom =
+        ProcessInfo.processInfo.environment["TUGAPP_APP_TEST"] != "1"
 
     /// Minimum content size the user can resize the window down to.
     /// The Session card + the canvas need this much room to lay out without
@@ -514,6 +544,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.add(self, name: "exportSession")
         contentController.add(self, name: "updateAction")
         contentController.add(self, name: "dictation")
+        contentController.add(self, name: "pageZoom")
 
         // Configure WKWebView
         // No Web Inspector, in any build. `developerExtrasEnabled` stays off
@@ -577,10 +608,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         // deck receives it on `frontendReady`, ahead of the reveal, and
         // applies it to its root (`bridgePageZoom`); `webView.pageZoom` is
         // left at 1.0. `object(forKey:)` returns nil for an unset key (first
-        // launch); the factor stays 1.0 in that case. A persisted value
-        // outside the bounds (e.g. from a future range change) is clamped,
-        // not discarded — the next zoom action re-writes the clamped value
-        // back to defaults.
+        // launch); the factor stays 1.0 in that case. A persisted value that
+        // is not a level (from before the levels, or a future range change)
+        // is read as the nearest one, not discarded — the next zoom action
+        // re-writes it back to defaults.
         //
         // The app-test harness pins 1.0 instead of restoring. A stray ⌘+ in
         // one app-test window would otherwise change the geometry of every
@@ -589,7 +620,14 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         if ProcessInfo.processInfo.environment["TUGAPP_APP_TEST"] == "1" {
             zoomFactor = MainWindow.defaultPageZoom
         } else if let saved = UserDefaults.standard.object(forKey: MainWindow.pageZoomDefaultsKey) as? Double {
-            zoomFactor = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, CGFloat(saved)))
+            zoomFactor = MainWindow.nearestPageZoomLevel(CGFloat(saved))
+        }
+        if persistsPageZoom,
+           let away = UserDefaults.standard.object(forKey: MainWindow.pageZoomAwayDefaultsKey) as? Double {
+            let level = MainWindow.nearestPageZoomLevel(CGFloat(away))
+            if abs(level - MainWindow.defaultPageZoom) > MainWindow.pageZoomEpsilon {
+                pageZoomAway = level
+            }
         }
 
         // Container view holds both the WebView and any snapshot overlays.
@@ -851,11 +889,19 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         return zoomFactor
     }
 
-    /// Set page zoom to an exact value, clamped to [minPageZoom, maxPageZoom],
-    /// and persist to UserDefaults so the choice survives across launches.
+    /// Set page zoom to the level nearest `zoom` and persist it to
+    /// UserDefaults so the choice survives across launches. A level other
+    /// than 100 % is also remembered as where Toggle Actual Size returns.
     func setPageZoom(_ zoom: CGFloat) {
-        let clamped = applyPageZoom(zoom)
-        UserDefaults.standard.set(Double(clamped), forKey: MainWindow.pageZoomDefaultsKey)
+        let level = applyPageZoom(MainWindow.nearestPageZoomLevel(zoom))
+        if abs(level - MainWindow.defaultPageZoom) > MainWindow.pageZoomEpsilon {
+            pageZoomAway = level
+        }
+        guard persistsPageZoom else { return }
+        UserDefaults.standard.set(Double(level), forKey: MainWindow.pageZoomDefaultsKey)
+        if let away = pageZoomAway {
+            UserDefaults.standard.set(Double(away), forKey: MainWindow.pageZoomAwayDefaultsKey)
+        }
     }
 
     /// Set the zoom factor, clamped, and have the deck apply it. Returns the
@@ -910,14 +956,36 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         setPageZoom(MainWindow.defaultPageZoom)
     }
 
-    /// Step up by one increment, capped at `maxPageZoom`.
+    /// Step up to the next level, stopping at `maxPageZoom`.
     func zoomIn() {
-        setPageZoom(currentPageZoom + MainWindow.pageZoomStep)
+        let current = currentPageZoom
+        guard let next = MainWindow.pageZoomLevels.first(where: { $0 > current + MainWindow.pageZoomEpsilon }) else { return }
+        setPageZoom(next)
     }
 
-    /// Step down by one increment, floored at `minPageZoom`.
+    /// Step down to the previous level, stopping at `minPageZoom`.
     func zoomOut() {
-        setPageZoom(currentPageZoom - MainWindow.pageZoomStep)
+        let current = currentPageZoom
+        guard let next = MainWindow.pageZoomLevels.last(where: { $0 < current - MainWindow.pageZoomEpsilon }) else { return }
+        setPageZoom(next)
+    }
+
+    /// Whether Toggle Actual Size has somewhere to go: away from 100 %, or
+    /// back to a level the user chose before.
+    var canToggleActualSize: Bool {
+        return abs(currentPageZoom - MainWindow.defaultPageZoom) > MainWindow.pageZoomEpsilon
+            || pageZoomAway != nil
+    }
+
+    /// ⌥⌘0: to 100 % from any other level, and from 100 % back to the last
+    /// other level chosen. One chord for "let me see it at actual size" and
+    /// "put it back".
+    func toggleActualSize() {
+        if abs(currentPageZoom - MainWindow.defaultPageZoom) > MainWindow.pageZoomEpsilon {
+            setPageZoom(MainWindow.defaultPageZoom)
+        } else if let away = pageZoomAway {
+            setPageZoom(away)
+        }
     }
 
 
@@ -1321,6 +1389,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.removeScriptMessageHandler(forName: "exportSession")
         contentController.removeScriptMessageHandler(forName: "updateAction")
         contentController.removeScriptMessageHandler(forName: "dictation")
+        contentController.removeScriptMessageHandler(forName: "pageZoom")
         // Give the microphone back before the deck it was reporting to is
         // gone. `shutdown` emits nothing: there is nobody left to tell.
         dictationEngine?.shutdown()
@@ -2158,6 +2227,13 @@ extension MainWindow: WKScriptMessageHandler {
             guard let body = message.body as? [String: Any],
                   let color = body["color"] as? String else { return }
             bridgeDelegate?.bridgeSetTheme(color: color)
+        case "pageZoom":
+            // The Layout card's Zoom row: a level, chosen directly. The same
+            // path as the View menu's, so it persists and is remembered for
+            // Toggle Actual Size exactly as a chord would be.
+            guard let body = message.body as? [String: Any],
+                  let factor = body["factor"] as? Double else { return }
+            setPageZoom(CGFloat(factor))
         case "devBadge":
             guard let body = message.body as? [String: Any] else { return }
             let backend = body["backend"] as? Bool ?? false

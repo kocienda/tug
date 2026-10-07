@@ -2007,6 +2007,21 @@ export const COMMANDS: readonly CommandEntry[] = [
       ),
     ],
   },
+  {
+    // ⌥⌘0: 100 % and back. The host owns the remembered level, so nothing
+    // in the deck answers this; like the three above, the chord passes the
+    // funnel unprevented and the View item fires.
+    id: TUG_ACTIONS.ZOOM_TOGGLE_ACTUAL,
+    title: "Toggle Actual Size",
+    routing: "first-responder",
+    menuItemId: "view.toggleActualSize",
+    bindings: [
+      chord(
+        { key: "Digit0", meta: true, alt: true, label: "0" },
+        { menuEligible: true },
+      ),
+    ],
+  },
 
   // ---- Window / deck ----
   {

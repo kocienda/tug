@@ -55,13 +55,19 @@
 /* The "after" notice lands a few frames past the relayout; gone then, the
  * readout would be a flicker. It holds long enough to be read, then fades,
  * and `visibility` drops with the end of the fade so nothing stays
- * hit-testable or announced. */
+ * hit-testable or announced.
+ *
+ * The hold is the readout's own rather than a shared motion token: 1.2 s,
+ * about as long as the system's volume and brightness overlays stand, so a
+ * glance after the chord still finds the number. A shorter hold read as a
+ * blink. Scaled by `--tug-timing` like every other duration. */
 .tugx-zoom-readout[data-state="leaving"] {
+  --tugx-zoom-readout-hold: calc(1200ms * var(--tug-timing));
   opacity: 0;
   visibility: hidden;
   transition:
     opacity var(--tug-motion-duration-moderate) ease-out
-      var(--tug-motion-duration-glacial),
+      var(--tugx-zoom-readout-hold),
     visibility 0s linear
-      calc(var(--tug-motion-duration-glacial) + var(--tug-motion-duration-moderate));
+      calc(var(--tugx-zoom-readout-hold) + var(--tug-motion-duration-moderate));
 }

@@ -254,6 +254,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⇧⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌥⇧⌘V | `paste-as-plain-text` | Paste as Plain Text | JS, global |
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
+| ⌥⌘0 | `zoom-toggle-actual` | Toggle Actual Size | menu bar (swept) |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
 | ⌥⌘U | `make-uppercase` | Make Uppercase | menu bar (swept) |
@@ -406,6 +407,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `view.sidebar.overview.left` | `set-sidebar-side:overview:left` | registered handler | registry gate |
 | `view.sidebar.overview.right` | `set-sidebar-side:overview:right` | registered handler | registry gate |
 | `view.sidebar.overview.show` | `toggle-overview` | registered handler | registry gate |
+| `view.toggleActualSize` | `zoom-toggle-actual` | first responder | host tier |
 | `view.toggleSidebars` | `toggle-sidebars` | registered handler | registry gate |
 | `view.zoomIn` | `zoom-in` | first responder | host tier |
 | `view.zoomOut` | `zoom-out` | first responder | host tier |

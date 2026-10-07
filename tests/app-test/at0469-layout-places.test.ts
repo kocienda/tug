@@ -368,10 +368,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         note(`rows: ${rows.join(", ")}`);
         expect(
-          rows.slice(0, 4),
-          "the four deck-wide rows lead, in a fixed order",
+          rows.slice(0, 5),
+          "the five deck-wide rows lead, in a fixed order",
         ).toEqual([
           "layout-card-kind",
+          "layout-card-zoom",
           "layout-card-layout",
           "layout-card-width",
           "layout-card-resize",
@@ -383,13 +384,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // what the picture does not draw. The registry is a boot step, so that
         // count is fixed too.
         const placeRows = rows
-          .slice(4)
+          .slice(5)
           .filter((id) => /^layout-card-column-/.test(id));
         expect(
           rows.filter((id) => /^layout-card-rail-/.test(id)),
           "a rail has no arrangement row",
         ).toEqual([]);
-        const sidebarRows = rows.slice(4 + placeRows.length);
+        const sidebarRows = rows.slice(5 + placeRows.length);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",

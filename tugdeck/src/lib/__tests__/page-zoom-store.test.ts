@@ -9,10 +9,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  PAGE_ZOOM_LEVELS,
   PageZoomStore,
   installPageZoomBridge,
   layoutPxAt,
   normalizeFactor,
+  pageZoomLevelOf,
+  requestPageZoom,
   viewportPxAt,
 } from "../page-zoom-store";
 
@@ -212,6 +215,38 @@ describe("installPageZoomBridge", () => {
       expect(store.getSnapshot()).toEqual({ factor: 1.3, phase: "settled" });
     } finally {
       g.__tugBridge = before;
+    }
+  });
+});
+
+describe("the zoom levels", () => {
+  test("ascend from the lower bound to the upper with 100 % among them", () => {
+    expect(PAGE_ZOOM_LEVELS[0]).toBe(0.5);
+    expect(PAGE_ZOOM_LEVELS[PAGE_ZOOM_LEVELS.length - 1]).toBe(2);
+    expect(PAGE_ZOOM_LEVELS).toContain(1);
+    for (let i = 1; i < PAGE_ZOOM_LEVELS.length; i += 1) {
+      expect(PAGE_ZOOM_LEVELS[i]).toBeGreaterThan(PAGE_ZOOM_LEVELS[i - 1]);
+    }
+  });
+
+  test("a factor is read as its level within rounding, and between levels as none", () => {
+    expect(pageZoomLevelOf(0.9)).toBe(0.9);
+    expect(pageZoomLevelOf(0.6700000000000001)).toBe(0.67);
+    expect(pageZoomLevelOf(0.7)).toBeNull();
+  });
+
+  test("a level is requested of the host's `pageZoom` handler, and nothing happens with no host", () => {
+    const g = globalThis as Record<string, unknown>;
+    const before = g.webkit;
+    const posted: unknown[] = [];
+    try {
+      delete g.webkit;
+      expect(() => requestPageZoom(0.8)).not.toThrow();
+      g.webkit = { messageHandlers: { pageZoom: { postMessage: (v: unknown) => posted.push(v) } } };
+      requestPageZoom(0.8);
+      expect(posted).toEqual([{ factor: 0.8 }]);
+    } finally {
+      g.webkit = before;
     }
   });
 });

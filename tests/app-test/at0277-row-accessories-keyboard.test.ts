@@ -333,12 +333,21 @@ describe.skipIf(!SHOULD_RUN)("at0277 — sidebar row accessories answer the keyb
           // the ring (the cross-section walk is at0341's to gate further).
           await app.nativeKey("ArrowDown");
           await app.waitForCondition<boolean>(
+            `document.querySelector('[data-testid="layout-card-zoom"][data-key-view-kbd]') !== null`,
+            { timeoutMs: 3_000 },
+          );
+          // The Zoom row is next, its cursor parked on 100 %: three Downs to
+          // the end of its run, and one more off it.
+          for (let i = 0; i < 3; i += 1) await app.nativeKey("ArrowDown");
+          await app.nativeKey("ArrowDown");
+          await app.waitForCondition<boolean>(
             `document.querySelector('[data-testid="layout-card-layout"][data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
-          // Back to the CARDS row by the backward Tab walk — the stops are
-          // one Tab apart. Tab-into parks the cursor on the selected segment,
-          // which is where section D's walk starts.
+          // Back to the CARDS row by the backward Tab walk — two stops up,
+          // over the Zoom row. Tab-into parks the cursor on the selected
+          // segment, which is where section D's walk starts.
+          await app.nativeKey("Tab", ["shift"]);
           await app.nativeKey("Tab", ["shift"]);
           await app.waitForCondition<boolean>(
             `document.querySelector('${KIND_GROUP}[data-key-view-kbd]') !== null`,

@@ -1836,6 +1836,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.zoomOut()
     }
 
+    // Page zoom only, document surface or not: a document's own zoom has no
+    // remembered level to go back to, and ⌥⌘0 is about the deck.
+    @objc private func toggleActualSize(_ sender: Any?) {
+        window.toggleActualSize()
+    }
+
     @objc private func focusPaneFromMenu(_ sender: NSMenuItem) {
         guard let paneId = sender.representedObject as? String else { return }
         sendControl("focus-pane", params: ["paneId": paneId])
@@ -2493,10 +2499,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         applyCommandChords()
     }
 
-    /// Tolerance for page-zoom bound comparisons. Stepping by 0.1 accumulates
-    /// IEEE rounding error, so the Zoom In / Zoom Out / Actual Size gates
-    /// compare against the bounds with this slack.
-    private let pageZoomEpsilon: CGFloat = 0.005
+    /// Tolerance for page-zoom bound comparisons: a level read back from
+    /// `Double` is not bit-identical to its literal, so the Zoom In / Zoom
+    /// Out / Actual Size gates compare against the bounds with this slack.
+    private let pageZoomEpsilon: CGFloat = MainWindow.pageZoomEpsilon
 
     /// Auto-enable hook (`autoenablesItems` is on by default). Consulted
     /// for menu items whose nil-target action resolves to this delegate.
@@ -2587,9 +2593,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // see, so the page-zoom bounds stop being the right gate while one is
         // frontmost — the items stay live and the surface clamps.
         //
-        // Floating-point tolerance: stepping by 0.1 accumulates IEEE rounding
-        // error (0.6000000000000001 etc.), so the bound comparisons carry a
-        // small epsilon to avoid spurious disables right at the limits.
+        // Floating-point tolerance: a level that has round-tripped through
+        // `Double` is not bit-identical to its literal, so the bound
+        // comparisons carry a small epsilon to avoid spurious disables right
+        // at the limits.
         case "view.actualSize":
             if menuState.document != nil { return true }
             return abs(window.currentPageZoom - MainWindow.defaultPageZoom) > pageZoomEpsilon
@@ -2599,6 +2606,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "view.zoomOut":
             if menuState.document != nil { return true }
             return window.currentPageZoom > MainWindow.minPageZoom + pageZoomEpsilon
+        case "view.toggleActualSize":
+            return window.canToggleActualSize
         // Undo / Redo: titles AND enablement set here, during the
         // validation sweep (the sanctioned AppKit pattern; identity never
         // rides the title). They are the one Edit pair the registry does
@@ -3044,13 +3053,17 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(themeMenuItem)
 
         // Zoom commands — Safari-style. Drive `MainWindow.setPageZoom`, which
-        // the deck applies as a scale of its whole root. `Actual Size` (⌘0) returns to
-        // 100%; `Zoom In` (⌘+) / `Zoom Out` (⌘-) step in 10%
-        // increments bounded at 50%–200%. The hidden ⌘= alias mirrors
-        // Safari's ergonomic shortcut so users don't have to hold
-        // Shift to zoom in.
+        // the deck applies as a scale of its whole root. `Actual Size` (⌘0)
+        // returns to 100%; `Zoom In` (⌘+) / `Zoom Out` (⌘-) step along
+        // `MainWindow.pageZoomLevels`, 50%–200%. `Toggle Actual Size` (⌥⌘0)
+        // goes to 100% and back to the last other level chosen. The hidden
+        // ⌘= alias mirrors Safari's ergonomic shortcut so users don't have
+        // to hold Shift to zoom in.
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Actual Size", action: #selector(actualSize(_:)), keyEquivalent: "0").identified("view.actualSize"))
+        let toggleActualSizeItem = NSMenuItem(title: "Toggle Actual Size", action: #selector(toggleActualSize(_:)), keyEquivalent: "0").identified("view.toggleActualSize")
+        toggleActualSizeItem.keyEquivalentModifierMask = [.command, .option]
+        menu.addItem(toggleActualSizeItem)
         menu.addItem(NSMenuItem(title: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "+").identified("view.zoomIn"))
         // ⌘= alias for Zoom In — visible item displays ⌘+, this hidden
         // sibling accepts ⌘= (no-shift) for ergonomic parity with

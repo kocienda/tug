@@ -683,6 +683,9 @@ describe("every chord the static map held reaches the same command", () => {
     ["⌘=", TUG_ACTIONS.ZOOM_IN],
     ["⌘-", TUG_ACTIONS.ZOOM_OUT],
     ["⌘0", TUG_ACTIONS.ZOOM_ACTUAL],
+    // ⌥⌘0 was authored this way: the remembered level it returns to is the
+    // host's, so the View item is what the chord reaches.
+    ["⌥⌘0", TUG_ACTIONS.ZOOM_TOGGLE_ACTUAL],
   ]);
 
   test("the global layer holds nothing the map did not, except the host's own", () => {

@@ -840,10 +840,18 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         );
         await app.nativeKey("ArrowDown");
         await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="layout-card-zoom"][data-key-view-kbd]') !== null`,
+          { timeoutMs: 3_000 },
+        );
+        // The Zoom row sits between them, its cursor parked on 100 %: walk it
+        // to the end of its run (three Downs to 200) and off.
+        for (let i = 0; i < 3; i += 1) await app.nativeKey("ArrowDown");
+        await app.nativeKey("ArrowDown");
+        await app.waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-layout"][data-key-view-kbd]') !== null`,
           { timeoutMs: 3_000 },
         );
-        note("the Layout row takes the ring off the end of the Cards run");
+        note("the Layout row takes the ring off the end of the run above it");
 
         // And the cursor lands on the standing answer, not on the run's head —
         // a settled control shows what the store holds, by keyboard too.
