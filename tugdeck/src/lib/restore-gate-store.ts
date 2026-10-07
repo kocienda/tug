@@ -20,7 +20,7 @@
  * @module lib/restore-gate-store
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { cardServicesStore } from "./card-services-store";
 import type { CodeSessionStore } from "./code-session-store";
