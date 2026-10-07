@@ -45,19 +45,6 @@ import React from "react";
 
 import { useFocusable } from "./use-focusable";
 import type { FocusPolicy } from "./focus-manager";
-import type { WidthRung } from "@/lib/width-rungs";
-
-/**
- * The Z2 status row's collapse thresholds, in the host strip's content-box
- * CSS px: at or under each width the named cell hides. The measured values
- * and why each sits where it does are in `tug-status-cell.css`, beside the
- * rules that key on them.
- */
-export const STATUS_ROW_WIDTH_RUNGS: readonly WidthRung[] = [
-  { name: "time", maxWidth: 653 },
-  { name: "tasks", maxWidth: 527 },
-  { name: "jobs", maxWidth: 411 },
-];
 
 /**
  * IBM-1620-style endcap-rule label apparatus — a letterspaced uppercase
@@ -96,8 +83,8 @@ function TugStatusCellLabel({
 export interface TugStatusCellProps {
   /**
    * Priority key — sets `data-priority`, which selects the cell's static
-   * `--tugx-session-status-cell-width` and drives the width-rung
-   * collapse order (`STATUS_ROW_WIDTH_RUNGS`). One of the row's cell ids (`state` / `time` /
+   * `--tugx-session-status-cell-width` and drives the container-query
+   * collapse order. One of the row's cell ids (`state` / `time` /
    * `tokens` / `context` / `tasks` / `jobs`).
    */
   priority: string;

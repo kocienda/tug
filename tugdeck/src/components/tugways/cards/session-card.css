@@ -365,10 +365,10 @@
                                  centre on; the sheet's own bar fills its
                                  panel and has no such number.
 
-     Two things do NOT read from here. The width rungs that hide TIME, TASKS
-     and JOBS as the card narrows (`STATUS_ROW_WIDTH_RUNGS`, documented in
-     `tug-status-cell.css`) are literal pixel widths; retune them by hand
-     after these. And the folded tier —
+     Two things do NOT read from here. The `@container` rungs in
+     `tug-status-cell.css` that hide TIME, TASKS and JOBS as the card narrows
+     are literal pixel widths, because a container query cannot read a custom
+     property; retune them by hand after these. And the folded tier —
      `FOLDED_CARD_HEIGHT_PX` in `card-registry.ts` — is the
      strip's built height plus the masthead's, so a change to the padding here
      moves it.
@@ -449,11 +449,13 @@
   position: sticky;
   bottom: 0;
   z-index: 1;
-  /* Inline-size containment: the strip's width is its card's, never its
-     content's, and height stays content-sized. The status row's collapse
-     rungs read this box's content width through `data-width-rungs`, not
-     through a container query (`tug-status-cell.css`). */
+  /* Establish a CSS containment context so the combined status-row
+     renderer's container queries can target this host. `inline-size`
+     so the queries see the host's width but height stays content-
+     sized; `session-status` so the renderer's @container rules match
+     this container by name rather than the nearest unnamed ancestor. */
   container-type: inline-size;
+  container-name: session-status;
 }
 
 /* When Z2 has no content, the wrapper renders as an empty `<div>`

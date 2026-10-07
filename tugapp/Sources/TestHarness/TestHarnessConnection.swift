@@ -548,13 +548,7 @@ final class TestHarnessConnection {
                 self.respondError(id: id, name: "ZoomError", message: "no web view or no zoom")
                 return
             }
-            // Through the host's own path, so the deck hears the same before
-            // and after notices a View menu zoom sends; unpersisted.
-            if let mainWindow = webView.window as? MainWindow {
-                mainWindow.applyPageZoom(CGFloat(zoom))
-            } else {
-                webView.pageZoom = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, CGFloat(zoom)))
-            }
+            webView.pageZoom = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, CGFloat(zoom)))
             self.respond(id: id, ok: true, payload: ["value": Double(webView.pageZoom)])
         }
     }

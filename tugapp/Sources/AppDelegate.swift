@@ -2798,10 +2798,6 @@ extension AppDelegate: BridgeDelegate {
             // is what clears a stale pill after a reload.
             self.window?.bridgeUpdateState(self.updateController.snapshot)
 
-            // The standing page zoom, on mount and on every reconnect, so a
-            // deck at a persisted factor knows it before the next zoom step.
-            self.window?.bridgePageZoom()
-
             // Current VoiceOver state, on mount and on every reconnect —
             // the frontend's keyboard-access mode converges without
             // waiting for a toggle.

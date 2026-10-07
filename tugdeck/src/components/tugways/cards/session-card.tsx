@@ -343,8 +343,6 @@ import {
 import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { caseInsensitiveSubstring } from "@/lib/text-match";
-import { useWidthRungs } from "@/lib/width-rungs";
-import { STATUS_ROW_WIDTH_RUNGS } from "@/components/tugways/tug-status-cell";
 import "./session-card.css";
 
 // ---------------------------------------------------------------------------
@@ -1937,9 +1935,6 @@ export function SessionCardBody({
   const [findBarOpen, setFindBarOpen] = useState(false);
   const findBarRef = useRef<TugFindBarHandle | null>(null);
   const lastFindQueryRef = useRef("");
-  // Z2's collapse rungs, measured in CSS px so a page zoom never changes
-  // which cells the strip shows ([B09] of view-zoom-performance-and-feedback).
-  const statusBarRungsRef = useWidthRungs(STATUS_ROW_WIDTH_RUNGS);
 
   const openFindBar = useCallback(
     (options?: { keepAnchor?: boolean }) => {
@@ -5097,7 +5092,6 @@ export function SessionCardBody({
             </cycle.CycleScope>
           ) : null}
           <div
-            ref={statusBarRungsRef}
             className="session-card-status-bar"
             data-slot="session-card-status-bar"
           >

@@ -73,6 +73,7 @@
  * one thing the hold exists to prevent.
  */
 
+import { getTugZoom } from "@/components/tugways/scale-timing";
 
 /** Stamped on the frame for the length of a crossing. Observable to tests; not React state ([L06]). */
 export const FOLD_CROSSING_ATTR = "data-fold-crossing";
@@ -558,22 +559,37 @@ function endKind(
  * Read by the imposer on both sides of the commit — First in the arm, Last in
  * the tween pass — so the held height is the open one in either direction.
  *
- * In CSS px, which is what the number is written to `STILL_HELD_HEIGHT_PROP`
- * in and what a page zoom leaves unchanged. This is the one read every hold
- * shares ([B07]), so a fold, a settle and a sash drag all hold at the same
- * box they measured.
+ * In the pane's own px, not the viewport's. The number is written to
+ * `STILL_HELD_HEIGHT_PROP` and resolved by a `height:` rule on a box under
+ * `body { zoom: var(--tug-zoom) }`, whose px are the layout's; a
+ * `getBoundingClientRect` reading is in viewport px, which at any zoom other
+ * than 1 is the layout's number multiplied by the zoom. Fed raw, the hold at
+ * zoom 1.5 would stand the interior half again as tall as the box it was
+ * measured in and clip the picture at the wrong place. The division is here,
+ * at the one read every hold shares ([B07]), so a fold, a settle and a sash
+ * drag all hold at the same box they measured.
  */
 export function contentBoxHeight(frame: HTMLElement): number | null {
   const content = contentBoxOf(frame);
   if (content === null) return null;
-  return content.getBoundingClientRect().height;
+  return layoutPxOf(content.getBoundingClientRect().height, getTugZoom());
 }
 
-/** {@link contentBoxHeight}'s twin on the inline axis. */
+/** {@link contentBoxHeight}'s twin on the inline axis, in the pane's own px. */
 export function contentBoxWidth(frame: HTMLElement): number | null {
   const content = contentBoxOf(frame);
   if (content === null) return null;
-  return content.getBoundingClientRect().width;
+  return layoutPxOf(content.getBoundingClientRect().width, getTugZoom());
+}
+
+/**
+ * A viewport-px length back in layout px under a `zoom` of `zoom`. A zoom
+ * that is not a positive finite number is no zoom at all: `getTugZoom`
+ * already answers 1 for an unset property, and a 0 would turn every held
+ * height infinite, so the guard is stated here where the arithmetic is.
+ */
+export function layoutPxOf(viewportPx: number, zoom: number): number {
+  return Number.isFinite(zoom) && zoom > 0 ? viewportPx / zoom : viewportPx;
 }
 
 /**

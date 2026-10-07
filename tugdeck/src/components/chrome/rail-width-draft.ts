@@ -94,7 +94,7 @@ import {
 
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { computeResizeSnap } from "@/snap";
-import { getTugTiming, isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { getTugTiming, getTugZoom, isTugMotionEnabled } from "@/components/tugways/scale-timing";
 import {
   IMPOSITION_GAP_PX,
   sidebarWidthProperty,
@@ -241,6 +241,7 @@ interface Draft {
   readonly side: SidebarSide;
   readonly container: HTMLElement;
   readonly limits: RailWidthLimits;
+  readonly zoom: number;
   readonly growSign: 1 | -1;
   readonly startClientX: number;
   readonly startWidth: number;
@@ -316,14 +317,15 @@ class RailWidthDraft implements RailWidthGesture {
       beginResizeEpisode(paneFrame, GESTURE_EPISODE_WINDOW_MS),
     );
 
+    const zoom = getTugZoom() || 1;
     const canvasBounds = container.getBoundingClientRect();
     const frameRect = frame.getBoundingClientRect();
     // The deck edge the rail holds is the one thing this drag may not move,
     // so it is measured once and held for the gesture.
     const pinnedEdge =
       side === "left"
-        ? frameRect.left - canvasBounds.left
-        : frameRect.right - canvasBounds.left;
+        ? (frameRect.left - canvasBounds.left) / zoom
+        : (frameRect.right - canvasBounds.left) / zoom;
     const members = [
       ...container.querySelectorAll<HTMLElement>(
         `${SHOWN_PANE_FRAMES}[data-rail-side="${side}"]`,
@@ -383,16 +385,17 @@ class RailWidthDraft implements RailWidthGesture {
       side,
       container,
       limits,
+      zoom,
       // A left rail's deck edge faces right: rightward motion grows it. A
       // right rail's faces left: leftward motion grows it.
       growSign: side === "left" ? 1 : -1,
       startClientX: clientX,
       // The width the RAIL stands at — its widest member's — measured, since
       // the grabbed member's stored width may be narrower than the rail.
-      startWidth: frameRect.width,
+      startWidth: frameRect.width / zoom,
       pinnedEdge,
       canvasBounds,
-      guideEdgeOffsets: measureGuideEdgeOffsets(frame),
+      guideEdgeOffsets: measureGuideEdgeOffsets(frame, zoom),
       // Signed: a rail widened until the rails cover the canvas leaves a band
       // of no width, and that rail must still narrow back. The travel terms
       // clamp a band below zero exactly as the `left` expressions do.
@@ -425,7 +428,7 @@ class RailWidthDraft implements RailWidthGesture {
       latestAlt: false,
       rafId: null,
       pauseTimer: null,
-      shown: frameRect.width,
+      shown: frameRect.width / zoom,
       limit: null,
       spring: null,
       readout: null,
@@ -708,8 +711,8 @@ class RailWidthDraft implements RailWidthGesture {
     readout.textContent = `${Math.round(aim.width)} px`;
     if (aim.limit === null) readout.removeAttribute("data-limit");
     else readout.setAttribute("data-limit", aim.limit);
-    const x = draft.latestX - draft.canvasBounds.left;
-    const y = draft.latestY - draft.canvasBounds.top;
+    const x = (draft.latestX - draft.canvasBounds.left) / draft.zoom;
+    const y = (draft.latestY - draft.canvasBounds.top) / draft.zoom;
     readout.style.left = `${x + 14}px`;
     readout.style.top = `${y - 34}px`;
   }
@@ -743,7 +746,7 @@ class RailWidthDraft implements RailWidthGesture {
    * re-measured every frame, since the cards move as the rail does.
    */
   private aimOf(draft: Draft): RailWidthAim {
-    const travel = draft.latestX - draft.startClientX;
+    const travel = (draft.latestX - draft.startClientX) / draft.zoom;
     const aim = aimRailWidth(
       draft.startWidth + draft.growSign * travel,
       draft.limits,
@@ -756,7 +759,7 @@ class RailWidthDraft implements RailWidthGesture {
     const exposedEdge = draft.pinnedEdge + draft.growSign * width;
     const snap = computeResizeSnap(
       draft.side === "left" ? { right: exposedEdge } : { left: exposedEdge },
-      snapshotCardRects(draft.canvasBounds)
+      snapshotCardRects(draft.canvasBounds, undefined, draft.zoom)
         .filter(({ id }) => !draft.memberIds.has(id))
         .map(({ rect }) => rect),
       -IMPOSITION_GAP_PX,

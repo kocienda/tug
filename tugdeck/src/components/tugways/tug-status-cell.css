@@ -89,7 +89,7 @@
    number here cannot know when a table grows, and this file has already
    once been measured against a word that no longer existed. What the
    budgets settle is the row's design — the wings, the pair rule, the sum
-   the width rungs are asked against — and they hold as long as the
+   the `@container` rungs are asked against — and they hold as long as the
    faces fit inside them, which the measurements below record.
 
    Widest face → measured need, at 1ch ≈ 6.8px:
@@ -123,7 +123,7 @@
    **The width they are sized against is the strip's CONTENT box, not the card.**
    A slim (675) card gives a ~673px strip, but the strip carries 8px of padding
    on each side and `container-type: inline-size` measures what is inside it — so
-   the row has ~657px to spend and the width rungs below are asked against
+   the row has ~657px to spend and the `@container` rungs below are asked against
    that same ~657px. Sizing to the 673 is how the first attempt at these budgets
    overshot by ~19px and quietly tripped its own first rung, hiding TIME on a card
    that was supposed to show everything.
@@ -142,7 +142,7 @@
    **The total is held at 80ch on purpose.** The row spends the same width it
    did when it carried TOKENS and a merged WORK cell: the 28ch those two held
    between them is what TASKS and JOBS divide evenly. Holding the sum fixed is
-   what lets the width rungs below keep their measured values — the full
+   what lets the `@container` rungs below keep their measured values — the full
    set and each post-collapse subset need exactly what they needed before.
 
    **The total came down from 80ch to 76ch to seat the fold control.** The
@@ -151,7 +151,7 @@
    (`session-card-telemetry-renderers.css`, 8px → 4px a side) found 8 more, so
    ~20px had to come out of the cells. Measured after the cut and before the
    control took its seat, the row leaves 35px at slim — the control's 32 with
-   3 to spare, which is the same 3px the first width rung below is
+   3 to spare, which is the same 3px the first `@container` rung below is
    placed against.
 
    Two characters came off CONTEXT and one off each of the work pair, and each
@@ -431,7 +431,7 @@
    `textContent` is what every app-test reads and a ghost child would join it.
    The span is a column flex so the two faces stack under the live text at
    zero height and contribute width alone; the `ch` budget on the cell stays
-   as the floor the width rungs are measured against, and this face
+   as the floor the `@container` rungs are measured against, and this face
    is what keeps the reading inside it. The work cells (TASKS, JOBS) get the
    same guarantee from the indicator's own `phaseLabels` ghost set, fed the
    same declaration. */
@@ -627,15 +627,9 @@
   bottom: 50%;
 }
 
-/* Width-rung collapse rules. The Z2 host (`.session-card-status-bar`) carries
-   `data-width-rungs`, written by `useWidthRungs` (`lib/width-rungs.ts`) from
-   the host's content-box width against `STATUS_ROW_WIDTH_RUNGS`
-   (`tug-status-cell.tsx`), which holds the thresholds below. They were
-   `@container session-status` queries, and WebKit answers those against the
-   width multiplied by the page zoom: at 90 % a slim strip's 657px read as
-   ~592 and TIME hid with room to spare. The attribute is measured in CSS px,
-   which a page zoom leaves alone, so the row is the same row at every zoom.
-   As the host narrows, whole
+/* Container-query collapse rules. The Z2 host (`.session-card-status-bar`)
+   declares `container-type: inline-size` + `container-name: session-status`
+   so these `@container` rules can target it. As the host narrows, whole
    cells (label apparatus + value together) hide in priority order — TIME
    first, then TASKS, with JOBS the last collapsible: a running job / live
    goal is live "something is happening" signal, while a checklist is a
@@ -665,14 +659,20 @@
    sat four pixels late and the row overflowed its content box by a pixel in
    the band between. */
 
-[data-width-rungs~="time"] .session-telemetry-status-cell[data-priority="time"] {
-  display: none;
+@container session-status (max-width: 653px) {
+  .session-telemetry-status-cell[data-priority="time"] {
+    display: none;
+  }
 }
 
-[data-width-rungs~="tasks"] .session-telemetry-status-cell[data-priority="tasks"] {
-  display: none;
+@container session-status (max-width: 527px) {
+  .session-telemetry-status-cell[data-priority="tasks"] {
+    display: none;
+  }
 }
 
-[data-width-rungs~="jobs"] .session-telemetry-status-cell[data-priority="jobs"] {
-  display: none;
+@container session-status (max-width: 411px) {
+  .session-telemetry-status-cell[data-priority="jobs"] {
+    display: none;
+  }
 }

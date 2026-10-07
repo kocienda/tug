@@ -1838,7 +1838,7 @@ body {
  * composer out of layout. So an `auto` box here can only ever raise a scrollbar
  * on a sub-pixel overhang — and a scrollbar is 12px of INLINE size, which the
  * card's own instruments then re-lay-out against. That is exactly what
- * happened: Z2's width rungs saw a box 12px narrower than the one
+ * happened: Z2's `@container` rungs saw a box 12px narrower than the one
  * nothing had resized and dropped the TIME cell for the length of the fold, so
  * folding and unfolding a card at the slim width shuffled its instruments.
  *

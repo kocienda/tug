@@ -26,6 +26,7 @@ import {
 } from "@/lib/fold-crossing";
 import {
   getTugTiming,
+  getTugZoom,
 } from "@/components/tugways/scale-timing";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
@@ -54,7 +55,6 @@ import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { UpdateTug } from "@/components/tugways/update-tug";
 import { UpdatePill } from "./update-pill";
-import { ZoomReadout } from "./zoom-readout";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
@@ -198,7 +198,6 @@ import {
 } from "./space-layer-loops";
 import { motionBreaker } from "@/lib/motion-guard/breaker";
 import { mark as perfMark } from "@/lib/perf-marks";
-import { pageZoomStore } from "@/lib/page-zoom-store";
 import "./space-layer.css";
 import "./rail-vacancy.css";
 import "./margin-cap.css";
@@ -592,7 +591,7 @@ interface PlaceSeamProps {
  * a card, and a boundary that slides is a fourth moving thing to track.
  *
  * The drag shares the rail width drag's grammar (`rail-width-draft.ts`) —
- * pointer capture, a move-threshold latch, pointer deltas in layout px, and the
+ * pointer capture, a move-threshold latch, zoom-corrected deltas, and the
  * record and the preview changing hands in one task at the release so no
  * frame reads a stale value — with **one deliberate divergence: no occlusion
  * bracket.** That bracket exists to keep a frame passing over another from
@@ -628,6 +627,7 @@ function PlaceSeam({
       const container = seam.parentElement;
       if (container === null) return;
 
+      const zoom = getTugZoom() || 1;
       // The division the gesture starts from, and the run it is stated against
       // — the allocator's own, never a re-measure of the container. A seam
       // measuring its own run would be a second opinion about a number the
@@ -883,7 +883,7 @@ function PlaceSeam({
       // the whole of it, and a collapsed range holds the current height rather
       // than snapping anywhere.
       const computeHeight = (): number => {
-        const next = startHeight + latestY - startClientY;
+        const next = startHeight + (latestY - startClientY) / zoom;
         return Math.min(upper, Math.max(lower, next));
       };
 
@@ -3286,17 +3286,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let seenInitial = false;
-    // A page zoom resizes the canvas in CSS px, so a zoom re-tunes too. The
-    // re-tune lands RESIZE_RETUNE_QUIET_MS after the zoom's relayout, and it
-    // can move rails; held here, the zoom's "after" notice waits for it, so
-    // whatever covers the zoom covers the re-tune as well rather than
-    // lifting to show the rails move a beat later ([B04] of
-    // view-zoom-performance-and-feedback).
-    let releaseZoomHold: (() => void) | null = null;
-    const releaseHold = (): void => {
-      releaseZoomHold?.();
-      releaseZoomHold = null;
-    };
     const observer = new ResizeObserver(() => {
       if (!seenInitial) {
         seenInitial = true;
@@ -3305,16 +3294,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (retuneTimerRef.current !== null) {
         window.clearTimeout(retuneTimerRef.current);
       }
-      // Taken only while a zoom is in flight: a hold taken while settled is a
-      // no-op, and keeping that no-op would refuse the real hold to a zoom
-      // that lands inside a plain resize's quiet window.
-      if (releaseZoomHold === null && pageZoomStore.isZooming()) {
-        releaseZoomHold = pageZoomStore.hold();
-      }
       retuneTimerRef.current = window.setTimeout(() => {
         retuneTimerRef.current = null;
         store.retuneSidebarAllocation();
-        releaseHold();
       }, RESIZE_RETUNE_QUIET_MS);
     });
     observer.observe(el);
@@ -3324,7 +3306,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         window.clearTimeout(retuneTimerRef.current);
         retuneTimerRef.current = null;
       }
-      releaseHold();
     };
   }, [store]);
 
@@ -3540,12 +3521,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const canvasRectOf = (rect: DOMRect): Rect | null => {
       const canvas = containerRef.current;
       if (canvas === null) return null;
+      const zoom = getTugZoom() || 1;
       const box = canvas.getBoundingClientRect();
       return {
-        x: rect.left - box.left,
-        y: rect.top - box.top,
-        width: rect.width,
-        height: rect.height,
+        x: (rect.left - box.left) / zoom,
+        y: (rect.top - box.top) / zoom,
+        width: rect.width / zoom,
+        height: rect.height / zoom,
       };
     };
     /**
@@ -3557,9 +3539,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const canvasFractionOf = (rect: Rect | null): GaugeRect | null => {
       const canvas = containerRef.current;
       if (canvas === null || rect === null) return null;
+      const zoom = getTugZoom() || 1;
       const box = canvas.getBoundingClientRect();
-      const width = box.width;
-      const height = box.height;
+      const width = box.width / zoom;
+      const height = box.height / zoom;
       if (width <= 0 || height <= 0) return null;
       return {
         x: rect.x / width,
@@ -3584,12 +3567,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     ): DropZoneSet => {
       const canvas = containerRef.current;
       if (canvas === null) return { zones: [], origin: null };
+      const zoom = getTugZoom() || 1;
       const canvasRect = canvas.getBoundingClientRect();
       const toCanvas = (rect: DOMRect): Rect => ({
-        x: rect.left - canvasRect.left,
-        y: rect.top - canvasRect.top,
-        width: rect.width,
-        height: rect.height,
+        x: (rect.left - canvasRect.left) / zoom,
+        y: (rect.top - canvasRect.top) / zoom,
+        width: rect.width / zoom,
+        height: rect.height / zoom,
       });
       const state = store.getSnapshot();
       const panes = new Map<string, Rect>();
@@ -3897,10 +3881,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               `.tug-pane[data-pane-id="${seated.paneId}"]`,
             );
             if (first === null) continue;
+            const zoom = getTugZoom() || 1;
             const canvasRect = canvas.getBoundingClientRect();
             const rect = first.getBoundingClientRect();
-            const left = rect.left - canvasRect.left;
-            const width = rect.width;
+            const left = (rect.left - canvasRect.left) / zoom;
+            const width = rect.width / zoom;
             if (pointer.x < left || pointer.x > left + width) continue;
             return {
               kind: "rail",
@@ -3936,10 +3921,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               `.tug-pane[data-pane-id="${seated}"]`,
             );
             if (first === null) continue;
+            const zoom = getTugZoom() || 1;
             const canvasRect = canvas.getBoundingClientRect();
             const rect = first.getBoundingClientRect();
-            const left = rect.left - canvasRect.left;
-            const width = rect.width;
+            const left = (rect.left - canvasRect.left) / zoom;
+            const width = rect.width / zoom;
             if (pointer.x < left || pointer.x > left + width) continue;
             return {
               kind: "column",
@@ -5196,9 +5182,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         * centre of the window, with an x. Shows only while an update is live
         * and the wizard is closed; clicking it opens the wizard. */}
       <UpdatePill />
-      {/* The factor a View › Zoom step is going to, raised on the host's
-        * "before" notice and let go on its "after". See zoom-readout.tsx. */}
-      <ZoomReadout />
       </div>
     </ResponderScope>
   );

@@ -77,7 +77,7 @@ interface FlowStepTween {
   startedAt: number;
 }
 import { flashCardPane } from "@/lib/flash-pane-border";
-import { getTugTiming } from "@/components/tugways/scale-timing";
+import { getTugTiming, getTugZoom } from "@/components/tugways/scale-timing";
 import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
 import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
@@ -2183,12 +2183,13 @@ function releaseImposedFrame(
   frame: HTMLElement,
   canvas: DOMRect | null,
 ): { x: number; y: number; width: number; height: number } {
+  const zoom = getTugZoom() || 1;
   const rect = frame.getBoundingClientRect();
   const released = {
-    x: rect.left - (canvas ? canvas.left : 0),
-    y: rect.top - (canvas ? canvas.top : 0),
-    width: rect.width,
-    height: rect.height,
+    x: (rect.left - (canvas ? canvas.left : 0)) / zoom,
+    y: (rect.top - (canvas ? canvas.top : 0)) / zoom,
+    width: rect.width / zoom,
+    height: rect.height / zoom,
   };
   frame.style.right = "";
   frame.style.bottom = "";
@@ -3435,8 +3436,9 @@ function TugPaneImpl({
     const { el, from, cardId, releaseVelocity } = pending;
     el.style.transform = "";
     const to = el.getBoundingClientRect();
-    const dx = from.left - to.left;
-    const dy = from.top - to.top;
+    const zoom = getTugZoom() || 1;
+    const dx = (from.left - to.left) / zoom;
+    const dy = (from.top - to.top) / zoom;
     if (dx === 0 && dy === 0) {
       el.removeAttribute("data-gesture");
       el.removeAttribute("data-pointer-owned");
@@ -3628,9 +3630,12 @@ function TugPaneImpl({
 
       // Snapshot other card rects at drag-start for snap computation. [D04]
       // Convert to canvas-relative coordinates by subtracting canvas bounds offset.
-      const dragGuideEdgeOffsets = measureGuideEdgeOffsets(frame);
+      // All snap geometry runs in layout space; `body { zoom }` requires dividing
+      // the visual measurements by the zoom factor. Read once per gesture.
+      const dragZoom = getTugZoom() || 1;
+      const dragGuideEdgeOffsets = measureGuideEdgeOffsets(frame, dragZoom);
       const canvasBounds = dragCanvasBounds.current;
-      dragOtherRects.current = snapshotCardRects(canvasBounds, id);
+      dragOtherRects.current = snapshotCardRects(canvasBounds, id, dragZoom);
 
       // Initialize drag state.
       latestAltKey.current = false;
@@ -3641,8 +3646,8 @@ function TugPaneImpl({
       function pointerOnCanvas(client: { x: number; y: number }) {
         const canvas = dragCanvasBounds.current;
         return {
-          x: client.x - (canvas?.left ?? 0),
-          y: client.y - (canvas?.top ?? 0),
+          x: (client.x - (canvas?.left ?? 0)) / dragZoom,
+          y: (client.y - (canvas?.top ?? 0)) / dragZoom,
         };
       }
 
@@ -3666,10 +3671,10 @@ function TugPaneImpl({
         for (const entry of dragTabBarCache.current) {
           const canvas = dragCanvasBounds.current;
           tabBars.set(entry.paneId, {
-            x: entry.rect.left - (canvas?.left ?? 0),
-            y: entry.rect.top - (canvas?.top ?? 0),
-            width: entry.rect.width,
-            height: entry.rect.height,
+            x: (entry.rect.left - (canvas?.left ?? 0)) / dragZoom,
+            y: (entry.rect.top - (canvas?.top ?? 0)) / dragZoom,
+            width: entry.rect.width / dragZoom,
+            height: entry.rect.height / dragZoom,
           });
         }
         zoneTabBarsRef.current = tabBars;
@@ -3679,10 +3684,10 @@ function TugPaneImpl({
         const canvas = dragCanvasBounds.current;
         const seated = frame.getBoundingClientRect();
         const startRect: Rect = {
-          x: seated.left - (canvas?.left ?? 0),
-          y: seated.top - (canvas?.top ?? 0),
-          width: seated.width,
-          height: seated.height,
+          x: (seated.left - (canvas?.left ?? 0)) / dragZoom,
+          y: (seated.top - (canvas?.top ?? 0)) / dragZoom,
+          width: seated.width / dragZoom,
+          height: seated.height / dragZoom,
         };
         const set = host.enumerate(id, tabBars, startRect);
         if (set.zones.length === 0) return null;
@@ -3916,8 +3921,8 @@ function TugPaneImpl({
           !latestMetaKey.current && advanceAutoscroll(pointerOnCanvas(pointer));
         const slide = autoscrollCompensation();
         frame.style.transform = `translate(${
-          pointer.x - start.x + slide.dx
-        }px, ${pointer.y - start.y + slide.dy}px)`;
+          (pointer.x - start.x) / dragZoom + slide.dx
+        }px, ${(pointer.y - start.y) / dragZoom + slide.dy}px)`;
         // Where the frame now stands, published once per frame to whoever is
         // drawing the deck elsewhere ([P08]). After the transform write and
         // before the zone work, so an instrument's ghost and the canvas's own
@@ -4028,6 +4033,7 @@ function TugPaneImpl({
           dragStartPosition.current,
           dragCanvasBounds.current,
           { width: frame.offsetWidth, height: frame.offsetHeight },
+          dragZoom,
         );
 
         if (latestAltKey.current) {
@@ -4431,6 +4437,7 @@ function TugPaneImpl({
           dragStartPosition.current,
           dragCanvasBounds.current,
           { width: frame.offsetWidth, height: frame.offsetHeight },
+          dragZoom,
         );
 
         // Apply snapped position if snap was active at drop.
@@ -4636,7 +4643,9 @@ function TugPaneImpl({
       const startY = event.clientY;
 
       // Snapshot canvas bounds and other card rects for resize snapping. [D04]
-      const resizeGuideEdgeOffsets = measureGuideEdgeOffsets(frame);
+      // Snap geometry runs in layout space; divide visual measurements by zoom.
+      const resizeZoom = getTugZoom() || 1;
+      const resizeGuideEdgeOffsets = measureGuideEdgeOffsets(frame, resizeZoom);
       const resizeCanvasBounds =
         paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
 
@@ -4653,7 +4662,7 @@ function TugPaneImpl({
       let startTop = position.y;
       let startW = size.width;
       let startH = size.height;
-      const resizeOtherCardRects = snapshotCardRects(resizeCanvasBounds, id);
+      const resizeOtherCardRects = snapshotCardRects(resizeCanvasBounds, id, resizeZoom);
       const resizeOtherRects = resizeOtherCardRects.map((r) => r.rect);
 
       const latestResizePointer = { x: startX, y: startY };
@@ -4711,6 +4720,7 @@ function TugPaneImpl({
           minSizeRef.current,
           resizeCanvasBounds,
           maxSizeRef.current,
+          resizeZoom,
         );
 
         // Apply snap-to-edge if modifier is held. [D01]
@@ -4768,7 +4778,7 @@ function TugPaneImpl({
         const drag = keepSlotDrag!;
         return fitWidthForEdge(
           drag.side,
-          drag.startEdgeX + pointer.x - startX,
+          drag.startEdgeX + (pointer.x - startX) / resizeZoom,
           drag.fraction,
           drag.bandStart,
           drag.bandWidth,
@@ -4790,7 +4800,7 @@ function TugPaneImpl({
           drag.runHeight,
           Math.max(
             minSizeRef.current.height,
-            drag.startHeight + pointer.y - startY,
+            drag.startHeight + (pointer.y - startY) / resizeZoom,
           ),
         );
       }
@@ -4807,7 +4817,7 @@ function TugPaneImpl({
           maxSizeRef.current?.width ?? Infinity,
           Math.max(
             minSizeRef.current.width,
-            drag.startWidth + pointer.x - startX,
+            drag.startWidth + (pointer.x - startX) / resizeZoom,
           ),
         );
       }
@@ -5759,15 +5769,17 @@ function clampedPosition(
   startPosition: { x: number; y: number },
   canvasBounds: DOMRect | null,
   frameSize: { width: number; height: number },
+  zoom = 1,
 ): { x: number; y: number } {
-  // Position, size, pointer and canvas extents are all CSS px, so the card
-  // tracks the cursor 1:1 at any page zoom.
-  let x = startPosition.x + pointer.x - startPointer.x;
-  let y = startPosition.y + pointer.y - startPointer.y;
+  // startPosition/frameSize are layout pixels; pointer is visual (client) pixels.
+  // Convert the pointer delta to layout space so the card tracks the cursor 1:1
+  // at any zoom, and clamp against layout-space canvas extents.
+  let x = startPosition.x + (pointer.x - startPointer.x) / zoom;
+  let y = startPosition.y + (pointer.y - startPointer.y) / zoom;
 
   if (canvasBounds) {
-    const canvasWidth = canvasBounds.width;
-    const canvasHeight = canvasBounds.height;
+    const canvasWidth = canvasBounds.width / zoom;
+    const canvasHeight = canvasBounds.height / zoom;
     // Left/right: card can hang off either side, but TITLE_BAR_VISIBLE_MIN_X must stay visible.
     const minX = Math.min(startPosition.x, -(frameSize.width - TITLE_BAR_VISIBLE_MIN_X));
     const maxX = Math.max(startPosition.x, canvasWidth - TITLE_BAR_VISIBLE_MIN_X);
@@ -5801,11 +5813,12 @@ function resizeDelta(
   minSize: { width: number; height: number },
   canvasBounds?: DOMRect | null,
   maxSize?: { width: number; height: number },
+  zoom = 1,
 ): { left: number; top: number; width: number; height: number } {
-  // Start values, sizes and the pointer are all CSS px, so the edge tracks the
-  // cursor 1:1 at any page zoom.
-  const dx = pointer.x - startPointer.x;
-  const dy = pointer.y - startPointer.y;
+  // start*/sizes are layout pixels; pointer is visual (client) pixels. Convert
+  // the pointer delta to layout so the edge tracks the cursor 1:1 at any zoom.
+  const dx = (pointer.x - startPointer.x) / zoom;
+  const dy = (pointer.y - startPointer.y) / zoom;
 
   let left = startLeft;
   let top = startTop;
@@ -5835,8 +5848,8 @@ function resizeDelta(
 
   // Hard-clamp to canvas bounds so the card cannot be resized past any canvas edge.
   if (canvasBounds) {
-    const maxRight = canvasBounds.width - CANVAS_PADDING;
-    const maxBottom = canvasBounds.height - CANVAS_PADDING;
+    const maxRight = canvasBounds.width / zoom - CANVAS_PADDING;
+    const maxBottom = canvasBounds.height / zoom - CANVAS_PADDING;
 
     // Clamp right edge: prevent card from extending past canvas right.
     if (left + width > maxRight) {

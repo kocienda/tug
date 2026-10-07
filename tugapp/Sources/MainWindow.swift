@@ -850,61 +850,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// Set page zoom to an exact value, clamped to [minPageZoom, maxPageZoom],
     /// and persist to UserDefaults so the choice survives across launches.
     func setPageZoom(_ zoom: CGFloat) {
-        let clamped = applyPageZoom(zoom)
-        UserDefaults.standard.set(Double(clamped), forKey: MainWindow.pageZoomDefaultsKey)
-    }
-
-    /// Set page zoom, clamped, and tell the deck before and after
-    /// ([B04] of view-zoom-performance-and-feedback). Returns the factor the
-    /// view took. Persists nothing — the View menu's `setPageZoom` does, and
-    /// the app-test harness calls this directly so its zoom stays per-launch.
-    ///
-    /// The "before" notice carries the target factor and is sent with
-    /// `evaluateJavaScript` ahead of the `pageZoom` write: both ride the
-    /// same in-order IPC to the WebContent process, so the deck's handler
-    /// runs before the relayout the zoom causes. A tugcast control frame
-    /// would not — it crosses another process and lands after the zoom it
-    /// announces. WebKit gives no completion for a zoom, so the "after"
-    /// notice is a JS round trip: the deck resolves it once a frame at the
-    /// new factor has been delivered and anything it re-tunes in response
-    /// has landed.
-    @discardableResult
-    func applyPageZoom(_ zoom: CGFloat) -> CGFloat {
         let clamped = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, zoom))
-        let from = webView.pageZoom
-        if abs(clamped - from) < 0.0001 { return from }
-        webView.evaluateJavaScript(
-            "window.__tugBridge?.onPageZoomWillChange?.({factor: \(Double(clamped)), from: \(Double(from))})"
-        ) { _, error in
-            if let error = error {
-                NSLog("MainWindow: onPageZoomWillChange failed: %@", error.localizedDescription)
-            }
-        }
         webView.pageZoom = clamped
-        webView.callAsyncJavaScript(
-            "return await window.__tugBridge?.onPageZoomDidApply?.(factor);",
-            arguments: ["factor": Double(clamped)],
-            in: nil,
-            in: .page
-        ) { result in
-            if case .failure(let error) = result {
-                NSLog("MainWindow: onPageZoomDidApply failed: %@", error.localizedDescription)
-            }
-        }
-        return clamped
-    }
-
-    /// Tell the deck the standing factor, with no transition — sent on every
-    /// `frontendReady`, so a deck that loads or reloads at a persisted zoom
-    /// knows it without waiting for the next zoom step.
-    func bridgePageZoom() {
-        webView.evaluateJavaScript(
-            "window.__tugBridge?.onPageZoom?.({factor: \(Double(webView.pageZoom))})"
-        ) { _, error in
-            if let error = error {
-                NSLog("MainWindow: onPageZoom failed: %@", error.localizedDescription)
-            }
-        }
+        UserDefaults.standard.set(Double(clamped), forKey: MainWindow.pageZoomDefaultsKey)
     }
 
     /// Reset to 100%.

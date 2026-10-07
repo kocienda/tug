@@ -1,8 +1,9 @@
 /**
  * scale-timing.ts -- JS helpers for the global scale/timing/motion multipliers.
  *
- * Provides runtime access to the two global CSS custom properties defined on
+ * Provides runtime access to the three global CSS custom properties defined on
  * :root in tug.css:
+ *   --tug-zoom   continuous dimension multiplier (default 1)
  *   --tug-timing  continuous animation-duration multiplier (default 1)
  *   --tug-motion  binary motion toggle: 1 = on, 0 = off (default 1)
  *
@@ -11,6 +12,13 @@
  * once during app boot (before DeckManager construction) so the attribute is
  * set from first paint.
  */
+
+/** Read the current --tug-zoom value from :root computed style. Returns 1 if unset or unparseable. */
+export function getTugZoom(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--tug-zoom").trim();
+  const value = parseFloat(raw);
+  return isNaN(value) ? 1 : value;
+}
 
 /** Read the current --tug-timing value from :root computed style. Returns 1 if unset or unparseable. */
 export function getTugTiming(): number {

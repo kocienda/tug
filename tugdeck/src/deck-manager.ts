@@ -217,6 +217,7 @@ import {
 } from "./lib/opening-placement";
 import {
   getTugTiming,
+  getTugZoom,
   isTugMotionEnabled,
 } from "./components/tugways/scale-timing";
 import { DeckManagerContext } from "./deck-manager-context";
@@ -6238,7 +6239,7 @@ export class DeckManager implements IDeckManagerStore {
    * when the frame is not in the DOM. An imposed pane's `position`/`size` hold
    * last-known values while its real rect is derived by CSS, so any code that
    * needs the truth has to measure the frame. Layout space, not visual: the
-   * measurements are canvas-relative the same way `snapshotCardRects`
+   * measurements are divided by `body { zoom }` the same way `snapshotCardRects`
    * does, so the result is directly comparable with stored geometry.
    */
   private _readPaneFrameRect(
@@ -6251,12 +6252,13 @@ export class DeckManager implements IDeckManagerStore {
     );
     if (!frame) return null;
     const canvas = paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
+    const zoom = getTugZoom() || 1;
     const rect = frame.getBoundingClientRect();
     return {
-      x: rect.left - (canvas ? canvas.left : 0),
-      y: rect.top - (canvas ? canvas.top : 0),
-      width: rect.width,
-      height: rect.height,
+      x: (rect.left - (canvas ? canvas.left : 0)) / zoom,
+      y: (rect.top - (canvas ? canvas.top : 0)) / zoom,
+      width: rect.width / zoom,
+      height: rect.height / zoom,
     };
   }
 
