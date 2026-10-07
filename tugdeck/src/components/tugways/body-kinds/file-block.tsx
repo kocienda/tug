@@ -121,6 +121,7 @@ import {
 import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome";
 import { useOuterScrollport } from "@/components/tugways/internal/outer-scrollport-context";
 import { basename } from "@/lib/display-path";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 import { attachOuterScrollOnModifierWheel } from "@/components/tugways/internal/use-outer-scroll-on-modifier-wheel";
 import { useSavedRegionScroll } from "@/components/tugways/use-component-state-preservation";
 import { dispatchCommand } from "@/command-dispatch";
@@ -613,12 +614,16 @@ export const FileBlock: React.FC<FileBlockProps> = ({
       // cm-content-relative offset whether or not the line is currently
       // rendered. Combined with the live `contentDOM` rect, that gives
       // a viewport-relative band for the target line.
+      //
+      // In layout px, under a zoom: the sticky insets below are CSS px and
+      // the write is `scrollTop`. The height map is viewport px, so its
+      // offsets are divided by CM6's own `scaleY`.
       const block = view.lineBlockAt(range.head);
-      const contentRect = view.contentDOM.getBoundingClientRect();
-      const matchTop = contentRect.top + block.top;
-      const matchBottom = contentRect.top + block.bottom;
+      const contentRect = layoutRectOf(view.contentDOM);
+      const matchTop = contentRect.top + block.top / view.scaleY;
+      const matchBottom = contentRect.top + block.bottom / view.scaleY;
 
-      const outerRect = scrollport.getBoundingClientRect();
+      const outerRect = layoutRectOf(scrollport);
 
       // Stacked sticky chrome above the file body. Variables are
       // read from the file root because that's where the outer pin
@@ -635,7 +640,7 @@ export const FileBlock: React.FC<FileBlockProps> = ({
 
       const headerEl = root.querySelector<HTMLElement>(".tugx-file-header");
       if (headerEl !== null && headerEl.offsetParent !== null) {
-        stickyTop += headerEl.getBoundingClientRect().height;
+        stickyTop += layoutRectOf(headerEl).height;
       }
 
       const yMargin = 8;
@@ -746,7 +751,8 @@ export const FileBlock: React.FC<FileBlockProps> = ({
       ) {
         const linePos = view.state.doc.line(savedLine.number).from;
         const block = view.lineBlockAt(linePos);
-        scrollDOM.scrollTop = Math.max(0, block.top + savedLine.offsetPx);
+        // `offsetPx` is layout px; the block's top is the height map's.
+        scrollDOM.scrollTop = Math.max(0, block.top / view.scaleY + savedLine.offsetPx);
       } else {
         // Pixel fallback (legacy bags, or no line meta).
         const y = savedFileScrollYRef.current;

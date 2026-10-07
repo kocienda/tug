@@ -514,9 +514,8 @@
   /* Per-card transcript zoom. CSS `zoom` is a layout scale (reflows,
      stays crisp) applied to this root, which wholly contains the
      TugListView scrollport — so every measurement the list makes lives
-     in one uniformly-scaled space, exactly as the Swift host's
-     `WKWebView.pageZoom` does for the whole document. Only the
-     transcript subtree scales; the Z2/Z4 chrome (siblings) stays at 1×.
+     in one uniformly-scaled space. Only the transcript subtree scales;
+     the Z2/Z4 chrome (siblings) stays at 1×.
      `TranscriptSettingsStore` overrides `--transcript-zoom` per card
      (default mirrors `DEFAULT_TRANSCRIPT_SETTINGS` in
      `lib/transcript-settings-store.ts`). [L06 / L24] */
@@ -526,8 +525,8 @@
   /* Transcript root font-size. Em-relative descendants (markdown
      body, paragraph margins, heading rhythm, icon overrides below)
      anchor to this nominal 14px; the per-card `zoom` above scales the
-     whole subtree on top of that. The Swift host's `WKWebView.pageZoom`
-     (View > Zoom In / Zoom Out) still scales the entire page uniformly. */
+     whole subtree on top of that. View › Zoom In / Out, a transform on
+     the deck root, still scales the entire page uniformly. */
   font-size: 14px;
 }
 

@@ -39,7 +39,7 @@
   flex-direction: column;
   gap: var(--tugx-alert-space-b);
   min-height: 0;
-  max-height: 70vh;
+  max-height: calc(0.7 * var(--tug-viewport-height, 100vh));
 }
 
 .text-card-compare-sheet > :first-child {

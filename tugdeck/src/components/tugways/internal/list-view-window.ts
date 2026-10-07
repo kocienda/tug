@@ -316,3 +316,103 @@ export function offsetForIndex(
   }
   return offset;
 }
+
+/**
+ * What a settled change in a list's scroller width means for the
+ * measured-height ledger.
+ *
+ * - `unchanged` — the width moved less than half a pixel: nothing to do.
+ * - `reflowed` — the content box changed at a fixed View › Zoom factor:
+ *   a pane drag, a card resize. Text re-wraps, every measured height is
+ *   suspect, and the ledger is wiped so the next commit re-measures it.
+ * - `rescaled` — the width moved together with the zoom factor. The deck
+ *   root is scaled by a transform and sized to the window ÷ the factor,
+ *   so a card sized from the viewport changes its layout width by the
+ *   factor's ratio (less its fixed chrome), and a card of fixed size moves
+ *   only by rounding. Measured heights stay as they are: wiping them
+ *   suspends eviction and mounts every row of every transcript on the
+ *   deck in one commit, which is the multi-second freeze a zoom step used
+ *   to cost. Mounted rows re-measure through their own observer
+ *   deliveries, and an offscreen row's height is refreshed when it next
+ *   mounts, with the browser's scroll anchoring holding the reader's place
+ *   if it moved.
+ *
+ * The factor, not the width, is what tells the two apart, because a zoom
+ * on a layout whose cards are sized from the viewport changes the width
+ * by as much as a resize does. Not `devicePixelRatio`: under a transform
+ * it is the display's backing scale alone and never moves on a zoom step.
+ */
+export type WidthSettleKind = "unchanged" | "reflowed" | "rescaled";
+
+export interface WidthSample {
+  /** The scroller's `clientWidth`, layout px. */
+  width: number;
+  /** The View › Zoom factor (`pageZoomStore.getFactor()`) when the width was read. */
+  zoomFactor: number;
+}
+
+export function classifyWidthSettle(
+  prev: WidthSample,
+  next: WidthSample,
+): WidthSettleKind {
+  if (Math.abs(next.width - prev.width) < 0.5) return "unchanged";
+  if (Math.abs(next.zoomFactor - prev.zoomFactor) > 1e-6) return "rescaled";
+  return "reflowed";
+}
+
+/** The ledger questions eviction asks; `HeightIndex` answers both. */
+export interface EvictionLedger {
+  has(index: number): boolean;
+  coversRange(first: number, last: number): boolean;
+}
+
+/**
+ * How an eviction-mode commit renders, given the candidate window and
+ * what the measured-height ledger holds.
+ *
+ * - `evict` — every row outside the candidate is measured: render the
+ *   candidate and stand spacers in for the rest.
+ * - `widened` — some rows outside are unmeasured, but not all of them:
+ *   widen the window just far enough to mount every unmeasured row, so
+ *   the spacers still cover measured rows only.
+ * - `suspended` — widening reaches both ends (a cold or wiped ledger):
+ *   render every row. This is the whole-transcript mount the eviction
+ *   mode counts as a suspension.
+ */
+export type EvictWindowResolution =
+  | { kind: "evict"; firstIndex: number; lastIndex: number }
+  | { kind: "widened"; firstIndex: number; lastIndex: number }
+  | { kind: "suspended" };
+
+export function resolveEvictWindow(
+  candidate: { firstIndex: number; lastIndex: number },
+  ledger: EvictionLedger,
+  itemCount: number,
+): EvictWindowResolution {
+  if (
+    ledger.coversRange(0, candidate.firstIndex) &&
+    ledger.coversRange(candidate.lastIndex, itemCount)
+  ) {
+    return {
+      kind: "evict",
+      firstIndex: candidate.firstIndex,
+      lastIndex: candidate.lastIndex,
+    };
+  }
+  let firstIndex = candidate.firstIndex;
+  for (let i = 0; i < firstIndex; i += 1) {
+    if (!ledger.has(i)) {
+      firstIndex = i;
+      break;
+    }
+  }
+  let lastIndex = candidate.lastIndex;
+  for (let i = itemCount - 1; i >= lastIndex; i -= 1) {
+    if (!ledger.has(i)) {
+      lastIndex = i + 1;
+      break;
+    }
+  }
+  if (firstIndex === 0 && lastIndex === itemCount) return { kind: "suspended" };
+  return { kind: "widened", firstIndex, lastIndex };
+}

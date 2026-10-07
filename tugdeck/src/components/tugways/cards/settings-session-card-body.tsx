@@ -6,8 +6,8 @@
  * "Sessions" tab. Three stacked sections:
  *
  *   1. **Transcript** — Magnification (CSS `zoom` on the transcript
- *      root, per card). The macOS app's View menu (`WKWebView.pageZoom`)
- *      scales the whole window and composes with the per-card
+ *      root, per card). The macOS app's View › Zoom (a transform on the
+ *      deck root) scales the whole window and composes with the per-card
  *      magnification.
  *   2. **Prompt Editor** — typography, view toggles, tab policy, and
  *      submit-key policy for the prompt editor.
@@ -220,8 +220,8 @@ export function SettingsSessionCardBody() {
               width (see the grid in settings-session-card-body.css).
               Magnification scales the whole transcript subtree (CSS `zoom`
               on `.session-card-transcript`) per card; the macOS app's View
-              menu (`WKWebView.pageZoom`) still scales the entire window and
-              composes with this. */}
+              › Zoom (a transform on the deck root) still scales the entire
+              window and composes with this. */}
           <div className="settings-session-card-slider-grid">
             <span className="settings-session-card-slider-label">Magnification</span>
             <TugSlider

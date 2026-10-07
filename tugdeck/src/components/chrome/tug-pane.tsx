@@ -77,7 +77,8 @@ interface FlowStepTween {
   startedAt: number;
 }
 import { flashCardPane } from "@/lib/flash-pane-border";
-import { getTugTiming, getTugZoom } from "@/components/tugways/scale-timing";
+import { getTugTiming } from "@/components/tugways/scale-timing";
+import { layoutPxOf, pageZoomFactor } from "@/lib/page-zoom-store";
 import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
 import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
@@ -2183,7 +2184,7 @@ function releaseImposedFrame(
   frame: HTMLElement,
   canvas: DOMRect | null,
 ): { x: number; y: number; width: number; height: number } {
-  const zoom = getTugZoom() || 1;
+  const zoom = pageZoomFactor();
   const rect = frame.getBoundingClientRect();
   const released = {
     x: (rect.left - (canvas ? canvas.left : 0)) / zoom,
@@ -3258,7 +3259,8 @@ function TugPaneImpl({
     // Held by the motion gate: a frame whose width tweens resizes the
     // accessory at every frame, and only its height is wanted.
     const ro = heldResizeObserver(() => {
-      setAccessoryHeight(el.getBoundingClientRect().height);
+      // A rect is viewport px; the height feeds a layout min-height.
+      setAccessoryHeight(layoutPxOf(el.getBoundingClientRect().height));
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -3436,7 +3438,7 @@ function TugPaneImpl({
     const { el, from, cardId, releaseVelocity } = pending;
     el.style.transform = "";
     const to = el.getBoundingClientRect();
-    const zoom = getTugZoom() || 1;
+    const zoom = pageZoomFactor();
     const dx = (from.left - to.left) / zoom;
     const dy = (from.top - to.top) / zoom;
     if (dx === 0 && dy === 0) {
@@ -3630,9 +3632,10 @@ function TugPaneImpl({
 
       // Snapshot other card rects at drag-start for snap computation. [D04]
       // Convert to canvas-relative coordinates by subtracting canvas bounds offset.
-      // All snap geometry runs in layout space; `body { zoom }` requires dividing
-      // the visual measurements by the zoom factor. Read once per gesture.
-      const dragZoom = getTugZoom() || 1;
+      // All snap geometry runs in layout space; the deck root's View › Zoom
+      // transform requires dividing the rect measurements by the zoom factor.
+      // Read once per gesture.
+      const dragZoom = pageZoomFactor();
       const dragGuideEdgeOffsets = measureGuideEdgeOffsets(frame, dragZoom);
       const canvasBounds = dragCanvasBounds.current;
       dragOtherRects.current = snapshotCardRects(canvasBounds, id, dragZoom);
@@ -3890,9 +3893,10 @@ function TugPaneImpl({
         if (previous === null) return { x: 0, y: 0 };
         const dt = e.timeStamp - previous.at;
         if (dt <= 0 || dt > RELEASE_VELOCITY_WINDOW_MS) return { x: 0, y: 0 };
+        // Client px/s, projected onto a travel stated in layout px.
         return {
-          x: ((e.clientX - previous.x) / dt) * 1000,
-          y: ((e.clientY - previous.y) / dt) * 1000,
+          x: ((e.clientX - previous.x) / dt / dragZoom) * 1000,
+          y: ((e.clientY - previous.y) / dt / dragZoom) * 1000,
         };
       }
 
@@ -4644,7 +4648,7 @@ function TugPaneImpl({
 
       // Snapshot canvas bounds and other card rects for resize snapping. [D04]
       // Snap geometry runs in layout space; divide visual measurements by zoom.
-      const resizeZoom = getTugZoom() || 1;
+      const resizeZoom = pageZoomFactor();
       const resizeGuideEdgeOffsets = measureGuideEdgeOffsets(frame, resizeZoom);
       const resizeCanvasBounds =
         paneCanvasOf(frame)?.getBoundingClientRect() ?? null;

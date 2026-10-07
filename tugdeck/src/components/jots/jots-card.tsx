@@ -56,6 +56,7 @@ import React, {
   useState,
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 import { Copy, Plus, X } from "lucide-react";
 import type { Extension } from "@codemirror/state";
 
@@ -521,9 +522,11 @@ function useJotAnnotationLinks(jot: Jot): Extension {
 function revealOpeningJot(cell: HTMLElement): void {
   const scroller = cell.closest<HTMLElement>(".jots-card");
   if (scroller === null) return;
-  const portTop = scroller.getBoundingClientRect().top + scroller.clientTop;
+  // Layout px, so the rects meet `clientHeight` and `scrollTop` in one space
+  // under a zoom.
+  const portTop = layoutRectOf(scroller).top + scroller.clientTop;
   const portHeight = scroller.clientHeight;
-  const rect = cell.getBoundingClientRect();
+  const rect = layoutRectOf(cell);
   const delta =
     rect.height >= portHeight || rect.top < portTop
       ? rect.top - portTop
@@ -597,7 +600,7 @@ function JotEditorRow({
       // A close that arrived while the well was held shut owns the well now.
       if (closingRef.current) return;
       el.style.height = "";
-      const target = el.getBoundingClientRect().height;
+      const target = layoutRectOf(el).height;
       el.style.height = "0px";
       if (target <= 0) {
         restore();
@@ -613,7 +616,7 @@ function JotEditorRow({
       const header = cell?.querySelector<HTMLElement>(".jot-editor-header") ?? null;
       const room =
         scroller !== null && header !== null
-          ? scroller.clientHeight - header.getBoundingClientRect().height
+          ? scroller.clientHeight - layoutRectOf(header).height
           : target;
       const slideTo = room > 0 ? Math.min(target, room) : target;
       follow = new ResizeObserver(() => {
@@ -688,7 +691,7 @@ function JotEditorRow({
       commit();
       return;
     }
-    const from = el.getBoundingClientRect().height;
+    const from = layoutRectOf(el).height;
     el.style.overflow = "hidden";
     animate(
       el,

@@ -13,6 +13,7 @@
  */
 
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
+import { layoutPxOf } from "@/lib/page-zoom-store";
 
 /**
  * Overview's natural, as a fraction of the run it stands in ([B10]).
@@ -125,8 +126,11 @@ export function railNaturalOf(componentId: string, run: number): number | null {
   if (pane === null) return null;
   const content = pane.querySelector("[data-card-content]");
   if (content === null) return null;
-  const paneHeight = pane.getBoundingClientRect().height;
-  const contentHeight = content.getBoundingClientRect().height;
+  // Rects are viewport px and the scroller's client height is layout px; the
+  // rects come back to layout px so the three meet in one space. Not
+  // `offsetHeight`: it rounds, and the fractions are what the fit compares.
+  const paneHeight = layoutPxOf(pane.getBoundingClientRect().height);
+  const contentHeight = layoutPxOf(content.getBoundingClientRect().height);
   if (!(paneHeight > 0) || !(contentHeight >= 0)) return null;
   const scroller = scrollerAbove(content, pane);
   const shown = scroller === null ? paneHeight : scroller.clientHeight;

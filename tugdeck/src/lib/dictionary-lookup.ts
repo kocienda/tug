@@ -38,6 +38,8 @@
  * @module lib/dictionary-lookup
  */
 
+import { viewportPxOf } from "@/lib/page-zoom-store";
+
 /**
  * The payload a Look Up in Dictionary menu item carries as its
  * `ActionEvent.value`, sampled at menu-open time.
@@ -45,13 +47,13 @@
 export interface DictionaryLookupRequest {
   /** The selected text to define. */
   text: string;
-  /** Viewport (CSS) x of the first character's baseline origin. */
+  /** Viewport x of the first character's baseline origin (a rect's space, View › Zoom applied). */
   x: number;
-  /** Viewport (CSS) y of that baseline. */
+  /** Viewport y of that baseline. */
   y: number;
   /** The selection's computed `font-family` list, for the host to resolve. */
   fontFamily: string;
-  /** The selection's computed font size, in CSS px. */
+  /** The selection's computed font size, in layout px; the host scales it by the zoom factor. */
   fontSize: number;
   /** True when the selection is bold enough to change the callout's metrics. */
   bold: boolean;
@@ -193,14 +195,19 @@ export function dictionaryLookupFor(
 
   // The baseline: an ascent below the glyph box's top, with whatever leading
   // the rect carries split evenly above and below the font's own em box.
+  // The rect is viewport px and the canvas measures the computed font in
+  // layout px, so the metrics are carried into the rect's space by the zoom
+  // factor before the two are mixed.
   let baseline = rect.top + rect.height * FALLBACK_ASCENT_RATIO;
   const ctx = measuringCtx();
   if (ctx !== null && style !== null) {
     ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${fontFamily}`;
     const metrics = ctx.measureText(defined);
-    const ascent = metrics.fontBoundingBoxAscent;
-    const descent = metrics.fontBoundingBoxDescent;
-    if (typeof ascent === "number" && typeof descent === "number") {
+    const rawAscent = metrics.fontBoundingBoxAscent;
+    const rawDescent = metrics.fontBoundingBoxDescent;
+    if (typeof rawAscent === "number" && typeof rawDescent === "number") {
+      const ascent = viewportPxOf(rawAscent);
+      const descent = viewportPxOf(rawDescent);
       baseline = rect.top + (rect.height - (ascent + descent)) / 2 + ascent;
     }
   }

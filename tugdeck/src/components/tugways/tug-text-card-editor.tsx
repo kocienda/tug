@@ -1454,16 +1454,22 @@ export const TugTextCardEditor = React.forwardRef<
         const start = view.coordsAtPos(sel.from, 1);
         const end = view.coordsAtPos(sel.to, -1);
         if (start === null || end === null) return null;
+        // Content space is layout px, the space `scroll*` and `client*`
+        // speak; the caret coords are viewport px under a zoom, so their
+        // deltas are divided by CM6's own scale.
+        const { scaleX, scaleY } = view;
         const rect = scroller.getBoundingClientRect();
-        const contentLeft = start.left - rect.left + scroller.scrollLeft;
-        const contentRight = end.right - rect.left + scroller.scrollLeft;
-        const contentTop = start.top - rect.top + scroller.scrollTop;
+        const contentLeft = (start.left - rect.left) / scaleX + scroller.scrollLeft;
+        const contentRight = (end.right - rect.left) / scaleX + scroller.scrollLeft;
+        const contentTop = (start.top - rect.top) / scaleY + scroller.scrollTop;
         return {
           scroller,
+          scaleX,
+          scaleY,
           contentLeft,
           contentTop,
           width: Math.max(contentRight - contentLeft, 8),
-          height: Math.max(start.bottom - start.top, 12),
+          height: Math.max((start.bottom - start.top) / scaleY, 12),
           snapZero:
             scroller.scrollLeft > 0 &&
             contentRight <= scroller.clientWidth - 8,
@@ -1477,10 +1483,14 @@ export const TugTextCardEditor = React.forwardRef<
         // measured content-space rect back through the live scroller box.
         const box = m.scroller.getBoundingClientRect();
         findFlashRef.current = placeFindFlash(m.scroller, {
-          left: m.contentLeft + box.left + m.scroller.clientLeft - m.scroller.scrollLeft,
-          top: m.contentTop + box.top + m.scroller.clientTop - m.scroller.scrollTop,
-          width: m.width,
-          height: m.height,
+          left:
+            box.left +
+            (m.contentLeft + m.scroller.clientLeft - m.scroller.scrollLeft) * m.scaleX,
+          top:
+            box.top +
+            (m.contentTop + m.scroller.clientTop - m.scroller.scrollTop) * m.scaleY,
+          width: m.width * m.scaleX,
+          height: m.height * m.scaleY,
         });
       },
     });
@@ -1504,7 +1514,7 @@ export const TugTextCardEditor = React.forwardRef<
       // The top of the scrollport, snapped to a line boundary: the first
       // line the reader can see is the first line a search should consider.
       findAnchorRef.current = live.lineBlockAtHeight(
-        live.scrollDOM.scrollTop,
+        live.scrollDOM.scrollTop * live.scaleY,
       ).from;
     },
     [],

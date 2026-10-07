@@ -161,6 +161,9 @@ class DotMarker implements LayerMarker {
     readonly left: number,
     readonly top: number,
     readonly box: number,
+    /** CodeMirror's `scaleX`/`scaleY`: the View › Zoom factor this host is drawn at. */
+    readonly scaleX: number,
+    readonly scaleY: number,
   ) {}
 
   eq(other: LayerMarker): boolean {
@@ -173,6 +176,8 @@ class DotMarker implements LayerMarker {
       && other.left === this.left
       && other.top === this.top
       && other.box === this.box
+      && other.scaleX === this.scaleX
+      && other.scaleY === this.scaleY
     );
   }
 
@@ -209,6 +214,12 @@ class DotMarker implements LayerMarker {
     el.style.top = `${this.top}px`;
     el.style.width = `${this.box}px`;
     el.style.height = `${this.box}px`;
+    // CodeMirror counter-scales its layers, so a host here draws at 100 %
+    // whatever the zoom. The host scales itself back up, from the corner
+    // its `left`/`top` name, so the dot inside is the zoomed dot.
+    const scaled = this.scaleX !== 1 || this.scaleY !== 1;
+    el.style.transform = scaled ? `scale(${this.scaleX}, ${this.scaleY})` : "";
+    el.style.transformOrigin = scaled ? "0 0" : "";
     if (el.getAttribute(HOST_SESSION_ATTR) !== this.sessionId) {
       el.setAttribute(HOST_SESSION_ATTR, this.sessionId);
     }
@@ -244,8 +255,13 @@ function dotMarkers(view: EditorView): readonly LayerMarker[] {
   // The layer is an absolutely-positioned child of the scroller, so its origin
   // is the scroller's CONTENT origin — where the scroller's box is now, less
   // how far it has scrolled away from it.
-  const originX = scroller.left - view.scrollDOM.scrollLeft;
-  const originY = scroller.top - view.scrollDOM.scrollTop;
+  //
+  // Under View › Zoom the layer is viewport px (CodeMirror counter-scales it)
+  // while `scroll*`, the well and the box are CSS px, so those are multiplied
+  // up by CodeMirror's own scale to meet the rects.
+  const { scaleX, scaleY } = view;
+  const originX = scroller.left - view.scrollDOM.scrollLeft * scaleX;
+  const originY = scroller.top - view.scrollDOM.scrollTop * scaleY;
   const markers: DotMarker[] = [];
   for (const img of imgs) {
     const well = readDotWell(img);
@@ -273,9 +289,11 @@ function dotMarkers(view: EditorView): readonly LayerMarker[] {
         sessionId,
         kind === "missing",
         img.getAttribute("data-selected") === "true",
-        rect.left + well.x - originX - box / 2,
-        rect.top + well.y - originY - box / 2,
+        rect.left + (well.x - box / 2) * scaleX - originX,
+        rect.top + (well.y - box / 2) * scaleY - originY,
         box,
+        scaleX,
+        scaleY,
       ),
     );
   }

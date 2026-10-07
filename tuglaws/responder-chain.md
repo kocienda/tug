@@ -97,11 +97,11 @@ A control is discrete or continuous based on the *interaction*, not the control 
 Handlers that need phase-aware behavior branch on it:
 
 ```ts
-// Scale slider: update readout on every change, apply CSS zoom only on commit
-const handleScale = (v: number, phase: ActionPhase) => {
-  setScaleState(v);                                  // always — readout updates instantly
+// Size slider: update readout on every change, persist only on commit
+const handleSize = (v: number, phase: ActionPhase) => {
+  setSizeState(v);                                   // always — readout updates instantly
   if (phase === "commit" || phase === "discrete") {
-    document.documentElement.style.setProperty("--tug-zoom", String(v));
+    settings.setFontSize(v);                         // once, when the value is final
   }
 };
 ```

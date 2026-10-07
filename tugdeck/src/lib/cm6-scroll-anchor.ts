@@ -19,6 +19,12 @@
  * saved line comes back at the top whatever the wrap width or the font metric
  * resolved to.
  *
+ * Under View › Zoom CodeMirror's height map is in viewport px — it measures
+ * its lines with rects and reports the ratio as `view.scaleY` — while
+ * `scrollTop` is layout px. A height goes into the map multiplied by
+ * `scaleY` and comes out of it divided, so `offsetPx` is always layout px and
+ * a saved anchor means the same thing at every factor.
+ *
  * Install it where a CM6 view owns a scrollport of its own. The prompt entry
  * deliberately does not: it is a composer, not a document, and it scrolls in
  * a box the reader is typing into rather than reading through.
@@ -59,10 +65,10 @@ const SCROLL_STATE_ATTR = "data-tug-scroll-state";
 export function readCm6LineAnchor(view: EditorView): Cm6LineAnchor | null {
   try {
     const top = view.scrollDOM.scrollTop;
-    const block = view.lineBlockAtHeight(top);
+    const block = view.lineBlockAtHeight(top * view.scaleY);
     return {
       line: view.state.doc.lineAt(block.from).number,
-      offsetPx: Math.max(0, top - block.top),
+      offsetPx: Math.max(0, top - block.top / view.scaleY),
     };
   } catch {
     return null;
@@ -78,7 +84,7 @@ export function resolveCm6LineAnchor(
   if (anchor.line < 1 || anchor.line > doc.lines) return null;
   try {
     const block = view.lineBlockAt(doc.line(anchor.line).from);
-    return Math.max(0, block.top + anchor.offsetPx);
+    return Math.max(0, block.top / view.scaleY + anchor.offsetPx);
   } catch {
     return null;
   }
@@ -107,7 +113,8 @@ const POS_PROBE_INSET_PX = 4;
 function measurePosDelta(view: EditorView, pos: number): number | null {
   const coords = view.coordsAtPos(pos);
   if (coords === null) return null;
-  return coords.top - view.scrollDOM.getBoundingClientRect().top;
+  // Both rects are viewport px; the delta is added to `scrollTop`.
+  return (coords.top - view.scrollDOM.getBoundingClientRect().top) / view.scaleY;
 }
 
 function readCm6PosAnchor(view: EditorView): Cm6PosAnchor | null {

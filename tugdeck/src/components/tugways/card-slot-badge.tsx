@@ -57,6 +57,7 @@ import React, { useMemo } from "react";
 import "./card-slot-badge.css";
 
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 import { useStoreDerived } from "@/lib/use-store-derived";
 import type { DeckState } from "@/layout-tree";
 import { slotCount } from "@/lib/layout-imposer";
@@ -303,10 +304,11 @@ function CardSlotBadgeFor({ cardId }: { cardId: string }): React.ReactElement | 
             );
             if (content !== null && trigger != null) {
               // Rect differences inside one laid-out subtree, so this is
-              // correct whether or not Radix has placed the popup yet.
+              // correct whether or not Radix has placed the popup yet. In
+              // layout px, to meet `offsetWidth` and the `translate`.
               const chipLeft =
-                landing.getBoundingClientRect().left -
-                content.getBoundingClientRect().left;
+                layoutRectOf(landing).left -
+                layoutRectOf(content).left;
               const shift =
                 trigger.offsetWidth / 2 - (chipLeft + landing.offsetWidth / 2);
               content.style.translate = `${shift}px 0`;

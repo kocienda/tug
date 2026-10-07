@@ -25,6 +25,8 @@
  * observer and timer this module acquires is released by `end()` ([L27]).
  */
 
+import { layoutRectOf } from "./page-zoom-store";
+
 /** Detail carried by both episode events. */
 export interface ResizeEpisodeEventDetail {
   /** Identifies the episode, so a late end cannot close a newer one. */
@@ -326,7 +328,7 @@ function firstBoxReaching(node: HTMLElement, line: number): HTMLElement | null {
     if (child.getAttribute("aria-hidden") === "true") continue;
     const position = view?.getComputedStyle(child).position;
     if (position === "sticky" || position === "fixed") continue;
-    const rect = child.getBoundingClientRect();
+    const rect = layoutRectOf(child);
     if (rect.height <= 0) continue;
     if (rect.bottom > line + 1) return child;
   }
@@ -354,14 +356,14 @@ function firstBoxReaching(node: HTMLElement, line: number): HTMLElement | null {
  * div, so without it the fallback would degenerate into no fallback at all.
  */
 function findAnchorElement(el: HTMLElement): HTMLElement | null {
-  const line = el.getBoundingClientRect().top;
+  const line = layoutRectOf(el).top;
   const contentExtent = el.scrollHeight - ANCHOR_WRAPPER_SLACK_PX;
   let best: HTMLElement | null = null;
   let node: HTMLElement = el;
   for (let depth = 0; depth < MAX_ANCHOR_DEPTH; depth++) {
     const child = firstBoxReaching(node, line);
     if (child === null) break;
-    const rect = child.getBoundingClientRect();
+    const rect = layoutRectOf(child);
     if (rect.height < contentExtent) best = child;
     // A box that begins at or below the line is already the finest answer;
     // one that straddles it has the reader's place somewhere inside.
@@ -383,7 +385,7 @@ function read(el: HTMLElement): ScrollReading {
 /** The anchor element's top edge, measured from the scroller's viewport top. */
 function measureDelta(el: HTMLElement, anchorEl: HTMLElement | null): number | undefined {
   if (anchorEl === null || !el.contains(anchorEl)) return undefined;
-  return anchorEl.getBoundingClientRect().top - el.getBoundingClientRect().top;
+  return layoutRectOf(anchorEl).top - layoutRectOf(el).top;
 }
 
 /** Re-apply one watch's anchor. Called per ResizeObserver delivery, and once more at end ([P02]). */

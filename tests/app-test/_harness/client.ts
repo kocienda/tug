@@ -1166,12 +1166,14 @@ export function setWindowContentSize(
 }
 
 /**
- * Set the web view's page zoom for this launch (surface `1.11.0`), clamped to
- * the app's range and never persisted. Resolves with the zoom the view took.
+ * Set View › Zoom for this launch (surface `1.12.0`), clamped to the app's
+ * range and never persisted. The deck scales its root by the factor and sizes
+ * it to the window ÷ the factor; resolves, with the factor taken, once the
+ * deck has painted it.
  *
- * For a fixture that needs more CSS height than its screen's window can give:
- * zoomed out, the same window holds more CSS px, and native gestures still
- * land where they are aimed because `CoordMapping` scales by the zoom.
+ * For a fixture that needs more layout height than its screen's window can
+ * give: zoomed out, the same window holds more layout px. Native gestures
+ * take viewport coords (rects, as read) at every factor; nothing scales them.
  */
 export function setPageZoom(caller: HarnessCaller, zoom: number): Promise<number> {
   return caller.rpcCall("setPageZoom", { zoom });

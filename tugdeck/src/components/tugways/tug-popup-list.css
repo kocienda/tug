@@ -60,7 +60,7 @@
      squeeze and scrolls. The row-count caps below are the *preferred*
      height; this is the hard ceiling for short windows. */
   max-height: calc(
-    var(--radix-popover-content-available-height, 100dvh) - 2px
+    var(--radix-popover-content-available-height, var(--tug-viewport-height, 100vh)) - 2px
   );
   min-height: 0;
 }

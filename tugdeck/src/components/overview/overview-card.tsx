@@ -82,6 +82,7 @@ import React, {
   useRef,
 } from "react";
 import { afterGesture, useSyncExternalStore } from "@/lib/gesture-scope";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 import { EditorView } from "@codemirror/view";
 import { ArrowUp, Check, Folder } from "lucide-react";
 
@@ -1219,10 +1220,11 @@ export function OverviewContent({
     const cells = Array.from(
       el.querySelectorAll<HTMLElement>(":scope > .overview-cell"),
     );
-    const portTop = el.getBoundingClientRect().top;
+    // Layout px, so the final delta lands in `scrollTop` as it reads.
+    const portTop = layoutRectOf(el).top;
     const result = computePageNavigation({
       direction,
-      cellTops: cells.map((cell) => cell.getBoundingClientRect().top - portTop),
+      cellTops: cells.map((cell) => layoutRectOf(cell).top - portTop),
     });
     if (result.kind === "none") return;
     if (result.kind === "bottom") {
@@ -1233,7 +1235,7 @@ export function OverviewContent({
     const target = cells[result.index];
     if (target === undefined) return;
     setFollowing(false);
-    el.scrollTop += target.getBoundingClientRect().top - portTop;
+    el.scrollTop += layoutRectOf(target).top - portTop;
   }, [setFollowing, pinToBottom]);
 
   // ⌃⌘[ / ⌃⌘] — the Session card's transcript chord, on this card's column.

@@ -217,9 +217,9 @@ import {
 } from "./lib/opening-placement";
 import {
   getTugTiming,
-  getTugZoom,
   isTugMotionEnabled,
 } from "./components/tugways/scale-timing";
+import { pageZoomFactor } from "./lib/page-zoom-store";
 import { DeckManagerContext } from "./deck-manager-context";
 import { BASE_THEME_NAME } from "./theme-constants";
 import {
@@ -6252,7 +6252,7 @@ export class DeckManager implements IDeckManagerStore {
     );
     if (!frame) return null;
     const canvas = paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
-    const zoom = getTugZoom() || 1;
+    const zoom = pageZoomFactor();
     const rect = frame.getBoundingClientRect();
     return {
       x: (rect.left - (canvas ? canvas.left : 0)) / zoom,

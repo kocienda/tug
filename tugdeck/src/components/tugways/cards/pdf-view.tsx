@@ -101,6 +101,7 @@ import {
   RESIZE_PRESERVE_BEGIN,
   RESIZE_PRESERVE_END,
 } from "@/lib/resize-episode";
+import { usePageZoom } from "@/lib/page-zoom-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { Check } from "lucide-react";
 import {
@@ -197,6 +198,11 @@ function PdfPageView({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   const [rendered, setRendered] = useState(false);
+  // View › Zoom scales the deck root by a transform, which presents this
+  // canvas at the factor without moving `devicePixelRatio`; the backing store
+  // is drawn at the product so a 200 % page is not upsampled soft. Read
+  // through the store ([L02]) so a zoom step re-renders the page.
+  const zoomFactor = usePageZoom().factor;
 
   useEffect(() => {
     let cancelled = false;
@@ -217,8 +223,9 @@ function PdfPageView({
 
         // The canvas is drawn at device resolution and displayed at CSS size,
         // so text stays crisp on a Retina display without the layout knowing
-        // anything about pixel ratios.
-        const dpr = window.devicePixelRatio || 1;
+        // anything about pixel ratios. Device resolution is the display's
+        // scale times the zoom the root's transform applies.
+        const dpr = (window.devicePixelRatio || 1) * zoomFactor;
         const viewport = page.getViewport({ scale });
         canvas.width = Math.round(viewport.width * dpr);
         canvas.height = Math.round(viewport.height * dpr);
@@ -261,7 +268,7 @@ function PdfPageView({
       cancelled = true;
       task?.cancel();
     };
-  }, [runtime, doc, box.page, scale]);
+  }, [runtime, doc, box.page, scale, zoomFactor]);
 
   return (
     <div

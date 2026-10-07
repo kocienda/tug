@@ -36,6 +36,7 @@
  * @module lib/motion-guard/gesture-frame-probe
  */
 
+import { pageZoomStore } from "@/lib/page-zoom-store";
 import { classifyFrameCadence } from "@/lib/settle-frame-probe";
 
 /**
@@ -65,11 +66,16 @@ export interface GestureFrameArmReading {
  * Display running the "looks like 3200x1800" scaled mode — and
  * `devicePixelRatio` is the backing multiplier over it. Together they name the
  * mode without anybody having to remember which one they were in.
+ *
+ * `zoomFactor` is View › Zoom. It is the deck root's transform, which never
+ * moves `devicePixelRatio`, so without it a reading taken at 200 % is
+ * indistinguishable from one at 100 %.
  */
 export interface GestureFrameDisplay {
   readonly widthPx: number;
   readonly heightPx: number;
   readonly devicePixelRatio: number;
+  readonly zoomFactor: number;
 }
 
 /** What `read` answers. */
@@ -227,6 +233,7 @@ function currentDisplay(): GestureFrameDisplay {
     widthPx: screen.width,
     heightPx: screen.height,
     devicePixelRatio: window.devicePixelRatio,
+    zoomFactor: pageZoomStore.getFactor(),
   };
 }
 

@@ -29,8 +29,8 @@
  * what would make it ground rather than a cut. The tint declarations below
  * reach only the bare strip, because that is all a cap is.
  *
- * **Each cap paints the body's own ground, grid included.** The canvas is not
- * a flat colour: `globals.css` paints `body` with the canvas token plus two
+ * **Each cap paints the deck root's own ground, grid included.** The canvas is not
+ * a flat colour: `globals.css` paints `#deck-container` with the canvas token plus two
  * 24px `linear-gradient`s in the grid token. A cap in the flat colour alone
  * would read as a stripe down each window edge, cutting every horizontal grid
  * line short and dropping the vertical line at x=0. So the declarations below
@@ -38,14 +38,17 @@
  * *matched* to the ground, it IS the ground, which is why it is right in
  * every theme by construction rather than by judgment.
  *
- * `background-attachment: fixed` is what buys the alignment, and it is doing
- * real work rather than being belt-and-braces. It anchors the pattern to the
- * viewport rather than to the element's own box, so both caps land in phase
- * with the body's grid without a single length being computed. Without it the
- * left cap happens to align — its origin is the window's — and the right cap
- * does not, since its own left edge falls at `windowWidth - 5`, which is not a
- * multiple of 24. The repair for that would be a `background-position` phrased
- * against `100vw`, which is exactly the algebra the occlusion change retired.
+ * The phase is stated, not borrowed. The root's grid starts at the root's
+ * own corner, and each cap's pattern starts at the cap's: the left cap's
+ * corner is the root's, so it is in phase as it stands, and the right cap's
+ * left edge falls at the root's width less its own, which is not a multiple
+ * of 24, so it is pulled back by the remainder (`mod()` below). The root's
+ * width is `--tug-viewport-width` under View › Zoom and the window at 100 %.
+ * Not `background-attachment: fixed`, which used to buy the alignment by
+ * anchoring both patterns to the viewport: under View › Zoom the root
+ * carries a `transform`, and inside a transformed ancestor WebKit anchors a
+ * fixed background to the element's own box (read off the harness at 0.5
+ * and 2.0), so the right cap fell out of phase at every factor but 1.
  *
  * The width is what the rail leaves bare, and the deck canvas decides it from
  * the same `railWidthOf` the inset effect reads, so a cap and the band can
@@ -99,7 +102,6 @@
     linear-gradient(var(--tugx-rail-margin-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--tugx-rail-margin-grid) 1px, transparent 1px);
   background-size: 24px 24px;
-  background-attachment: fixed;
 }
 
 .tug-margin-cap--left {
@@ -108,4 +110,10 @@
 
 .tug-margin-cap--right {
   right: 0;
+  /* Its left edge is the root's width less its own (`--tugx-margin-cap-width`,
+     written beside its inline width by `deck-canvas.tsx`); the pattern is
+     pulled back by that edge's remainder over the 24px tile. */
+  background-position-x: calc(
+    -1 * mod(var(--tug-viewport-width, 100vw) - var(--tugx-margin-cap-width, 0px), 24px)
+  );
 }

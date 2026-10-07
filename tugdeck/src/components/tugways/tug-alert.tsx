@@ -83,6 +83,7 @@ import { useOptionalResponder } from "./use-responder";
 import { useItemGroupKeyboard } from "./use-item-group-keyboard";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { layoutPxOf, layoutRectOf } from "@/lib/page-zoom-store";
 import { MODAL_REST_LINE } from "./cards/modal-rest-line";
 import { useFocusTrap } from "./use-focus-trap";
 import { useFocusManager } from "./use-focusable";
@@ -425,9 +426,11 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
         return;
       }
       const measure = (): void => {
-        const box = anchor.getBoundingClientRect();
+        // Layout px: the content is fixed in the canvas overlay root, inside
+        // the zoomed deck, so the window and the anchor are divided by the zoom.
+        const box = layoutRectOf(anchor);
         content.style.top = "auto";
-        content.style.bottom = `${Math.max(0, window.innerHeight - box.bottom)}px`;
+        content.style.bottom = `${Math.max(0, layoutPxOf(window.innerHeight) - box.bottom)}px`;
         content.style.left = `${box.left + box.width / 2}px`;
         content.dataset["verticalAnchor"] = "rest-line";
       };

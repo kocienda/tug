@@ -31,12 +31,13 @@
  *
  * Laws: [L06] appearance via DOM, not React state. The overlay's
  *       open/closed visual flows through `display:flex` / removal of
- *       the overlay element from `document.body`, not via a render.
+ *       the overlay element from the deck root, not via a render.
  *
  * @module lib/markdown/enhance-img
  */
 
 import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
+import { deckRootElement } from "@/lib/page-zoom-store";
 
 const ENHANCED_ATTR = "data-tugx-img-enhanced";
 
@@ -121,5 +122,7 @@ function buildOverlay(src: string, alt: string): void {
 
   overlay.appendChild(button);
   overlay.appendChild(img);
-  document.body.appendChild(overlay);
+  // Inside the deck root, so it scales with View › Zoom and its `fixed`
+  // inset covers the deck's box rather than the bare window.
+  deckRootElement().appendChild(overlay);
 }

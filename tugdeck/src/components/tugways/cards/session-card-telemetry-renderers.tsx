@@ -41,6 +41,7 @@ import React, {
   useState,
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 
 import { Archive, MessageCircleQuestion, ShieldAlert } from "lucide-react";
 
@@ -1164,9 +1165,11 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       );
       if (statusBar === null) return nowhere;
       const container = foldedForm ? (paneFrameEl as HTMLElement) : statusBar;
-      const containerRect = container.getBoundingClientRect();
+      // Layout px: the placement lands in the placard's `left`/`top` and meets
+      // `client*`, so every rect is divided by the zoom.
+      const containerRect = layoutRectOf(container);
       const originX = containerRect.left + container.clientLeft;
-      const barRect = statusBar.getBoundingClientRect();
+      const barRect = layoutRectOf(statusBar);
       let anchorCenter: number;
       let triggerEl: HTMLElement | null = null;
       if (key === "btw") {
@@ -1178,7 +1181,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           `[data-slot="tug-status-cell"][data-priority="${priority}"]`,
         );
         if (cell === null) return nowhere;
-        const cellRect = cell.getBoundingClientRect();
+        const cellRect = layoutRectOf(cell);
         anchorCenter = cellRect.left + cellRect.width / 2 - originX;
         triggerEl = cell;
       }

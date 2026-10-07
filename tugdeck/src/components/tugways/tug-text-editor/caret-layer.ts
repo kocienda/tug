@@ -136,12 +136,16 @@ const TYPING_IDLE_MS = 500;
  *
  * Mirrors the private `getBase(view)` helper in `@codemirror/view`'s
  * `RectangleMarker.forRange` implementation.
+ *
+ * Including its scale: CodeMirror's layer counter-scales itself by
+ * `1 / scaleX, 1 / scaleY`, so a marker is placed in viewport px and the
+ * layout-px `scrollLeft` / `scrollTop` are multiplied up to meet the rect.
  */
 function documentBase(view: EditorView): { left: number; top: number } {
   const rect = view.scrollDOM.getBoundingClientRect();
   return {
-    left: rect.left - view.scrollDOM.scrollLeft,
-    top: rect.top - view.scrollDOM.scrollTop,
+    left: rect.left - view.scrollDOM.scrollLeft * view.scaleX,
+    top: rect.top - view.scrollDOM.scrollTop * view.scaleY,
   };
 }
 
@@ -339,7 +343,10 @@ export const tugCaretLayer: Extension = layer({
     // cheap (one synchronous style read per caret paint, the same
     // pattern the `selection-layer` uses).
     const rowHeight = readRowHeightFromGhost(view, sel.head);
-    const caretHeight = rowHeight * CARET_HEIGHT_FACTOR;
+    // The ghost's computed height is CSS px; the layer is viewport px, so
+    // the caret's height and stroke are multiplied by CM6's scale.
+    const { scaleX, scaleY } = view;
+    const caretHeight = rowHeight * CARET_HEIGHT_FACTOR * scaleY;
     // Center the caret on the glyph's vertical center: the glyph's
     // top / bottom are the only stable reference for the visual row
     // the head currently sits on. Pad outward by half `caretHeight`
@@ -361,10 +368,10 @@ export const tugCaretLayer: Extension = layer({
     let left = rawLeft;
     if (view.contentDOM.classList.contains("cm-lineWrapping")) {
       const visibleRight =
-        view.scrollDOM.scrollLeft
+        (view.scrollDOM.scrollLeft
         + view.scrollDOM.clientWidth
         - CARET_STROKE_WIDTH
-        - CARET_EDGE_RELIEF;
+        - CARET_EDGE_RELIEF) * scaleX;
       left = Math.min(rawLeft, visibleRight);
     }
     return [
@@ -372,7 +379,7 @@ export const tugCaretLayer: Extension = layer({
         CARET_CLASS,
         left,
         top - base.top,
-        CARET_STROKE_WIDTH,
+        CARET_STROKE_WIDTH * scaleX,
         caretHeight,
       ),
     ];

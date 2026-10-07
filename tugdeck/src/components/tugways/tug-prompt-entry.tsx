@@ -29,6 +29,7 @@
  */
 
 import "./tug-prompt-entry.css";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 
 import { TugEntryShell } from "./tug-entry-shell";
 
@@ -1607,7 +1608,8 @@ export const TugPromptEntry = React.forwardRef<
       // min-height for the mode's duration (cleared on exit), so a quick glance
       // at Changes leaves the entry height put ([L06] — DOM, not React state).
       const scroller = editor.view()?.scrollDOM ?? null;
-      const borrowedHeight = scroller?.getBoundingClientRect().height ?? 0;
+      // Layout px: it is written back as `min-height`.
+      const borrowedHeight = scroller === null ? 0 : layoutRectOf(scroller).height;
       const seed =
         landingSnapRef.current?.seedMessage ??
         landingSnapRef.current?.persistedMessage ??

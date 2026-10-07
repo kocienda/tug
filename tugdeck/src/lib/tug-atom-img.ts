@@ -403,9 +403,11 @@ export function computeAtomChipGeometry(
 /**
  * Raster scale for the PNG bake, in device pixels per CSS px. Uses the
  * screen's own density with 2× headroom so the chip stays crisp when
- * the Swift host's `WKWebView.pageZoom` scales the page up — the baked
- * bitmap is displayed at CSS size via the `<img width/height>`
- * attributes, so extra resolution costs only a few KB per chip.
+ * View › Zoom scales the deck root up — the baked bitmap is displayed at
+ * CSS size via the `<img width/height>` attributes, so extra resolution
+ * costs only a few KB per chip. The root's transform never moves
+ * `devicePixelRatio`, so the bake does not track the factor; the 2×
+ * headroom is what covers it, and it reaches exactly the 200 % ceiling.
  */
 function bakeScale(): number {
   const dpr =

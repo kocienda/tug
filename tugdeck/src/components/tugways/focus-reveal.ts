@@ -37,6 +37,7 @@
 
 import { scrollerForElement } from "./internal/scroller-context";
 import { smartScrollForElement } from "@/lib/smart-scroll";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 
 /**
  * Air left between the revealed target's leading edge and the scrollport (or a
@@ -78,7 +79,9 @@ function isScrollable(node: HTMLElement): boolean {
 
 /** Scroll one scrollport by the minimum delta that reveals `target`. */
 function revealWithin(scroller: HTMLElement, target: HTMLElement): void {
-  const port = scroller.getBoundingClientRect();
+  // Layout px throughout, so the rects meet `client*` and `scroll*` in one
+  // space under a zoom.
+  const port = layoutRectOf(scroller);
   // `clientTop` / `clientLeft` are the border widths: the scrollport's content
   // box starts inside them, and `clientHeight` / `clientWidth` already exclude
   // both the borders and any classic scrollbar gutter.
@@ -87,7 +90,7 @@ function revealWithin(scroller: HTMLElement, target: HTMLElement): void {
   const portLeft = port.left + scroller.clientLeft;
   const portRight = portLeft + scroller.clientWidth;
 
-  const rect = target.getBoundingClientRect();
+  const rect = layoutRectOf(target);
   const band = stickyBand(scroller, target, portTop, portBottom);
   const deltaY = revealDelta(
     rect.top,
@@ -177,7 +180,7 @@ function stickyBand(
       if (!(child instanceof HTMLElement)) continue;
       if (child === target || child.contains(target)) continue;
       if (window.getComputedStyle(child).position !== "sticky") continue;
-      const r = child.getBoundingClientRect();
+      const r = layoutRectOf(child);
       const where = child.compareDocumentPosition(target);
       const beforeTarget = (where & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
       if (beforeTarget) {

@@ -28,6 +28,7 @@ import React, {
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { cn } from "@/lib/utils";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { cardTitleTextFor } from "@/lib/pane-title";
 import { icons } from "lucide-react";
@@ -232,17 +233,20 @@ function useTabOverflow(
 
       // --- Measurements (synchronous reads) ---
 
-      const containerWidth = barEl.getBoundingClientRect().width;
+      // Layout px, to meet the layout constants (28, the overflow and icon
+      // widths) under a zoom. Rects divided rather than `offsetWidth`, which
+      // rounds and would move the 100 % overflow decision.
+      const containerWidth = layoutRectOf(barEl).width;
 
       // Measure the [+] add button width.
       const addBtn = barEl.querySelector<HTMLElement>(".tug-tab-add");
-      const addButtonWidth = addBtn ? addBtn.getBoundingClientRect().width : 28;
+      const addButtonWidth = addBtn ? layoutRectOf(addBtn).width : 28;
 
       // Measure the overflow button width (if already rendered), or use
       // the bootstrap constant for the first computation introducing overflow.
       const overflowBtn = barEl.querySelector<HTMLElement>(".tug-tab-overflow-btn");
       const overflowButtonWidth = overflowBtn
-        ? overflowBtn.getBoundingClientRect().width
+        ? layoutRectOf(overflowBtn).width
         : OVERFLOW_BUTTON_WIDTH;
 
       // Build TabMeasurement array from current DOM state.
@@ -261,7 +265,7 @@ function useTabOverflow(
       const measurements: TabMeasurement[] = [];
       tabEls.forEach((el) => {
         const tabKey = el.getAttribute("data-testid")?.replace("tug-tab-", "") ?? "";
-        const fullWidth = el.getBoundingClientRect().width;
+        const fullWidth = layoutRectOf(el).width;
         const hasIcon = el.querySelector(".tug-tab-icon") !== null;
         measurements.push({
           id: tabKey,

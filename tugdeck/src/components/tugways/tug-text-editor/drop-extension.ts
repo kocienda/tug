@@ -538,9 +538,14 @@ class TugDropCaretPlugin implements PluginValue {
     const rowHeight = readRowHeightFromGhost(this.view, pos);
     const caretHeight = rowHeight * CARET_HEIGHT_FACTOR;
     const center = (rect.top + rect.bottom) / 2;
+    // The caret is a child of the scroller, placed in its layout px; the
+    // rects are viewport px under a zoom, so their deltas are divided by
+    // CM6's own scale (as its built-in drop cursor does). The ghost's
+    // height is already CSS px.
+    const { scaleX, scaleY } = this.view;
     return {
-      left: rect.left - outer.left + this.view.scrollDOM.scrollLeft,
-      top: center - caretHeight / 2 - outer.top + this.view.scrollDOM.scrollTop,
+      left: (rect.left - outer.left) / scaleX + this.view.scrollDOM.scrollLeft,
+      top: (center - outer.top) / scaleY - caretHeight / 2 + this.view.scrollDOM.scrollTop,
       height: caretHeight,
     };
   }

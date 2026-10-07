@@ -142,7 +142,8 @@ function applyScrollAxes(view: EditorView, state: TugTextEditingState): void {
     const block = view.lineBlockAt(
       Math.max(0, Math.min(view.state.doc.length, anchor.topPos)),
     );
-    targetTop = block.top + anchor.topOffsetPx;
+    // `topOffsetPx` is layout px; the height map is viewport px under a zoom.
+    targetTop = block.top / view.scaleY + anchor.topOffsetPx;
   } else if (typeof state.scrollTop === "number") {
     targetTop = state.scrollTop;
   }
@@ -166,7 +167,7 @@ function applyScrollAxes(view: EditorView, state: TugTextEditingState): void {
         const block = view.lineBlockAt(
           Math.max(0, Math.min(view.state.doc.length, anchor.topPos)),
         );
-        recomputedTop = block.top + anchor.topOffsetPx;
+        recomputedTop = block.top / view.scaleY + anchor.topOffsetPx;
       } else if (typeof state.scrollTop === "number") {
         recomputedTop = state.scrollTop;
       }
@@ -522,10 +523,10 @@ export function useTextEditorStatePreservation(
       const scrollTop = view.scrollDOM.scrollTop;
       let scrollAnchor: { topPos: number; topOffsetPx: number } | null = null;
       if (view.contentDOM.isConnected && scrollTop > 0) {
-        const block = view.lineBlockAtHeight(scrollTop);
+        const block = view.lineBlockAtHeight(scrollTop * view.scaleY);
         scrollAnchor = {
           topPos: block.from,
-          topOffsetPx: scrollTop - block.top,
+          topOffsetPx: scrollTop - block.top / view.scaleY,
         };
       } else if (scrollTop === 0) {
         scrollAnchor = { topPos: 0, topOffsetPx: 0 };

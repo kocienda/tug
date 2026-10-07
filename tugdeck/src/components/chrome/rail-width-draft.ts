@@ -94,7 +94,8 @@ import {
 
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { computeResizeSnap } from "@/snap";
-import { getTugTiming, getTugZoom, isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { getTugTiming, isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { pageZoomFactor } from "@/lib/page-zoom-store";
 import {
   IMPOSITION_GAP_PX,
   sidebarWidthProperty,
@@ -317,7 +318,7 @@ class RailWidthDraft implements RailWidthGesture {
       beginResizeEpisode(paneFrame, GESTURE_EPISODE_WINDOW_MS),
     );
 
-    const zoom = getTugZoom() || 1;
+    const zoom = pageZoomFactor();
     const canvasBounds = container.getBoundingClientRect();
     const frameRect = frame.getBoundingClientRect();
     // The deck edge the rail holds is the one thing this drag may not move,

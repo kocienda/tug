@@ -85,6 +85,7 @@
 
 import React from "react";
 import { flushSync } from "@/lib/gesture-scope";
+import { layoutPxOf, layoutRectOf } from "@/lib/page-zoom-store";
 
 
 import { group } from "@/components/tugways/tug-animator";
@@ -314,13 +315,16 @@ export function useBlockReorder({
       const allEls = Array.from(elsByKind.values()).flat();
 
       const n = visible.length;
-      const containerRect = container.getBoundingClientRect();
+      // Layout px for every rect: the shifts, the caret and the carried
+      // block's offset are written as `translateY` and `top`. The pointer is
+      // converted where it meets them; hit-testing keeps viewport px.
+      const containerRect = layoutRectOf(container);
       const containerTop = containerRect.top;
       // A block's box is the union of its elements' — its first element's top
       // to its last one's bottom.
       const rects = blocks.map((block) => {
-        const first = block[0].getBoundingClientRect();
-        const last = block[block.length - 1].getBoundingClientRect();
+        const first = layoutRectOf(block[0]);
+        const last = layoutRectOf(block[block.length - 1]);
         return { top: first.top, bottom: last.bottom, height: last.bottom - first.top };
       });
       const tops = rects.map((r) => r.top);
@@ -385,9 +389,10 @@ export function useBlockReorder({
         }
       };
 
-      const computeTarget = (clientY: number): number => {
+      /** `y` is layout px, the space the midpoints are in. */
+      const computeTarget = (y: number): number => {
         for (let i = 0; i < n; i++) {
-          if (clientY < midpoints[i]) return i;
+          if (y < midpoints[i]) return i;
         }
         return n - 1;
       };
@@ -443,7 +448,7 @@ export function useBlockReorder({
         Math.max(minDy, Math.min(maxDy, dy));
 
       const moveTo = (clientX: number, clientY: number): void => {
-        const dy = clampDy(clientY - startY);
+        const dy = clampDy(layoutPxOf(clientY - startY));
         for (const el of dragged) {
           el.style.transform = `translateY(${dy}px) scale(0.99)`;
         }
@@ -466,7 +471,7 @@ export function useBlockReorder({
           return;
         }
         leaveDropTarget();
-        const t = computeTarget(clientY);
+        const t = computeTarget(layoutPxOf(clientY));
         if (t !== targetIndex) {
           targetIndex = t;
           applyShift(t);
@@ -545,14 +550,14 @@ export function useBlockReorder({
       const settleCommit = (): void => {
         const newVisible = moveInArray(visible, dragIndex, targetIndex);
         const first = new Map<HTMLElement, number>();
-        for (const el of allEls) first.set(el, el.getBoundingClientRect().top);
+        for (const el of allEls) first.set(el, layoutRectOf(el).top);
 
         clearInline();
         flushSync(() => commitRef.current(newVisible));
 
         const moves: { el: HTMLElement; from: string }[] = [];
         for (const el of allEls) {
-          const last = el.getBoundingClientRect().top;
+          const last = layoutRectOf(el).top;
           const dy = (first.get(el) ?? last) - last;
           if (dy !== 0) moves.push({ el, from: `translateY(${dy}px)` });
         }

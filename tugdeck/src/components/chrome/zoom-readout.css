@@ -1,0 +1,67 @@
+/*
+ * zoom-readout — the factor a View › Zoom step is going to, centred in the
+ * window.
+ *
+ * The fill is the update pill's `filled` / `accent` pair, so nothing about
+ * the colour is new ([L20]); the metrics are a size up from the pill's, since
+ * this says one number and is meant to be read at a glance.
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role    | Context |
+ * |--------------------------------------------------|---------------------------------------------------|---------|---------|
+ * | --tug7-element-control-text-filled-accent-rest   | --tug7-surface-control-primary-filled-accent-rest | control | .tugx-zoom-readout text |
+ * | --tug7-element-control-border-filled-accent-rest | --tug7-surface-control-primary-filled-accent-rest | control | .tugx-zoom-readout border |
+ */
+
+/* Centred on the window, not the canvas: `CanvasOverlayRoot` is fixed over
+ * the whole window. Auto margins, never a transform — the reason
+ * `update-pill.css` records. Inert to the pointer: the readout is a notice,
+ * not a control. */
+.tugx-zoom-readout-anchor {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: fit-content;
+  height: fit-content;
+  pointer-events: none;
+}
+
+.tugx-zoom-readout {
+  padding: var(--tug-space-sm) var(--tug-space-lg);
+  border: 1px solid var(--tug7-element-control-border-filled-accent-rest);
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tug7-surface-control-primary-filled-accent-rest);
+  color: var(--tug7-element-control-text-filled-accent-rest);
+  font-size: 1.5rem;
+  font-weight: var(--tug-font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Never painted before the first zoom. */
+.tugx-zoom-readout[data-state="hidden"] {
+  display: none;
+}
+
+/* Up at once, with no fade in: the readout's job is to be in the first frame
+ * after the chord, and a fade would spend that frame showing nothing. A
+ * second step mid-leave lands here too, cancelling the leave. */
+.tugx-zoom-readout[data-state="shown"] {
+  opacity: 1;
+  visibility: visible;
+  transition: none;
+}
+
+/* The "after" notice lands a few frames past the relayout; gone then, the
+ * readout would be a flicker. It holds long enough to be read, then fades,
+ * and `visibility` drops with the end of the fade so nothing stays
+ * hit-testable or announced. */
+.tugx-zoom-readout[data-state="leaving"] {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--tug-motion-duration-moderate) ease-out
+      var(--tug-motion-duration-glacial),
+    visibility 0s linear
+      calc(var(--tug-motion-duration-glacial) + var(--tug-motion-duration-moderate));
+}

@@ -63,8 +63,9 @@ export function measureGuideEdgeOffsets(frame: HTMLElement, zoom = 1): GuideEdge
  * Snapshot all `.tug-pane[data-pane-id]` elements as canvas-relative Rects.
  * Optionally excludes a pane by ID.
  *
- * `getBoundingClientRect` returns visual (post-`body { zoom }`) pixels, but card
- * frames are positioned with `style.left/top` in layout pixels. Dividing by
+ * `getBoundingClientRect` returns viewport pixels — under View › Zoom, the
+ * deck root's `transform: scale(zoom)` is in them — but card frames are
+ * positioned with `style.left/top` in layout pixels. Dividing by
  * `zoom` yields layout-space rects so they line up with the moving frame's
  * position and size (which come from layout-space `style`/`offsetWidth`). All
  * snap math then runs in one consistent space.

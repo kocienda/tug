@@ -45,8 +45,9 @@
  * `update-tug.tsx` points its Radix portal — so the layer, the scrim and the
  * wizard panel are siblings in one stacking context, and the layer's 99992
  * clears the scrim's 99990 and the content's 99991 ([B08]). The root is
- * `position: fixed; inset: 0`, so a child positioned from `left`/`top` is
- * positioned in the very coordinates `getBoundingClientRect()` reports.
+ * `position: fixed; inset: 0` inside the deck root, so a child positioned
+ * from `left`/`top` is positioned in the root's layout px: the coordinates
+ * `getBoundingClientRect()` reports, divided by View › Zoom's factor.
  *
  * The root owns the lifecycle too: the module watches the canvas overlay
  * registry, and a canvas that goes away takes any standing rectangles with it
@@ -74,6 +75,7 @@ import "./zoom-rects.css";
 
 import * as canvasOverlayRegistry from "@/lib/canvas-overlay-registry";
 import { afterGesture } from "@/lib/gesture-scope";
+import { layoutPxOf } from "@/lib/page-zoom-store";
 
 import { animate } from "../tugways/tug-animator";
 import { getTugTiming, isTugMotionEnabled } from "../tugways/scale-timing";
@@ -139,9 +141,10 @@ const ZOOM_RUN_DURATION_MS = 200;
 // ---------------------------------------------------------------------------
 
 /**
- * A viewport rectangle, in the coordinates `getBoundingClientRect()` reports —
- * which are also the coordinates the layer's `position: fixed; inset: 0` box
- * positions its children in, so no conversion happens anywhere.
+ * A viewport rectangle, in the coordinates `getBoundingClientRect()` reports.
+ * The layer's `position: fixed; inset: 0` box positions its children in the
+ * deck root's layout px, so the one conversion is where a run writes its
+ * rectangles' styles (`layoutPxOf`).
  */
 export interface ZoomRect {
   readonly top: number;
@@ -305,10 +308,10 @@ export function runZoomRects(from: ZoomRect, to: ZoomRect): boolean {
     el.className = "tugx-zoom-rect";
     el.dataset.slot = "zoom-rect";
     el.dataset.index = String(i);
-    el.style.left = `${lerp(from.left, to.left, t)}px`;
-    el.style.top = `${lerp(from.top, to.top, t)}px`;
-    el.style.width = `${lerp(from.width, to.width, t)}px`;
-    el.style.height = `${lerp(from.height, to.height, t)}px`;
+    el.style.left = `${layoutPxOf(lerp(from.left, to.left, t))}px`;
+    el.style.top = `${layoutPxOf(lerp(from.top, to.top, t))}px`;
+    el.style.width = `${layoutPxOf(lerp(from.width, to.width, t))}px`;
+    el.style.height = `${layoutPxOf(lerp(from.height, to.height, t))}px`;
     host.appendChild(el);
     rects.push(el);
   }

@@ -96,24 +96,18 @@ enum CoordMapping {
     /// bug was clicks landing near the window's BOTTOM instead of
     /// near the TOP). The fix is "don't pre-flip; trust convert".
     ///
-    /// A CSS px is `pageZoom` view points, so a viewport coord must be
-    /// scaled by the zoom before it enters AppKit's view-local space.
-    /// Skipping this makes every gesture land at `1 / pageZoom` of its
-    /// target — an error proportional to the distance from the view
-    /// origin, so points near the top-left look almost right while
-    /// points further down miss their element entirely.
+    /// A viewport coord is already a view point. View › Zoom is a CSS
+    /// transform on the deck root and `pageZoom` stays 1.0, so a DOM rect
+    /// or pointer coordinate is measured in the window's own space with
+    /// the zoom applied, and nothing scales it on the way in.
     ///
     /// - Parameter viewportPoint: DOM-space coord, Y-down origin top-left.
     /// - Parameter webView: the live WKWebView owning the document.
     /// - Returns: CG-space screen coord ready for `CGEvent.post`, or
     ///   nil for out-of-bounds or detached-window cases.
     static func viewportToScreen(_ viewportPoint: CGPoint, in webView: WKWebView) -> CGPoint? {
-        let zoom = webView.pageZoom > 0 ? webView.pageZoom : 1.0
         let viewSize = webView.bounds.size
-        let viewLocal = CGPoint(
-            x: viewportPoint.x * zoom,
-            y: viewportPoint.y * zoom,
-        )
+        let viewLocal = viewportPoint
         guard viewLocal.x >= 0, viewLocal.x <= viewSize.width,
               viewLocal.y >= 0, viewLocal.y <= viewSize.height else {
             return nil

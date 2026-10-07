@@ -306,7 +306,7 @@ export const TugAtomMarkdownBody = React.forwardRef<
   // Publish the prose register. Everything vertical about an atom in this body
   // rides these: the baked chips' box, the live citation pill's box, and the
   // line-box floor that keeps a line the same height whether or not it carries
-  // one. The Swift host's `WKWebView.pageZoom` scales all of them together.
+  // one. View › Zoom, a transform on the deck root, scales all of them together.
   const hostStyle = atomRegisterVars() as React.CSSProperties;
 
   return (

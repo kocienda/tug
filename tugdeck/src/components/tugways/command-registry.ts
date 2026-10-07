@@ -1956,6 +1956,16 @@ export const COMMANDS: readonly CommandEntry[] = [
   // enablement from the host: the predicate reads `window.currentPageZoom`,
   // which is the host's own property and changes as these very commands run.
   // The gate carries the chord alone, and the host's tier keeps the bounds.
+  //
+  // No `preventDefault` on any of the four chords, and the reason is the
+  // whole mechanism. A Session card has no responder for these; the host
+  // performs them (`MainWindow.setPageZoom`) when the View item's key
+  // equivalent fires. The funnel sees the keydown first, and WebKit resends a
+  // keydown the page did not consume to AppKit, which is how the item fires.
+  // A chord prevented on match is consumed whether or not anything handled
+  // it, so ⌘-, ⌘+ and ⌘0 died in the page and the zoom never happened. A
+  // responder that does handle them (the PDF card) still prevents the
+  // default: the funnel prevents on a handled dispatch.
   {
     // Two bindings, one command: ⌘+ is what the menu shows, ⌘= is Safari's
     // no-shift ergonomic alias. An `NSMenuItem` carries one key equivalent,
@@ -1968,9 +1978,9 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [
       chord(
         { key: "Equal", meta: true, shift: true, label: "+" },
-        { preventDefault: true, menuEligible: true },
+        { menuEligible: true },
       ),
-      chord({ key: "Equal", meta: true, label: "=" }, { preventDefault: true }),
+      chord({ key: "Equal", meta: true, label: "=" }),
     ],
   },
   {
@@ -1981,7 +1991,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [
       chord(
         { key: "Minus", meta: true, label: "-" },
-        { preventDefault: true, menuEligible: true },
+        { menuEligible: true },
       ),
     ],
   },
@@ -1993,7 +2003,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [
       chord(
         { key: "Digit0", meta: true, label: "0" },
-        { preventDefault: true, menuEligible: true },
+        { menuEligible: true },
       ),
     ],
   },

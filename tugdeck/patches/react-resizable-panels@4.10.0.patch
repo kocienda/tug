@@ -1,0 +1,22 @@
+diff --git a/node_modules/react-resizable-panels/.bun-tag-47d40bdb72b21b5b b/.bun-tag-47d40bdb72b21b5b
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/dist/react-resizable-panels.js b/dist/react-resizable-panels.js
+index 6c18db7ad2e9dc8c7ce5f1e6d6ce11e48b6835df..03ac61c3933a4f106e82096764c07bf6791cd6ee 100644
+--- a/dist/react-resizable-panels.js
++++ b/dist/react-resizable-panels.js
+@@ -1151,7 +1151,13 @@ function at({
+ }) {
+   let r = 0;
+   n.forEach((c) => {
+-    const { group: f, groupSize: g } = c, { orientation: d, panels: b } = f, { disableCursor: x } = f.mutableState;
++    const { group: f, groupSize: g0 } = c, { orientation: d, panels: b } = f, { disableCursor: x } = f.mutableState;
++    // tug: the pointer delta is viewport px and `groupSize` is layout px
++    // (`offsetWidth`); under an ancestor `transform: scale()` (View › Zoom)
++    // they differ, so the size is carried into viewport px to meet the delta.
++    // The scale is snapped to 1 within half a percent, so the unzoomed deck
++    // is untouched by the sub-pixel difference between the two readings.
++    const gr = f.element.getBoundingClientRect(), go = d === "horizontal" ? f.element.offsetWidth : f.element.offsetHeight, gz = go > 0 ? (d === "horizontal" ? gr.width : gr.height) / go : 1, g = g0 * (gz > 0.995 && gz < 1.005 || !(gz > 0) ? 1 : gz);
+     let u = 0;
+     s ? d === "horizontal" ? u = (t.clientX - s.x) / g * 100 : u = (t.clientY - s.y) / g * 100 : d === "horizontal" ? u = t.clientX < 0 ? -100 : 100 : u = t.clientY < 0 ? -100 : 100;
+     const p = o.get(f), m = i.get(f);

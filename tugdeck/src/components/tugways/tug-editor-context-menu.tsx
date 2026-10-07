@@ -129,6 +129,7 @@ import { useControlDispatch } from "./use-control-dispatch";
 import { useFocusTrap } from "./use-focus-trap";
 import { isCancelChordEvent } from "./keymap-registry";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { layoutPxOf } from "@/lib/page-zoom-store";
 import { useOpenMenuClaim } from "@/components/tugways/use-open-menu-claim";
 import type { TugAction } from "./action-vocabulary";
 
@@ -486,8 +487,11 @@ export function TugEditorContextMenu({
     if (top + rect.height > vh - VIEWPORT_MARGIN) {
       top = Math.max(VIEWPORT_MARGIN, vh - rect.height - VIEWPORT_MARGIN);
     }
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
+    // The clamp is viewport px (the pointer, the window, the menu's rect);
+    // the menu sits in the canvas overlay root, inside the zoomed deck, so
+    // the position it is written at is layout px.
+    menu.style.left = `${layoutPxOf(left)}px`;
+    menu.style.top = `${layoutPxOf(top)}px`;
     menu.style.visibility = "visible";
     positionedRef.current = true;
   }, [open, x, y]);

@@ -129,6 +129,7 @@ import {
   dropPendingFlash,
 } from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 import {
   FLOW_OFFSET_FRAME_READERS,
   writeCanvasFlowOffset,
@@ -1399,7 +1400,7 @@ export function useSettleEngine({
       const running = settleTweensRef.current.get(paneId);
       if (running === undefined || running.el !== frame) return;
       for (const anim of running.anims) anim.cancel("hold-at-current");
-      const seen = frame.getBoundingClientRect();
+      const seen = layoutRectOf(frame);
       for (const restore of running.restores) restore();
       clearFlipRef.current(paneId, frame, running.anims);
       crossingsRef.current.release(frame);
@@ -1408,7 +1409,7 @@ export function useSettleEngine({
         episode.end();
         settleEpisodesRef.current.delete(paneId);
       }
-      const committed = frame.getBoundingClientRect();
+      const committed = layoutRectOf(frame);
       const detail = (event as CustomEvent<SettleTakeDetail>).detail;
       detail.dx = seen.left - committed.left;
       detail.dy = seen.top - committed.top;
@@ -2138,7 +2139,7 @@ export function useSettleEngine({
           });
           for (const anim of running.anims) anim.cancel("hold-at-current");
         }
-        if (measure) firstRects.set(paneId, frame.getBoundingClientRect());
+        if (measure) firstRects.set(paneId, layoutRectOf(frame));
         // The fold's near side. Read for every frame rather than only the
         // ones that turn out to cross, because which frames those are is not
         // knowable until the Last pass has the other side: `data-folded` is an
@@ -2320,7 +2321,7 @@ export function useSettleEngine({
               running,
             });
           }
-          firstRailShadows.set(side, strip.getBoundingClientRect());
+          firstRailShadows.set(side, layoutRectOf(strip));
         }
       }
 
@@ -2568,12 +2569,12 @@ export function useSettleEngine({
         // guards against elsewhere.
         const take = (): number => {
           const lead = launched[0]?.frame;
-          const seen = lead?.getBoundingClientRect();
+          const seen = lead === undefined ? undefined : layoutRectOf(lead);
           for (const { anims } of launched) {
             for (const anim of anims) anim.cancel("hold-at-current");
           }
           land();
-          const committed = lead?.getBoundingClientRect();
+          const committed = lead === undefined ? undefined : layoutRectOf(lead);
           if (seen === undefined || committed === undefined) return nextFlowOffset;
           return nextFlowOffset - (seen.left - committed.left);
         };
@@ -2730,7 +2731,7 @@ export function useSettleEngine({
         const entry = departingTargetsRef.current.get(key);
         if (entry === undefined || entry.el !== target) return null;
         for (const anim of entry.anims ?? []) anim.cancel("hold-at-current");
-        const seen = target.getBoundingClientRect();
+        const seen = layoutRectOf(target);
         for (const restore of entry.restores) restore();
         departingTargetsRef.current.delete(key);
         return seen;
@@ -3161,7 +3162,7 @@ export function useSettleEngine({
         arrivals.push({ paneId, frame, restores });
         continue;
       }
-      const lastRect = frame.getBoundingClientRect();
+      const lastRect = layoutRectOf(frame);
       traveled.push({
         paneId,
         firstY: Math.round(firstRect.top),
@@ -3602,7 +3603,7 @@ export function useSettleEngine({
       }
       const firstRect = firstRailShadows.get(side);
       if (firstRect === undefined) continue;
-      const dx = firstRect.left - strip.getBoundingClientRect().left;
+      const dx = firstRect.left - layoutRectOf(strip).left;
       if (Math.abs(dx) < 0.5) continue;
       const beats = planSettleBeats({ dx, dy: 0, sx: 1 }, { fused });
       if (beats.length === 0) continue;
@@ -3665,7 +3666,7 @@ export function useSettleEngine({
           ? "parked"
           : null;
       if (kind === null) continue;
-      const lastRect = frame.getBoundingClientRect();
+      const lastRect = layoutRectOf(frame);
       const { dx, dy } = flipDelta(firstRect, lastRect);
       const restores: Array<() => void> = [
         inlineRestorer(frame, "transform"),
@@ -3713,7 +3714,7 @@ export function useSettleEngine({
     // inboard, so measuring it against the edge separately would give it a
     // longer journey and the two would drift apart over the crossing.
     if (railSideOfDeparture.size > 0) {
-      const canvasRect = el.getBoundingClientRect();
+      const canvasRect = layoutRectOf(el);
       const travelBySide = new Map<SidebarSide, number>();
       for (const departure of departures) {
         const side = railSideOfDeparture.get(departure.paneId);
@@ -3748,7 +3749,7 @@ export function useSettleEngine({
           inlineRestorer(strip, "opacity"),
           () => strip.removeAttribute(SETTLE_DEPARTING_ATTR),
         ];
-        const dx = firstRect.left - strip.getBoundingClientRect().left;
+        const dx = firstRect.left - layoutRectOf(strip).left;
         strip.setAttribute(SETTLE_DEPARTING_ATTR, key);
         applyHolds(strip, { transform: { dx, dy: 0, sx: 1 } });
         // In the same registry as the frames, so the teardown's "take them
@@ -3992,14 +3993,14 @@ export function useSettleEngine({
           // the mirror of it, and it is here too now ([B10]): a rail's parked
           // frames slide off the edge they came in by, on this beat, with its
           // shadow strip beside them on the same keyframes.
-          const canvasRect = el.getBoundingClientRect();
+          const canvasRect = layoutRectOf(el);
           // **One travel per side, and the shadow takes the pane's** — the
           // exit's rule, for the exit's reason.
           const railTravelBySide = new Map<SidebarSide, number>();
           const travelFor = (el2: HTMLElement, side: SidebarSide): number => {
             const known = railTravelBySide.get(side);
             if (known !== undefined) return known;
-            const px = railTravelPx(el2.getBoundingClientRect(), side, canvasRect);
+            const px = railTravelPx(layoutRectOf(el2), side, canvasRect);
             railTravelBySide.set(side, px);
             return px;
           };

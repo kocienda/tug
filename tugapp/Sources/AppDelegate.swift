@@ -3043,8 +3043,8 @@ extension AppDelegate: NSMenuDelegate {
         themeMenuItem.submenu = themeMenu
         menu.addItem(themeMenuItem)
 
-        // Zoom commands — Safari-style. Drive `webView.pageZoom` so the
-        // entire page scales uniformly. `Actual Size` (⌘0) returns to
+        // Zoom commands — Safari-style. Drive `MainWindow.setPageZoom`, which
+        // the deck applies as a scale of its whole root. `Actual Size` (⌘0) returns to
         // 100%; `Zoom In` (⌘+) / `Zoom Out` (⌘-) step in 10%
         // increments bounded at 50%–200%. The hidden ⌘= alias mirrors
         // Safari's ergonomic shortcut so users don't have to hold

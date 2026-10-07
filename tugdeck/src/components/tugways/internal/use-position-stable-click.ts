@@ -91,6 +91,7 @@
 
 import React from "react";
 import { flushSync } from "@/lib/gesture-scope";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 
 
 export interface UsePositionStableClickOptions {
@@ -176,7 +177,9 @@ export function usePositionStableClick(
 
       // Snapshot the target's current viewport Y. Local const, never
       // routed through React state.
-      const oldTop = target.getBoundingClientRect().top;
+      // Layout px, under a zoom: every term below meets `scrollTop` or a
+      // computed `top`, so the rects are read divided by the factor.
+      const oldTop = layoutRectOf(target).top;
 
       // Force the mutator's state updates to commit synchronously so
       // the DOM is at the post-mutation layout before we measure
@@ -196,7 +199,7 @@ export function usePositionStableClick(
       // For targets not inside a sticky ancestor, or where the
       // sticky regime is unchanged across pre/post, this single
       // pass suffices.
-      let newRect = target.getBoundingClientRect();
+      let newRect = layoutRectOf(target);
       let delta = newRect.top - oldTop;
       if (Math.abs(delta) < POSITION_TOLERANCE_PX) return;
       scrollport.scrollTop += delta;
@@ -209,7 +212,7 @@ export function usePositionStableClick(
       // regime is decoupled from scrollTop. Compute the exact
       // scrollTop that places the sticky ancestor back at its
       // pre-click viewport Y via the sticky positioning formula.
-      newRect = target.getBoundingClientRect();
+      newRect = layoutRectOf(target);
       delta = newRect.top - oldTop;
       if (Math.abs(delta) < POSITION_TOLERANCE_PX) return;
 
@@ -220,7 +223,7 @@ export function usePositionStableClick(
 
       // Constant offset between target and sticky ancestor — the
       // target sits inside sticky (or AS sticky, when offset is 0).
-      const stickyRect = sticky.getBoundingClientRect();
+      const stickyRect = layoutRectOf(sticky);
       const targetOffsetWithinSticky = newRect.top - stickyRect.top;
 
       // Desired sticky position: where would sticky be if the target
@@ -245,7 +248,7 @@ export function usePositionStableClick(
         // (The pinned regime is handled by the simple-delta pass:
         // if pre and post are both pinned, delta is zero. If we
         // reach this branch, the desired regime is clamped.)
-        const stickyParentRect = stickyParent.getBoundingClientRect();
+        const stickyParentRect = layoutRectOf(stickyParent);
         const stickyParentDocBottom =
           stickyParentRect.bottom + currentScrollTop;
         newScrollTop =

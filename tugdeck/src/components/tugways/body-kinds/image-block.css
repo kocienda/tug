@@ -194,7 +194,7 @@ body {
   word-break: break-all;
 }
 
-/* ---- Fullscreen overlay (portal-mounted under document.body) ------ */
+/* ---- Fullscreen overlay (portal-mounted into the deck root) ------ */
 
 /* @tug-renders-on(var(--tugx-image-overlay-bg)) */
 .tugx-image-overlay {

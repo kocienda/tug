@@ -13,6 +13,8 @@
  * @module components/tugways/find-flash
  */
 
+import { pageZoomFactor } from "@/lib/page-zoom-store";
+
 /** Flash lifetime (mirrors the code-view find-flash window). */
 export const FIND_FLASH_MS = 640;
 
@@ -49,14 +51,18 @@ export function placeFindFlash(
   }
   const overlay = document.createElement("div");
   overlay.className = FLASH_OVERLAY_CLASS;
+  // The visibility test above stays in viewport px; the ring's box is
+  // written in the scroller's layout px, so the rect terms are divided by
+  // the zoom before they meet `client*` and `scroll*`.
+  const f = pageZoomFactor();
   overlay.style.left = `${
-    rect.left - scrollerRect.left - scroller.clientLeft + scroller.scrollLeft
+    (rect.left - scrollerRect.left) / f - scroller.clientLeft + scroller.scrollLeft
   }px`;
   overlay.style.top = `${
-    rect.top - scrollerRect.top - scroller.clientTop + scroller.scrollTop
+    (rect.top - scrollerRect.top) / f - scroller.clientTop + scroller.scrollTop
   }px`;
-  overlay.style.width = `${rect.width}px`;
-  overlay.style.height = `${rect.height}px`;
+  overlay.style.width = `${rect.width / f}px`;
+  overlay.style.height = `${rect.height / f}px`;
   scroller.appendChild(overlay);
   const timer = setTimeout(() => overlay.remove(), FIND_FLASH_MS);
   return {

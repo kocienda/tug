@@ -6,7 +6,10 @@
  * When no root is registered (the brief window during initial deck
  * mount, or any host that mounts a substrate outside a `DeckCanvas` —
  * unit tests, future standalone harnesses), the hook falls back to
- * `document.body`. The fallback path is invisible in production and
+ * the deck root (`deckRootElement()` — `#deck-container`, or
+ * `document.body` where there is none). Not `body` first: an overlay
+ * outside the deck root draws at 100 % under View › Zoom. The fallback
+ * path is invisible in production and
  * keeps standalone consumers working without forcing them to mount
  * the deck infrastructure just to use a substrate that opens an
  * overlay.
@@ -35,17 +38,18 @@ import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import * as canvasOverlayRegistry from "./canvas-overlay-registry";
+import { deckRootElement } from "./page-zoom-store";
 
 /**
  * Return the currently-registered canvas overlay root, or
- * `document.body` as a fallback. Subscribes via
+ * the deck root as a fallback. Subscribes via
  * `useSyncExternalStore` to root-registration changes.
  */
 export function useCanvasOverlay(): HTMLElement {
-  // The hook returns `getRoot() ?? document.body`. We can't fall back
-  // inside `getSnapshot` (would force `document.body` to "win" the
+  // The hook returns `getRoot() ?? deckRootElement()`. We can't fall back
+  // inside `getSnapshot` (would force the fallback to "win" the
   // useSyncExternalStore tear-check on every render) — instead we
-  // return the nullable from getSnapshot and substitute body at
+  // return the nullable from getSnapshot and substitute the root at
   // return time.
   const subscribe = useCallback(
     (cb: () => void) => canvasOverlayRegistry.subscribe(cb),
@@ -56,5 +60,5 @@ export function useCanvasOverlay(): HTMLElement {
   // runs in a browser); pass `getSnapshot` as the SSR snapshot too so
   // `useSyncExternalStore`'s 18+ signature is satisfied.
   const root = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return root ?? document.body;
+  return root ?? deckRootElement();
 }

@@ -76,6 +76,7 @@ import {
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { SparklineWorkerResponse } from "@/lib/workers/sparkline-render-worker";
 import { subscribeThemeChange, unsubscribeThemeChange } from "@/theme-tokens";
+import { usePageZoom } from "@/lib/page-zoom-store";
 import { isTugMotionEnabled } from "./scale-timing";
 
 /**
@@ -183,7 +184,12 @@ export function peekSparklineHost(container: Element): SparklineHost | null {
   return mountedHosts.get(container) ?? null;
 }
 
-/** The presentation-to-backing-store ratio the canvas must be sized against. */
+/**
+ * The display's backing scale. Under View › Zoom it is not the whole
+ * presentation-to-backing ratio: the deck root is scaled by a transform,
+ * which leaves `devicePixelRatio` alone, so the canvas is sized against this
+ * times the zoom factor.
+ */
 function readDevicePixelRatio(): number {
   if (typeof window === "undefined") return 1;
   return window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
@@ -287,7 +293,7 @@ export function TugSparkline({
    */
   const hostRef = useRef<SparklineHost | null>(null);
   /**
-   * The live device pixel ratio — STRUCTURE-ZONE state ([L24]): it decides
+   * The live display backing scale — STRUCTURE-ZONE state ([L24]): it decides
    * which canvas element exists, not how anything looks, so `useState` is the
    * right mechanism and [L06] is not in play.
    *
@@ -296,7 +302,17 @@ export function TugSparkline({
    * ratio itself rather than an invalidation counter so the `key` and the
    * geometry are computed from one value and cannot disagree.
    */
-  const [dpr, setDpr] = useState(readDevicePixelRatio);
+  const [deviceRatio, setDeviceRatio] = useState(readDevicePixelRatio);
+  /**
+   * The View › Zoom factor, through the store ([L02]). The deck root's
+   * transform scales the canvas's presentation by it, and a transform never
+   * moves `devicePixelRatio`, so the backing store is sized by the product:
+   * at 200 % a canvas sized by the display ratio alone is upsampled twice
+   * over and draws soft.
+   */
+  const zoomFactor = usePageZoom().factor;
+  /** Backing-store pixels per layout px: the display's scale times the zoom. */
+  const dpr = deviceRatio * zoomFactor;
   /**
    * Which claim the canvas element below belongs to — STRUCTURE-ZONE state
    * ([L24]), exactly as `dpr` is: it decides which element exists, not how
@@ -320,10 +336,10 @@ export function TugSparkline({
   /**
    * Track the live resolution. `devicePixelRatio` is read once at claim time
    * and would otherwise never be read again: drag the window to a display at a
-   * different scale factor, or apply page zoom (which moves
-   * `devicePixelRatio` in WebKit, and persists per bundle), and the backing
-   * store stays permanently mismatched to the presentation size — a soft,
-   * resampled tape with no way back short of a reload.
+   * different scale factor and the backing store stays permanently mismatched
+   * to the presentation size — a soft, resampled tape with no way back short
+   * of a reload. A zoom step does not reach here; it arrives through the
+   * store above.
    *
    * The query matches the CURRENT ratio, so `change` fires exactly when it
    * stops being current, and the effect re-installs against the new one.
@@ -332,11 +348,11 @@ export function TugSparkline({
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
-    const query = window.matchMedia(`(resolution: ${dpr}dppx)`);
-    const onChange = (): void => setDpr(readDevicePixelRatio());
+    const query = window.matchMedia(`(resolution: ${deviceRatio}dppx)`);
+    const onChange = (): void => setDeviceRatio(readDevicePixelRatio());
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
-  }, [dpr]);
+  }, [deviceRatio]);
 
   /**
    * Claim the canvas, put the instrument on a thread, and feed it.

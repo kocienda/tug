@@ -93,9 +93,14 @@ function clipMarkerToText(
   // the caret clamp) keeps `scrollLeft` structurally pinned at 0. No-op
   // for in-bounds rects and for non-wrapping editors that legitimately
   // scroll horizontally.
+  // The marker is viewport px (the layer counter-scales); the scroller's
+  // extent is layout px, so it is multiplied up by `scaleX` to meet it.
   const rawRight = marker.left + width;
   const markerRight = view.contentDOM.classList.contains("cm-lineWrapping")
-    ? Math.min(rawRight, view.scrollDOM.scrollLeft + view.scrollDOM.clientWidth)
+    ? Math.min(
+        rawRight,
+        (view.scrollDOM.scrollLeft + view.scrollDOM.clientWidth) * view.scaleX,
+      )
     : rawRight;
 
   const out: RectangleMarker[] = [];

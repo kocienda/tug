@@ -54,10 +54,12 @@ export function hostClickClaimsCaret(
   }
   // The scrollbar band is not text surface: the scroller's client box
   // excludes scrollbars, so a point past it is on the bar itself.
+  // The client box is layout px and the point is viewport px, so the box is
+  // multiplied up by CM6's own scale under a zoom.
   const scroller = view.scrollDOM;
   const rect = scroller.getBoundingClientRect();
-  if (clientX > rect.left + scroller.clientWidth) return false;
-  if (clientY > rect.top + scroller.clientHeight) return false;
+  if (clientX > rect.left + scroller.clientWidth * view.scaleX) return false;
+  if (clientY > rect.top + scroller.clientHeight * view.scaleY) return false;
   return true;
 }
 

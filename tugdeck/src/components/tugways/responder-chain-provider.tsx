@@ -59,6 +59,8 @@ import { useOpenMenuClaim } from "./use-open-menu-claim";
 // ---- Fallback context menu ----
 
 import { mark as perfMark } from "@/lib/perf-marks";
+import { getRoot as getCanvasOverlayRoot } from "@/lib/canvas-overlay-registry";
+import { deckRootElement, layoutPxOf } from "@/lib/page-zoom-store";
 import "./tug-menu.css";
 import "./tug-key-sink.css";
 
@@ -90,8 +92,10 @@ function FallbackContextMenu({ x, y, onClose }: { x: number; y: number; onClose:
     let top = y;
     if (left + rect.width > vw - 8) left = Math.max(8, vw - rect.width - 8);
     if (top + rect.height > vh - 8) top = Math.max(8, vh - rect.height - 8);
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
+    // The clamp is viewport px; the menu lives inside the zoomed deck, so it
+    // is placed in layout px.
+    menu.style.left = `${layoutPxOf(left)}px`;
+    menu.style.top = `${layoutPxOf(top)}px`;
     menu.style.visibility = "visible";
 
     // Dismiss on click-away or keypress. Both press events, for the reason
@@ -1782,7 +1786,8 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
           y={fallbackMenu.y}
           onClose={closeFallbackMenu}
         />,
-        document.body,
+        // Inside the deck, so it scales with View › Zoom like every other menu.
+        getCanvasOverlayRoot() ?? deckRootElement(),
       )}
     </ResponderChainContext.Provider>
   );

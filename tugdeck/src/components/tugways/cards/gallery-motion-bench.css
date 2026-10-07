@@ -47,7 +47,7 @@
   position: fixed;
   top: 0;
   left: 0;
-  width: 60vw;
+  width: calc(0.6 * var(--tug-viewport-width, 100vw));
   z-index: 99999;
   pointer-events: none;
 }

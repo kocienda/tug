@@ -934,9 +934,9 @@ export function putTextCardCardSettings(cardId: string, settings: unknown): void
  *     (1 = 100%). Implemented as CSS `zoom` on the transcript root —
  *     it scales the whole transcript subtree (text, code, atoms, icons)
  *     uniformly via layout zoom, scoped to this card's transcript and
- *     leaving the surrounding chrome at 1×. Distinct from the macOS
- *     host's `WKWebView.pageZoom` (View > Zoom In / Out), which scales
- *     the entire window; the two compose.
+ *     leaving the surrounding chrome at 1×. Distinct from View › Zoom
+ *     In / Out, a transform on the whole deck root, which scales the
+ *     entire window; the two compose.
  */
 export interface TranscriptSettings {
   magnification: number;

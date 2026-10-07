@@ -222,13 +222,17 @@ export function captureEditState(view: EditorView): TugTextEditingState {
   // scroller's CSS height differs from the height map (transient
   // states during ResizeObserver settle). See
   // `TugTextEditingState#scrollAnchor` for the restore contract.
+  //
+  // The height map is viewport px under View › Zoom and `scrollTop` is
+  // layout px, so a height goes in times `scaleY` and comes out divided:
+  // `topOffsetPx` is layout px at every factor.
   const scrollTop = view.scrollDOM.scrollTop;
   let scrollAnchor: { topPos: number; topOffsetPx: number } | null = null;
   if (view.contentDOM.isConnected && scrollTop > 0) {
-    const block = view.lineBlockAtHeight(scrollTop);
+    const block = view.lineBlockAtHeight(scrollTop * view.scaleY);
     scrollAnchor = {
       topPos: block.from,
-      topOffsetPx: scrollTop - block.top,
+      topOffsetPx: scrollTop - block.top / view.scaleY,
     };
   } else if (scrollTop === 0) {
     // Explicit top-of-document anchor — round-trips deterministically

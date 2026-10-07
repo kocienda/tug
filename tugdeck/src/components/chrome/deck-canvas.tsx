@@ -26,8 +26,9 @@ import {
 } from "@/lib/fold-crossing";
 import {
   getTugTiming,
-  getTugZoom,
 } from "@/components/tugways/scale-timing";
+import { pageZoomFactor, pageZoomStore } from "@/lib/page-zoom-store";
+import { ZoomReadout } from "./zoom-readout";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
@@ -627,7 +628,7 @@ function PlaceSeam({
       const container = seam.parentElement;
       if (container === null) return;
 
-      const zoom = getTugZoom() || 1;
+      const zoom = pageZoomFactor();
       // The division the gesture starts from, and the run it is stated against
       // — the allocator's own, never a re-measure of the container. A seam
       // measuring its own run would be a second opinion about a number the
@@ -3286,6 +3287,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let seenInitial = false;
+    // A View › Zoom step resizes the deck root to the window ÷ the factor, so
+    // the canvas's layout size moves and a zoom re-tunes too. The re-tune
+    // lands RESIZE_RETUNE_QUIET_MS after the zoom's relayout, and it can move
+    // rails; held here, the step does not settle until it lands, so the
+    // readout covers the re-tune as well rather than leaving to show the
+    // rails move a beat later.
+    let releaseZoomHold: (() => void) | null = null;
+    const releaseHold = (): void => {
+      releaseZoomHold?.();
+      releaseZoomHold = null;
+    };
     const observer = new ResizeObserver(() => {
       if (!seenInitial) {
         seenInitial = true;
@@ -3294,9 +3306,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (retuneTimerRef.current !== null) {
         window.clearTimeout(retuneTimerRef.current);
       }
+      // Taken only while a zoom is in flight: a hold taken while settled is a
+      // no-op, and keeping that no-op would refuse the real hold to a zoom
+      // that lands inside a plain resize's quiet window.
+      if (releaseZoomHold === null && pageZoomStore.isZooming()) {
+        releaseZoomHold = pageZoomStore.hold();
+      }
       retuneTimerRef.current = window.setTimeout(() => {
         retuneTimerRef.current = null;
         store.retuneSidebarAllocation();
+        releaseHold();
       }, RESIZE_RETUNE_QUIET_MS);
     });
     observer.observe(el);
@@ -3306,6 +3325,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         window.clearTimeout(retuneTimerRef.current);
         retuneTimerRef.current = null;
       }
+      releaseHold();
     };
   }, [store]);
 
@@ -3521,7 +3541,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const canvasRectOf = (rect: DOMRect): Rect | null => {
       const canvas = containerRef.current;
       if (canvas === null) return null;
-      const zoom = getTugZoom() || 1;
+      const zoom = pageZoomFactor();
       const box = canvas.getBoundingClientRect();
       return {
         x: (rect.left - box.left) / zoom,
@@ -3539,7 +3559,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const canvasFractionOf = (rect: Rect | null): GaugeRect | null => {
       const canvas = containerRef.current;
       if (canvas === null || rect === null) return null;
-      const zoom = getTugZoom() || 1;
+      const zoom = pageZoomFactor();
       const box = canvas.getBoundingClientRect();
       const width = box.width / zoom;
       const height = box.height / zoom;
@@ -3567,7 +3587,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     ): DropZoneSet => {
       const canvas = containerRef.current;
       if (canvas === null) return { zones: [], origin: null };
-      const zoom = getTugZoom() || 1;
+      const zoom = pageZoomFactor();
       const canvasRect = canvas.getBoundingClientRect();
       const toCanvas = (rect: DOMRect): Rect => ({
         x: (rect.left - canvasRect.left) / zoom,
@@ -3881,7 +3901,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               `.tug-pane[data-pane-id="${seated.paneId}"]`,
             );
             if (first === null) continue;
-            const zoom = getTugZoom() || 1;
+            const zoom = pageZoomFactor();
             const canvasRect = canvas.getBoundingClientRect();
             const rect = first.getBoundingClientRect();
             const left = (rect.left - canvasRect.left) / zoom;
@@ -3921,7 +3941,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               `.tug-pane[data-pane-id="${seated}"]`,
             );
             if (first === null) continue;
-            const zoom = getTugZoom() || 1;
+            const zoom = pageZoomFactor();
             const canvasRect = canvas.getBoundingClientRect();
             const rect = first.getBoundingClientRect();
             const left = (rect.left - canvasRect.left) / zoom;
@@ -5083,7 +5103,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           bare, because a cap wide enough to reach the band would BE the cut:
           painting ground over a card at the band edge is the razor again in
           another material, and the card would never be seen arriving at the
-          rail at all. Each paints the body's own ground, grid and all, so it
+          rail at all. Each paints the deck root's own ground, grid and all, so it
           reads as canvas rather than as a stripe; each takes the press so no
           card the user cannot see receives it; and each carries the
           canvas-background marker so the press it took still deselects, which
@@ -5108,7 +5128,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             className={`tug-margin-cap tug-margin-cap--${side}`}
             data-margin-cap={side}
             aria-hidden="true"
-            style={{ width: `${bare}px`, zIndex: MARGIN_CAP_ZINDEX }}
+            style={
+              {
+                width: `${bare}px`,
+                // The right cap phases its grid from it (margin-cap.css).
+                "--tugx-margin-cap-width": `${bare}px`,
+                zIndex: MARGIN_CAP_ZINDEX,
+              } as React.CSSProperties
+            }
             {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
           />
         );
@@ -5182,6 +5209,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         * centre of the window, with an x. Shows only while an update is live
         * and the wizard is closed; clicking it opens the wizard. */}
       <UpdatePill />
+      {/* The factor a View › Zoom step is going to, raised as the step is
+        * applied and let go once it settles. See zoom-readout.tsx. */}
+      <ZoomReadout />
       </div>
     </ResponderScope>
   );

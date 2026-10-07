@@ -348,12 +348,21 @@ async function openColumn(app: App): Promise<void> {
   await settled(app);
 }
 
-/** Both members' standing heights, and the room above their floors. */
+/**
+ * Both members' standing heights, and the room above their floors, in the
+ * deck's layout px — the space the floors are stated in. A zoomed-out deck
+ * is a `transform: scale(f)` on its root, so a rect here is viewport px and
+ * is divided back by the root's scale, read off the root itself.
+ */
 async function columnRoom(app: App): Promise<{ heights: number[]; slack: number }> {
   const heights = await app.evalJS<number[]>(
-    `${JSON.stringify(DIVIDED.map((c) => pane(c)))}.map(function (sel) {
-      return document.querySelector(sel).getBoundingClientRect().height;
-    })`,
+    `(function () {
+      var root = document.getElementById("deck-container");
+      var scale = root.getBoundingClientRect().width / root.offsetWidth;
+      return ${JSON.stringify(DIVIDED.map((c) => pane(c)))}.map(function (sel) {
+        return document.querySelector(sel).getBoundingClientRect().height / scale;
+      });
+    })()`,
   );
   return { heights, slack: heights.reduce((a, b) => a + b, 0) - SESSION_FLOOR_PX * heights.length };
 }
@@ -573,6 +582,10 @@ async function arm(app: App): Promise<void> {
       // how long the thread was AWAY, and a rendering update that overran
       // its frame is exactly that.
       var last = performance.now();
+      // The deck root's View › Zoom scale: a rect is viewport px, a pin is
+      // layout px, and the lag compares them in the pin's space.
+      var root = document.getElementById("deck-container");
+      var scale = root.getBoundingClientRect().width / root.offsetWidth;
       var beat = function () {
         if (!state.armed) return;
         var now = performance.now();
@@ -588,7 +601,7 @@ async function arm(app: App): Promise<void> {
           // same work a moment later — and it is the only reading that can
           // tell a pin written on time from a box that follows it late.
           if (/px$/.test(el.style.height)) {
-            var box = el.getBoundingClientRect().height;
+            var box = el.getBoundingClientRect().height / scale;
             lag = Math.max(lag, Math.abs(box - parseFloat(el.style.height)));
           }
         });

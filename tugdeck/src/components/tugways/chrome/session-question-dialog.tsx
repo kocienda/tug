@@ -156,6 +156,7 @@
  */
 
 import "./session-question-dialog.css";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
@@ -1971,10 +1972,11 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
       ?.querySelector<HTMLElement>(":scope > .tool-call-header");
     if (header === null || header === undefined) return;
     const REVEAL_RING_GAP_PX = 6;
+    // Layout px: the shortfall is taken off a `scrollTop`.
     const shortfall =
-      header.getBoundingClientRect().bottom +
+      layoutRectOf(header).bottom +
       REVEAL_RING_GAP_PX -
-      target.getBoundingClientRect().top;
+      layoutRectOf(target).top;
     if (shortfall <= 0) return;
     for (let node = target.parentElement; node !== null; node = node.parentElement) {
       if (node.scrollHeight <= node.clientHeight) continue;
@@ -2009,11 +2011,12 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   const syncPanelFloor = React.useCallback(() => {
     const panel = panelRef.current;
     if (panel === null) return;
-    const rect = panel.getBoundingClientRect();
+    // Layout px: the floor is written back as `min-height`.
+    const rect = layoutRectOf(panel);
     if (Math.abs(rect.width - panelFloorWidthRef.current) > 0.5) {
       panelFloorWidthRef.current = rect.width;
       panel.style.minHeight = "";
-      const natural = panel.getBoundingClientRect().height;
+      const natural = layoutRectOf(panel).height;
       panelFloorRef.current = Math.ceil(natural);
       panel.style.minHeight = `${panelFloorRef.current}px`;
       return;

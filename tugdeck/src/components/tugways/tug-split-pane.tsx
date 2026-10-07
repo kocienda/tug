@@ -210,8 +210,9 @@ export type TugSplitPaneOrientation = "horizontal" | "vertical";
  * Accepts either a number or a string:
  * - **number** → pixels (e.g. `200` = 200px). Matches the library's v4
  *   convention.
- * - **string with unit suffix** → `"50%"`, `"200px"`, `"4rem"`, `"1.5em"`,
- *   `"30vh"`, `"20vw"`. Supported units: `%`, `px`, `em`, `rem`, `vh`, `vw`.
+ * - **string with unit suffix** → `"50%"`, `"200px"`, `"4rem"`, `"1.5em"`.
+ *   Supported units: `%`, `px`, `em`, `rem`. Not `vh`/`vw`: they resolve
+ *   against the real window, which is not the deck's under View › Zoom.
  * - **string without unit** → percent. `"50"` is equivalent to `"50%"`.
  *
  * Prefer explicit percentage strings (`"60%"`) for proportional layouts

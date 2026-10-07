@@ -109,7 +109,13 @@ final class TestHarnessConnection {
     /// than reading a seam that cannot move. Gestures still land: native
     /// events map through `CoordMapping`, which scales by the zoom.
     /// Additive; major stays `1`.
-    static let surfaceVersion = "1.11.0"
+    ///
+    /// `1.12.0`: `setPageZoom` is View › Zoom itself — a transform on the
+    /// deck root sized to the window ÷ the factor, with `pageZoom` held at
+    /// 1.0 — and responds once the deck has painted the factor.
+    /// `CoordMapping` no longer scales: a viewport coord is a view point at
+    /// every factor. The RPC's shape is unchanged; major stays `1`.
+    static let surfaceVersion = "1.12.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -536,20 +542,23 @@ final class TestHarnessConnection {
         }
     }
 
-    /// Set the page zoom for this launch, clamped to the app's own range and
-    /// written to the web view alone: the user's persisted zoom is the View
-    /// menu's (`MainWindow.setPageZoom`), and a launch under the harness pins
-    /// 1.0 at start, so nothing set here reaches the next launch. Responds
-    /// with the zoom the view took.
+    /// Set the page zoom for this launch, clamped to the app's own range,
+    /// through the host's own path (`MainWindow.applyPageZoom`) and never
+    /// persisted: the user's persisted zoom is the View menu's
+    /// (`MainWindow.setPageZoom`), and a launch under the harness pins 1.0 at
+    /// start, so nothing set here reaches the next launch. Responds once the
+    /// deck's apply has resolved — the new factor painted — with the factor
+    /// taken, so no test waits on a ratio.
     private func dispatchSetPageZoom(id: Int, zoom: Double?) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            guard let webView = self.webView, let zoom = zoom else {
+            guard let mainWindow = self.webView?.window as? MainWindow, let zoom = zoom else {
                 self.respondError(id: id, name: "ZoomError", message: "no web view or no zoom")
                 return
             }
-            webView.pageZoom = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, CGFloat(zoom)))
-            self.respond(id: id, ok: true, payload: ["value": Double(webView.pageZoom)])
+            mainWindow.applyPageZoom(CGFloat(zoom)) { [weak self] in
+                self?.respond(id: id, ok: true, payload: ["value": Double(mainWindow.currentPageZoom)])
+            }
         }
     }
 

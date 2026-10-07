@@ -21,6 +21,7 @@
 
 import type { IDeckManagerStore } from "./deck-manager-store";
 import { SHOWN_PANE_FRAMES } from "./components/chrome/space-layer";
+import { layoutPxOf } from "./lib/page-zoom-store";
 import {
   captureFocusForDragStart,
   transferFocusAfterMove,
@@ -512,14 +513,15 @@ class CardDragCoordinator {
         }
       }
     } else if (mode === "detach") {
-      // Convert viewport drop coordinates to container-relative position. []
+      // Convert viewport drop coordinates to a container-relative position,
+      // in the container's layout px (View › Zoom scales the container). []
       let x = dropX;
       let y = dropY;
       if (containerRect) {
         x = dropX - containerRect.left;
         y = dropY - containerRect.top;
       }
-      store.detachCard(sourcePaneId, sourceCardId, { x, y });
+      store.detachCard(sourcePaneId, sourceCardId, { x: layoutPxOf(x), y: layoutPxOf(y) });
     } else if (mode === "merge" && mergeTarget) {
       store.moveCardToPane(sourcePaneId, sourceCardId, mergeTarget.paneId, mergeTarget.insertIndex);
     }
@@ -689,7 +691,8 @@ class CardDragCoordinator {
       leftPx = tabRect.left - barRect.left;
     }
 
-    this.indicatorElement.style.left = `${leftPx}px`;
+    // A rect delta, written as a layout px offset.
+    this.indicatorElement.style.left = `${layoutPxOf(leftPx)}px`;
   }
 
   private removeInsertionIndicator(): void {
@@ -739,8 +742,10 @@ class CardDragCoordinator {
     if (!this.containerRect) return;
     const x = clientX - this.containerRect.left - this.grabOffsetX;
     const y = clientY - this.containerRect.top - this.grabOffsetY;
-    ghost.style.left = `${x}px`;
-    ghost.style.top = `${y}px`;
+    // Client px from the container's corner; the ghost lives in the
+    // container, whose px are layout px.
+    ghost.style.left = `${layoutPxOf(x)}px`;
+    ghost.style.top = `${layoutPxOf(y)}px`;
   }
 
   // ---------------------------------------------------------------------------

@@ -182,7 +182,7 @@ export interface DropZoneRail {
 
 /**
  * Everything the DOM knows that {@link DeckState} does not — measured once, at
- * drag-start, in canvas-relative layout px (the gesture divides out page zoom
+ * drag-start, in canvas-relative layout px (the gesture divides out View › Zoom
  * before it gets here).
  */
 export interface DropZoneMeasurements {

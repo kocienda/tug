@@ -109,6 +109,7 @@ import { cn } from "@/lib/utils";
 import { cm6FocusKeepsPlace } from "@/lib/cm6-focus-keeps-place";
 import { quoteMarkdown, stripMarkdown } from "@/lib/paste-transforms";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { pageZoomFactor } from "@/lib/page-zoom-store";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTabKeyBinding } from "./editor-tab-key";
 import { loadMarkdownTextStyling } from "./tug-text-editor/markdown-text-styling";
@@ -1020,9 +1021,10 @@ const keepCaretVisible: Extension = EditorView.updateListener.of((update) => {
       const head = view.state.selection.main.head;
       const block = view.lineBlockAt(head);
       const scroller = view.scrollDOM;
+      // The height map is viewport px under a zoom; `scrollTop` is layout.
       return {
-        blockTop: block.top,
-        blockBottom: block.bottom,
+        blockTop: block.top / view.scaleY,
+        blockBottom: block.bottom / view.scaleY,
         scrollTop: scroller.scrollTop,
         clientHeight: scroller.clientHeight,
       };
@@ -1112,7 +1114,8 @@ const ROW_HEIGHT_VARIABLE = "--tug-text-editor-row-height";
  */
 function writeRowHeight(view: EditorView): void {
   const target = view.dom.parentElement ?? view.dom;
-  const next = `${view.defaultLineHeight}px`;
+  // `defaultLineHeight` is measured in viewport px; the variable is CSS px.
+  const next = `${view.defaultLineHeight / view.scaleY}px`;
   if (target.style.getPropertyValue(ROW_HEIGHT_VARIABLE) === next) return;
   target.style.setProperty(ROW_HEIGHT_VARIABLE, next);
 }
@@ -3579,24 +3582,37 @@ function paintCompletionPopup(
       anchorCoords: { left: number; top: number; bottom: number } | null;
       popupWidth: number;
       popupHeight: number;
+      viewportWidth: number;
+      viewportHeight: number;
     } | null {
       if (popup === null) return null;
-      const anchorCoords = view.coordsAtPos(state.anchorOffset);
+      // The popup sits in the canvas overlay root, inside the zoomed deck,
+      // so it is placed in layout px: the caret's viewport coords and the
+      // window are divided by the zoom; `offset*` already are layout.
+      const f = pageZoomFactor();
+      const coords = view.coordsAtPos(state.anchorOffset);
+      const anchorCoords =
+        coords === null
+          ? null
+          : { left: coords.left / f, top: coords.top / f, bottom: coords.bottom / f };
       return {
         anchorCoords,
         popupWidth: popup.offsetWidth,
         popupHeight: popup.offsetHeight,
+        viewportWidth: window.innerWidth / f,
+        viewportHeight: window.innerHeight / f,
       };
     },
     write(measured) {
       if (measured === null || popup === null) return;
-      const { anchorCoords, popupWidth, popupHeight } = measured;
+      const { anchorCoords, popupWidth, popupHeight, viewportWidth, viewportHeight } =
+        measured;
       const result = computeCompletionPosition({
         anchorCoords,
         popupWidth,
         popupHeight,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
+        viewportWidth,
+        viewportHeight,
         direction,
       });
       if (result.top === null || result.left === null) {

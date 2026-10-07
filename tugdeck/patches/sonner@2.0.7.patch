@@ -1,0 +1,38 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index d0c7a5a1fa1ed8b19c27bea968bb404f2437a07e..e3fc1c3c3e71886e25ea11ba59b039faf5c14b47 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -437,6 +437,15 @@ function getDefaultSwipeDirections(position) {
+     }
+     return directions;
+ }
++// tug: a toast's height in CSS px. The stack offsets are CSS px, and under an
++// ancestor `transform: scale()` (View › Zoom) a rect's height is not: it is
++// divided by the scale the toast is drawn at, read as rect ÷ offset size and
++// snapped to 1 within half a percent so the unzoomed deck is untouched.
++function tugLayoutHeight(node) {
++    const rect = node.getBoundingClientRect();
++    const scale = node.offsetWidth > 0 ? rect.width / node.offsetWidth : 1;
++    return scale > 0.995 && scale < 1.005 || !(scale > 0) ? rect.height : rect.height / scale;
++}
+ const Toast = (props)=>{
+     var _toast_classNames, _toast_classNames1, _toast_classNames2, _toast_classNames3, _toast_classNames4, _toast_classNames5, _toast_classNames6, _toast_classNames7, _toast_classNames8;
+     const { invert: ToasterInvert, toast, unstyled, interacting, setHeights, visibleToasts, heights, index, toasts, expanded, removeToast, defaultRichColors, closeButton: closeButtonFromToaster, style, cancelButtonStyle, actionButtonStyle, className = '', descriptionClassName = '', duration: durationFromToaster, position, gap, expandByDefault, classNames, icons, closeButtonAriaLabel = 'Close toast' } = props;
+@@ -510,7 +519,7 @@ const Toast = (props)=>{
+     React.useEffect(()=>{
+         const toastNode = toastRef.current;
+         if (toastNode) {
+-            const height = toastNode.getBoundingClientRect().height;
++            const height = tugLayoutHeight(toastNode);
+             // Add toast height to heights array after the toast is mounted
+             setInitialHeight(height);
+             setHeights((h)=>[
+@@ -533,7 +542,7 @@ const Toast = (props)=>{
+         const toastNode = toastRef.current;
+         const originalHeight = toastNode.style.height;
+         toastNode.style.height = 'auto';
+-        const newHeight = toastNode.getBoundingClientRect().height;
++        const newHeight = tugLayoutHeight(toastNode);
+         toastNode.style.height = originalHeight;
+         setInitialHeight(newHeight);
+         setHeights((heights)=>{

@@ -105,6 +105,7 @@ import {
   RESIZE_PRESERVE_END,
 } from "@/lib/resize-episode";
 import { SmartScroll } from "@/lib/smart-scroll";
+import { layoutRectFrom, layoutRectOf, pageZoomStore } from "@/lib/page-zoom-store";
 import {
   isInteriorHeld,
   STILL_CROSSING_END,
@@ -126,7 +127,11 @@ import {
   prependScrollAdjustment,
 } from "./internal/list-view-prepend";
 import { computePageNavigation } from "./internal/list-view-page-navigation";
-import { computeWindow } from "./internal/list-view-window";
+import {
+  classifyWidthSettle,
+  computeWindow,
+  resolveEvictWindow,
+} from "./internal/list-view-window";
 import { OuterScrollportProvider } from "./internal/outer-scrollport-context";
 import {
   ScrollerProvider,
@@ -3020,10 +3025,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         prevRange: prevWindowRangeRef.current,
       });
       const ledger = heightIndexRef.current;
-      if (
-        ledger.coversRange(0, candidate.firstIndex) &&
-        ledger.coversRange(candidate.lastIndex, itemCount)
-      ) {
+      const resolution = resolveEvictWindow(candidate, ledger, itemCount);
+      if (resolution.kind === "evict") {
         windowResult = candidate;
         evictingThisCommit = true;
       } else {
@@ -3039,23 +3042,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // invariant holds by construction. Only when widening degenerates
         // to the full range (a cold or wiped ledger) is the commit a
         // true suspension, and counted as one.
-        let widenedFirst = candidate.firstIndex;
-        for (let i = 0; i < widenedFirst; i += 1) {
-          if (!ledger.has(i)) {
-            widenedFirst = i;
-            break;
-          }
-        }
-        let widenedLast = candidate.lastIndex;
-        for (let i = itemCount - 1; i >= widenedLast; i -= 1) {
-          if (!ledger.has(i)) {
-            widenedLast = i + 1;
-            break;
-          }
-        }
-        if (widenedFirst === 0 && widenedLast === itemCount) {
+        if (resolution.kind === "suspended") {
           evictSuspendedThisCommit = true;
         } else {
+          const widenedFirst = resolution.firstIndex;
+          const widenedLast = resolution.lastIndex;
           let topSpacerHeight = 0;
           for (let i = 0; i < widenedFirst; i += 1) {
             topSpacerHeight += Math.max(0, heightForIndex(i));
@@ -3450,8 +3441,19 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // fail on the next commit, which renders every row (plain inline),
     // re-measures at the new width, and re-arms eviction once the
     // ledger is whole again — the suspension path doing exactly the job
-    // it exists for. A page-zoom or font-scale change reaches here the
-    // same way, since both change the scroller's effective width.
+    // it exists for. A font-scale change reaches here the same way.
+    //
+    // A View › Zoom step does not (`classifyWidthSettle`). The deck root
+    // is resized to the window ÷ the factor, so a viewport-sized card's
+    // layout width moves with every step, and a wipe on that suspended
+    // eviction on every transcript on the deck at once, mounting each one
+    // whole: the multi-second freeze a zoom step used to cost. A settle
+    // whose width moved together with the zoom factor keeps the ledger
+    // and the stamps; the mounted cells are re-observed so they re-deliver
+    // the heights the freeze dropped, and an offscreen row's height
+    // refreshes when it next mounts, scroll anchoring holding the reader's
+    // place if it moved. The key is the store's factor, never
+    // `devicePixelRatio`, which a transform leaves where it was.
     //
     // The reader's place is held across all of that by the resize
     // episode's restore target (`onPreserveBegin`), which is a resolver
@@ -3466,6 +3468,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       const scroller = scrollContainerRef.current;
       if (scroller === null) return;
       let lastWidth = scroller.clientWidth;
+      let lastZoomFactor = pageZoomStore.getFactor();
       let settleTimer: ReturnType<typeof setTimeout> | null = null;
       // The invalidation body runs once, at settle — not per observer
       // fire. During the pending window the cell observer is frozen
@@ -3486,10 +3489,30 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // stays a no-op. The re-show at a *changed* width
         // re-qualifies against the old baseline below.
         if (width === 0) return;
+        const kind = classifyWidthSettle(
+          { width: lastWidth, zoomFactor: lastZoomFactor },
+          { width, zoomFactor: pageZoomStore.getFactor() },
+        );
         lastWidth = width;
+        lastZoomFactor = pageZoomStore.getFactor();
         // A width change can carry a layout/density change with it; re-read
         // the gap before the re-measure repopulates the ledger against it.
         syncRowGap();
+        // Only a reflow invalidates. A rescale keeps every measurement, and
+        // a width that came back to its baseline inside the debounce never
+        // moved one; either way the freeze dropped the mounted cells'
+        // deliveries, so re-observing them is what re-delivers the heights
+        // (an observe always delivers once).
+        if (kind !== "reflowed") {
+          const cellObserver = observerRef.current;
+          if (cellObserver !== null) {
+            for (const el of cellElementMapRef.current.values()) {
+              cellObserver.unobserve(el);
+              cellObserver.observe(el);
+            }
+          }
+          return;
+        }
         if (offscreenSkip) {
           for (const el of cellElementMapRef.current.values()) {
             el.removeAttribute("data-cv-ready");
@@ -3535,6 +3558,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // and eviction could never arm.
         if (lastWidth === 0) {
           lastWidth = width;
+          lastZoomFactor = pageZoomStore.getFactor();
           return;
         }
         // Compared against the settled baseline, not the previous
@@ -5199,10 +5223,12 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     const rectSpaceRebasePx = React.useCallback((): number | null => {
       const scrollEl = scrollContainerRef.current;
       if (scrollEl === null) return null;
-      const viewTop = scrollEl.getBoundingClientRect().top;
+      // Layout px throughout: the ledger offsets and `scrollTop` are, so
+      // the rects are divided by the zoom before they meet them.
+      const viewTop = layoutRectOf(scrollEl).top;
       for (const [j, el] of cellElementMapRef.current) {
         return (
-          el.getBoundingClientRect().top -
+          layoutRectOf(el).top -
           viewTop +
           scrollEl.scrollTop -
           (heightIndexRef.current.offsetForIndex(
@@ -5336,9 +5362,13 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       } | null => {
         const el = scrollContainerRef.current;
         if (el === null) return null;
-        const rect = live.request.getRect();
-        if (rect === null) return null;
-        const box = el.getBoundingClientRect();
+        // The caller's rect is viewport px; the band is built from
+        // `clientHeight` and a CSS inset, which are layout px. Everything
+        // here, and the placement that reads `rect` back, is layout.
+        const viewportRect = live.request.getRect();
+        if (viewportRect === null) return null;
+        const rect = layoutRectFrom(viewportRect);
+        const box = layoutRectOf(el);
         const portTop = box.top + el.clientTop;
         const portBottom = portTop + el.clientHeight;
         const insetTop = live.request.getBandInsetTop?.() ?? 0;
@@ -5565,7 +5595,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         if (ss === null || scrollEl === null) return false;
         const itemCount = dataSource.numberOfItems();
         if (itemCount === 0) return false;
-        const viewTop = scrollEl.getBoundingClientRect().top;
+        const viewTop = layoutRectOf(scrollEl).top;
         // Under `evictOffscreen` most rows are unmounted, so their tops
         // come from the ledger (exact — eviction only engages when every
         // out-of-window row is measured), re-based into rect space via a
@@ -5588,7 +5618,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           const el = cellElementMapRef.current.get(i);
           cellEls.push(el);
           if (el !== undefined) {
-            cellTops.push(el.getBoundingClientRect().top - viewTop);
+            cellTops.push(layoutRectOf(el).top - viewTop);
           } else if (rebase !== null) {
             cellTops.push(ledgerTopFor(i) + rebase);
           } else {

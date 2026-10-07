@@ -56,6 +56,7 @@
 
 import { deckTrace } from "../deck-trace";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
+import { layoutRectOf } from "./page-zoom-store";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -876,10 +877,11 @@ export class SmartScroll {
     const el = this._container;
     // `clientTop` is the border width: the scrollport's content box starts
     // inside it, and `clientHeight` already excludes the borders.
-    const portTop = el.getBoundingClientRect().top + el.clientTop;
+    const portTop = layoutRectOf(el).top + el.clientTop;
     const portHeight = el.clientHeight;
-    const rect = element.getBoundingClientRect();
-    // Target position expressed in scrollport-relative coordinates.
+    const rect = layoutRectOf(element);
+    // Target position expressed in scrollport-relative coordinates, in the
+    // layout px `clientHeight` and `scrollTop` speak under a zoom.
     const top = rect.top - portTop;
     const bottom = top + rect.height;
     let delta: number;

@@ -60,7 +60,9 @@ body {
  *     follows from this for free: the JS clamp measures the clip's
  *     own rect, so moving the clip top moves the panel's bottom with
  *     it and the `max-height` fallback below needs no change.
- *   * `height: 100vh` accommodates panels taller than the host
+ *   * `height: var(--tug-viewport-height, 100vh)` — the deck's window
+ *     height, which is the window ÷ the View › Zoom factor — accommodates
+ *     panels taller than the host
  *     pane (panel scrolls inside `.tug-sheet-content` via
  *     `overflow-y: auto`). The clip may extend past the chrome's
  *     bottom edge into the canvas grid below, and past the frame's
@@ -90,7 +92,7 @@ body {
      where the pane sits relative to the canvas). The panel's `max-height` is
      clamped in JS to the measured canvas bottom (see `clampSheetToCanvas` in
      tug-sheet.tsx) — the same rectangle-math panes use when drag-resizing. */
-  height: 100vh;
+  height: var(--tug-viewport-height, 100vh);
   z-index: 2;
   overflow: hidden;
   pointer-events: none;
@@ -118,7 +120,7 @@ body {
  * status bar, or above the find bar while it is open, and grows upward: the
  * direction the card's own content moves, and near the chips that opened it. */
 .tug-sheet-clip[data-vertical-anchor="bottom"] {
-  /* Both edges are set, so the height is derived — the `100vh` above must go. */
+  /* Both edges are set, so the height is derived — the window height above must go. */
   height: auto;
   display: flex;
   flex-direction: column;
@@ -196,7 +198,7 @@ body {
   /* Fallback cap for the standalone (no-pane) case; in a pane the JS clamp
      overrides this with an inline `max-height` measured against the canvas
      bottom (32px gap, `SHEET_CANVAS_GAP`), so the footer is always reachable. */
-  max-height: calc(100vh - var(--tug-chrome-height) - 32px);
+  max-height: calc(var(--tug-viewport-height, 100vh) - var(--tug-chrome-height) - 32px);
   overflow-y: auto;
   /* No scrollbar, ever. A sheet is a panel, not a document: the bar reads as
      chrome on a surface that is supposed to be one glance. The scroll itself

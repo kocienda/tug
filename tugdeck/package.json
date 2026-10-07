@@ -96,5 +96,9 @@
     "postcss": "^8.5.8",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
+  },
+  "patchedDependencies": {
+    "react-resizable-panels@4.10.0": "patches/react-resizable-panels@4.10.0.patch",
+    "sonner@2.0.7": "patches/sonner@2.0.7.patch"
   }
 }

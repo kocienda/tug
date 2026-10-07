@@ -139,8 +139,8 @@ export const TugAtomTextBody = React.forwardRef<
   const segments = walkAtomText(text, atoms);
   // Publish the prose register — the box every atom in this body is drawn to,
   // baked or live, and the line-box floor that keeps a line the same height
-  // whether or not it carries one. The Swift host's `WKWebView.pageZoom`
-  // scales all of them together.
+  // whether or not it carries one. View › Zoom, a transform on the deck
+  // root, scales all of them together.
   const hostStyle = atomRegisterVars() as React.CSSProperties;
   return (
     <span

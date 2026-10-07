@@ -431,18 +431,24 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: - Page zoom (View > Actual Size / Zoom In / Zoom Out)
     //
-    // The View menu's zoom commands drive `webView.pageZoom` directly —
-    // the same machinery Safari's View > Zoom uses. Setting `pageZoom`
-    // scales the entire page uniformly (layout, text, images, SVG) so
-    // the web frontend doesn't need a parallel scaling system. The
+    // The host owns the factor — the View menu, its chords, the bounds and
+    // the persistence — and the deck applies it: a `transform: scale(f)` on
+    // its root, sized to the window ÷ f (`tugdeck/src/lib/page-zoom-store.ts`).
+    // `webView.pageZoom` is never written and stays 1.0: WebKit floors every
+    // face at 9 zoomed px under it, so below 90 % the type stopped shrinking
+    // while the boxes kept going, and no host door lifts that floor. The
     // user's chosen zoom persists to `UserDefaults` and is reapplied on
-    // launch in `init`. Bounds and step match the menu's expectations:
-    // 50%–200% in 10% increments.
+    // launch, before the web view is revealed. Bounds and step match the
+    // menu's expectations: 50%–200% in 10% increments.
     private static let pageZoomDefaultsKey = "WebViewPageZoom"
     static let minPageZoom: CGFloat = 0.5
     static let maxPageZoom: CGFloat = 2.0
     static let pageZoomStep: CGFloat = 0.1
     static let defaultPageZoom: CGFloat = 1.0
+
+    /// The View › Zoom factor the deck is drawn at — stored state, applied by
+    /// the deck to its own root. Never `webView.pageZoom`.
+    private var zoomFactor: CGFloat = MainWindow.defaultPageZoom
 
     /// Minimum content size the user can resize the window down to.
     /// The Session card + the canvas need this much room to lay out without
@@ -567,25 +573,23 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         webView.setValue(false, forKey: "drawsBackground")
         webView.isHidden = true
 
-        // Restore the user's last page-zoom selection from UserDefaults.
-        // `object(forKey:)` returns nil for an unset key (first launch);
-        // we leave `webView.pageZoom` at its default 1.0 in that case.
-        // A persisted value outside the bounds (e.g. from a future range
-        // change) is clamped, not discarded — the next zoom action
-        // re-writes the clamped value back to defaults.
+        // Restore the user's last page-zoom selection from UserDefaults. The
+        // deck receives it on `frontendReady`, ahead of the reveal, and
+        // applies it to its root (`bridgePageZoom`); `webView.pageZoom` is
+        // left at 1.0. `object(forKey:)` returns nil for an unset key (first
+        // launch); the factor stays 1.0 in that case. A persisted value
+        // outside the bounds (e.g. from a future range change) is clamped,
+        // not discarded — the next zoom action re-writes the clamped value
+        // back to defaults.
         //
-        // The app-test harness pins 1.0 instead of restoring. Native
-        // gestures are posted in CSS viewport coordinates and land through
-        // `CoordMapping.viewportToScreen`; a non-unity zoom scales every
-        // landing away from its target, and the error grows with distance
-        // from the origin, so a stray ⌘+ in one app-test window silently
-        // mis-aims every gesture in every later run. Test geometry is the
-        // harness's to control, not a persisted user preference's.
+        // The app-test harness pins 1.0 instead of restoring. A stray ⌘+ in
+        // one app-test window would otherwise change the geometry of every
+        // later run. Test geometry is the harness's to control
+        // (`setPageZoom`), not a persisted user preference's.
         if ProcessInfo.processInfo.environment["TUGAPP_APP_TEST"] == "1" {
-            webView.pageZoom = 1.0
+            zoomFactor = MainWindow.defaultPageZoom
         } else if let saved = UserDefaults.standard.object(forKey: MainWindow.pageZoomDefaultsKey) as? Double {
-            let clamped = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, CGFloat(saved)))
-            webView.pageZoom = clamped
+            zoomFactor = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, CGFloat(saved)))
         }
 
         // Container view holds both the WebView and any snapshot overlays.
@@ -774,16 +778,16 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     /// Convert a window-local AppKit point into viewport (CSS) coordinates and
     /// hand it to the deck. `WKWebView` is a flipped view, so `convert` returns
-    /// the Y-down, top-left-origin point the DOM uses; a CSS px is `pageZoom`
-    /// view points, so the result is scaled back out of the zoom (the inverse
-    /// of `CoordMapping.viewportToScreen`). Points outside the web view — the
+    /// the Y-down, top-left-origin point the DOM uses, and it is the viewport
+    /// point as it stands: View › Zoom is a transform on the deck root, never
+    /// `pageZoom`, so there is no scale between the two (the inverse of
+    /// `CoordMapping.viewportToScreen`). Points outside the web view — the
     /// title bar, the resize margins — activate nothing.
     private func forwardActivationClick(at locationInWindow: NSPoint) {
         let viewLocal = webView.convert(locationInWindow, from: nil)
         guard webView.bounds.contains(viewLocal) else { return }
-        let zoom = webView.pageZoom > 0 ? webView.pageZoom : 1.0
-        let x = viewLocal.x / zoom
-        let y = viewLocal.y / zoom
+        let x = viewLocal.x
+        let y = viewLocal.y
         webView.evaluateJavaScript(
             "window.__tugBridge?.onActivationClick?.(\(x), \(y))",
         ) { _, error in
@@ -844,15 +848,61 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     /// Current zoom factor (1.0 == actual size).
     var currentPageZoom: CGFloat {
-        return webView.pageZoom
+        return zoomFactor
     }
 
     /// Set page zoom to an exact value, clamped to [minPageZoom, maxPageZoom],
     /// and persist to UserDefaults so the choice survives across launches.
     func setPageZoom(_ zoom: CGFloat) {
-        let clamped = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, zoom))
-        webView.pageZoom = clamped
+        let clamped = applyPageZoom(zoom)
         UserDefaults.standard.set(Double(clamped), forKey: MainWindow.pageZoomDefaultsKey)
+    }
+
+    /// Set the zoom factor, clamped, and have the deck apply it. Returns the
+    /// factor taken. Persists nothing — the View menu's `setPageZoom` does,
+    /// and the app-test harness calls this directly so its zoom stays
+    /// per-launch.
+    ///
+    /// One awaited bridge call: the deck writes its root's transform and size
+    /// inside `onPageZoomApply`, waits until the new factor has painted and
+    /// whatever it re-tunes in answer has landed, and resolves. `completion`
+    /// runs on the main queue then — immediately when the factor did not
+    /// move. The stored factor moves at once, so the menu validator and a
+    /// second chord read the target, never the factor being left.
+    @discardableResult
+    func applyPageZoom(_ zoom: CGFloat, completion: (() -> Void)? = nil) -> CGFloat {
+        let clamped = max(MainWindow.minPageZoom, min(MainWindow.maxPageZoom, zoom))
+        if abs(clamped - zoomFactor) < 0.0001 {
+            completion?()
+            return zoomFactor
+        }
+        zoomFactor = clamped
+        webView.callAsyncJavaScript(
+            "return await window.__tugBridge?.onPageZoomApply?.(factor);",
+            arguments: ["factor": Double(clamped)],
+            in: nil,
+            in: .page
+        ) { result in
+            if case .failure(let error) = result {
+                NSLog("MainWindow: onPageZoomApply failed: %@", error.localizedDescription)
+            }
+            completion?()
+        }
+        return clamped
+    }
+
+    /// Tell the deck the standing factor, with no transition. Sent on every
+    /// `frontendReady` ahead of the reveal — the same in-order IPC carries it
+    /// before the view is unhidden — so a deck that loads or reloads at a
+    /// persisted zoom is never seen at 100 %.
+    func bridgePageZoom() {
+        webView.evaluateJavaScript(
+            "window.__tugBridge?.onPageZoom?.({factor: \(Double(zoomFactor))})"
+        ) { _, error in
+            if let error = error {
+                NSLog("MainWindow: onPageZoom failed: %@", error.localizedDescription)
+            }
+        }
     }
 
     /// Reset to 100%.
@@ -905,6 +955,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
           function anim(dot){ var a = dot && dot.getAnimations()[0]; return a ? { name: a.animationName, playState: a.playState, startTime: a.startTime, currentTime: a.currentTime } : null; }
           return JSON.stringify({
             innerWidth: window.innerWidth, innerHeight: window.innerHeight, dpr: window.devicePixelRatio,
+            zoom: (function(){ var d = document.getElementById('deck-container'); return d && d.offsetWidth > 0 ? d.getBoundingClientRect().width / d.offsetWidth : 1; })(),
             hosts: Array.from(document.querySelectorAll('.cm-tug-session-dot-host')).map(function(h){
               var root = h.querySelector('[data-slot="tug-progress-pulsing-dot"]');
               return { rect: r(h), session: h.getAttribute('data-session-id'), missing: h.getAttribute('data-missing'),
@@ -1864,21 +1915,20 @@ extension MainWindow: WKScriptMessageHandler {
             // layer sends the baseline it measured and the selection's font
             // travels with it.
             //
-            // Only the scale changes on the way in. A WKWebView's coordinate
-            // system is Y-down from the top-left — the same space the viewport
-            // rect was measured in — but `pageZoom` stands between CSS px and
-            // view points, so a reader who has pressed ⌘+ still gets the
-            // callout on the word rather than a fraction of the way up it.
+            // The point comes in as it is. A WKWebView's coordinate system is
+            // Y-down from the top-left — the same space the viewport rect was
+            // measured in, with View › Zoom's transform already applied. Only
+            // the font size is scaled: it is the computed style, in layout px,
+            // and the callout is redrawn over glyphs drawn at the zoom factor.
             guard let body = message.body as? [String: Any],
                   let text = body["text"] as? String, !text.isEmpty else { return }
-            let zoom = webView.pageZoom
             let anchor = NSPoint(
-                x: ((body["x"] as? Double) ?? 0) * zoom,
-                y: ((body["y"] as? Double) ?? 0) * zoom
+                x: (body["x"] as? Double) ?? 0,
+                y: (body["y"] as? Double) ?? 0
             )
             let font = MainWindow.definitionFont(
                 families: (body["fontFamily"] as? String) ?? "",
-                size: ((body["fontSize"] as? Double) ?? 0) * zoom,
+                size: ((body["fontSize"] as? Double) ?? 0) * Double(zoomFactor),
                 bold: (body["bold"] as? Bool) ?? false,
                 italic: (body["italic"] as? Bool) ?? false
             )
@@ -2088,6 +2138,7 @@ extension MainWindow: WKScriptMessageHandler {
                 return
             }
             #endif
+            bridgePageZoom()
             revealWebView()
             bridgeDelegate?.bridgeFrontendReady()
         case "frontendLaunchStalled":

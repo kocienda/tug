@@ -74,7 +74,9 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
         read: (measured) => measuredLineBox(measured),
         write: (row, view) => {
           const fromRow = row > 0;
-          const height = fromRow ? row : view.defaultLineHeight;
+          // CSS px for the property: `defaultLineHeight` is viewport px
+          // under a zoom, like the rect `measuredLineBox` reads.
+          const height = fromRow ? row : view.defaultLineHeight / view.scaleY;
           if (height <= 0) return;
           // A row only ever gets SHORTER as more of the document comes into
           // view (a wrapped line is taller than a plain one, never the reverse),
@@ -111,13 +113,16 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
  * scrolling arithmetic; one line wrong in ten for a cap that means to count
  * them. `0` when there is no row to measure (an empty document); the caller
  * falls back to the estimate, and remembers that it did.
+ *
+ * In layout px: the rect is divided by CodeMirror's own `scaleY`, so the
+ * ratchet above compares the same row at every View › Zoom factor.
  */
 function measuredLineBox(view: EditorView): number {
   let shortest = Infinity;
   for (const line of view.contentDOM.children) {
     if (!(line instanceof HTMLElement) || !line.classList.contains("cm-line")) continue;
     if (line.textContent === null || line.textContent.length === 0) continue;
-    const height = line.getBoundingClientRect().height;
+    const height = line.getBoundingClientRect().height / view.scaleY;
     if (height > 1 && height < shortest) shortest = height;
   }
   return Number.isFinite(shortest) ? shortest : 0;

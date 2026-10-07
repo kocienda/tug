@@ -19,7 +19,8 @@
  *     when set explicitly). The wrapper sets it so photos with an EXIF
  *     orientation tag rotate correctly without needing a re-encode.
  *  3. **Click-to-fullscreen.** A click on the image opens a full-window
- *     overlay rendered via a portal under `document.body`. The overlay
+ *     overlay rendered via a portal into the deck root
+ *     (`deckRootElement()`), so it scales with View › Zoom. The overlay
  *     dismisses on Escape, on backdrop click, or via the close button.
  *     The portal is the minimum amount of DOM-imperative work needed to
  *     escape the surrounding card's clipping context — anything less
@@ -76,6 +77,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { deckRootElement } from "@/lib/page-zoom-store";
 import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
 
 /**
@@ -276,7 +278,7 @@ export const ImageBlock: React.FC<ImageBlockProps> = ({
                 className="tugx-image-overlay-img"
               />
             </div>,
-            document.body,
+            deckRootElement(),
           )
         : null}
     </figure>

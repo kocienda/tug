@@ -15,6 +15,7 @@
 
 import type { AtomSegment } from "./tug-atom-img";
 import { formatAtomTextForCopy } from "./atom-text";
+import { deckRootElement, layoutRectOf } from "./page-zoom-store";
 
 /** Private MIME type marking a drag whose payload is jot text. */
 export const JOT_MIME = "application/x-tug-jot";
@@ -77,16 +78,19 @@ function setJotDragImage(event: React.DragEvent): void {
     return;
   }
   const rect = source.getBoundingClientRect();
+  // The preview is built inside the deck root so it is snapshotted at the
+  // zoom the pill is drawn at; its box is therefore written in layout px.
+  const layoutRect = layoutRectOf(source);
   const preview = document.createElement("div");
   preview.className = "jot-drag-preview";
-  preview.style.left = `${rect.left}px`;
-  preview.style.top = `${rect.top}px`;
-  preview.style.maxWidth = `${rect.width}px`;
+  preview.style.left = `${layoutRect.left}px`;
+  preview.style.top = `${layoutRect.top}px`;
+  preview.style.maxWidth = `${layoutRect.width}px`;
   preview.style.font = getComputedStyle(source).font;
   const clone = source.cloneNode(true) as HTMLElement;
   clone.removeAttribute("draggable");
   preview.appendChild(clone);
-  document.body.appendChild(preview);
+  deckRootElement().appendChild(preview);
   // The pill's padding sits between its origin and the clone's, so the grab
   // is measured from the clone as it landed, not from the pill.
   const cloneRect = clone.getBoundingClientRect();

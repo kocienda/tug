@@ -27,6 +27,7 @@ const DISPLAY: GestureFrameDisplay = {
   widthPx: 3200,
   heightPx: 1800,
   devicePixelRatio: 2,
+  zoomFactor: 1,
 };
 
 /**

@@ -10,9 +10,9 @@
  *     scale to this card's transcript subtree (which wholly contains
  *     the list scrollport, so the list's measurements stay in one
  *     uniformly-scaled space), leaving the surrounding chrome at 1×.
- *     Distinct from — and composes with — the Swift host's
- *     `WKWebView.pageZoom` (View > Zoom In / Out), which scales the
- *     whole window.
+ *     Distinct from — and composes with — View › Zoom In / Out, a
+ *     transform on the whole deck root (`lib/page-zoom-store.ts`),
+ *     which scales the whole window.
  *
  * The store applies it as a CSS custom property on the bound transcript
  * root, so the transcript pane reads exactly the user's choice and no

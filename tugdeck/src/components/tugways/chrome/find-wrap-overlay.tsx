@@ -19,6 +19,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 import { animate } from "@/components/tugways/tug-animator";
 import type { FindSession } from "@/lib/find-session";
 import "./find-wrap-overlay.css";
@@ -55,11 +56,12 @@ function showWrapGraphic(
   // bottom → top turns clockwise.
   panel.innerHTML = direction === -1 ? WRAP_CCW_SVG : WRAP_CW_SVG;
   // Centre on the CARD, not the deck: place the panel at the card's viewport
-  // centre (it lives in the fixed CanvasOverlayRoot, so viewport coords). The
+  // centre (it lives in the fixed CanvasOverlayRoot, inside the zoomed deck,
+  // so layout px — the card's rect divided by the zoom). The
   // CSS `translate(-50%, -50%)` recentres it on that point. Falls back to the
   // deck centre (the CSS 50%/50%) only if the card element is unavailable.
   if (cardEl !== null) {
-    const rect = cardEl.getBoundingClientRect();
+    const rect = layoutRectOf(cardEl);
     panel.style.left = `${rect.left + rect.width / 2}px`;
     panel.style.top = `${rect.top + rect.height / 2}px`;
   }

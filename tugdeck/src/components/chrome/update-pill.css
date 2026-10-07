@@ -58,7 +58,7 @@
   right: 0;
   margin-inline: auto;
   width: fit-content;
-  max-width: calc(100vw - 2 * var(--tug-space-lg));
+  max-width: calc(var(--tug-viewport-width, 100vw) - 2 * var(--tug-space-lg));
   pointer-events: none;
 }
 

@@ -96,6 +96,7 @@ import React, {
   useState,
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { deckRootElement, layoutPxOf, layoutRectOf } from "@/lib/page-zoom-store";
 import { createPortal } from "react-dom";
 import * as FocusScopeRadix from "@radix-ui/react-focus-scope";
 import { TugPaneFrameContext, TugPanePortalContext } from "@/components/chrome/tug-pane";
@@ -1225,7 +1226,8 @@ export function TugSheetContent({
   const cardEl = useContext(TugPanePortalContext);
   // Frame ref is the portal target. Pane-modal surfaces portal here so
   // they paint inside the pane's stacking context [D19, D20]; standalone
-  // consumers (no TugPane ancestor) fall back to document.body.
+  // consumers (no TugPane ancestor) fall back to the deck root, so they
+  // scale with View › Zoom like everything else.
   const paneFrameEl = useContext(TugPaneFrameContext);
   // Pane's built-in scrim layer. Show on open, hide on close — the
   // pane's CSS handles the fade transition. [D18]
@@ -1520,8 +1522,8 @@ export function TugSheetContent({
       // one — either is a panel where it was, which is the correct answer to
       // a question nobody can see to ask.
       const band = visibleCanvasBand(
-        canvas?.getBoundingClientRect() ?? null,
-        window.innerHeight,
+        canvas === null ? null : layoutRectOf(canvas),
+        layoutPxOf(window.innerHeight),
       );
       if (band === null) return;
       // Read the clip's RESTING top — the CSS `calc(chrome-height + 1px)` —
@@ -1529,9 +1531,11 @@ export function TugSheetContent({
       // below measures against a fixed origin and cannot walk itself off the
       // top of the canvas one observer callback at a time.
       clip.style.top = "";
-      const frame = paneFrameEl.getBoundingClientRect();
-      const anchor = bottomAnchorEl.getBoundingClientRect();
-      const restingTop = clip.getBoundingClientRect().top;
+      // Layout px throughout, under a zoom: the result is written as the
+      // clip's `bottom`/`top` and meets CSS margins and `scrollHeight`.
+      const frame = layoutRectOf(paneFrameEl);
+      const anchor = layoutRectOf(bottomAnchorEl);
+      const restingTop = layoutRectOf(clip).top;
       const visibleBottom = band.bottom;
       const visibleTop = band.top;
       // Where the panel would rest if the band above the anchor held it.
@@ -1646,12 +1650,13 @@ export function TugSheetContent({
       // the window, is not a measurement, and the cap standing on the panel is
       // a better answer than one computed from the viewport origin.
       const band = visibleCanvasBand(
-        canvas.getBoundingClientRect(),
-        window.innerHeight,
+        layoutRectOf(canvas),
+        layoutPxOf(window.innerHeight),
       );
       if (band === null) return;
       const bottomLimit = band.bottom;
-      const clipBox = clip.getBoundingClientRect();
+      // Layout px, like the clamp above: every cap below is a CSS length.
+      const clipBox = layoutRectOf(clip);
       const cs0 = getComputedStyle(content);
       const marginTop = Number.parseFloat(cs0.marginTop) || 0;
       const marginBottom = Number.parseFloat(cs0.marginBottom) || 0;
@@ -1671,7 +1676,7 @@ export function TugSheetContent({
       // height. The aspect and the chrome height are scale-invariant, so this
       // is idempotent (no resize-observer feedback loop).
       if (aspectLockContent) {
-        const frame = paneFrameEl.getBoundingClientRect();
+        const frame = layoutRectOf(paneFrameEl);
         const region = content.querySelector("[data-tug-aspect-region]");
         content.style.maxHeight = "";
         let widthCap = frame.width * frac;
@@ -1710,7 +1715,7 @@ export function TugSheetContent({
       // Inline `max-width` overrides the `displayWidth` width; the height cap
       // is the tighter of the canvas-bottom clamp and the fractional cap.
       if (maxHostFraction !== undefined) {
-        const frame = paneFrameEl.getBoundingClientRect();
+        const frame = layoutRectOf(paneFrameEl);
         content.style.maxWidth = `${frame.width * maxHostFraction}px`;
         content.style.maxHeight = `${Math.max(
           SHEET_RESIZE_MIN_HEIGHT,
@@ -1828,7 +1833,8 @@ export function TugSheetContent({
       if (el === null) return;
       event.preventDefault();
       event.stopPropagation();
-      const rect = el.getBoundingClientRect();
+      // Layout px: the drag writes `style.width/height`.
+      const rect = layoutRectOf(el);
       resizeStateRef.current = {
         edge,
         startX: event.clientX,
@@ -1847,8 +1853,9 @@ export function TugSheetContent({
     const state = resizeStateRef.current;
     const el = sheetContentRef.current;
     if (state === null || el === null) return;
-    const dx = event.clientX - state.startX;
-    const dy = event.clientY - state.startY;
+    // Pointer deltas are viewport px; the size is layout px under a zoom.
+    const dx = layoutPxOf(event.clientX - state.startX);
+    const dy = layoutPxOf(event.clientY - state.startY);
     let width = state.startW;
     if (state.edge.includes("e")) width = state.startW + 2 * dx;
     if (state.edge.includes("w")) width = state.startW - 2 * dx;
@@ -2581,7 +2588,7 @@ export function TugSheetContent({
         </FocusScopeRadix.FocusScope>
       </div>
     </TugSheetStackingContext.Provider>,
-    paneFrameEl ?? document.body,
+    paneFrameEl ?? deckRootElement(),
   );
 }
 

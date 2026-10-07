@@ -172,8 +172,13 @@ export type {
  * `1.11.0`: adds `setPageZoom` — the page zoom for this launch alone, never
  * persisted, for a fixture whose floors need more CSS height than the
  * screen's window can give. Additive; major stays `1`.
+ *
+ * `1.12.0`: `setPageZoom` is View › Zoom itself — a transform on the deck
+ * root sized to the window ÷ the factor, `pageZoom` held at 1.0 — and
+ * resolves once the deck has painted the factor. Native gestures take
+ * viewport coords unscaled at every factor. Major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.11.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.12.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs

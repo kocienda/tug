@@ -55,6 +55,7 @@
  */
 
 import "./session-card-telemetry-popovers.css";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 
 import React from "react";
 
@@ -788,8 +789,9 @@ function useRevealRow(
     const row: HTMLElement | undefined = rows[revealIndex];
     if (row === undefined) return;
 
-    const rootRect = root.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
+    // Layout px: the centring meets `clientHeight` and lands in `scrollTop`.
+    const rootRect = layoutRectOf(root);
+    const rowRect = layoutRectOf(row);
     const margin = rowRect.height;
     if (
       rowRect.top >= rootRect.top + margin &&

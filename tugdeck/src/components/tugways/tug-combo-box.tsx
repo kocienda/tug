@@ -63,6 +63,7 @@ import { TugInput } from "./tug-input";
 import { useFocusable, useFocusManager } from "./use-focusable";
 import { ATTACHED_LIST_ATTRIBUTE, TAB_CONSUME_ATTRIBUTE } from "./focus-manager";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { layoutRectOf } from "@/lib/page-zoom-store";
 
 /** One combo-box row: what to commit, how to render it, and how it behaves. */
 export interface TugComboBoxItem {
@@ -329,7 +330,9 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
     const measure = useCallback(() => {
       const el = inputRef.current;
       if (el === null) return;
-      const r = el.getBoundingClientRect();
+      // Layout px: the list is fixed in the canvas overlay root, inside the
+      // zoomed deck.
+      const r = layoutRectOf(el);
       setPos({ top: r.bottom, left: r.left, width: r.width });
     }, []);
 

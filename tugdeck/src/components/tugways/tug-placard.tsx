@@ -57,6 +57,7 @@ import { X } from "lucide-react";
 
 import { TugButton } from "@/components/tugways/internal/tug-button";
 import { cn } from "@/lib/utils";
+import { layoutPxOf, layoutRectOf } from "@/lib/page-zoom-store";
 import { isCancelChordEvent } from "./keymap-registry";
 import {
   clampOffsetFraction,
@@ -178,13 +179,16 @@ function applyAvailableHeight(
   growth: TugPlacardGrowth,
   bottomBoundEl: HTMLElement | null | undefined,
 ): void {
-  const box = panel.getBoundingClientRect();
+  // Layout px throughout: the value is a CSS length, and the window and the
+  // rects are divided by the zoom to meet it.
+  const box = layoutRectOf(panel);
+  const windowBottom = layoutPxOf(window.innerHeight);
   // Downward, the floor is the bound element's bottom — but never past the
   // window, which the bound (a canvas taller than the window, scrolled) can be.
   const floor =
     bottomBoundEl == null
-      ? window.innerHeight
-      : Math.min(bottomBoundEl.getBoundingClientRect().bottom, window.innerHeight);
+      ? windowBottom
+      : Math.min(layoutRectOf(bottomBoundEl).bottom, windowBottom);
   const available =
     growth === "down"
       ? Math.max(0, floor - box.top - AVAILABLE_EDGE_INSET)
@@ -359,7 +363,8 @@ export function TugPlacard({
     if (!draggingRef.current) return;
     const panel = panelRef.current;
     if (!panel) return;
-    const delta = event.clientX - dragStartXRef.current;
+    // A pointer delta is viewport px; `left` is layout px under a zoom.
+    const delta = layoutPxOf(event.clientX - dragStartXRef.current);
     const left = Math.max(
       DRAG_INSET,
       Math.min(DRAG_INSET + travelRef.current, dragStartLeftRef.current + delta),
