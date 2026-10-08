@@ -24,6 +24,7 @@ import {
   getGreedRank,
   getComfortWidth,
   DEFAULT_GREED_RANK,
+  cardKindName,
   _resetForTest,
 } from "../card-registry";
 import type { CardRegistration, CardSizePolicy } from "../card-registry";
@@ -602,5 +603,14 @@ describe("comfortWidth", () => {
     expect(getComfortWidth("never-registered")).toBe(
       DEFAULT_SIZE_POLICY.min.width,
     );
+  });
+});
+
+describe("cardKindName", () => {
+  it("names the kind by kindName, then the static title, then Card", () => {
+    expect(cardKindName({ title: "", kindName: "Session" })).toBe("Session");
+    expect(cardKindName({ title: "File" })).toBe("File");
+    expect(cardKindName({ title: "" })).toBe("Card");
+    expect(cardKindName(undefined)).toBe("Card");
   });
 });

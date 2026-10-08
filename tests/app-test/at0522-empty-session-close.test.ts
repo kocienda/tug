@@ -6,7 +6,7 @@
  *
  * The Session card's registration carries `confirmClose: true` because a
  * transcript cannot be recovered once the card is gone. A card that has
- * never attached to a session has no transcript, and "Close Card?" over a
+ * never attached to a session has no transcript, and "Close Session?" over a
  * blank picker is a guard with nothing behind it. The card answers for
  * itself through `registerCardCloseAdvice`, live at close time.
  *
@@ -19,7 +19,7 @@
  *     transcript and an empty composer closes the same way. This is the
  *     branch that reads the session store rather than the picker state.
  *   - **C (a draft stands):** type into the composer of that same bound
- *     card and the X now raises the standing "Close Card?" confirm. The
+ *     card and the X now raises the standing "Close Session?" confirm. The
  *     draft lives only in the editor, so waiving over it would be silent
  *     data loss.
  *   - **D (the count rule survives):** two Session cards in one pane still
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)(
             popoverText,
             "an unsent draft must not be discarded silently",
           ).not.toBeNull();
-          expect(popoverText).toContain("Close Card?");
+          expect(popoverText).toContain("Close Session?");
           const panePresent = await app.evalJS<boolean>(
             `document.querySelector('[data-pane-id="p1"]') !== null`,
           );

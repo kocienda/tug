@@ -80,7 +80,13 @@ export function registerSessionCard(): void {
   registerCard({
     componentId: "session",
     contentFactory: (cardId) => <SessionCardContent cardId={cardId} />,
-    defaultMeta: { title: "", icon: "MessageSquareText", closable: true, confirmClose: true },
+    defaultMeta: {
+      title: "",
+      kindName: "Session",
+      icon: "MessageSquareText",
+      closable: true,
+      confirmClose: true,
+    },
     cardsGroup: "sessions",
     identity: { live: liveSessionIdentity, parked: parkedSessionIdentity },
     cardFeedIds: [

@@ -9,7 +9,7 @@
  * The Session card is the case. Its registration carries
  * `confirmClose: true` because a transcript is not recoverable, but a card
  * still sitting on the project picker has no transcript, and asking
- * "Close Card?" over an empty one is a guard with nothing behind it. The
+ * "Close Session?" over an empty one is a guard with nothing behind it. The
  * same card with an unsent message in its composer is the opposite case:
  * the draft lives only in the editor, so the confirm stands.
  *

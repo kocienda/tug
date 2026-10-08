@@ -4,7 +4,7 @@
  *
  * ## Behavior matrix
  *
- *   1. **Plain click, single-tab.** Click X → "Close Card?" popover
+ *   1. **Plain click, single-tab.** Click X → "Close <kind>?" popover
  *      opens and STAYS open until the user confirms or cancels.
  *      Confirm ("Close") closes the pane; cancel keeps it.
  *   2. **Plain click, multi-tab.** Click X → "Close N Tabs?" popover
@@ -790,7 +790,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}).textContent || ""`,
           );
           expect(text, "a rail card asks the single-card question").toContain(
-            "Close Card?",
+            "Close Layout?",
           );
           const railStanding = await app.evalJS<boolean>(
             `document.querySelector('.tug-pane[data-pane-id="pRail"]') !== null`,

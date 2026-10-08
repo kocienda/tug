@@ -45,7 +45,7 @@ import {
 import type { CardState, DeckState, TugPaneState } from "@/layout-tree";
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import type { CardMeta, CardSizePolicy, LayoutRole } from "@/card-registry";
-import { DEFAULT_SIZE_POLICY, getRegistration } from "@/card-registry";
+import { DEFAULT_SIZE_POLICY, cardKindName, getRegistration } from "@/card-registry";
 import { computeSnap, computeResizeSnap } from "@/snap";
 import type { Rect, SnapResult } from "@/snap";
 import {
@@ -308,8 +308,8 @@ export interface CardTitleBarProps {
    *
    *   - `cardCount > 1` → "Close N Tabs?" with a "Close All" confirm
    *     button.
-   *   - `cardCount <= 1` → "Close Card?" with a "Close" confirm
-   *     button.
+   *   - `cardCount <= 1` → "Close <kind>?" ("Close Session?", from
+   *     `cardKind`) with a "Close" confirm button.
    *
    * Whether the popover opens at all is governed by `confirmClose`,
    * not this prop. Option-click on X bypasses the popover regardless
@@ -321,6 +321,11 @@ export interface CardTitleBarProps {
    * the prop get the single-card popover copy.
    */
   cardCount?: number;
+  /**
+   * The noun the single-card popover names the card by — the active card's
+   * `cardKindName`. Defaults to "Card".
+   */
+  cardKind?: string;
   /**
    * Resolve the close decision for a close gesture, if any card demands
    * one. `"active"` consults only the active card's guard (single-card
@@ -874,6 +879,7 @@ function CardTitleBarBody({
   closable = true,
   widthPreset,
   cardCount = 1,
+  cardKind = "Card",
   resolveCloseGuard,
   resolveModalHold,
   confirmClose = false,
@@ -1178,11 +1184,11 @@ function CardTitleBarBody({
   // pane via `onClose`, with multi-tab vs single-tab copy.
   const paneCloseIntent = useCallback(
     (): CloseIntent => ({
-      message: isMultiTab ? `Close ${cardCount} Tabs?` : "Close Card?",
+      message: isMultiTab ? `Close ${cardCount} Tabs?` : `Close ${cardKind}?`,
       confirmLabel: isMultiTab ? "Close All" : "Close",
       onConfirm: () => onClose?.(),
     }),
-    [isMultiTab, cardCount, onClose],
+    [isMultiTab, cardCount, cardKind, onClose],
   );
 
   // Deferred open, so the popover is never seeded onto a pane the deck is
@@ -1200,7 +1206,7 @@ function CardTitleBarBody({
   // Every close gesture that asks a question funnels through here, and the
   // question is asked ON the card it is about: a pane standing half out of
   // the band is brought whole into view FIRST, and only then does the popover
-  // open. Two reasons, and both are about the reader. A "Close Card?" anchored
+  // open. Two reasons, and both are about the reader. A "Close Session?" anchored
   // to a title bar that is itself half off the band can be clipped by the
   // band's own edge — the question arrives unreadable, or not at all. And a
   // reader is being asked to discard something: they are owed a look at what
@@ -2024,7 +2030,7 @@ function CardTitleBarBody({
               collisionPadding={8}
               message={
                 closeIntent?.message ??
-                (isMultiTab ? `Close ${cardCount} Tabs?` : "Close Card?")
+                (isMultiTab ? `Close ${cardCount} Tabs?` : `Close ${cardKind}?`)
               }
               confirmLabel={closeIntent?.confirmLabel ?? (isMultiTab ? "Close All" : "Close")}
               confirmRole="action"
@@ -2931,7 +2937,7 @@ function TugPaneImpl({
         !cardWaivesCloseConfirm(currentActiveId);
       titleBarRef.current?.requestCloseWith({
         needsConfirm,
-        message: "Close Card?",
+        message: `Close ${cardKindName(reg?.defaultMeta)}?`,
         confirmLabel: "Close",
         onConfirm: () => store.removeCard(stackId, currentActiveId),
       });
@@ -2967,7 +2973,14 @@ function TugPaneImpl({
     );
     titleBarRef.current?.requestCloseWith({
       needsConfirm: anyConfirms,
-      message: count > 1 ? `Close ${count} Tabs?` : "Close Card?",
+      message:
+        count > 1
+          ? `Close ${count} Tabs?`
+          : `Close ${cardKindName(
+              currentCards?.[0]
+                ? getRegistration(currentCards[0].componentId)?.defaultMeta
+                : undefined,
+            )}?`,
       confirmLabel: count > 1 ? "Close All" : "Close",
       onConfirm: () => onClose?.(),
       // Every hosted card dies with the pane — visit each dirty one.
@@ -5638,6 +5651,7 @@ function TugPaneImpl({
                 }
               : {})}
             cardCount={cards?.length ?? 1}
+            cardKind={cardKindName(effectiveMeta)}
             resolveCloseGuard={resolveCloseGuard}
             resolveModalHold={resolveModalHold}
             confirmClose={paneConfirmClose}

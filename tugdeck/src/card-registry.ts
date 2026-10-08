@@ -196,6 +196,23 @@ export interface CardMeta {
    * this to `true` and pay the two-step close as a guard.
    */
   confirmClose?: boolean;
+  /**
+   * The noun the close-confirm popover names this kind of card by —
+   * "Close Session?", "Close File?". Omitted → the static `title`, and
+   * "Card" when that is empty too. Declare it when `title` is not the
+   * kind's name: an empty base under a dynamic title (the Session card),
+   * or a title that names one instance rather than the kind.
+   */
+  kindName?: string;
+}
+
+/**
+ * The noun a card of this kind is called by in a close question.
+ *
+ * **Authoritative reference:** CardMeta.kindName.
+ */
+export function cardKindName(meta: CardMeta | undefined): string {
+  return meta?.kindName || meta?.title || "Card";
 }
 
 /**

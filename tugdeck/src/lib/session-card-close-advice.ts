@@ -6,7 +6,7 @@
  * transcript cannot be recovered once the card is gone. That is the right
  * default and the wrong answer for an empty card: one still sitting on the
  * project picker, or attached to a session it has never sent a message to,
- * has no transcript, and "Close Card?" over it is a guard with nothing
+ * has no transcript, and "Close Session?" over it is a guard with nothing
  * behind it.
  *
  * The exception is the composer. Text typed and not yet sent lives only in
