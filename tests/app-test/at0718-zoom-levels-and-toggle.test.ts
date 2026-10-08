@@ -161,7 +161,7 @@ describe.skipIf(!SHOULD_RUN)("AT0718: View › Zoom levels, the Layout card's Zo
         expect(await selected(app)).toBe("0.8");
         const at80 = await noteText(app);
         note("note at 80%", at80);
-        expect(at80, "the note names the factor").toContain("px each at 80%");
+        expect(at80, "the note names the factor").toContain("px, 80%");
 
         await key(app, "=", ["cmd"]);
         expect(await factor(app), "⌘= steps to the next level").toBeCloseTo(0.9, 5);

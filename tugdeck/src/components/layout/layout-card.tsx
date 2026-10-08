@@ -914,17 +914,17 @@ function CommittedFlowStrip({
  * What an arrangement COMES TO, in plain words — the note under the caption.
  *
  * The caption names the answers (`Three Up · Slim`); this says what they mean
- * on screen, in the same voice the AI mixer's channel descriptions use. It is
- * the only place the width presets' actual measures are stated, so the note
- * earns its line rather than paraphrasing the caption: `Slim` is a name, `675
- * px` is the fact behind it.
+ * on screen, as a terse readout of comma-separated facts — `4 cards flow, 675
+ * px, 90%, deck scrolls`. It is the only place the width presets' actual
+ * measures are stated, so the note earns its line rather than paraphrasing the
+ * caption: `Slim` is a name, `675 px` is the fact behind it.
  *
  * The card count is a DIGIT, matching the Slots control's own segments (`1 2 3
  * 4 5 6`) rather than the caption's spelled-out kind — the note reads as a
  * reading of the controls, which is what it is.
  *
- * Under View › Zoom the width is said with the factor it is drawn at (`675 px
- * each at 90%`): the px are the deck's own, which a zoom scales rather than
+ * Under View › Zoom the width is followed by the factor it is drawn at (`675
+ * px, 90%`): the px are the deck's own, which a zoom scales rather than
  * changes, so the number stays true and the factor says why it looks smaller.
  * At 100% the clause is absent, so the familiar deck reads as it always has.
  */
@@ -937,30 +937,28 @@ function planNote(
 ): string {
   const slots = slotCount(kind);
   const px = CONTENT_WIDTH_PX[width];
-  const at = zoom === 1 ? "" : ` at ${Math.round(zoom * 100)}%`;
-  const cards =
-    slots === 1
-      ? `1 card at a time, ${px} px wide${at}`
-      : `${slots} cards side by side, ${px} px each${at}`;
-  // What the modes actually differ about, said once: fit spends the crowding
-  // on overlap, flow spends it on the right edge. The clause is on flow only —
-  // fit is the deck the reader already knows, and a note that explained both
-  // would make the familiar answer look like a new choice.
-  //
-  // A flowing RAIL earns the same clause on the same terms ([B09]): the note's
-  // tail names every thing on screen that scrolls, and a deck and a rail can
-  // both be flowing at once, so the scrollers are listed rather than chosen
-  // between. The band comes first because it is the larger thing.
-  const scrollers = [
-    ...(layout === "flow" ? ["the deck"] : []),
-    ...flowingRails.map((side) => `the ${side} rail`),
+  // One card has nothing to fit or flow, so it is counted bare.
+  const parts = [
+    slots === 1 ? "1 card" : `${slots} cards ${layout}`,
+    `${px} px`,
   ];
-  if (scrollers.length === 0) return cards;
-  const named =
-    scrollers.length === 1
-      ? scrollers[0]
-      : `${scrollers.slice(0, -1).join(", ")} and ${scrollers[scrollers.length - 1]}`;
-  return `${cards} — ${named} scroll${scrollers.length === 1 ? "s" : ""}`;
+  if (zoom !== 1) parts.push(`${Math.round(zoom * 100)}%`);
+  // The scroll clause names every thing on screen that scrolls ([B09]): the
+  // deck under flow, and any flowing RAIL on the same terms. A deck and a rail
+  // can both be flowing at once, so the scrollers are listed rather than
+  // chosen between. The band comes first because it is the larger thing.
+  const scrollers = [
+    ...(layout === "flow" ? ["deck"] : []),
+    ...flowingRails.map((side) => `${side} rail`),
+  ];
+  if (scrollers.length > 0) {
+    const named =
+      scrollers.length === 1
+        ? scrollers[0]
+        : `${scrollers.slice(0, -1).join(", ")} and ${scrollers[scrollers.length - 1]}`;
+    parts.push(`${named} scroll${scrollers.length === 1 ? "s" : ""}`);
+  }
+  return parts.join(", ");
 }
 
 /** One plan layer: a drawing, the caption naming it, and the note under it. */

@@ -548,7 +548,7 @@ function Plate({
           <span>Slim</span>
         </div>
         <div className="sp-mp-plate-note">
-          4 cards side by side, 675 px each — the deck scrolls
+          4 cards flow, 675 px, deck scrolls
         </div>
         {children}
       </div>
