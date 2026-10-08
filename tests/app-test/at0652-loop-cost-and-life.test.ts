@@ -22,7 +22,7 @@
  *      `currentTime` advances between two reads a few frames apart. Not
  *      "an animation object exists" — a paused or zero-iteration animation
  *      exists too, and `--tug-loop-iterations: 0` (the off-screen rule, the
- *      understudy rule, the circuit breaker) removes it from the timeline
+ *      circuit breaker) removes it from the timeline
  *      entirely, which is a third state again.
  *   2. **It costs nothing over the floor.** `window.__tugMotion.cost(120)`
  *      across 120 frames, read against the at-rest stall floor rather than
@@ -34,9 +34,9 @@
  *
  * All three loops are switched off by ancestry rather than by their own
  * state — `content-visibility` on a list cell, `data-tug-offscreen` from the
- * viewport observer, `data-tug-understudy` from the one-live-mark election.
- * None of those ancestors exists on the gallery bench, so a bench reading
- * says nothing about whether the shipped deck runs the loop. The fixture is
+ * viewport observer. Neither of those ancestors exists on the gallery bench,
+ * so a bench reading says nothing about whether the shipped deck runs the
+ * loop. The fixture is
  * one bound Session card, driven through `driveSession`, which is the deck
  * the report came from.
  *
@@ -44,7 +44,6 @@
  * @covers tugdeck/src/components/tugways/internal/tug-progress-wave.css
  * @covers tugdeck/src/components/tugways/cards/session-card-z1c.tsx
  * @covers tugdeck/src/lib/motion-guard/offscreen.ts
- * @covers tugdeck/src/lib/motion-guard/one-live-mark.ts
  * @covers tugdeck/src/components/tugways/tug-list-view.css
  */
 
@@ -137,9 +136,6 @@ const loopLife = (app: App, selector: string): Promise<LoopLife> =>
          if (n.hasAttribute("data-tug-offscreen")) {
            marks.push("offscreen:" + (n.getAttribute("data-slot") || n.tagName));
          }
-         if (n.hasAttribute("data-tug-understudy")) {
-           marks.push("understudy:" + (n.getAttribute("data-slot") || n.tagName));
-         }
          var cv = getComputedStyle(n).contentVisibility;
          if (cv === "hidden" || (cv === "auto" && n.hasAttribute("data-cv-skipped"))) {
            marks.push("content-visibility:" + cv + ":" +
@@ -197,8 +193,8 @@ function expectLoopRuns(
       `names ${JSON.stringify(first.names)}, \`--tug-loop-iterations\` ` +
       `resolved to "${first.iterations}", marks ` +
       `${JSON.stringify(first.marks)}. Zero means the declaration resolved ` +
-      `to no animation at all, which is what the off-screen rule, the ` +
-      `understudy rule and the circuit breaker each produce`,
+      `to no animation at all, which is what the off-screen rule and the ` +
+      `circuit breaker each produce`,
   ).toBe(expected);
   expect(
     first.running,
@@ -300,12 +296,12 @@ async function cost(
 /**
  * Turn one family of loops off, by hand, with the product's own knob.
  *
- * `--tug-loop-iterations: 0` is what the circuit breaker, the off-screen
- * rule and the understudy election each resolve to, and it removes the
+ * `--tug-loop-iterations: 0` is what the circuit breaker and the off-screen
+ * rule each resolve to, and it removes the
  * declaration from the timeline entirely rather than freezing it mid-cycle.
  * Written inline on each element rather than through `data-tug-offscreen`,
  * because the off-screen observer owns that attribute and would take it back
- * on its next pass — the knob is the contract, the attribute is one of three
+ * on its next pass — the knob is the contract, the attribute is one of two
  * ways of turning it.
  *
  * This is what lets the dot and the wave be priced SEPARATELY ([B05]). Both
@@ -485,8 +481,8 @@ describe.skipIf(!SHOULD_RUN)(
             live["tugx-progress-pulsing-dot-breathe"] ?? 0,
             `dot: the deck draws at least one session breathing while a ` +
               `turn is in flight — running loops ${JSON.stringify(live)}. ` +
-              `Zero is what the understudy election, the off-screen rule ` +
-              `and the circuit breaker each produce, and a dot inside a ` +
+              `Zero is what the off-screen rule and the circuit breaker ` +
+              `each produce, and a dot inside a ` +
               `skipped list cell produces it too`,
           ).toBeGreaterThan(0);
           const dotAtRestLive = await loopLife(app, DOT);

@@ -377,10 +377,9 @@ function RefAtom({
   // callsign, the same chip every foreign surface shows. The chip owns the
   // whole gesture, including whether to offer it.
   if (chipRef.kind === "session") {
-    // One live session is one live mark in this column, not one per post
-    // (`lib/motion-guard/one-live-mark.ts`): the first citation in view
-    // breathes, every other one stands still at the same pose.
-    return <TugSessionCitation citedId={chipRef.target} liveMark="one-in-view" />;
+    // Every citation in view draws the session's live dot; one scrolled out of
+    // view is stilled by the off-screen rule and resumes when it comes back.
+    return <TugSessionCitation citedId={chipRef.target} />;
   }
   // An arc ref branches BEFORE resolution, because an arc name is not a path
   // and must never be resolved as one: `resolveOverviewRef` would look it up

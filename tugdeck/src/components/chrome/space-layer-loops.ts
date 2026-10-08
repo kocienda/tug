@@ -37,8 +37,8 @@
  * **Resume touches only what this module paused, and the record is the
  * authority for it.** Every pass walks the record as well as the animations it
  * was handed, because the engine does not report every loop this module
- * paused. A loop demoted to zero iterations — the off-screen mark, the
- * understudy mark, the motion switch, all one knob (`--tug-loop-iterations`)
+ * paused. A loop demoted to zero iterations — the off-screen mark and the
+ * motion switch, one knob (`--tug-loop-iterations`)
  * — is absent from `getAnimations()` while the mark stands, and when the mark
  * lifts the engine brings back the SAME animation object, still paused
  * through the API. A pass that read only the engine's list could not see it

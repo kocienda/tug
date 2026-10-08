@@ -123,7 +123,6 @@ import {
   atomPillMarkVars,
 } from "@/lib/atom-register";
 import { markBoxForDot } from "@/components/tugways/internal/tug-progress-pulsing-dot";
-import { useOneLiveMark } from "@/lib/motion-guard/one-live-mark";
 import { cn } from "@/lib/utils";
 
 /** Density tiers this component renders. Row and masthead compose these two. */
@@ -243,17 +242,6 @@ export interface TugSessionIdentityProps
    * {@link arcMarkerTitle} builds the hover sentence for both branches.
    */
   arc?: { name: string; review?: string | null } | false;
-  /**
-   * How this mark's breath is shared with the other marks naming the same
-   * session on the surface. `each` breathes on its own. `one-in-view` draws
-   * the session live once per view: the first reference in view breathes and
-   * every other one shows the same pose still
-   * (`lib/motion-guard/one-live-mark.ts`). A list that cites one working
-   * session hundreds of times passes `one-in-view`; a mark that is a
-   * surface's only reference to its session has nothing to share.
-   * @default "each"
-   */
-  liveMark?: "each" | "one-in-view";
 }
 
 /**
@@ -392,7 +380,6 @@ export const TugSessionIdentity = React.forwardRef<
     hostCardId,
     tooltip = true,
     arc,
-    liveMark = "each",
     className,
     style: restStyle,
     ...rest
@@ -436,18 +423,9 @@ export const TugSessionIdentity = React.forwardRef<
     onContextMenu: openMenu,
     contextMenu,
   } = useSessionIdentityMenu({ identity, hostCardId, enabled: isChip });
-  // The one-live-mark rule, on the pill: the dot inside inherits the knob
-  // the rule turns. Only a mark that draws a live dot has a breath to share.
-  const liveMarkRef = React.useRef<HTMLSpanElement | null>(null);
-  useOneLiveMark(
-    liveMarkRef,
-    identity.id,
-    liveMark === "one-in-view" && (isChip || dot) && !isMissing && !isElsewhere,
-  );
   const composedRef = React.useCallback(
     (el: HTMLSpanElement | null): void => {
       menuRef(el);
-      liveMarkRef.current = el;
       if (typeof ref === "function") ref(el);
       else if (ref) (ref as React.MutableRefObject<HTMLSpanElement | null>).current = el;
     },
@@ -603,7 +581,6 @@ export function TugSessionCitation({
   atom,
   className,
   tier = "chip",
-  liveMark,
 }: {
   /**
    * What the citation named: a full tug session id, or the 8-char short id a
@@ -641,8 +618,6 @@ export function TugSessionCitation({
    */
   tier?: TugSessionIdentityTier;
   className?: string;
-  /** See {@link TugSessionIdentityProps.liveMark}. */
-  liveMark?: TugSessionIdentityProps["liveMark"];
 }): React.ReactElement {
   const cited = useCitedSession(citedId);
   // Once the ledger answers, its row is the identity's context — a citation has
@@ -761,7 +736,6 @@ export function TugSessionCitation({
       // unresolved session is the same rule stated one layer up.
       {...(atom !== undefined ? atomIdentityAttrs(atom) : {})}
       className={className}
-      liveMark={liveMark}
     />
   );
 }

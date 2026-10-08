@@ -198,7 +198,7 @@ describe("the record is the authority for a resume", () => {
   }
 
   test("a loop we stilled is resumed when its layer is shown, even demoted to zero iterations", () => {
-    // The off-screen mark, the understudy mark and the motion switch all
+    // The off-screen mark and the motion switch both
     // resolve `--tug-loop-iterations` to zero. Playing a loop at zero moves
     // nothing; not playing it strands it, because the pause outlives the mark.
     const layer: FakeLayer = { shown: false };

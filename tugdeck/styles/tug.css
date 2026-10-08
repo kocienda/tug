@@ -92,13 +92,6 @@ html[data-tug-motion-demoted] {
   --tug-loop-iterations: 0;
 }
 
-/* One live mark per live session in a list: `src/lib/motion-guard/one-live-mark.ts`
- * elects the first reference in view and marks every other one an understudy,
- * which draws the session's pose and none of its breath. The same knob again. */
-[data-tug-understudy] {
-  --tug-loop-iterations: 0;
-}
-
 /* Motion-off rule: JS sets data-tug-motion="off" on body when --tug-motion is 0.
  * `*` matches elements only, so the generated-content selectors are not
  * redundant — without them a ::before/::after animation keeps running with

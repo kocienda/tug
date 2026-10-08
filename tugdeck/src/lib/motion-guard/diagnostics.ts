@@ -64,7 +64,6 @@ import {
   offscreenWatched,
   setOffscreenPause,
 } from "./offscreen";
-import { liveMarks, type LiveMarksReading } from "./one-live-mark";
 import { motionBreaker } from "./breaker";
 import { adoptRecordFlagAtLoad, recordSwitch, type RecordReading } from "./record-switch";
 import { settleVerdictOfDrive, type SettleEngineRows, type SettleVerdict } from "./settle-bar";
@@ -225,8 +224,6 @@ export interface TugMotionDiagnostics {
    * only, so a bench can read one population both ways.
    */
   offscreen(on?: boolean): OffscreenReading;
-  /** The one-live-mark rule: groups, members, and how many are understudies. */
-  liveMarks(): LiveMarksReading;
   /**
    * The read→write→read chains under a gesture ([P03], Spec S04).
    *
@@ -652,10 +649,6 @@ export const tugMotion: TugMotionDiagnostics = {
       watched: offscreenWatched(),
       paused: offscreenPaused(),
     };
-  },
-
-  liveMarks() {
-    return liveMarks();
   },
 
   chains(mode, options) {

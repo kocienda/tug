@@ -277,7 +277,6 @@ const diamondSetupJs = (shift: number): string => `(function () {
     // off-screen, which stills their loops and leaves the pulse unlit.
     [clone].concat(Array.from(clone.querySelectorAll('*'))).forEach(function (e) {
       e.removeAttribute('data-tug-offscreen');
-      e.removeAttribute('data-tug-understudy');
     });
     if (i === 0) {
       var g = clone.querySelector('.tug-progress-pulsing-dot');

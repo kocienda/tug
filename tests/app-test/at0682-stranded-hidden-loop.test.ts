@@ -18,8 +18,8 @@
  *     is the path the module was written for, asserted end to end.
  *  2. **Demoted across the switch.** The same loop, paused in the dark, carries
  *     `data-tug-offscreen` at the moment its workspace is shown — the mark the
- *     off-screen observer writes, and the same knob the understudy election
- *     and the motion switch turn: `--tug-loop-iterations: 0`. Under that mark
+ *     off-screen observer writes, and the same knob the motion switch turns:
+ *     `--tug-loop-iterations: 0`. Under that mark
  *     the engine does not report the animation, so the switch pass cannot see
  *     it. When the mark lifts, the engine brings the SAME animation object
  *     back — still paused through the API — and no pass ever looks at it

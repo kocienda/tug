@@ -1,53 +1,48 @@
 /**
- * at0645-overview-one-live-mark.test.ts — the Overview draws one live session
- * as one live mark, not as one per post.
+ * at0645-overview-visible-dots-pulse.test.ts — every session dot the Overview
+ * shows pulses while its session works; only the ones out of view are still.
  *
  * Every Overview post rests on the session that wrote it, and the strip under
  * the post cites that session with the same chip every foreign surface shows —
- * a pill with the session's phase dot in it. A working session posts often,
- * so a column of a few hundred posts from one session used to be a few hundred
- * breathing dots for one thing, most of them under the fold. That is wrong
- * before it is expensive: a mark is the session's presence, and presence is
- * one thing.
+ * a pill with the session's phase dot in it. While the session works, every
+ * one of those dots on screen pulses. A dot scrolled out of view is stilled by
+ * the off-screen rule (`lib/motion-guard/offscreen.ts`), which costs nothing to
+ * show, and the moment it is scrolled back into view it pulses again.
  *
- * The rule (`lib/motion-guard/one-live-mark.ts`) is that the session is drawn
- * live once per view. Every citation of a session in the column registers
- * under the session's id, the first one in view breathes, and every other one
- * is an **understudy** — it shows the same pose still, because the stylesheet
- * turns its loop off under `data-tug-understudy`, the knob the off-screen rule
- * and the circuit breaker already turn. The reader sees the session's state on
- * every reference and its breath on one.
+ * This replaces a "one live mark per session" rule that let only one citation
+ * of a session pulse and stilled every other one on screen. It was never a
+ * decision the user made: with a working session it put the pulse on the
+ * oldest post in view while the newest sat still beneath it, which read as a
+ * dot stuck on a stale post.
  *
  * ## What is asserted
  *
  * A session card is driven into a turn so its session reads `running`, and the
  * Overview is filled with a page of posts from that session. Then, with the
- * column pinned to its newest post: every citation is a member of one group,
- * all but one are understudies, and exactly one chip in the whole column has
- * a running loop — three loops, welded to one start time, because it is the
- * dot's own figure. Scrolled to the top, the breath moves: still exactly one
- * chip breathes, and it is the first citation in the column. The count of live
- * figures per live session is bounded by what is on screen, and it is one.
+ * column pinned to its newest post: the chips that breathe are exactly the
+ * chips inside the scroller's box — more than one, each with its own three
+ * loops welded to one start time — and none of the chips under the fold
+ * breathes. Scrolled to the top, the same holds of the new view: the top posts,
+ * which were out of view, now breathe, and the newest posts, now out of view,
+ * do not.
  *
  * `list()` inside the card says the same thing from the census's side: one
- * dot's three loops for a column of over a hundred references.
+ * breath per visible dot.
  *
  * ## Occlusion
  *
  * Off-screen marks are stilled by an intersection observer, and an occluded
  * window reports nothing intersecting; the window is launched
- * `foreground: true` so the election has a viewport to elect against.
+ * `foreground: true` so the observer has a viewport to measure against.
  *
- * @covers tugdeck/src/lib/motion-guard/one-live-mark.ts
  * @covers tugdeck/src/lib/motion-guard/offscreen.ts
- * @covers tugdeck/src/lib/motion-guard/diagnostics.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
  * @covers tugdeck/src/components/tugways/session-phase-dot.tsx
  * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/styles/tug.css
  *
- * @foreground — the election needs a viewport to elect against, so the launch
- * takes the screen (`foreground: true` below).
+ * @foreground — the off-screen rule needs a viewport to measure against, so
+ * the launch takes the screen (`foreground: true` below).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -127,21 +122,25 @@ function resolveSessions(): string {
 
 interface Marks {
   chips: number;
-  understudies: number;
-  offscreen: number;
+  /** Indices of the chips whose box meets the scroller's box. */
+  visible: number[];
+  /** Indices of the chips with a running loop. */
   breathing: number[];
+  /** How many chips carry the off-screen mark. */
+  offscreen: number;
   spreads: number[];
-  groups: { groups: number; members: number; understudies: number };
 }
 
-/** Every citation in the column: which are understudies, which breathe. */
+/** Every citation in the column: which are in the scroller's box, which breathe. */
 const MARKS_JS = `(function(){
   var chips = document.querySelectorAll(${JSON.stringify(CHIPS)});
-  var understudies = 0, offscreen = 0, breathing = [], spreads = [];
+  var box = document.querySelector(${JSON.stringify(SCROLLER)}).getBoundingClientRect();
+  var visible = [], breathing = [], offscreen = 0, spreads = [];
   for (var i = 0; i < chips.length; i++) {
     var chip = chips[i];
-    if (chip.hasAttribute("data-tug-understudy")) understudies++;
-    if (chip.hasAttribute("data-tug-offscreen")) offscreen++;
+    var r = chip.getBoundingClientRect();
+    if (r.bottom > box.top && r.top < box.bottom) visible.push(i);
+    if (chip.querySelector("[data-tug-offscreen]") !== null) offscreen++;
     var loops = chip.getAnimations({ subtree: true })
       .filter(function (a) { return a instanceof CSSAnimation && a.playState === "running"; });
     if (loops.length > 0) {
@@ -155,20 +154,19 @@ const MARKS_JS = `(function(){
   }
   return {
     chips: chips.length,
-    understudies: understudies,
-    offscreen: offscreen,
+    visible: visible,
     breathing: breathing,
+    offscreen: offscreen,
     spreads: Array.from(new Set(spreads)),
-    groups: window.__tugMotion.liveMarks(),
   };
 })()`;
 
-describe.skipIf(!SHOULD_RUN)("at0645 — one live mark per live session", () => {
+describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () => {
   test(
-    "a column of posts from one working session breathes in exactly one place, and the breath follows the view",
+    "a column of posts from one working session breathes at every visible citation, and the breath follows the view",
     async () => {
       const app = await launchTugApp({
-        testName: "at0645-overview-one-live-mark",
+        testName: "at0645-overview-visible-dots-pulse",
         foreground: true,
       });
       try {
@@ -227,29 +225,27 @@ describe.skipIf(!SHOULD_RUN)("at0645 — one live mark per live session", () => 
           `document.querySelectorAll(${JSON.stringify(CHIPS)}).length === ${POST_COUNT}`,
           { timeoutMs: 30_000 },
         );
-        // The election settles after the observer's first delivery; wait for
-        // the understudies to be marked and for one chip to be breathing.
-        await app.waitForCondition<boolean>(
-          `(function(){
-             var m = ${MARKS_JS};
-             return m.understudies === ${POST_COUNT - 1} && m.breathing.length === 1;
-           })()`,
-          { timeoutMs: 15_000 },
-        );
+        // The off-screen marks land on the observer's first delivery; wait
+        // for the breathing set to be exactly the set in view.
+        const breathesInView = `(function(){
+          var m = ${MARKS_JS};
+          return m.visible.length > 1
+            && JSON.stringify(m.breathing) === JSON.stringify(m.visible);
+        })()`;
+        await app.waitForCondition<boolean>(breathesInView, { timeoutMs: 15_000 });
         const pinned = await app.evalJS<Marks>(MARKS_JS);
         note("at0645 pinned to the newest post", pinned);
         expect(pinned.chips).toBe(POST_COUNT);
-        expect(pinned.groups.groups).toBe(1);
-        expect(pinned.groups.members).toBe(POST_COUNT);
-        expect(pinned.understudies).toBe(POST_COUNT - 1);
-        // Most of the column is under the fold and marked so.
+        // Every citation on screen breathes — not one of them, all of them —
+        // and the newest post's is among them.
+        expect(pinned.visible.length).toBeGreaterThan(1);
+        expect(pinned.breathing).toEqual(pinned.visible);
+        expect(pinned.breathing).toContain(POST_COUNT - 1);
+        // Most of the column is under the fold, marked so, and still.
         expect(pinned.offscreen).toBeGreaterThan(POST_COUNT / 2);
-        // One breath, on one figure, welded.
-        expect(pinned.breathing.length).toBe(1);
+        expect(pinned.breathing).not.toContain(0);
+        // Each breathing dot is one figure: its three loops on one clock.
         expect(pinned.spreads).toEqual([0]);
-        // And the one that breathes is in view: not the first post, which is
-        // far above the fold with the column pinned to its newest.
-        expect(pinned.breathing[0]).toBeGreaterThan(0);
 
         const census = await app.evalJS<{
           longRunning: number;
@@ -267,12 +263,13 @@ describe.skipIf(!SHOULD_RUN)("at0645 — one live mark per live session", () => 
         note("at0645 census inside the Overview", census);
         // Read by name rather than as a total: the card has loops of its own
         // that are not the session's mark, and this claim is about the dot.
-        // One breath, one ring expanding, one ring fading — one figure.
-        expect(census.byName["tugx-progress-pulsing-dot-breathe"]).toBe(1);
-        expect(census.byName["tugx-progress-pulsing-dot-emit-expand"]).toBe(1);
-        expect(census.byName["tugx-progress-pulsing-dot-emit-fade"]).toBe(1);
+        // One breath, one ring expanding, one ring fading per visible dot.
+        const shown = pinned.visible.length;
+        expect(census.byName["tugx-progress-pulsing-dot-breathe"]).toBe(shown);
+        expect(census.byName["tugx-progress-pulsing-dot-emit-expand"]).toBe(shown);
+        expect(census.byName["tugx-progress-pulsing-dot-emit-fade"]).toBe(shown);
 
-        // ---- Scrolled to the top: the breath moves to the first in view. --
+        // ---- Scrolled to the top: the dots coming into view pulse. -------
         await app.evalJS<null>(`(function(){
           document.querySelector(${JSON.stringify(SCROLLER)}).scrollTop = 0;
           return null;
@@ -280,14 +277,17 @@ describe.skipIf(!SHOULD_RUN)("at0645 — one live mark per live session", () => 
         await app.waitForCondition<boolean>(
           `(function(){
              var m = ${MARKS_JS};
-             return m.breathing.length === 1 && m.breathing[0] === 0;
+             return m.visible[0] === 0 && ${breathesInView};
            })()`,
           { timeoutMs: 15_000 },
         );
         const scrolled = await app.evalJS<Marks>(MARKS_JS);
         note("at0645 scrolled to the top", scrolled);
-        expect(scrolled.understudies).toBe(POST_COUNT - 1);
-        expect(scrolled.breathing).toEqual([0]);
+        // The posts that were out of view now breathe, every one on screen…
+        expect(scrolled.breathing).toEqual(scrolled.visible);
+        expect(scrolled.breathing).toContain(0);
+        // …and the newest, scrolled away, are still.
+        expect(scrolled.breathing).not.toContain(POST_COUNT - 1);
         expect(scrolled.spreads).toEqual([0]);
       } finally {
         await app.close();
