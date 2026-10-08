@@ -317,6 +317,25 @@ private final class ClickThroughWebView: WKWebView {
         }
         super.mouseUp(with: event)
     }
+
+    // MARK: - Writing-direction key bindings
+    //
+    // Cocoa's StandardKeyBinding.dict binds ⌃⌘↓ / ⌃⌘← / ⌃⌘→ to
+    // `makeBaseWritingDirectionNatural:` / `RightToLeft:` / `LeftToRight:`, and
+    // those chords are the deck's own: ⌃⌘↓ is Move Card Down in Column and
+    // ⌃⌘←/→ show and hide a side. `AppDelegate` allows the bindings (see
+    // `NSAllowsBaseWritingDirectionKeyBindings` there), which is what stops
+    // AppKit beeping at them; the selector then reaches this view. While the
+    // page handles the keydown it is discarded with it. When it does not,
+    // WebKit sends the command back here, and WKWebView answers the three
+    // `makeTextWritingDirection…:` actions but none of the base ones.
+    //
+    // Answered here as deliberate no-ops. The deck never sets a paragraph's base
+    // direction from the keyboard, so nothing is lost by declining it quietly.
+
+    override func makeBaseWritingDirectionNatural(_ sender: Any?) {}
+    override func makeBaseWritingDirectionLeftToRight(_ sender: Any?) {}
+    override func makeBaseWritingDirectionRightToLeft(_ sender: Any?) {}
 }
 
 /// Main window containing the WKWebView for tugdeck dashboard

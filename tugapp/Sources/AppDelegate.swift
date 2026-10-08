@@ -283,6 +283,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         lap("start", entering: .starting)
 
+        // Cocoa's StandardKeyBinding.dict binds ⌃⌘↓ / ⌃⌘← / ⌃⌘→ to the
+        // writing-direction commands (`makeBaseWritingDirectionNatural:` and
+        // friends), and WebKit runs every keydown through that table in the UI
+        // process BEFORE the page sees it. With `NSUseWritingDirectionKeyBindings`
+        // off — which it is on any Mac with no bidirectional input source —
+        // `-[NSTextInputContext doCommandBySelector:completionHandler:]` answers
+        // those selectors with NSBeep and never forwards them, so ⌃⌘↓ (Move Card
+        // Down in Column) moved the card and beeped. Allowing the bindings makes
+        // AppKit hand the selector to the web view instead, where it is
+        // collected as a keypress command the page's preventDefault discards
+        // (and `ClickThroughWebView` answers the leftover as a no-op). The key
+        // is what `NSUseWritingDirectionKeyBindings` reads, ahead of the global
+        // `AppleTextDirection`. Registered rather than set: it is the app's
+        // behaviour, not a preference anyone edits.
+        UserDefaults.standard.register(defaults: [
+            "NSAllowsBaseWritingDirectionKeyBindings": true,
+        ])
+
         // Harness pid mode: run as an accessory. A `.regular` app
         // activates itself once it finishes launching and has a visible
         // window — `open -g` only suppresses the initial activation
