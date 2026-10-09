@@ -158,6 +158,79 @@ export function computeTimeSummary(
 }
 
 /**
+ * The `Time` popover's live summary — {@link computeTimeSummary} with the
+ * in-flight turn folded in, so the figures move while a turn runs rather
+ * than waiting for its commit.
+ *
+ *   - `count`: committed turns only — the row log's length. The in-flight
+ *     turn is NOT counted here; the renderer says "+1 in flight" beside it.
+ *   - `totalActiveMs`: committed `activeMs` plus the live in-flight
+ *     active ms (from {@link deriveInflightActiveMs}).
+ *   - `avgActiveMs`: that total over `count + 1` while a turn is in flight,
+ *     over `count` otherwise. The turn being watched is one of the turns
+ *     being averaged.
+ *
+ * `inflightActiveMs === null` means no turn is in flight; the result then
+ * equals {@link computeTimeSummary} exactly.
+ */
+export function computeLiveTimeSummary(
+  transcript: ReadonlyArray<TurnEntry>,
+  inflightActiveMs: number | null,
+): TurnTimingSummary {
+  const committed = computeTimeSummary(transcript);
+  if (inflightActiveMs === null) return committed;
+  const live = Math.max(0, inflightActiveMs);
+  const totalActiveMs = committed.totalActiveMs + live;
+  const divisor = committed.count + 1;
+  return {
+    count: committed.count,
+    totalActiveMs,
+    avgActiveMs: Math.round(totalActiveMs / divisor),
+  };
+}
+
+/**
+ * Where the session's wall clock went — the part-to-whole the `Time`
+ * popover draws as a stacked strip.
+ *
+ *   - `workingMs`: committed `activeMs` plus the live in-flight active ms.
+ *   - `awaitingMs`: committed `awaitingApprovalMs` — time blocked on a
+ *     permission or question dialog.
+ *   - `downtimeMs`: committed `transportDowntimeMs` — offline or restoring.
+ *   - `wallClockMs`: the sum of the three, so the strip's segments always
+ *     add to its width. This is NOT `SessionTotals.totalWallClockMs`: a
+ *     turn's `activeMs` is clamped at zero, so the recorded wall clock
+ *     can exceed the parts by a few ms of clock skew, and a strip has to
+ *     sum its own parts.
+ *
+ * The in-flight turn contributes only to `workingMs`: its open pauses are
+ * already subtracted from the active figure the caller passes, and a
+ * pause still open has no settled length to show.
+ */
+export interface TimeComposition {
+  workingMs: number;
+  awaitingMs: number;
+  downtimeMs: number;
+  wallClockMs: number;
+}
+
+export function computeTimeComposition(
+  transcript: ReadonlyArray<TurnEntry>,
+  inflightActiveMs: number | null,
+): TimeComposition {
+  const totals = deriveSessionTotals(transcript);
+  const workingMs = totals.totalActiveMs + Math.max(0, inflightActiveMs ?? 0);
+  const awaitingMs = totals.totalAwaitingApprovalMs;
+  const downtimeMs = totals.totalTransportDowntimeMs;
+  return {
+    workingMs,
+    awaitingMs,
+    downtimeMs,
+    wallClockMs: workingMs + awaitingMs + downtimeMs,
+  };
+}
+
+/**
  * Categorical tone for {@link computeRichContextBreakdown} segments.
  * Structurally compatible with `TugArcGaugeSegmentTone` (the gauge
  * primitive's segments-mode tone enum) — the popover hands a

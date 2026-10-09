@@ -35,7 +35,7 @@
 
 import "./tug-popup-list.css";
 
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -160,6 +160,37 @@ export const TugPopupListScroller = React.forwardRef<
     if (!pinnedRef.current) return;
     el.scrollTop = el.scrollHeight;
   });
+
+  // Pin again after every layout effect has run. The frame's height is
+  // clamped by the popover's available-height variable, and a placard
+  // writes that from ITS layout effect — which, as an ancestor's, runs
+  // after this scroller's. A log taller than the room it has is squeezed
+  // after the pin above, and the newest row ends up below the fold by
+  // exactly the squeeze (at0543 read it as 73px). A passive effect runs
+  // once the ancestors have written, so this read sees the clamped box.
+  useEffect(() => {
+    if (!stickToBottom) return;
+    const el = innerRef.current;
+    if (el === null) return;
+    if (!pinnedRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  });
+
+  // And through a later resize — a window resize re-clamps the frame
+  // without a render. The one wait is on the thing that moves.
+  useLayoutEffect(() => {
+    if (!stickToBottom) return undefined;
+    const el = innerRef.current;
+    if (el === null || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => {
+      if (!pinnedRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+    };
+  }, [stickToBottom]);
 
   const handleScroll = (ev: React.UIEvent<HTMLDivElement>): void => {
     if (stickToBottom) {

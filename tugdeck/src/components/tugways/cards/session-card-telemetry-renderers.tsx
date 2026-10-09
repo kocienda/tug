@@ -1660,7 +1660,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       transcript={snap.transcript}
       turnNumberBase={turnNumberBase}
       inflight={
-        isInflight ? { currentTurnActiveMs: perTurnActiveMs } : null
+        snap.activeTurn !== null
+          ? {
+              currentTurnActiveMs: perTurnActiveMs,
+              messages: snap.activeTurn.messages,
+            }
+          : null
       }
       onScrollToRow={onScrollToRow}
     />

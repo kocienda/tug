@@ -105,6 +105,132 @@
 }
 
 /* ============================================================================
+   Time popup — composition strip, legend, in-flight hint
+   ========================================================================= */
+
+/* Where the wall clock went: a stacked strip above the per-turn log and
+   a legend in the CONTEXT popup's three-column rhythm. Segment colors key
+   on `data-part` ([L06]) and read the arc gauge's published segment slots
+   (single-writer, many-reader, like the context swatches below), so the
+   TIME strip and the CONTEXT dial draw from one palette. */
+.session-time-popover-composition {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-popover-strip {
+  display: flex;
+  gap: 2px;
+  block-size: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  background-color: var(--tug7-surface-field-primary-normal-plain-rest);
+}
+
+.session-time-popover-strip-seg {
+  display: block;
+  flex: 0 0 auto;
+  block-size: 100%;
+  min-inline-size: 0;
+  transition: flex-basis 320ms ease-out;
+}
+
+/* A zero-width segment must not spend the strip's 2px gap on nothing. */
+.session-time-popover-strip-seg[data-empty] {
+  display: none;
+}
+
+.session-time-popover-strip-seg[data-part="working"],
+.session-time-popover-swatch[data-part="working"] {
+  background-color: var(--tugx-arc-gauge-segment-messages-color);
+}
+
+.session-time-popover-strip-seg[data-part="awaiting"],
+.session-time-popover-swatch[data-part="awaiting"] {
+  background-color: var(--tugx-arc-gauge-segment-skills-color);
+}
+
+.session-time-popover-strip-seg[data-part="offline"],
+.session-time-popover-swatch[data-part="offline"] {
+  background-color: var(--tugx-arc-gauge-segment-autocompact_buffer-color);
+}
+
+.session-time-popover-legend {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  column-gap: var(--tug-space-md);
+  row-gap: 2px;
+  align-items: baseline;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-popover-legend-label {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  display: flex;
+  align-items: center;
+}
+
+.session-time-popover-swatch {
+  display: inline-block;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 2px;
+  margin-inline-end: 6px;
+  flex: 0 0 auto;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-popover-legend-percent {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  text-align: right;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-popover-legend-value {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  text-align: right;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-popover-legend-divider {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  margin-block: 3px;
+}
+
+/* The in-flight row's annotation: a pulsing dot and "in flight" in the
+   column a committed row spends on its end-state badge. */
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-popover-inflight {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+}
+
+.session-time-popover-inflight-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background-color: var(--tug7-element-global-text-normal-info-rest);
+  animation: session-time-popover-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes session-time-popover-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-time-popover-inflight-dot { animation: none; }
+}
+
+/* ============================================================================
    Context popup body
    ========================================================================= */
 

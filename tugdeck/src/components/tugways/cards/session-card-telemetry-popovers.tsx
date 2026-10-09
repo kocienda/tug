@@ -73,10 +73,12 @@ import {
 } from "@/lib/code-session-store/end-state";
 import { formatStateChangeRow } from "@/lib/code-session-store/state-change-formatter";
 import {
-  computeTimeSummary,
+  computeLiveTimeSummary,
+  computeTimeComposition,
   type ContextBreakdown,
+  type TimeComposition,
 } from "@/lib/code-session-store/telemetry";
-import type { TurnEntry } from "@/lib/code-session-store/types";
+import type { Message, TurnEntry } from "@/lib/code-session-store/types";
 import type { SessionStateChangeRow } from "@/lib/session-state-changes-reader";
 import {
   assistantRowIndexForTurn,
@@ -199,7 +201,7 @@ const REQUEST_PREVIEW_MAX_CHARS = 96;
  * blockquote (Paste as Quote), not a route prefix, and the transcript's
  * user row no longer strips one either.
  */
-function requestPreviewText(turn: TurnEntry): string {
+function requestPreviewText(turn: { messages: ReadonlyArray<Message> }): string {
   // Pull the user submission's text from the `user_message` Message
   // at the head of `turn.messages` (the [D07] substrate replacement
   // for `turn.userMessage`). Wake turns have no `user_message` head;
@@ -402,7 +404,7 @@ function TurnEntryPair({
  * `TugLabel` (see {@link requestPreviewText}). Muted + mono so it
  * sits quietly between the entry-number pair and the end-state badge.
  */
-function RequestPreview({ turn }: { turn: TurnEntry }): React.ReactElement {
+function RequestPreview({ turn }: { turn: { messages: ReadonlyArray<Message> } }): React.ReactElement {
   return (
     <TugLabel className="session-popover-row-request" mono emphasis="calm">
       {requestPreviewText(turn)}
@@ -443,8 +445,16 @@ function EmptyTranscriptBody(): React.ReactElement {
 /**
  * `TIME` popup — per-turn `activeMs` log + summary rows (count, total,
  * average) + optional in-flight row surfacing the live current-turn
- * elapsed. The summary is derived by `computeTimeSummary` so the
- * gallery + production popups compute identical numbers. Footer: COPY.
+ * elapsed. Above the log, a composition strip says where the session's
+ * wall clock went — working, waiting on you, offline — with a legend in
+ * the CONTEXT popup's three-column rhythm.
+ *
+ * Everything that can tick, ticks. While a turn is in flight it appears
+ * as the log's last row with a live hint in place of an end-state badge,
+ * `total` includes it, `avg` divides by one more turn, and the strip's
+ * working segment grows. The numbers come from `computeLiveTimeSummary`
+ * and `computeTimeComposition`, so a copy of the popup and the popup
+ * itself cannot disagree. Footer: COPY.
  */
 export function TimePopoverContent({
   transcript,
@@ -457,10 +467,20 @@ export function TimePopoverContent({
    *  addresses match the transcript's paged numbering. Defaults to `0`
    *  (a full / non-windowed load, and the gallery / fixtures). */
   turnNumberBase?: number;
-  inflight: { currentTurnActiveMs: number } | null;
+  /**
+   * The turn in flight, or `null` when the session is idle. `messages`
+   * is the active turn's message list, read for the row's prompt
+   * preview the same way a committed turn's is.
+   */
+  inflight: {
+    currentTurnActiveMs: number;
+    messages?: ReadonlyArray<Message>;
+  } | null;
   onScrollToRow?: ScrollToRowHandler;
 }): React.ReactElement {
-  const summary = computeTimeSummary(transcript);
+  const inflightMs = inflight === null ? null : inflight.currentTurnActiveMs;
+  const summary = computeLiveTimeSummary(transcript, inflightMs);
+  const composition = computeTimeComposition(transcript, inflightMs);
   const rows = transcript.map((t, i) => (
     <TugPopupListRow
       key={t.turnKey}
@@ -470,11 +490,37 @@ export function TimePopoverContent({
       badge={<TurnEndStateBadge turn={t} />}
     />
   ));
+  if (inflight !== null) {
+    // The turn in flight is the log's last row: its address is the next
+    // turn number, its preview the prompt that started it, and where a
+    // committed row carries an end state it carries a live hint. Static
+    // address — the transcript row it would scroll to is still forming.
+    const n = turnNumberBase + transcript.length + 1;
+    rows.push(
+      <TugPopupListRow
+        key="inflight"
+        label={
+          <span className="session-popover-turn-pair" data-slot="session-popover-turn-pair">
+            <TurnNumberButton address={{ speaker: "user", turn: n }} rowIndex={-1} />
+          </span>
+        }
+        preview={<RequestPreview turn={{ messages: inflight.messages ?? [] }} />}
+        badge={<InflightHint />}
+        value={formatTimeAlwaysHours(inflight.currentTurnActiveMs)}
+      />,
+    );
+  }
   const summaryRows: React.ReactElement[] = [
-    <TugPopupListRow key="turns" label="turns" value={String(summary.count)} />,
+    <TugPopupListRow
+      key="turns"
+      label="turns"
+      hint={inflight !== null ? "+1 in flight" : undefined}
+      value={String(summary.count)}
+    />,
     <TugPopupListRow
       key="total"
       label="total"
+      hint={inflight !== null ? "incl. current" : undefined}
       value={formatTimeAlwaysHours(summary.totalActiveMs)}
     />,
     <TugPopupListRow
@@ -494,8 +540,9 @@ export function TimePopoverContent({
       />,
     );
   }
+  const hasAnyRows = transcript.length > 0 || inflight !== null;
   const footer =
-    transcript.length > 0 ? (
+    hasAnyRows ? (
       <TugPopupListFooter>
         <PopupCopyButton
           aria-label="Copy the per-turn time log"
@@ -505,9 +552,13 @@ export function TimePopoverContent({
               turnNumberBase,
               (t) => (turnHasTiming(t) ? formatTimeAlwaysHours(t.activeMs) : "—"),
               [
+                ...(inflight !== null
+                  ? [`#u${turnNumberBase + transcript.length + 1}\tin flight\t${formatTimeAlwaysHours(inflight.currentTurnActiveMs)}`]
+                  : []),
                 `turns\t${summary.count}`,
                 `total\t${formatTimeAlwaysHours(summary.totalActiveMs)}`,
                 `avg\t${formatTimeAlwaysHours(summary.avgActiveMs)}`,
+                ...composeTimeCompositionCopyLines(composition),
               ],
             )
           }
@@ -516,6 +567,7 @@ export function TimePopoverContent({
     ) : undefined;
   return (
     <TugPopupListFrame kind="log" footer={footer}>
+      {hasAnyRows ? <TimeCompositionStrip composition={composition} /> : null}
       <TugPopupListGrid
         rows={rows}
         summary={summaryRows}
@@ -525,6 +577,106 @@ export function TimePopoverContent({
         stickToBottom
       />
     </TugPopupListFrame>
+  );
+}
+
+/**
+ * The in-flight row's annotation — a pulsing dot and "in flight" where a
+ * committed row shows its end-state badge. The dot is the same liveness
+ * mark the status row uses for a turn in progress; here it says the row's
+ * value is still moving.
+ */
+function InflightHint(): React.ReactElement {
+  return (
+    <span className="session-time-popover-inflight" data-slot="session-time-popover-inflight">
+      <span className="session-time-popover-inflight-dot" aria-hidden />
+      in flight
+    </span>
+  );
+}
+
+/** The three parts of the wall clock, in strip order, with their legend copy. */
+const TIME_COMPOSITION_PARTS: ReadonlyArray<{
+  id: "working" | "awaiting" | "offline";
+  label: string;
+  pick: (c: TimeComposition) => number;
+}> = [
+  { id: "working", label: "working", pick: (c) => c.workingMs },
+  { id: "awaiting", label: "waiting on you", pick: (c) => c.awaitingMs },
+  { id: "offline", label: "offline", pick: (c) => c.downtimeMs },
+];
+
+function formatCompositionPercent(part: number, whole: number): string {
+  if (whole <= 0) return "0.0%";
+  return `${((part / whole) * 100).toFixed(1)}%`;
+}
+
+function composeTimeCompositionCopyLines(c: TimeComposition): string[] {
+  return [
+    ...TIME_COMPOSITION_PARTS.map(
+      (p) => `${p.label}\t${formatCompositionPercent(p.pick(c), c.wallClockMs)}\t${formatTimeAlwaysHours(p.pick(c))}`,
+    ),
+    `wall clock\t${formatTimeAlwaysHours(c.wallClockMs)}`,
+  ];
+}
+
+/**
+ * Where the wall clock went — one stacked strip (working · waiting on
+ * you · offline) and a legend in the CONTEXT popup's three-column rhythm.
+ * Wall clock is a true part-to-whole, so the honest form is a stacked
+ * bar: a dial would read it as a fill level. Segment widths are the one
+ * inline style, the same way the arc gauge's path geometry is: they are
+ * data, not appearance ([L06]); every color keys on `data-part`.
+ */
+function TimeCompositionStrip({
+  composition,
+}: {
+  composition: TimeComposition;
+}): React.ReactElement {
+  const whole = composition.wallClockMs;
+  return (
+    <div className="session-time-popover-composition" data-slot="session-time-popover-composition">
+      <div
+        className="session-time-popover-strip"
+        role="img"
+        aria-label={`Wall clock ${formatTimeAlwaysHours(whole)}: ${TIME_COMPOSITION_PARTS.map((p) => `${p.label} ${formatCompositionPercent(p.pick(composition), whole)}`).join(", ")}`}
+      >
+        {TIME_COMPOSITION_PARTS.map((p) => {
+          const pct = whole > 0 ? (p.pick(composition) / whole) * 100 : 0;
+          return (
+            <span
+              key={p.id}
+              className="session-time-popover-strip-seg"
+              data-part={p.id}
+              data-empty={pct === 0 ? "true" : undefined}
+              style={{ flexBasis: `${pct}%` }}
+            />
+          );
+        })}
+      </div>
+      <div className="session-time-popover-legend">
+        {TIME_COMPOSITION_PARTS.map((p) => (
+          <React.Fragment key={p.id}>
+            <span className="session-time-popover-legend-label">
+              <span className="session-time-popover-swatch" data-part={p.id} />
+              {p.label}
+            </span>
+            <span className="session-time-popover-legend-percent">
+              {formatCompositionPercent(p.pick(composition), whole)}
+            </span>
+            <span className="session-time-popover-legend-value">
+              {formatTimeAlwaysHours(p.pick(composition))}
+            </span>
+          </React.Fragment>
+        ))}
+        <div className="session-time-popover-legend-divider" />
+        <span className="session-time-popover-legend-label">wall clock</span>
+        <span />
+        <span className="session-time-popover-legend-value">
+          {formatTimeAlwaysHours(whole)}
+        </span>
+      </div>
+    </div>
   );
 }
 

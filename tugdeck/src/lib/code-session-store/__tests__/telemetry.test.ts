@@ -19,6 +19,8 @@ import {
   deriveJobExtendedActiveMs,
   deriveTimeCellMs,
   computeTimeSummary,
+  computeLiveTimeSummary,
+  computeTimeComposition,
   computeRichContextBreakdown,
   isCompactionLowEffect,
   turnHasTiming,
@@ -643,6 +645,85 @@ describe("deriveTimeCellMs", () => {
     // the fallback. The cell should freeze at that committed value
     // rather than ticking back to 0 or any other transient state.
     expect(deriveTimeCellMs(snap(), 1_001_000, 7_777)).toBe(7_777);
+  });
+});
+
+describe("computeLiveTimeSummary", () => {
+  it("equals the committed summary when no turn is in flight", () => {
+    const transcript = [turn({ activeMs: 1_000 }), turn({ activeMs: 3_000 })];
+    expect(computeLiveTimeSummary(transcript, null)).toEqual(
+      computeTimeSummary(transcript),
+    );
+  });
+
+  it("folds the in-flight turn into total and average but not count", () => {
+    const transcript = [turn({ activeMs: 1_000 }), turn({ activeMs: 3_000 })];
+    expect(computeLiveTimeSummary(transcript, 2_000)).toEqual({
+      count: 2,
+      totalActiveMs: 6_000,
+      avgActiveMs: 2_000,
+    });
+  });
+
+  it("averages a fresh session's first turn over one", () => {
+    expect(computeLiveTimeSummary([], 4_500)).toEqual({
+      count: 0,
+      totalActiveMs: 4_500,
+      avgActiveMs: 4_500,
+    });
+  });
+
+  it("clamps a negative in-flight figure to zero", () => {
+    expect(computeLiveTimeSummary([turn({ activeMs: 1_000 })], -50)).toEqual({
+      count: 1,
+      totalActiveMs: 1_000,
+      avgActiveMs: 500,
+    });
+  });
+});
+
+describe("computeTimeComposition", () => {
+  it("returns zeros for an empty, idle session", () => {
+    expect(computeTimeComposition([], null)).toEqual({
+      workingMs: 0,
+      awaitingMs: 0,
+      downtimeMs: 0,
+      wallClockMs: 0,
+    });
+  });
+
+  it("sums working, waiting and offline across committed turns", () => {
+    const transcript = [
+      turn({ activeMs: 1_000, awaitingApprovalMs: 200, transportDowntimeMs: 0 }),
+      turn({ activeMs: 3_000, awaitingApprovalMs: 300, transportDowntimeMs: 50 }),
+    ];
+    expect(computeTimeComposition(transcript, null)).toEqual({
+      workingMs: 4_000,
+      awaitingMs: 500,
+      downtimeMs: 50,
+      wallClockMs: 4_550,
+    });
+  });
+
+  it("adds the in-flight active ms to working only", () => {
+    const transcript = [
+      turn({ activeMs: 1_000, awaitingApprovalMs: 200, transportDowntimeMs: 50 }),
+    ];
+    expect(computeTimeComposition(transcript, 700)).toEqual({
+      workingMs: 1_700,
+      awaitingMs: 200,
+      downtimeMs: 50,
+      wallClockMs: 1_950,
+    });
+  });
+
+  it("sums its own parts rather than reading the recorded wall clock", () => {
+    // activeMs is clamped at zero on the way in, so a recorded wallClockMs
+    // can exceed the three parts; the strip's whole is what it draws.
+    const transcript = [
+      turn({ wallClockMs: 10_000, activeMs: 0, awaitingApprovalMs: 9_000, transportDowntimeMs: 900 }),
+    ];
+    expect(computeTimeComposition(transcript, null).wallClockMs).toBe(9_900);
   });
 });
 
