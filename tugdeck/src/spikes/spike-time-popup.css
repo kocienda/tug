@@ -1,0 +1,296 @@
+/* @tug-pairings: none — a design spike. Every rule here paints a mock of the
+   Z2 TIME placard; nothing in this file ships. Tones for the bars and the
+   composition strip borrow the gauges' published fill and segment slots so
+   the mock cannot disagree with the dial beside it. */
+
+.sp-tp-intro,
+.sp-tp-note {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  max-inline-size: 640px;
+}
+
+.sp-tp-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.sp-tp-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.sp-tp-tag {
+  font-size: 0.75rem;
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* ---------------------------------------------------------------------------
+ * The placard chrome — the real popup's frame, restated
+ * ---------------------------------------------------------------------------*/
+
+.sp-tp-placard {
+  display: flex;
+  flex-direction: column;
+  inline-size: 640px;
+  max-inline-size: 100%;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tug7-surface-popover-primary-normal-default-rest);
+  overflow: hidden;
+}
+
+.sp-tp-placard[data-wide] {
+  inline-size: 700px;
+}
+
+.sp-tp-placard-title {
+  padding: 8px 0 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.1em;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  user-select: none;
+}
+
+.sp-tp-placard .tug-popup-list {
+  max-inline-size: none;
+}
+
+/* Cap the log so the placard stays popup-sized and the scroller does its job. */
+.sp-tp-placard .tug-popup-list-grid-scroller {
+  max-block-size: 220px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Rows
+ * ---------------------------------------------------------------------------*/
+
+.sp-tp-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.sp-tp-addr {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-tp-pair-sep {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-tp-preview-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-inline-size: 0;
+}
+
+.sp-tp-preview-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-inline-size: 0;
+}
+
+.sp-tp-live-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-tp-live-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background-color: var(--tug7-element-global-text-normal-info-rest);
+  animation: sp-tp-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sp-tp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-tp-live-dot { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------
+ * B — row bars. Thin, baseline-anchored, 1px ends; the fill reads the
+ * gauges' shared fill slots so a caution bar and a caution dial agree.
+ * ---------------------------------------------------------------------------*/
+
+.sp-tp-rowbar {
+  display: block;
+  block-size: 3px;
+  inline-size: 100%;
+  border-radius: 1px;
+  background-color: var(--tugx-gauge-track-color);
+  overflow: hidden;
+}
+
+.sp-tp-rowbar-fill {
+  display: block;
+  block-size: 100%;
+  border-radius: 1px;
+  background-color: var(--tugx-gauge-fill-default-color);
+  transition: width 320ms ease-out;
+}
+
+.sp-tp-rowbar[data-tone="caution"] .sp-tp-rowbar-fill {
+  background-color: var(--tugx-gauge-fill-caution-color);
+}
+
+.sp-tp-rowbar[data-tone="danger"] .sp-tp-rowbar-fill {
+  background-color: var(--tugx-gauge-fill-danger-color);
+}
+
+.sp-tp-rowbar[data-tone="live"] .sp-tp-rowbar-fill {
+  background-color: var(--tugx-gauge-fill-info-color);
+}
+
+/* ---------------------------------------------------------------------------
+ * C — composition strip. One stacked bar, 2px surface gaps between
+ * segments, legend in the CONTEXT popup's three-column rhythm.
+ * ---------------------------------------------------------------------------*/
+
+.sp-tp-comp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 6px;
+}
+
+.sp-tp-strip {
+  display: flex;
+  gap: 2px;
+  block-size: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  background-color: var(--tugx-gauge-track-color);
+}
+
+.sp-tp-strip-seg {
+  display: block;
+  flex: 0 0 auto;
+  block-size: 100%;
+  min-inline-size: 0;
+  transition: flex-basis 320ms ease-out;
+}
+
+.sp-tp-strip-seg[data-part="active"],
+.sp-tp-swatch[data-part="active"] {
+  background-color: var(--tugx-arc-gauge-segment-messages-color);
+}
+
+.sp-tp-strip-seg[data-part="awaiting"],
+.sp-tp-swatch[data-part="awaiting"] {
+  background-color: var(--tugx-arc-gauge-segment-skills-color);
+}
+
+.sp-tp-strip-seg[data-part="offline"],
+.sp-tp-swatch[data-part="offline"] {
+  background-color: var(--tugx-arc-gauge-segment-autocompact_buffer-color);
+}
+
+.sp-tp-legend {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  column-gap: var(--tug-space-md);
+  row-gap: 4px;
+  align-items: baseline;
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-tp-legend-label {
+  display: flex;
+  align-items: center;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-tp-swatch {
+  display: inline-block;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 2px;
+  margin-inline-end: 6px;
+  flex: 0 0 auto;
+}
+
+.sp-tp-legend-pct {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  text-align: right;
+}
+
+.sp-tp-legend-value {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  text-align: right;
+}
+
+.sp-tp-legend-divider {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  margin-block: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * D / E — the dial and the CONTEXT-shaped wide layout
+ * ---------------------------------------------------------------------------*/
+
+.sp-tp-twin {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--tug-space-lg);
+  padding: 12px 12px 4px;
+}
+
+.sp-tp-dial {
+  inline-size: 180px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sp-tp-dial-foot {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  padding-inline: 8px;
+}
+
+.sp-tp-twin-grid {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 18px;
+}
+
+.sp-tp-twin-grid .sp-tp-comp {
+  padding-inline: 0;
+}
+
+.sp-tp-twin-log {
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
