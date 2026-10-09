@@ -14,7 +14,7 @@ import { DeckManager, type TerminationVerdict } from "./deck-manager";
 import { dispatchAction, initActionDispatch } from "./action-dispatch";
 import type { DeckState } from "./layout-tree";
 import { initHostMenuState } from "./lib/host-menu-state";
-import { getSettings } from "./lib/maker-mode-bridge";
+import { getSettings, type HostSettings } from "./lib/maker-mode-bridge";
 import {
   IMPOSITION_GAP_BOTTOM_PROPERTY,
   impositionGapBottomPx,
@@ -81,9 +81,14 @@ import { registerTextCard } from "./components/tugways/cards/text-card-registrat
 import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "./components/tugways/cards/diff-card";
 import { registerCommitCard } from "./components/tugways/cards/commit-card";
-import { registerGalleryCards } from "./components/tugways/cards/gallery-registrations";
-import { registerSpikeCards } from "./spikes/spike-registry";
-import { registerFixtureCards } from "./fixtures/fixture-registrations";
+// The shared markdown sheet: the `--tugx-md-*` tokens and the per-block rules
+// (fenced-code and table chrome, image overlay, links) every shipped
+// `TugMarkdownBlock` renders against. Only `TugMarkdownView` imports it, and
+// that ships with the gallery alone, so the deck takes it here — at this slot,
+// where the gallery's static import used to bring it, because the bundled
+// cascade puts it after the card stylesheets whose equal-specificity rules it
+// has always beaten.
+import "./components/tugways/tug-markdown-view.css";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import {
   animationCensus,
@@ -104,7 +109,6 @@ import { loadThemeLink, showThemeLink } from "./theme-links";
 import { activeSpaceTheme } from "./spaces";
 import { FONT_STACKS } from "./lib/editor-settings-store";
 import { deserialize } from "./serialization";
-import { attachTugTestSurface } from "./test-surface";
 import { installHmrBridge } from "./hmr-bridge";
 import { installDevErrorOverlay } from "./dev-error-overlay";
 
@@ -343,6 +347,52 @@ async function withBootHorizon<T>(
   }
 }
 
+/**
+ * Whether this deck carries maker tooling: the gallery, spike and fixture
+ * cards and the `window.__tug` test surface.
+ *
+ * Three answers say yes. A Vite dev build; the app-test harness, which runs
+ * the prebuilt `dist/` with `__tugTestMode` set; and a maker bundle whose
+ * Vite was not ready, which falls back to serving that same `dist/` with
+ * neither flag set — only the host's `makerMode` knows that deck is a
+ * maker's, and without it the Maker menu's gallery item would be a dead
+ * click. Outside the host the bridge resolves `null`, so a browser tab
+ * answers from the first two alone.
+ */
+async function isMakerTooling(
+  hostSettings: Promise<HostSettings | null>,
+): Promise<boolean> {
+  if (import.meta.env.DEV || window.__tugTestMode === true) return true;
+  return (await hostSettings)?.makerMode === true;
+}
+
+/**
+ * Load the maker-tooling modules, or nothing in a release deck.
+ *
+ * Every one of them is a dynamic import, so a release build's reachable
+ * chunks carry none of their ~40k lines. Boot awaits the result before the
+ * deck deserializes its layout: the loader drops a pane whose only card is
+ * unregistered at load, so a registration that resolved later would lose
+ * every restored gallery or spike pane.
+ */
+async function loadMakerTooling(
+  hostSettings: Promise<HostSettings | null>,
+) {
+  if (!(await isMakerTooling(hostSettings))) return null;
+  const [gallery, spikes, fixtures, testSurface] = await Promise.all([
+    import("./components/tugways/cards/gallery-registrations"),
+    import("./spikes/spike-registry"),
+    import("./fixtures/fixture-registrations"),
+    import("./test-surface"),
+  ]);
+  return {
+    registerGalleryCards: gallery.registerGalleryCards,
+    registerSpikeCards: spikes.registerSpikeCards,
+    registerFixtureCards: fixtures.registerFixtureCards,
+    attachTugTestSurface: testSurface.attachTugTestSurface,
+  };
+}
+
 // Async IIFE: wait for tugbank data + WASM before constructing DeckManager.
 //
 // Initialization sequence:
@@ -457,6 +507,10 @@ async function withBootHorizon<T>(
   // probe holds no timer and schedules no rendering update.
   installMotionGuard();
 
+  // The host's settings, asked once: the maker-tooling gate reads the build
+  // profile from it now, and the imposition's bottom band reads it later.
+  const hostSettings = getSettings();
+
   // Register card types before DeckManager construction so addCard("hello") works
   // from the first render.
   registerHelloWorldCard();
@@ -478,9 +532,13 @@ async function withBootHorizon<T>(
   registerFileViewCard();
   registerDiffCard();
   registerCommitCard();
-  registerGalleryCards();
-  registerSpikeCards();
-  registerFixtureCards();
+  const makerTooling = await withBootHorizon(
+    "maker-tooling",
+    loadMakerTooling(hostSettings),
+  );
+  makerTooling?.registerGalleryCards();
+  makerTooling?.registerSpikeCards();
+  makerTooling?.registerFixtureCards();
 
   // Dev-build convenience: expose the log store on `window.tugDevLog`
   // so the WebKit Web Inspector console can drive the Log section without
@@ -630,7 +688,7 @@ async function withBootHorizon<T>(
   // three edges. The fact arrives one round trip after boot, so the deck
   // re-imposes when it lands and only when the answer differs from the maker
   // depth every expression already falls back to.
-  void getSettings().then((settings) => {
+  void hostSettings.then((settings) => {
     if (!setImpositionGapBottom(settings?.makerMode === true)) return;
     document.documentElement.style.setProperty(
       IMPOSITION_GAP_BOTTOM_PROPERTY,
@@ -689,9 +747,10 @@ async function withBootHorizon<T>(
   // `window.__tugTestMode === true`. The attach is a no-op otherwise;
   // production users never have the global set, since the
   // `WKUserScript` that injects it is `#if DEBUG`-gated in
-  // `tugapp/Sources/TestHarness/TestHarnessUserScript.swift`.
+  // `tugapp/Sources/TestHarness/TestHarnessUserScript.swift`, and a
+  // release deck never loads the module at all (`loadMakerTooling`).
   // See `test-surface.ts` for the full surface and attach-site rationale ([D03]/[D08]).
-  attachTugTestSurface(deck);
+  makerTooling?.attachTugTestSurface(deck);
 
   // Install the Vite-HMR bridge so React Fast Refresh remounts (the
   // dev-only fifth and sixth "known transitions" beyond tab-switch /
