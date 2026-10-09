@@ -81,4 +81,22 @@ Corrections the briefs carry against the list above:
 - **Item 12.** The five "unused" libraries are legitimate L21 pattern credits. The gap is Sparkle and the npm and cargo trees.
 - **Item 13.** Committed fonts and wasm `pkg/` are documented decisions, and both are non-goals.
 
-The **Medium**, **Large**, and **Doc drift** items are not briefed yet.
+The **Large** items are briefed as six arcs. Item 31 bundled two codebases and is two briefs.
+
+| Brief | Item | Arc |
+|---|---|---|
+| [`agent-supervisor-split-brief.md`](agent-supervisor-split-brief.md) | 27 | `/arc agent-supervisor-split @briefs/agent-supervisor-split-brief.md` |
+| [`arc-ops-split-and-typed-error-brief.md`](arc-ops-split-and-typed-error-brief.md) | 28 | `/arc arc-ops-split-and-typed-error @briefs/arc-ops-split-and-typed-error-brief.md` |
+| [`tugcode-session-split-brief.md`](tugcode-session-split-brief.md) | 29 | `/arc tugcode-session-split @briefs/tugcode-session-split-brief.md` |
+| [`deck-manager-carve-and-chrome-tests-brief.md`](deck-manager-carve-and-chrome-tests-brief.md) | 30 | `/arc deck-manager-carve-and-chrome-tests @briefs/deck-manager-carve-and-chrome-tests-brief.md` |
+| [`appdelegate-extraction-brief.md`](appdelegate-extraction-brief.md) | 31 | `/arc appdelegate-extraction @briefs/appdelegate-extraction-brief.md` |
+| [`tugcast-boot-builders-brief.md`](tugcast-boot-builders-brief.md) | 31 | `/arc tugcast-boot-builders @briefs/tugcast-boot-builders-brief.md` |
+
+Corrections the Large briefs carry against the list above:
+
+- **Item 27.** No registry or trait. The families become child modules of `agent_supervisor/`, which see the parent's private fields, so the split is a pure move and the string match becomes a one-level delegation.
+- **Item 29.** Only the six process-lifecycle booleans become a phase enum. `replayActive` and `isInWake` are orthogonal modes and stay.
+- **Item 31.** The 96 `@objc` actions stay on `AppDelegate` as forwarders, since AppKit owns their selector and validation wiring. The tugcast `main` is 2,166 lines, not 2,280.
+- **Ordering.** `agent-supervisor-split` and `tugcast-boot-builders` both touch the supervisor's construction. Run them one after the other in either order, never concurrently.
+
+The **Medium** and **Doc drift** items are not briefed yet.
