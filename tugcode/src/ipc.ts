@@ -8,31 +8,24 @@ import type {
 } from "./types.ts";
 import { isInboundMessage } from "./types.ts";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
+import { LineSplitter } from "./line-splitter.ts";
 
 /**
  * Async generator that reads JSON lines from stdin.
  * Yields valid InboundMessage objects, logs invalid lines to stderr.
  */
 export async function* readLine(): AsyncGenerator<InboundMessage, void, unknown> {
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const splitter = new LineSplitter({ stream: "stdin" });
 
   for await (const chunk of Bun.stdin.stream()) {
-    buffer += decoder.decode(chunk, { stream: true });
-
-    let lineEnd = buffer.indexOf("\n");
-    while (lineEnd >= 0) {
-      const line = buffer.slice(0, lineEnd).trim();
-      buffer = buffer.slice(lineEnd + 1);
-
+    for (const raw of splitter.push(chunk)) {
+      const line = raw.trim();
       if (line.length > 0) {
         const msg = validateMessage(line);
         if (msg) {
           yield msg;
         }
       }
-
-      lineEnd = buffer.indexOf("\n");
     }
   }
 }

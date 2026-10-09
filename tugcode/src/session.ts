@@ -69,6 +69,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { Database } from "bun:sqlite";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
+import { LineSplitter } from "./line-splitter.ts";
 import {
   type JsonlEntry,
   type ReplayInput,
@@ -2851,6 +2852,23 @@ const INTERRUPT_ACK_GRACE_MS = 2000;
 const RESULT_WATCHDOG_MS = 12000;
 
 /**
+ * How long a user message's write to claude's stdin may stay pending before
+ * claude is treated as wedged. Bun's `FileSink.write` and `flush` return a
+ * promise when the pipe is full, which means claude is not reading its stdin;
+ * one message can carry a 5 MB image, so without a bound a wedged claude is
+ * an unbounded queue with no signal to anyone. The window is the result
+ * watchdog's, because expiry takes the same recovery a stalled turn takes —
+ * {@link SessionManager.forceTerminateAndRespawn} — and a healthy claude
+ * drains even the largest message in a fraction of it.
+ */
+const STDIN_WRITE_TIMEOUT_MS = RESULT_WATCHDOG_MS;
+
+/** A `FileSink` result is a byte count, or a promise of one while the pipe is full. */
+function isPending<T>(result: T | Promise<T>): result is Promise<T> {
+  return result instanceof Promise;
+}
+
+/**
  * Force-terminate signal grace. {@link killAndCleanup} in `escalate` mode
  * sends SIGINT, waits this long for claude to exit, then SIGKILLs. Unlike the
  * graceful teardown (stdin EOF + 5s), a wedged claude isn't reading stdin, so
@@ -3774,6 +3792,13 @@ export class SessionManager {
    * half a minute; nothing in production writes it.
    */
   private sendHorizonMs: number = SEND_HORIZON_MS;
+  /**
+   * The bound on a pending stdin write, in ms. An instance field so a test
+   * can narrow it; nothing in production writes it.
+   */
+  private stdinWriteTimeoutMs: number = STDIN_WRITE_TIMEOUT_MS;
+  /** User-message writes to claude's stdin still waiting on a full pipe. */
+  private stdinWritesPending = 0;
   /**
    * Set true the first time the stdout drain observes a `system/init`
    * event for the current claude subprocess. Subsequent `system/init`
@@ -5173,20 +5198,16 @@ export class SessionManager {
     const stream = stderr as ReadableStream<Uint8Array>;
     const reader = stream.getReader();
     void (async () => {
-      const decoder = new TextDecoder();
-      let buffer = "";
+      const splitter = new LineSplitter({ stream: "claude_stderr" });
       try {
         while (true) {
           const result = await reader.read();
           if (result.done) {
-            if (buffer.length > 0) process.stderr.write(buffer);
+            const rest = splitter.end();
+            if (rest !== null) process.stderr.write(rest);
             return;
           }
-          buffer += decoder.decode(result.value, { stream: true });
-          let lineEnd = buffer.indexOf("\n");
-          while (lineEnd >= 0) {
-            const line = buffer.slice(0, lineEnd);
-            buffer = buffer.slice(lineEnd + 1);
+          for (const line of splitter.push(result.value)) {
             // Forward verbatim so tugcast::tugcode_stderr keeps seeing
             // exactly what claude wrote — operator visibility unchanged.
             process.stderr.write(line + "\n");
@@ -5200,7 +5221,6 @@ export class SessionManager {
                 this.claudeStderrClassification = "collision";
               }
             }
-            lineEnd = buffer.indexOf("\n");
           }
         }
       } catch (err) {
@@ -6435,16 +6455,15 @@ export class SessionManager {
    * {@link handleClaudeLine}. Exits cleanly on EOF (claude closed
    * its stdout, e.g., on exit) or on read error.
    *
-   * The drain decodes incrementally (TextDecoder with `{stream: true}`)
-   * so multi-byte UTF-8 sequences split across chunks are handled
-   * correctly. Lines longer than a single chunk are accumulated in
-   * `buffer` until a newline is seen.
+   * Splitting is a {@link LineSplitter}'s: multi-byte UTF-8 sequences
+   * split across chunks arrive whole, lines longer than a chunk are
+   * carried until their newline, and a line over the splitter's cap is
+   * dropped and logged rather than carried without bound.
    */
   private async runStdoutDrain(
     reader: ReadableStreamDefaultReader<Uint8Array>,
   ): Promise<void> {
-    const decoder = new TextDecoder();
-    let buffer = "";
+    const splitter = new LineSplitter({ stream: "claude_stdout" });
     try {
       while (true) {
         let result: Awaited<ReturnType<typeof reader.read>>;
@@ -6454,18 +6473,13 @@ export class SessionManager {
           break;
         }
         if (result.done) {
-          const remaining = buffer.trim();
+          const remaining = splitter.end()?.trim() ?? "";
           if (remaining.length > 0) this.handleClaudeLineGuarded(remaining);
-          buffer = "";
           break;
         }
-        buffer += decoder.decode(result.value, { stream: true });
-        let lineEnd = buffer.indexOf("\n");
-        while (lineEnd >= 0) {
-          const line = buffer.slice(0, lineEnd).trim();
-          buffer = buffer.slice(lineEnd + 1);
+        for (const raw of splitter.push(result.value)) {
+          const line = raw.trim();
           if (line.length > 0) this.handleClaudeLineGuarded(line);
-          lineEnd = buffer.indexOf("\n");
         }
       }
     } finally {
@@ -8083,8 +8097,7 @@ export class SessionManager {
       parent_tool_use_id: null,
     }) + "\n";
     const stdin = this.claudeProcess.stdin;
-    stdin.write(userInput);
-    stdin.flush();
+    const written = this.writeUserInput(stdin, userInput);
     // Claude has now received input from us, so it has been seen alive
     // end-to-end. The early-exit watcher reads this flag to gate its
     // init-failure classification: any exit from this point on is a
@@ -8119,6 +8132,7 @@ export class SessionManager {
         msg.content,
       );
       this.activeTurn = turn;
+      await written;
       // The drain clears `this.activeTurn` when it brackets the turn;
       // this await only lets callers that sequence on turn completion
       // (the tests, any future awaiting caller) observe it.
@@ -8127,6 +8141,67 @@ export class SessionManager {
       this.pendingTurnInputs.push({
         content: msg.content,
       });
+      await written;
+    }
+  }
+
+  /**
+   * Whether a user message is still waiting to get into claude's stdin
+   * because the pipe is full — claude has stopped reading it.
+   */
+  get stdinBackpressured(): boolean {
+    return this.stdinWritesPending > 0;
+  }
+
+  /**
+   * Write a user message to claude's stdin and resolve once Bun has accepted
+   * all of it. The write and flush are issued synchronously, so the bytes are
+   * ordered against every other stdin writer exactly as before; the caller
+   * does its turn bookkeeping and then awaits the returned promise, which
+   * never rejects.
+   *
+   * While either result is a pending promise the session reads
+   * {@link stdinBackpressured}. A write still pending after
+   * {@link stdinWriteTimeoutMs} means claude is wedged, and takes the path a
+   * stalled turn takes: {@link forceTerminateAndRespawn}, which closes the
+   * turn as a recovery cancel and resumes a fresh claude. There is no queue
+   * of our own in front of Bun's.
+   */
+  private writeUserInput(
+    stdin: ClaudeSubprocess["stdin"],
+    data: string,
+  ): Promise<void> {
+    const pending = [stdin.write(data), stdin.flush()].filter(isPending);
+    if (pending.length === 0) return Promise.resolve();
+    return this.awaitStdinDrain(pending, Buffer.byteLength(data));
+  }
+
+  private async awaitStdinDrain(
+    pending: Promise<unknown>[],
+    bytes: number,
+  ): Promise<void> {
+    const child = this.claudeProcess;
+    this.stdinWritesPending += 1;
+    logSessionLifecycle("tugcode.stdin_backpressured", {
+      session_id: this.sessionId,
+      bytes,
+    });
+    try {
+      // A rejected write is a dead pipe, which the drain's EOF path answers;
+      // it is not the wedge this wait is for.
+      const drained = await settlesWithin(
+        Promise.all(pending),
+        this.stdinWriteTimeoutMs,
+      ).catch(() => true);
+      if (drained || this.claudeProcess !== child) return;
+      logSessionLifecycle("tugcode.stdin_write_timeout", {
+        session_id: this.sessionId,
+        bytes,
+        timeout_ms: this.stdinWriteTimeoutMs,
+      });
+      void this.forceTerminateAndRespawn("stdin_write_timeout");
+    } finally {
+      this.stdinWritesPending -= 1;
     }
   }
 
