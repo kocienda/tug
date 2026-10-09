@@ -55,6 +55,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -83,20 +84,7 @@ const CARD = '[data-card-id="A"]';
 const USER_BODY = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 const PILL = `${USER_BODY} [data-slot="tug-session-identity"]`;
 
-/**
- * How claude names its per-project subdir under `~/.claude/projects/` — every
- * character outside `[A-Za-z0-9-]` becomes `-`. Kept inline rather than
- * imported so the app-test graph does not depend on tugcode.
- */
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
-
-const FIXTURE_DIR = join(
-  homedir(),
-  ".claude",
-  "projects",
-  encodeProjectDir(BETA_DIR),
-);
+const FIXTURE_DIR = claudeProjectDir(BETA_DIR);
 const FIXTURE_PATH = join(FIXTURE_DIR, `${SESSION_B}.jsonl`);
 
 /** Two turns, in claude's own JSONL shape — what `session show` reads back. */

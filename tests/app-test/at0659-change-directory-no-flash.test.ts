@@ -48,11 +48,11 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { encodeProjectDir } from "./arc-fixture";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -79,12 +79,10 @@ const MIN_FRAMES = 30;
 let dirA = "";
 let dirB = "";
 
-const claudeDir = (dir: string): string =>
-  join(homedir(), ".claude", "projects", encodeProjectDir(dir));
 
 /** The parent's history: one turn that carries the word. */
 function seedParent(): void {
-  mkdirSync(claudeDir(dirA), { recursive: true });
+  mkdirSync(claudeProjectDir(dirA), { recursive: true });
   const base = {
     isSidechain: false,
     userType: "external",
@@ -124,7 +122,7 @@ function seedParent(): void {
     },
   ];
   writeFileSync(
-    join(claudeDir(dirA), `${PARENT_SID}.jsonl`),
+    join(claudeProjectDir(dirA), `${PARENT_SID}.jsonl`),
     rows.map((r) => JSON.stringify(r)).join("\n") + "\n",
   );
 }
@@ -140,7 +138,7 @@ afterAll(() => {
   for (const dir of [dirA, dirB]) {
     if (dir === "") continue;
     rmSync(dir, { recursive: true, force: true });
-    rmSync(claudeDir(dir), { recursive: true, force: true });
+    rmSync(claudeProjectDir(dir), { recursive: true, force: true });
   }
 });
 

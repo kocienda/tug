@@ -26,21 +26,9 @@ use std::time::SystemTime;
 /// contract runs from an arc worktree, and a stale path is a gate that
 /// silently compares nothing.
 pub fn reference_corpus_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
     let checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let checkout = std::fs::canonicalize(&checkout).unwrap_or(checkout);
-    PathBuf::from(home)
-        .join(".claude/projects")
-        .join(encode_project_dir(&checkout))
-}
-
-/// Claude Code's project-directory encoding: every byte that is not
-/// alphanumeric becomes `-`, so `/Users/me/src/tug` is `-Users-me-src-tug`.
-fn encode_project_dir(path: &Path) -> String {
-    path.to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
+    tugcore::claude_home::ClaudeHome::from_env().project_dir(checkout)
 }
 
 /// True when `dir` holds at least one session JSONL. A corpus directory can

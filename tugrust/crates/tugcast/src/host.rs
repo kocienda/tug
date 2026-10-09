@@ -7,10 +7,11 @@
 //! the other `/api` handlers.
 //!
 //! The response shape is `{ "hostname": <str>, "shell": <str>,
-//! "shellPath": <str>, "home": <str> }` (Spec S01 + the additive `home`
-//! field the Dev session picker seeds from). All values are resolved once
-//! per request from the running process's environment; host facts do
-//! not change over a server's lifetime.
+//! "shellPath": <str>, "home": <str>, "claudeHome": <str> }` (Spec S01 +
+//! the additive `home` field the Dev session picker seeds from, and the
+//! additive `claudeHome` root the deck formats Claude Code paths from). All
+//! values are resolved once per request from the running process's
+//! environment; host facts do not change over a server's lifetime.
 
 use std::net::SocketAddr;
 
@@ -19,6 +20,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use tracing::warn;
+use tugcore::claude_home::ClaudeHome;
 
 /// JSON body of `GET /api/host` (Spec S01).
 ///
@@ -44,6 +46,12 @@ pub(crate) struct HostFacts {
     /// reliable fallback the Dev session picker seeds its Project Path from
     /// when there is no recent project and no Swift-provided hint.
     home: String,
+    /// Where Claude Code keeps its user-scope state — `$CLAUDE_CONFIG_DIR`,
+    /// else `$HOME/.claude` ([`ClaudeHome`]). The deck cannot read the
+    /// environment, so this is the root it formats every Claude Code path
+    /// from, which is how a moved config directory shows its real path.
+    #[serde(rename = "claudeHome")]
+    claude_home: String,
 }
 
 impl HostFacts {
@@ -61,6 +69,7 @@ impl HostFacts {
             home: dirs::home_dir()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
+            claude_home: ClaudeHome::from_env().root().to_string_lossy().into_owned(),
         }
     }
 }
@@ -128,13 +137,14 @@ mod tests {
             shell: "zsh".to_owned(),
             shell_path: "/bin/zsh".to_owned(),
             home: "/Users/ken".to_owned(),
+            claude_home: "/cfg/claude".to_owned(),
         };
         let json = serde_json::to_value(&facts).expect("HostFacts serializes");
         let obj = json.as_object().expect("serializes to a JSON object");
 
         // The cross-stack fields, all JSON strings; `shellPath` is serialized
         // camelCase to match the convention `HostFactsStore` parses.
-        assert_eq!(obj.len(), 4);
+        assert_eq!(obj.len(), 5);
         assert_eq!(
             obj.get("hostname").and_then(|v| v.as_str()),
             Some("studio.local")
@@ -145,6 +155,10 @@ mod tests {
             Some("/bin/zsh")
         );
         assert_eq!(obj.get("home").and_then(|v| v.as_str()), Some("/Users/ken"));
+        assert_eq!(
+            obj.get("claudeHome").and_then(|v| v.as_str()),
+            Some("/cfg/claude")
+        );
     }
 
     #[test]

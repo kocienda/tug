@@ -143,6 +143,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tugcast_core::{OverviewAuthor, OverviewPost};
+use tugcore::claude_home::{ClaudeHome, encode_project_dir};
 
 use crate::background_session::is_background_card_id;
 use crate::ledger_integrity;
@@ -1081,11 +1082,11 @@ pub struct TrashOutcome {
 /// SQLite-backed per-session metadata store.
 pub struct SessionLedger {
     db: Mutex<Connection>,
-    /// Root directory where claude code stores per-project session JSONLs:
-    /// `<root>/<encoded-project-dir>/<sessionId>.jsonl`. Production defaults
-    /// to `~/.claude/projects/`; tests inject a tempdir so trash mechanics
-    /// don't touch the real filesystem.
-    claude_projects_root: PathBuf,
+    /// Where Claude Code keeps its per-project session JSONLs:
+    /// `<projects>/<encoded-project-dir>/<sessionId>.jsonl`. Production
+    /// resolves it from the environment; tests inject a tempdir so trash
+    /// mechanics don't touch the real filesystem.
+    claude_home: ClaudeHome,
     /// "Sessions changed" signal — the ledger is the source of truth for
     /// sessions, so it publishes a change from its own lifecycle writes and any
     /// delegate (the account-global changeset aggregate) subscribes. Set once at
@@ -1141,9 +1142,8 @@ impl SessionLedger {
     /// **machine-global** changes ledger
     /// (`tugcore::instance::changes_db_path()`, `TUG_CHANGES_DB`
     /// overridable). Applies pragmas and runs the idempotent schema
-    /// bootstrap. Safe to call against an existing file. Uses the default
-    /// claude projects root (`~/.claude/projects/`). The production
-    /// constructor.
+    /// bootstrap. Safe to call against an existing file. Uses the
+    /// environment's [`ClaudeHome`]. The production constructor.
     /// `http_port` is the loopback port this tugcast bound; it is
     /// published in the writer claim so a non-owning instance can forward
     /// its changes mutations here.
@@ -1151,11 +1151,11 @@ impl SessionLedger {
         let mut ledger = Self::open_full(
             path,
             Some(tugcore::instance::changes_db_path()),
-            default_claude_projects_root(),
+            ClaudeHome::from_env(),
             http_port,
         )?;
         // The one production attach. The on-disk test constructor
-        // (`open_with_claude_root`) deliberately gets none: it is also what
+        // (`open_with_claude_home`) deliberately gets none: it is also what
         // `tugcast operator-ask` opens a ledger *copy* with, and an
         // instrument pointed at a copy must not write the machine-wide
         // index any more than it may claim the changes writer role.
@@ -1163,7 +1163,7 @@ impl SessionLedger {
         Ok(ledger)
     }
 
-    /// Open the ledger with an explicit `claude_projects_root`, attached to
+    /// Open the ledger with an explicit [`ClaudeHome`], attached to
     /// a `<path>.changes` sibling file (never the machine-global one) —
     /// per-file isolation with reopen persistence.
     ///
@@ -1172,13 +1172,13 @@ impl SessionLedger {
     /// must not reach past it and claim the writer role on the machine-global
     /// `changes.db` that a running instance holds. The server itself opens
     /// with [`SessionLedger::open`].
-    pub fn open_with_claude_root(
+    pub fn open_with_claude_home(
         path: impl AsRef<Path>,
-        claude_projects_root: PathBuf,
+        claude_home: ClaudeHome,
     ) -> Result<Self, LedgerError> {
         let mut sibling = path.as_ref().as_os_str().to_owned();
         sibling.push(".changes");
-        Self::open_full(path, Some(PathBuf::from(sibling)), claude_projects_root, 0)
+        Self::open_full(path, Some(PathBuf::from(sibling)), claude_home, 0)
     }
 
     /// Core constructor: open `path`, attach the changes ledger at
@@ -1189,7 +1189,7 @@ impl SessionLedger {
     fn open_full(
         path: impl AsRef<Path>,
         changes_db: Option<PathBuf>,
-        claude_projects_root: PathBuf,
+        claude_home: ClaudeHome,
         http_port: u16,
     ) -> Result<Self, LedgerError> {
         // Claim the machine-wide writer role before anything touches the
@@ -1293,7 +1293,7 @@ impl SessionLedger {
         }
         let ledger = Self {
             db: Mutex::new(conn),
-            claude_projects_root,
+            claude_home,
             sessions_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
@@ -1326,7 +1326,7 @@ impl SessionLedger {
     /// Open an in-memory ledger (with an in-memory changes attach).
     /// Test-only convenience; never used by production callers. Uses a
     /// placeholder claude root that no test should write through (tests
-    /// using trash should use `open_with_claude_root` against a tempdir).
+    /// using trash should use `open_with_claude_home` against a tempdir).
     #[cfg(test)]
     pub fn open_in_memory() -> Result<Self, LedgerError> {
         let conn = Connection::open_in_memory()?;
@@ -1334,7 +1334,7 @@ impl SessionLedger {
         let changes_write_ok = Self::configure(&conn, true)?;
         Ok(Self {
             db: Mutex::new(conn),
-            claude_projects_root: PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            claude_home: ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
             sessions_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
@@ -1345,13 +1345,13 @@ impl SessionLedger {
         })
     }
 
-    /// An in-memory ledger whose Claude projects root is a directory the test
+    /// An in-memory ledger whose Claude home is a directory the test
     /// owns — what a test asserting on transcript paths needs, since the
     /// default root deliberately points nowhere writable.
     #[cfg(test)]
-    pub fn open_in_memory_with_root(root: &Path) -> Result<Self, LedgerError> {
+    pub fn open_in_memory_with_home(home: ClaudeHome) -> Result<Self, LedgerError> {
         let mut ledger = Self::open_in_memory()?;
-        ledger.claude_projects_root = root.to_path_buf();
+        ledger.claude_home = home;
         Ok(ledger)
     }
 
@@ -1534,10 +1534,10 @@ impl SessionLedger {
         tugcore::instance::resolve_sessions_db_path()
     }
 
-    /// Configured claude projects root. Exposed so the supervisor's batch
-    /// trash sweep can iterate `<root>/*/.tug-trash/` without re-resolving.
-    pub fn claude_projects_root(&self) -> &Path {
-        &self.claude_projects_root
+    /// The configured Claude home. Exposed so the supervisor's batch trash
+    /// sweep can iterate `<projects>/*/.tug-trash/` without re-resolving.
+    pub fn claude_home(&self) -> &ClaudeHome {
+        &self.claude_home
     }
 
     /// The newest assistant `message.id` in the transcript the deck will replay
@@ -1610,7 +1610,7 @@ impl SessionLedger {
                 }
             },
         };
-        let (dir, _canonical) = claude_project_dir(&self.claude_projects_root, &project_dir);
+        let (dir, _canonical) = claude_project_dir(&self.claude_home, &project_dir);
         let anchor = latest_assistant_msg_id_in(&dir.join(format!("{session_id}.jsonl")));
         if anchor.is_none() {
             tracing::debug!(
@@ -1635,7 +1635,7 @@ impl SessionLedger {
         project_dir: &str,
         at_ms: i64,
     ) -> Option<String> {
-        let (dir, _canonical) = claude_project_dir(&self.claude_projects_root, project_dir);
+        let (dir, _canonical) = claude_project_dir(&self.claude_home, project_dir);
         assistant_msg_id_at_in(&dir.join(format!("{session_id}.jsonl")), at_ms)
     }
 
@@ -4072,7 +4072,7 @@ impl SessionLedger {
             let project_dir: String = row.get(1)?;
             Ok(SessionRow {
                 session_id: row.get(0)?,
-                workspace_key: encode_claude_project_name(&project_dir),
+                workspace_key: encode_project_dir(&project_dir),
                 project_dir,
                 created_at: row.get(2)?,
                 last_used_at: row.get(3)?,
@@ -5970,12 +5970,8 @@ impl SessionLedger {
         self.settle_session_deletes([session_id]);
         self.index_remove(session_id);
 
-        let trash_path = move_jsonl_to_trash(
-            &self.claude_projects_root,
-            &project_dir,
-            session_id,
-            now_millis(),
-        );
+        let trash_path =
+            move_jsonl_to_trash(&self.claude_home, &project_dir, session_id, now_millis());
         self.notify_sessions_changed();
         Ok(TrashOutcome {
             session_id: session_id.to_owned(),
@@ -6017,7 +6013,7 @@ impl SessionLedger {
 
         let now = now_millis();
         for id in &doomed {
-            move_jsonl_to_trash(&self.claude_projects_root, project_dir, id, now);
+            move_jsonl_to_trash(&self.claude_home, project_dir, id, now);
         }
         if !doomed.is_empty() {
             self.notify_sessions_changed();
@@ -6025,7 +6021,7 @@ impl SessionLedger {
         Ok(doomed)
     }
 
-    /// Walk every project subdirectory under `claude_projects_root`,
+    /// Walk every project subdirectory under the Claude home's `projects/`,
     /// looking for `.tug-trash/<deletedAt>/` subdirs whose timestamp is
     /// older than `max_age_ms`. Called from `main.rs` at tugcast startup.
     ///
@@ -6041,13 +6037,14 @@ impl SessionLedger {
     /// trash dirs forever.
     pub fn sweep_trash(&self, max_age_ms: i64, now: i64) -> usize {
         let cutoff = now.saturating_sub(max_age_ms);
-        let entries = match std::fs::read_dir(&self.claude_projects_root) {
+        let projects = self.claude_home.projects_dir();
+        let entries = match std::fs::read_dir(&projects) {
             Ok(it) => it,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return 0,
             Err(err) => {
                 tracing::warn!(
                     error = %err,
-                    root = %self.claude_projects_root.display(),
+                    root = %projects.display(),
                     "sweep_trash: read_dir failed",
                 );
                 return 0;
@@ -6172,12 +6169,7 @@ impl SessionLedger {
     /// destination, or `None` when the file is missing or the move
     /// failed (logged at warn level by the move helper).
     pub fn trash_external_jsonl(&self, project_dir: &str, session_id: &str) -> Option<PathBuf> {
-        move_jsonl_to_trash(
-            &self.claude_projects_root,
-            project_dir,
-            session_id,
-            now_millis(),
-        )
+        move_jsonl_to_trash(&self.claude_home, project_dir, session_id, now_millis())
     }
 
     // ── external scan cache ──────────────────────────────────────────────────
@@ -9201,10 +9193,6 @@ pub fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-/// Default location of claude code's per-project session JSONLs:
-/// `~/.claude/projects/`. Production callers pass this to
-/// `SessionLedger::open_with_claude_root` (or rely on `open` which
-/// resolves it implicitly).
 /// Open the machine-wide session index, or log and carry on without one.
 ///
 /// The index is the only ledger whose absence costs nothing a user can
@@ -9226,41 +9214,6 @@ fn open_session_index(path: &Path) -> Option<tugcore::session_index::SessionInde
     }
 }
 
-pub fn default_claude_projects_root() -> PathBuf {
-    let home = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()));
-    home.join(".claude").join("projects")
-}
-
-/// Encode a project_dir into the directory name claude code uses under
-/// `~/.claude/projects/`. claude's convention replaces every character
-/// outside `[A-Za-z0-9-]` in the absolute path with `-` — slashes and
-/// dots, but also underscores and anything else exotic — producing a
-/// flat name that's filesystem-safe and hashable. Verified against
-/// `~/.claude/projects/` on claude 2.1.198 (a worktree path like
-/// `.tugtree/tugdash__foo` lands on disk as `--tugtree-tugdash--foo`;
-/// the earlier `/`-and-`.`-only mapping missed the underscores and hid
-/// every such project's sessions from the picker).
-///
-/// **Do not call this directly with a user-supplied path** — claude
-/// derives the directory name from the *canonical* cwd, so a path typed
-/// through a symlink alias (`/u/src/tugtool`) encodes to a directory
-/// that doesn't exist. [`claude_project_dir`] is the chokepoint that
-/// canonicalizes first; this raw encoder exists for callers that
-/// already hold a canonical path (and for tests seeding fixtures).
-pub fn encode_claude_project_name(project_dir: &str) -> String {
-    project_dir
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
-
 /// THE mapping from a user-supplied project path to claude's on-disk
 /// per-project directory — the single chokepoint every production
 /// consumer (scan, trash, row synthesis) must route through.
@@ -9276,14 +9229,19 @@ pub fn encode_claude_project_name(project_dir: &str) -> String {
 /// `-System-Volumes-Data-…` directory that does not exist) and silently
 /// no-op'd trash; the resolver is firmlink-aware so all three forms
 /// (on-disk dir name, ledger `workspace_key`, this canonical string)
-/// agree. Returns both the resolved directory under `claude_projects_root`
+/// agree. Returns both the resolved directory under the home's `projects/`
 /// and the canonical project-dir string, so callers never re-derive either.
-pub fn claude_project_dir(claude_projects_root: &Path, project_dir: &str) -> (PathBuf, String) {
+///
+/// The encoding itself is [`ClaudeHome::project_dir`]'s; **do not encode a
+/// user-supplied path directly** — claude derives the directory name from
+/// the *canonical* cwd, so a path typed through a symlink alias
+/// (`/u/src/tugtool`) encodes to a directory that doesn't exist.
+pub fn claude_project_dir(claude_home: &ClaudeHome, project_dir: &str) -> (PathBuf, String) {
     let canonical = resolve_to_claude_form(Path::new(project_dir))
         .to_str()
         .map(|s| s.to_owned())
         .unwrap_or_else(|| project_dir.to_owned());
-    let dir = claude_projects_root.join(encode_claude_project_name(&canonical));
+    let dir = claude_home.project_dir(&canonical);
     (dir, canonical)
 }
 
@@ -9420,7 +9378,7 @@ fn assistant_msg_id_at_in(path: &Path, at_ms: i64) -> Option<String> {
 /// move has already committed and shouldn't roll back over a filesystem
 /// hiccup.
 fn move_jsonl_to_trash(
-    claude_projects_root: &Path,
+    claude_home: &ClaudeHome,
     project_dir: &str,
     session_id: &str,
     deleted_at_ms: i64,
@@ -9428,7 +9386,7 @@ fn move_jsonl_to_trash(
     // Chokepoint resolution: ledger rows record the user-typed path,
     // which may be a symlink alias of the canonical dir claude's
     // directory name encodes.
-    let (project_root, _canonical) = claude_project_dir(claude_projects_root, project_dir);
+    let (project_root, _canonical) = claude_project_dir(claude_home, project_dir);
     let source = project_root.join(format!("{session_id}.jsonl"));
     if !source.exists() {
         // Nothing to move — the JSONL was never created or already
@@ -12137,9 +12095,9 @@ mod tests {
         let path = dir.path().join("sessions.db");
         seed_pre_tokens_ledger(&path);
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .expect("open migrates");
 
@@ -12169,9 +12127,9 @@ mod tests {
         let path = dir.path().join("sessions.db");
         seed_pre_tokens_ledger(&path);
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .expect("open migrates");
 
@@ -12204,9 +12162,9 @@ mod tests {
         let path = dir.path().join("sessions.db");
         seed_pre_tokens_ledger(&path);
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .expect("first open");
         let tokens_after_first: String = {
@@ -12216,9 +12174,9 @@ mod tests {
         };
         drop(ledger);
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .expect("second open");
         let conn = ledger.db.lock().unwrap();
@@ -13651,14 +13609,16 @@ mod tests {
 
         let claude_root = tmp_real.join("projects");
         let canonical_str = real_project.to_str().unwrap();
-        let session_dir = claude_root.join(encode_claude_project_name(canonical_str));
+        let session_dir = claude_root.join(encode_project_dir(canonical_str));
         std::fs::create_dir_all(&session_dir).unwrap();
         let jsonl = session_dir.join("s1.jsonl");
         std::fs::write(&jsonl, "{}").unwrap();
 
-        let l =
-            SessionLedger::open_with_claude_root(tmp_real.join("sessions.db"), claude_root.clone())
-                .unwrap();
+        let l = SessionLedger::open_with_claude_home(
+            tmp_real.join("sessions.db"),
+            ClaudeHome::at(&tmp_real),
+        )
+        .unwrap();
         l.record_spawn(
             "s1",
             WS_A,
@@ -14509,18 +14469,18 @@ mod tests {
         let tmp = NamedTempFile::new().expect("temp file");
         let path = tmp.path().to_path_buf();
         // First open seeds the schema.
-        let l1 = SessionLedger::open_with_claude_root(
+        let l1 = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         l1.record_spawn("s1", WS_A, "/proj", "c1", millis(0), "s1", None)
             .unwrap();
         drop(l1);
         // Second open re-runs the idempotent DDL and finds the row intact.
-        let l2 = SessionLedger::open_with_claude_root(
+        let l2 = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         let r = l2.get("s1").unwrap().expect("row survives reopen");
@@ -14544,9 +14504,9 @@ mod tests {
             conn.pragma_update(None, "user_version", CHANGES_SCHEMA_VERSION + 1)
                 .unwrap();
         }
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         // Row writes to the shared tables are refused...
@@ -14649,9 +14609,9 @@ mod tests {
              VALUES ('sess-1','ws','/proj',1,1,'live','tugdash/demo#1','demo');",
         );
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         drop(ledger);
@@ -14679,9 +14639,9 @@ mod tests {
              VALUES ('sess-1','ws','/proj',1,1,'live');",
         );
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         drop(ledger);
@@ -14715,9 +14675,9 @@ mod tests {
                 ('current','ws','/proj',1,1,'live','tugdash/stale#1','stale','tugarc/mine#1','mine');",
         );
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         drop(ledger);
@@ -14793,9 +14753,9 @@ mod tests {
                 .map(|r| r.message)
         };
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         assert_eq!(
@@ -14823,9 +14783,9 @@ mod tests {
         }
 
         // Twice is once: the prefix rewrite must not compound.
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         assert_eq!(
@@ -14866,9 +14826,9 @@ mod tests {
             // No `user_version` write and no sidecar: version 0 on both.
         }
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         assert_eq!(
@@ -14910,9 +14870,9 @@ mod tests {
         }
         std::fs::write(dir.path().join("sessions.db.changes.schema-version"), "1\n").unwrap();
 
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         // The pre-existing row is still there and still readable.
@@ -14943,9 +14903,9 @@ mod tests {
     fn fresh_changes_schema_is_stamped_and_writable() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let ledger = SessionLedger::open_with_claude_root(
+        let ledger = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         ledger
@@ -14979,7 +14939,7 @@ mod tests {
     async fn a_non_owner_forwards_its_writes_and_takes_over_when_the_owner_exits() {
         let dir = tempfile::tempdir().expect("tempdir");
         let changes = dir.path().join("changes.db");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
         let event = |tool: &str, file: &str| FileEventRow {
             tug_session_id: "s1".into(),
             tool_use_id: tool.into(),
@@ -15138,8 +15098,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
         let changes = dir.path().join("sessions.db.changes");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
-        drop(SessionLedger::open_with_claude_root(&path, root.clone()).unwrap());
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
+        drop(SessionLedger::open_with_claude_home(&path, root.clone()).unwrap());
 
         // A "newer build" stamped the sidecar; then the db went corrupt.
         std::fs::write(
@@ -15149,7 +15109,7 @@ mod tests {
         .unwrap();
         std::fs::write(&changes, b"garbage, not a sqlite database").unwrap();
 
-        let ledger = SessionLedger::open_with_claude_root(&path, root).expect("degraded open");
+        let ledger = SessionLedger::open_with_claude_home(&path, root).expect("degraded open");
         assert!(
             changes.exists(),
             "the corrupt newer-schema database must stay in place"
@@ -15186,7 +15146,7 @@ mod tests {
     fn a_forwarding_instance_refuses_forwarded_records() {
         let dir = tempfile::tempdir().expect("tempdir");
         let changes = dir.path().join("changes.db");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
         let owner = SessionLedger::open_full(
             dir.path().join("owner.db"),
             Some(changes.clone()),
@@ -15219,7 +15179,7 @@ mod tests {
     fn a_delete_on_a_forwarding_ledger_takes_over_without_self_deadlock() {
         let dir = tempfile::tempdir().expect("tempdir");
         let changes = dir.path().join("changes.db");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
         let owner = SessionLedger::open_full(
             dir.path().join("owner.db"),
             Some(changes.clone()),
@@ -15249,7 +15209,7 @@ mod tests {
     fn journal_rebuilds_changes_after_total_destruction() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
         let event = |tool: &str, file: &str, at: i64| FileEventRow {
             tug_session_id: "s1".into(),
             tool_use_id: tool.into(),
@@ -15263,7 +15223,7 @@ mod tests {
             at,
         };
         {
-            let l = SessionLedger::open_with_claude_root(&path, root.clone()).unwrap();
+            let l = SessionLedger::open_with_claude_home(&path, root.clone()).unwrap();
             l.record_file_event(&event("t1", "a.rs", 1)).unwrap();
             l.record_file_event(&event("t2", "b.rs", 2)).unwrap();
             // A replayed duplicate must not double-journal.
@@ -15285,7 +15245,7 @@ mod tests {
         let changes_sibling = dir.path().join("sessions.db.changes");
         std::fs::write(&changes_sibling, b"utterly destroyed").unwrap();
 
-        let l = SessionLedger::open_with_claude_root(&path, root).unwrap();
+        let l = SessionLedger::open_with_claude_home(&path, root).unwrap();
         let rows = l.file_events_for_session("s1").unwrap();
         assert_eq!(rows.len(), 2, "journal replay restored both events");
         assert_eq!(rows[0].file_path, "a.rs");
@@ -15301,9 +15261,9 @@ mod tests {
     fn corrupt_db_files_are_quarantined_at_open() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let l1 = SessionLedger::open_with_claude_root(
+        let l1 = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         l1.record_spawn("s1", WS_A, "/proj", "c1", millis(0), "s1", None)
@@ -15315,9 +15275,9 @@ mod tests {
         std::fs::write(&changes_sibling, b"also garbage").unwrap();
         // Reopen: both files are quarantined and the ledger comes up fresh
         // and writable instead of erroring or compounding damage.
-        let l2 = SessionLedger::open_with_claude_root(
+        let l2 = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         l2.record_spawn("s2", WS_A, "/proj", "c2", millis(1), "s2", None)
@@ -15372,30 +15332,10 @@ mod tests {
         assert_eq!(truncate_user_prompt(s), s);
     }
 
-    #[test]
-    fn encode_claude_project_name_replaces_every_non_alphanumeric() {
-        assert_eq!(
-            encode_claude_project_name("/Users/ken/src/foo.bar"),
-            "-Users-ken-src-foo-bar"
-        );
-        assert_eq!(
-            encode_claude_project_name("/u/src/tugtool"),
-            "-u-src-tugtool"
-        );
-        // Underscores (and anything else outside [A-Za-z0-9-]) collapse
-        // too — claude's on-disk naming for an arc worktree, verified on
-        // 2.1.198.
-        assert_eq!(
-            encode_claude_project_name("/repo/.tugtree/tugdash__subagent-improvements"),
-            "-repo--tugtree-tugdash--subagent-improvements"
-        );
-        assert_eq!(encode_claude_project_name("/tmp/a b"), "-tmp-a-b");
-    }
-
     // ── trash mechanics (move + sweep) ───────────────────────────────────────
     //
-    // Trash tests use a tempdir as the claude-projects-root so the move
-    // operations don't touch `~/.claude/projects/` on the dev machine.
+    // Trash tests use a tempdir as the Claude home so the move operations
+    // don't touch the dev machine's real transcripts.
 
     fn fresh_ledger_with_root(root: &Path) -> SessionLedger {
         // Use an in-memory db (in-memory changes attach) but explicit claude root.
@@ -15404,7 +15344,7 @@ mod tests {
         let changes_write_ok = SessionLedger::configure(&conn, true).expect("configure");
         SessionLedger {
             db: Mutex::new(conn),
-            claude_projects_root: root.to_path_buf(),
+            claude_home: ClaudeHome::at(root),
             sessions_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
@@ -15416,8 +15356,7 @@ mod tests {
     }
 
     fn write_jsonl(root: &Path, project_dir: &str, session_id: &str) -> PathBuf {
-        let encoded = encode_claude_project_name(project_dir);
-        let project_root = root.join(encoded);
+        let project_root = ClaudeHome::at(root).project_dir(project_dir);
         std::fs::create_dir_all(&project_root).expect("mkdir project root");
         let path = project_root.join(format!("{session_id}.jsonl"));
         std::fs::write(&path, b"{\"type\":\"placeholder\"}\n").expect("write jsonl");
@@ -15448,7 +15387,8 @@ mod tests {
         // Source must be gone.
         let original = tmp
             .path()
-            .join(encode_claude_project_name("/proj/x"))
+            .join("projects")
+            .join(encode_project_dir("/proj/x"))
             .join("sess-doomed.jsonl");
         assert!(!original.exists());
         // Trash structure: `<encoded>/.tug-trash/<deletedAt>/<sessionId>.jsonl`.
@@ -15477,7 +15417,8 @@ mod tests {
 
         let trash_root = tmp
             .path()
-            .join(encode_claude_project_name("/proj/x"))
+            .join("projects")
+            .join(encode_project_dir("/proj/x"))
             .join(".tug-trash");
         // Create three subdirs: 8 days ago (sweep), 6 days ago (keep),
         // 30 days ago (sweep).
@@ -15515,8 +15456,8 @@ mod tests {
         // `.tug-trash/` subdir. Sweep is a no-op.
         let tmp = tempfile::tempdir().expect("tempdir");
         let l = fresh_ledger_with_root(tmp.path());
-        std::fs::create_dir_all(tmp.path().join("-proj-clean")).unwrap();
-        std::fs::create_dir_all(tmp.path().join("-proj-also-clean")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("projects/-proj-clean")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("projects/-proj-also-clean")).unwrap();
         let removed = l.sweep_trash(7 * 86_400_000, millis(0));
         assert_eq!(removed, 0);
     }
@@ -15534,7 +15475,8 @@ mod tests {
         // NO rows for — simulating the post-Trash-everything state.
         let orphan_root = tmp
             .path()
-            .join(encode_claude_project_name("/proj/orphan"))
+            .join("projects")
+            .join(encode_project_dir("/proj/orphan"))
             .join(".tug-trash");
         let now = millis(0);
         let day = 86_400_000_i64;
@@ -15945,9 +15887,9 @@ mod tests {
         }
         // Open via SessionLedger — bootstrap's guard sees the drift
         // and rebuilds the table.
-        let l = SessionLedger::open_with_claude_root(
+        let l = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         // A write that lists `session_init_tokens` now succeeds — it
@@ -15967,18 +15909,18 @@ mod tests {
         let tmp = NamedTempFile::new().expect("temp file");
         let path = tmp.path().to_path_buf();
         {
-            let l = SessionLedger::open_with_claude_root(
+            let l = SessionLedger::open_with_claude_home(
                 &path,
-                PathBuf::from("/tmp/tugcast-tests-no-trash"),
+                ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
             )
             .unwrap();
             seed_live(&l, "s1", "ws", "card-1", millis(0));
             l.record_turn_telemetry(&sample_telemetry("s1", "msg-A", 1_000))
                 .unwrap();
         }
-        let l = SessionLedger::open_with_claude_root(
+        let l = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         assert_eq!(l.list_turn_telemetry("s1").unwrap().len(), 1);
@@ -16132,15 +16074,15 @@ mod tests {
         // asserts the row survives all of it.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
         {
-            let l = SessionLedger::open_with_claude_root(&path, root.clone()).unwrap();
+            let l = SessionLedger::open_with_claude_home(&path, root.clone()).unwrap();
             seed_live(&l, "ancient", WS_A, "c", millis(4_000));
             l.mark_closed("ancient").unwrap();
             l.record_turn_telemetry(&sample_telemetry("ancient", "msg-A", 1_000))
                 .unwrap();
         }
-        let l = SessionLedger::open_with_claude_root(&path, root).unwrap();
+        let l = SessionLedger::open_with_claude_home(&path, root).unwrap();
         assert!(
             l.get("ancient").unwrap().is_some(),
             "a closed row is never removed by anything but the user's own trash",
@@ -16532,9 +16474,9 @@ mod tests {
     fn record_file_events_replays_from_the_journal_after_destruction() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
         {
-            let l = SessionLedger::open_with_claude_root(&path, root.clone()).unwrap();
+            let l = SessionLedger::open_with_claude_home(&path, root.clone()).unwrap();
             l.record_file_events(&[
                 sample_file_event("s1", "claim:1", "/proj/a.rs"),
                 sample_file_event("s1", "claim:1", "/proj/b.rs"),
@@ -16543,7 +16485,7 @@ mod tests {
         }
         std::fs::write(dir.path().join("sessions.db.changes"), b"destroyed").unwrap();
 
-        let l = SessionLedger::open_with_claude_root(&path, root).unwrap();
+        let l = SessionLedger::open_with_claude_home(&path, root).unwrap();
         let rows = l.file_events_for_session("s1").unwrap();
         assert_eq!(rows.len(), 2, "the batch record replayed whole");
     }
@@ -16930,9 +16872,9 @@ mod tests {
     fn disclaim_replays_from_the_journal_after_destruction() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
-        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
         {
-            let l = SessionLedger::open_with_claude_root(&path, root.clone()).unwrap();
+            let l = SessionLedger::open_with_claude_home(&path, root.clone()).unwrap();
             l.record_file_event(&sample_file_event("mine", "tu-1", "a.rs"))
                 .unwrap();
             l.record_file_event(&sample_file_event("mine", "tu-2", "b.rs"))
@@ -16944,7 +16886,7 @@ mod tests {
 
         // Replay re-inserts both rows and then re-applies the delete, so the
         // renunciation survives the rebuild rather than being undone by it.
-        let l = SessionLedger::open_with_claude_root(&path, root).unwrap();
+        let l = SessionLedger::open_with_claude_home(&path, root).unwrap();
         let rows = l.file_events_for_session("mine").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].file_path, "b.rs");
@@ -16989,7 +16931,7 @@ mod tests {
     #[test]
     fn purge_out_of_repo_journals_and_replays_to_the_same_state() {
         let dir = tempfile::tempdir().unwrap();
-        let claude_root = dir.path().join("claude");
+        let claude_root = ClaudeHome::at(dir.path().join("claude"));
         let changes = dir.path().join("changes.db");
         let owner = SessionLedger::open_full(
             dir.path().join("owner.db"),
@@ -17091,9 +17033,9 @@ mod tests {
             .unwrap();
         }
 
-        let l = SessionLedger::open_with_claude_root(
+        let l = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         let rows = l.file_events_for_session("legacy-sess").unwrap();
@@ -17115,9 +17057,9 @@ mod tests {
                 .unwrap();
             assert_eq!(n, 0, "legacy main.file_events dropped after migration");
         }
-        let l2 = SessionLedger::open_with_claude_root(
+        let l2 = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         assert_eq!(
@@ -17162,9 +17104,9 @@ mod tests {
         }
         // Open via SessionLedger — the bootstrap guard sees the drift and
         // rebuilds the table with the current shape.
-        let l = SessionLedger::open_with_claude_root(
+        let l = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         // A write listing `parent_tool_use_id` now succeeds — it would have
@@ -17184,18 +17126,18 @@ mod tests {
         let tmp = NamedTempFile::new().expect("temp file");
         let path = tmp.path().to_path_buf();
         {
-            let l = SessionLedger::open_with_claude_root(
+            let l = SessionLedger::open_with_claude_home(
                 &path,
-                PathBuf::from("/tmp/tugcast-tests-no-trash"),
+                ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
             )
             .unwrap();
             seed_live(&l, "s1", "ws", "card-1", millis(0));
             l.record_file_event(&sample_file_event("s1", "tu-A", "/proj/a.rs"))
                 .unwrap();
         }
-        let l = SessionLedger::open_with_claude_root(
+        let l = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         assert_eq!(l.file_events_for_session("s1").unwrap().len(), 1);
@@ -17265,9 +17207,9 @@ mod tests {
             )
             .unwrap();
         }
-        let l = SessionLedger::open_with_claude_root(
+        let l = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         let migrated = l
@@ -17354,9 +17296,9 @@ mod tests {
             )
             .unwrap();
         }
-        let l = SessionLedger::open_with_claude_root(
+        let l = SessionLedger::open_with_claude_home(
             &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         // A write listing `fingerprint` now succeeds; the stale row is gone.
@@ -17879,9 +17821,9 @@ mod tests {
     impl AnchorFixture {
         fn new() -> Self {
             let dir = tempfile::tempdir().expect("tempdir");
-            let sessions = SessionLedger::open_with_claude_root(
+            let sessions = SessionLedger::open_with_claude_home(
                 dir.path().join("sessions.db"),
-                dir.path().join("projects"),
+                ClaudeHome::at(dir.path()),
             )
             .expect("ledger");
             Self {
@@ -17895,7 +17837,7 @@ mod tests {
             self.sessions
                 .record_spawn(session, "ws", "/proj", "card-1", 1, session, None)
                 .expect("record_spawn");
-            let (dir, _) = claude_project_dir(self.sessions.claude_projects_root(), "/proj");
+            let (dir, _) = claude_project_dir(self.sessions.claude_home(), "/proj");
             std::fs::create_dir_all(&dir).expect("create project dir");
             std::fs::write(dir.join(format!("{session}.jsonl")), body).expect("write jsonl");
         }
@@ -17934,7 +17876,7 @@ mod tests {
         // row written after the first rotation seats under the door's last
         // word.
         let fx = AnchorFixture::new();
-        let (dir, _) = claude_project_dir(fx.sessions.claude_projects_root(), "/proj");
+        let (dir, _) = claude_project_dir(fx.sessions.claude_home(), "/proj");
         std::fs::create_dir_all(&dir).expect("create project dir");
         fx.sessions
             .record_spawn("door", "ws", "/proj", "card-1", 1_000, "line-1", None)
@@ -18134,7 +18076,7 @@ mod tests {
         // NULL anchor on a session whose transcript is on disk the whole time,
         // so every gateway passes the project dir it already holds.
         let fx = AnchorFixture::new();
-        let (dir, _) = claude_project_dir(fx.sessions.claude_projects_root(), "/proj");
+        let (dir, _) = claude_project_dir(fx.sessions.claude_home(), "/proj");
         std::fs::create_dir_all(&dir).expect("create project dir");
         std::fs::write(dir.join("unannounced.jsonl"), assistant_line("msg_01EARLY"))
             .expect("write jsonl");
@@ -18158,7 +18100,7 @@ mod tests {
         // is the one that located the shell it is writing ink for.
         let fx = AnchorFixture::new();
         fx.seed("s1", &assistant_line("msg_01ROW"));
-        let (other, _) = claude_project_dir(fx.sessions.claude_projects_root(), "/elsewhere");
+        let (other, _) = claude_project_dir(fx.sessions.claude_home(), "/elsewhere");
         std::fs::create_dir_all(&other).expect("create project dir");
         std::fs::write(other.join("s1.jsonl"), assistant_line("msg_01CALLER"))
             .expect("write jsonl");
@@ -18405,7 +18347,8 @@ mod tests {
         let db = dir.path().join("sessions.db");
         let projects = dir.path().join("projects");
         std::fs::create_dir_all(&projects).expect("projects root");
-        let l = SessionLedger::open_with_claude_root(&db, projects.clone()).expect("open ledger");
+        let l = SessionLedger::open_with_claude_home(&db, ClaudeHome::at(dir.path()))
+            .expect("open ledger");
 
         // A plain uuid row, and a second whose leading eight are unique.
         l.record_spawn(
@@ -18487,7 +18430,7 @@ mod tests {
             // Empty on both counts: this test is about the `here` arm, and
             // an answer from either of the others would prove nothing.
             index_db: dir.path().join("no-such-index.db"),
-            claude_projects_root: projects,
+            claude_home: ClaudeHome::at(dir.path()),
             instance: "cargo-test".into(),
         };
 

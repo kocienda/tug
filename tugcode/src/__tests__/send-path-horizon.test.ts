@@ -24,6 +24,7 @@
 // expiry the claude process is not touched: the tests below assert exactly
 // that, by checking the mock child took no writes.
 
+import { ClaudeHome } from "../claude-home.ts";
 import { describe, expect, test } from "bun:test";
 
 import { drainPendingWrites } from "../ipc.ts";
@@ -107,7 +108,7 @@ function makeManager(): SessionManager {
     .toString(36)
     .slice(2, 8)}`;
   const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
-    claudeProjectsRoot: "/tmp/send-path-horizon-fixtures",
+    claudeHome: ClaudeHome.at("/tmp/send-path-horizon-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

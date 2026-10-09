@@ -41,6 +41,13 @@ export interface HostFacts {
    * and no Swift-provided `initial-project-path` hint.
    */
   home: string;
+  /**
+   * Where Claude Code keeps its user-scope state, as tugcast resolved it:
+   * `$CLAUDE_CONFIG_DIR`, else `$HOME/.claude`. Empty from an older tugcast
+   * that predates the field. The deck formats every Claude Code path from
+   * it (`ClaudeHome.at(claudeHome)`) and never builds one from `home`.
+   */
+  claudeHome: string;
 }
 
 /**
@@ -62,13 +69,14 @@ export interface HostFacts {
  */
 export function parseHostFacts(raw: unknown): HostFacts | null {
   if (raw === null || typeof raw !== "object") return null;
-  const { hostname, shell, shellPath, home } = raw as Record<string, unknown>;
+  const { hostname, shell, shellPath, home, claudeHome } = raw as Record<string, unknown>;
   if (typeof hostname !== "string" || typeof shell !== "string") return null;
   return {
     hostname,
     shell,
     shellPath: typeof shellPath === "string" ? shellPath : "",
     home: typeof home === "string" ? home : "",
+    claudeHome: typeof claudeHome === "string" ? claudeHome : "",
   };
 }
 

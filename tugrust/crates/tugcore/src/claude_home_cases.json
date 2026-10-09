@@ -1,0 +1,31 @@
+{
+  "about": "Shared cases for ClaudeHome. tugcore::claude_home (Rust) and tugcode/src/claude-home.ts (TypeScript) both run every row; a row one half fails is the two halves disagreeing about where Claude Code keeps things.",
+  "cases": [
+    { "name": "default root is HOME/.claude", "config_dir": null, "home": "/Users/me", "call": "root", "expected": "/Users/me/.claude" },
+    { "name": "CLAUDE_CONFIG_DIR wins over HOME", "config_dir": "/cfg/claude", "home": "/Users/me", "call": "root", "expected": "/cfg/claude" },
+    { "name": "empty CLAUDE_CONFIG_DIR counts as unset", "config_dir": "", "home": "/Users/me", "call": "root", "expected": "/Users/me/.claude" },
+    { "name": "no home and no config dir roots at /", "config_dir": null, "home": null, "call": "root", "expected": "/.claude" },
+    { "name": "empty home counts as missing", "config_dir": null, "home": "", "call": "projects_dir", "expected": "/.claude/projects" },
+    { "name": "config dir needs no home", "config_dir": "/cfg", "home": null, "call": "sessions_dir", "expected": "/cfg/sessions" },
+    { "name": "projects_dir", "config_dir": null, "home": "/Users/me", "call": "projects_dir", "expected": "/Users/me/.claude/projects" },
+    { "name": "projects_dir under a config dir", "config_dir": "/cfg/claude", "home": "/Users/me", "call": "projects_dir", "expected": "/cfg/claude/projects" },
+    { "name": "trailing slash on a config dir", "config_dir": "/cfg/claude/", "home": null, "call": "projects_dir", "expected": "/cfg/claude/projects" },
+    { "name": "sessions_dir", "config_dir": null, "home": "/Users/me", "call": "sessions_dir", "expected": "/Users/me/.claude/sessions" },
+    { "name": "settings_path", "config_dir": null, "home": "/Users/me", "call": "settings_path", "expected": "/Users/me/.claude/settings.json" },
+    { "name": "settings_path under a config dir", "config_dir": "/cfg", "home": "/Users/me", "call": "settings_path", "expected": "/cfg/settings.json" },
+    { "name": "skills_dir", "config_dir": null, "home": "/Users/me", "call": "skills_dir", "expected": "/Users/me/.claude/skills" },
+    { "name": "agents_dir", "config_dir": null, "home": "/Users/me", "call": "agents_dir", "expected": "/Users/me/.claude/agents" },
+    { "name": "memory_path", "config_dir": null, "home": "/Users/me", "call": "memory_path", "expected": "/Users/me/.claude/CLAUDE.md" },
+    { "name": "memory_path under a config dir", "config_dir": "/cfg", "home": "/Users/me", "call": "memory_path", "expected": "/cfg/CLAUDE.md" },
+    { "name": "project_dir", "config_dir": null, "home": "/Users/me", "call": "project_dir", "arg": "/Users/me/src/tug", "expected": "/Users/me/.claude/projects/-Users-me-src-tug" },
+    { "name": "project_dir under a config dir", "config_dir": "/cfg", "home": "/Users/me", "call": "project_dir", "arg": "/u/src/tug", "expected": "/cfg/projects/-u-src-tug" },
+    { "name": "auto_memory_dir", "config_dir": null, "home": "/Users/me", "call": "auto_memory_dir", "arg": "/Users/me/src/tug", "expected": "/Users/me/.claude/projects/-Users-me-src-tug/memory" },
+    { "name": "project scope ignores CLAUDE_CONFIG_DIR", "config_dir": "/cfg", "home": "/Users/me", "call": "project_claude_dir", "arg": "/work/repo", "expected": "/work/repo/.claude" },
+    { "name": "encoder: slashes and dots", "config_dir": null, "home": null, "call": "encode_project_dir", "arg": "/Users/ken/src/foo.bar", "expected": "-Users-ken-src-foo-bar" },
+    { "name": "encoder: dot-dir and underscores", "config_dir": null, "home": null, "call": "encode_project_dir", "arg": "/repo/.tugtree/tugdash__x", "expected": "-repo--tugtree-tugdash--x" },
+    { "name": "encoder: dashes survive", "config_dir": null, "home": null, "call": "encode_project_dir", "arg": "/a-b/c-d", "expected": "-a-b-c-d" },
+    { "name": "encoder: space", "config_dir": null, "home": null, "call": "encode_project_dir", "arg": "/tmp/a b", "expected": "-tmp-a-b" },
+    { "name": "encoder: accented letter is one dash", "config_dir": null, "home": null, "call": "encode_project_dir", "arg": "/tmp/café", "expected": "-tmp-caf-" },
+    { "name": "encoder: astral character is two dashes, as JavaScript counts it", "config_dir": null, "home": null, "call": "encode_project_dir", "arg": "/tmp/a😀b", "expected": "-tmp-a--b" }
+  ]
+}

@@ -17,6 +17,7 @@
 // wheel put on the wire, read from `sessions.db` and spent as the lineage's
 // files are walked in order.
 
+import { ClaudeHome } from "../claude-home.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { unwrapReplayBatches } from "./capture-ipc.ts";
 import { mkdtempSync, mkdirSync } from "node:fs";
@@ -38,7 +39,7 @@ beforeAll(() => {
   TMP_ROOT = mkdtempSync(join(tmpdir(), "replay-lineage-"));
   PROJECT_DIR = join(TMP_ROOT, "proj");
   CLAUDE_PROJECTS_ROOT = join(TMP_ROOT, "claude-projects");
-  mkdirSync(join(CLAUDE_PROJECTS_ROOT, PROJECT_DIR.replaceAll(/[/.]/g, "-")), {
+  mkdirSync(ClaudeHome.at(CLAUDE_PROJECTS_ROOT).projectDir(PROJECT_DIR), {
     recursive: true,
   });
 });
@@ -76,7 +77,7 @@ function makeManager(
     return { kind: "missing", message: `no JSONL for ${path}` };
   };
   return new SessionManager(PROJECT_DIR, STAGE_ID, "resume", undefined, {
-    claudeProjectsRoot: CLAUDE_PROJECTS_ROOT,
+    claudeHome: ClaudeHome.at(CLAUDE_PROJECTS_ROOT),
     jsonlReader,
     replayTimeoutMs: 5_000,
     ...(sessionsDbPath === undefined ? {} : { sessionsDbPath }),

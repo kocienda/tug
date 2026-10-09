@@ -1,3 +1,4 @@
+import { ClaudeHome } from "../claude-home.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,7 +44,7 @@ describe("buildHooksInventory", () => {
     const inv = buildHooksInventory({
       sessionId: "s",
       requestId: "h-1",
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       cwd,
     });
     expect(inv.type).toBe("hooks_inventory");
@@ -70,7 +71,7 @@ describe("buildHooksInventory", () => {
       hooks: { PostToolUse: [{ hooks: [{ type: "command", command: "c" }] }] },
     });
 
-    const inv = buildHooksInventory({ sessionId: "s", requestId: "h", homeDir: home, cwd });
+    const inv = buildHooksInventory({ sessionId: "s", requestId: "h", claudeHome: ClaudeHome.resolve(null, home), cwd });
     // User, then project, then local — concatenated.
     expect(inv.events.PostToolUse.map((g) => g.matcher)).toEqual([
       "Edit",
@@ -84,13 +85,13 @@ describe("buildHooksInventory", () => {
     const cwd = scratch("tugcode-hooks-cwd-");
     // No settings files at all.
     expect(
-      buildHooksInventory({ sessionId: "s", requestId: "h", homeDir: home, cwd }).events,
+      buildHooksInventory({ sessionId: "s", requestId: "h", claudeHome: ClaudeHome.resolve(null, home), cwd }).events,
     ).toEqual({});
     // Malformed JSON is skipped, not thrown.
     mkdirSync(join(cwd, ".claude"), { recursive: true });
     writeFileSync(join(cwd, ".claude", "settings.json"), "{ not json");
     expect(
-      buildHooksInventory({ sessionId: "s", requestId: "h", homeDir: home, cwd }).events,
+      buildHooksInventory({ sessionId: "s", requestId: "h", claudeHome: ClaudeHome.resolve(null, home), cwd }).events,
     ).toEqual({});
   });
 
@@ -105,7 +106,7 @@ describe("buildHooksInventory", () => {
         ],
       },
     });
-    const inv = buildHooksInventory({ sessionId: "s", requestId: "h", homeDir: home, cwd });
+    const inv = buildHooksInventory({ sessionId: "s", requestId: "h", claudeHome: ClaudeHome.resolve(null, home), cwd });
     // The no-hooks group is dropped; the bad command (no type) is dropped.
     expect(inv.events.PreToolUse).toHaveLength(1);
     expect(inv.events.PreToolUse[0].hooks).toEqual([{ type: "command", command: "ok" }]);

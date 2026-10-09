@@ -25,6 +25,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { ClaudeHome } from "./claude-home.ts";
 
 import { countTokens } from "./tokenizer.ts";
 
@@ -249,20 +250,11 @@ export function staticTotal(s: StaticCategoryEstimates): number {
  * categories. `cache` is the per-(path, mtime) tokenization cache.
  */
 export interface ComputeStaticCategoriesOptions {
-  homeDir: string;
+  claudeHome: ClaudeHome;
   cwd: string;
   pluginDir: string;
   toolCount: number | null;
   cache: Map<string, CacheEntry>;
-}
-
-/**
- * Encode an absolute cwd into Claude Code's project-directory naming
- * convention (every character outside `[A-Za-z0-9-]` → `-`). Mirrors
- * `encodeProjectDir` in `tugcode/src/session.ts`.
- */
-function encodeProjectDir(absDir: string): string {
-  return absDir.replace(/[^A-Za-z0-9-]/g, "-");
 }
 
 /**
@@ -286,7 +278,7 @@ function encodeProjectDir(absDir: string): string {
 export function computeStaticCategories(
   options: ComputeStaticCategoriesOptions,
 ): StaticCategoryEstimates {
-  const { homeDir, cwd, pluginDir, toolCount, cache } = options;
+  const { claudeHome, cwd, pluginDir, toolCount, cache } = options;
 
   const system_prompt = SYSTEM_PROMPT_DEFAULT_TOKENS;
 
@@ -296,32 +288,22 @@ export function computeStaticCategories(
       : toolCount * TOOL_SCHEMA_DEFAULT_TOKENS;
 
   const custom_agents =
-    tokenizeAgentDirCached(join(homeDir, ".claude", "agents"), cache) +
+    tokenizeAgentDirCached(claudeHome.agentsDir(), cache) +
     tokenizeAgentDirCached(join(pluginDir, "agents"), cache);
 
   let memory_files = 0;
-  memory_files += tokenizeFileCached(
-    join(homeDir, ".claude", "CLAUDE.md"),
-    cache,
-  );
+  memory_files += tokenizeFileCached(claudeHome.memoryPath(), cache);
   memory_files += tokenizeFileCached(join(cwd, "CLAUDE.md"), cache);
   // The auto-memory index. Only the index is resident — the per-entry
   // `*.md` files beside it load on demand, so the directory is NOT
   // walked.
   memory_files += tokenizeFileCached(
-    join(
-      homeDir,
-      ".claude",
-      "projects",
-      encodeProjectDir(cwd),
-      "memory",
-      "MEMORY.md",
-    ),
+    join(claudeHome.autoMemoryDir(cwd), "MEMORY.md"),
     cache,
   );
 
   const skills =
-    tokenizeSkillsDirCached(join(homeDir, ".claude", "skills"), cache) +
+    tokenizeSkillsDirCached(claudeHome.skillsDir(), cache) +
     tokenizeSkillsDirCached(join(pluginDir, "skills"), cache);
 
   return { system_prompt, system_tools, custom_agents, memory_files, skills };
@@ -445,7 +427,7 @@ export function extractContextMax(
  */
 export class ContextBreakdownEmitter {
   private readonly sessionId: string;
-  private readonly homeDir: string;
+  private readonly claudeHome: ClaudeHome;
   private readonly cwd: string;
   private readonly pluginDir: string;
   private readonly settings: ClaudeCodeSettings;
@@ -458,13 +440,13 @@ export class ContextBreakdownEmitter {
 
   constructor(opts: {
     sessionId: string;
-    homeDir: string;
+    claudeHome: ClaudeHome;
     cwd: string;
     pluginDir: string;
     settings: ClaudeCodeSettings;
   }) {
     this.sessionId = opts.sessionId;
-    this.homeDir = opts.homeDir;
+    this.claudeHome = opts.claudeHome;
     this.cwd = opts.cwd;
     this.pluginDir = opts.pluginDir;
     this.settings = opts.settings;
@@ -514,7 +496,7 @@ export class ContextBreakdownEmitter {
 
   private recompute(): void {
     this.staticEstimates = computeStaticCategories({
-      homeDir: this.homeDir,
+      claudeHome: this.claudeHome,
       cwd: this.cwd,
       pluginDir: this.pluginDir,
       toolCount: this.toolCount,

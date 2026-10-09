@@ -34,6 +34,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { projectClaudeDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -49,8 +50,8 @@ const LOCAL_RULE = "Bash(at0094-local:*)";
 const PROJECT_RULE = "Bash(at0094-project:*)";
 
 let projectDir = "";
-const localFile = (): string => join(projectDir, ".claude", "settings.local.json");
-const projectFile = (): string => join(projectDir, ".claude", "settings.json");
+const localFile = (): string => join(projectClaudeDir(projectDir), "settings.local.json");
+const projectFile = (): string => join(projectClaudeDir(projectDir), "settings.json");
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;

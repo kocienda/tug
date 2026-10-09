@@ -50,10 +50,11 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import type { App } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 /** How many times a git-touching verb retries through a held `index.lock`. */
 const LOCK_RETRIES = 12;
@@ -1101,10 +1102,6 @@ export function rmArcScratchRepo(scratch: ArcScratchRepo | null): void {
   }
 }
 
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-export const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
-
 /**
  * Give a scratch repo a resumable Claude session, and return the directory to
  * remove afterwards.
@@ -1139,7 +1136,7 @@ export function seedScratchSession(repo: string, sessionId: string): string {
         '(e.g. "a7c0d1ea-0000-4000-8000-000000000421").',
     );
   }
-  const dir = join(homedir(), ".claude", "projects", encodeProjectDir(repo));
+  const dir = claudeProjectDir(repo);
   mkdirSync(dir, { recursive: true });
   const base = {
     isSidechain: false,

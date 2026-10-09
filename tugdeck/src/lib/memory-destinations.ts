@@ -3,18 +3,22 @@
  * ([#step-12a]).
  *
  * Mirrors Claude Code's `/memory`: the project memory (`<cwd>/CLAUDE.md`,
- * checked in), the user memory (`~/.claude/CLAUDE.md`), and the auto-memory
- * folder (`~/.claude/projects/<encoded-cwd>/memory`). Selecting a row hands
- * the path to the OS (see {@link openPathInOS}) — read-only here, editing
- * happens in the OS editor.
+ * checked in), the user memory (`CLAUDE.md` in Claude Code's config
+ * directory), and the auto-memory folder (`projects/<encoded-cwd>/memory`
+ * there). Selecting a row hands the path to the OS (see {@link openPathInOS})
+ * — read-only here, editing happens in the OS editor.
  *
- * Pure: paths are derived from the session cwd alone. `~`-relative paths are
- * left for the host to expand (the web layer has no home dir). The auto-memory
- * folder encodes the cwd the same way Claude Code does (`/` → `-`), so it
- * resolves to the same on-disk directory.
+ * Pure: paths are derived from the session cwd and the host facts tugcast
+ * publishes. The web layer cannot read the environment, so the config
+ * directory is tugcast's resolved `claudeHome` — `$CLAUDE_CONFIG_DIR`, else
+ * `$HOME/.claude` — and the layout under it is the shared `ClaudeHome`, whose
+ * encoder is Claude Code's own, so the auto-memory folder resolves to the
+ * directory Claude Code writes.
  *
  * @module lib/memory-destinations
  */
+
+import { ClaudeHome } from "@tugproto/claude-home";
 
 /** A memory file or folder `/memory` can open in the OS. */
 export interface MemoryDestination {
@@ -30,46 +34,65 @@ export interface MemoryDestination {
   kind: "file" | "folder";
 }
 
-/**
- * Encode an absolute cwd into Claude Code's project-directory naming
- * convention (every character outside `[A-Za-z0-9-]` → `-`). Mirrors
- * `encodeProjectDir` in tugcode (`session.ts` / `context-breakdown.ts`), so
- * the auto-memory folder resolves to the same directory Claude Code writes.
- */
-export function encodeProjectDir(absDir: string): string {
-  return absDir.replace(/[^A-Za-z0-9-]/g, "-");
+/** The host facts a destination is formatted from. */
+export interface ClaudeHostFacts {
+  /** The backend user's home, for writing paths under it as `~/…`. */
+  home: string;
+  /** Claude Code's config directory, as tugcast resolved it. */
+  claudeHome: string;
 }
 
 /**
- * The memory destinations for the session's `cwd`. The user-memory row is
- * always present; the project + auto-memory rows need the cwd (Claude Code's
- * real resolved cwd — `system_metadata.cwd`), so they're omitted when it's
+ * `path` as a person reads it: under `home`, written `~/…`; anywhere else
+ * (a `CLAUDE_CONFIG_DIR` outside home), written as is.
+ */
+export function displayPath(path: string, home: string): string {
+  if (home.length === 0) return path;
+  if (path === home) return "~";
+  return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
+ * The memory destinations for the session's `cwd`. The project and
+ * auto-memory rows need the cwd (Claude Code's real resolved cwd —
+ * `system_metadata.cwd`), and the user and auto-memory rows need the config
+ * directory tugcast publishes; each is omitted while what it needs is
  * unknown. Order matches Claude Code's `/memory`: project, user, auto-memory.
  */
-export function memoryDestinations(cwd: string | null): MemoryDestination[] {
+export function memoryDestinations(
+  cwd: string | null,
+  facts: ClaudeHostFacts | null,
+): MemoryDestination[] {
   const dests: MemoryDestination[] = [];
-  if (cwd !== null && cwd.length > 0) {
+  const knownCwd = cwd !== null && cwd.length > 0 ? cwd : null;
+  const claudeHome =
+    facts !== null && facts.claudeHome.length > 0 ? ClaudeHome.at(facts.claudeHome) : null;
+  const home = facts?.home ?? "";
+  if (knownCwd !== null) {
     dests.push({
       id: "project",
       label: "Project memory",
       detail: "Checked in at ./CLAUDE.md",
-      path: `${cwd}/CLAUDE.md`,
+      path: `${knownCwd}/CLAUDE.md`,
       kind: "file",
     });
   }
-  dests.push({
-    id: "user",
-    label: "User memory",
-    detail: "Saved in ~/.claude/CLAUDE.md",
-    path: "~/.claude/CLAUDE.md",
-    kind: "file",
-  });
-  if (cwd !== null && cwd.length > 0) {
+  if (claudeHome !== null) {
+    const path = claudeHome.memoryPath();
+    dests.push({
+      id: "user",
+      label: "User memory",
+      detail: `Saved in ${displayPath(path, home)}`,
+      path,
+      kind: "file",
+    });
+  }
+  if (claudeHome !== null && knownCwd !== null) {
     dests.push({
       id: "auto",
       label: "Auto-memory folder",
       detail: "Per-conversation memory entries",
-      path: `~/.claude/projects/${encodeProjectDir(cwd)}/memory`,
+      path: claudeHome.autoMemoryDir(knownCwd),
       kind: "folder",
     });
   }

@@ -35,6 +35,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { projectClaudeDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -46,7 +47,7 @@ const tabSel = (id: string): string => `${SHEET} .tug-tab[data-testid="tug-tab-$
 const ADD_SUBMIT = `${SHEET} [data-slot="permission-rules-add-submit"]`;
 
 let projectDir = "";
-const settingsLocal = (): string => join(projectDir, ".claude", "settings.local.json");
+const settingsLocal = (): string => join(projectClaudeDir(projectDir), "settings.local.json");
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
@@ -59,7 +60,7 @@ beforeAll(() => {
 
 /** Pre-seed settings.local.json with keys every add must preserve. */
 function seedSettings(): void {
-  mkdirSync(join(projectDir, ".claude"), { recursive: true });
+  mkdirSync(projectClaudeDir(projectDir), { recursive: true });
   writeFileSync(
     settingsLocal(),
     JSON.stringify({

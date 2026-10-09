@@ -46,8 +46,10 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { claudeProjectDir } from "./_harness/claude-home";
 
 /** One seeded session: its transcript id and the text its row carries. */
 export interface SeededSession {
@@ -89,14 +91,6 @@ export const FULL_LIST: readonly SeededSession[] = [
     title: "lemur palette contrast",
   },
 ];
-
-/**
- * Encode an absolute project dir the way claude names its per-project subdir
- * under `~/.claude/projects/` (every character outside `[A-Za-z0-9-]` → `-`).
- * Kept inline so the app-test graph does not import tugcode.
- */
-export const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /** A minimal one-turn session JSONL in claude's own shape. */
 export function buildFixtureJsonl(
@@ -174,12 +168,7 @@ export function seedPickerSessions(
   // realpath: macOS `mkdtemp` returns `/var/folders/…` but the scan resolves
   // `/var` → `/private/var` before encoding — encode the SAME resolved string.
   const projectDir = realpathSync(mkdtempSync(join(tmpdir(), `${prefix}-proj-`)));
-  const fixtureDir = join(
-    homedir(),
-    ".claude",
-    "projects",
-    encodeProjectDir(projectDir),
-  );
+  const fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   for (const session of sessions) {
     writeFileSync(

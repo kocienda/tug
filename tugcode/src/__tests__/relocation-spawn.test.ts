@@ -12,6 +12,7 @@
  * reads, so the initial spawn and every live-setting respawn take it alike.
  */
 
+import { ClaudeHome } from "../claude-home.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -38,14 +39,14 @@ function fixture(opts?: { relocation?: boolean }): {
   scratch.push(root, projectDir);
   const manager = new SessionManager(projectDir, SID, "new", undefined, {
     sessionsDbPath: null,
-    claudeProjectsRoot: root,
+    claudeHome: ClaudeHome.at(root),
     relocation:
       opts?.relocation === false
         ? undefined
         : { parentClaudeId: PARENT_ID, parentProjectDir: PARENT_DIR },
   });
   // Claude names its folder after the resolved cwd (`/tmp` → `/private/tmp`).
-  const ownJsonl = jsonlPathFor(root, realpathSync(projectDir), SID);
+  const ownJsonl = jsonlPathFor(ClaudeHome.at(root), realpathSync(projectDir), SID);
   return { manager, ownJsonl };
 }
 

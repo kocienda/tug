@@ -41,17 +41,15 @@ import {
   writeFileSync,
   existsSync,
 } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-00000000a222";
-
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /** Two plain turns, each carrying one `oneshotmark` occurrence. */
 function buildFixtureJsonl(cwd: string, sessionId: string): string {
@@ -119,7 +117,7 @@ let fixtureDir = "";
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "at0222-proj-")));
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
+  fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(projectDir, SID));
 });

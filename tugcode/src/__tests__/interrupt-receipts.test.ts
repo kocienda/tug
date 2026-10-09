@@ -16,6 +16,7 @@
 //   - a real interrupt on a live turn → no `interrupt_noop`, an escalation
 //     armed, and exactly one `turn_cancelled` when that escalation fires.
 
+import { ClaudeHome } from "../claude-home.ts";
 import { describe, expect, test } from "bun:test";
 
 import { drainPendingWrites } from "../ipc.ts";
@@ -113,7 +114,7 @@ function makeManager(): SessionManager {
     .toString(36)
     .slice(2, 8)}`;
   const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
-    claudeProjectsRoot: "/tmp/interrupt-receipts-fixtures",
+    claudeHome: ClaudeHome.at("/tmp/interrupt-receipts-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

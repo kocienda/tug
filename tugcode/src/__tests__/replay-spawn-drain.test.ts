@@ -21,6 +21,7 @@
  * failed with the diagnostic shapes documented inline.
  */
 
+import { ClaudeHome } from "../claude-home.ts";
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -122,7 +123,7 @@ function makeDrainRig(opts?: {
     "resume",
     undefined,
     {
-      claudeProjectsRoot: "/tmp/r1e-drain-fixtures",
+      claudeHome: ClaudeHome.at("/tmp/r1e-drain-fixtures"),
       jsonlReader:
         opts?.jsonlReader ??
         (async () => ({ kind: "missing" as const, message: "fixture" })),

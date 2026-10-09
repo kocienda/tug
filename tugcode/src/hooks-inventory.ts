@@ -11,6 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ClaudeHome, projectClaudeDir } from "./claude-home.ts";
 
 import type {
   HookCommand,
@@ -81,7 +82,8 @@ export interface BuildHooksInventoryOptions {
   /** The correlating request id from the {@link HooksQuery}. */
   requestId: string;
   /** Home dir — `~/.claude/settings.json` is the user scope. */
-  homeDir: string;
+  /** Where Claude Code keeps the user scope's `settings.json`. */
+  claudeHome: ClaudeHome;
   /** Project cwd — `<cwd>/.claude/settings{,.local}.json` are project scopes. */
   cwd: string;
 }
@@ -96,11 +98,11 @@ export interface BuildHooksInventoryOptions {
 export function buildHooksInventory(
   options: BuildHooksInventoryOptions,
 ): HooksInventory {
-  const { sessionId, requestId, homeDir, cwd } = options;
+  const { sessionId, requestId, claudeHome, cwd } = options;
   const files = [
-    join(homeDir, ".claude", "settings.json"),
-    join(cwd, ".claude", "settings.json"),
-    join(cwd, ".claude", "settings.local.json"),
+    claudeHome.settingsPath(),
+    join(projectClaudeDir(cwd), "settings.json"),
+    join(projectClaudeDir(cwd), "settings.local.json"),
   ];
 
   const events: Record<string, HookMatcherGroup[]> = {};

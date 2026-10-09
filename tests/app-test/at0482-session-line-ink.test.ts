@@ -34,9 +34,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -68,8 +69,6 @@ interface InkFacts {
 
 let projectDir = "";
 let fixtureDir = "";
-
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 function buildFixtureJsonl(cwd: string, sessionId: string): string {
   const t0 = new Date(Date.now() - 600_000).toISOString();
@@ -122,7 +121,7 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-at0482-")));
   writeFileSync(join(projectDir, "README.md"), "at0482\n");
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
+  fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   for (const id of [SEATED, NEXT]) {
     writeFileSync(join(fixtureDir, `${id}.jsonl`), buildFixtureJsonl(projectDir, id));

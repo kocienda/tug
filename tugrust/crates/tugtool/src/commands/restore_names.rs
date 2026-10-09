@@ -187,7 +187,7 @@ fn restore(conn: &Connection, c: &Candidate) -> Result<bool, String> {
 }
 
 pub fn run_restore_names(db: Option<PathBuf>, dry_run: bool) -> Result<i32, String> {
-    let projects_root = dirs_home()?.join(".claude/projects");
+    let projects_root = tugcore::claude_home::ClaudeHome::from_env().projects_dir();
     let paths = ledgers(db.as_deref())?;
     let mut restored = 0usize;
     let mut skipped = 0usize;
@@ -247,12 +247,6 @@ pub fn run_restore_names(db: Option<PathBuf>, dry_run: bool) -> Result<i32, Stri
         println!("\nrestored {restored}, skipped {skipped} (no transcript).");
     }
     Ok(0)
-}
-
-fn dirs_home() -> Result<PathBuf, String> {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .map_err(|_| "HOME is not set".to_string())
 }
 
 #[cfg(test)]

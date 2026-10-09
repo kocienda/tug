@@ -81,6 +81,7 @@ import {
   type WheelPromptLedger,
   wheelPromptLedger,
 } from "./replay.ts";
+import { ClaudeHome, claudeHomeFromEnv } from "./claude-home.ts";
 import { ContextBreakdownEmitter } from "./context-breakdown.ts";
 import { SubagentTailer } from "./subagent-tail.ts";
 import { isSessionHeldByOtherProcess } from "./terminal-liveness.ts";
@@ -336,53 +337,16 @@ async function settlesWithin(
 export const REPLAY_LIVE_BUFFER_MAX = 1024;
 
 /**
- * Default location of claude's per-session JSONL archive. Each
- * project gets its own subdirectory under this root, named by the
- * encoded form of the absolute project directory (see
- * {@link encodeProjectDir}). Tests inject an override via
- * {@link SessionManager}'s `claudeProjectsRoot` option so they read
- * fixtures from a tmp path instead.
- */
-export const DEFAULT_CLAUDE_PROJECTS_ROOT =
-  `${process.env.HOME ?? ""}/.claude/projects`;
-
-/**
- * Encode an absolute project directory the way claude names its
- * per-project subdirectory under `~/.claude/projects/`. Claude
- * replaces every character outside `[A-Za-z0-9-]` with `-` — not just
- * slashes: dots and underscores collapse too (a `/` → `-`-only
- * encoding misses e.g. a legacy `.tugtree/tugdash__foo` worktree path, and
- * the resulting miss makes every replay report `jsonl_missing`). The
- * leading `-` arises because the absolute path begins with `/`.
- *
- * Examples (verified against `~/.claude/projects/` on dev machines,
- * claude 2.1.198):
- *
- *   `/Users/foo`               → `-Users-foo`
- *   `/private/tmp/py-calc`     → `-private-tmp-py-calc`
- *   `/repo/.tugtree/a__b`      → `-repo--tugtree-a--b`
- *
- * Exported for unit tests.
- */
-export function encodeProjectDir(absDir: string): string {
-  return absDir.replace(/[^A-Za-z0-9-]/g, "-");
-}
-
-/**
  * Resolve the on-disk JSONL path for a given resume target.
  *
- *   `<claudeProjectsRoot>/<encodeProjectDir(projectDir)>/<id>.jsonl`
+ *   `<projects>/<encodeProjectDir(projectDir)>/<id>.jsonl`
  */
 export function jsonlPathFor(
-  claudeProjectsRoot: string,
+  claudeHome: ClaudeHome,
   projectDir: string,
   claudeSessionId: string,
 ): string {
-  return join(
-    claudeProjectsRoot,
-    encodeProjectDir(projectDir),
-    `${claudeSessionId}.jsonl`,
-  );
+  return join(claudeHome.projectDir(projectDir), `${claudeSessionId}.jsonl`);
 }
 
 /**
@@ -390,23 +354,18 @@ export function jsonlPathFor(
  * Claude Code writes them beside the main JSONL, under a directory named
  * by the session id (no `.jsonl` suffix):
  *
- *   `<claudeProjectsRoot>/<encodeProjectDir(projectDir)>/<id>/subagents`
+ *   `<projects>/<encodeProjectDir(projectDir)>/<id>/subagents`
  *
  * Each async `Agent` launch persists `agent-<agentId>.jsonl` (the agent's
  * full transcript) + `agent-<agentId>.meta.json` (the launching
  * `tool_use.id` + display fields) here.
  */
 export function subagentsDirFor(
-  claudeProjectsRoot: string,
+  claudeHome: ClaudeHome,
   projectDir: string,
   claudeSessionId: string,
 ): string {
-  return join(
-    claudeProjectsRoot,
-    encodeProjectDir(projectDir),
-    claudeSessionId,
-    "subagents",
-  );
+  return join(claudeHome.projectDir(projectDir), claudeSessionId, "subagents");
 }
 
 /**
@@ -3748,8 +3707,8 @@ export class SessionManager {
    * set (the deck's id-keyed dedup absorbs the overlap).
    */
   private subagentTailers = new Map<string, SubagentTailer>();
-  /** Configurable JSONL archive root; defaults to ~/.claude/projects. */
-  private claudeProjectsRoot: string;
+  /** Where Claude Code keeps the JSONL archive; defaults to the environment's. */
+  private claudeHome: ClaudeHome;
   /**
    * The conversation a directory change forks from — the parent's claude id
    * and the directory its transcript lives under. Set from `--relocate-from`
@@ -3968,7 +3927,7 @@ export class SessionManager {
     sessionMode: "new" | "resume" = "new",
     resumeSessionId?: string,
     options?: {
-      claudeProjectsRoot?: string;
+      claudeHome?: ClaudeHome;
       jsonlReader?: (path: string) => Promise<JsonlReadResult>;
       jsonlWriter?: (path: string, content: string) => Promise<void>;
       replayTimeoutMs?: number;
@@ -4034,8 +3993,8 @@ export class SessionManager {
       typeof resumeSessionId === "string" && resumeSessionId.length > 0
         ? resumeSessionId
         : null;
-    this.claudeProjectsRoot =
-      options?.claudeProjectsRoot ?? DEFAULT_CLAUDE_PROJECTS_ROOT;
+    this.claudeHome =
+      options?.claudeHome ?? claudeHomeFromEnv();
     this.relocation = options?.relocation ?? null;
     this.jsonlReader = options?.jsonlReader ?? defaultJsonlReader;
     this.jsonlWriter = options?.jsonlWriter ?? defaultJsonlWriter;
@@ -4160,7 +4119,7 @@ export class SessionManager {
       // Unresolvable (test fixture, deleted dir) — keep the raw path.
     }
     return !existsSync(
-      jsonlPathFor(this.claudeProjectsRoot, canonicalProjectDir, this.sessionId),
+      jsonlPathFor(this.claudeHome, canonicalProjectDir, this.sessionId),
     );
   }
 
@@ -5492,7 +5451,7 @@ export class SessionManager {
       if (i === lineage.length - 1) continue;
 
       const path = jsonlPathFor(
-        this.claudeProjectsRoot,
+        this.claudeHome,
         canonicalProjectDir,
         entry.sessionId,
       );
@@ -5617,7 +5576,7 @@ export class SessionManager {
       });
     }
     const jsonlPath = jsonlPathFor(
-      this.claudeProjectsRoot,
+      this.claudeHome,
       canonicalProjectDir,
       claudeSessionId,
     );
@@ -5665,7 +5624,7 @@ export class SessionManager {
         // Unresolvable — keep the raw path; the reader reports missing.
       }
       const parentRead = await this.jsonlReader(
-        jsonlPathFor(this.claudeProjectsRoot, parentDir, reloc.parentSessionId),
+        jsonlPathFor(this.claudeHome, parentDir, reloc.parentSessionId),
       );
       if (parentRead.kind === "ok") {
         relocationDivider = {
@@ -5714,7 +5673,7 @@ export class SessionManager {
     // none and replay proceeds exactly as before.
     if (input.kind === "ok") {
       const subagentsDir = subagentsDirFor(
-        this.claudeProjectsRoot,
+        this.claudeHome,
         transcriptDir,
         transcriptSessionId,
       );
@@ -8455,7 +8414,7 @@ export class SessionManager {
       // Unresolvable (test fixture / deleted dir) — fall back to raw.
     }
     return this.jsonlReader(
-      jsonlPathFor(this.claudeProjectsRoot, canonicalProjectDir, liveId),
+      jsonlPathFor(this.claudeHome, canonicalProjectDir, liveId),
     );
   }
 
@@ -8705,7 +8664,7 @@ export class SessionManager {
       // reader reports `missing` if the path doesn't exist.
     }
     const livePath = jsonlPathFor(
-      this.claudeProjectsRoot,
+      this.claudeHome,
       canonicalProjectDir,
       liveId,
     );
@@ -8772,7 +8731,7 @@ export class SessionManager {
       // the ack + the rebind don't depend on claude's first-input init.
       const newId = crypto.randomUUID();
       const forkPath = jsonlPathFor(
-        this.claudeProjectsRoot,
+        this.claudeHome,
         canonicalProjectDir,
         newId,
       );

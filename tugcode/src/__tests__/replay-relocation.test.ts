@@ -12,6 +12,7 @@
  * draws none.
  */
 
+import { ClaudeHome } from "../claude-home.ts";
 import { describe, expect, test } from "bun:test";
 import {
   type JsonlReadResult,
@@ -81,7 +82,7 @@ function manager(
 ): SessionManager {
   return new SessionManager(b, SID, "new", undefined, {
     sessionsDbPath: null,
-    claudeProjectsRoot: ROOT,
+    claudeHome: ClaudeHome.at(ROOT),
     replayTimeoutMs: 10_000,
     relocation,
     jsonlReader: async (path: string): Promise<JsonlReadResult> =>
@@ -139,7 +140,7 @@ describe("runReplay with a relocation", () => {
     const { a, b } = dirs();
     const m = manager(
       b,
-      { [jsonlPathFor(ROOT, a, PARENT_ID)]: jsonl(parentEntries(a)) },
+      { [jsonlPathFor(ClaudeHome.at(ROOT), a, PARENT_ID)]: jsonl(parentEntries(a)) },
       { parentClaudeId: PARENT_ID, parentProjectDir: a },
     );
     const frames = await replay(m);
@@ -162,8 +163,8 @@ describe("runReplay with a relocation", () => {
     const m = manager(
       b,
       {
-        [jsonlPathFor(ROOT, a, PARENT_ID)]: jsonl(parentEntries(a)),
-        [jsonlPathFor(ROOT, b, SID)]: jsonl(own),
+        [jsonlPathFor(ClaudeHome.at(ROOT), a, PARENT_ID)]: jsonl(parentEntries(a)),
+        [jsonlPathFor(ClaudeHome.at(ROOT), b, SID)]: jsonl(own),
       },
       { parentClaudeId: PARENT_ID, parentProjectDir: a },
     );
@@ -186,8 +187,8 @@ describe("runReplay with a relocation", () => {
     const m = manager(
       b,
       {
-        [jsonlPathFor(ROOT, a, PARENT_ID)]: jsonl(parentLater),
-        [jsonlPathFor(ROOT, b, SID)]: jsonl(own),
+        [jsonlPathFor(ClaudeHome.at(ROOT), a, PARENT_ID)]: jsonl(parentLater),
+        [jsonlPathFor(ClaudeHome.at(ROOT), b, SID)]: jsonl(own),
       },
       { parentClaudeId: PARENT_ID, parentProjectDir: a },
     );
@@ -203,7 +204,7 @@ describe("runReplay with a relocation", () => {
   test("the parent JSONL is missing: no divider, the replay otherwise unchanged", async () => {
     const { a, b } = dirs();
     const own = forkEntries(a, b, turn("n1", "what was the word?", "msg_n1", b, SID));
-    const files = { [jsonlPathFor(ROOT, b, SID)]: jsonl(own) };
+    const files = { [jsonlPathFor(ClaudeHome.at(ROOT), b, SID)]: jsonl(own) };
     const moved = manager(b, files, { parentClaudeId: PARENT_ID, parentProjectDir: a });
     const plain = manager(b, files);
     const movedOutline = outline(await replay(moved));
@@ -215,8 +216,8 @@ describe("runReplay with a relocation", () => {
     const { a, b } = dirs();
     const own = forkEntries(a, b, turn("n1", "what was the word?", "msg_n1", b, SID));
     const m = manager(b, {
-      [jsonlPathFor(ROOT, a, PARENT_ID)]: jsonl(parentEntries(a)),
-      [jsonlPathFor(ROOT, b, SID)]: jsonl(own),
+      [jsonlPathFor(ClaudeHome.at(ROOT), a, PARENT_ID)]: jsonl(parentEntries(a)),
+      [jsonlPathFor(ClaudeHome.at(ROOT), b, SID)]: jsonl(own),
     });
     expect(
       outline(await replay(m, { parentSessionId: PARENT_ID, fromDir: a, toDir: b })),
@@ -226,7 +227,7 @@ describe("runReplay with a relocation", () => {
   test("no relocation: no divider", async () => {
     const { a, b } = dirs();
     const own = forkEntries(a, b, turn("n1", "what was the word?", "msg_n1", b, SID));
-    const m = manager(b, { [jsonlPathFor(ROOT, b, SID)]: jsonl(own) });
+    const m = manager(b, { [jsonlPathFor(ClaudeHome.at(ROOT), b, SID)]: jsonl(own) });
     expect(outline(await replay(m)).some((s) => s.startsWith("moved:"))).toBe(false);
   });
 });

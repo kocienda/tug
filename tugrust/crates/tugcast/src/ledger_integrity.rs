@@ -654,9 +654,9 @@ mod tests {
     fn snapshot_backups_write_and_prune() {
         let dir = tempfile::tempdir().unwrap();
         let sessions = dir.path().join("sessions.db");
-        let ledger = crate::session_ledger::SessionLedger::open_with_claude_root(
+        let ledger = crate::session_ledger::SessionLedger::open_with_claude_home(
             &sessions,
-            std::path::PathBuf::from("/tmp/tugcast-tests-no-trash"),
+            tugcore::claude_home::ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
         let changes = dir.path().join("sessions.db.changes");

@@ -8,6 +8,7 @@
 //!
 //! Nothing in this crate may depend on any other Tug crate.
 
+pub mod claude_home;
 #[cfg(test)]
 mod cli_test_env_scan;
 pub mod facts;

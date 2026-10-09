@@ -32,6 +32,8 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use crate::claude_home::{ClaudeHome, encode_project_dir};
+
 /// What one sweep pass removed.
 #[derive(Debug, Default, serde::Serialize)]
 pub struct SweepReport {
@@ -276,17 +278,6 @@ pub fn sweep_tmp_debris(
     (files, dirs)
 }
 
-/// `~/.claude/projects`, where Claude Code keeps one transcript directory
-/// per project, named by its encoded path.
-pub fn claude_projects_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude").join("projects"))
-}
-
-/// Claude Code's project-directory encoding: `/` and `.` become `-`.
-fn encode_claude_project(path: &Path) -> String {
-    path.to_string_lossy().replace(['/', '.'], "-")
-}
-
 /// Remove transcript directories app-tests seeded under `projects` that
 /// their runner no longer needs.
 ///
@@ -312,7 +303,7 @@ pub fn sweep_seeded_transcripts(
     let Ok(tmp) = fs::canonicalize(tmp) else {
         return removed;
     };
-    let encoded_tmp = format!("{}-", encode_claude_project(&tmp));
+    let encoded_tmp = format!("{}-", encode_project_dir(&tmp.to_string_lossy()));
     let Ok(entries) = fs::read_dir(projects) else {
         return removed;
     };
@@ -735,17 +726,13 @@ pub fn sweep_all(mode: SweepMode) -> SweepReport {
         sweep_tmux_servers(&tmux_socket_dir(), min_age, mode);
     let apptest_data_dirs_removed =
         sweep_apptest_data_dirs(&crate::instances_root(), min_age, mode);
-    let seeded_transcripts_removed = claude_projects_dir()
-        .map(|projects| {
-            sweep_seeded_transcripts(
-                &projects,
-                &tmp,
-                min_age,
-                Duration::from_secs(SEEDED_TRANSCRIPT_MAX_AGE_SECS),
-                mode,
-            )
-        })
-        .unwrap_or_default();
+    let seeded_transcripts_removed = sweep_seeded_transcripts(
+        &ClaudeHome::from_env().projects_dir(),
+        &tmp,
+        min_age,
+        Duration::from_secs(SEEDED_TRANSCRIPT_MAX_AGE_SECS),
+        mode,
+    );
     let processes_killed = sweep_reparented_processes(min_age, mode);
     let legacy_sessions_killed = sweep_legacy_default_sessions(min_age, mode);
 
@@ -1667,7 +1654,7 @@ mod tests {
         let projects = root.path().join("projects");
         fs::create_dir_all(&tmp).unwrap();
         fs::create_dir_all(&projects).unwrap();
-        let enc = encode_claude_project(&fs::canonicalize(&tmp).unwrap());
+        let enc = encode_project_dir(&fs::canonicalize(&tmp).unwrap().to_string_lossy());
 
         let seed = |label: &str, keep_project: bool, secs: u64| -> PathBuf {
             if keep_project {

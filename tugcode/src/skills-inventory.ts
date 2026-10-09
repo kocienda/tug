@@ -16,6 +16,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import type { ClaudeHome } from "./claude-home.ts";
 
 import { countTokens } from "./tokenizer.ts";
 
@@ -105,8 +106,8 @@ export interface BuildSkillsInventoryOptions {
   sessionId: string;
   /** The correlating request id from the {@link SkillsInventoryQuery}. */
   requestId: string;
-  /** Home dir — `~/.claude/skills` is the user scope. */
-  homeDir: string;
+  /** Where Claude Code keeps things — its `skills/` is the user scope. */
+  claudeHome: ClaudeHome;
   /**
    * The project plugin dir (e.g. `<cwd>/tugplug`) — its `skills/` subdir holds
    * the plugin skills. Mirrors `SessionManager.getPluginDir()` /
@@ -125,7 +126,7 @@ export interface BuildSkillsInventoryOptions {
 export function buildSkillsInventory(
   options: BuildSkillsInventoryOptions,
 ): SkillsInventory {
-  const { sessionId, requestId, homeDir, pluginDir } = options;
+  const { sessionId, requestId, claudeHome, pluginDir } = options;
   const pluginName = basename(pluginDir);
 
   const pluginSkills = readSkillsRoot(
@@ -134,7 +135,7 @@ export function buildSkillsInventory(
     true,
   ).sort((a, b) => a.name.localeCompare(b.name));
   const userSkills = readSkillsRoot(
-    join(homeDir, ".claude", "skills"),
+    claudeHome.skillsDir(),
     "user",
     false,
   ).sort((a, b) => a.name.localeCompare(b.name));

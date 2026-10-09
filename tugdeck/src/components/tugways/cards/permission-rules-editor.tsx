@@ -86,6 +86,9 @@ import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import { MODAL_REST_LINE } from "./modal-rest-line";
+import { ClaudeHome } from "@tugproto/claude-home";
+import { useHostFacts } from "@/lib/host-facts-store";
+import { type ClaudeHostFacts, displayPath } from "@/lib/memory-destinations";
 
 // ---------------------------------------------------------------------------
 // Tab model
@@ -221,12 +224,27 @@ interface ScopeOption {
   description: string;
 }
 
-/** The three writable scopes, worded + ordered like the terminal's prompt. */
-const SCOPE_OPTIONS: readonly ScopeOption[] = [
-  { scope: "local", label: "Project settings (local)", description: "Saved in .claude/settings.local.json" },
-  { scope: "project", label: "Project settings", description: "Checked in at .claude/settings.json" },
-  { scope: "user", label: "User settings", description: "Saved at ~/.claude/settings.json" },
-];
+/**
+ * The three writable scopes, worded + ordered like the terminal's prompt. The
+ * user scope's file lives in Claude Code's config directory, which only
+ * tugcast can resolve, so its description is formatted from the published
+ * host facts — a moved `CLAUDE_CONFIG_DIR` shows its real path.
+ */
+export function scopeOptions(facts: ClaudeHostFacts | null): readonly ScopeOption[] {
+  const userPath =
+    facts !== null && facts.claudeHome.length > 0
+      ? displayPath(ClaudeHome.at(facts.claudeHome).settingsPath(), facts.home)
+      : null;
+  return [
+    { scope: "local", label: "Project settings (local)", description: "Saved in .claude/settings.local.json" },
+    { scope: "project", label: "Project settings", description: "Checked in at .claude/settings.json" },
+    {
+      scope: "user",
+      label: "User settings",
+      description: userPath !== null ? `Saved at ${userPath}` : "Saved in your user settings",
+    },
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Add-rule form — matcher input + scope radios + Add (inside an accordion)
@@ -268,6 +286,8 @@ function AddRuleForm({ placeholder, onAdd, kind, cwd }: AddRuleFormProps): React
   const isDir = kind === "directory";
   const trimmed = draft.trim();
   const valid = isDir ? trimmed !== "" : isValidRuleMatcher(draft);
+  const hostFacts = useHostFacts();
+  const options = useMemo(() => scopeOptions(hostFacts), [hostFacts]);
 
   const radioId = useId();
   const { ResponderScope, responderRef } = useResponderForm({
@@ -340,7 +360,7 @@ function AddRuleForm({ placeholder, onAdd, kind, cwd }: AddRuleFormProps): React
           focusGroup={addFocusGroup}
           focusOrder={SCOPE_ORDER}
         >
-          {SCOPE_OPTIONS.map((opt) => (
+          {options.map((opt) => (
             <TugRadioItem key={opt.scope} value={opt.scope} description={opt.description}>
               {opt.label}
             </TugRadioItem>

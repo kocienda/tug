@@ -39,9 +39,10 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
+
+import { claudeHomeFromEnv } from "../_harness/claude-home";
 import {
   accumulateLine,
   classifySize,
@@ -213,10 +214,9 @@ export function selectRepresentatives(
 }
 
 export async function harvest(options: HarvestOptions = {}): Promise<Manifest> {
-  const projectsRoot =
-    options.projectsRoot ?? join(homedir(), ".claude", "projects");
-  const sessionsDir =
-    options.sessionsDir ?? join(homedir(), ".claude", "sessions");
+  const claudeHome = claudeHomeFromEnv();
+  const projectsRoot = options.projectsRoot ?? claudeHome.projectsDir();
+  const sessionsDir = options.sessionsDir ?? claudeHome.sessionsDir();
   const outDir = options.outDir ?? join(import.meta.dir);
   const pins = options.pins ?? DEFAULT_PINS;
   const dryRun = options.dryRun ?? false;

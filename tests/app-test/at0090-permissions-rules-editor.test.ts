@@ -36,6 +36,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { projectClaudeDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -55,7 +56,7 @@ const MARKER = "Bash(at0090-marker:*)";
 // A temp project root: the editor resolves its cwd from the bound session's
 // projectDir, so every read/write lands here — never the real repo.
 let projectDir = "";
-const settingsPath = (): string => join(projectDir, ".claude", "settings.local.json");
+const settingsPath = (): string => join(projectClaudeDir(projectDir), "settings.local.json");
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;

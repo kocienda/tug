@@ -8,6 +8,7 @@
 // IPC stdout is stubbed the same way replay-spawn.test.ts does so
 // the replay actually runs end to end against a real fixture.
 
+import { ClaudeHome } from "../claude-home.ts";
 import { describe, expect, test } from "bun:test";
 
 import { SessionManager, type JsonlReadResult } from "../session.ts";
@@ -73,7 +74,7 @@ async function runReplayCapturingLifecycle(opts: {
     "resume",
     undefined,
     {
-      claudeProjectsRoot: "/tmp/perf-instr-fixtures",
+      claudeHome: ClaudeHome.at("/tmp/perf-instr-fixtures"),
       jsonlReader: opts.jsonlReader,
       replayTimeoutMs: 10_000,
     },

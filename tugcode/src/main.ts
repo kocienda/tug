@@ -18,7 +18,7 @@ import { readClaudeCodeSettings } from "./claude-code-settings.ts";
 import { ContextBreakdownEmitter } from "./context-breakdown.ts";
 import { initTokenizer } from "./tokenizer.ts";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
-import { homedir } from "node:os";
+import { claudeHomeFromEnv } from "./claude-home.ts";
 import { join } from "node:path";
 import {
   realpathSync,
@@ -427,7 +427,7 @@ async function main() {
       const claudeCodeSettings = await readClaudeCodeSettings();
       const contextBreakdownEmitter = new ContextBreakdownEmitter({
         sessionId,
-        homeDir: homedir(),
+        claudeHome: claudeHomeFromEnv(),
         cwd: projectDir,
         // The effective plugin dir — mirrors `SessionManager.getPluginDir()`:
         // the universal, app-level bundled tugplug (never the project source).

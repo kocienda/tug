@@ -237,7 +237,7 @@ fn strip_data_volume_prefix(path: &Path) -> PathBuf {
 /// This is Tug's OWN state-dir naming, not Claude Code's
 /// `~/.claude/projects/` scheme — claude additionally collapses dots,
 /// underscores, and every other non-`[A-Za-z0-9-]` character to `-`
-/// (see `encode_claude_project_name` in tugcast). Do not copy this
+/// (see `tugcore::claude_home::encode_project_dir`). Do not copy this
 /// function for anything that must resolve claude's on-disk layout;
 /// and do not "fix" it to match — existing per-project state dirs are
 /// keyed by this exact form.

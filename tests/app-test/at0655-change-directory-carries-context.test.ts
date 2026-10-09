@@ -44,11 +44,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { encodeProjectDir } from "./arc-fixture";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 /**
  * Two gates: `TUGAPP_APP_TEST` is every app-test's; `TUG_REAL_CLAUDE` is this
@@ -77,13 +77,11 @@ const BULLETIN = ".tug-pane-bulletin";
 let dirA = "";
 let dirB = "";
 
-const claudeDir = (dir: string): string =>
-  join(homedir(), ".claude", "projects", encodeProjectDir(dir));
-const parentJsonl = (): string => join(claudeDir(dirA), `${PARENT_SID}.jsonl`);
+const parentJsonl = (): string => join(claudeProjectDir(dirA), `${PARENT_SID}.jsonl`);
 
 /** The parent's history: one turn that plants the word. */
 function seedParent(): void {
-  mkdirSync(claudeDir(dirA), { recursive: true });
+  mkdirSync(claudeProjectDir(dirA), { recursive: true });
   const base = {
     isSidechain: false,
     userType: "external",
@@ -147,7 +145,7 @@ afterAll(() => {
   for (const dir of [dirA, dirB]) {
     if (dir === "") continue;
     rmSync(dir, { recursive: true, force: true });
-    rmSync(claudeDir(dir), { recursive: true, force: true });
+    rmSync(claudeProjectDir(dir), { recursive: true, force: true });
   }
 });
 
@@ -317,7 +315,7 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
         await app.waitForCondition<boolean>(chipIdle, { timeoutMs: 180_000 });
 
         // ── On disk: the fork is B's, the parent untouched ───────────────
-        const forkJsonl = join(claudeDir(dirB), `${moved.tugSessionId}.jsonl`);
+        const forkJsonl = join(claudeProjectDir(dirB), `${moved.tugSessionId}.jsonl`);
         expect(existsSync(forkJsonl), `the fork's JSONL is under B: ${forkJsonl}`).toBe(true);
         const cwds = readFileSync(forkJsonl, "utf8")
           .split("\n")

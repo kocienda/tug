@@ -19,6 +19,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use tugcore::claude_home::ClaudeHome;
+
 use crate::cli::OperatorAskArgs;
 use crate::feeds::{operator, overview_agent};
 use crate::session_ledger::SessionLedger;
@@ -36,7 +38,7 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
     // `<db>.changes` sibling instead, so the whole run reads files you named
     // and nothing else. Copy the real `changes.db` to that sibling path if you
     // want the `changes.*` verbs to have anything to say.
-    let ledger = match SessionLedger::open_with_claude_root(&args.db, claude_projects_root()) {
+    let ledger = match SessionLedger::open_with_claude_home(&args.db, ClaudeHome::from_env()) {
         Ok(ledger) => Arc::new(ledger),
         Err(error) => {
             eprintln!("operator-ask: cannot open {}: {error}", args.db.display());
@@ -170,16 +172,6 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
             1
         }
     }
-}
-
-/// Where the ledger resolves session transcripts. Nothing this command runs
-/// reads one, but the constructor that keeps the changes attachment local is
-/// also the one that wants this named explicitly.
-fn claude_projects_root() -> std::path::PathBuf {
-    std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/"))
-        .join(".claude/projects")
 }
 
 /// Where the ledger sits — the copy's own directory, never the instance's.

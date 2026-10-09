@@ -20,7 +20,7 @@
  * @module inbound-dispatch
  */
 
-import { homedir } from "node:os";
+import { claudeHomeFromEnv } from "./claude-home.ts";
 import { join } from "node:path";
 
 import type { InboundMessage } from "@tugproto/inbound";
@@ -179,7 +179,7 @@ export const INBOUND_HANDLERS: InboundHandlers = {
       buildSkillsInventory({
         sessionId,
         requestId: msg.request_id,
-        homeDir: homedir(),
+        claudeHome: claudeHomeFromEnv(),
         pluginDir: join(projectDir, "tugplug"),
       }),
     );
@@ -191,7 +191,7 @@ export const INBOUND_HANDLERS: InboundHandlers = {
       buildHooksInventory({
         sessionId,
         requestId: msg.request_id,
-        homeDir: homedir(),
+        claudeHome: claudeHomeFromEnv(),
         cwd: projectDir,
       }),
     );

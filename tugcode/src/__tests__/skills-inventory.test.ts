@@ -1,3 +1,4 @@
+import { ClaudeHome } from "../claude-home.ts";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -84,7 +85,7 @@ describe("buildSkillsInventory", () => {
     const frame = buildSkillsInventory({
       sessionId: "sess-1",
       requestId: "req-1",
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       pluginDir,
     });
 
@@ -113,7 +114,7 @@ describe("buildSkillsInventory", () => {
     const frame = buildSkillsInventory({
       sessionId: "s",
       requestId: "r",
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       pluginDir,
     });
 
@@ -133,7 +134,7 @@ describe("buildSkillsInventory", () => {
     const frame = buildSkillsInventory({
       sessionId: "s",
       requestId: "r",
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       pluginDir,
     });
     expect(frame.skills[0].name).toBe("tugplug:nameless");
@@ -145,7 +146,7 @@ describe("buildSkillsInventory", () => {
     const frame = buildSkillsInventory({
       sessionId: "s",
       requestId: "r",
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       pluginDir: join(project, "tugplug"),
     });
     expect(frame.skills).toEqual([]);
@@ -162,7 +163,7 @@ describe("buildSkillsInventory", () => {
     const frame = buildSkillsInventory({
       sessionId: "s",
       requestId: "r",
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       pluginDir,
     });
     expect(frame.skills.map((s) => s.name)).toEqual(["tugplug:real"]);

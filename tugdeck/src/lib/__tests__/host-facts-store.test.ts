@@ -33,12 +33,14 @@ describe("parseHostFacts", () => {
         shell: "zsh",
         shellPath: "/bin/zsh",
         home: "/Users/ken",
+        claudeHome: "/Users/ken/.claude",
       }),
     ).toEqual({
       hostname: "studio.local",
       shell: "zsh",
       shellPath: "/bin/zsh",
       home: "/Users/ken",
+      claudeHome: "/Users/ken/.claude",
     });
   });
 
@@ -55,6 +57,7 @@ describe("parseHostFacts", () => {
       shell: "",
       shellPath: "",
       home: "/Users/ken",
+      claudeHome: "",
     });
   });
 
@@ -73,11 +76,12 @@ describe("parseHostFacts", () => {
       shell: "zsh",
       shellPath: "/bin/zsh",
       home: "/Users/ken",
+      claudeHome: "",
     });
   });
 
-  it("treats shellPath and home as additive — missing fall back to empty", () => {
-    // Older tugcast servers may predate the `shellPath` / `home` fields. The
+  it("treats shellPath, home and claudeHome as additive — missing fall back to empty", () => {
+    // Older tugcast servers may predate the additive fields. The
     // parser keeps producing a HostFacts so the snapshot is well-formed; the
     // Shell-route badge falls back to `shell`, the picker to its other seeds.
     expect(parseHostFacts({ hostname: "studio.local", shell: "zsh" })).toEqual({
@@ -85,6 +89,7 @@ describe("parseHostFacts", () => {
       shell: "zsh",
       shellPath: "",
       home: "",
+      claudeHome: "",
     });
   });
 
@@ -125,6 +130,7 @@ describe("HostFactsStore", () => {
       shell: "zsh",
       shellPath: "/bin/zsh",
       home: "/Users/ken",
+      claudeHome: "",
     });
   });
 
@@ -144,6 +150,7 @@ describe("HostFactsStore", () => {
       shell: "zsh",
       shellPath: "/bin/zsh",
       home: "/Users/ken",
+      claudeHome: "",
     });
   });
 

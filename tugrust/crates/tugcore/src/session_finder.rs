@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags, params};
 
+use crate::claude_home::ClaudeHome;
 use crate::session_index::{self, IndexEntry, project_leaf_of};
 
 /// Length of the short session id — the leading run a commit citation
@@ -92,8 +93,8 @@ pub struct FinderEnv {
     /// This instance's session ledger; `None` when there is none to read.
     pub sessions_db: Option<PathBuf>,
     pub index_db: PathBuf,
-    /// `~/.claude/projects`.
-    pub claude_projects_root: PathBuf,
+    /// Where Claude Code keeps its transcripts.
+    pub claude_home: ClaudeHome,
     /// `TUG_INSTANCE_ID`, or `""` when unset.
     pub instance: String,
 }
@@ -101,13 +102,10 @@ pub struct FinderEnv {
 impl FinderEnv {
     /// The env this process actually runs in.
     pub fn from_process() -> Self {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
         Self {
             sessions_db: crate::instance::resolve_sessions_db_path(),
             index_db: crate::instance::session_index_db_path(),
-            claude_projects_root: home.join(".claude").join("projects"),
+            claude_home: ClaudeHome::from_env(),
             instance: crate::instance::instance_id().unwrap_or_default(),
         }
     }
@@ -477,7 +475,7 @@ fn find_in_projects_tree(parsed: &Reference, env: &FinderEnv) -> Option<Found> {
         return None;
     }
     let file_name = format!("{}.jsonl", parsed.needle);
-    let entries = std::fs::read_dir(&env.claude_projects_root).ok()?;
+    let entries = std::fs::read_dir(env.claude_home.projects_dir()).ok()?;
     for entry in entries.flatten() {
         let dir = entry.path();
         if entry.file_name() == ".tug-trash" || !dir.is_dir() {
@@ -531,29 +529,13 @@ fn transcript_path(env: &FinderEnv, project_dir: &str, session_id: &str) -> Opti
         return None;
     }
     let path = env
-        .claude_projects_root
-        .join(encode_claude_project_name(project_dir))
+        .claude_home
+        .project_dir(project_dir)
         .join(format!("{session_id}.jsonl"));
     path.is_file().then_some(path)
 }
 
 // ── The grammar, copied from tugcast ─────────────────────────────────────────
-
-/// Encode a project dir into claude's per-project directory name — every
-/// character that is not ASCII alphanumeric or `-` becomes `-`. A copy of
-/// `encode_claude_project_name` in `tugcast/src/session_ledger.rs`.
-pub fn encode_claude_project_name(project_dir: &str) -> String {
-    project_dir
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
 
 /// A copy of `is_full_session_uuid` in `tugcast/src/session_ledger.rs`.
 fn is_full_session_uuid(s: &str) -> bool {
@@ -634,7 +616,7 @@ mod tests {
             let env = FinderEnv {
                 sessions_db: Some(sessions),
                 index_db: dir.path().join("session_index.db"),
-                claude_projects_root: projects,
+                claude_home: ClaudeHome::at(dir.path()),
                 instance: "debug-here".into(),
             };
             Self { _dir: dir, env }
@@ -710,10 +692,7 @@ mod tests {
 
         /// Write a transcript into the fake projects root, as claude would.
         fn transcript(&self, project_dir: &str, uuid: &str, cwd: Option<&str>) -> PathBuf {
-            let dir = self
-                .env
-                .claude_projects_root
-                .join(encode_claude_project_name(project_dir));
+            let dir = self.env.claude_home.project_dir(project_dir);
             std::fs::create_dir_all(&dir).unwrap();
             let path = dir.join(format!("{uuid}.jsonl"));
             let body = match cwd {
@@ -725,7 +704,7 @@ mod tests {
         }
 
         fn trashed_transcript(&self, uuid: &str) {
-            let dir = self.env.claude_projects_root.join(".tug-trash");
+            let dir = self.env.claude_home.projects_dir().join(".tug-trash");
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join(format!("{uuid}.jsonl")), "{}\n").unwrap();
         }
@@ -885,7 +864,7 @@ mod tests {
     #[test]
     fn a_missing_ledger_is_no_answer_rather_than_an_error() {
         let mut fx = Fixture::new();
-        fx.env.sessions_db = Some(fx.env.claude_projects_root.join("nowhere.db"));
+        fx.env.sessions_db = Some(fx.env.claude_home.root().join("nowhere.db"));
         assert_eq!(fx.find(UUID_A), Finding::Absent);
         fx.env.sessions_db = None;
         assert_eq!(fx.find(UUID_A), Finding::Absent);
@@ -1063,14 +1042,5 @@ mod tests {
         fx.index_row(UUID_B, "zany-ghost", "/u/src/eucit", "debug-other");
         let f = found(find_beyond_here(UUID_B, &fx.env));
         assert_eq!(f.provenance, Provenance::Elsewhere);
-    }
-
-    #[test]
-    fn the_encoder_matches_claudes_directory_naming() {
-        assert_eq!(encode_claude_project_name("/u/src/tug"), "-u-src-tug");
-        assert_eq!(
-            encode_claude_project_name("/Users/k/My Proj_1"),
-            "-Users-k-My-Proj-1"
-        );
     }
 }

@@ -51,10 +51,11 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -72,9 +73,6 @@ const FIXTURE_PROMPT = "at0568 the background session asked this";
  *  the fixture JSONL below is the only transcript under it. */
 let projectDir = "";
 let fixtureDir = "";
-
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /** One committed turn, in claude's own JSONL, where tugcode's replay looks for
  *  it. The seeded row below points at the same project and the same id, so the
@@ -123,7 +121,7 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-at0568-")));
   writeFileSync(join(projectDir, "README.md"), "at0568\n");
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
+  fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   writeFileSync(join(fixtureDir, `${SESSION_ID}.jsonl`), fixtureJsonl(projectDir, SESSION_ID));
 });

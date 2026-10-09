@@ -31,22 +31,18 @@ import {
   statSync,
 } from "node:fs";
 import { once } from "node:events";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Manifest, SelectedSnapshot } from "./harvest";
 
+import { claudeProjectDir } from "../_harness/claude-home";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 
 export type { Manifest, SelectedSnapshot };
 
 export const CORPUS_DIR = import.meta.dir;
 export const MANIFEST_PATH = join(CORPUS_DIR, "manifest.json");
-
-/** Mirror of claude's project-dir encoding (`/` and `.` → `-`). */
-export function encodeProjectDir(dir: string): string {
-  return dir.replace(/[/.]/g, "-");
-}
 
 export function loadManifest(): Manifest | null {
   if (!existsSync(MANIFEST_PATH)) return null;
@@ -106,12 +102,7 @@ export async function seedSnapshot(
   const projectDir = realpathSync(
     mkdtempSync(join(tmpdir(), `tug-scratch-corpus-${label}-`)),
   );
-  const seededClaudeDir = join(
-    homedir(),
-    ".claude",
-    "projects",
-    encodeProjectDir(projectDir),
-  );
+  const seededClaudeDir = claudeProjectDir(projectDir);
   mkdirSync(seededClaudeDir, { recursive: true });
   const sessionId = opts.sessionId ?? snap.id;
   const jsonlPath = join(seededClaudeDir, `${sessionId}.jsonl`);

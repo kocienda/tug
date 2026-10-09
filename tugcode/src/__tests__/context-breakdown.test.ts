@@ -1,3 +1,4 @@
+import { ClaudeHome } from "../claude-home.ts";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import {
   mkdirSync,
@@ -218,7 +219,7 @@ describe("computeStaticCategories", () => {
   test("system_tools uses the exact count when toolCount is supplied", () => {
     const dir = scratch();
     const result = computeStaticCategories({
-      homeDir: dir,
+      claudeHome: ClaudeHome.resolve(null, dir),
       cwd: dir,
       pluginDir: dir,
       toolCount: 12,
@@ -231,7 +232,7 @@ describe("computeStaticCategories", () => {
   test("system_tools falls back to the flat heuristic when toolCount is null", () => {
     const dir = scratch();
     const result = computeStaticCategories({
-      homeDir: dir,
+      claudeHome: ClaudeHome.resolve(null, dir),
       cwd: dir,
       pluginDir: dir,
       toolCount: null,
@@ -254,7 +255,7 @@ describe("computeStaticCategories", () => {
       manifest("coder-agent", "Implements steps.", 1_000),
     );
     const result = computeStaticCategories({
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       cwd: scratch(),
       pluginDir: plugin,
       toolCount: 0,
@@ -279,7 +280,7 @@ describe("computeStaticCategories", () => {
       manifest("merge", "Merge implementation.", 1_000),
     );
     const result = computeStaticCategories({
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       cwd: scratch(),
       pluginDir: plugin,
       toolCount: 0,
@@ -311,7 +312,7 @@ describe("computeStaticCategories", () => {
       "on-demand recall content ".repeat(5_000),
     );
     const result = computeStaticCategories({
-      homeDir: home,
+      claudeHome: ClaudeHome.resolve(null, home),
       cwd,
       pluginDir: scratch(),
       toolCount: 0,
@@ -324,7 +325,7 @@ describe("computeStaticCategories", () => {
 
   test("absent agent/skill/plugin/memory paths contribute 0", () => {
     const result = computeStaticCategories({
-      homeDir: scratch(),
+      claudeHome: ClaudeHome.resolve(null, scratch()),
       cwd: scratch(),
       pluginDir: "/no/such/plugin",
       toolCount: 0,
@@ -466,7 +467,7 @@ describe("ContextBreakdownEmitter", () => {
   function fresh(settings: ClaudeCodeSettings): ContextBreakdownEmitter {
     return new ContextBreakdownEmitter({
       sessionId: "test-session",
-      homeDir: scratch(),
+      claudeHome: ClaudeHome.resolve(null, scratch()),
       cwd: scratch(),
       pluginDir: scratch(),
       settings,

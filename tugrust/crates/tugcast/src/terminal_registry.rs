@@ -100,10 +100,9 @@ struct RawRegistryEntry {
     proc_start: Option<String>,
 }
 
-/// Default registry location: `~/.claude/sessions/`. `None` only when
-/// no home directory resolves (misconfigured environment).
+/// Default registry location: the Claude home's `sessions/`.
 pub fn default_registry_root() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".claude").join("sessions"))
+    Some(tugcore::claude_home::ClaudeHome::from_env().sessions_dir())
 }
 
 /// Parse one registry file's bytes. `None` (with a debug log) on any

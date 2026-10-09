@@ -30,18 +30,14 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { claudeProjectDir } from "../_harness/claude-home";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 
 export const FIXTURES_DIR = import.meta.dir;
 export const SESSIONS_DIR = join(FIXTURES_DIR, "sessions");
-
-/** Mirror of claude's project-dir encoding (`/` and `.` → `-`). */
-export function encodeProjectDir(dir: string): string {
-  return dir.replace(/[/.]/g, "-");
-}
 
 /** Absolute path of a committed fixture by name (no `.jsonl` suffix). */
 export function fixturePath(name: string): string {
@@ -100,12 +96,7 @@ export async function seedFixtureSession(
   const projectDir = realpathSync(
     mkdtempSync(join(tmpdir(), `tug-scratch-fixture-${label}-`)),
   );
-  const seededClaudeDir = join(
-    homedir(),
-    ".claude",
-    "projects",
-    encodeProjectDir(projectDir),
-  );
+  const seededClaudeDir = claudeProjectDir(projectDir);
   mkdirSync(seededClaudeDir, { recursive: true });
   const jsonlPath = join(seededClaudeDir, `${sessionId}.jsonl`);
 

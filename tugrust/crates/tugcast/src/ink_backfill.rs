@@ -382,10 +382,12 @@ mod tests {
     /// with its own transcript, stamped so the repair can read "as of".
     fn rotated_line_with_transcripts() -> (SessionLedger, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let sessions = SessionLedger::open_in_memory_with_root(&dir.path().join("projects"))
-            .expect("sessions ledger");
+        let sessions = SessionLedger::open_in_memory_with_home(
+            tugcore::claude_home::ClaudeHome::at(dir.path()),
+        )
+        .expect("sessions ledger");
         let (project, _) =
-            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+            crate::session_ledger::claude_project_dir(sessions.claude_home(), "/proj");
         std::fs::create_dir_all(&project).expect("project dir");
         let assistant = |id: &str, stamp: &str| {
             format!(
@@ -497,7 +499,7 @@ mod tests {
     fn the_repair_leaves_a_row_alone_when_the_seated_transcript_cannot_answer() {
         let (sessions, dir) = rotated_line_with_transcripts();
         let (project, _) =
-            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+            crate::session_ledger::claude_project_dir(sessions.claude_home(), "/proj");
         std::fs::remove_file(project.join("head.jsonl")).expect("lose the head's file");
         let shell = ShellLedger::open_in_memory().unwrap();
         shell

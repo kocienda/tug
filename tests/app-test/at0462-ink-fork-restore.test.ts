@@ -40,9 +40,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -81,9 +82,6 @@ interface InkFacts {
 
 let projectDir = "";
 let fixtureDir = "";
-
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /**
  * One committed Claude turn, timestamped before the live shell execs so the
@@ -143,7 +141,7 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-at0462-")));
   writeFileSync(join(projectDir, "README.md"), "at0462\n");
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
+  fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   writeFileSync(join(fixtureDir, `${ANCESTOR}.jsonl`), buildFixtureJsonl(projectDir, ANCESTOR, ANCESTOR));
   // The fork's file copy: its pre-fork turns still wear the ancestor's id.

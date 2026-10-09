@@ -14,8 +14,7 @@
 // strictly worse.
 
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { claudeHomeFromEnv } from "./claude-home.ts";
 
 export interface ClaudeCodeSettings {
   /**
@@ -40,12 +39,12 @@ export const DEFAULT_CLAUDE_CODE_SETTINGS: ClaudeCodeSettings = {
 };
 
 /**
- * Default on-disk path: `<HOME>/.claude/settings.json`. Exposed so
+ * Default on-disk path: the Claude home's `settings.json`. Exposed so
  * tests can compose an override path without re-implementing the
  * resolution logic.
  */
 export function defaultClaudeCodeSettingsPath(): string {
-  return join(homedir(), ".claude", "settings.json");
+  return claudeHomeFromEnv().settingsPath();
 }
 
 /**

@@ -49,6 +49,7 @@ import {
   memoryDestinations,
 } from "@/lib/memory-destinations";
 import { openPathInOS } from "@/lib/os-open";
+import { useHostFacts } from "@/lib/host-facts-store";
 import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // ---------------------------------------------------------------------------
@@ -187,7 +188,12 @@ function MemorySheetBody({
   );
   // `meta.cwd` is claude's resolved cwd, emitted by tugcode at spawn — so the
   // auto-memory folder encodes to the exact on-disk directory from the drop.
-  const dests = useMemo(() => memoryDestinations(meta.cwd), [meta.cwd]);
+  // The config directory it sits in is the one tugcast resolved and published.
+  const hostFacts = useHostFacts();
+  const dests = useMemo(
+    () => memoryDestinations(meta.cwd, hostFacts),
+    [meta.cwd, hostFacts],
+  );
   const dataSource = useMemo(() => new MemoryDataSource(dests), [dests]);
   const delegate = useMemo<TugListViewDelegate>(
     () => ({ onSelect: (index) => openPathInOS(dests[index].path, dests[index].kind) }),

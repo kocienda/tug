@@ -52,6 +52,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -102,15 +103,7 @@ const SIDECAR = JSON.stringify({
   origins: [GHOST_DIR],
 });
 
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
-
-const FIXTURE_DIR = join(
-  homedir(),
-  ".claude",
-  "projects",
-  encodeProjectDir(GHOST_DIR),
-);
+const FIXTURE_DIR = claudeProjectDir(GHOST_DIR);
 const FIXTURE_PATH = join(FIXTURE_DIR, `${GHOST_ID}.jsonl`);
 
 function writeFixture(): void {

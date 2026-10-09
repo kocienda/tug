@@ -23,6 +23,7 @@
 // the existing watcher tests) and `jsonlReader` is injected so the
 // JSONL-on-disk path resolves to fixtures.
 
+import { ClaudeHome, encodeProjectDir } from "../claude-home.ts";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from "node:fs";
 import { unwrapReplayBatches } from "./capture-ipc.ts";
@@ -33,7 +34,6 @@ import { join } from "node:path";
 import {
   type JsonlReadResult,
   SessionManager,
-  encodeProjectDir,
   jsonlPathFor,
 } from "../session.ts";
 import type {
@@ -226,7 +226,7 @@ async function makePrimedManager(opts: {
     "resume",
     undefined,
     {
-      claudeProjectsRoot: "/tmp/replay-spawn-fixtures",
+      claudeHome: ClaudeHome.at("/tmp/replay-spawn-fixtures"),
       jsonlReader:
         opts.jsonlReader ??
         (async () => ({ kind: "ok" as const, jsonl: twoTurnJsonl() })),
@@ -278,7 +278,7 @@ describe("encodeProjectDir", () => {
 describe("jsonlPathFor", () => {
   test("composes <root>/<encoded-dir>/<id>.jsonl", () => {
     const path = jsonlPathFor(
-      "/tmp/projects",
+      ClaudeHome.at("/tmp"),
       "/Users/foo/work",
       "abc-123",
     );
@@ -323,7 +323,7 @@ describe("runReplay — symlink canonicalization", () => {
         "resume",
         claudeId,
         {
-          claudeProjectsRoot: join(tmpRoot, "projects"),
+          claudeHome: ClaudeHome.at(tmpRoot),
           jsonlReader: async (path) => {
             observedPaths.push(path);
             return { kind: "missing", message: "fixture" };
@@ -390,7 +390,7 @@ describe("runReplay — symlink canonicalization", () => {
       "resume",
       "claude-id",
       {
-        claudeProjectsRoot: "/tmp/projects",
+        claudeHome: ClaudeHome.at("/tmp"),
         jsonlReader: async (path) => {
           observed.push(path);
           return { kind: "missing", message: "fixture" };
@@ -492,7 +492,7 @@ describe("runReplay — happy path", () => {
     const sessionId = crypto.randomUUID();
     const projectDir = "/Users/test-user/work";
     const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
-      claudeProjectsRoot: "/fake/projects",
+      claudeHome: ClaudeHome.at("/fake"),
       jsonlReader: async (path) => {
         seen.push(path);
         return { kind: "ok", jsonl: twoTurnJsonl() };
@@ -521,7 +521,7 @@ describe("runReplay — happy path", () => {
       "resume",
       claudeId,
       {
-        claudeProjectsRoot: "/root",
+        claudeHome: ClaudeHome.at("/root"),
         jsonlReader: async (path) => {
           seen.push(path);
           return { kind: "ok", jsonl: twoTurnJsonl() };
@@ -537,7 +537,7 @@ describe("runReplay — happy path", () => {
     });
 
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toBe(`/root/-Users-x-repo/${claudeId}.jsonl`);
+    expect(seen[0]).toBe(`/root/projects/-Users-x-repo/${claudeId}.jsonl`);
   });
 });
 
@@ -559,7 +559,7 @@ describe("runReplay — non-resume mode (post-Step-5 close-out fix)", () => {
     const projectDir = "/tmp/replay-no-op";
     let jsonlReaderCalls = 0;
     const manager = new SessionManager(projectDir, sessionId, "new", undefined, {
-      claudeProjectsRoot: "/tmp/replay-spawn-fixtures-nonexistent",
+      claudeHome: ClaudeHome.at("/tmp/replay-spawn-fixtures-nonexistent"),
       jsonlReader: async () => {
         jsonlReaderCalls += 1;
         return { kind: "missing" as const, message: "no JSONL for fresh new session" };
@@ -902,7 +902,7 @@ describe("Step R0d — cold-boot resume order", () => {
       "resume",
       undefined,
       {
-        claudeProjectsRoot: "/tmp/replay-spawn-fixtures",
+        claudeHome: ClaudeHome.at("/tmp/replay-spawn-fixtures"),
         jsonlReader:
           opts?.jsonlReader ??
           (async () => ({ kind: "ok" as const, jsonl: twoTurnJsonl() })),

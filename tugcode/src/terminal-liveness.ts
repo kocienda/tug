@@ -24,11 +24,11 @@
  */
 
 import { readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { claudeHomeFromEnv } from "./claude-home.ts";
 
 export interface TerminalLivenessOptions {
-  /** Registry root override; defaults to `~/.claude/sessions`. */
+  /** Registry root override; defaults to the Claude home's `sessions/`. */
   registryRoot?: string;
   /** Pids to ignore — our own claude subprocess. */
   excludePids?: readonly number[];
@@ -36,7 +36,7 @@ export interface TerminalLivenessOptions {
 
 /** Production registry location. */
 export function defaultRegistryRoot(): string {
-  return join(homedir(), ".claude", "sessions");
+  return claudeHomeFromEnv().sessionsDir();
 }
 
 function normalizeWhitespace(s: string): string {

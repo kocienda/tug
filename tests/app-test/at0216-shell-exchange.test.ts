@@ -52,9 +52,10 @@ import {
   writeFileSync,
   existsSync,
 } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -67,11 +68,6 @@ const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 const ENTRIES = `${CARD} [data-slot="tug-transcript-entry"]`;
-
-/** Encode a project dir the way claude names its per-project subdir —
- *  mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /**
  * One clean Claude turn ("hello" → "hi there"), timestamped at fixture-
@@ -136,7 +132,7 @@ beforeAll(() => {
   // path — encode + exec against the SAME string.
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "at0216-proj-")));
   mkdirSync(join(projectDir, "sub"));
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
+  fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(projectDir, SID));
 });

@@ -2387,7 +2387,7 @@ fn build_listed_union(
             }
         }
         let synthetic_workspace_key =
-            crate::session_ledger::encode_claude_project_name(&scan.canonical_project_dir);
+            tugcore::claude_home::encode_project_dir(&scan.canonical_project_dir);
         for (_, meta) in metas_by_id {
             let terminal_live = annotate(&meta.session_id);
             let file_size = Some(meta.file_size);
@@ -5369,7 +5369,7 @@ impl AgentSupervisor {
             return false;
         }
         let (dir, _canonical) =
-            crate::session_ledger::claude_project_dir(ledger.claude_projects_root(), project_dir);
+            crate::session_ledger::claude_project_dir(ledger.claude_home(), project_dir);
         let jsonl = dir.join(format!("{}.jsonl", tug_session_id.0));
         crate::external_sessions::stat_size_mtime(&jsonl).is_none()
     }
@@ -5401,7 +5401,7 @@ impl AgentSupervisor {
                 entry.relocate_from.clone(),
             )
         };
-        let root = self.session_ledger.as_ref()?.claude_projects_root();
+        let root = self.session_ledger.as_ref()?.claude_home();
         let (dir, _canonical) =
             crate::session_ledger::claude_project_dir(root, &parent_project_dir);
         if crate::external_sessions::stat_size_mtime(
@@ -5435,7 +5435,7 @@ impl AgentSupervisor {
         let chain = ledger.lineage_chain(&tug_session_id.0);
         let parent = chain.len().checked_sub(2).map(|i| chain[i].clone())?;
         let parent_row = ledger.get(&parent).ok().flatten()?;
-        let root = ledger.claude_projects_root();
+        let root = ledger.claude_home();
         let (own_dir, own_canonical) = crate::session_ledger::claude_project_dir(root, project_dir);
         let (_, parent_canonical) =
             crate::session_ledger::claude_project_dir(root, &parent_row.project_dir);
@@ -10753,7 +10753,7 @@ impl AgentSupervisor {
         // would target, so the client can gate on the real thing. Targeted
         // per-card stats (not a boot walk) under a directory the app already
         // reads — no new TCC surface.
-        let claude_root = ledger.claude_projects_root().to_path_buf();
+        let claude_home = ledger.claude_home().clone();
         // One pair of git reads per distinct repo among the bound rows, so a
         // binding whose arc has since been joined or discarded reads as
         // unbound ([P05]) without a git call per row.
@@ -10797,7 +10797,7 @@ impl AgentSupervisor {
                 let is_alive = live_session_ids.contains(&segment.session_id);
                 let has_jsonl = {
                     let (dir, _canonical) = crate::session_ledger::claude_project_dir(
-                        &claude_root,
+                        &claude_home,
                         &segment.project_dir,
                     );
                     let path = dir.join(format!("{}.jsonl", segment.session_id));
@@ -17311,14 +17311,14 @@ mod tests {
     ) -> (Arc<crate::session_ledger::SessionLedger>, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("tempdir");
         let sessions = Arc::new(
-            crate::session_ledger::SessionLedger::open_with_claude_root(
+            crate::session_ledger::SessionLedger::open_with_claude_home(
                 dir.path().join("sessions.db"),
-                dir.path().join("projects"),
+                tugcore::claude_home::ClaudeHome::at(dir.path()),
             )
             .expect("sessions ledger"),
         );
         let (project, _) =
-            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+            crate::session_ledger::claude_project_dir(sessions.claude_home(), "/proj");
         std::fs::create_dir_all(&project).expect("project dir");
         for (i, (session, msg_id)) in rows.iter().enumerate() {
             sessions
@@ -17408,7 +17408,7 @@ mod tests {
             Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
         let (sessions, dir) = sessions_with_transcripts(&[]);
         let (project, _) =
-            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+            crate::session_ledger::claude_project_dir(sessions.claude_home(), "/proj");
         let transcript = |session: &str, msg_id: &str| {
             std::fs::write(
                 project.join(format!("{session}.jsonl")),
@@ -25106,7 +25106,7 @@ mod tests {
     }
 
     /// `list_card_bindings` reports `has_jsonl: true` for a session whose
-    /// on-disk transcript exists under `claude_projects_root`, and `false`
+    /// on-disk transcript exists under the Claude home's projects, and `false`
     /// for one with no file — the reliable resume signal, independent of the
     /// ledger's `turn_count`. The regression it guards: a session with a
     /// transcript but `turn_count == 0` (claude wrote the JSONL outside a
@@ -25117,9 +25117,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let claude_root = tmp.path().join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -25185,9 +25185,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let claude_root = tmp.path().join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -25274,17 +25274,16 @@ mod tests {
     /// Write `<id>.jsonl` where claude would: under the claude-form folder of
     /// `project_dir` in the ledger's claude root.
     fn seed_transcript(ledger: &SessionLedger, project_dir: &str, id: &str) {
-        let (dir, _) =
-            crate::session_ledger::claude_project_dir(ledger.claude_projects_root(), project_dir);
+        let (dir, _) = crate::session_ledger::claude_project_dir(ledger.claude_home(), project_dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(format!("{id}.jsonl")), "{}\n").unwrap();
     }
 
     fn ledger_in(tmp: &tempfile::TempDir) -> Arc<SessionLedger> {
         Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                tmp.path().join("projects"),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         )
@@ -25669,9 +25668,9 @@ mod tests {
     async fn spawn_session_resume_of_an_empty_session_spawns_fresh() {
         let tmp = tempfile::tempdir().unwrap();
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                tmp.path().join("projects"),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -25796,9 +25795,7 @@ mod tests {
         session_id: &str,
         last_prompt: &str,
     ) -> std::path::PathBuf {
-        let dir = claude_root.join(crate::session_ledger::encode_claude_project_name(
-            project_dir,
-        ));
+        let dir = claude_root.join(tugcore::claude_home::encode_project_dir(project_dir));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(format!("{session_id}.jsonl"));
         let content = format!(
@@ -25939,9 +25936,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let claude_root = tmp.path().join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -25965,9 +25962,7 @@ mod tests {
             "JSONL must be moved out of the project dir"
         );
         let trash_root = claude_root
-            .join(crate::session_ledger::encode_claude_project_name(
-                "/proj/alpha",
-            ))
+            .join(tugcore::claude_home::encode_project_dir("/proj/alpha"))
             .join(".tug-trash");
         assert!(trash_root.exists(), "JSONL must land in .tug-trash");
 
@@ -25983,9 +25978,9 @@ mod tests {
     async fn trash_unledgered_session_without_project_dir_errors_cleanly() {
         let tmp = tempfile::tempdir().unwrap();
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                tmp.path().join("projects"),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -26007,9 +26002,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let claude_root = tmp.path().join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -26071,9 +26066,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let claude_root = tmp.path().join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -26105,9 +26100,7 @@ mod tests {
         ledger.record_user_prompt("used-row", "real work").unwrap();
         ledger.mark_closed("used-row").unwrap();
 
-        let dir = claude_root.join(crate::session_ledger::encode_claude_project_name(
-            "/proj/alpha",
-        ));
+        let dir = claude_root.join(tugcore::claude_home::encode_project_dir("/proj/alpha"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join(format!("{EXTERNAL_ID}.jsonl")),
@@ -26150,8 +26143,11 @@ mod tests {
 
         let claude_root = tmp_real.join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(tmp_real.join("sessions.db"), claude_root.clone())
-                .unwrap(),
+            SessionLedger::open_with_claude_home(
+                tmp_real.join("sessions.db"),
+                tugcore::claude_home::ClaudeHome::at(tmp_real),
+            )
+            .unwrap(),
         );
         let (sup, _ledger, mut rx) = make_supervisor_for_ledger(ledger, None);
         let real_project_str = real_project.to_str().unwrap();
@@ -26185,9 +26181,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let claude_root = tmp.path().join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -26233,9 +26229,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let claude_root = tmp.path().join("projects");
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -26303,9 +26299,9 @@ mod tests {
         )
         .unwrap();
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(
+            SessionLedger::open_with_claude_home(
                 tmp.path().join("sessions.db"),
-                claude_root.clone(),
+                tugcore::claude_home::ClaudeHome::at(tmp.path()),
             )
             .unwrap(),
         );
@@ -27090,7 +27086,7 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         let projects = root.path().join("projects");
-        let dir = projects.join(crate::session_ledger::encode_claude_project_name(PROJECT));
+        let dir = projects.join(tugcore::claude_home::encode_project_dir(PROJECT));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(format!("{CLAUDE_ID}.jsonl"));
         std::fs::write(
@@ -27100,8 +27096,11 @@ mod tests {
         .unwrap();
 
         let ledger = Arc::new(
-            SessionLedger::open_with_claude_root(root.path().join("sessions.db"), projects)
-                .unwrap(),
+            SessionLedger::open_with_claude_home(
+                root.path().join("sessions.db"),
+                tugcore::claude_home::ClaudeHome::at(root.path()),
+            )
+            .unwrap(),
         );
         ledger
             .record_spawn(CLAUDE_ID, "ws", PROJECT, "card-1", 1, CLAUDE_ID, None)

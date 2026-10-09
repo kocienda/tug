@@ -9,11 +9,12 @@
 // subsequent emit so the reducer's
 // `phase: replaying` guard accepts the frame.
 
+import { ClaudeHome } from "../claude-home.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { unwrapReplayBatches } from "./capture-ipc.ts";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
@@ -58,9 +59,12 @@ function freshFixture(): {
     .slice(2, 8)}`;
   const sessionsDbPath = join(TMP_ROOT, `sessions-${sessionId}.db`);
   const claudeProjectsRoot = join(TMP_ROOT, `claude-projects-${sessionId}`);
-  const encodedDir = projectDir.replaceAll(/[/.]/g, "-");
-  mkdirSync(join(claudeProjectsRoot, encodedDir), { recursive: true });
-  const jsonlPath = jsonlPathFor(claudeProjectsRoot, projectDir, sessionId);
+  const jsonlPath = jsonlPathFor(
+    ClaudeHome.at(claudeProjectsRoot),
+    projectDir,
+    sessionId,
+  );
+  mkdirSync(dirname(jsonlPath), { recursive: true });
   return { sessionId, projectDir, sessionsDbPath, jsonlPath, claudeProjectsRoot };
 }
 
@@ -172,7 +176,7 @@ function makeManager(
     return { kind: "ok", jsonl };
   };
   return new SessionManager(fx.projectDir, fx.sessionId, "resume", undefined, {
-    claudeProjectsRoot: fx.claudeProjectsRoot,
+    claudeHome: ClaudeHome.at(fx.claudeProjectsRoot),
     jsonlReader,
     sessionsDbPath: fx.sessionsDbPath,
     replayTimeoutMs: 5_000,

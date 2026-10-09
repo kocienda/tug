@@ -32,6 +32,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tracing::warn;
+use tugcore::claude_home::{ClaudeHome, project_claude_dir};
 
 /// The four rule buckets in a `permissions` object, in display order. The
 /// first three are tool-matcher rule lists; `additionalDirectories` is the
@@ -86,23 +87,14 @@ enum Op {
 
 // ── Path resolution ─────────────────────────────────────────────────────────
 
-/// Resolve the settings file for `scope`. User scope is always under `$HOME`;
+/// Resolve the settings file for `scope`. User scope is the Claude home's;
 /// project and local scopes are under the session's `cwd`.
-fn scope_path(scope: Scope, cwd: &Path, home: &Path) -> PathBuf {
-    let claude = match scope {
-        Scope::User => home.join(".claude"),
-        Scope::Project | Scope::Local => cwd.join(".claude"),
-    };
+fn scope_path(scope: Scope, cwd: &Path, home: &ClaudeHome) -> PathBuf {
     match scope {
-        Scope::User | Scope::Project => claude.join("settings.json"),
-        Scope::Local => claude.join("settings.local.json"),
+        Scope::User => home.settings_path(),
+        Scope::Project => project_claude_dir(cwd).join("settings.json"),
+        Scope::Local => project_claude_dir(cwd).join("settings.local.json"),
     }
-}
-
-/// Resolve `$HOME`, mirroring `main.rs`'s `dirs::home_dir()`-with-`$HOME`
-/// fallback.
-fn home_dir() -> Option<PathBuf> {
-    dirs::home_dir().or_else(|| std::env::var_os("HOME").map(PathBuf::from))
 }
 
 // ── Read ─────────────────────────────────────────────────────────────────────
@@ -250,10 +242,7 @@ pub(crate) async fn get_permissions(
     if !cwd.is_absolute() {
         return bad_request("cwd must be an absolute path");
     }
-    let home = match home_dir() {
-        Some(home) => home,
-        None => return internal_error(),
-    };
+    let home = ClaudeHome::from_env();
 
     let cwd_string = query.cwd;
     let result = tokio::task::spawn_blocking(move || {
@@ -309,10 +298,7 @@ pub(crate) async fn post_rule(ConnectInfo(addr): ConnectInfo<SocketAddr>, body: 
     if rule.len() > MAX_RULE_LEN {
         return bad_request("rule too long");
     }
-    let home = match home_dir() {
-        Some(home) => home,
-        None => return internal_error(),
-    };
+    let home = ClaudeHome::from_env();
 
     let path = scope_path(req.scope, &cwd, &home);
     let bucket = req.bucket.key();
@@ -342,7 +328,7 @@ mod tests {
     #[test]
     fn scope_path_resolves_each_scope() {
         let cwd = Path::new("/project");
-        let home = Path::new("/home/user");
+        let home = &ClaudeHome::resolve(None, Some(Path::new("/home/user")));
         assert_eq!(
             scope_path(Scope::User, cwd, home),
             PathBuf::from("/home/user/.claude/settings.json")
@@ -387,7 +373,7 @@ mod tests {
     #[test]
     fn apply_mutation_adds_to_missing_file_and_creates_dirs() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".claude").join("settings.local.json");
+        let path = project_claude_dir(dir.path()).join("settings.local.json");
         apply_mutation(&path, "allow", Op::Add, "Bash(ls:*)").unwrap();
         let root = read_root(&path);
         assert_eq!(root["permissions"]["allow"], json!(["Bash(ls:*)"]));

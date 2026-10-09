@@ -16,6 +16,7 @@
 //   - `forceTerminateAndRespawn` closes the turn as cancelled and respawns
 //     `--resume`, keeping the card bound.
 
+import { ClaudeHome } from "../claude-home.ts";
 import { describe, expect, test } from "bun:test";
 
 import { drainPendingWrites } from "../ipc.ts";
@@ -134,7 +135,7 @@ function makeManager(): {
     .toString(36)
     .slice(2, 8)}`;
   const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
-    claudeProjectsRoot: "/tmp/wedge-recovery-fixtures",
+    claudeHome: ClaudeHome.at("/tmp/wedge-recovery-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
   });
   const spawns: Array<{ id: string | null; mode: string }> = [];

@@ -19,10 +19,10 @@ import { join } from "node:path";
 
 import type { OutboundMessage } from "../types.ts";
 import {
-  encodeProjectDir,
   readSubagentTranscripts,
   subagentsDirFor,
 } from "../session.ts";
+import { ClaudeHome } from "../claude-home.ts";
 import {
   composeAgentStructuredResult,
   synthesizeSubagentChildFrames,
@@ -53,8 +53,8 @@ const PARENT_TOOL_USE_ID = "toolu_01Rvup4w9HGpYnJ4XHoeV3cK";
 describe("subagentsDirFor", () => {
   test("resolves the session's subagents directory", () => {
     expect(
-      subagentsDirFor("/root", "/Users/foo/src/tugtool", "sess-1"),
-    ).toBe("/root/-Users-foo-src-tugtool/sess-1/subagents");
+      subagentsDirFor(ClaudeHome.at("/root"), "/Users/foo/src/tugtool", "sess-1"),
+    ).toBe("/root/projects/-Users-foo-src-tugtool/sess-1/subagents");
   });
 });
 
@@ -251,12 +251,8 @@ describe("resume orchestration — discovery on claude's real layout", () => {
     tmpRoots.push(root);
     const projectDir = "/Users/example/src/proj";
     const sessionId = "sess-integration";
-    const subDir = join(
-      root,
-      encodeProjectDir(projectDir),
-      sessionId,
-      "subagents",
-    );
+    const home = ClaudeHome.at(root);
+    const subDir = join(home.projectDir(projectDir), sessionId, "subagents");
     await mkdir(subDir, { recursive: true });
     const stem = "agent-aa523090963dd46d9";
     await copyFile(
@@ -269,7 +265,7 @@ describe("resume orchestration — discovery on claude's real layout", () => {
     );
 
     // The path `runReplay` composes must resolve to our laid-out dir.
-    const resolvedDir = subagentsDirFor(root, projectDir, sessionId);
+    const resolvedDir = subagentsDirFor(home, projectDir, sessionId);
     expect(resolvedDir).toBe(subDir);
 
     const subagents = await readSubagentTranscripts(resolvedDir);

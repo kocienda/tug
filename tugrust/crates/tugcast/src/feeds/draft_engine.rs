@@ -545,10 +545,8 @@ async fn session_user_prompts(
     // The entry key carries the project path as it was recorded, which may be
     // any spelling of the directory; claude names its project folder after one
     // of them. The chokepoint is what makes them agree ([L29]).
-    let (project_root, _canonical) = crate::session_ledger::claude_project_dir(
-        deps.ledger.claude_projects_root(),
-        &key.project_dir,
-    );
+    let (project_root, _canonical) =
+        crate::session_ledger::claude_project_dir(deps.ledger.claude_home(), &key.project_dir);
     let jsonl = project_root.join(format!("{claude_id}.jsonl"));
 
     // "Since the changeset began" = the earliest file-event time across the

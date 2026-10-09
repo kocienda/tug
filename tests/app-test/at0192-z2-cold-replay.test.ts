@@ -49,9 +49,10 @@ import {
   writeFileSync,
   existsSync,
 } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -60,17 +61,6 @@ const TEST_TIMEOUT_MS = 120_000;
 // `<SID>.jsonl`; the un-forked resume resolves the claude id to the tug
 // session id (legacy fallback), so the two are identical here.
 const SID = "a7c0d1ea-0000-4000-8000-00000000c0c0";
-
-/**
- * Encode an absolute project dir the way claude names its per-project
- * subdir under `~/.claude/projects/` — mirrors tugcode's
- * `encodeProjectDir` (every character outside `[A-Za-z0-9-]` → `-`;
- * a `'/'`-only mapping breaks the fixture path the moment the resolved
- * project dir carries a dot or underscore, e.g. a `.tugtree` worktree).
- * Kept inline so the app-test graph does not import tugcode.
- */
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 // The cost-only smoke fixture: two clean turns, each carrying `message.usage`
 // and a real `message.model`. The last turn's resident window is
@@ -168,7 +158,7 @@ beforeAll(() => {
   // resolved string, or the fixture lands at a path neither reads (the
   // 0-bytes-replayed bug). `realpathSync` gives the resolved form.
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "at0192-proj-")));
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
+  fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   writeFileSync(
     join(fixtureDir, `${SID}.jsonl`),

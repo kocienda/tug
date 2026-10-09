@@ -30,6 +30,8 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
+use tugcore::claude_home::ClaudeHome;
+
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -1146,7 +1148,7 @@ pub struct SessionFileCandidate {
 }
 
 /// Enumerate candidate session JSONLs for `project_dir` under
-/// `claude_projects_root`: regular `*.jsonl` files whose stem is a
+/// `claude_home`'s projects: regular `*.jsonl` files whose stem is a
 /// session UUID. Subdirectories (`.tug-trash`, `<id>/subagents/`),
 /// dotfiles, and non-UUID names are skipped. Missing project dir →
 /// empty vec.
@@ -1157,10 +1159,10 @@ pub struct SessionFileCandidate {
 /// string alongside the candidates — record `cwd` comparisons must use
 /// it, never the raw input.
 pub fn list_session_file_candidates(
-    claude_projects_root: &Path,
+    claude_home: &ClaudeHome,
     project_dir: &str,
 ) -> (Vec<SessionFileCandidate>, String) {
-    let (dir, canonical) = claude_project_dir(claude_projects_root, project_dir);
+    let (dir, canonical) = claude_project_dir(claude_home, project_dir);
     let entries = match fs::read_dir(&dir) {
         Ok(it) => it,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -1211,10 +1213,10 @@ pub fn list_session_file_candidates(
 /// supervisor uses the cached variant on `SessionLedger`; this entry
 /// point exists for tests and for callers without a ledger handle.
 pub fn scan_external_sessions(
-    claude_projects_root: &Path,
+    claude_home: &ClaudeHome,
     project_dir: &str,
 ) -> Vec<ExternalSessionMeta> {
-    let (candidates, canonical) = list_session_file_candidates(claude_projects_root, project_dir);
+    let (candidates, canonical) = list_session_file_candidates(claude_home, project_dir);
     let parsed: Vec<ParsedSession> = candidates
         .into_iter()
         .filter_map(|c| parse_candidate(&c, &canonical, None))
@@ -1264,7 +1266,7 @@ pub fn engine_turn_count(
     project_dir: &str,
     claude_session_id: &str,
 ) -> Option<i64> {
-    let (dir, canonical) = claude_project_dir(ledger.claude_projects_root(), project_dir);
+    let (dir, canonical) = claude_project_dir(ledger.claude_home(), project_dir);
     let path = dir.join(format!("{claude_session_id}.jsonl"));
     let (file_size, file_mtime) = stat_size_mtime(&path)?;
     // Cached engine(file), validated by (file_size, file_mtime); the cache
@@ -1357,7 +1359,7 @@ pub fn refresh_session_metrics(
     project_dir: &str,
     claude_session_id: &str,
 ) -> Option<SessionScanMetrics> {
-    let (dir, canonical) = claude_project_dir(ledger.claude_projects_root(), project_dir);
+    let (dir, canonical) = claude_project_dir(ledger.claude_home(), project_dir);
     let path = dir.join(format!("{claude_session_id}.jsonl"));
     let (file_size, file_mtime) = stat_size_mtime(&path)?;
     let cached = ledger
@@ -1440,7 +1442,7 @@ fn current_cached_metrics(
     project_dir: &str,
     claude_session_id: &str,
 ) -> Option<SessionScanMetrics> {
-    let (dir, _) = claude_project_dir(ledger.claude_projects_root(), project_dir);
+    let (dir, _) = claude_project_dir(ledger.claude_home(), project_dir);
     let (file_size, file_mtime) = stat_size_mtime(&dir.join(format!("{claude_session_id}.jsonl")))?;
     let row = ledger.get_scan_cache(claude_session_id).ok().flatten()?;
     if row.file_size != file_size || row.file_mtime != file_mtime {
@@ -1543,8 +1545,7 @@ pub fn scan_external_sessions_cached_with_progress(
     project_dir: &str,
     progress: impl Fn(usize, usize) + Sync,
 ) -> ScanOutcome {
-    let (candidates, canonical) =
-        list_session_file_candidates(ledger.claude_projects_root(), project_dir);
+    let (candidates, canonical) = list_session_file_candidates(ledger.claude_home(), project_dir);
     // Everything below operates on the canonical form — the cache keys,
     // the cwd comparisons, and the prune scope all agree regardless of
     // which alias the caller typed.
@@ -1723,7 +1724,7 @@ mod tests {
     // Tests seed fixtures under already-canonical paths, so the raw
     // encoder is the right tool here (production code routes through
     // the `claude_project_dir` chokepoint instead).
-    use crate::session_ledger::encode_claude_project_name;
+    use tugcore::claude_home::{ClaudeHome, encode_project_dir};
 
     const SESSION_A: &str = "11111111-2222-3333-4444-555555555555";
     const PROJECT: &str = "/tmp/scan-test-project";
@@ -1802,7 +1803,7 @@ mod tests {
     }
 
     fn seed(root: &Path, project_dir: &str, session_id: &str, content: &str) {
-        let dir = root.join(encode_claude_project_name(project_dir));
+        let dir = ClaudeHome::at(root).project_dir(project_dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join(format!("{session_id}.jsonl")), content).unwrap();
     }
@@ -1832,7 +1833,7 @@ mod tests {
         );
         seed(root.path(), PROJECT, OLD, &old_content);
         seed(root.path(), PROJECT, SESSION_A, &new_content);
-        let dir = root.path().join(encode_claude_project_name(PROJECT));
+        let dir = ClaudeHome::at(root.path()).project_dir(PROJECT);
 
         // The ancestor stopped growing before the descendant: suppressed.
         let set_mtime = |name: &str, secs: u64| {
@@ -1845,7 +1846,7 @@ mod tests {
         };
         set_mtime(OLD, 1_000);
         set_mtime(SESSION_A, 2_000);
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         let ids: Vec<&str> = metas.iter().map(|m| m.session_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -1856,7 +1857,7 @@ mod tests {
 
         // The ancestor grew past the descendant (a fork): both visible.
         set_mtime(OLD, 3_000);
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         let mut ids: Vec<&str> = metas.iter().map(|m| m.session_id.as_str()).collect();
         ids.sort_unstable();
         let mut expected = vec![OLD, SESSION_A];
@@ -1875,7 +1876,7 @@ mod tests {
 "#
         );
         seed(root.path(), PROJECT, SESSION_A, &content);
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         assert!(metas.is_empty(), "foreign-only file must be excluded");
     }
 
@@ -1911,7 +1912,7 @@ mod tests {
             SESSION_A,
             &tui_shaped_jsonl(SESSION_A, PROJECT),
         );
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         assert_eq!(metas.len(), 1);
         let m = &metas[0];
         assert_eq!(m.session_id, SESSION_A);
@@ -1939,7 +1940,7 @@ mod tests {
 "#
         );
         seed(root.path(), PROJECT, SESSION_A, &content);
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         assert_eq!(metas.len(), 1);
         assert_eq!(
             metas[0].last_user_prompt.as_deref(),
@@ -1954,7 +1955,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let content = format!(r#"{{"type":"mode","mode":"normal","sessionId":"{SESSION_A}"}}"#);
         seed(root.path(), PROJECT, SESSION_A, &content);
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         assert_eq!(metas.len(), 1);
         assert_eq!(metas[0].turn_count, 0);
         assert_eq!(metas[0].last_user_prompt, None);
@@ -1971,7 +1972,7 @@ mod tests {
             SESSION_A,
             &tui_shaped_jsonl(SESSION_A, "/tmp/other-project"),
         );
-        assert!(scan_external_sessions(root.path(), PROJECT).is_empty());
+        assert!(scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT).is_empty());
     }
 
     #[test]
@@ -1983,13 +1984,13 @@ mod tests {
             SESSION_A,
             &tui_shaped_jsonl("99999999-8888-7777-6666-555555555555", PROJECT),
         );
-        assert!(scan_external_sessions(root.path(), PROJECT).is_empty());
+        assert!(scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT).is_empty());
     }
 
     #[test]
     fn non_session_files_and_dirs_are_skipped() {
         let root = tempfile::tempdir().unwrap();
-        let dir = root.path().join(encode_claude_project_name(PROJECT));
+        let dir = ClaudeHome::at(root.path()).project_dir(PROJECT);
         fs::create_dir_all(dir.join(".tug-trash/123")).unwrap();
         fs::create_dir_all(dir.join(format!("{SESSION_A}/subagents"))).unwrap();
         fs::write(dir.join(".DS_Store"), "x").unwrap();
@@ -1999,13 +2000,13 @@ mod tests {
             "{}",
         )
         .unwrap();
-        assert!(scan_external_sessions(root.path(), PROJECT).is_empty());
+        assert!(scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT).is_empty());
     }
 
     #[test]
     fn missing_project_dir_yields_empty() {
         let root = tempfile::tempdir().unwrap();
-        assert!(scan_external_sessions(root.path(), "/never/created").is_empty());
+        assert!(scan_external_sessions(&ClaudeHome::at(root.path()), "/never/created").is_empty());
     }
 
     #[test]
@@ -2019,13 +2020,13 @@ mod tests {
             )
         );
         seed(root.path(), PROJECT, SESSION_A, &content);
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         let prompt = metas[0].last_user_prompt.as_ref().unwrap();
         assert_eq!(prompt.chars().count(), USER_PROMPT_MAX_CHARS);
     }
 
     fn ledger_with_root(root: &Path) -> SessionLedger {
-        SessionLedger::open_with_claude_root(root.join("sessions.db"), root.join("projects"))
+        SessionLedger::open_with_claude_home(root.join("sessions.db"), ClaudeHome::at(root))
             .unwrap()
     }
 
@@ -2034,7 +2035,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
         seed(
-            &root.path().join("projects"),
+            root.path(),
             PROJECT,
             SESSION_A,
             &tui_shaped_jsonl(SESSION_A, PROJECT),
@@ -2056,7 +2057,7 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &tui_shaped_jsonl(SESSION_A, PROJECT),
@@ -2065,7 +2066,7 @@ mod tests {
 
         // Append a third submission: size changes → re-parse.
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         let mut content = fs::read_to_string(&path).unwrap();
         content.push_str(&format!(
@@ -2092,7 +2093,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
         seed(
-            &root.path().join("projects"),
+            root.path(),
             PROJECT,
             SESSION_A,
             &tui_shaped_jsonl(SESSION_A, PROJECT),
@@ -2114,7 +2115,7 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(SESSION_A, PROJECT, &["first prompt", "second prompt"]),
@@ -2129,7 +2130,7 @@ mod tests {
 
         // A turn lands: the file grows by one submission.
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         let mut content = fs::read_to_string(&path).unwrap();
         content.push_str(&format!(
@@ -2161,7 +2162,7 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(
@@ -2181,7 +2182,7 @@ mod tests {
 
         // The rewind truncates the same file to its first two turns.
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         let kept = terminated_jsonl(SESSION_A, PROJECT, &["first prompt", "second prompt"]);
         fs::write(&path, &kept).unwrap();
@@ -2213,7 +2214,7 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(
@@ -2231,7 +2232,7 @@ mod tests {
         scan_external_sessions_cached(&ledger, PROJECT);
 
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         let kept = terminated_jsonl(SESSION_A, PROJECT, &["first prompt", "second prompt"]);
         fs::write(&path, &kept).unwrap();
@@ -2276,13 +2277,13 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(SESSION_A, PROJECT, &["first", "second"]),
         );
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         bump_mtime(&path, 1_000_000);
 
@@ -2319,15 +2320,14 @@ mod tests {
     fn a_scan_mints_a_persistent_tag_for_every_external_session() {
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
-        let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(SESSION_A, PROJECT, &["first"]),
         );
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_B,
             &terminated_jsonl(SESSION_B, PROJECT, &["first"]),
@@ -2363,9 +2363,8 @@ mod tests {
         // ([Q04]), which is exactly what `SessionRow.provenance` reports.
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
-        let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(SESSION_A, PROJECT, &["first"]),
@@ -2382,9 +2381,8 @@ mod tests {
     fn adoption_carries_the_scan_time_tag_unchanged() {
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
-        let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(SESSION_A, PROJECT, &["first"]),
@@ -2428,7 +2426,7 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         let jsonl = terminated_jsonl(SESSION_A, PROJECT, &["first"]);
-        seed(&projects, PROJECT, SESSION_A, &jsonl);
+        seed(root.path(), PROJECT, SESSION_A, &jsonl);
         let minted = scan_external_sessions_cached(&ledger, PROJECT).metas[0]
             .tag
             .clone()
@@ -2437,7 +2435,7 @@ mod tests {
         // The file goes away; the next scan prunes its cache row (and with it
         // the stored tag), and the session stops being listed at all.
         let file = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         fs::remove_file(&file).unwrap();
         assert!(
@@ -2464,13 +2462,13 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(SESSION_A, PROJECT, &["first", "second"]),
         );
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         bump_mtime(&path, 1_000_000);
         scan_external_sessions_cached(&ledger, PROJECT);
@@ -2501,13 +2499,13 @@ mod tests {
         let ledger = ledger_with_root(root.path());
         let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &terminated_jsonl(SESSION_A, PROJECT, &["first", "second", "third"]),
         );
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         bump_mtime(&path, 1_000_000);
         scan_external_sessions_cached(&ledger, PROJECT);
@@ -2536,9 +2534,9 @@ mod tests {
             "{{\"type\":\"user\",\"sessionId\":\"{SESSION_A}\",\"message\":{{\"role\":\"user\",\"content\":\"partial\"}}}}"
         );
         content.push_str(&partial);
-        seed(&projects, PROJECT, SESSION_A, &content);
+        seed(root.path(), PROJECT, SESSION_A, &content);
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         bump_mtime(&path, 1_000_000);
 
@@ -2623,7 +2621,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
         seed(
-            &root.path().join("projects"),
+            root.path(),
             PROJECT,
             SESSION_A,
             &tui_shaped_jsonl(SESSION_A, "/tmp/other-project"),
@@ -2689,9 +2687,9 @@ mod tests {
             "{{\"type\":\"user\",\"sessionId\":\"{SESSION_A}\",\"cwd\":\"{PROJECT}\",\"timestamp\":\"2026-06-01T10:00:00.000Z\",\"message\":{{\"role\":\"user\",\"content\":\"q1\"}}}}\n\
              {{\"type\":\"assistant\",\"sessionId\":\"{SESSION_A}\",\"message\":{{\"id\":\"m1\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"content\":[{{\"type\":\"text\",\"text\":\"a1\"}}]}}}}\n"
         );
-        seed(&projects, PROJECT, SESSION_A, &cold);
+        seed(root.path(), PROJECT, SESSION_A, &cold);
         let path = projects
-            .join(encode_claude_project_name(PROJECT))
+            .join(encode_project_dir(PROJECT))
             .join(format!("{SESSION_A}.jsonl"));
         bump_mtime(&path, 1_000_000);
 
@@ -2747,9 +2745,8 @@ mod tests {
     fn engine_turn_count_runs_engine_then_serves_cache() {
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
-        let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &two_turn_jsonl(SESSION_A, PROJECT),
@@ -2776,9 +2773,8 @@ mod tests {
     fn scan_migrates_stale_ledger_count_to_engine() {
         let root = tempfile::tempdir().unwrap();
         let ledger = ledger_with_root(root.path());
-        let projects = root.path().join("projects");
         seed(
-            &projects,
+            root.path(),
             PROJECT,
             SESSION_A,
             &two_turn_jsonl(SESSION_A, PROJECT),
@@ -2823,7 +2819,7 @@ mod tests {
 "#
         );
         seed(root.path(), PROJECT, SESSION_A, &content);
-        let dir = root.path().join(encode_claude_project_name(PROJECT));
+        let dir = ClaudeHome::at(root.path()).project_dir(PROJECT);
         let path = dir.join(format!("{SESSION_A}.jsonl"));
         let md = fs::metadata(&path).unwrap();
         let parsed = parse_session_file(&path, PROJECT, SESSION_A, md.len() as i64, 0, None)
@@ -2870,7 +2866,7 @@ mod tests {
         );
         let whole = format!("{head}{tail}");
 
-        let dir = root.path().join(encode_claude_project_name(PROJECT));
+        let dir = root.path().join(encode_project_dir(PROJECT));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join(format!("{SESSION_A}.jsonl"));
 
@@ -2932,7 +2928,7 @@ mod tests {
     }
 
     fn session_file(root: &Path) -> std::path::PathBuf {
-        let dir = root.join(encode_claude_project_name(PROJECT));
+        let dir = root.join(encode_project_dir(PROJECT));
         fs::create_dir_all(&dir).unwrap();
         dir.join(format!("{SESSION_A}.jsonl"))
     }
@@ -3100,7 +3096,7 @@ mod tests {
 {{"type":"assistant","uuid":"a2","parentUuid":"u2","sessionId":"{SESSION_A}","message":{{"role":"assistant","content":[{{"type":"text","text":"ok"}}],"id":"m2","stop_reason":"end_turn"}}}}
 "#
         );
-        let dir = root.path().join(encode_claude_project_name(PROJECT));
+        let dir = root.path().join(encode_project_dir(PROJECT));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join(format!("{SESSION_A}.jsonl"));
         fs::write(&path, &head).unwrap();
@@ -3164,7 +3160,7 @@ mod tests {
             "not json\n{{\"type\":\"user\",\"sessionId\":\"{SESSION_A}\",\"cwd\":\"{PROJECT}\",\"message\":{{\"role\":\"user\",\"content\":\"ok\"}}}}\n[1,2,3]"
         );
         seed(root.path(), PROJECT, SESSION_A, &content);
-        let metas = scan_external_sessions(root.path(), PROJECT);
+        let metas = scan_external_sessions(&ClaudeHome::at(root.path()), PROJECT);
         assert_eq!(metas.len(), 1);
         assert_eq!(metas[0].turn_count, 1);
     }

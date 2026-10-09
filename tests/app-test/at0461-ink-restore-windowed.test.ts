@@ -37,9 +37,10 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -74,9 +75,6 @@ interface InkFacts {
 
 let projectDir = "";
 let fixtureDir = "";
-
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /**
  * One committed Claude turn, timestamped well BEFORE the live shell execs so
@@ -134,7 +132,7 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-at0461-")));
   writeFileSync(join(projectDir, "README.md"), "at0461\n");
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
+  fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(projectDir, SID));
 });
