@@ -29,6 +29,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use crate::version::{parse_leading_version, parse_version_after_words};
 
@@ -122,15 +123,24 @@ fn is_shim(path: &Path) -> bool {
 /// decide the answer and a shorter floor (`2.23`) compares against a longer
 /// version (`2.39.5`) without either being padded.
 pub fn meets_floor(version: &str) -> bool {
-    let components = |s: &str| {
-        s.split('.')
-            .map(|part| part.parse::<u32>().ok())
-            .take_while(Option::is_some)
-            .flatten()
-            .collect::<Vec<_>>()
-    };
+    at_least(version, &components(GIT_VERSION_FLOOR))
+}
+
+/// The leading numeric components of a dotted version, stopping at the first
+/// one that is not a number.
+fn components(version: &str) -> Vec<u32> {
+    version
+        .split('.')
+        .map(|part| part.parse::<u32>().ok())
+        .take_while(Option::is_some)
+        .flatten()
+        .collect()
+}
+
+/// Whether `version` is at or above `floor`, comparing components pairwise —
+/// the one comparison both [`meets_floor`] and [`git_version_at_least`] read.
+fn at_least(version: &str, floor: &[u32]) -> bool {
     let found = components(version);
-    let floor = components(GIT_VERSION_FLOOR);
     if found.is_empty() {
         return false;
     }
@@ -206,6 +216,38 @@ pub fn probe() -> HostTools {
             }
         }
     }
+}
+
+/// A found git, once per process. Absence is never cached: a machine that had
+/// no git when first asked can gain one through the Command Line Tools offer
+/// without Tug restarting, and asking again is one silent `xcode-select -p`.
+static FOUND: OnceLock<HostTools> = OnceLock::new();
+
+/// [`probe`], remembered once it has found a git.
+///
+/// A join can ask what git can do more than once, and each fresh probe is up
+/// to two subprocesses; a git found once is the git for the rest of the
+/// process.
+pub fn cached_probe() -> HostTools {
+    if let Some(found) = FOUND.get() {
+        return found.clone();
+    }
+    let tools = probe();
+    if tools.git_version.is_some() {
+        let _ = FOUND.set(tools.clone());
+    }
+    tools
+}
+
+/// Whether this machine's git is at least `major.minor`, asked through the
+/// probe's order and never by running `git --version` directly — the one
+/// sanctioned answer to "can git here do X?". `false` when there is no usable
+/// git at all.
+pub fn git_version_at_least(major: u32, minor: u32) -> bool {
+    cached_probe()
+        .git_version
+        .as_deref()
+        .is_some_and(|version| at_least(version, &[major, minor]))
 }
 
 /// Run `<git> --version` and read the version out of `git version X.Y.Z (…)`.
@@ -422,6 +464,31 @@ mod tests {
         for version in ["2.22.0", "2.19.1", "1.9.5", "2", "", "not a version"] {
             assert!(!meets_floor(version), "{version} should miss the floor");
         }
+    }
+
+    #[test]
+    fn at_least_compares_against_any_floor() {
+        assert!(at_least("2.40.0", &[2, 40]));
+        assert!(at_least("2.45.1", &[2, 40]));
+        assert!(at_least("3.0", &[2, 40]));
+        assert!(!at_least("2.39.5", &[2, 40]));
+        assert!(!at_least("1.99", &[2, 38]));
+        assert!(!at_least("", &[2, 38]));
+        assert!(!at_least("2", &[2, 38]));
+    }
+
+    #[test]
+    fn the_cached_answer_is_the_probes_answer() {
+        // Whatever this machine carries, the check agrees with a fresh probe —
+        // and a second ask agrees with the first.
+        let fresh = probe();
+        let expected = fresh
+            .git_version
+            .as_deref()
+            .is_some_and(|v| at_least(v, &[2, 0]));
+        assert_eq!(git_version_at_least(2, 0), expected);
+        assert_eq!(git_version_at_least(2, 0), expected);
+        assert!(!git_version_at_least(u32::MAX, 0));
     }
 
     #[test]

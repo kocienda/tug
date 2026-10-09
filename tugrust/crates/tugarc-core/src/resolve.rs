@@ -690,13 +690,12 @@ pub(crate) fn replay_probe(
 }
 
 /// Whether `git` here supports `merge-tree --merge-base` (git ≥ 2.40).
-pub(crate) fn git_supports_merge_base_flag(repo: &Path) -> bool {
-    let out = git_stdout(repo, &["--version"]).unwrap_or_default();
-    let ver = out.split_whitespace().nth(2).unwrap_or("");
-    let mut parts = ver.split('.');
-    let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    major > 2 || (major == 2 && minor >= 40)
+///
+/// Asked through `tugcore::host_tools`, never by running `git --version` here:
+/// on a Mac with no developer directory the `git` on `PATH` is Apple's shim,
+/// and running it pops the install modal.
+pub(crate) fn git_supports_merge_base_flag() -> bool {
+    tugcore::host_tools::git_version_at_least(2, 40)
 }
 
 // ---------------------------------------------------------------------------

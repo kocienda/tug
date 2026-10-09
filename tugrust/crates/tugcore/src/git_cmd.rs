@@ -140,6 +140,65 @@ mod tests {
         );
     }
 
+    /// Whether one statement asks git its version: it spells `"--version"`
+    /// and names git in any form — `git_command()`, `git_stdout(…)`, a local
+    /// `git(…)` helper, a `"git"` literal. A version asked of anything else
+    /// (`claude`, `rustc`) names no git and is not this rule's business.
+    fn asks_git_its_version(statement: &str) -> bool {
+        statement.contains("\"--version\"") && statement.contains("git")
+    }
+
+    #[test]
+    fn the_version_tripwire_reads_the_shapes_it_exists_for() {
+        // The two probes this rule replaced, and the shapes a new one would
+        // most likely arrive in.
+        assert!(asks_git_its_version(
+            r#"let out = git_stdout(repo, &["--version"]).unwrap_or_default()"#
+        ));
+        assert!(asks_git_its_version(
+            "let out = git_command()\n        .arg(\"--version\")\n        .output()"
+        ));
+        assert!(asks_git_its_version(r#"git(&dir, &["--version"])"#));
+        // A version asked of something that is not git.
+        assert!(!asks_git_its_version(
+            r#"let output = claude_command(&["--version"]).output().await.ok()?"#
+        ));
+        assert!(!asks_git_its_version(
+            r#"let output = run_command("rustc", &["--version"])"#
+        ));
+    }
+
+    /// No production source asks git its version except `host_tools`, whose
+    /// probe order is what keeps Apple's shim from popping its install modal
+    /// ([D171]). Anything that needs to know what git here can do asks
+    /// `host_tools::git_version_at_least`. The scan covers the whole
+    /// workspace rather than the crates that spawn git today, because the
+    /// next crate to want a version check is the one nobody listed.
+    #[test]
+    fn no_bare_git_version_probe() {
+        let mut offenders: Vec<String> = Vec::new();
+        for (path, text) in crate::source_scan::production_sources() {
+            // The sanctioned probe, and this file, which names the needle.
+            if path.ends_with("tugcore/src/host_tools.rs")
+                || path.ends_with("tugcore/src/git_cmd.rs")
+            {
+                continue;
+            }
+            let code = text
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if code.split([';', '{', '}']).any(asks_git_its_version) {
+                offenders.push(path.display().to_string());
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "ask git's version through tugcore::host_tools::git_version_at_least, never by running it: {offenders:?}"
+        );
+    }
+
     /// The argument spellings whose output is a set of **paths**.
     ///
     /// `--porcelain` is on the list conditionally: under `status` it is a path

@@ -2637,8 +2637,16 @@ pub struct StepOutcome {
 }
 
 /// Write `contents` over `path` without ever leaving a half-written plan on
-/// disk: a sibling temp file, then a rename.
+/// disk: a uniquely named sibling temp file, synced, then renamed over.
+///
+/// The temp name is unique per writer because tugcast's arc runner and the
+/// CLI both write arc documents, and two writers sharing one temp path could
+/// rename each other's partial file into place. With a temp file each, two
+/// concurrent writes resolve to "last rename wins" — one writer's whole
+/// document, never a splice. The sync before the rename is what makes the
+/// rename atomic in content and not only in name.
 pub(crate) fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    use std::io::Write;
     let dir = path
         .parent()
         .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
@@ -2646,12 +2654,28 @@ pub(crate) fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "plan".to_string());
-    let tmp = dir.join(format!(".{stem}.tugtmp"));
-    std::fs::write(&tmp, contents).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("cannot replace {}: {e}", path.display())
-    })
+    // Dot-prefixed, so whatever ignores dotfiles in the directory ignores the
+    // temp too, as it did when the name was fixed.
+    let mut tmp = tempfile::Builder::new()
+        .prefix(&format!(".{stem}."))
+        .suffix(".tugtmp")
+        .tempfile_in(dir)
+        .map_err(|e| format!("cannot create a temp file in {}: {e}", dir.display()))?;
+    // A temp file is created owner-only; the document keeps the mode it had,
+    // or the ordinary one when it is new.
+    let mode = std::fs::metadata(path)
+        .map(|m| m.permissions())
+        .unwrap_or_else(|_| std::os::unix::fs::PermissionsExt::from_mode(0o644));
+    let shown = tmp.path().display().to_string();
+    tmp.as_file_mut()
+        .write_all(contents.as_bytes())
+        .and_then(|()| tmp.as_file().set_permissions(mode))
+        .and_then(|()| tmp.as_file().sync_all())
+        .map_err(|e| format!("cannot write {shown}: {e}"))?;
+    // A failed persist hands the temp back, and dropping it removes it.
+    tmp.persist(path)
+        .map(drop)
+        .map_err(|e| format!("cannot replace {}: {}", path.display(), e.error))
 }
 
 /// Commit the two records a step move produces — the ledger table and the
@@ -3278,13 +3302,11 @@ pub fn join_in_flight(repo: &Path, name: &str) -> bool {
 }
 
 /// Whether `git` here supports `git merge-tree --write-tree` (git ≥ 2.38).
-pub(crate) fn git_supports_merge_tree(repo: &Path) -> bool {
-    let out = git_stdout(repo, &["--version"]).unwrap_or_default();
-    let ver = out.split_whitespace().nth(2).unwrap_or("");
-    let mut parts = ver.split('.');
-    let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    major > 2 || (major == 2 && minor >= 38)
+///
+/// Asked through `tugcore::host_tools`, never by running `git --version` here
+/// — see `resolve::git_supports_merge_base_flag`.
+pub(crate) fn git_supports_merge_tree() -> bool {
+    tugcore::host_tools::git_version_at_least(2, 38)
 }
 
 /// The tracked paths with uncommitted changes in `dir` (staged or unstaged vs
@@ -5207,7 +5229,7 @@ pub fn join_conflicts_in(repo_root: &Path, name: &str) -> Result<JoinConflicts, 
     if !branch_exists(repo_root, &branch) {
         return Err(format!("Arc not found: {}", name));
     }
-    if !git_supports_merge_tree(repo_root) {
+    if !git_supports_merge_tree() {
         return Err(
             "a join preview requires git >= 2.38 (git merge-tree --write-tree).".to_string(),
         );
@@ -5324,7 +5346,7 @@ pub fn join_in_with_progress(
     // arc reports `stale-journal` as a blocker rather than refusing — the
     // execute path below is still what refuses.
     if opts.preview {
-        if !git_supports_merge_tree(&repo_root) {
+        if !git_supports_merge_tree() {
             return Err(
                 "tugtool arc join --preview requires git >= 2.38 (git merge-tree --write-tree)."
                     .to_string(),
@@ -15649,5 +15671,68 @@ Some context.
         let outcome = commit("hostile", "tugarc(hostile): revise the records", None).unwrap();
         assert!(outcome.committed);
         assert!(worktree_dirt(&repo, "hostile").is_empty());
+    }
+
+    /// Two writers of one document at once — the arc runner and the CLI —
+    /// each succeed, the document is exactly one writer's whole text, and no
+    /// temp file is left behind. With one shared temp name the loser's rename
+    /// found its temp already moved, or moved the winner's partial bytes.
+    #[test]
+    fn concurrent_atomic_writes_leave_one_whole_document() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("plan.md");
+        // Large enough that a write is not one syscall, so the two overlap.
+        let texts = ["a".repeat(1 << 20), "b".repeat(1 << 20)];
+        for round in 0..20 {
+            let barrier = std::sync::Barrier::new(2);
+            let results: Vec<Result<(), String>> = std::thread::scope(|scope| {
+                let handles: Vec<_> = texts
+                    .iter()
+                    .map(|text| {
+                        let (barrier, path) = (&barrier, &path);
+                        scope.spawn(move || {
+                            barrier.wait();
+                            write_atomic(path, text)
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            for result in &results {
+                assert!(result.is_ok(), "round {round}: {result:?}");
+            }
+            let landed = fs::read_to_string(&path).unwrap();
+            assert!(
+                texts.contains(&landed),
+                "round {round}: the document is a splice of {} bytes",
+                landed.len()
+            );
+            let entries: Vec<String> = fs::read_dir(dir.path())
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(entries, vec!["plan.md".to_string()], "round {round}");
+        }
+    }
+
+    /// A rewrite keeps the document's mode; the temp file's owner-only mode
+    /// never reaches it.
+    #[test]
+    fn atomic_write_keeps_the_documents_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("plan.md");
+        write_atomic(&path, "first").unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        write_atomic(&path, "second").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
     }
 }

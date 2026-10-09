@@ -407,6 +407,12 @@ fn parse_statement(statement: &str) -> Option<(String, Vec<String>, bool)> {
 /// fetch runs behind the typing debounce.
 const INTERROGATION_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Most bytes one interrogation may print. A dump is a few hundred bytes per
+/// alias and a name per function, so a real table is far below this; output
+/// past it is a profile printing something else, and is refused rather than
+/// parsed as a truncated table.
+const INTERROGATION_MAX_STDOUT: usize = 8 << 20;
+
 /// Which shell the table is being read from. `$SHELL` is the *login* shell —
 /// the one that defined the user's habits — so a `$SHELL` that is neither bash
 /// nor zsh yields no table at all rather than a guess: an empty table is today's
@@ -541,32 +547,129 @@ fn is_safe_word_name(name: &str) -> bool {
 /// group to itself — and every write the caller makes while that lasts raises
 /// SIGTTOU. Run from a terminal, that stops the caller: `zsh: suspended (tty
 /// output)`.
+///
+/// The new session is also what makes a timeout clean: the shell leads its own
+/// process group, so one `kill(-pgid)` reaches the shell and anything its
+/// profile started, and the shell is then reaped. A wedged profile costs one
+/// timeout, never a shell left running for the life of the process.
 fn run_interrogation(shell: &str, script: &str, cwd: Option<&Path>) -> Option<Vec<u8>> {
-    use std::os::unix::process::CommandExt;
+    run_interrogation_within(shell, script, cwd, INTERROGATION_TIMEOUT)
+}
 
-    let shell = shell.to_string();
-    let script = script.to_string();
-    let cwd = cwd.map(|c| c.to_path_buf());
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut cmd = std::process::Command::new(&shell);
-        cmd.args(["-ilc", &script])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        if let Some(dir) = cwd {
-            cmd.current_dir(dir);
-        }
+/// [`run_interrogation`] with the deadline as a parameter, so a test can wait
+/// on one shorter than ten seconds.
+fn run_interrogation_within(
+    shell: &str,
+    script: &str,
+    cwd: Option<&Path>,
+    timeout: Duration,
+) -> Option<Vec<u8>> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+
+    let mut cmd = Command::new(shell);
+    cmd.args(["-ilc", script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let deadline = Instant::now() + timeout;
+    let mut child = cmd.spawn().ok()?;
+    // Read without blocking, so one loop can watch both the pipe and the
+    // deadline: a dump can outgrow the pipe's buffer, and a shell blocked on a
+    // full pipe never exits.
+    let mut pipe = child.stdout.take().filter(|out| {
+        let fd = out.as_raw_fd();
         unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0
         }
-        let _ = tx.send(cmd.output());
     });
-    match rx.recv_timeout(INTERROGATION_TIMEOUT) {
-        Ok(Ok(output)) if output.status.success() => Some(output.stdout),
-        _ => None,
+    let mut stdout = Vec::new();
+    let exited = loop {
+        drain(&mut pipe, &mut stdout);
+        if stdout.len() > INTERROGATION_MAX_STDOUT {
+            break None;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {}
+            Err(_) => break None,
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            break None;
+        }
+        // Wake on output, or after a short slice to look at the child again.
+        let slice = (deadline - now).min(Duration::from_millis(20));
+        match &pipe {
+            Some(out) => {
+                let mut fds = libc::pollfd {
+                    fd: out.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                unsafe {
+                    libc::poll(&mut fds, 1, slice.as_millis() as libc::c_int);
+                }
+            }
+            None => std::thread::sleep(slice),
+        }
+    };
+    match exited {
+        Some(status) => {
+            // What the shell wrote between the last read and its exit.
+            drain(&mut pipe, &mut stdout);
+            (status.success() && stdout.len() <= INTERROGATION_MAX_STDOUT).then_some(stdout)
+        }
+        None => {
+            // Still unreaped, so the pid cannot have been reused: the group
+            // is the shell's own.
+            unsafe {
+                libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+            }
+            let _ = child.wait();
+            None
+        }
+    }
+}
+
+/// Read everything a non-blocking pipe has ready into `into`, closing the pipe
+/// at end of file.
+fn drain(pipe: &mut Option<std::process::ChildStdout>, into: &mut Vec<u8>) {
+    use std::io::Read;
+    let Some(out) = pipe else {
+        return;
+    };
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        match out.read(&mut chunk) {
+            Ok(0) => {
+                *pipe = None;
+                break;
+            }
+            Ok(n) => into.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+            // A pipe that can no longer be read has nothing more to wait on.
+            Err(_) => {
+                *pipe = None;
+                break;
+            }
+        }
+        if into.len() > INTERROGATION_MAX_STDOUT {
+            break;
+        }
     }
 }
 
@@ -1102,5 +1205,78 @@ mod tests {
         // Refused before `$SHELL` is even read, so this holds whatever shell the
         // machine has.
         assert_eq!(fetch_function_body("x; echo pwned"), None);
+    }
+
+    /// A stand-in login shell: ignores `-ilc` and runs the script with
+    /// `/bin/sh`, so the test does not depend on anybody's rc files.
+    fn fake_shell(dir: &Path) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join("fake-shell");
+        std::fs::write(&path, "#!/bin/sh\nexec /bin/sh -c \"$2\"\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn is_alive(pid: libc::pid_t) -> bool {
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    #[test]
+    fn a_wedged_profile_is_killed_with_everything_it_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(dir.path());
+        let pids = dir.path().join("pids");
+        // The shell's own pid, then a background sleeper's, then a wait that
+        // outlasts the deadline — a profile that never comes back.
+        let script = format!(
+            "echo $$ > {p}; sleep 30 & echo $! >> {p}; wait",
+            p = pids.display()
+        );
+        let started = std::time::Instant::now();
+        let out = run_interrogation_within(&shell, &script, None, Duration::from_millis(500));
+        assert_eq!(out, None);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "returned at the deadline, not when the script finished"
+        );
+        let written = std::fs::read_to_string(&pids).unwrap();
+        let pids: Vec<libc::pid_t> = written.lines().map(|l| l.trim().parse().unwrap()).collect();
+        assert_eq!(pids.len(), 2, "{written:?}");
+        // The shell was reaped before the call returned. The sleeper, now an
+        // orphan, is reaped by init; give that a moment, never seconds.
+        let settle = std::time::Instant::now() + Duration::from_secs(2);
+        while pids.iter().any(|&pid| is_alive(pid)) && std::time::Instant::now() < settle {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for pid in pids {
+            assert!(!is_alive(pid), "pid {pid} survived the timeout");
+        }
+    }
+
+    #[test]
+    fn output_larger_than_a_pipe_buffer_arrives_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(dir.path());
+        // 4000 lines of 101 bytes: several times any pipe's buffer, so a reader
+        // that only waited for the exit would deadlock against the writer.
+        let script = "i=0; while [ $i -lt 4000 ]; do printf '%0100d\\n' 0; i=$((i+1)); done";
+        let out = run_interrogation_within(&shell, script, None, Duration::from_secs(10))
+            .expect("the script exits 0");
+        assert_eq!(out.len(), 4000 * 101);
+    }
+
+    #[test]
+    fn a_failing_script_yields_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(dir.path());
+        assert_eq!(
+            run_interrogation_within(
+                &shell,
+                "echo partial; exit 3",
+                None,
+                Duration::from_secs(10)
+            ),
+            None
+        );
     }
 }

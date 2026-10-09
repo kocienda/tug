@@ -146,7 +146,7 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
     if !branch_exists(repo, &branch) {
         return Err(format!("Arc not found: {}", name));
     }
-    if !git_supports_merge_base_flag(repo) {
+    if !git_supports_merge_base_flag() {
         return Ok(ReplayOutcome::deferred(
             "git-too-old",
             "replay needs git 2.40 or newer for `merge-tree --merge-base`",
@@ -290,7 +290,7 @@ pub(crate) fn walk_rounds(
     base_branch: &str,
     branch: &str,
 ) -> Result<ReplayWalk, String> {
-    if !git_supports_merge_base_flag(repo) {
+    if !git_supports_merge_base_flag() {
         return Ok(ReplayWalk::Unavailable);
     }
     let rounds_out = git_stdout(
