@@ -112,10 +112,18 @@ impl AuthState {
         session_id
     }
 
-    /// Validate a session ID (returns true if valid and not expired)
+    /// Validate a session ID (returns true if valid and not expired).
+    ///
+    /// Expiry slides: every successful validation pushes it a full TTL out,
+    /// so a deck in use never loses its session, and a cookie nobody has
+    /// presented for a TTL still dies. The `/api/*` gate validates on every
+    /// page request and the websocket on every heartbeat, so a fixed expiry
+    /// would refuse an open deck's requests a day after it loaded.
     pub fn validate_session(&mut self, session_id: &str) -> bool {
-        if let Some(session) = self.sessions.get(session_id) {
-            if Instant::now() < session.expires_at {
+        let now = Instant::now();
+        if let Some(session) = self.sessions.get_mut(session_id) {
+            if now < session.expires_at {
+                session.expires_at = now + self.session_ttl;
                 return true;
             }
             // Session expired, remove it
@@ -249,6 +257,77 @@ pub fn check_request_origin(headers: &HeaderMap, auth: &SharedAuthState) -> bool
     auth_state.check_origin(origin)
 }
 
+/// Why the `/api/*` gate refused a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiRefusal {
+    /// A page sent it, and its origin is not one of the deck's own.
+    ForeignOrigin,
+    /// A page sent it from an allowed origin, without a live session cookie.
+    NoSession,
+}
+
+impl ApiRefusal {
+    pub fn message(self) -> &'static str {
+        match self {
+            ApiRefusal::ForeignOrigin => "Invalid origin",
+            ApiRefusal::NoSession => "Invalid or expired session",
+        }
+    }
+}
+
+/// The gate every `/api/*` route passes through.
+///
+/// Loopback is a network fact, not a trust boundary: any page open in the
+/// user's ordinary browser can reach `127.0.0.1`. What tells such a page
+/// apart from `tugtool`, the changes forwarder, or the harness is that a
+/// browser always marks what it sends — an `Origin` header on every
+/// cross-origin or non-GET request, and `Sec-Fetch-Site` on every request
+/// at all. A request carrying neither (or only `Sec-Fetch-Site: none`, a
+/// navigation the user typed) did not come from a page and passes as it
+/// always has; none of those callers holds the deck's cookie.
+///
+/// A request a page sent must come from the deck's own origin and carry the
+/// deck's session, exactly as the websocket handshake requires. With no
+/// `Origin` header, only `Sec-Fetch-Site: same-origin` names an origin the
+/// gate can trust — the server's own, or the Vite proxy's, which forwards
+/// the page's headers unchanged.
+pub fn check_api_request(headers: &HeaderMap, auth: &SharedAuthState) -> Result<(), ApiRefusal> {
+    let mut auth_state = auth.lock().unwrap();
+    if auth_state.no_auth {
+        return Ok(());
+    }
+
+    let origin = headers.get(header::ORIGIN);
+    let fetch_site = headers.get("sec-fetch-site").map(|v| v.as_bytes());
+    let from_page = origin.is_some() || fetch_site.is_some_and(|site| site != b"none");
+    if !from_page {
+        return Ok(());
+    }
+
+    let origin_ok = match origin {
+        Some(value) => value
+            .to_str()
+            .is_ok_and(|origin| auth_state.check_origin(origin)),
+        None => fetch_site == Some(b"same-origin".as_slice()),
+    };
+    if !origin_ok {
+        return Err(ApiRefusal::ForeignOrigin);
+    }
+
+    match extract_session_cookie(headers) {
+        Some(session_id) if auth_state.validate_session(&session_id) => Ok(()),
+        _ => Err(ApiRefusal::NoSession),
+    }
+}
+
+/// Whether CORS may answer `origin`: the same list the gate and the
+/// websocket check, so the three cannot drift. `--no-auth` opens it, as it
+/// opens the other two.
+pub fn cors_allows_origin(origin: &str, auth: &SharedAuthState) -> bool {
+    let auth_state = auth.lock().unwrap();
+    auth_state.no_auth || auth_state.check_origin(origin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +389,24 @@ mod tests {
 
         // Session should be removed from map
         assert!(!auth.sessions.contains_key(&session_id));
+    }
+
+    #[test]
+    fn test_session_in_use_slides_past_its_ttl() {
+        let mut auth = AuthState {
+            pending_token: None,
+            sessions: HashMap::new(),
+            session_ttl: Duration::from_millis(200),
+            port: 7890,
+            dev_port: None,
+            no_auth: false,
+        };
+
+        let session_id = auth.create_session();
+        for _ in 0..4 {
+            std::thread::sleep(Duration::from_millis(100));
+            assert!(auth.validate_session(&session_id));
+        }
     }
 
     #[test]
@@ -393,6 +490,108 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::COOKIE, "other=value".parse().unwrap());
         assert_eq!(extract_session_cookie(&headers), None);
+    }
+
+    /// An auth state with one live session, and that session's cookie.
+    fn gated() -> (SharedAuthState, String) {
+        let auth = new_shared_auth_state(7890);
+        let session_id = auth.lock().unwrap().create_session();
+        (auth, format!("{SESSION_COOKIE_NAME}={session_id}"))
+    }
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.insert(
+                header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                value.parse().unwrap(),
+            );
+        }
+        headers
+    }
+
+    #[test]
+    fn api_gate_admits_the_deck_with_its_cookie() {
+        let (auth, cookie) = gated();
+        let request = headers(&[("origin", "http://127.0.0.1:7890"), ("cookie", &cookie)]);
+        assert_eq!(check_api_request(&request, &auth), Ok(()));
+    }
+
+    #[test]
+    fn api_gate_refuses_an_allowed_origin_without_a_cookie() {
+        let (auth, _) = gated();
+        let request = headers(&[("origin", "http://localhost:7890")]);
+        assert_eq!(
+            check_api_request(&request, &auth),
+            Err(ApiRefusal::NoSession)
+        );
+    }
+
+    #[test]
+    fn api_gate_refuses_a_foreign_origin_even_with_a_cookie() {
+        let (auth, cookie) = gated();
+        let request = headers(&[("origin", "https://evil.example"), ("cookie", &cookie)]);
+        assert_eq!(
+            check_api_request(&request, &auth),
+            Err(ApiRefusal::ForeignOrigin)
+        );
+    }
+
+    /// `tugtool`, the changes forwarder, and the harness send no browser
+    /// marks and hold no cookie; they pass as they always have.
+    #[test]
+    fn api_gate_admits_a_local_process_with_no_browser_marks() {
+        let (auth, _) = gated();
+        assert_eq!(check_api_request(&HeaderMap::new(), &auth), Ok(()));
+        let typed = headers(&[("sec-fetch-site", "none")]);
+        assert_eq!(check_api_request(&typed, &auth), Ok(()));
+    }
+
+    /// A no-cors subresource load (`<img src>`, `<script src>`) carries no
+    /// `Origin`, but the browser still says where it came from.
+    #[test]
+    fn api_gate_refuses_a_cross_site_request_with_no_origin() {
+        let (auth, cookie) = gated();
+        for site in ["cross-site", "same-site"] {
+            let request = headers(&[("sec-fetch-site", site), ("cookie", &cookie)]);
+            assert_eq!(
+                check_api_request(&request, &auth),
+                Err(ApiRefusal::ForeignOrigin),
+                "{site}"
+            );
+        }
+    }
+
+    /// The deck's own same-origin GETs carry no `Origin`; the cookie is
+    /// what admits them.
+    #[test]
+    fn api_gate_admits_a_same_origin_get_only_with_its_cookie() {
+        let (auth, cookie) = gated();
+        let with = headers(&[("sec-fetch-site", "same-origin"), ("cookie", &cookie)]);
+        assert_eq!(check_api_request(&with, &auth), Ok(()));
+        let without = headers(&[("sec-fetch-site", "same-origin")]);
+        assert_eq!(
+            check_api_request(&without, &auth),
+            Err(ApiRefusal::NoSession)
+        );
+    }
+
+    #[test]
+    fn api_gate_and_cors_open_under_no_auth() {
+        let auth = new_shared_auth_state_no_auth(7890);
+        let request = headers(&[("origin", "https://evil.example")]);
+        assert_eq!(check_api_request(&request, &auth), Ok(()));
+        assert!(cors_allows_origin("https://evil.example", &auth));
+    }
+
+    #[test]
+    fn cors_follows_the_dev_port() {
+        let (auth, _) = gated();
+        assert!(cors_allows_origin("http://127.0.0.1:7890", &auth));
+        assert!(!cors_allows_origin("http://localhost:55155", &auth));
+        auth.lock().unwrap().set_dev_port(Some(55155));
+        assert!(cors_allows_origin("http://localhost:55155", &auth));
+        assert!(!cors_allows_origin("https://evil.example", &auth));
     }
 
     #[test]

@@ -9,8 +9,9 @@
 use axum::Extension;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRef, Query, Request, State};
+use axum::http::{HeaderValue, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
@@ -18,12 +19,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 use tugbank_core::TugbankClient;
 use tugcast_core::{FeedId, Frame};
 
+use crate::auth::SharedAuthState;
 use crate::dev::SharedDevState;
 use crate::router::FeedRouter;
 
@@ -1896,6 +1898,48 @@ fn broadcast_ask_rescind(router: &FeedRouter, request_id: &str) {
     }
 }
 
+/// The one gate over every `/api/*` route ([`crate::auth::check_api_request`]).
+///
+/// Applied as a single layer over the whole router rather than per handler, so
+/// no route can be added without passing through it. `/auth` and `/ws` keep
+/// their own handling, and the static frontend is not an API.
+async fn api_gate(State(auth): State<SharedAuthState>, request: Request, next: Next) -> Response {
+    if !request.uri().path().starts_with("/api/") {
+        return next.run(request).await;
+    }
+    match crate::auth::check_api_request(request.headers(), &auth) {
+        Ok(()) => next.run(request).await,
+        Err(refusal) => {
+            warn!(
+                path = request.uri().path(),
+                origin = ?request.headers().get(axum::http::header::ORIGIN),
+                "api request refused: {}",
+                refusal.message()
+            );
+            (StatusCode::FORBIDDEN, refusal.message()).into_response()
+        }
+    }
+}
+
+/// CORS answers only the origins the gate and the websocket already accept,
+/// read live from the same [`AuthState`](crate::auth::AuthState) so a dev-port
+/// change reaches all three at once. Credentials ride, so the deck's cookie
+/// crosses ports under the Vite dev server; and because credentials ride,
+/// methods and headers mirror the request rather than answering `*`.
+fn cors_layer(auth: SharedAuthState) -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(
+            move |origin: &HeaderValue, _parts| {
+                origin
+                    .to_str()
+                    .is_ok_and(|origin| crate::auth::cors_allows_origin(origin, &auth))
+            },
+        ))
+        .allow_methods(AllowMethods::mirror_request())
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
+}
+
 /// Build the axum application router
 ///
 /// Constructs the Router with auth, WebSocket, and API routes.
@@ -1943,14 +1987,10 @@ pub(crate) fn build_app(
     jots_state: Option<Arc<crate::jots::JotsState>>,
     prompt_history: Option<PromptHistoryDeps>,
 ) -> Router {
-    // Allow any origin on localhost — tugcast only binds to loopback.
-    // This prevents WKWebView CORS errors during page teardown (keepalive
-    // fetches during beforeunload) and for cross-port requests when the
-    // page is served by Vite dev server on a different port.
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // Loopback is a precondition, not the boundary: a page in the user's
+    // browser reaches 127.0.0.1 too. The WKWebView's teardown keepalive
+    // fetches and the Vite dev port are both origins `check_origin` lists.
+    let auth = SharedAuthState::from_ref(&router);
 
     let mut base = Router::new()
         .route("/auth", get(crate::auth::handle_auth))
@@ -2015,8 +2055,7 @@ pub(crate) fn build_app(
             post(crate::fs_write::post_fs_write)
                 .layer(DefaultBodyLimit::max(crate::fs_write::MAX_WRITE_BODY_BYTES)),
         )
-        .with_state(router)
-        .layer(cors);
+        .with_state(router);
 
     // Wire defaults routes when an already-opened store is provided.
     if let Some(store) = bank_store {
@@ -2058,6 +2097,12 @@ pub(crate) fn build_app(
                 deps.sessions,
             )));
     }
+
+    // Last, so every route above passes through both; CORS outermost, so a
+    // preflight (which never carries the cookie) is answered before the gate.
+    let base = base
+        .layer(middleware::from_fn_with_state(auth.clone(), api_gate))
+        .layer(cors_layer(auth));
 
     let dist_path = crate::resources::source_tree().join("tugdeck").join("dist");
     if dist_path.is_dir() {
@@ -2533,6 +2578,115 @@ mod tests {
             control_rx,
             pending_asks,
         }
+    }
+
+    // ── the `/api/*` gate and CORS ───────────────────────────────────────
+
+    /// An app whose auth is real — not `--no-auth` — and whose own origin is
+    /// therefore `http://127.0.0.1:0`.
+    fn gated_app() -> Router {
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::mpsc::channel(1);
+        let dev_state = crate::dev::new_shared_dev_state();
+        let router = FeedRouter::new(
+            "test-session".to_owned(),
+            crate::auth::new_shared_auth_state(0),
+            shutdown_tx,
+            dev_state.clone(),
+        );
+        build_app(router, dev_state, None, None, None)
+    }
+
+    async fn send(
+        request: axum::http::Request<axum::body::Body>,
+    ) -> axum::http::Response<axum::body::Body> {
+        use tower::ServiceExt;
+        gated_app().oneshot(request).await.unwrap()
+    }
+
+    fn eval_post(headers: &[(&str, &str)]) -> axum::http::Request<axum::body::Body> {
+        let mut builder = axum::http::Request::post("/api/eval");
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        builder.body(axum::body::Body::from("{}")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn api_gate_refuses_a_page_from_a_foreign_origin() {
+        let response = send(eval_post(&[("origin", "https://evil.example")])).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none(),
+            "a foreign origin is never answered by CORS"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_gate_refuses_the_deck_origin_without_its_session() {
+        let response = send(eval_post(&[("origin", "http://127.0.0.1:0")])).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn api_gate_refuses_a_no_cors_load_from_another_site() {
+        let request = axum::http::Request::get("/api/fs/read?path=/etc/hosts")
+            .header("sec-fetch-site", "cross-site")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(send(request).await.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// `tugtool` and the changes forwarder send no browser marks; the gate
+    /// lets them through to the handler, which answers for itself.
+    #[tokio::test]
+    async fn api_gate_admits_a_local_process() {
+        let response = send(eval_post(&[("content-type", "application/json")])).await;
+        assert_ne!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// `/auth` is outside the gate's business: it refuses a bad token itself.
+    #[tokio::test]
+    async fn api_gate_leaves_auth_to_its_own_handler() {
+        let request = axum::http::Request::get("/auth?token=wrong")
+            .header("origin", "https://evil.example")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let response = send(request).await;
+        let body = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .unwrap()
+            .to_bytes();
+        assert_eq!(&body[..], b"Invalid or expired token");
+    }
+
+    #[tokio::test]
+    async fn cors_answers_the_deck_origin_with_credentials_and_nobody_else() {
+        let preflight = |origin: &str| {
+            axum::http::Request::options("/api/eval")
+                .header("origin", origin)
+                .header("access-control-request-method", "POST")
+                .header("access-control-request-headers", "content-type")
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+
+        let own = send(preflight("http://127.0.0.1:0")).await;
+        assert_eq!(
+            own.headers()["access-control-allow-origin"],
+            "http://127.0.0.1:0"
+        );
+        assert_eq!(own.headers()["access-control-allow-credentials"], "true");
+
+        let foreign = send(preflight("https://evil.example")).await;
+        assert!(
+            foreign
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none()
+        );
     }
 
     // ── /api/session `run_progress` ──────────────────────────────────────

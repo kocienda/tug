@@ -396,7 +396,11 @@ pub async fn ws_handler(
         return (StatusCode::FORBIDDEN, "Invalid origin").into_response();
     }
     info!("WebSocket upgrade accepted");
-    ws.on_upgrade(move |socket| handle_client(socket, router))
+    // The connection keeps the session it opened with alive: the deck's
+    // `/api/*` requests ride the same cookie, and a deck left open but idle
+    // must not find it expired.
+    let session_id = auth::extract_session_cookie(&headers);
+    ws.on_upgrade(move |socket| handle_client(socket, router, session_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -1077,7 +1081,7 @@ async fn authorize_and_claim_input(
 // ---------------------------------------------------------------------------
 
 /// Handle a WebSocket client connection
-async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
+async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id: Option<String>) {
     let client_id = router.next_client_id();
     info!(client_id, "Client connected");
     // Every open card re-announces its session from here; a bridge still in
@@ -1540,6 +1544,9 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                 warn!(client_id, "Heartbeat timeout, closing connection");
                                 teardown_client(&router, client_id).await;
                                 return;
+                            }
+                            if let Some(session_id) = &session_id {
+                                router.auth.lock().unwrap().validate_session(session_id);
                             }
                         }
                     }

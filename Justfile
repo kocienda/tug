@@ -136,6 +136,7 @@ test-swift:
     bash tests/shell-path/test-shell-path-timeout.sh
     bash tests/update/test-update-state.sh
     bash tests/dictation/test-dictation-state.sh
+    bash tests/bridge-path-guard/test-bridge-path-guard.sh
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #

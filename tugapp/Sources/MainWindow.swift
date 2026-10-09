@@ -2052,11 +2052,22 @@ extension MainWindow: WKScriptMessageHandler {
             // exists, else reveal its parent (never auto-create a folder — a
             // wrong path must not mint an empty directory). No content
             // write-back; editing happens in the OS app.
+            //
+            // Any existing path may open — the user clicked it — but a file
+            // is only created in the user's own space (`BridgePathGuard`);
+            // Claude Code's memory files under `~/.claude/` are why the root
+            // is not narrower.
             guard let body = message.body as? [String: Any],
                   let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
             let kind = (body["kind"] as? String) ?? "file"
-            let expanded = (rawPath as NSString).expandingTildeInPath
-            let url = URL(fileURLWithPath: expanded)
+            let url: URL
+            switch BridgePathGuard.user.forOpening(rawPath) {
+            case .success(let resolved): url = resolved
+            case .failure(let refusal):
+                TugLog.warn("bridge", "openPath refused", [TugLog.field("reason", refusal.reason)])
+                return
+            }
+            let expanded = url.path
             let fm = FileManager.default
             if kind == "reveal" {
                 // Open Finder with the file itself selected inside its
@@ -2084,6 +2095,10 @@ extension MainWindow: WKScriptMessageHandler {
                 NSWorkspace.shared.open(dir)
             } else {
                 if !fm.fileExists(atPath: expanded) {
+                    if case .failure(let refusal) = BridgePathGuard.user.forCreating(rawPath) {
+                        TugLog.warn("bridge", "openPath refused", [TugLog.field("reason", refusal.reason)])
+                        return
+                    }
                     try? fm.createDirectory(at: url.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
                     fm.createFile(atPath: expanded, contents: nil)
@@ -2101,10 +2116,21 @@ extension MainWindow: WKScriptMessageHandler {
             // JS-side contract: post {requestId, path} and wait for
             // window.__tugTrashCallback({requestId, ok, trashedPath, error}).
             // See os-trash.ts.
+            //
+            // Only a path in the user's own space is recycled
+            // (`BridgePathGuard`); a refusal replies `ok: false` so the deck
+            // settles rather than timing out.
             guard let body = message.body as? [String: Any],
                   let requestId = body["requestId"] as? String,
                   let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
-            let url = URL(fileURLWithPath: (rawPath as NSString).expandingTildeInPath)
+            let url: URL
+            switch BridgePathGuard.user.forTrashing(rawPath) {
+            case .success(let resolved): url = resolved
+            case .failure(let refusal):
+                TugLog.warn("bridge", "trashPath refused", [TugLog.field("reason", refusal.reason)])
+                replyToTrashRequest(["requestId": requestId, "ok": false, "error": refusal.reason])
+                return
+            }
             NSWorkspace.shared.recycle([url]) { [weak self] newURLs, error in
                 guard let self = self else { return }
                 if let error = error {
@@ -2125,13 +2151,22 @@ extension MainWindow: WKScriptMessageHandler {
             // fs route family has no move verb, and /api/fs/write is a text
             // writer that would corrupt binary bytes. The host already holds
             // the trashed URL it minted, so the restore is one moveItem.
+            // The source must be in the user's Trash and the destination in
+            // the user's own space (`BridgePathGuard`).
             guard let body = message.body as? [String: Any],
                   let requestId = body["requestId"] as? String,
                   let trashedPath = body["trashedPath"] as? String, !trashedPath.isEmpty,
                   let destinationPath = body["destination"] as? String, !destinationPath.isEmpty
             else { return }
-            let from = URL(fileURLWithPath: (trashedPath as NSString).expandingTildeInPath)
-            let wanted = URL(fileURLWithPath: (destinationPath as NSString).expandingTildeInPath)
+            let from: URL
+            let wanted: URL
+            switch BridgePathGuard.user.forRestoring(trashed: trashedPath, destination: destinationPath) {
+            case .success(let pair): (from, wanted) = (pair.from, pair.to)
+            case .failure(let refusal):
+                TugLog.warn("bridge", "restorePath refused", [TugLog.field("reason", refusal.reason)])
+                replyToTrashRequest(["requestId": requestId, "ok": false, "error": refusal.reason])
+                return
+            }
             let fm = FileManager.default
             do {
                 try fm.createDirectory(at: wanted.deletingLastPathComponent(),

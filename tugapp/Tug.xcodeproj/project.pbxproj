@@ -25,6 +25,7 @@
 		AA0000010000000000000013 /* AppLifecycleHandlers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000013 /* AppLifecycleHandlers.swift */; };
 		AA0000010000000000000014 /* TugcodeLifecycleHandlers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000014 /* TugcodeLifecycleHandlers.swift */; };
 		AA0000010000000000000015 /* BranchSlug.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000015 /* BranchSlug.swift */; };
+		AA0000010000000000000040 /* BridgePathGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000040 /* BridgePathGuard.swift */; };
 		AA0000010000000000000016 /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000016 /* BuildInfo.swift */; };
 		AA0000010000000000000017 /* InstanceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000017 /* InstanceConfig.swift */; };
 		AA000001000000000000001F /* TugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001C /* TugLog.swift */; };
@@ -62,6 +63,7 @@
 		AA0000020000000000000013 /* AppLifecycleHandlers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleHandlers.swift; sourceTree = "<group>"; };
 		AA0000020000000000000014 /* TugcodeLifecycleHandlers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TugcodeLifecycleHandlers.swift; sourceTree = "<group>"; };
 		AA0000020000000000000015 /* BranchSlug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchSlug.swift; sourceTree = "<group>"; };
+		AA0000020000000000000040 /* BridgePathGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgePathGuard.swift; sourceTree = "<group>"; };
 		AA0000020000000000000016 /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildInfo.swift; sourceTree = "<group>"; };
 		AA0000020000000000000017 /* InstanceConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceConfig.swift; sourceTree = "<group>"; };
 		AA000002000000000000001C /* TugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TugLog.swift; sourceTree = "<group>"; };
@@ -113,6 +115,7 @@
 				AA0000020000000000000009 /* ControlSocket.swift */,
 				AA0000020000000000000016 /* BuildInfo.swift */,
 				AA0000020000000000000015 /* BranchSlug.swift */,
+				AA0000020000000000000040 /* BridgePathGuard.swift */,
 				AA0000020000000000000017 /* InstanceConfig.swift */,
 				AA0000020000000000000018 /* UpdateController.swift */,
 				AA000002000000000000001F /* UpdateState.swift */,
@@ -245,6 +248,7 @@
 				AA0000010000000000000014 /* TugcodeLifecycleHandlers.swift in Sources */,
 				AA0000010000000000000016 /* BuildInfo.swift in Sources */,
 				AA0000010000000000000015 /* BranchSlug.swift in Sources */,
+				AA0000010000000000000040 /* BridgePathGuard.swift in Sources */,
 				AA0000010000000000000017 /* InstanceConfig.swift in Sources */,
 				AA0000010000000000000018 /* UpdateController.swift in Sources */,
 				AA0000010000000000000022 /* UpdateState.swift in Sources */,
