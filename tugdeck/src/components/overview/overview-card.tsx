@@ -725,7 +725,7 @@ function useOverviewRefRoots(
   useLayoutEffect(() => {
     for (const dir of dirs) acquireWorkspace(dir);
     // dirsKey IS dirs, serialized for dependency identity.
-  }, [dirsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dirsKey]); // eslint-disable-line react-hooks/exhaustive-deps -- `dirsKey` is `dirs`, serialized for identity
 
   // Which dirs have landed matters to the subscription itself: a workspace
   // arriving mints that project's resolvers, and the subscription has to
@@ -752,7 +752,7 @@ function useOverviewRefRoots(
     },
     // Both keys are the arrays they serialize, which is the point: identity
     // for the hook, content for the closure.
-    [dirsKey, readyKey], // eslint-disable-line react-hooks/exhaustive-deps
+    [dirsKey, readyKey], // eslint-disable-line react-hooks/exhaustive-deps -- the keys are the arrays they serialize, per the note above
   );
   const getSnapshot = useCallback((): number => {
     let sum = pathResolutionStore.version();
@@ -765,7 +765,7 @@ function useOverviewRefRoots(
       sum += commitResolverFor(ws.projectDir, ws.workspaceKey)?.version() ?? 0;
     }
     return sum;
-  }, [dirsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dirsKey]); // eslint-disable-line react-hooks/exhaustive-deps -- `dirsKey` is `dirs`, serialized for identity
   useSyncExternalStore(subscribe, getSnapshot);
 
   return useCallback(
@@ -776,7 +776,7 @@ function useOverviewRefRoots(
         ? null
         : { projectDir: ws.projectDir, workspaceKey: ws.workspaceKey };
     },
-    [readyKey], // eslint-disable-line react-hooks/exhaustive-deps
+    [readyKey], // eslint-disable-line react-hooks/exhaustive-deps -- `readyKey` is the ready list, serialized for identity
   );
 }
 
@@ -1066,7 +1066,7 @@ export function OverviewContent({
       mutations.disconnect();
       observer.disconnect();
     };
-  }, [setFollowing, atBottom]);
+  }, [setFollowing, atBottom, pinToBottom]);
 
   // Cold-boot restore, the half `captureRegionScrolls` cannot do alone.
   //
@@ -1605,7 +1605,7 @@ function OverviewComposer({
     // Cleared by the next composition change, which is what `composeImageAtoms`
     // moving means — a successful attach, or the removal of the chip that
     // landed in place of the rejected one.
-  }, [composeImageAtoms]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [composeImageAtoms]); // eslint-disable-line react-hooks/exhaustive-deps -- cleared by the next composition change, per the note above
 
   // [L11] responder side of the strip's ✕: this component owns the editor
   // document and the composer's bytes, so it is what performs a removal the

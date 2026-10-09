@@ -734,7 +734,7 @@ export const TugCodeView = React.forwardRef<
     };
     // Empty deps — mount once per StrictMode pass. Value swaps and
     // compartment reconfigures happen in dedicated effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mounts once; later changes go through the effects below
   }, []);
 
   // ---- Value swap ----

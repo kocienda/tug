@@ -103,7 +103,6 @@ export class SheetLifecycle {
 
   notifySheetWillShow(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[SheetLifecycle] sheetWillShow id=${cardId}`);
     }
     this.fire(this.willShowSubs, cardId);
@@ -111,7 +110,6 @@ export class SheetLifecycle {
 
   notifySheetDidShow(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[SheetLifecycle] sheetDidShow id=${cardId}`);
     }
     this.fire(this.didShowSubs, cardId);
@@ -119,7 +117,6 @@ export class SheetLifecycle {
 
   notifySheetWillHide(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[SheetLifecycle] sheetWillHide id=${cardId}`);
     }
     this.fire(this.willHideSubs, cardId);
@@ -127,7 +124,6 @@ export class SheetLifecycle {
 
   notifySheetDidHide(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[SheetLifecycle] sheetDidHide id=${cardId}`);
     }
     this.fire(this.didHideSubs, cardId);
@@ -138,7 +134,6 @@ export class SheetLifecycle {
     result: string | undefined,
   ): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(
         `[SheetLifecycle] sheetDidReturnResult id=${cardId} result=${result ?? "undefined"}`,
       );
@@ -210,7 +205,6 @@ export class SheetLifecycle {
       try {
         sub.callback(cardId);
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error(`[SheetLifecycle] observer for ${cardId} threw:`, err);
       }
     }
@@ -227,7 +221,6 @@ export class SheetLifecycle {
       try {
         sub.callback(cardId, result);
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error(
           `[SheetLifecycle] result observer for ${cardId} threw:`,
           err,

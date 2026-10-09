@@ -68,7 +68,5 @@ export function useDOMClass(
     return () => {
       el.classList.remove(className);
     };
-    // ref is intentionally excluded: React ref objects are stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [className, condition]);
+  }, [ref, className, condition]);
 }

@@ -122,7 +122,6 @@ import type {
 } from "@/lib/changeset-types";
 import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import type { JoinState } from "@/lib/changeset-verb-store";
-import type { JoinOutcome } from "@/lib/join-mode-controller";
 
 // ---------------------------------------------------------------------------
 // Ordering

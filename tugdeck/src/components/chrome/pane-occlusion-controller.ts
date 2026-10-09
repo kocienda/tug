@@ -498,6 +498,7 @@ export function usePaneOcclusionController(
         window.clearTimeout(hideTimerRef.current);
         hideTimerRef.current = null;
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- the marks to take off are on the frames under the root as it stands at teardown
       const r = deckRootRef.current;
       if (r !== null) {
         for (const el of paneFrames(r)) delete el.dataset.occluded;

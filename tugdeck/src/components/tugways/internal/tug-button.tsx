@@ -1226,7 +1226,7 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
                 </span>
               }
               alternates={[
-                <span className="tug-button-icon-text">
+                <span key="alternate" className="tug-button-icon-text">
                   {renderIconTextCluster(iconNode, widthStabilize.alternateLabel)}
                 </span>,
               ]}

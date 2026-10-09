@@ -762,7 +762,6 @@ export class ResponderChainManager {
     const node = this.nodes.get(id);
     if (!node) {
       if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
         console.warn(
           `[ResponderManager] focusResponder("${id}") — node not registered.`,
         );
@@ -1666,7 +1665,6 @@ export class ResponderChainManager {
     for (const b of bindings) {
       const chord = `${b.key}|${!!b.ctrl}|${!!b.meta}|${!!b.shift}|${!!b.alt}`;
       if (seen.has(chord)) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[responder-chain] duplicate keybinding chord "${chord}" registered at scope "${scopeId}" — the first match shadows the rest.`,
         );
@@ -1821,7 +1819,6 @@ export class ResponderChainManager {
     const outcomePart = handled
       ? `handled by ${handledBy}`
       : "unhandled";
-    // eslint-disable-next-line no-console
     console.log(
       `%c[responder-chain] dispatch %c${event.action}%c${senderPart}${valuePart} %c(${outcomePart})`,
       "color:#888",
@@ -1871,7 +1868,6 @@ export class ResponderChainManager {
     });
     if (this.firstResponderId === null) {
       if (isChainDebugEnabled()) {
-        // eslint-disable-next-line no-console
         console.log("%c[responder-chain] first responder cleared", "color:#888");
       }
       return;
@@ -1888,7 +1884,6 @@ export class ResponderChainManager {
       // inline — no cross-referencing required.
       el.setAttribute("data-first-responder", id);
       if (isChainDebugEnabled()) {
-        // eslint-disable-next-line no-console
         console.log(`%c[responder-chain] first responder → %c${id}`, "color:#888", "color:inherit;font-weight:600", el);
       }
     } else {
@@ -1897,7 +1892,6 @@ export class ResponderChainManager {
       // responderRef, or if the responder was registered during a
       // render that hadn't committed yet. Either way, log a warning
       // so it surfaces during development.
-      // eslint-disable-next-line no-console
       console.warn(`[responder-chain] first responder "${id}" has no matching [data-responder-id] element — did the caller attach responderRef?`);
     }
   }

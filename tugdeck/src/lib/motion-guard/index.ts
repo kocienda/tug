@@ -32,7 +32,7 @@ import { installMotionDiagnostics } from "./diagnostics";
 import { installInputLatency } from "./input-latency";
 import { onMotionEdge } from "./registry";
 import { renderCostProbe } from "./render-cost-probe";
-import { motionBreaker, nothingInFlight } from "./breaker";
+import { nothingInFlight } from "./breaker";
 
 export {
   acquireMotionHold,

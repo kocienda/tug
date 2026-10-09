@@ -38,6 +38,8 @@ import { decodeFrame, FeedId } from "@/protocol";
 // ---------------------------------------------------------------------------
 
 class FakeWebSocket {
+  /** The most recently constructed socket, which the tests drive. */
+  static last: FakeWebSocket | null = null;
   static readonly OPEN = 1;
 
   binaryType: string = "blob";
@@ -52,7 +54,7 @@ class FakeWebSocket {
 
   constructor(url: string) {
     this.url = url;
-    lastWs = this;
+    FakeWebSocket.last = this;
   }
 
   send(data: string | ArrayBufferLike): void {
@@ -77,8 +79,6 @@ class FakeWebSocket {
     this.onclose?.({ code, reason } as CloseEvent);
   }
 }
-
-let lastWs: FakeWebSocket | null = null;
 
 let origSetInterval: typeof window.setInterval;
 let origClearInterval: typeof window.clearInterval;
@@ -128,7 +128,7 @@ function uninstallFakes(): void {
     .WebSocket = origWebSocket;
   // Assigned, never `delete`d — see `list-view-reveal.test.ts`.
   (globalThis as { document?: unknown }).document = origDocument;
-  lastWs = null;
+  FakeWebSocket.last = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ function subscriptions(ws: FakeWebSocket): number[][] {
 /** Drive a `TugConnection` through `connect()` and the handshake. */
 function completeHandshake(conn: TugConnection): FakeWebSocket {
   conn.connect();
-  const ws = lastWs;
+  const ws = FakeWebSocket.last;
   if (ws === null) throw new Error("WebSocket was not constructed");
   ws.fireOpen();
   ws.fireMessage(JSON.stringify({ protocol: "tugcast", version: 1 }));
@@ -328,7 +328,7 @@ describe("TugConnection — feed subscriptions", () => {
     // write to.
     conn.onFrame(FeedId.JOTS, noop);
     await settle();
-    expect(lastWs).toBe(null);
+    expect(FakeWebSocket.last).toBe(null);
 
     const ws = completeHandshake(conn);
     expect(subscriptions(ws)).toEqual([[FeedId.JOTS]]);

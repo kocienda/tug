@@ -55,7 +55,6 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createArc,
   arcBriefPath,
   arcLogPath,
   arcTasksPath,

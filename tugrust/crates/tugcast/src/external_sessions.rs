@@ -426,7 +426,7 @@ fn is_bridge_issued_command_envelope(text: &str) -> bool {
     command_envelope_name(text).is_some_and(|name| BRIDGE_ISSUED_COMMANDS.contains(&name))
 }
 
-/// Mirror of tugcode's `isNonSubmissionUserString`: bare-string `user`
+/// Mirror of the bare-string branch of tugcode's `translateJsonlEntry`: `user`
 /// content that is NOT a genuine submission — a `/compact` summary
 /// continuation, slash-command scaffolding, or a `<task-notification>` wake
 /// envelope. (The wake envelope is non-submission here, but is counted

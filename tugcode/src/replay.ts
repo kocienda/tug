@@ -50,7 +50,6 @@
 //                                    `result` lands.
 
 import type {
-  AddUserMessage,
   AssistantOpener,
   AssistantText,
   ContentBlock,
@@ -67,7 +66,6 @@ import type {
   TurnCost,
   TurnEndReason,
   TurnTelemetry,
-  WakeStarted,
 } from "./types.ts";
 import type { ReplayWindow } from "@tugproto/inbound";
 
@@ -218,10 +216,11 @@ export interface JsonlEntry {
   /**
    * Set by Claude Code on the `user` JSONL entry carrying a `/compact`
    * continuation summary ("This session is being continued from a
-   * previous conversation…"). The translator skips these — the summary
-   * is CLI-internal continuation context, not a transcript-visible
-   * user submission (Claude Code's own UI hides it behind a "Compacted"
-   * marker too). See {@link isNonSubmissionUserString}.
+   * previous conversation…"). The translator emits it as a
+   * `compact_summary` frame rather than a user turn — the summary is
+   * CLI-internal continuation context, not a transcript-visible user
+   * submission (Claude Code's own UI hides it behind a "Compacted"
+   * marker too). See {@link translateJsonlEntry}.
    */
   isCompactSummary?: boolean;
   /**
@@ -1177,44 +1176,6 @@ export function wheelPromptLedger(texts: readonly string[]): WheelPromptLedger {
       return true;
     },
   };
-}
-
-/**
- * True when a `user` entry's bare-string `message.content` is NOT a
- * genuine transcript submission, so the translator skips it rather
- * than surfacing it as a turn:
- *
- *   - the `isCompactSummary` continuation block (the "This session is
- *     being continued…" summary a `/compact` injects) — CLI-internal
- *     continuation context, hidden in Claude Code's own UI;
- *   - slash-command scaffolding ({@link COMMAND_SCAFFOLDING_PREFIXES}).
- *
- * Surfacing these would inject junk orphan turns into a resumed
- * transcript (a `/compact` alone persists four-plus consecutive
- * scaffolding strings). A genuine plain-text submission returns
- * `false` and is normalised to a text block by {@link contentBlocks}.
- */
-function isNonSubmissionUserString(entry: JsonlEntry, text: string): boolean {
-  if (entry.isCompactSummary === true) {
-    return true;
-  }
-  const trimmed = text.trimStart();
-  if (isBridgeIssuedCommandEnvelope(trimmed)) {
-    return true;
-  }
-  if (
-    !isCommandEnvelope(trimmed) &&
-    COMMAND_SCAFFOLDING_PREFIXES.some((prefix) => trimmed.startsWith(prefix))
-  ) {
-    return true;
-  }
-  // The `<task-notification>` envelope is also non-submission — the
-  // runtime injected it to wake claude with the prior tool's result.
-  // The replay translator recognizes it separately so it can
-  // synthesize a `wake_started` IPC frame ([D07] wake
-  // discriminator); both the envelope text AND the add_user_message
-  // are suppressed in that path.
-  return extractTaskNotificationWake(text) !== null;
 }
 
 /**

@@ -69,7 +69,6 @@ import type {
   ArcJoinBlockerWire,
   ArcJoinQuestionWire,
   ArcJoinStateWire,
-  ArcResolvedFileWire,
 } from "@/lib/changeset-types";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
 import {

@@ -44,8 +44,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 const FEED_CODE_OUTPUT = 0x40;
 const SID = "c7c0d1ea-0000-4000-8000-000000000346";
-/** Upper bound on Tabs to walk the card cycle round to the editor text stop. */
-const CYCLE_STOP_LIMIT = 24;
 
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-prompt-entry"] [data-slot="tug-text-editor"] .cm-content`;

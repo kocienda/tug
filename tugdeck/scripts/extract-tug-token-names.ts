@@ -46,7 +46,6 @@ export function main(): void {
     "",
   ].join("\n");
   fs.writeFileSync(OUT_FILE, out, "utf-8");
-  // eslint-disable-next-line no-console
   console.log(`Generated ${names.length} --tug7-/--tugc-/--tugx-/--tug- names -> ${path.relative(ROOT, OUT_FILE)}`);
 }
 

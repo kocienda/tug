@@ -317,7 +317,6 @@ export const TugMessageEditor = React.forwardRef<
       seed({ text: initial, atoms: seedAtomsRef.current ?? [] });
     }
     // Mount-only seed; later `value` changes go through `restoreState`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useImperativeHandle(

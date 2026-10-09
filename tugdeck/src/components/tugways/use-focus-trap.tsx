@@ -174,6 +174,7 @@ export function useFocusTrap({
       // The disposition is read at pop time (it is set on commit, just before the
       // surface closes). `relinquish` cascade-pops the enclosing cycle; `retain`
       // (default) restores the stop the surface was opened from.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- read at pop time on purpose, per the note above
       if (closeDisposition?.current === "relinquish") {
         ctx.relinquishFocusMode(scopeId);
       } else {

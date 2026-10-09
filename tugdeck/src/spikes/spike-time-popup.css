@@ -111,12 +111,13 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* @tug-motion-hold ./spike-time-popup.tsx */
 .sp-tp-live-dot {
   inline-size: 6px;
   block-size: 6px;
   border-radius: 50%;
   background-color: var(--tug7-element-global-text-normal-info-rest);
-  animation: sp-tp-pulse 1.6s ease-in-out infinite;
+  animation: sp-tp-pulse 1.6s ease-in-out var(--tug-loop-iterations, infinite);
 }
 
 @keyframes sp-tp-pulse {

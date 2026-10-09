@@ -125,7 +125,6 @@ import "./layout-card.css";
 import React, {
   memo,
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -196,7 +195,6 @@ import {
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
-  type ColumnMode,
   type ImpositionLayout,
   type ResizeSlot,
   type SidebarSide,

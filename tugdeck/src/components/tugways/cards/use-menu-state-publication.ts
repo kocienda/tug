@@ -158,5 +158,6 @@ export function useMenuStatePublication(
     sessionMetadataStore,
     shadeViewController,
     commitModeController,
+    joinModeController,
   ]);
 }

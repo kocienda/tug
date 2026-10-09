@@ -1094,9 +1094,6 @@ const QuestionFreeText: React.FC<QuestionFreeTextProps> = ({
   focusGroup,
   focusOrder,
 }) => {
-  // Tracked separately from the wizard's state only to decide the [P25] arrow
-  // release below — the answer itself lives in `freeTexts` via `onChange`.
-  const [empty, setEmpty] = React.useState(value === "");
   return (
     <div
       className="session-question-dialog-freetext"
@@ -1111,10 +1108,7 @@ const QuestionFreeText: React.FC<QuestionFreeTextProps> = ({
         // input surface. Handed to the substrate (not set as CSS on the host)
         // because only the substrate's own token reaches `.cm-content`.
         fontSize="var(--tugx-question-field-size)"
-        onChange={(substrate) => {
-          setEmpty(substrate.text === "");
-          onChange(substrate);
-        }}
+        onChange={onChange}
         onSubmit={onSubmit}
         // The field's submit is the wizard's advance, not the dialog's send.
         // Left on, the substrate's default-button deferral would route a

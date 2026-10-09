@@ -295,18 +295,6 @@ const COMPONENT_OWNED_SELECTORS: readonly string[] = [
 ];
 
 /**
- * For each engine-owned root, the inner focusable element that
- * `applyFocusSnapshot` focuses when restoring `{ kind: "engine" }`.
- * Kept parallel with {@link COMPONENT_OWNED_SELECTORS}: both arrays
- * describe the same engines but from opposite sides — `closest(...)`
- * on save, `querySelector(...)` on restore. Order must match.
- */
-const COMPONENT_OWNED_FOCUS_TARGETS: readonly string[] = [
-  '[data-slot="tug-text-editor"] .cm-content',
-  "[data-tug-prompt-input-root] [contenteditable]",
-];
-
-/**
  * Classify `document.activeElement` relative to the card root into one
  * of the four `FocusSnapshot` variants.
  *
@@ -933,7 +921,6 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
     const isActive = store.getFirstResponderCardId() === cardId;
     callbacks.onRestore(bag.content, { isActive });
     hasAppliedContentRestoreRef.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId, hostContentEl, store, callbacksVersion]);
 
   // The mask's deadline never outlives the host ([L27]). Every acquisition
@@ -1530,7 +1517,6 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
       store.unregisterSaveCallback(cardId);
       unregisterAssembler();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId, store]);
 
   // Component-level restore is render-time, not effect-driven. Each

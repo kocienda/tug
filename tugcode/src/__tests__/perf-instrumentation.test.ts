@@ -90,7 +90,6 @@ async function runReplayCapturingLifecycle(opts: {
   };
   // Swallow IPC stdout — the wire contract is covered by the
   // replay-spawn suite; this test only reads the lifecycle stream.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (_dest: unknown, data: unknown) =>
     Promise.resolve(
       data instanceof Uint8Array ? data.length : (data as string).length,
@@ -99,7 +98,6 @@ async function runReplayCapturingLifecycle(opts: {
     await manager.runReplay();
   } finally {
     console.log = originalLog;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
   }
   return lifecycle;

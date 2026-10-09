@@ -3360,7 +3360,7 @@ export function useTugSheet(): {
         </TugSheetContent>
       </TugSheet>
     );
-  }, [state, senderId, responderId, closeSheet, manager]);
+  }, [state, senderId, responderId, closeSheet]);
 
   return { showSheet, closeSheet, renderSheet };
 }

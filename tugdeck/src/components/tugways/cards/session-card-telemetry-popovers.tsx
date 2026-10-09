@@ -108,7 +108,6 @@ import {
 } from "@/lib/changeset-verb-store";
 import {
   TugProgressIndicator,
-  type TugProgressIndicatorState,
 } from "@/components/tugways/tug-progress-indicator";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
@@ -116,7 +115,6 @@ import {
   jobRowState,
   taskRowState,
 } from "@/lib/code-session-store/indicator-liveness";
-import type { TaskStatus } from "@/lib/code-session-store/select-task-list";
 import {
   composeTaskCopyText,
   composeTaskSummary,
@@ -152,7 +150,6 @@ import {
   countJobs,
   isTerminalJobStatus,
   type JobItem,
-  type JobStatus,
 } from "@/lib/code-session-store/select-jobs";
 import { isWakeLate } from "@/lib/code-session-store/select-scheduled-work";
 import {
@@ -167,6 +164,7 @@ import {
   type RunProgressStore,
 } from "@/lib/run-progress-store";
 import { useRunProgressFrom } from "@/components/tugways/blocks/run-progress-context";
+import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
 
 // ---------------------------------------------------------------------------
 // Cross-popover callback contract
@@ -587,9 +585,15 @@ export function TimePopoverContent({
  * value is still moving.
  */
 function InflightHint(): React.ReactElement {
+  // The pulse runs for as long as the row is mounted
+  // (`session-card-telemetry-popovers.css`), so the hold spans the mount,
+  // and a row scrolled out of the popup's list is stilled.
+  useMotionHold(true);
+  const dotRef = React.useRef<HTMLSpanElement | null>(null);
+  useOffscreenPause(dotRef);
   return (
     <span className="session-time-popover-inflight" data-slot="session-time-popover-inflight">
-      <span className="session-time-popover-inflight-dot" aria-hidden />
+      <span ref={dotRef} className="session-time-popover-inflight-dot" aria-hidden />
       in flight
     </span>
   );

@@ -41,7 +41,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,

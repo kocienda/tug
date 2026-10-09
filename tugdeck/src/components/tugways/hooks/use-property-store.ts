@@ -141,7 +141,7 @@ export function usePropertyStore(options: UsePropertyStoreOptions): PropertyStor
   useLayoutEffect(() => {
     const store = storeRef.current!;
     registrarRef.current?.(store);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return storeRef.current;
 }

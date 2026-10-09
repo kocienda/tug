@@ -125,13 +125,13 @@ const ArcPickerCell: TugListViewCellRenderer<ArcPickerDataSource> = ({
         className="arc-picker-facts"
         slot="arc-picker-facts"
         parts={[
-          entry.stage !== undefined ? <span>{entry.stage}</span> : null,
-          <span>{roundsLabel(entry.rounds)}</span>,
+          entry.stage !== undefined ? <span key="stage">{entry.stage}</span> : null,
+          <span key="rounds">{roundsLabel(entry.rounds)}</span>,
           entry.worktree_dirty ? (
-            <span className="arc-picker-uncommitted">uncommitted</span>
+            <span key="uncommitted" className="arc-picker-uncommitted">uncommitted</span>
           ) : null,
           arcReviewPaints(entry.review, entry.task_list ?? false) ? (
-            <span className="arc-picker-review" data-review={entry.review}>
+            <span key="review" className="arc-picker-review" data-review={entry.review}>
               {entry.review === "stale" ? "plan stale" : "plan unreviewed"}
             </span>
           ) : null,

@@ -561,7 +561,7 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
         },
       ];
       // onConfirmClick is a stable closure over refs; safe to omit.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- `onConfirmClick` is a stable closure over refs
     }, [mode, override?.choices, confirmLabel, confirmRole, resolveAndClose]);
 
     // Rich rows: a chooser whose choices carry an icon or description renders as

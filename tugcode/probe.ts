@@ -42,7 +42,6 @@ function send(msg: object) {
 }
 
 // Track state
-let handshakeDone = false;
 let messageSent = false;
 let gotTurnComplete = false;
 
@@ -86,7 +85,6 @@ for await (const chunk of proc.stdout) {
 
         // After session_init, send the user message
         if (type === "session_init" && !messageSent) {
-          handshakeDone = true;
           messageSent = true;
           console.log(`\n--- Sending user message ---`);
           send({ type: "user_message", text: message, attachments: [] });

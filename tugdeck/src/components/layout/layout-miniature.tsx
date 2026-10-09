@@ -863,7 +863,7 @@ export function LayoutMiniature({
     };
     // The signal list is what the effect subscribes to, and `signature` is that
     // list — the slots, the geometry, and whether this drawing is the live one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `signature` is the signal list, per the note above
   }, [signature]);
 
   return (

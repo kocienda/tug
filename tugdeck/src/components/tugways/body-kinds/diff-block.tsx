@@ -522,6 +522,7 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
   // `--tugx-diff-actions-height` term.
   //
   // [L03] useLayoutEffect — variable set before paint.
+  const hasData = data !== undefined;
   // [L06] DOM write, never React state.
   // [L20] DiffBlock owns `--tugx-diff-*` (the variable is in that family).
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -567,7 +568,7 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
       cancelAnimationFrame(rafId);
       observer.disconnect();
     };
-  }, [headerHidden, data === undefined]);
+  }, [headerHidden, hasData]);
 
   // Chrome actions target — non-null when this DiffBlock is composed
   // inside a `BlockChrome`. The resting affordances (fold cue,
@@ -845,7 +846,6 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
   // language; aria-label echoes the label (icon-only segments would
   // require aria-label, but ours carry visible text — the aria-label
   // here is for symmetry across the items array).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const viewToggleItems = React.useMemo<TugChoiceItem[]>(
     () => [
       {

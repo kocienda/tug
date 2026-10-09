@@ -475,15 +475,12 @@ export function GalleryListView(
       estimatedHeightForKind: (kind) =>
         KIND_HEIGHTS[kind as DemoKind] ?? 60,
       willDisplay: (index) => {
-        // eslint-disable-next-line no-console -- gallery diagnostic.
         console.log(`[gallery-list-view] willDisplay(${index})`);
       },
       didEndDisplaying: (index) => {
-        // eslint-disable-next-line no-console -- gallery diagnostic.
         console.log(`[gallery-list-view] didEndDisplaying(${index})`);
       },
       onSelect: (index) => {
-        // eslint-disable-next-line no-console -- gallery diagnostic.
         console.log(`[gallery-list-view] onSelect(${index})`);
       },
     }),

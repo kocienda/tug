@@ -328,7 +328,6 @@ export function useComponentStatePreservation<T>({
     };
     // treePathRef is immutable for the mount; captureRef is re-synced
     // above and read by the framework via `.current`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEnabled, registry, scopedKey]);
 }
 

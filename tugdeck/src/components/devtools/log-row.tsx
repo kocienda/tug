@@ -15,7 +15,6 @@
 
 import React, { useState } from "react";
 
-import { cn } from "@/lib/utils";
 import { TugLabel } from "@/components/tugways/tug-label";
 
 import type { TugDevLogEntry } from "@/lib/tug-dev-log-store/types";

@@ -72,7 +72,6 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000406";
 const CARD = '[data-card-id="A"]';
-const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 // The masthead renders in the pane title bar, ABOVE the card host — not
 // inside the card element.
 const MASTHEAD = '[data-slot="session-masthead"]';

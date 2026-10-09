@@ -34,7 +34,6 @@
 import type { RateLimitInfo } from "../protocol";
 
 /** Confirmed `status` / `overageStatus` enum values (CLI v2.1.158 schema). */
-const STATUS_ALLOWED = "allowed";
 const STATUS_WARNING = "allowed_warning";
 const STATUS_REJECTED = "rejected";
 

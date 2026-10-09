@@ -162,7 +162,7 @@ export class LedgerRestoreFetch {
           JSON.stringify({
             action: this._action,
             tug_session_id: this._tugSessionId,
-            ...(this._params?.() ?? {}),
+            ...this._params?.(),
           }),
         ),
       ) ?? false;

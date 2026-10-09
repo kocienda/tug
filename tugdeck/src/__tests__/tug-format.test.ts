@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from "bun:test";
 import { createNumberFormatter } from "../lib/tug-format";
-import type { TugFormatter, TugNumberFormatterOptions } from "../lib/tug-format";
+import type { TugFormatter } from "../lib/tug-format";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -191,7 +191,7 @@ describe("compact style", () => {
     const fmt = createNumberFormatter({ style: "compact" });
     const result = fmt.format(1200);
     // Intl compact for en-US: "1.2K"
-    expect(result).toMatch(/1[\.,]?2K?/i);
+    expect(result).toMatch(/1[.,]?2K?/i);
     expect(result.toLowerCase()).toContain("k");
   });
 
@@ -199,7 +199,7 @@ describe("compact style", () => {
     const fmt = createNumberFormatter({ style: "compact", decimals: 2 });
     const result = fmt.format(1230000);
     expect(result.toLowerCase()).toContain("m");
-    expect(result).toMatch(/1[\.,]?2[0-9]*M/i);
+    expect(result).toMatch(/1[.,]?2[0-9]*M/i);
   });
 
   it("formats billions as B", () => {

@@ -387,7 +387,7 @@ export class ChangesRouteController {
     const entry = this._snapshot.entry;
     if (entry === null) return;
     const current = entry.draft?.selection ?? {};
-    const nextHunks: Record<string, string[]> = { ...(current.hunks ?? {}) };
+    const nextHunks: Record<string, string[]> = { ...current.hunks };
     if (ids === null || ids.length === 0) {
       delete nextHunks[path];
     } else {

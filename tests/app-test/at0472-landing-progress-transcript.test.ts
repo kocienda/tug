@@ -50,7 +50,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,

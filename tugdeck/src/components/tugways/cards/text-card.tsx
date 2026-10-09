@@ -302,7 +302,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
 
   // Card-local editor settings, seeded from the deck-wide Text Card
   // defaults on first open, then owned by this card ([D07] pattern).
-  const { settings: editorSettings, setSetting } = useTextCardSettings(cardId);
+  const { settings: editorSettings } = useTextCardSettings(cardId);
 
   // The attachment strip, derived from the buffer's own text ([P01]). One
   // instance per card, disposed with it; the editor feeds it the text source

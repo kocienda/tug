@@ -52,7 +52,7 @@
  */
 
 import type { Extension } from "@codemirror/state";
-import { EditorView, ViewPlugin } from "@codemirror/view";
+import { ViewPlugin } from "@codemirror/view";
 
 import {
   clearDropCaret,

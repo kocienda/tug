@@ -137,7 +137,7 @@ describe("subagent child routing — open and fill converge on one record", () =
     const job = state.jobs.find((j) => j.toolUseId === AGENT_TU);
     expect(job?.childCalls?.length).toBe(1);
     const child = jobChild(state, "c1");
-    expect((child?.input as Record<string, unknown>).command).toBe("ls -la");
+    expect((child?.input as Record<string, unknown> | undefined)?.command).toBe("ls -la");
     expect(child?.status).toBe("done");
     expect(typeof child?.toolWallMs).toBe("number");
     expect(scratchToolCall(state, "c1")).toBeUndefined();
@@ -192,7 +192,7 @@ describe("subagent child routing — open and fill converge on one record", () =
     ]);
 
     const minted = scratchToolCall(state, "c2");
-    expect((minted?.input as Record<string, unknown>).file_path).toBe(
+    expect((minted?.input as Record<string, unknown> | undefined)?.file_path).toBe(
       "/tmp/foo.ts",
     );
     expect(minted?.parentToolUseId).toBe(AGENT_TU);

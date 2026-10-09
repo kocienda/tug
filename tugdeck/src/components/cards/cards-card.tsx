@@ -69,8 +69,6 @@ import {
   File,
   FileText,
   Image as ImageIcon,
-  GitBranch,
-  LayoutGrid,
   MessageSquareText,
   Plus,
   Wrench,
@@ -97,7 +95,6 @@ import { useResponder } from "@/components/tugways/use-responder";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { fileTip } from "@/components/tugways/entity-tips";
@@ -918,7 +915,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     const first = dataSource.firstPaneRowIndex();
     return first >= 0 ? first : 0;
     // Recompute when membership changes (the data source version bumps `count`).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `count` is the membership version, per the note above
   }, [dataSource, count]);
 
   // Reorder by carrying the row: commit on drop. Pane rows match by their
@@ -989,7 +986,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       );
       listRef.current?.moveCursorTo(index);
     },
-    [dataSource, focusManager, cardId, CARDS_FOCUS_GROUP],
+    [dataSource, focusManager, cardId],
   );
   const { onRowPointerDown: beginRowReorder } = useBlockReorder({
     containerRef: listWrapRef,

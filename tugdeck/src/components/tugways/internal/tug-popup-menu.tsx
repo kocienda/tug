@@ -350,7 +350,7 @@ export function TugPopupMenu({
   // the menu by moving the state, not by faking a press on itself.
   const openHandle = React.useMemo<TugPopupMenuTriggerHandle>(
     () => ({ open: () => setOpen(true) }),
-    [],
+    [setOpen],
   );
 
   // Chain manager — null when rendered outside a ResponderChainProvider
@@ -381,7 +381,7 @@ export function TugPopupMenu({
       // gesture is pending (a keyboard-driven dispatch).
       afterGesture(() => setOpen(false));
     });
-  }, [open, manager]);
+  }, [open, manager, setOpen]);
 
   function handleItemSelect(id: string, event: Event) {
     // Prevent Radix from immediately closing the menu.

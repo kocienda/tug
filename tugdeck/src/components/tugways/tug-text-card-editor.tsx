@@ -1296,7 +1296,7 @@ export const TugTextCardEditor = React.forwardRef<
       setView(null);
     };
     // Empty deps — mount once per StrictMode pass; reconfigures below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mounts once per StrictMode pass; reconfigures below
   }, []);
 
   // ---- Compartment reconfigures ----
@@ -1305,6 +1305,7 @@ export const TugTextCardEditor = React.forwardRef<
     viewRef.current?.dispatch({
       effects: lineWrapCompartment.reconfigure(lineWrapFor(settings)),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `lineWrapFor` reads `settings.lineWrap` alone; the compartment reconfigures on that field, not on every settings write
   }, [settings.lineWrap]);
 
   useLayoutEffect(() => {
@@ -1327,6 +1328,7 @@ export const TugTextCardEditor = React.forwardRef<
     viewRef.current?.dispatch({
       effects: tabConfigCompartment.reconfigure(tabConfigFor(settings)),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `tabConfigFor` reads the two tab fields alone
   }, [settings.softTabs, settings.tabSize]);
 
   // Typography rides CSS variables on the host, so the text re-flows on its
@@ -1350,13 +1352,14 @@ export const TugTextCardEditor = React.forwardRef<
     view.requestMeasure();
     // `settings.lineNumbers` is deliberately not a dep — its own effect above
     // owns the toggle; this pass only re-runs when the typography moves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the typography fields alone, per the note above
   }, [settings.fontId, settings.fontSize]);
 
   useLayoutEffect(() => {
     viewRef.current?.dispatch({
       effects: activeLineCompartment.reconfigure(activeLineFor(settings)),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `activeLineFor` reads `settings.highlightActiveLine` alone
   }, [settings.highlightActiveLine]);
 
   useLayoutEffect(() => {
@@ -1365,6 +1368,7 @@ export const TugTextCardEditor = React.forwardRef<
     viewRef.current?.dispatch({
       effects: whitespaceCompartment.reconfigure(whitespaceFor(settings)),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the whitespace helpers read the two whitespace fields alone
   }, [settings.showSpaces, settings.showTabs]);
 
   useLayoutEffect(() => {

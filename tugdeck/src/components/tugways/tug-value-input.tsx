@@ -136,7 +136,7 @@ interface TugValueInputState {
 
 /** Strip non-numeric decoration from a formatted string, keeping digits, decimal, and minus. */
 function extractNumericPart(formatted: string): string {
-  return formatted.replace(/[^0-9.\-]/g, "");
+  return formatted.replace(/[^0-9.-]/g, "");
 }
 
 // ---- Shared editing hook ----

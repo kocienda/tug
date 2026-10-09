@@ -481,7 +481,6 @@ export const TugAccordion = React.forwardRef<HTMLDivElement, TugAccordionProps>(
     const radixSingleRest = props.type === "single"
       ? (() => {
           const r = rest as Record<string, unknown>;
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { defaultValue: _dv, value: _v, ...rrest } = r;
           return rrest;
         })()
@@ -489,7 +488,6 @@ export const TugAccordion = React.forwardRef<HTMLDivElement, TugAccordionProps>(
     const radixMultiRest = props.type === "multiple"
       ? (() => {
           const r = rest as Record<string, unknown>;
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { defaultValue: _dv, value: _v, ...rrest } = r;
           return rrest;
         })()

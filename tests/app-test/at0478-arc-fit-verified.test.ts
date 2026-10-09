@@ -115,7 +115,7 @@ const COMPLETE_TABLE = [
 function verifyExit(): { code: number; out: string } {
   const run = Bun.spawnSync([tugtoolPath(CHECKOUT), "arc", "verify", ARC_NAME], {
     cwd: projectDir(),
-    env: { ...process.env, ...(scratch?.cli.env ?? {}) },
+    env: { ...process.env, ...scratch?.cli.env },
   });
   return {
     code: run.exitCode ?? -1,
@@ -213,7 +213,7 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
       const status = JSON.parse(
         tugtool(["arc", "status", ARC_NAME, "--json"], {
           cwd: projectDir(),
-          ...(scratch?.cli ?? {}),
+          ...scratch?.cli,
         }),
       ) as { data: { fit?: { head: string; base: string; current: boolean } } };
       expect(status.data.fit?.current).toBe(true);

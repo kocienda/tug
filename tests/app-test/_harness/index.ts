@@ -188,21 +188,6 @@ export const EXPECTED_SURFACE_VERSION = "1.12.0" as const;
 const LOGS_DIR = pathResolve(import.meta.dir, "..", "logs");
 
 /**
- * Human-cadence settle after EVERY synthetic gesture, enforced at the
- * harness choke point so no test can blast events faster than a person
- * could produce them. CGEvent posts return as soon as the event is in the
- * window server's queue — long before the app has dispatched, handled, and
- * repainted — and back-to-back posts routinely outrun focus transitions,
- * scroll settles, and animation frames in ways no real user ever does. A
- * deliberate test tour runs at roughly two gestures a second, not twenty.
- * Override per run with `TUGAPP_GESTURE_SETTLE_MS` (0 disables).
- */
-const GESTURE_SETTLE_MS = (() => {
-  const raw = Number(process.env.TUGAPP_GESTURE_SETTLE_MS ?? "200");
-  return Number.isFinite(raw) && raw >= 0 ? raw : 200;
-})();
-
-/**
  * The window content every launch starts at. The corpus's fixtures are laid
  * out against this canvas — a rail of five sidebar cards overflows it, a
  * six-up flow puts its last card across the band's edge — so it is a fixed
@@ -235,15 +220,6 @@ async function settleAfterStateChange<T>(p: Promise<T>): Promise<T> {
   const v = await p;
   if (STATE_SETTLE_MS > 0) {
     await new Promise<void>((r) => setTimeoutNative(r, STATE_SETTLE_MS));
-  }
-  return v;
-}
-
-/** Await the gesture RPC, then dwell `GESTURE_SETTLE_MS` before returning. */
-async function settleAfterGesture<T>(p: Promise<T>): Promise<T> {
-  const v = await p;
-  if (GESTURE_SETTLE_MS > 0) {
-    await new Promise<void>((r) => setTimeoutNative(r, GESTURE_SETTLE_MS));
   }
   return v;
 }
@@ -2156,7 +2132,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
     ...(opts.persistInTestMode ? { TUGAPP_PERSIST_IN_TEST_MODE: "1" } : {}),
     ...(opts.restoreInTestMode ? { TUGAPP_RESTORE_IN_TEST_MODE: "1" } : {}),
     ...(opts.keepSetup ? { TUGAPP_TEST_KEEP_SETUP: "1" } : {}),
-    ...(opts.env ?? {}),
+    ...opts.env,
     TUGAPP_TEST_SOCKET: socketPath,
     TUG_INSTANCE_ID: instanceId,
   };

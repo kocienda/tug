@@ -56,7 +56,6 @@ import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import { shouldRevealJoinOffer } from "@/lib/join-offer-reveal";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
-import { getChangesetDraftStore } from "@/lib/changeset-draft-store";
 import { CommitModeController } from "@/lib/commit-mode-controller";
 import {
   JoinModeController,
@@ -134,31 +133,17 @@ import type { ArgumentHintResolver } from "@/components/tugways/tug-text-editor/
 import type { InlineCommandMatcher } from "@/lib/inline-command-ghost";
 import type { PastedCommandResolver } from "@/components/tugways/tug-text-editor/clipboard-filters";
 import { usePermissionMode } from "@/lib/use-permission-mode";
-import { isPermissionMode } from "@/lib/permission-mode";
 import { openPathInOS, openUrlInOS } from "@/lib/os-open";
 import { TugPaneBanner } from "../tug-pane-banner";
 import { TugCopyBadge } from "../tug-copy-badge";
 import { group } from "../tug-animator";
 import { TugBox } from "../tug-box";
-import { TugFileChooser } from "../tug-file-chooser";
-import type { TugComboBoxItem } from "../tug-combo-box";
-import { TugIconButton } from "../tug-icon-button";
 import { TugPushButton } from "../tug-push-button";
 import { TugActionTooltip } from "../tug-action-tooltip";
 import { TugTooltip } from "../tug-tooltip";
-import { TugInlineAlert, type TugInlineAlertTone } from "../tug-inline-alert";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { TugInlineAlert } from "../tug-inline-alert";
+import { AlertTriangle } from "lucide-react";
 
-import { TugLabel } from "../tug-label";
-import {
-  TugConfirmPopover,
-  type TugConfirmPopoverHandle,
-} from "../tug-confirm-popover";
-import {
-  TugListView,
-  type TugListViewDelegate,
-  type TugListViewHandle,
-} from "../tug-list-view";
 import {
   TugSheet,
   TugSheetContent,
@@ -167,7 +152,6 @@ import {
 } from "../tug-sheet";
 import { presentAlertSheet } from "../tug-alert-sheet";
 import { useResponderChain } from "../responder-chain-provider";
-import { useResponderForm } from "../use-responder-form";
 import { useResponder } from "../use-responder";
 import { useCopyableButton } from "../use-copyable-text";
 import { useFocusManager } from "../use-focusable";
@@ -226,7 +210,6 @@ import { ARC_NAME_CAUTION, isShellSafeArcName } from "@/lib/arc-name";
 import type { CompletionProvider } from "@/lib/tug-text-types";
 import {
   cardSessionBindingStore,
-  type CardSessionMode,
 } from "@/lib/card-session-binding-store";
 import { clipboardOriginProps } from "@/lib/clipboard-origin";
 import {
@@ -259,9 +242,7 @@ import {
   getRestoreStartedAt,
   clearRestoreStartedAt,
   restorePassGate,
-  type ResumeDisplayMetadata,
 } from "@/lib/session-restore";
-import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import {
   pickerNoticeStore,
   shouldShowStandingNotice,
@@ -273,10 +254,6 @@ import {
   isSpawnBudgetReason,
   sessionSpawnErrorStore,
 } from "@/lib/session-spawn-error-store";
-import {
-  cardServicesStore,
-  type CardServices,
-} from "@/lib/card-services-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
@@ -304,28 +281,17 @@ import { useLandingReceipts } from "./use-landing-receipts";
 import { useMenuStatePublication } from "./use-menu-state-publication";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
-import { useHostFacts } from "@/lib/host-facts-store";
-import { probeDirExistence } from "@/lib/dir-existence";
 import { requestLogout } from "@/lib/logout-store";
 import { recordSwitch } from "@/lib/motion-guard/record-switch";
 import {
-  putSessionRecentProjects,
   putFindOptions,
   readFindOptions,
-  DEFAULT_PROJECT_PATH_DOMAIN,
-  DEFAULT_PROJECT_PATH_KEY,
 } from "@/settings-api";
-import {
-  useSessionLedger,
-  getSessionLedgerStore,
-} from "@/lib/session-ledger-store";
-import type { SessionRow } from "@/protocol";
 import { encodeSetSessionPrivate } from "@/protocol";
 import {
   privateRefusalDetail,
   sessionPrivateStore,
 } from "@/lib/session-private-store";
-import type { TaggedValue } from "@/lib/tugbank-client";
 import {
   TugPaneBulletinProvider,
   useTugPaneBulletin,
@@ -335,15 +301,6 @@ import { lastAssistantCopyText } from "./turn-entry-markdown";
 import { compactionProgressStore } from "@/lib/compaction-progress-store";
 import { useCompactionRun } from "./session-compaction-run";
 import { MODAL_REST_LINE } from "./modal-rest-line";
-import { useSessionsDataSource } from "@/lib/session-picker-data-source";
-import {
-  PickerCellProvider,
-  SESSIONS_CELL_RENDERERS,
-  type PickerSelection,
-} from "./session-picker-cells";
-import { TugFilterField } from "@/components/tugways/tug-filter-field";
-import { useAttachedFilter } from "@/components/tugways/attached-filter";
-import { caseInsensitiveSubstring } from "@/lib/text-match";
 import "./session-card.css";
 
 // ---------------------------------------------------------------------------
@@ -2283,7 +2240,7 @@ export function SessionCardBody({
       entryDelegateRef.current?.focus();
     }
     prevEntryStoodDownRef.current = entryStoodDown;
-  }, [entryStoodDown]);
+  }, [entryStoodDown, entryDelegateRef]);
 
   // The card's content area is a file-drop surface, not just its composer:
   // a file dragged over the transcript is the same gesture, aimed at the same
@@ -2510,7 +2467,7 @@ export function SessionCardBody({
     // font so a chosen monospace actually reaches the atom chip labels.
     editorStore.bind(el, () => entryDelegateRef.current?.regenerateAtoms());
     return () => editorStore.unbind();
-  }, [editorStore]);
+  }, [editorStore, entryDelegateRef]);
 
   // Focus the prompt editor at meaningful moments:
   //
@@ -2905,7 +2862,7 @@ export function SessionCardBody({
   // restore, where the cold-boot RESTORE path owns focus).
   useLayoutEffect(() => {
     reclaimFocusDestination();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reclaims focus once, at mount
   }, []);
 
   // ── First-mount fade-in ─────────────────────────────────────────────────
@@ -3016,7 +2973,7 @@ export function SessionCardBody({
       restore();
     };
     // Run once on first mount; never re-run.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once on first mount
   }, []);
 
   // Return focus to the editor after a successful submit so the user

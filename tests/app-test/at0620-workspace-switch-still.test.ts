@@ -232,19 +232,6 @@ const settle = (ms = 400): Promise<void> =>
 // The sampler
 // ---------------------------------------------------------------------------
 
-/**
- * One tracked value's history, reduced. `afterEpoch` is the count of changes
- * that landed after the last sample at which the canvas still carried the
- * switch epoch's mark — the movement this arc exists to remove.
- */
-interface Tracked {
-  first: string;
-  last: string;
-  changes: number;
-  lastChangeMs: number;
-  afterEpoch: number;
-}
-
 interface Summary {
   /** How many distinct values were tracked in this bucket. */
   keys: number;

@@ -13,7 +13,6 @@
  */
 export function isDevEnv(): boolean {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (globalThis as any).process?.env?.NODE_ENV !== "production";
   } catch {
     return true;

@@ -575,7 +575,7 @@ async function main(): Promise<void> {
   console.log("  Claude Code persists a plain-text user message as a bare string.");
   console.log("  The translator normalises a genuine submission to text and skips");
   console.log("  slash-command / compaction scaffolding (replay.ts `contentBlocks` /");
-  console.log("  `isNonSubmissionUserString`). Pre-fix, every string-content entry");
+  console.log("  `translateJsonlEntry`'s bare-string branch). Pre-fix, every string-content entry");
   console.log("  was char-iterated to nothing — genuine prompts silently dropped.");
   const genuineStringEntries =
     stringContentUserEntries - stringContentScaffolding;

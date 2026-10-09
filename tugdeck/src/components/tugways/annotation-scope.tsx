@@ -136,7 +136,7 @@ export function useAnnotatedElement<T extends HTMLElement>(
     });
     // `deps` is the caller's declaration of what its text derives from;
     // spreading it is the whole point of the parameter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `deps` is the caller's own dependency list
   }, [context, ...deps]);
   return ref;
 }

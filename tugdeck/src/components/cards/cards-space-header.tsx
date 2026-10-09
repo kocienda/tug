@@ -220,7 +220,7 @@ function SpaceRenameField({
     // for the three modules that RESTORE a selection, and this is an author's
     // opening selection rather than a restore.
     el.select();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- an author's opening selection, made once at mount
   }, []);
   const focusBehavior = React.useCallback(
     (): KeyViewBehavior => ({

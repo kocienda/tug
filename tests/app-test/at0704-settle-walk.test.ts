@@ -30,7 +30,6 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { note } from "./_harness";
 import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import {
   AFTER_LAND_MS,

@@ -531,7 +531,6 @@ export function deckColumnsOf(
       [...(bySlot.get(slot) ?? [])].sort(),
     );
     const mode = columnModeOf(state.imposition, slot);
-    const shares = state.imposition.columns?.[slot]?.shares;
     const allocation =
       mode === "split" ? columnAllocationOf(state, slot, columnRun) : null;
     columns.push({
@@ -1148,7 +1147,6 @@ export function sidebarRailsOf(
       members.push({ componentId, paneId: pane.id });
     }
     if (members.length === 0) continue;
-    const shares = state.imposition.rails?.[side]?.shares;
     const allocation = railAllocationOf(state, side, runs.rail);
     rails.push({
       side,

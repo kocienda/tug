@@ -15,7 +15,6 @@
  * @module lib/ansi/strip-ansi
  */
 
-// eslint-disable-next-line no-control-regex
 const ANSI_PATTERN = new RegExp(
   [
     // OSC: ESC ] … terminated by BEL or ST (ESC \).

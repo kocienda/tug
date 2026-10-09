@@ -85,10 +85,6 @@ const TUG_PROMPT_ENTRY_DEFAULT_ROUTE = "❯";
 // the same EM engine.
 type PromptComponentId = "gallery-prompt-entry";
 
-function tabSelectorFor(cardId: string): string {
-  return `[data-testid="tug-tab-${cardId}"]`;
-}
-
 /**
  * Brief settle pause matching the natural pacing of user-driven
  * actions. WebKit's selectionchange / scroll / ResizeObserver

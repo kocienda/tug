@@ -322,7 +322,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         tugtool(["arc", "bind", ARC], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
-          env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
+          env: { ...cli.env, TUG_SESSION_ID: SID },
         });
 
         // ── The folded form announces ────────────────────────────────────

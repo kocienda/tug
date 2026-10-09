@@ -69,7 +69,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000438";
-const CARD = '[data-card-id="A"]';
 
 const ARC_NAME = "at0438-unbound";
 

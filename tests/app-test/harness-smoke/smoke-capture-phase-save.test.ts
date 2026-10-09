@@ -73,7 +73,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 const INPUT_MD_KEY = "gallery-input/size/md";
-const INPUT_SM_KEY = "gallery-input/size/sm";
 
 function pause(ms: number): Promise<void> {
   return new Promise<void>((resolve) =>

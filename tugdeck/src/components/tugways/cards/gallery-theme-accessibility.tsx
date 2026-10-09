@@ -150,6 +150,7 @@ export function GalleryThemeAccessibility() {
   // Recompute snapshot when the active theme changes.
   const snapshot = useMemo(
     () => snapshotLiveThemeTokens(TUG_TOKEN_NAMES, requiredColorTokens),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `themeName` is the invalidation key: the snapshot reads the live theme's tokens
     [themeName, requiredColorTokens],
   );
 

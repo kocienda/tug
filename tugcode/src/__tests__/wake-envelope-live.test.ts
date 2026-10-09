@@ -68,7 +68,6 @@ async function captureIpc(fn: () => void): Promise<OutboundMessage[]> {
   const captured: OutboundMessage[] = [];
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       const text =
@@ -91,7 +90,6 @@ async function captureIpc(fn: () => void): Promise<OutboundMessage[]> {
     fn();
     await drainPendingWrites();
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
   }
   return captured;
@@ -101,7 +99,6 @@ describe("SessionManager — the <task-notification> envelope on the live path",
   let projectDir: string;
   let manager: SessionManager;
   const drain = (event: Record<string, unknown>) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).handleInterTurnEvent(event);
 
   beforeEach(() => {
@@ -127,9 +124,7 @@ describe("SessionManager — the <task-notification> envelope on the live path",
     );
     // The bracket is open and a turn is seated, so the wake's own content
     // routes through `dispatchEventToTurn` rather than falling into the drain.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).isInWake).toBe(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).activeTurn).not.toBeNull();
   });
 
@@ -150,7 +145,6 @@ describe("SessionManager — the <task-notification> envelope on the live path",
       }),
     );
     expect(frames.filter((f) => f.type === "wake_started").length).toBe(0);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).isInWake).toBe(false);
   });
 });

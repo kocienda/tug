@@ -77,7 +77,6 @@ async function captureIpc(
   const captured: OutboundMessage[] = [];
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       const text =
@@ -103,7 +102,6 @@ async function captureIpc(
   };
   const originalExit = process.exit;
   let exitCode: number | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process as any).exit = (code?: number) => {
     exitCode = code;
   };
@@ -115,9 +113,7 @@ async function captureIpc(
     // real stdout instead of `captured` — the assertion then sees nothing.
     await drainPendingWrites();
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (process as any).exit = originalExit;
   }
   return { emitted: captured, exitCode };
@@ -140,7 +136,6 @@ function makeManager(): {
   });
   const spawns: Array<{ id: string | null; mode: string }> = [];
   let child = mockClaudeChild();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (manager as any).spawnClaude = (id: string | null, mode: string) => {
     spawns.push({ id, mode });
     child = mockClaudeChild();
@@ -162,14 +157,11 @@ describe("exit-watcher classification", () => {
   test("a post-handshake claude exit is a recoverable crash, never resume_failed", async () => {
     const { manager } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
     // The handshake acked — claude proved it launched and opened its JSONL.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).initializeHandshakeAcked = true;
 
     const { emitted } = await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).installEarlyExitWatcher();
       handle.exit(0);
       await new Promise((r) => setTimeout(r, 5));
@@ -178,19 +170,16 @@ describe("exit-watcher classification", () => {
     expect(emitted.some((e) => e.type === "resume_failed")).toBe(false);
     const err = emitted.find((e) => e.type === "error");
     expect(err).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((err as any).recoverable).toBe(true);
   });
 
   test("a pre-handshake resume exit with no stderr is still resume_failed", async () => {
     const { manager } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
     // Handshake never acked (default false) → genuine init-time failure.
 
     const { emitted } = await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).installEarlyExitWatcher();
       handle.exit(0);
       await new Promise((r) => setTimeout(r, 5));
@@ -202,15 +191,11 @@ describe("exit-watcher classification", () => {
   test("a definitive stderr signature still yields resume_failed even post-handshake", async () => {
     const { manager } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).initializeHandshakeAcked = true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeStderrClassification = "collision";
 
     const { emitted } = await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).installEarlyExitWatcher();
       handle.exit(1);
       await new Promise((r) => setTimeout(r, 5));
@@ -223,14 +208,11 @@ describe("exit-watcher classification", () => {
     const { manager } = makeManager();
     const oldChild = mockClaudeChild();
     const newChild = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = oldChild.child;
 
     const { emitted } = await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).installEarlyExitWatcher();
       // A respawn swapped the live handle before the old exit landed.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).claudeProcess = newChild.child;
       oldChild.exit(0);
       await new Promise((r) => setTimeout(r, 5));
@@ -248,20 +230,16 @@ describe("cancel escalation arming", () => {
   test("handleInterrupt arms an escalation that a clean turn-close cancels", async () => {
     const { manager } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
     const turn = new ActiveTurn(0, []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).activeTurn = turn;
 
     manager.handleInterrupt();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).interruptEscalationTimer).not.toBeNull();
 
     // The turn completes cleanly (claude acked the interrupt) → timer cleared.
     turn.finish();
     await new Promise((r) => setTimeout(r, 0));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).interruptEscalationTimer).toBeNull();
   });
 });
@@ -276,7 +254,6 @@ describe("result-liveness watchdog arming", () => {
     turn: unknown,
     inner: Record<string, unknown>,
   ): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).dispatchEventToTurn(turn, {
       type: "stream_event",
       event: inner,
@@ -286,12 +263,10 @@ describe("result-liveness watchdog arming", () => {
   test("a terminal stop_reason arms the watchdog; tool_use does not", async () => {
     const { manager } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
 
     await captureIpc(async () => {
       const turn = new ActiveTurn(0, []);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).activeTurn = turn;
 
       // A tool_use stop is an iteration boundary — no watchdog.
@@ -300,7 +275,6 @@ describe("result-liveness watchdog arming", () => {
         delta: { stop_reason: "tool_use" },
         usage: {},
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).resultWatchdogTimer).toBeNull();
 
       // A terminal end_turn stop arms the watchdog (result must follow).
@@ -309,7 +283,6 @@ describe("result-liveness watchdog arming", () => {
         delta: { stop_reason: "end_turn" },
         usage: {},
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).resultWatchdogTimer).not.toBeNull();
     });
   });
@@ -317,30 +290,24 @@ describe("result-liveness watchdog arming", () => {
   test("the terminal `result` disarms the watchdog", async () => {
     const { manager } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
 
     await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const turn = new ActiveTurn(0, []);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).activeTurn = turn;
       dispatchStreamEvent(manager, turn, {
         type: "message_delta",
         delta: { stop_reason: "end_turn" },
         usage: {},
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).resultWatchdogTimer).not.toBeNull();
 
       // Claude's terminal result lands.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).dispatchEventToTurn(turn, {
         type: "result",
         subtype: "success",
         result: "",
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((manager as any).resultWatchdogTimer).toBeNull();
     });
   });
@@ -354,20 +321,15 @@ describe("forceTerminateAndRespawn", () => {
   test("closes the turn as cancelled and respawns --resume, keeping the card bound", async () => {
     const { manager, spawns } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const turn = new ActiveTurn(0, []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).activeTurn = turn;
 
     const { emitted } = await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (manager as any).forceTerminateAndRespawn("result_timeout");
     });
 
     // The wedged turn was flagged so the drain closes it as a cancel, not error.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((turn as any).interrupted).toBe(true);
     // A fresh claude was spawned in resume mode — the card stays live.
     expect(spawns.length).toBe(1);
@@ -384,40 +346,30 @@ describe("forceTerminateAndRespawn", () => {
     // consumer that read every cancel as the user taking their card back would
     // act on a session this recovery leaves alive and working.
     const recovery = makeManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (recovery.manager as any).claudeProcess = mockClaudeChild().child;
     const wedged = new ActiveTurn(0, []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (recovery.manager as any).activeTurn = wedged;
     const { emitted: afterRecovery } = await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (recovery.manager as any).forceTerminateAndRespawn("result_timeout");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (recovery.manager as any).activeTurn = wedged;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (recovery.manager as any).signalEofToActiveTurn();
     });
     expect(wedged.interruptCause).toBe("recovery");
     const recoveryCancel = afterRecovery.find((e) => e.type === "turn_cancelled");
     expect(recoveryCancel).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((recoveryCancel as any).is_recovery).toBe(true);
 
     const user = makeManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (user.manager as any).claudeProcess = mockClaudeChild().child;
     const cancelled = new ActiveTurn(0, []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (user.manager as any).activeTurn = cancelled;
     const { emitted: afterUser } = await captureIpc(async () => {
       user.manager.handleInterrupt();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (user.manager as any).signalEofToActiveTurn();
     });
     expect(cancelled.interruptCause).toBe("user");
     const userCancel = afterUser.find((e) => e.type === "turn_cancelled");
     expect(userCancel).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((userCancel as any).is_recovery).toBeUndefined();
   });
 
@@ -425,39 +377,30 @@ describe("forceTerminateAndRespawn", () => {
     // `interrupt_unacked` reaches the same force-terminate, but the gesture
     // that started it was the user's — tugcode only had to press harder.
     const { manager } = makeManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = mockClaudeChild().child;
     const turn = new ActiveTurn(0, []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).activeTurn = turn;
 
     const { emitted } = await captureIpc(async () => {
       manager.handleInterrupt();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (manager as any).forceTerminateAndRespawn("interrupt_unacked");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).activeTurn = turn;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).signalEofToActiveTurn();
     });
 
     expect(turn.interruptCause).toBe("user");
     const cancel = emitted.find((e) => e.type === "turn_cancelled");
     expect(cancel).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((cancel as any).is_recovery).toBeUndefined();
   });
 
   test("is idempotent — a second call while in progress is a no-op", async () => {
     const { manager, spawns } = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
 
     await captureIpc(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const p1 = (manager as any).forceTerminateAndRespawn("interrupt_unacked");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const p2 = (manager as any).forceTerminateAndRespawn("interrupt_unacked");
       await Promise.all([p1, p2]);
     });

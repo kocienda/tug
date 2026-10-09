@@ -258,7 +258,6 @@ export function GalleryMutationTx() {
     updateDisplay("background-color");
     updateDisplay("left");
     updateDisplay("top");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---------------------------------------------------------------------------

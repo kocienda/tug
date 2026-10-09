@@ -300,7 +300,7 @@ export const SessionThinkingBlock: React.FC<SessionThinkingBlockProps> = ({
     // ignored; consumers remount via a fresh React key when the
     // committed thinking text would change. This matches
     // `TugMarkdownBlock`'s static-mode contract.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the mount-once contract, per the note above
   }, []);
 
   return (

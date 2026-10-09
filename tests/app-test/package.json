@@ -1,8 +1,11 @@
 {
-  "scripts": {},
+  "scripts": {
+    "check": "bunx tsc --noEmit",
+    "lint": "../../tugdeck/node_modules/.bin/oxlint -c ../../tugdeck/.oxlintrc.json --deny-warnings ."
+  },
   "dependencies": {},
   "devDependencies": {
     "bun-types": "^1.3.13",
-    "typescript": "^6.0.3"
+    "typescript": "^5.9.3"
   }
 }

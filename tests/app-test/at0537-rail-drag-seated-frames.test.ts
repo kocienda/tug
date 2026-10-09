@@ -46,7 +46,6 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { RAIL_SEAM_PX } from "../../tugdeck/src/lib/layout-imposer";
 import { ZONE_INDICATOR_INSET_PX } from "../../tugdeck/src/lib/drop-zone-indicator";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

@@ -79,7 +79,7 @@ interface FlowStepTween {
 import { flashCardPane } from "@/lib/flash-pane-border";
 import { getTugTiming } from "@/components/tugways/scale-timing";
 import { layoutPxOf, pageZoomFactor } from "@/lib/page-zoom-store";
-import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
+import { animate } from "@/components/tugways/tug-animator";
 import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -1508,8 +1508,6 @@ function CardTitleBarBody({
           key={masthead.sessionId}
           sessionId={masthead.sessionId}
           cardId={activeCardId}
-          // The register the beat reads in ([D185]).
-          folded={folded}
           // Its telemetry widget stands in the pane's control cluster, not
           // beside it — see the host below.
           accessoryHost={controlsAccessoryEl}
@@ -3254,6 +3252,7 @@ function TugPaneImpl({
     : accessory;
 
   const accessoryRef = useRef<HTMLDivElement>(null);
+  const hasAccessory = resolvedAccessory != null;
   const [accessoryHeight, setAccessoryHeight] = useState(0);
 
   useLayoutEffect(() => {
@@ -3277,7 +3276,7 @@ function TugPaneImpl({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [resolvedAccessory]);
+  }, [hasAccessory]);
 
   // ---------------------------------------------------------------------------
   // onMinSizeChange — content-reported minimum drives resize clamp
@@ -3580,7 +3579,6 @@ function TugPaneImpl({
       }
 
       if (!frameRef.current) return;
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const frame: HTMLDivElement = frameRef.current!;
 
       // Capture pointer on the frame element for reliable move/up tracking outside bounds.
@@ -4500,7 +4498,7 @@ function TugPaneImpl({
     },
     // position.x/y captured into dragStartPosition at drag-start; id, onCardMoved,
     // onCardMerged, activeCardId, and store are stable or handled via closure capture.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- drag-start values, per the note above
     [id, onCardMoved, onCardMerged, activeCardId, position.x, position.y, store],
   );
 
@@ -4525,7 +4523,6 @@ function TugPaneImpl({
       event.stopPropagation();
 
       if (!frameRef.current) return;
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const frame: HTMLDivElement = frameRef.current!;
 
       // A slot-keeping width resize: the frame stays imposed, and the dragged
@@ -4644,7 +4641,6 @@ function TugPaneImpl({
         };
       }
 
-      const pid = event.nativeEvent.pointerId;
       frame.setPointerCapture(event.nativeEvent.pointerId);
 
       // Disable height transition during resize. [D07, chrome.css]
@@ -4791,7 +4787,6 @@ function TugPaneImpl({
        * edges are the arrangement's, not the hand's to align.
        */
       function keepSlotWidth(pointer: { x: number; y: number }): number {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const drag = keepSlotDrag!;
         return fitWidthForEdge(
           drag.side,
@@ -4811,7 +4806,6 @@ function TugPaneImpl({
        * slot it stands in — and reaching it is the clear ([B04b]).
        */
       function slotDragHeight(pointer: { x: number; y: number }): number {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const drag = heightKeepSlotDrag!;
         return Math.min(
           drag.runHeight,
@@ -4828,7 +4822,6 @@ function TugPaneImpl({
        * width is the start width plus the travel.
        */
       function flowKeepSlotWidth(pointer: { x: number; y: number }): number {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const drag = flowKeepSlotDrag!;
         return Math.min(
           maxSizeRef.current?.width ?? Infinity,
@@ -4847,7 +4840,6 @@ function TugPaneImpl({
        * re-lays out exactly this.
        */
       function applyFlowKeepSlot(w: number): void {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const drag = flowKeepSlotDrag!;
         const strip = flowResizeShift(drag.state, id, w);
         frame.style.width = `${w}px`;
@@ -5010,7 +5002,6 @@ function TugPaneImpl({
       frame.addEventListener("pointerup", onPointerUp);
     },
     // minSizeRef.current is always current; position/size are start values read at resize-start.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [id, onCardMoved, position.x, position.y, size.width, size.height, store],
   );
 

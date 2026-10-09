@@ -75,7 +75,5 @@ export function useDOMStyle(
     return () => {
       el.style.removeProperty(property);
     };
-    // ref is intentionally excluded: React ref objects are stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [property, value]);
+  }, [ref, property, value]);
 }

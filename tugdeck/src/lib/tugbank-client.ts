@@ -180,7 +180,7 @@ export class TugbankClient {
   setLocalValue(domain: string, key: string, value: TaggedValue): void {
     const existing = this.cache.get(domain);
     const entries: Record<string, TaggedValue> = {
-      ...(existing?.entries ?? {}),
+      ...existing?.entries,
       [key]: value,
     };
     const generation = (existing?.generation ?? 0) + 1;

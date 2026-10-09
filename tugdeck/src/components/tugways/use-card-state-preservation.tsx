@@ -331,7 +331,6 @@ export function useCardStatePreservation<T>(options: UseCardStatePreservationOpt
         onRestore: () => {},
       });
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [register]);
 
   // Parallel registration on the deck store's activation-callback

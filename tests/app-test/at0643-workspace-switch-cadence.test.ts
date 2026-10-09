@@ -135,7 +135,6 @@ const SESSIONS_TWO = ["at0643-sd", "at0643-se", "at0643-sf"] as const;
 /** The whale arm's subjects: one card in each workspace the switch carries. */
 const WHALE_CARDS = ["at0643-sa", "at0643-sd"] as const;
 
-const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
 const SHOWN_FRAMES =
   "[data-space-layer][data-space-shown] .tug-pane[data-pane-id]";
 

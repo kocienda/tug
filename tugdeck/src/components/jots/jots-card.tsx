@@ -242,13 +242,11 @@ function JotsToolbar({
   query,
   onQueryChange,
   populated,
-  onAdvance,
   filter,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
   populated: boolean;
-  onAdvance: () => void;
   /** The pairing with the jot list ([P08]) — ↑/↓ drive its cursor while the
    *  caret stays here, and a character typed at the list lands here. */
   filter: AttachedFilterBinding;
@@ -259,7 +257,7 @@ function JotsToolbar({
       filterFieldDidChangeQuery: onQueryChange,
       ...filter.delegate,
     }),
-    [onQueryChange, onAdvance, filter],
+    [onQueryChange, filter],
   );
   return (
     <div className="jots-toolbar" data-testid="jots-toolbar">
@@ -1095,16 +1093,6 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
   const caretRef = useRef<HTMLDivElement | null>(null);
   const focusManager = useFocusManager();
 
-  // ArrowDown out of the filter field hands the key view to the list — the
-  // field's advance contract, routed through the FocusManager ([L22]).
-  const advanceToList = useCallback((): void => {
-    focusManager?.place(
-      cardId,
-      { kind: "focus-key", focusKey: `${JOTS_FOCUS_GROUP}:0` },
-      { modality: "keyboard" },
-    );
-  }, [focusManager, cardId]);
-
   // Descend into a row when it opens for editing ([P06]/[R01]): the editor cell
   // mounts in the same commit that set `editingId`; this parent layout effect
   // runs after the child editor has registered its focusable, so the descend
@@ -1123,7 +1111,7 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
     const i = dataSource.indexForId(lastSelectedJotId);
     return i >= 0 ? i : undefined;
     // Recompute when membership changes (the version bump re-runs on length).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `jots.length` is the membership version, per the note above
   }, [dataSource, jots.length]);
 
   // The Things model on the list view's own `selectionRequired` shape: the list
@@ -1454,7 +1442,6 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
           query={filterQuery}
           onQueryChange={setFilterQuery}
           populated={hasItems}
-          onAdvance={advanceToList}
           filter={filter}
         />
         {snapshot.error !== null ? (

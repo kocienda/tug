@@ -198,11 +198,6 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const sessionId = crypto.randomUUID();
   const claudeProjectsRoot = join(homedir(), ".claude", "projects");
-  const jsonlPath = join(
-    claudeProjectsRoot,
-    encodeProjectDir(args.cwd),
-    `${sessionId}.jsonl`,
-  );
 
   // Ensure cwd exists, then canonicalize. Claude internally calls
   // getcwd() which resolves symlinks; on macOS /tmp -> /private/tmp,

@@ -512,7 +512,7 @@ export function useOptionalResponder<Extra extends string = never>(
     return () => {
       manager.unregister(id);
     };
-  }, [manager, parentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [manager, parentId]);
 
   // Build the ResponderScope component exactly once and hold it in a ref.
   // This gives the component a stable function identity across re-renders,

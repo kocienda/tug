@@ -16,7 +16,6 @@
 
 import type { CardStateBag, RegionScrollSnapshot } from "./layout-tree";
 import type { TugbankClient, TaggedValue } from "./lib/tugbank-client";
-import { logSessionLifecycle } from "./lib/session-lifecycle-log";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import { PERMISSION_MODE_DOMAIN } from "./lib/permission-mode";
 import { MODEL_DOMAIN, PLAN_REVIEW_LAST_DOMAIN } from "./lib/model-domains";

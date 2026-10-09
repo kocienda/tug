@@ -49,6 +49,8 @@ import { encodeFrame, FeedId, FrameFlags } from "@/protocol";
 // onclose dispatch.
 
 class FakeWebSocket {
+  /** The most recently constructed socket, which the tests drive. */
+  static last: FakeWebSocket | null = null;
   static readonly OPEN = 1;
 
   binaryType: string = "blob";
@@ -63,7 +65,7 @@ class FakeWebSocket {
 
   constructor(url: string) {
     this.url = url;
-    lastWs = this;
+    FakeWebSocket.last = this;
   }
 
   send(data: string | ArrayBufferLike): void {
@@ -96,8 +98,6 @@ class FakeWebSocket {
     this.onclose?.({ code, reason } as CloseEvent);
   }
 }
-
-let lastWs: FakeWebSocket | null = null;
 
 // ---------------------------------------------------------------------------
 // Manual interval / timeout table.
@@ -235,7 +235,7 @@ function uninstallFakes(): void {
   // Assigned, never `delete`d — see `list-view-reveal.test.ts`.
   (globalThis as { document?: unknown }).document = origDocument;
   setSystemTime();
-  lastWs = null;
+  FakeWebSocket.last = null;
 }
 
 /**
@@ -270,7 +270,7 @@ function advanceTime(deltaMs: number): void {
 /** Drive a `TugConnection` through `connect()` and the handshake. */
 function completeHandshake(conn: TugConnection): FakeWebSocket {
   conn.connect();
-  const ws = lastWs;
+  const ws = FakeWebSocket.last;
   if (ws === null) throw new Error("WebSocket was not constructed");
   ws.fireOpen();
   ws.fireMessage(JSON.stringify({ protocol: "tugcast", version: 1 }));

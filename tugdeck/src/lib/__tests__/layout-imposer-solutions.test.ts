@@ -367,7 +367,7 @@ function filledChain(
     if (held === undefined || entry.width > held) widest.set(entry.slot, entry.width);
   }
   const vacancy =
-    input.emptyExtent ?? Math.max(0, ...[...widest.values()], 0);
+    input.emptyExtent ?? Math.max(0, ...widest.values(), 0);
   const chain: { slot: number; width: number }[] = [];
   for (let slot = 0; slot < slotCount(input.kind); slot += 1) {
     const width = widest.get(slot) ?? vacancy;
@@ -522,7 +522,6 @@ function assertInvariants(
   // Phase 1 solver failed.
   const comfortTotal = bounds.reduce((sum, b) => sum + b.comfortFloor, 0);
   const atHardFloor = pictureAt(input, floorTotal);
-  const atComfortFloor = pictureAt(input, comfortTotal);
   const branch: ComfortBranch =
     sides.reduce((sum, side) => sum + (answer[side] as number), 0) <
     comfortTotal

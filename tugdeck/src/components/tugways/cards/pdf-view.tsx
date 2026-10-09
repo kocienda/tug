@@ -551,7 +551,7 @@ export function PdfView({
     },
     // `topPage` closes over the current layout, which is what makes the
     // anchor correct; the deps below are what change that layout.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- these are what change the layout `topPage` reads, per the note above
     [layout, scrollTop, pageSizes.length, zoom, publish],
   );
 

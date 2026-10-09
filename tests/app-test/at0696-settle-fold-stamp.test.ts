@@ -37,7 +37,6 @@ import {
   expectFoldBar,
   home,
   launch,
-  report,
   reportFold,
   sampleBarActivation,
   sampleFold,

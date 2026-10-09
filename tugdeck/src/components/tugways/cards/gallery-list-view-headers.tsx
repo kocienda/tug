@@ -277,7 +277,6 @@ export function GalleryListViewHeaders(): React.ReactElement {
     () => ({
       onSelect: (index) => {
         setLastSelectedIndex(index);
-        // eslint-disable-next-line no-console -- gallery diagnostic.
         console.log(`[gallery-list-view-headers] onSelect(${index})`);
       },
     }),

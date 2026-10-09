@@ -44,10 +44,7 @@ import {
 } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import {
-  useFocusManager,
-  useSeedKeyView,
-} from "@/components/tugways/use-focusable";
+import { useSeedKeyView } from "@/components/tugways/use-focusable";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
 import {
   TugListView,
@@ -201,7 +198,6 @@ function ResumeSheetBody({
   // there on open (text-first, mirroring the `/rename` sheet).
   const focusGroup = React.useId();
   useSeedKeyView(`${focusGroup}:0`);
-  const focusManager = useFocusManager();
   const listRef = React.useRef<TugListViewHandle>(null);
   const filter = useAttachedFilter(() => listRef.current);
   // The filter field's contract: report each keystroke into local state, hand
@@ -217,7 +213,7 @@ function ResumeSheetBody({
       // ↑/↓ must reach the sessions list from there ([P08]).
       ...filter.delegate,
     }),
-    [cardId, focusGroup, focusManager, onClose, filter],
+    [onClose, filter],
   );
 
   // Pick-to-resume: a row rebinds + resumes (or spawns a new session), then

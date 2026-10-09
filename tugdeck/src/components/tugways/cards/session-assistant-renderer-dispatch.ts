@@ -182,7 +182,6 @@ export type RenderInputKind = RenderInput["kind"];
  * this way for that reason.
  */
 export interface DispatchResult {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component: React.ComponentType<any>;
   props: Record<string, unknown>;
   caution?: CautionFlag;
@@ -718,9 +717,7 @@ export function logDriftEvent(event: DriftEvent): void {
  * helpful when debugging an unwired path before the real renderer
  * lands.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeScaffoldRenderer(kind: RenderInputKind): React.ComponentType<any> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Component: React.FC<any> = () => {
     return React.createElement("div", {
       "data-slot": `scaffold-${kind}`,
@@ -764,13 +761,11 @@ function makeScaffoldRenderer(kind: RenderInputKind): React.ComponentType<any> {
  * gets the same indirection for symmetry — and to insulate it against
  * a future change that adds a dispatch import on the question side.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const PermissionDialogLazy: React.ComponentType<any> = (props) =>
   React.createElement(PermissionDialog, props);
 PermissionDialogLazy.displayName = "PermissionDialog(lazy)";
 
 export const KIND_RENDERERS: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly [K in Exclude<RenderInputKind, "tool_call">]: React.ComponentType<any>;
 } = {
   assistant_text: makeScaffoldRenderer("assistant_text"),

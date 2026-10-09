@@ -31,7 +31,6 @@ import {
   expectBeats,
   home,
   launch,
-  report,
   reportB09,
   sampleB09Gesture,
   traceWithSettleFrames,

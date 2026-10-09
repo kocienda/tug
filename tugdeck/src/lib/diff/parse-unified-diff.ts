@@ -11,7 +11,7 @@
  * @module lib/diff/parse-unified-diff
  */
 
-import type { DiffHunk, DiffLine } from "./types";
+import type { DiffHunk } from "./types";
 
 interface HunkHeaderInfo {
   beforeStart: number;

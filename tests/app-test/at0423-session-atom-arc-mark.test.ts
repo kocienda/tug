@@ -63,7 +63,6 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000423";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 /**
  * The telemetry widget lives in the pane's control cluster, not in the card —
  * inside its rollup, which rests hidden and reveals when the pointer enters

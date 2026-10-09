@@ -23,7 +23,7 @@ import {
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import { TugFileChooser } from "../tug-file-chooser";
 import type { TugComboBoxItem } from "../tug-combo-box";
@@ -107,13 +107,6 @@ export interface SessionProjectPickerFormProps {
    * fresh-picker notice that doesn't carry retry context.
    */
   onRetryRestore: (() => void) | null;
-}
-
-/** One entry in the sessions record. */
-interface SessionRecord {
-  sessionId: string;
-  projectDir: string;
-  createdAt: number;
 }
 
 /** Stable `[]` reference — useTugbankValue's `fallback` must be reference-stable. */
@@ -813,7 +806,7 @@ export function SessionProjectPickerForm({
       // the key view down to it, so narrowing and choosing stay one gesture.
       ...pickerFilter.delegate,
     }),
-    [focusManager, pickerFilter],
+    [pickerFilter],
   );
 
   // Master/detail layout: project-path input → Recents list →

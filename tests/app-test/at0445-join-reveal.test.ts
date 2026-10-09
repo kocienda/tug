@@ -324,7 +324,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         tugtool(["arc", "bind", ARC], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
-          env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
+          env: { ...cli.env, TUG_SESSION_ID: SID },
         });
         // Read from the Arcs card rather than from the verb's own exit: the row
         // grows the bound worker's atom, which is the deck seeing the ledger

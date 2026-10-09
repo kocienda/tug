@@ -315,7 +315,7 @@ describe("deckTrace.record stamps store snapshot", () => {
       hasFocus: true,
     } as const;
     const fakeStore = {
-      subscribe: (_: () => void) => () => {},
+      subscribe: () => () => {},
       getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerDeckStore>[0]>["getSnapshot"]>,
       getVersion: () => 0,
     } as unknown as Parameters<typeof registerDeckStore>[0];
@@ -348,7 +348,7 @@ describe("deckTrace.record stamps store snapshot", () => {
       hasFocus: false,
     } as const;
     const fakeStore = {
-      subscribe: (_: () => void) => () => {},
+      subscribe: () => () => {},
       getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerDeckStore>[0]>["getSnapshot"]>,
       getVersion: () => 0,
     } as unknown as Parameters<typeof registerDeckStore>[0];
@@ -369,7 +369,7 @@ describe("deckTrace.record stamps store snapshot", () => {
 
   test("store snapshot tolerates getSnapshot throwing (captureStoreSnapshot returns null)", () => {
     const fakeStore = {
-      subscribe: (_: () => void) => () => {},
+      subscribe: () => () => {},
       getSnapshot: () => {
         throw new Error("deliberate failure for test");
       },

@@ -530,7 +530,6 @@ export function GalleryTextEditor({ cardId }: GalleryTextEditorProps) {
   // Stable provider map. The thunk inside the substrate reads this
   // map at every transaction; both providers' identities are stable
   // across the card's lifetime, so empty deps are correct.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const completionProviders = useMemo<Record<string, CompletionProvider>>(
     () => ({
       "@": fileTreeStackRef.current?.provider ?? EMPTY_PROVIDER,

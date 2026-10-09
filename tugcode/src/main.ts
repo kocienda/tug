@@ -37,8 +37,6 @@ import type { JsonlEntry } from "./replay.ts";
 const PROCESS_STARTED_AT = Date.now();
 
 // Redirect console.log/warn/error to stderr to keep stdout clean for JSON-lines
-const originalLog = console.log;
-const originalWarn = console.warn;
 const originalError = console.error;
 
 console.log = (...args: unknown[]) => {

@@ -209,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
             env: {
-              ...(scratch?.cli.env ?? {}),
+              ...scratch?.cli.env,
               TUG_CHANGES_DB: instanceChangesDb(app.instanceId),
             },
           },

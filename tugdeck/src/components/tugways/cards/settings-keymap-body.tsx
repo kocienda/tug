@@ -849,12 +849,12 @@ export function SettingsKeymapBody(): React.ReactElement {
     () => new Set(keymapOverrideStore.overriddenCommands()),
     // Recomputed on every render: the store's version is already a
     // subscription above, and the set is thirty strings at the outside.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the store's snapshot is its version, per the note above
     [keymapOverrideStore.getSnapshot()],
   );
   const rows = useMemo(
     () => buildKeymapRows(overridden),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the registry's snapshot is its version
     [overridden, keymapRegistry.getSnapshot()],
   );
   // One narrowing, two entry points. A chord that turned out to be taken

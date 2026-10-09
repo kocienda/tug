@@ -71,7 +71,6 @@ import {
   type ArcLaneReplay,
 } from "./session-changes-arc-lane";
 import type { ArcJoinActions } from "./session-changes-arc-join";
-import type { JoinOutcome } from "@/lib/join-mode-controller";
 import { useChangesetLandingArcs } from "@/lib/changeset-join-store";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";

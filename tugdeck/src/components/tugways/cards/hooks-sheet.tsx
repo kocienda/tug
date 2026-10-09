@@ -47,6 +47,9 @@ import {
 } from "@/lib/hooks-inventory-store";
 import { MODAL_REST_LINE } from "./modal-rest-line";
 
+/** The no-payload fallback, one object so the memos below hold across renders. */
+const NO_EVENTS: Record<string, HookMatcherGroup[]> = {};
+
 // ---------------------------------------------------------------------------
 // useHooksSheet — the card-hosted /hooks sheet
 // ---------------------------------------------------------------------------
@@ -172,7 +175,7 @@ function HooksSheetBody({
   const DONE_ORDER = 1;
   useSeedKeyView(`${focusGroup}:${DONE_ORDER}`);
 
-  const events = snapshot.payload?.events ?? {};
+  const events = snapshot.payload?.events ?? NO_EVENTS;
   const rows = useMemo(() => selectHookEventRows(events), [events]);
   const total = useMemo(() => countHooks(events), [events]);
   const ready = snapshot.phase === "ready" && snapshot.payload !== null;

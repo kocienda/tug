@@ -34,7 +34,6 @@ import {
 } from "./card-session-binding-store";
 import type {
   ArcRunState,
-  ArcChangesetEntry,
   ArcDocuments,
   ArcStep,
   WorkspacesChangesetSnapshot,
@@ -356,6 +355,7 @@ export function useArcForSession(
     // segment-to-line pair re-runs the walk. The binding store hands back a
     // fresh Map on every write and the line store a bumped counter, so
     // identity is the signal in both.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `seats` and `lines` are the invalidation keys named above
     [data, sessionId, seats, lines],
   );
 }

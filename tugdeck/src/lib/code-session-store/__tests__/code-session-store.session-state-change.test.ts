@@ -91,7 +91,7 @@ describe("CodeSessionStore — record_session_state_change emission", () => {
   it("fires when transportState changes (online → offline)", () => {
     const conn = new TestFrameChannel();
     const lifecycle = new ConnectionLifecycle();
-    const store = constructStore(conn, lifecycle);
+    constructStore(conn, lifecycle);
     lifecycle.notifyConnectionDidClose();
     const frames = stateChangeFrames(conn);
     expect(frames.length).toBe(1);

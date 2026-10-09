@@ -99,7 +99,7 @@ import type { PropertyStore } from "@/components/tugways/property-store";
 import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import { TUG_ACTIONS, type TugAction } from "@/components/tugways/action-vocabulary";
+import { type TugAction } from "@/components/tugways/action-vocabulary";
 import type { ActionHandler } from "@/components/tugways/responder-chain";
 import { ansiToHtml } from "@/lib/ansi/ansi-to-html";
 import {

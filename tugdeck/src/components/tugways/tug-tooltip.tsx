@@ -350,7 +350,7 @@ export function TugTooltip({
     // is stable for a given (isControlled, controlledOnOpenChange, truncated)
     // tuple; re-subscribing on every render would churn the effect,
     // so we intentionally narrow deps to the gating values.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- narrowed to the gating values, per the note above
   }, [effectiveOpen, manager]);
 
   // Input-gesture dismissal. [L06]
@@ -383,7 +383,7 @@ export function TugTooltip({
     });
     // Same narrowing as above: handleOpenChange is a fresh closure per
     // render but stable in behavior, and re-subscribing every render would churn.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the same narrowing as above
   }, [effectiveOpen]);
 
   // A menu appearing takes the bubble down with it.
@@ -399,7 +399,7 @@ export function TugTooltip({
     return observeOpenMenus(() => {
       if (anyMenuOpen()) handleOpenChange(false);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the same narrowing as above
   }, [effectiveOpen]);
 
   // Callback ref that captures the trigger DOM element for measurement.

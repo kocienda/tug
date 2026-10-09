@@ -207,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         tugtool(["arc", "bind", ARC], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
-          env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
+          env: { ...cli.env, TUG_SESSION_ID: SID },
         });
 
         // The offer arrives on an open card with an empty composer, so the

@@ -88,6 +88,14 @@ export const TugMarquee = React.forwardRef<HTMLDivElement, TugMarqueeProps>(
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const animatingRef = useRef(false);
 
+    // Shared transitionend handler (assigned in scroll, needs stable ref).
+    // Must be useCallback so cleanup and startCycle always share the same reference.
+    const handleTransitionEndRef = useRef<(() => void) | null>(null);
+
+    const handleTransitionEnd = useCallback(() => {
+      handleTransitionEndRef.current?.();
+    }, []);
+
     const cleanup = useCallback(() => {
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
@@ -99,15 +107,7 @@ export const TugMarquee = React.forwardRef<HTMLDivElement, TugMarqueeProps>(
       if (strip) {
         strip.removeEventListener("transitionend", handleTransitionEnd);
       }
-    }, []);
-
-    // Shared transitionend handler (assigned in scroll, needs stable ref).
-    // Must be useCallback so cleanup and startCycle always share the same reference.
-    const handleTransitionEndRef = useRef<(() => void) | null>(null);
-
-    const handleTransitionEnd = useCallback(() => {
-      handleTransitionEndRef.current?.();
-    }, []);
+    }, [handleTransitionEnd]);
 
     const startCycle = useCallback(() => {
       const track = trackRef.current;
@@ -190,7 +190,7 @@ export const TugMarquee = React.forwardRef<HTMLDivElement, TugMarqueeProps>(
 
       // Begin with pause (initial display with ellipsis clipping)
       pause();
-    }, [animate, speed, pauseTime, gap, cleanup]);
+    }, [animate, speed, pauseTime, cleanup, handleTransitionEnd]);
 
     // Start/restart cycle when text or animation props change
     useLayoutEffect(() => {

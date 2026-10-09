@@ -421,7 +421,6 @@ export function useFilteredDataSource(
   React.useLayoutEffect(() => {
     if (didChange) wrapper.notifyAll();
     // didChange is captured from this render's closure; intentional.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   });
 
   return wrapper;

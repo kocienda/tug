@@ -1,8 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
   type Rect,
-  type SnapResult,
-  type GuidePosition,
   type EdgeValidator,
   SNAP_THRESHOLD_PX,
   SNAP_VISIBILITY_THRESHOLD,

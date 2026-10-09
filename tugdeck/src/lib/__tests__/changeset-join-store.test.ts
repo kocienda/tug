@@ -588,21 +588,6 @@ describe("the client does not guess at liveness ([P03])", () => {
 });
 
 describe("a press that changed nothing says so ([P04], [P06])", () => {
-  /** A connection that records, so a send can be asserted rather than assumed. */
-  function recordingConn(): {
-    conn: never;
-    sent: { action: string; body: Record<string, unknown> }[];
-  } {
-    const sent: { action: string; body: Record<string, unknown> }[] = [];
-    const conn = {
-      onFrame: () => () => {},
-      sendControlFrame: (action: string, body: Record<string, unknown>) => {
-        sent.push({ action, body });
-      },
-    } as never;
-    return { conn, sent };
-  }
-
   test("a refused answer reaches the face instead of vanishing", () => {
     // The server has always been able to refuse an answer — the resolver may
     // have expired, or a later run may be asking something else — and nothing

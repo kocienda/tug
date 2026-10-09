@@ -37,7 +37,6 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
-import { ROUTE_CHOICE } from "./_harness/selectors";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -45,7 +44,6 @@ const TEST_TIMEOUT_MS = 120_000;
 const CARD = '[data-card-id="A"]';
 const ROOT = `${CARD} [data-testid="session-card"]`;
 const SUBMIT = `${CARD} .tug-prompt-entry-submit-button`;
-const ROUTE = `${CARD} ${ROUTE_CHOICE}`;
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const Z2_TIME = `${CARD} [data-priority="time"]`;
 
@@ -79,11 +77,6 @@ function deckShape() {
 const CYCLING = `(function(){
   var el = document.querySelector(${JSON.stringify(ROOT)});
   return el ? el.getAttribute("data-cycling") : null;
-})()`;
-
-const ROUTE_HAS_KEY_VIEW = `(function(){
-  var el = document.querySelector(${JSON.stringify(ROUTE)});
-  return el ? el.hasAttribute("data-key-view-kbd") : false;
 })()`;
 
 // ⌥⇥ engages the mode WHERE THE KEYBOARD ALREADY IS — with the caret in the

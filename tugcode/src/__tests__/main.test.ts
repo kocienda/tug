@@ -233,7 +233,6 @@ describe("Step R4: main.ts cold-boot resume does not invoke startup replay", () 
     // Racing a fresh `reader.read()` against the tick abandons that read when
     // the tick wins, and the chunk it later resolves with is dropped — which
     // silently ate whichever frame happened to land inside the first tick.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let pendingRead: Promise<any> | null = null;
     try {
       while (Date.now() < hardDeadline) {
@@ -242,7 +241,6 @@ describe("Step R4: main.ts cold-boot resume does not invoke startup replay", () 
         const timeoutPromise = new Promise<{ timedOut: true }>(
           (resolve) => setTimeout(() => resolve({ timedOut: true }), 100),
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result: any = await Promise.race([pendingRead, timeoutPromise]);
         if (result.timedOut) continue; // tick, not subprocess output
         pendingRead = null; // this read is consumed; the next pass issues a new one

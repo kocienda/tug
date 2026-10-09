@@ -77,9 +77,6 @@ interface Reading {
   reshownAt: number | null;
 }
 
-const dispatch = (app: App, action: string): Promise<null> =>
-  app.evalJS<null>(`(window.__tug.dispatchControlAction(${JSON.stringify(action)}, {}), null)`);
-
 /** Hide the rails, and from inside the frame sampler show them again once the rail's left edge has slid out to `reshowAtLeft`. */
 async function toggleTwice(app: App, reshowAtLeft: number): Promise<Reading> {
   await app.evalJS<null>(

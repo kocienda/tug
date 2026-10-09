@@ -1234,33 +1234,6 @@ export interface TugListViewProps<
   selectionSurface?: TugListRowSelectionSurface;
 
   /**
-   * Opt into PageUp / PageDown keyboard navigation by *entry*, where
-   * each cell is one entry. When `true`, the list view installs a
-   * keyboard handler so PageUp / PageDown — and the macOS
-   * Opt+ArrowUp / Opt+ArrowDown aliases — step the scroller exactly
-   * one entry at a time:
-   *
-   *  - PageDown advances to the next entry and pins its top flush to
-   *    the top of the viewport — even when that entry is already
-   *    partly or fully on screen (an *entry* pager, not an
-   *    *entry-in-view* pager). On the last entry it jumps to the live
-   *    bottom and re-engages follow-bottom.
-   *  - PageUp steps back one entry, pinning its top flush to the top.
-   *    From mid-entry the first PageUp snaps the current entry's top
-   *    up.
-   *
-   * The Dev transcript opts in so the user can step through every
-   * row — both halves of each turn (the prompt and the response) are
-   * separate cells, so navigation visits all of them. Omitted /
-   * `false` ⇒ no handler is installed and PageUp / PageDown fall
-   * through to the browser default. The selection math is pure and
-   * lives in `internal/list-view-page-navigation.ts`.
-   *
-   * @default false
-   */
-  pageByEntry?: boolean;
-
-  /**
    * Opt the list view into UITableView-style mandatory selection:
    * the list **always** has exactly one selected row. On mount (and
    * whenever the data source changes) the list seeds selection to the
@@ -2136,7 +2109,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       rowTextSize,
       selectedAccent = false,
       selectionSurface,
-      pageByEntry,
       selectionRequired = false,
       onSelectionChange,
       onFollowBottomChange,
@@ -2734,7 +2706,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       initialSettlePendingRef.current = false;
       onFirstSettleRef.current?.();
       scrollTick();
-    }, [isScrollBatteryFrozen]);
+    }, [isScrollBatteryFrozen, scrollTick]);
 
     // Selection/focus pin ([L23] under windowed mounting): rows whose
     // DOM holds the user's selection endpoints or keyboard focus must
@@ -2799,10 +2771,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         container.removeEventListener("focusout", recomputePin);
         pinnedRangeRef.current = null;
       };
-      // `scrollTick` is a stable reducer dispatch; the mode flags are
-      // the only real dependencies.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [inline, evictModeEnabled]);
+    }, [inline, evictModeEnabled, scrollTick]);
 
     // Read scroll geometry from the live DOM at render time. On the
     // first render `scrollContainerRef.current` is null (the ref
@@ -3128,7 +3097,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       scrollTick();
       // `followBottom` is read once at mount; runtime changes are not
       // tracked (matches the SmartScroll-install effect's pattern).
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- `followBottom` is read once at mount, per the note above
     }, []);
 
     // Front-insert scroll-hold ([L23], [L06], [L22]). Runs after every
@@ -3421,7 +3390,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // bounds — re-running the effect on dataSource identity change
       // installs a fresh observer that sees the new bound. This is
       // rare (dataSource is usually stable for a card's lifetime).
-    }, [dataSource, releaseSettleIfArmed]);
+    }, [dataSource, releaseSettleIfArmed, syncRowGap, scrollTick, isScrollBatteryFrozen]);
 
     // Offscreen-skip width invalidation: a remembered
     // `contain-intrinsic-size` is exact only for the width it was
@@ -3581,9 +3550,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         }
         widthSettlePendingRef.current = false;
       };
-      // `scrollTick` is a stable reducer dispatch.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [inline, offscreenSkip, evictModeEnabled]);
+    }, [inline, offscreenSkip, evictModeEnabled, syncRowGap, scrollTick]);
 
     // Row-gap watch. The ledger folds the flex row-gap into every entry,
     // and the gap can change without any cell resizing — the session
@@ -3603,9 +3570,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       });
       gapObserver.observe(winEl);
       return () => gapObserver.disconnect();
-      // `syncRowGap` and `scrollTick` are stable.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [syncRowGap, scrollTick]);
 
     // Instantiate `SmartScroll` against the scroll container ([D07]).
     // SmartScroll owns every programmatic scroll-position write the
@@ -4158,7 +4123,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // the prop don't tear down + recreate SmartScroll. Consumers
       // that need to flip mid-life can do so via the imperative
       // handle (a follow-on if the need arises) or by remounting.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- SmartScroll installs once, per the note above
     }, []);
 
     // A data source swapped while the scroller is hidden takes the
@@ -4241,7 +4206,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       return () => {
         observer.disconnect();
       };
-    }, []);
+    }, [isScrollBatteryFrozen, scrollTick]);
 
     // Register the out-of-tree probe handle for this scroller, and
     // publish the displacement counter's floor. The attribute exists
@@ -4328,9 +4293,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           listViewProbeRegistry.delete(el);
         }
       };
-      // `scrollTick` is a stable reducer dispatch.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [scrollTick]);
 
     // **The commit bracket.** Detects a `scrollTop` the machine cannot
     // account for, attributes it, and records it loudly as a defect.

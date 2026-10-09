@@ -47,7 +47,6 @@ const TEST_TIMEOUT_MS = 120_000;
 // UUID-shaped so the bound session reads as a real one.
 const SID = "a7c0d1ea-0000-4000-8000-000000000498";
 
-const CARD = '[data-card-id="A"]';
 const PANE = '.tug-pane[data-pane-id="p1"]';
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const STAGE = `${MASTHEAD} .session-masthead-stage`;

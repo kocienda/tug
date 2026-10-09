@@ -55,6 +55,9 @@ import {
 } from "@/lib/skills-inventory-store";
 import { MODAL_REST_LINE } from "./modal-rest-line";
 
+/** The no-payload fallback, one array so the data source below holds across renders. */
+const NO_SKILLS: readonly SkillInventoryEntry[] = [];
+
 // ---------------------------------------------------------------------------
 // useSkillsSheet — the card-hosted /skills sheet
 // ---------------------------------------------------------------------------
@@ -213,7 +216,7 @@ function SkillsSheetBody({
   const doneFocusGroup = React.useId();
   useSeedKeyView(`${doneFocusGroup}:0`);
 
-  const skills = snapshot.payload?.skills ?? [];
+  const skills = snapshot.payload?.skills ?? NO_SKILLS;
   const dataSource = useMemo(() => new SkillsDataSource(skills), [skills]);
 
   let body: React.ReactElement;

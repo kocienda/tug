@@ -60,7 +60,6 @@ import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
-import { PERMISSION_MODE_CYCLE } from "./lib/permission-mode";
 import {
   cardIdForLine,
   cardIdForSession,
@@ -430,6 +429,7 @@ export function initActionDispatch(
     try {
       // Indirect eval — the value is evaluated in global scope, so the code
       // sees `window` and the module singletons rather than this closure.
+      // eslint-disable-next-line no-eval -- evaluating the caller's code is this path's whole job
       result = (0, eval)(code);
     } catch (error) {
       result = { error: error instanceof Error ? error.message : String(error) };

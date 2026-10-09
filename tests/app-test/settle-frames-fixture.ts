@@ -104,7 +104,6 @@ import {
 } from "../../tugdeck/src/lib/motion-guard/settle-bar";
 import {
   mkTempTugbank,
-  rmTempTugbank,
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";

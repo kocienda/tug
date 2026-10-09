@@ -365,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         const afterDelete = await app.evalJS<SpacesProbe>(
           `window.tugdeck.diag.getSpaces()`,
         );
-        expect([...afterDelete.spaces.map((s) => s.id)].sort()).toEqual(
+        expect(afterDelete.spaces.map((s) => s.id).sort()).toEqual(
           [SPACE_TWO, created].sort(),
         );
       } finally {
@@ -738,7 +738,7 @@ describe.skipIf(!SHOULD_RUN)(
           const left = await app.evalJS<SpacesProbe>(
             `window.tugdeck.diag.getSpaces()`,
           );
-          expect([...left.spaces.map((s) => s.id)].sort()).toEqual(
+          expect(left.spaces.map((s) => s.id).sort()).toEqual(
             [SURFACE_ONE, SURFACE_TWO].sort(),
           );
         } finally {

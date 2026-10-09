@@ -51,7 +51,6 @@ async function captureIpc(fn: () => void): Promise<OutboundMessage[]> {
   const captured: OutboundMessage[] = [];
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       const text =
@@ -74,7 +73,6 @@ async function captureIpc(fn: () => void): Promise<OutboundMessage[]> {
     fn();
     await drainPendingWrites();
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
   }
   return captured;
@@ -84,9 +82,7 @@ describe("SessionManager — wake-trigger FIFO", () => {
   let projectDir: string;
   let manager: SessionManager;
   const note = (frames: OutboundMessage[], lane: string | null = null) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).noteScheduledTriggerFrames(frames, lane);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pending = () => (manager as any).pendingScheduledTriggers as Array<{
     toolUseId: string;
     kind: string;
@@ -151,10 +147,8 @@ describe("SessionManager — wake-trigger FIFO", () => {
       toolUseFrame("ScheduleWakeup", "tu1", { delaySeconds: 60, reason: "loop pacing" }),
     ]);
     // First init = session start; second init between turns = the wake.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).handleClaudeLine(initLine());
     const frames = await captureIpc(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).handleClaudeLine(initLine());
     });
     const wake = frames.find((f) => f.type === "wake_started") as WakeStarted;
@@ -164,13 +158,10 @@ describe("SessionManager — wake-trigger FIFO", () => {
     expect(pending()).toEqual([]);
 
     // A cron label persists across fires.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).isInWake = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).activeTurn = null;
     note([toolUseFrame("CronCreate", "tu2", { cron: "* * * * *", prompt: "check CI" })]);
     const frames2 = await captureIpc(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).handleClaudeLine(initLine());
     });
     const wake2 = frames2.find((f) => f.type === "wake_started") as WakeStarted;
@@ -179,10 +170,8 @@ describe("SessionManager — wake-trigger FIFO", () => {
   });
 
   test("with nothing pending the wake keeps the generic summary", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).handleClaudeLine(initLine());
     const frames = await captureIpc(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).handleClaudeLine(initLine());
     });
     const wake = frames.find((f) => f.type === "wake_started") as WakeStarted;

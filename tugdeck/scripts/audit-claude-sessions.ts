@@ -228,7 +228,6 @@ function processAssistantText(text: string, agg: Aggregator, ses: SessionState):
 }
 
 function processToolUse(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   block: any,
   agg: Aggregator,
   ses: SessionState,
@@ -264,7 +263,6 @@ function processToolUse(
 }
 
 function processToolResult(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   block: any,
   agg: Aggregator,
   ses: SessionState,
@@ -307,7 +305,6 @@ function processToolResult(
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function processAssistantMessage(msg: any, agg: Aggregator, ses: SessionState): void {
   const content = msg?.content;
   if (!Array.isArray(content)) return;
@@ -324,7 +321,6 @@ function processAssistantMessage(msg: any, agg: Aggregator, ses: SessionState): 
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function processUserMessage(msg: any, agg: Aggregator, ses: SessionState): void {
   const content = msg?.content;
   if (typeof content === "string") {
@@ -369,7 +365,6 @@ async function processFile(filePath: string, agg: Aggregator): Promise<void> {
       continue;
     }
     if (!obj || typeof obj !== "object") continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ev = obj as any;
     const t = ev.type as string;
     bump(agg.topLevelTypes, t);

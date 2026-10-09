@@ -15,7 +15,6 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { TaggedValue } from "@/lib/tugbank-client";
 import {
   isModelSelector,
   parsePersistedModel,

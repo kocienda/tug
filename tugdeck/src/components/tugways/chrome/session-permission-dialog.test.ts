@@ -41,7 +41,6 @@ import {
   ALLOW_ONCE_OPTION_LABEL,
   ALLOW_ONCE_OPTION_VALUE,
   PERMISSION_DIALOG_PRESERVATION_KEY_PREFIX,
-  PermissionDialog,
   buildPermissionOptions,
   composePermissionLineRange,
   composePermissionSuggestionLabel,

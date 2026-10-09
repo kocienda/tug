@@ -40,7 +40,6 @@ mock.module("../lib/connection-singleton", () => ({
 }));
 
 import { FileTreeStore } from "../lib/filetree-store";
-import type { FileTreeResultSnapshot } from "../lib/filetree-store";
 
 // ---------------------------------------------------------------------------
 // Mock FeedStore

@@ -243,7 +243,6 @@ function devEnv(): boolean {
   // environment that lacks process.env.NODE_ENV (browsers, etc.)
   // but still fire in typical dev builds.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (globalThis as any).process?.env?.NODE_ENV !== "production";
   } catch {
     return true;
@@ -253,7 +252,6 @@ function devEnv(): boolean {
 function logUnbound(action: string, sender: unknown): void {
   if (!devEnv()) return;
   if (typeof console === "undefined") return;
-  // eslint-disable-next-line no-console
   console.log(
     `%c[responder-form] unbound sender: ${action} sender=${JSON.stringify(sender)}`,
     "color:#888",

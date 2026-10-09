@@ -80,16 +80,14 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import {
   EditorView,
   highlightActiveLineGutter,
   keymap,
   placeholder as cmPlaceholder,
-  ViewPlugin,
 } from "@codemirror/view";
-import type { ViewUpdate } from "@codemirror/view";
 import { indentUnit } from "@codemirror/language";
 import {
   cursorGroupBackward,
@@ -203,7 +201,6 @@ import {
 } from "./tug-text-editor/state-preservation";
 import type { PendingEditRestore } from "./tug-text-editor/state-preservation";
 import { deckTrace } from "@/deck-trace";
-import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { selectionGuard } from "./selection-guard";
 import { useTextSurfaceContextMenu } from "./use-text-surface-context-menu";
@@ -2156,7 +2153,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         }
         paintMirrorAsInactiveImpl(view, publish, state);
       },
-    }), []);
+    }), [responderId, responderChainManager]);
 
     // ---------------------------------------------------------------
     // Right-click context menu

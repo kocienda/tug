@@ -52,7 +52,5 @@ export function useSelectionBoundary(
     return () => {
       selectionGuard.unregisterBoundary(cardId);
     };
-    // cardRootRef is intentionally excluded: React ref objects are stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardId]);
+  }, [cardId, cardRootRef]);
 }

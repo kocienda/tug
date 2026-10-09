@@ -75,7 +75,6 @@ const CONTROL_READS_FOLD = `(function () {
   var el = document.querySelector(${JSON.stringify(BAR)});
   return el !== null && el.getAttribute("aria-label") === "Fold";
 })()`;
-const STATE_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
 const JOBS_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"][data-priority="jobs"]`;
 const DIALOG = `${CARD} [data-slot="session-permission-dialog"]`;
 const ALLOW = `${DIALOG} .tug-inline-dialog-actions .tug-button-primary-action`;

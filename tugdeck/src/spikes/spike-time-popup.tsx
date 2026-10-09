@@ -57,6 +57,7 @@ import {
 import { formatTimeAlwaysHours } from "@/components/tugways/cards/session-card-telemetry-renderers";
 import { endStateBadgeFor } from "@/lib/code-session-store/end-state";
 import { useLifecycleTick } from "@/lib/code-session-store/hooks/use-lifecycle-tick";
+import { useMotionHold } from "@/lib/motion-guard";
 import type { TurnEndReason } from "@/lib/code-session-store/types";
 
 import type { SpikeDef } from "./spike-registry";
@@ -198,6 +199,7 @@ function EndBadge({ t }: { t: MockTurn }): React.ReactElement {
 
 /** A dot-and-badge the in-flight row wears in place of an end state. */
 function LiveBadge(): React.ReactElement {
+  useMotionHold(true);
   return (
     <span className="sp-tp-live-hint">
       <span className="sp-tp-live-dot" aria-hidden />

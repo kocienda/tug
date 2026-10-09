@@ -162,19 +162,6 @@ export interface SessionMastheadProps {
    * cluster, which is exactly the arrangement that put it ahead of the badge.
    */
   accessoryHost?: HTMLElement | null;
-  /**
-   * Whether the pane wearing this masthead is FOLDED ([P01], [P03]).
-   *
-   * The one thing it changes is the activity line's register ([D185]): a
-   * folded card is the masthead and nothing else, so the account run has
-   * two lines to finish a post on. Everything else about the tier — its
-   * extra height, the clamp that holds the run at two lines — is CSS keyed
-   * on the frame's own `data-folded` and needs nothing passed ([L06]);
-   * this is here because which runs get RENDERED is not something a
-   * stylesheet can decide.
-   * @default false
-   */
-  folded?: boolean;
 }
 
 /** How many recent beats the activity line's popover lists. */
@@ -481,7 +468,6 @@ export const SessionMasthead = React.memo(function SessionMasthead({
   sessionId,
   cardId,
   accessoryHost = null,
-  folded = false,
 }: SessionMastheadProps): React.ReactElement {
   // The project dir behind this chrome. Read from the card binding — a pane
   // fact — rather than carried on the identity record, which deliberately

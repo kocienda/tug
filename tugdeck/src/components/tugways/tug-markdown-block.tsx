@@ -295,7 +295,7 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
     // Empty deps — `initialText` changes after mount are intentionally
     // ignored per the [#md-block-api] mount-once contract. A consumer
     // that wants to swap content remounts via a fresh React key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the mount-once contract, per the note above
   }, []);
 
   // Streaming `streamingStore` mode — reads the current value

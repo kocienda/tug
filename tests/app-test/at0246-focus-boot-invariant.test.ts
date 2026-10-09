@@ -33,7 +33,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,

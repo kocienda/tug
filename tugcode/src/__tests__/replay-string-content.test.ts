@@ -19,7 +19,7 @@
 // scaffolding strings).
 //
 // Fix: `contentBlocks` normalises a bare-string `message.content` into
-// one synthetic text block; `isNonSubmissionUserString` recognises the
+// one synthetic text block; `translateJsonlEntry`'s bare-string branch recognises the
 // scaffolding and the translator skips it. Genuine prompts replay;
 // scaffolding does not.
 

@@ -24,7 +24,7 @@ function file(
     origin: "arc",
     shared: false,
     last_touched: 0,
-    ...(counts ?? {}),
+    ...counts,
   };
 }
 

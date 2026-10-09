@@ -17,7 +17,7 @@
  * and `showComponentGallery`.
  */
 
-import React, { memo, useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect } from "react";
+import React, { memo, useCallback, useMemo, useEffect, useRef, useLayoutEffect } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   contentBoxHeight,
@@ -33,7 +33,7 @@ import { useResponder } from "@/components/tugways/use-responder";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { applyBagFocus, mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
+import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import {
   deckTrace,
   type SpaceEpochReason,
@@ -57,7 +57,7 @@ import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { UpdateTug } from "@/components/tugways/update-tug";
 import { UpdatePill } from "./update-pill";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
-import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
+import { TugSlot } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { usePaneOcclusionController } from "./pane-occlusion-controller";
 import { canvasDeck, canvasDeckEqual } from "./canvas-deck-fields";
@@ -82,10 +82,8 @@ import {
   type RailTravelBand,
 } from "@/lib/rail-width";
 import {
-  getAllRegistrations,
   getRegistration,
   getStackSizePolicy,
-  isSidebarCard,
 } from "@/card-registry";
 import { toggleCardFold } from "@/lib/card-fold";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
@@ -97,7 +95,6 @@ import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
   bullseyePaneIdOf,
-  columnAllocationOf,
   columnDrawsSplit,
   deckColumnsOf,
   deckFlowStrip,
@@ -117,7 +114,6 @@ import type { DeckState, TugPaneState } from "@/layout-tree";
 import { standingDeck, withDepartingStanding } from "@/lib/departing";
 import { useDeckManager } from "@/deck-manager-context";
 import { cardDragCoordinator } from "@/card-drag-coordinator";
-import { selectionGuard } from "@/components/tugways/selection-guard";
 import { copySelectionAsPlainText } from "@/lib/copy-as-plain-text";
 import { openFileInCard } from "@/lib/open-file-in-card";
 import { revealPathInFinder } from "@/lib/os-open";
@@ -185,7 +181,6 @@ import {
 } from "./flow-offset";
 import {
   SHOWN_PANE_FRAMES,
-  SPACE_LAYER_ATTRIBUTE,
   SPACE_LAYER_CLASS,
   SPACE_SHOWN_ATTRIBUTE,
   SPACE_SWITCHING_ATTRIBUTE,
@@ -232,7 +227,6 @@ import {
   FLOW_STOP_NEAR_PX,
   flowNextStop,
   flowCenterOffset,
-  effectiveRailOrder,
   imposeSidebarStyle,
   railSeamProperty,
   railStripProperty,
@@ -393,26 +387,6 @@ let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
  * target of the two, so it is the one that gets the help.
  */
 const RAIL_SEAM_HIT_PX = 10;
-
-/**
- * Which of `rail`'s members stands in front of the others — the one a STACK
- * shows, and the one a split's own picker checkmarks.
- *
- * Read off `state.panes` because that array's order IS the deck's z-order (the
- * thing `activateCard` moves), and the rail band's z-indices are packed from
- * it. Reading the rendered `z-index` back instead would answer the same
- * question one commit later; this way an arming settle sees the order the
- * commit it is crossing already wrote.
- */
-function railFrontmostPaneId(
-  state: DeckState,
-  rail: SidebarRail,
-): string | undefined {
-  const ids = new Set(rail.members.map((member) => member.paneId));
-  let frontmost: string | undefined;
-  for (const pane of state.panes) if (ids.has(pane.id)) frontmost = pane.id;
-  return frontmost;
-}
 
 /**
  * Which place a seam divides. The deck has two kinds — a side's rail and a
@@ -1885,6 +1859,7 @@ const LayerPanes = memo(function LayerPanes({
   // active card — is read off the snapshot when the callback runs.
   const stackCallbacks = useMemo(
     () => new Map<string, StackCallbacks>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a fresh cache per deck manager
     [store],
   );
   const callbacksFor = (stackId: string): StackCallbacks => {
@@ -2117,8 +2092,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const picture = useStoreDerived(pictureStore, canvasDeck, canvasDeckEqual);
   const deckState = standingDeck(picture);
   const panes = deckState.panes;
-  const cards = deckState.cards;
-  const imposition = deckState.imposition;
   // Whether a layout selection stands — read as a boolean, so the canvas
   // re-renders when the set goes empty or non-empty and not on every change
   // within it. The root responder's `CANCEL_DIALOG` entry is registered off
@@ -2143,6 +2116,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // below is built on: a layer is shown when it is the active workspace.
   const layerShownSources = useMemo(
     () => new Map<string, SpaceLayerShownSource>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a fresh cache per deck manager
     [store],
   );
   const layerShownSourceFor = (spaceId: string): SpaceLayerShownSource => {
@@ -2199,35 +2173,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const shownArrangement = useMemo(
     () => deriveShownArrangement(picture, placeRuns),
     // `placeRuns` is minted per render; its two numbers are the dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `placeRuns` is minted per render; its two numbers are the dependency
     [picture, placeRuns.rail, placeRuns.column],
   );
   const {
-    sidebarPaneIds,
     sidebarRails,
     flowStrip,
     flowOffset,
     deckColumns,
     columnOffsets,
     railOffsets,
-    columnMemberByPaneId,
-    columnModeByPaneId,
-    arrivingSeatByPaneId,
     railWidthOf,
     vacantRails,
     parkedRailSides,
     pictureRails,
     pictureVacantRails,
-    stackByPaneId,
-    sortedStacks,
-    zIndexMap,
-    hostStackIdByCardId,
-    cardsById,
     impositionKind,
     placementFor,
-    contentWidthPx,
     bullseyePaneId,
-    bullseyeAnchorCentre,
   } = shownArrangement;
 
   // ---------------------------------------------------------------------------
@@ -3129,7 +3092,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // lifecycle subscribers via `observeCardDidActivate`'s
     // subscribe-time read of the current focused card.
     store.activateCard(focusedCardId);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- activates the restored focused card once, at mount
 
   // Fade out the startup overlay once DeckCanvas has committed its first render.
   //
@@ -3247,7 +3210,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // Keyed on the summary rather than on `arrangement`: the arrangement is
     // re-derived on every deck commit and most commits move none of these
     // numbers, and a style write that changes nothing is still a style write.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the summary, per the note above
   }, [railSummary]);
 
   // ---------------------------------------------------------------------------
@@ -4508,7 +4471,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // so sweeping here would strip a debt that is not this run's to pay; on a
     // real unmount the container is going away with it.
     return () => releaseEpoch();
-  }, [spacesSnapshot.activeSpaceId]);
+  }, [spacesSnapshot.activeSpaceId, store, settleCommitSeqRef, pendingArrivalsRef]);
 
   // ---------------------------------------------------------------------------
   // Scrolling the flow strip
@@ -4895,7 +4858,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         * misses every pane (a portal gap, an overlay seam, geometry below the
         * fold) does not deselect.
         */}
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
       <div
         ref={containerRef}
         style={{ position: "absolute", inset: 0 }}

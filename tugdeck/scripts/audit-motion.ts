@@ -1563,6 +1563,22 @@ export const LAYOUT_MOTION_CARVE_OUTS: ReadonlyMap<string, LayoutMotionCarveOut>
       },
     ],
     [
+      "tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.css",
+      {
+        properties: ["flex-basis"],
+        ending:
+          "main-thread by design: the TIME popover's wall-clock strip following its parts as they tick, three segments in a clipped track",
+      },
+    ],
+    [
+      "tugdeck/src/spikes/spike-time-popup.css",
+      {
+        properties: ["width", "flex-basis"],
+        ending:
+          "main-thread by design: the TIME popup spike's row bars and wall-clock strip following their values, as the shipped popover's strip does",
+      },
+    ],
+    [
       "tugdeck/src/components/tugways/chrome/session-thinking-block.css",
       {
         properties: ["grid-template-rows"],

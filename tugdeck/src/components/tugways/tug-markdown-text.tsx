@@ -105,6 +105,7 @@ export function TugMarkdownText({
   );
   const lines = useMemo(
     () => applyMarkdownTextStyle(text),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `grammarRevision` re-styles the text when the grammar changes under it
     [text, grammarRevision],
   );
   // The rendered text is what the annotator scans, so the pass re-runs when

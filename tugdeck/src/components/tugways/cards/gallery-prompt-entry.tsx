@@ -187,7 +187,6 @@ export function GalleryPromptEntry({ cardId }: GalleryPromptEntryProps) {
   //   `/`: fixture `SessionMetadataStore` sourced from the captured
   //        `capabilities/<LATEST>/system-metadata.jsonl`, wrapped with the
   //        position-0 gate so `/` mid-text yields an empty popup.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const completionProviders = useMemo(() => {
     const innerSlash = getFixtureSessionMetadataStore().getCommandCompletionProvider();
     return {

@@ -32,7 +32,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,

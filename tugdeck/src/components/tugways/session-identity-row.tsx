@@ -153,7 +153,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
@@ -480,6 +479,7 @@ function ActivityMarkdownText({
   const render = React.useMemo(
     () =>
       entry.placeholder || fileBeat !== null ? null : renderBeatLine(entry.text),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `engineEpoch` re-renders the line once the engine has loaded
     [entry, fileBeat, engineEpoch],
   );
   React.useEffect(() => {

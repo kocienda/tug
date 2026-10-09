@@ -78,9 +78,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000424";
-const CARD = '[data-card-id="A"]';
-const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
 const CARDS = '.cards-card';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;

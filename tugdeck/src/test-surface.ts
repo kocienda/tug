@@ -46,7 +46,7 @@ import { labFlags } from "./lib/lab-flags";
 import { listViewProbeForScroller } from "./components/tugways/tug-list-view";
 import { smartScrollForElement } from "./lib/smart-scroll";
 import { getDeckStore } from "./lib/deck-store-registry";
-import { raiseCard, transferFocusForActivation } from "./focus-transfer";
+import { raiseCard } from "./focus-transfer";
 import { getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
 import { gestureScope } from "./lib/gesture-scope";

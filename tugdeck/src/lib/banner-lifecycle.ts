@@ -69,7 +69,6 @@ export class BannerLifecycle {
 
   notifyBannerWillShow(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[BannerLifecycle] bannerWillShow id=${cardId}`);
     }
     this.fire(this.willShowSubs, cardId);
@@ -77,7 +76,6 @@ export class BannerLifecycle {
 
   notifyBannerDidShow(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[BannerLifecycle] bannerDidShow id=${cardId}`);
     }
     this.fire(this.didShowSubs, cardId);
@@ -85,7 +83,6 @@ export class BannerLifecycle {
 
   notifyBannerWillHide(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[BannerLifecycle] bannerWillHide id=${cardId}`);
     }
     this.fire(this.willHideSubs, cardId);
@@ -93,7 +90,6 @@ export class BannerLifecycle {
 
   notifyBannerDidHide(cardId: string): void {
     if (LIFECYCLE_LOG) {
-      // eslint-disable-next-line no-console
       console.log(`[BannerLifecycle] bannerDidHide id=${cardId}`);
     }
     this.fire(this.didHideSubs, cardId);
@@ -150,7 +146,6 @@ export class BannerLifecycle {
       try {
         sub.callback(cardId);
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error(`[BannerLifecycle] observer for ${cardId} threw:`, err);
       }
     }

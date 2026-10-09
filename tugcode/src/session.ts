@@ -32,7 +32,6 @@ import type {
   ThinkingText,
   ToolInputProgress,
   CompactBoundary,
-  ApiRetry,
   RateLimitEvent,
   ToolProgress,
   ControlRequestForward,

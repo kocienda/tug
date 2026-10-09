@@ -105,7 +105,6 @@ async function captureIpc(
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       let text = "";
@@ -129,7 +128,6 @@ async function captureIpc(
 
   const originalExit = process.exit;
   let exitCode: number | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process as any).exit = (code?: number) => {
     exitCode = code;
   };
@@ -142,9 +140,7 @@ async function captureIpc(
     // `captured`.
     await drainPendingWrites();
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (process as any).exit = originalExit;
   }
 
@@ -235,7 +231,6 @@ async function makePrimedManager(opts: {
     },
   );
   const claudeHandle = mockClaudeChild({ stderr: opts.stderr });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (manager as any).spawnClaude = () => claudeHandle.child;
   await captureIpc(async () => {
     await manager.initialize();
@@ -330,7 +325,6 @@ describe("runReplay — symlink canonicalization", () => {
           },
         },
       );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).spawnClaude = () => ({
         stdout: new ReadableStream<Uint8Array>({
           start(controller) {
@@ -350,13 +344,11 @@ describe("runReplay — symlink canonicalization", () => {
       // Capture stdout to absorb writeLine output during initialize +
       // runReplay; we don't assert on it here.
       const originalWrite = Bun.write;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (Bun as any).write = () => Promise.resolve(0);
       try {
         await manager.initialize();
         await manager.runReplay();
       } finally {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (Bun as any).write = originalWrite;
       }
 
@@ -397,7 +389,6 @@ describe("runReplay — symlink canonicalization", () => {
         },
       },
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).spawnClaude = () => ({
       stdout: new ReadableStream<Uint8Array>({
         start(controller) {
@@ -414,13 +405,11 @@ describe("runReplay — symlink canonicalization", () => {
       kill: () => {},
     });
     const originalWrite = Bun.write;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = () => Promise.resolve(0);
     try {
       await manager.initialize();
       await manager.runReplay();
     } finally {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (Bun as any).write = originalWrite;
     }
     expect(observed).toHaveLength(1);
@@ -499,7 +488,6 @@ describe("runReplay — happy path", () => {
       },
     });
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).spawnClaude = () => handle.child;
     await captureIpc(async () => {
       await manager.initialize();
@@ -529,7 +517,6 @@ describe("runReplay — happy path", () => {
       },
     );
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).spawnClaude = () => handle.child;
     await captureIpc(async () => {
       await manager.initialize();
@@ -566,7 +553,6 @@ describe("runReplay — non-resume mode (post-Step-5 close-out fix)", () => {
       },
     });
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).spawnClaude = () => handle.child;
     const { emitted } = await captureIpc(async () => {
       await manager.initialize();
@@ -831,7 +817,6 @@ describe("runReplay — claude crash during replay", () => {
     // the card.
     const failed = emitted.find((e) => e.type === "resume_failed");
     expect(failed).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((failed as any).stale_session_id).toBe(sessionId);
 
     const indexOfCrashComplete = emitted.indexOf(crashComplete!);
@@ -866,7 +851,6 @@ describe("runReplay — claude crash during replay", () => {
 
     const failed = emitted.find((e) => e.type === "resume_failed");
     expect(failed).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((failed as any).reason).toContain("No conversation found");
   });
 });
@@ -915,7 +899,6 @@ describe("Step R0d — cold-boot resume order", () => {
     // the spawn handle is wired up" by holding the synchronous return
     // of `spawnClaude` open. In production, `Bun.spawn` returns
     // synchronously; here we simulate a delay by gating on a Promise.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).spawnClaude = () => claudeHandle.child;
     return { manager, claudeHandle, sessionId };
   }
@@ -929,7 +912,6 @@ describe("Step R0d — cold-boot resume order", () => {
     expect(emitted).toHaveLength(1);
     expect(emitted[0]?.type).toBe("session_init");
     // No claude process has been wired up yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).claudeProcess).toBeNull();
   });
 
@@ -1000,7 +982,6 @@ describe("Step R0d — cold-boot resume order", () => {
       await manager.spawnClaudeAndWatch();
       // Tear claude down so handleUserMessage's read loop unblocks.
       // (Mock stdin.write is a no-op; mock stdout is already closed.)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).claudeProcess = null;
       await Promise.race([
         userMsgPromise,
@@ -1345,7 +1326,6 @@ describe("runReplay — bracket close is exception-proof", () => {
     const { manager } = await makePrimedManager({});
     // `injectPendingRowSynthetics` runs inside the try, immediately after
     // the bracket-open frame is written — the earliest post-open throw site.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).injectPendingRowSynthetics = () => {
       throw new Error("synthetic replay failure");
     };
@@ -1363,14 +1343,12 @@ describe("runReplay — bracket close is exception-proof", () => {
 
   test("an in-flight snapshot throw does not lose the clean bracket close", async () => {
     const { manager } = await makePrimedManager({});
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).emitInflightTurnFromActiveTurn = () => {
       throw new Error("bad inflight state");
     };
     // Give the manager an active turn so the snapshot path runs. The
     // object only needs to be non-null at the `inflight !== null` check;
     // the throwing stub never touches it.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).activeTurn = { suppressEmit: false };
     const { raw } = await captureIpc(async () => {
       await manager.runReplay();

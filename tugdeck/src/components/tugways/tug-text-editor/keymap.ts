@@ -70,7 +70,7 @@
 
 import { EditorSelection, Prec, Transaction } from "@codemirror/state";
 import type { EditorState, Extension, TransactionSpec } from "@codemirror/state";
-import { EditorView, ViewPlugin, keymap } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
 import type { WidgetType } from "@codemirror/view";
 import {
   cursorGroupBackward,

@@ -21,7 +21,6 @@
 
 import type {
   CommandEntry,
-  CommandValidationSource,
 } from "@/components/tugways/command-registry";
 import {
   COMMANDS_BY_ID,

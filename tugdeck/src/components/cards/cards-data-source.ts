@@ -1426,7 +1426,6 @@ export function useCardsDataSource(
   useLayoutEffect(() => {
     if (didChange) ds.notifyAll();
     // didChange is captured per render; intentional.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   });
 
   return ds;

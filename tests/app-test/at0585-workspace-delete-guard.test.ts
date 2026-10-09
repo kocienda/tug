@@ -70,7 +70,6 @@ const DELETE_ITEM = '[data-item-action="delete-space"]';
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_MESSAGE = '[data-slot="tug-confirm-message"]';
 const CONFIRM_OK = '[data-slot="tug-confirm-confirm"]';
-const CONFIRM_CANCEL = '[data-slot="tug-confirm-cancel"]';
 const SHEET_CANCEL = '[data-testid="file-save-sheet-cancel"]';
 const SHEET_DONT_SAVE = '[data-testid="file-save-sheet-dont-save"]';
 

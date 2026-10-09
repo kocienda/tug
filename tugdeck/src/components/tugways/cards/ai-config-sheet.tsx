@@ -77,7 +77,6 @@ import {
   AI_CONFIG_DEFAULT_ROW,
   AI_CONFIG_DOMAIN,
   AI_CONFIG_LAST_ROW_KEY,
-  AI_CONFIG_UNKNOWN_MODEL,
   computeAiConfigCommit,
   parseAiConfigRow,
   resolveAiConfigSources,
@@ -274,6 +273,7 @@ export function useAiConfigSheet({
       onCommit,
       renderFooter,
       commitDisposition,
+      scopeNote,
     ],
   );
 

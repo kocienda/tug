@@ -123,7 +123,6 @@ import { TugTooltip } from "./tug-tooltip";
 import { TugActionTooltip } from "./tug-action-tooltip";
 import { TugConfirmPopover } from "./tug-confirm-popover";
 import { resolveSubmitButtonView } from "./tug-prompt-entry-submit-button";
-import type { SessionSubmitButtonMode } from "@/lib/code-session-store/lifecycle-state";
 import type { ShellSessionStore } from "@/lib/shell-session-store";
 import { useResponder } from "./use-responder";
 import { useKeybindings } from "./use-keybindings";
@@ -1415,14 +1414,10 @@ export const TugPromptEntry = React.forwardRef<
   // The mode is mirrored to a ref so `performSubmit` — the shared
   // keyboard + pointer submit path — can gate on it without going
   // stale ([L07]).
-  // Claude-lifecycle mode + shell in-flight; combined into the route-aware Z5
-  // mode below, once the subscribed `route` is available ([P13]).
+  // Claude-lifecycle mode, which the route-aware Z5 mode below reads once the
+  // subscribed `route` is available ([P13]).
   const claudeSubmitButtonMode =
     useLifecycleState(codeSessionStore).submitButtonMode;
-  const shellInflight = useSyncExternalStore(
-    shellSessionStore?.subscribe ?? NOOP_SUBSCRIBE,
-    () => shellSessionStore?.getSnapshot().inflight != null,
-  );
 
   // Draft restore. Two store actions populate `pendingDraftRestore`:
   // a CASE A interrupt pulling a pre-content turn back to re-edit, and
@@ -1807,7 +1802,7 @@ export const TugPromptEntry = React.forwardRef<
         preventDefaultOnMatch: b.preventDefault === true,
       })),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the registry's snapshot is its version
   }, [landingActive, keymapRegistry.getSnapshot()]);
   useKeybindings(commitKeybindings);
 
@@ -2616,7 +2611,7 @@ export const TugPromptEntry = React.forwardRef<
       // to count in ([L06]).
       lineBoxMetric,
     ],
-    [],
+    [reportEmptiness, syncComposeImageAtoms, renumberImageChips],
   );
 
   // Live refs so `performSubmit` (a stable callback) reads the shell + PATH
@@ -3205,6 +3200,8 @@ export const TugPromptEntry = React.forwardRef<
     registerAtomPathBackfill,
     setArbitrating,
     releaseRunSlot,
+    publishAttachmentError,
+    route,
   ]);
 
   // Live ref to `performSubmit` for the command-insert effect above, which

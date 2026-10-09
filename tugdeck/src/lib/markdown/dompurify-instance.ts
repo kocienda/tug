@@ -92,10 +92,8 @@ export function getDOMPurify(): ReturnType<typeof DOMPurifyModule> {
 
   if (isBunOrNode) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { JSDOM } = require("jsdom") as typeof import("jsdom");
       const dom = new JSDOM("<!DOCTYPE html>");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       _dompurify = DOMPurifyModule(dom.window as any);
       restrictInputs(_dompurify);
       if (_dompurify.isSupported) return _dompurify;
@@ -104,7 +102,6 @@ export function getDOMPurify(): ReturnType<typeof DOMPurifyModule> {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const win: any = typeof window !== "undefined" ? window : (global as any).window;
   _dompurify = DOMPurifyModule(win);
   restrictInputs(_dompurify);

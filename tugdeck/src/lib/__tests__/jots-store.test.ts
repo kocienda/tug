@@ -38,7 +38,7 @@ describe("JotsStore editingId", () => {
 
   it("discards a row left EMPTY on commit (create then escape without typing)", () => {
     const store = new JotsStore(null);
-    const id = store.createJot(null);
+    store.createJot(null);
     expect(store.getSnapshot().doc.jots.length).toBe(1);
     // No text typed — closing the editor must not leave a blank row behind.
     store.commitEdit();

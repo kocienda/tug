@@ -1,10 +1,35 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react"],
   "categories": {
-    "correctness": "off"
+    "correctness": "error"
   },
   "rules": {
     "no-unused-expressions": "error",
-    "no-unreachable": "error"
+    "no-unreachable": "error",
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    // The react plugin's correctness category also carries the React
+    // Compiler's purity rules. The deck does not use the compiler, and its laws
+    // read and write refs during render and mutate the DOM directly on purpose
+    // (L06, L07), so these rules flag the architecture rather than defects:
+    // every `static-components` hit resolves a module-level icon from a table,
+    // and every `purity` hit is a `Date.now()` the render is meant to read.
+    "react/refs": "off",
+    "react/immutability": "off",
+    "react/set-state-in-effect": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/static-components": "off",
+    "react/purity": "off",
+    "react/use-memo": "off",
+    // Every hit is `for (const x of [...collection])`: a snapshot taken so a
+    // listener that subscribes or unsubscribes while being notified cannot
+    // change the walk. Removing the copy changes behaviour.
+    "unicorn/no-useless-spread": "off",
+    // Every hit passes a length TypeScript already types as a number, which is
+    // the ambiguity the rule guards against. Most are deliberate preallocation
+    // in hot paths (markdown parse, incremental render, transcript search,
+    // deck trace), where `Array.from({ length })` walks the iterator protocol.
+    "unicorn/no-new-array": "off"
   }
 }

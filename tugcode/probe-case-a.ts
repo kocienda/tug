@@ -42,7 +42,6 @@ function send(msg: object) {
   proc.stdin.write(json);
 }
 
-let handshakeDone = false;
 let messageSent = false;
 let interruptSent = false;
 const wireFramesSinceInterrupt: string[] = [];

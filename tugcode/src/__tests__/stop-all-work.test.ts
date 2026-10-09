@@ -66,7 +66,6 @@ async function captureIpc(
   const captured: OutboundMessage[] = [];
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       const text =
@@ -91,15 +90,12 @@ async function captureIpc(
     );
   };
   const originalExit = process.exit;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process as any).exit = () => {};
   try {
     await fn();
     await drainPendingWrites();
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (process as any).exit = originalExit;
   }
   return captured;
@@ -123,7 +119,6 @@ function makeManager(): {
   const spawns: Array<{ id: string | null; mode: string }> = [];
   const groupSignals: Array<{ pid: number; signal: string }> = [];
   const stoppedTasks: string[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = manager as any;
   m.spawnClaude = (id: string | null, mode: string) => {
     spawns.push({ id, mode });
@@ -146,7 +141,6 @@ describe("handleStopAllWork", () => {
     const { manager, sessionId, spawns, groupSignals, stoppedTasks } =
       makeManager();
     const handle = politeClaudeChild(4242);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = manager as any;
     m.claudeProcess = handle.child;
     const turn = new ActiveTurn(0, []);
@@ -169,7 +163,6 @@ describe("handleStopAllWork", () => {
     expect(groupSignals).toEqual([{ pid: 4242, signal: "SIGKILL" }]);
     // The in-flight turn was flagged so the drain's EOF closed it as a
     // cancel, not an error — and closed it: the manager holds no turn now.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((turn as any).interrupted).toBe(true);
     expect(m.activeTurn).toBeNull();
     // Then the respawn: `--resume`, the card stays bound.
@@ -179,7 +172,6 @@ describe("handleStopAllWork", () => {
     // Rung 4: the answer names the session — the frame [P12] turns on.
     const done = emitted.find((e) => e.type === "stop_all_work_done");
     expect(done).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((done as any).tug_session_id).toBe(sessionId);
     // And the latch is released for the next teardown.
     expect(m.forceTerminateInProgress).toBe(false);
@@ -187,7 +179,6 @@ describe("handleStopAllWork", () => {
 
   test("a stop racing a wedge recovery answers done without a second respawn", async () => {
     const { manager, sessionId, spawns } = makeManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = manager as any;
     m.claudeProcess = politeClaudeChild(4242).child;
     m.forceTerminateInProgress = true;
@@ -198,7 +189,6 @@ describe("handleStopAllWork", () => {
 
     expect(spawns.length).toBe(0);
     const done = emitted.find((e) => e.type === "stop_all_work_done");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((done as any)?.tug_session_id).toBe(sessionId);
     // The recovery still owns the latch.
     expect(m.forceTerminateInProgress).toBe(true);
@@ -206,7 +196,6 @@ describe("handleStopAllWork", () => {
 
   test("a teardown that throws still answers done", async () => {
     const { manager, sessionId } = makeManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = manager as any;
     m.claudeProcess = politeClaudeChild(4242).child;
     m.respawnResume = () => {
@@ -224,7 +213,6 @@ describe("handleStopAllWork", () => {
 
     expect(threw).toBe(true);
     const done = emitted.find((e) => e.type === "stop_all_work_done");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((done as any)?.tug_session_id).toBe(sessionId);
     expect(m.forceTerminateInProgress).toBe(false);
   });

@@ -71,20 +71,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 // ---------------------------------------------------------------------------
 
 /**
- * Shared selector for the first-size (`sm`) TugInput inside a given
- * gallery-input card. Each seeded card lives under its own
- * `[data-card-id]` subtree, so qualifying the lookup by cardId
- * disambiguates them even though all cards render the same componentStatePreservationKey
- * set. The `sm` variant is the first input in the gallery-input content
- * — the same target m01/m03 probe.
- */
-const INPUT_PERSIST_KEY = "gallery-input/size/sm";
-
-function inputSelectorFor(cardId: string): string {
-  return `[data-card-id="${cardId}"] [data-tug-state-key="${INPUT_PERSIST_KEY}"]`;
-}
-
-/**
  * Selector for a tab in the current pane's tab bar. `tug-tab-bar`
  * stamps `data-testid="tug-tab-${cardId}"` on each tab; this is the
  * canonical click target for tab-switch drivers.

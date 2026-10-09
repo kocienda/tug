@@ -230,7 +230,7 @@ export function tugtool(args: string[], opts: TugtoolRun): string {
         opts.stdin === undefined
           ? "ignore"
           : new TextEncoder().encode(opts.stdin),
-      env: { ...process.env, ...(opts.env ?? {}) },
+      env: { ...process.env, ...opts.env },
     });
     if (out.exitCode === 0) return out.stdout.toString();
     last = {
@@ -842,7 +842,7 @@ export function bindArc(
         cwd: projectDir,
         env: {
           ...process.env,
-          ...(opts.env ?? {}),
+          ...opts.env,
           TUG_SESSION_ID: tugSessionId,
         },
       },
@@ -888,7 +888,7 @@ export function bindArcAtTheDoor(
         cwd: projectDir,
         env: {
           ...process.env,
-          ...(opts.env ?? {}),
+          ...opts.env,
           TUG_SESSION_ID: tugSessionId,
         },
       },
@@ -1063,7 +1063,7 @@ export function makeArcScratchRepo(opts: ArcScratchOpts): ArcScratchRepo {
   const files: Record<string, string> = {
     "README.md": `${opts.prefix} scratch repository\n`,
     ".tugtool/config.toml": "[tugtool.arc]\n",
-    ...(opts.files ?? {}),
+    ...opts.files,
   };
   for (const [path, body] of Object.entries(files)) {
     const full = join(repo, path);

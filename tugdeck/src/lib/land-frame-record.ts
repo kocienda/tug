@@ -381,7 +381,10 @@ class LandRecorder {
   private installReads(): void {
     if (this.readsInstalled || typeof Element === "undefined") return;
     this.readsInstalled = true;
-    const recorder = this;
+    // The patched getters and methods run with the element as `this`, so the
+    // recorder is reached through arrows that close over this one.
+    const armed = (): boolean => this.armed;
+    const read = (start: number, ms: number): void => this.read(start, ms);
     for (const { proto, name } of READ_GETTERS) {
       const owner = proto();
       const descriptor = Object.getOwnPropertyDescriptor(owner, name);
@@ -392,10 +395,10 @@ class LandRecorder {
         enumerable: descriptor.enumerable,
         set: descriptor.set,
         get(this: unknown) {
-          if (!recorder.armed) return get.call(this);
+          if (!armed()) return get.call(this);
           const start = performance.now();
           const value = get.call(this);
-          recorder.read(start, performance.now() - start);
+          read(start, performance.now() - start);
           return value;
         },
       });
@@ -405,10 +408,10 @@ class LandRecorder {
       const original = owner[name];
       if (typeof original !== "function") continue;
       owner[name] = function (this: unknown, ...args: unknown[]) {
-        if (!recorder.armed) return original.apply(this, args);
+        if (!armed()) return original.apply(this, args);
         const start = performance.now();
         const value = original.apply(this, args);
-        recorder.read(start, performance.now() - start);
+        read(start, performance.now() - start);
         return value;
       };
     }

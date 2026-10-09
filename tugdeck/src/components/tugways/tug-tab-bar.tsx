@@ -381,7 +381,7 @@ function useTabOverflow(
         rafIdRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-measures on the tab count, the active card and the titles
   }, [cards.length, activeCardId, titleKey]);
 
   return { overflowTabs };

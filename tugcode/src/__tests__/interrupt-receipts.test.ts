@@ -67,7 +67,6 @@ async function captureIpc(
   const captured: OutboundMessage[] = [];
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       const text =
@@ -92,7 +91,6 @@ async function captureIpc(
     );
   };
   const originalExit = process.exit;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process as any).exit = () => {};
   try {
     await fn();
@@ -100,9 +98,7 @@ async function captureIpc(
     // serialized tail, so frames land a microtask after `fn` returns.
     await drainPendingWrites();
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (process as any).exit = originalExit;
   }
   return captured;
@@ -117,7 +113,6 @@ function makeManager(): SessionManager {
     claudeHome: ClaudeHome.at("/tmp/interrupt-receipts-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (manager as any).spawnClaude = () => mockClaudeChild().child;
   return manager;
 }
@@ -137,10 +132,8 @@ describe("interrupt receipts — no silent early return", () => {
 
     const receipts = noops(emitted);
     expect(receipts).toHaveLength(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((receipts[0] as any).reason).toBe("no_process");
     // The receipt names the session, so the supervisor can route it.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(typeof (receipts[0] as any).tug_session_id).toBe("string");
     // Nothing else went out — no turn ended, because there was no turn.
     expect(emitted.some((e) => e.type === "turn_cancelled")).toBe(false);
@@ -150,9 +143,7 @@ describe("interrupt receipts — no silent early return", () => {
   test("a live claude with no turn emits interrupt_noop{no_turn} and arms nothing", async () => {
     const manager = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).activeTurn).toBeNull();
 
     const emitted = await captureIpc(() => {
@@ -161,22 +152,18 @@ describe("interrupt receipts — no silent early return", () => {
 
     const receipts = noops(emitted);
     expect(receipts).toHaveLength(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((receipts[0] as any).reason).toBe("no_turn");
     // The control request still reached stdin — harmless, and claude may act
     // on it — but no escalation is armed, because there is no turn to force.
     expect(handle.writes.length).toBeGreaterThan(0);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).interruptEscalationTimer).toBeNull();
   });
 
   test("a real interrupt on a live turn receipts nothing and arms the escalation", async () => {
     const manager = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
     const turn = new ActiveTurn(0, []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).activeTurn = turn;
 
     const emitted = await captureIpc(() => {
@@ -186,7 +173,6 @@ describe("interrupt receipts — no silent early return", () => {
     // The ordinary path keeps its silence: a turn that can end needs no
     // receipt, because its ending is the receipt.
     expect(noops(emitted)).toHaveLength(0);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).interruptEscalationTimer).not.toBeNull();
     expect(turn.interrupted).toBe(true);
     expect(turn.interruptCause).toBe("user");
@@ -194,15 +180,12 @@ describe("interrupt receipts — no silent early return", () => {
 
   test("when that escalation fires, exactly one turn_cancelled reaches the wire", async () => {
     const manager = makeManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = mockClaudeChild().child;
     const turn = new ActiveTurn(0, []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).activeTurn = turn;
 
     const emitted = await captureIpc(async () => {
       manager.handleInterrupt();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (manager as any).forceTerminateAndRespawn("interrupt_unacked");
     });
 
@@ -213,7 +196,6 @@ describe("interrupt receipts — no silent early return", () => {
     // and writes nothing. That is what keeps the count at one.
     expect(noops(emitted)).toHaveLength(0);
     // The user started it; tugcode only had to press harder.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((cancels[0] as any).is_recovery).toBeUndefined();
   });
 });

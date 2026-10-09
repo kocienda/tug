@@ -50,9 +50,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
@@ -78,7 +77,6 @@ const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
-const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 // The bespoke `/arc-join` receipt block — the generic shell fallback carries a
 // different slot, so this selector is also the assertion that it parsed.
@@ -171,30 +169,6 @@ function deckShape() {
 }
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
-
-async function clickUntil(app: App, target: string, expected: string, attempts = 5): Promise<void> {
-  for (let i = 0; i < attempts; i += 1) {
-    await app.evalJS<null>(
-      `(() => {
-         const el = document.querySelector(${JSON.stringify(target)});
-         if (el !== null) el.scrollIntoView({ block: "center" });
-         return null;
-       })()`,
-    );
-    await settle();
-    await app.nativeClickAtElement(target);
-    try {
-      await app.waitForCondition<boolean>(
-        `document.querySelector(${JSON.stringify(expected)}) !== null`,
-        { timeoutMs: 3000 },
-      );
-      return;
-    } catch {
-      note(`at0436 click on ${target} did not land (attempt ${i + 1})`);
-    }
-  }
-  throw new Error(`at0436: ${expected} never appeared after clicking ${target}`);
-}
 
 async function raiseShade(app: App): Promise<void> {
   await app.nativeClickAtElement(EDITOR);

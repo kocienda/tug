@@ -11,6 +11,8 @@
   "description": "Claude Code bridge — stream-json IPC between Claude Code and tugcast",
   "private": true,
   "scripts": {
+    "check": "bunx tsc --noEmit",
+    "lint": "../tugdeck/node_modules/.bin/oxlint -c ../tugdeck/.oxlintrc.json --deny-warnings .",
     "test": "bun test"
   },
   "type": "module"

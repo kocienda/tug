@@ -128,7 +128,6 @@ import {
 } from "./tug-editor-context-menu";
 import {
   buildTextEditingMenuItems,
-  type TextEditingMenuCapabilities,
 } from "./text-editing-menu";
 import type { TextSelectionAdapter } from "./text-selection-adapter";
 import {

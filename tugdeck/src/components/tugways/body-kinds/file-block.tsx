@@ -433,13 +433,15 @@ export const FileBlock: React.FC<FileBlockProps> = ({
 }) => {
   // Derived display state — line count + language detection drive
   // the header label and the collapse default.
+  const content = data?.content;
+  const filePath = data?.filePath;
   const lines = React.useMemo(
-    () => (data === undefined ? [] : splitContentLines(data.content)),
-    [data?.content],
+    () => (content === undefined ? [] : splitContentLines(content)),
+    [content],
   );
   const language = React.useMemo(
-    () => (data === undefined ? undefined : detectLanguage(data.filePath)),
-    [data?.filePath],
+    () => (filePath === undefined ? undefined : detectLanguage(filePath)),
+    [filePath],
   );
   const numLines = data?.numLines ?? lines.length;
   const headerLabel = composeLineCountLabel(numLines, data?.totalLines);

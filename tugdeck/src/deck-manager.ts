@@ -100,7 +100,6 @@ import {
 } from "./deck-store-selectors";
 import { resolveCloseSuccessor } from "./lib/close-successor";
 import { fitHeights, railNaturalOf } from "./lib/rail-fit";
-import { getTugbankClient } from "./lib/tugbank-singleton";
 import { sidebarWidthStore } from "./lib/sidebar-width-store";
 import {
   clampRailWidth,
@@ -126,7 +125,6 @@ import { ErrorBoundary } from "./components/chrome/error-boundary";
 import {
   CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
   paneCanvasOf,
-  SHOWN_PANE_FRAMES,
   SPACE_SWITCHING_ATTRIBUTE,
 } from "./components/chrome/space-layer";
 import { TugBannerProvider } from "./components/chrome/tug-banner-bridge";
@@ -179,7 +177,6 @@ import {
   railGapBottomPx,
   RAIL_SEAM_PX,
   stripRevealOffset,
-  RESIZE_RETUNE_QUIET_MS,
   withRailOrder,
   withSidebarMovedToRail,
   withColumnMode,
@@ -805,7 +802,7 @@ export function sheetReservationsWith(
     return Object.keys(rest).length === 0 ? undefined : rest;
   }
   if (standing?.[memberId] === height) return standing;
-  return { ...(standing ?? {}), [memberId]: height };
+  return { ...standing, [memberId]: height };
 }
 
 /**
@@ -895,7 +892,7 @@ export function openingBidsWith(
     return Object.keys(rest).length === 0 ? undefined : rest;
   }
   if (standing?.[memberId] === height) return standing;
-  return { ...(standing ?? {}), [memberId]: height };
+  return { ...standing, [memberId]: height };
 }
 
 /**
@@ -919,7 +916,7 @@ export function arrivingWith(
     return Object.keys(rest).length === 0 ? undefined : rest;
   }
   if (standing?.[paneId] === true) return standing;
-  return { ...(standing ?? {}), [paneId]: true };
+  return { ...standing, [paneId]: true };
 }
 
 /**
@@ -4478,9 +4475,9 @@ export class DeckManager implements IDeckManagerStore {
     this.deckState = { ...this.deckState, panes };
     this.deckState = {
       ...this.deckState,
-      ...(this._flowRetuneTerms(panes, imposition) ?? {}),
-      ...(this._columnRetuneTerms(panes, imposition) ?? {}),
-      ...(this._railRetuneTerms(panes, imposition) ?? {}),
+      ...this._flowRetuneTerms(panes, imposition),
+      ...this._columnRetuneTerms(panes, imposition),
+      ...this._railRetuneTerms(panes, imposition),
     };
   }
 
@@ -5498,7 +5495,7 @@ export class DeckManager implements IDeckManagerStore {
     if (reveal === undefined) return {};
     return {
       columnOffsets: {
-        ...(this.deckState.columnOffsets ?? {}),
+        ...this.deckState.columnOffsets,
         [reveal.slot]: reveal.offset,
       },
     };
@@ -5653,7 +5650,7 @@ export class DeckManager implements IDeckManagerStore {
     if (reveal === undefined) return {};
     return {
       railOffsets: {
-        ...(this.deckState.railOffsets ?? {}),
+        ...this.deckState.railOffsets,
         [reveal.side]: reveal.offset,
       },
     };
@@ -8174,8 +8171,6 @@ export class DeckManager implements IDeckManagerStore {
     // Fresh-bag invariant: see method docstring. `"manual"` tag per
     // the pre-move flush convention shared with `_detachCard`.
     this.invokeSaveCallback(cardId, "manual");
-
-    const sourceWillBeDestroyed = sourceStack.cardIds.length === 1;
 
     // Post-move `activePaneId`: always shift to the target. Cross-
     // pane move is exclusively driven by the user's drag gesture

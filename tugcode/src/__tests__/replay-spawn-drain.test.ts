@@ -160,7 +160,6 @@ function makeDrainRig(opts?: {
   const respawns: MockClaudeStdout[] = [];
   let spawned = 0;
   let failNext = false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (manager as any).spawnClaude = () => {
     if (failNext) {
       failNext = false;
@@ -178,7 +177,6 @@ function makeDrainRig(opts?: {
   const emitted: OutboundMessage[] = [];
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       let text = "";
@@ -202,7 +200,6 @@ function makeDrainRig(opts?: {
 
   // Stub process.exit so tests don't kill the runner.
   const originalExit = process.exit;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process as any).exit = (_code?: number) => {};
 
   return {
@@ -222,9 +219,7 @@ function makeDrainRig(opts?: {
       await new Promise((r) => setImmediate(r));
     },
     cleanup() {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (Bun as any).write = originalWrite;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (process as any).exit = originalExit;
     },
   };

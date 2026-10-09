@@ -19,7 +19,7 @@
  * - register non-root node does NOT auto-promote when firstResponderId is null
  */
 
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { ResponderChainManager } from "../components/tugways/responder-chain";
 import type { ActionEvent, ActionHandler } from "../components/tugways/responder-chain";
 import type { TugAction } from "../components/tugways/action-vocabulary";

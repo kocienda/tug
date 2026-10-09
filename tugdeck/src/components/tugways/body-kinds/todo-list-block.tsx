@@ -78,7 +78,6 @@ import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   TugProgressIndicator,
-  type TugProgressIndicatorState,
 } from "@/components/tugways/tug-progress-indicator";
 import {
   TugListView,

@@ -279,7 +279,7 @@ export const TugAtomMarkdownBody = React.forwardRef<
     setMounts(
       hosts.map((host, i) => ({ host, atom: atoms[i], key: `atom-${i}` })),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the atoms ride the text; the effect below re-tags them
   }, [text]);
 
   // The roots a project-relative atom value resolves against arrive after
@@ -291,7 +291,7 @@ export const TugAtomMarkdownBody = React.forwardRef<
   React.useLayoutEffect(() => {
     if (mounts.length === 0) return;
     tagAtomHosts(mounts.map((m) => m.host), atoms, atomPathRoots);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the atoms ride the text that produced `mounts`
   }, [mounts, atomPathRoots]);
 
   const setRefs = React.useCallback(

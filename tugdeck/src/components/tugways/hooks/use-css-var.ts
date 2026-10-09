@@ -67,7 +67,5 @@ export function useCSSVar(
     return () => {
       el.style.removeProperty(name);
     };
-    // ref is intentionally excluded: React ref objects are stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, value]);
+  }, [ref, name, value]);
 }

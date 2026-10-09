@@ -439,6 +439,7 @@ function OpenQuicklyBody(): React.ReactElement {
       wrapped.subscribe = (listener: () => void) => base.subscribe!(listener);
     }
     return wrapped;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `root?.workspaceKey` is the rebuild key named above; the base provider is read through `stackRef`
   }, [projectDir, root?.workspaceKey]);
 
   const commit = (item: CompletionItem): void => {
@@ -508,7 +509,7 @@ function OpenQuicklyBody(): React.ReactElement {
     };
     // `client` is the process-long singleton and `bindingRef` is captured at
     // open; the default directory is the only thing here that moves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `client` is a singleton and `bindingRef` is captured at open, per the note above
   }, [defaultPath]);
 
   // ---- Re-scoping ----

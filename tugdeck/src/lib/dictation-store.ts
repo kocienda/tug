@@ -209,7 +209,7 @@ export class DictationStore {
    * of — {@link finishThen}'s continuation. Cleared by every close, so it can
    * outlive neither its claim nor an end that was not the finish it waited on.
    */
-  private afterFinish: { readonly sessionId: string; readonly then: () => void } | null =
+  private afterFinish: { readonly sessionId: string; readonly run: () => void } | null =
     null;
 
   private readonly transport: DictationTransport;
@@ -386,7 +386,7 @@ export class DictationStore {
     this.afterFinish = null;
     const then =
       pending !== null && pending.sessionId === claim.sessionId && promote && hostAlreadyEnded
-        ? pending.then
+        ? pending.run
         : null;
     claim.handle.end(promote);
     if (!hostAlreadyEnded) this.transport.stop(claim.sessionId);
@@ -422,7 +422,7 @@ export class DictationStore {
   finishThen(composerId: string, then: () => void): boolean {
     const claim = this.state.claim;
     if (claim === null || claim.composerId !== composerId) return false;
-    this.afterFinish = { sessionId: claim.sessionId, then };
+    this.afterFinish = { sessionId: claim.sessionId, run: then };
     if (claim.phase !== "finishing") this.beginFinish(claim, "stopped");
     return true;
   }

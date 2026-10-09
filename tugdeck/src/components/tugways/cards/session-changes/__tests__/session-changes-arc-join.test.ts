@@ -16,7 +16,6 @@ import {
 import { joinDisabledReason } from "@/lib/join-mode-controller";
 import type {
   ArcJoinBlockerWire,
-  ArcResolvedFileWire,
 } from "@/lib/changeset-types";
 
 const blocker = (

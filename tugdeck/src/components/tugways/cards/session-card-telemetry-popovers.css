@@ -213,12 +213,14 @@
   white-space: nowrap;
 }
 
+/* @tug-motion-hold ./session-card-telemetry-popovers.tsx */
 .session-time-popover-inflight-dot {
   inline-size: 6px;
   block-size: 6px;
   border-radius: 50%;
   background-color: var(--tug7-element-global-text-normal-info-rest);
-  animation: session-time-popover-pulse 1.6s ease-in-out infinite;
+  animation: session-time-popover-pulse 1.6s ease-in-out
+    var(--tug-loop-iterations, infinite);
 }
 
 @keyframes session-time-popover-pulse {

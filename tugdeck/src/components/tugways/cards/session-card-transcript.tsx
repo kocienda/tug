@@ -202,7 +202,6 @@ import {
   stageBoundaryParts,
   type StageBoundaryFacts,
 } from "@/lib/code-session-store/stages";
-import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
 import {
   resolveCommandAttribution,
@@ -236,7 +235,6 @@ import {
   type RowParseCountersSnapshot,
 } from "@/lib/markdown/parse-counters";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
-import type { Message, ToolUseMessage } from "@/lib/code-session-store/types";
 import { useLifecycleState } from "@/lib/code-session-store/hooks/use-lifecycle-state";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { TranscriptSettingsStore } from "@/lib/transcript-settings-store";
@@ -344,6 +342,7 @@ function isCompactAcknowledgement(text: string): boolean {
  * `imageAtoms`.
  */
 const EMPTY_ATOMS: ReadonlyArray<AtomSegment> = [];
+const NO_MESSAGES: ReadonlyArray<never> = [];
 
 /**
  * An arc's stage boundary — the server rotated this card onto a fresh
@@ -803,7 +802,6 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   row,
   dataSource,
   codeSessionStore,
-  shellSessionStore,
   pendingContextStore,
   sessionMetadataStore,
 }: ShellTurnCellProps) {
@@ -840,12 +838,13 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   // One stable callback ref for both the responder registration and the menu /
   // Select All body anchor. Inline would mint a new function each render, and
   // React detaches + reattaches a changed callback ref on every one.
+  const responderRef = cellProps.ref;
   const cellRef = useCallback(
     (el: HTMLDivElement | null) => {
-      cellProps.ref(el);
+      responderRef(el);
       bodyRef.current = el;
     },
-    [cellProps.ref, bodyRef],
+    [responderRef, bodyRef],
   );
   const turn = row.turn;
   const message = turn?.messages[0];
@@ -1051,12 +1050,13 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     insertTarget,
   });
+  const responderRef = cellProps.ref;
   const cellRef = useCallback(
     (el: HTMLDivElement | null) => {
-      cellProps.ref(el);
+      responderRef(el);
       bodyRef.current = el;
     },
-    [cellProps.ref, bodyRef],
+    [responderRef, bodyRef],
   );
   const turn = row.turn;
   const message = turn?.messages[0];
@@ -1735,7 +1735,7 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   // (memoized on the array + bounds) rather than carry a fresh array on
   // the descriptor — keeping the memo gate reference-stable for
   // committed rows.
-  const allMessages = turn?.messages ?? row.activeTurn?.messages ?? [];
+  const allMessages = turn?.messages ?? row.activeTurn?.messages ?? NO_MESSAGES;
   const messageStart = row.messageStart ?? 0;
   const messageEnd = row.messageEnd ?? allMessages.length;
   const messages = useMemo(
@@ -2771,6 +2771,7 @@ export const SessionTranscriptHost = forwardRef<
     () => buildTranscriptSearchSegments(dataSource, streamingStore, toolBlockExpansion),
     // `codeSnapshot` changes identity on every transcript mutation;
     // `expansionVersion` bumps on every expand/collapse toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `codeSnapshot` and `expansionVersion` are the invalidation keys named above; the builder reads the live stores
     [dataSource, streamingStore, toolBlockExpansion, codeSnapshot, expansionVersion],
   );
   // The transcript's find ENGINE — the session's delegate: the session owns
@@ -3071,8 +3072,6 @@ export const SessionTranscriptHost = forwardRef<
       highlighter.clear();
       return;
     }
-    const getElementForIndex = (index: number): HTMLElement | null =>
-      listViewRef.current?.getElementForIndex(index) ?? null;
     const activeMatch = activeIndex >= 0 ? matches[activeIndex] : undefined;
     const activeKey =
       activeMatch !== undefined
@@ -3169,7 +3168,7 @@ export const SessionTranscriptHost = forwardRef<
     findRenderedRangeRef.current = range;
     const highlighter = findHighlighterRef.current;
     if (highlighter === null) return;
-    const { query, options } = findSession.getSnapshot();
+    const { query } = findSession.getSnapshot();
     const { matches } = findEngine.getSnapshot();
     if (matches.length === 0 || query === "") {
       highlighter.clear();
@@ -3310,7 +3309,6 @@ export const SessionTranscriptHost = forwardRef<
               // evicted row occupied no pixels of its own before, and the
               // spacer occupies exactly the pixels it did.
               evictOffscreen={!transcriptEvictionDisabled}
-              pageByEntry
               // The transcript is a read-only stream surface: its rows are
               // prose and tool blocks, not pickable list items. Without this,
               // the un-authored default makes every row wrapper (and the

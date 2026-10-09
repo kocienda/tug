@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import { TugbankClient } from "@/lib/tugbank-client";
 import type { TugConnection } from "@/connection";
-import { FeedId } from "@/protocol";
 
 /** Minimal fake connection that captures the DEFAULTS frame handler. */
 function fakeConnection(): {

@@ -51,7 +51,6 @@ import {
   FocusModeContext,
 } from "./focus-manager";
 import type { CycleDisposition, FocusCommit } from "./focus-manager";
-import type { SpatialDirection } from "./spatial-order";
 import { CardIdContext } from "@/lib/card-id-context";
 
 /**

@@ -364,7 +364,7 @@ describe("HeightIndex — prepared (Fenwick) fast path", () => {
 });
 
 describe("HeightIndex — shift (prepend remap)", () => {
-  const est = (_: number) => 10;
+  const est = () => 10;
 
   test("remaps measured heights by +by, leaving values intact", () => {
     const idx = new HeightIndex();

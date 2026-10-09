@@ -2610,6 +2610,9 @@ export function useSettleEngine({
     };
     const unsubscribe = store.subscribeSync?.(arm, "canvas-arm") ?? store.subscribe(arm);
     return () => {
+      /* eslint-disable react-hooks/exhaustive-deps -- every ref read here is
+         a record this hook owns and never reassigns, or a latest-callback ref:
+         the teardown means to reach what they hold now, not at arm time. */
       unsubscribe();
       settleSweepRef.current = null;
       settleReleaseRef.current = null;
@@ -2670,8 +2673,9 @@ export function useSettleEngine({
       // one no longer holds. This teardown being the one path with no notice
       // is exactly why the drop has to be made here by hand.
       dropPendingFlash();
+      /* eslint-enable react-hooks/exhaustive-deps */
     };
-  }, [store, openMotionGate, openMotionGateAfterLand, closeMotionGate, teardownForTest]);
+  }, [store, containerRef, openMotionGate, openMotionGateAfterLand, closeMotionGate, teardownForTest]);
 
   // Last, and the tween. Declared AFTER the inset effect above, and that order
   // is load-bearing: React runs layout effects in declaration order, and the
@@ -4467,7 +4471,7 @@ export function useSettleEngine({
     holdPlan.survivors.clear();
     holdPlan.covered.clear();
     holdPlan.held.clear();
-  }, [arrangement]);
+  }, [arrangement, containerRef, closeMotionGate, closeMotionGateAfterPaint]);
 
   return { pendingArrivalsRef, settleCommitSeqRef };
 }

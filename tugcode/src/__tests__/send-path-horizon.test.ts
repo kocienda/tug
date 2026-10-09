@@ -69,7 +69,6 @@ async function captureIpc(
   const captured: OutboundMessage[] = [];
   const originalWrite = Bun.write;
   const decoder = new TextDecoder();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (Bun as any).write = (dest: unknown, data: unknown) => {
     if (dest === Bun.stdout) {
       const text =
@@ -96,7 +95,6 @@ async function captureIpc(
     await fn();
     await drainPendingWrites();
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).write = originalWrite;
   }
   return captured;
@@ -111,7 +109,6 @@ function makeManager(): SessionManager {
     claudeHome: ClaudeHome.at("/tmp/send-path-horizon-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (manager as any).sendHorizonMs = TEST_HORIZON_MS;
   return manager;
 }
@@ -125,7 +122,6 @@ function errorsWithSite(
   emitted: ReadonlyArray<OutboundMessage>,
   site: string,
 ): OutboundMessage[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return emitted.filter((e) => e.type === "error" && (e as any).site === site);
 }
 
@@ -135,11 +131,9 @@ describe("send-path horizon — the readiness gate", () => {
     const handle = mockClaudeChild();
     // A claude is seated, so the submit would have gone through were the
     // gate not still held — the timeout is the only thing stopping it.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
     // The gate `prepareSession()` establishes, with the spawn that would
     // resolve it never arriving.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeReadyPromise = new Promise<void>(() => {});
 
     const started = Date.now();
@@ -150,22 +144,18 @@ describe("send-path horizon — the readiness gate", () => {
 
     const frames = errorsWithSite(emitted, "send_ready_timeout");
     expect(frames).toHaveLength(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((frames[0] as any).recoverable).toBe(true);
     // It ended on its own horizon, not on some ambient timeout further out.
     expect(elapsed).toBeLessThan(TEST_HORIZON_MS * 20);
     // And it gave up without touching claude: no stdin write, no turn.
     expect(handle.writes).toEqual([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((manager as any).activeTurn).toBeNull();
   });
 
   test("a gate that resolves in time emits nothing and lets the submit run", async () => {
     const manager = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeReadyPromise = Promise.resolve();
 
     const emitted = await captureIpc(() => {
@@ -187,12 +177,9 @@ describe("send-path horizon — the respawn gate", () => {
   test("a respawn gate that never clears ends the submit in send_respawn_timeout", async () => {
     const manager = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
     // The readiness gate is satisfied, so this is the second wait alone.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeReadyPromise = Promise.resolve();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).respawnGate = new Promise<void>(() => {});
 
     const emitted = await captureIpc(async () => {
@@ -213,15 +200,12 @@ describe("send-path horizon — the respawn gate", () => {
     // buy time forever. One deadline covers the loop.
     const manager = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeReadyPromise = Promise.resolve();
 
     let replacing = true;
     const replaceGate = (): void => {
       if (!replacing) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (manager as any).respawnGate = new Promise<void>((resolve) => {
         setTimeout(() => {
           resolve();
@@ -246,16 +230,12 @@ describe("send-path horizon — the respawn gate", () => {
   test("a gate that clears inside the horizon lets the submit through", async () => {
     const manager = makeManager();
     const handle = mockClaudeChild();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeProcess = handle.child;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).claudeReadyPromise = Promise.resolve();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (manager as any).respawnGate = new Promise<void>((resolve) => {
       setTimeout(() => {
         // The real `respawn()` clears the field in its `finally` before it
         // releases; the loop reads the field, so the test must do both.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (manager as any).respawnGate = null;
         resolve();
       }, Math.floor(TEST_HORIZON_MS / 4));

@@ -35,7 +35,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp } from "./_harness";
 import { projectClaudeDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

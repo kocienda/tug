@@ -186,9 +186,6 @@ import type {
 /** The card's focus group — every stop it offers lives here. */
 const ARCS_FOCUS_GROUP = "arcs-card";
 
-/** A stable subscribe for a card that has no session store yet ([L02]). */
-const NOOP_SUBSCRIBE = (): (() => void) => () => {};
-
 // ---------------------------------------------------------------------------
 // Projection
 // ---------------------------------------------------------------------------
@@ -881,6 +878,21 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
 }: TugListViewCellProps<CockpitRowsDataSource>) => {
   const row = dataSource.rows[index];
   if (row === undefined) return null;
+  return <ArcRowCell row={row} dataSource={dataSource} />;
+};
+
+/**
+ * One arc's row, for a row that exists. The guard above stays in `ArcCell`
+ * so every hook below runs on every render of this component: a hook after
+ * an early return changes the hook order the render that flips it sees.
+ */
+function ArcRowCell({
+  row,
+  dataSource,
+}: {
+  row: ArcRow;
+  dataSource: CockpitRowsDataSource;
+}): React.ReactElement {
   const entry = row.entry;
   const worker = entry.bound_session ?? null;
   // What a click on this row would do — and therefore what the row is allowed
@@ -1085,7 +1097,7 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       </span>
     </TugListRow>
   );
-};
+}
 
 /**
  * A waiting plan document, in the section's own two-line grammar: an eyebrow

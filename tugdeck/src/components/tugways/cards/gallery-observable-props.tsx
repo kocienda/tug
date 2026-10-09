@@ -212,7 +212,6 @@ export function GalleryObservableProps({ cardId }: { cardId: string }) {
       unsub2();
       unsub3();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store]);
 
   // ---------------------------------------------------------------------------

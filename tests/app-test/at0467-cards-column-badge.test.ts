@@ -231,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
         // than a boolean.
         const sharers = stacked.filter((r) => r.character === "3");
         expect(
-          [...sharers.map((r) => r.lit)].sort(),
+          sharers.map((r) => r.lit).sort(),
           "three cards in one place mark three different slices",
         ).toEqual(["bottom", "middle", "top"]);
         // And the marks are not merely distinct, they are oriented: the card

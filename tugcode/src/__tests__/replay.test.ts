@@ -156,9 +156,6 @@ function isTurnComplete(m: OutboundMessage): m is TurnComplete {
 function isReplayStarted(m: OutboundMessage): m is ReplayStarted {
   return m.type === "replay_started";
 }
-function isReplayComplete(m: OutboundMessage): m is ReplayComplete {
-  return m.type === "replay_complete";
-}
 
 // ---------------------------------------------------------------------------
 // extractTurnCostFromUsage — JSONL usage → TurnCost (Spec S01)

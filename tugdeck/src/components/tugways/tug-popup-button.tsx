@@ -93,7 +93,6 @@ import type { TugButtonSize } from "./internal/tug-button";
 import { TugPopupMenu } from "./internal/tug-popup-menu";
 import type { TugPopupMenuItem } from "./internal/tug-popup-menu";
 import type { TugAction } from "./action-vocabulary";
-import { TUG_ACTIONS } from "./action-vocabulary";
 import { useControlDispatch } from "./use-control-dispatch";
 import type { FocusPolicy } from "./focus-manager";
 

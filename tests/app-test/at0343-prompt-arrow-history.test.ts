@@ -39,7 +39,6 @@ const CARD = '[data-card-id="A"]';
 const ENTRY = `${CARD} .tug-prompt-entry`;
 const EDITOR_HOST = `${ENTRY} .tug-text-editor`;
 const EDITOR_CONTENT = `${EDITOR_HOST} .cm-content`;
-const INPUT_AREA = `${ENTRY} .tug-prompt-entry-input-area`;
 const SUBMITTED = "at0343-history-entry";
 
 function deckShape() {
@@ -95,22 +94,6 @@ function docText(app: App): Promise<string> {
     `Array.from(document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT} .cm-line`)}))
       .map(function(l){ return l.textContent || ""; })
       .join("\\n")`,
-  );
-}
-
-/**
- * A short address for whichever stop wears the keyboard ring: its authored
- * focus key when it has one, else its class list. (Not every cycle stop
- * carries a focus-key attribute — the beat strip's legend, for one — so the
- * class is the reliable identity here.)
- */
-function ringAddress(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
-    `(function(){
-      var el = document.querySelector('[data-key-view-kbd]');
-      if (el === null) return null;
-      return el.getAttribute("data-tug-focus-key") || el.className;
-    })()`,
   );
 }
 

@@ -385,9 +385,9 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // count is fixed too.
         const placeRows = rows
           .slice(5)
-          .filter((id) => /^layout-card-column-/.test(id));
+          .filter((id) => id.startsWith("layout-card-column-"));
         expect(
-          rows.filter((id) => /^layout-card-rail-/.test(id)),
+          rows.filter((id) => id.startsWith("layout-card-rail-")),
           "a rail has no arrangement row",
         ).toEqual([]);
         const sidebarRows = rows.slice(5 + placeRows.length);

@@ -214,20 +214,6 @@ async function openSessionCardSection(app: App): Promise<void> {
   );
 }
 
-async function waitForText(
-  app: App,
-  selector: string,
-  text: string,
-): Promise<void> {
-  await app.waitForCondition<boolean>(
-    `(function(){
-      var el = document.querySelector(${JSON.stringify(selector)});
-      return el !== null && el.textContent.trim() === ${JSON.stringify(text)};
-    })()`,
-    { timeoutMs: 8000 },
-  );
-}
-
 describe.skipIf(!SHOULD_RUN)(
   "AT0200: Assistant defaults are chip+sheet edited, isolated per card, and guarded by the bulletin",
   () => {

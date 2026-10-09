@@ -97,6 +97,9 @@ import { writeCopyClipboard } from "@/lib/copy-clipboard";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import { useWholeEntityPress } from "@/lib/whole-entity-press";
 
+/** The no-paths fallback, one array so the item memo holds across renders. */
+const NO_PATHS: readonly string[] = [];
+
 /** What the menu is offered for, and what each item has to write. */
 export interface CommitIdentityMenuOptions {
   /** The commit. Every copy item is derived from this record. */
@@ -174,7 +177,7 @@ export function useCommitIdentityMenu({
   );
   const closeMenu = React.useCallback(() => setMenuState(null), []);
 
-  const paths = commit.paths ?? [];
+  const paths = commit.paths ?? NO_PATHS;
   // The reference the whole app writes a commit as, and the header line built
   // on it — the same `commit:<8>` the row's own atom shows.
   const shortRef = `commit:${commit.sha.slice(0, SHA_DISPLAY_LEN)}`;

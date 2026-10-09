@@ -29,11 +29,6 @@ function buildEqualIndex(count: number, height: number): BlockHeightIndex {
   return idx;
 }
 
-/** Sum a BlockRange's span. */
-function rangeSize(r: BlockRange): number {
-  return r.endIndex - r.startIndex;
-}
-
 /** Collect all indices covered by an array of ranges. */
 function collectIndices(ranges: BlockRange[]): number[] {
   const out: number[] = [];

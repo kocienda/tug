@@ -93,16 +93,6 @@ function priorCardDeck() {
   };
 }
 
-/** The `aria-label` of whatever currently holds the keyboard key view. */
-async function kbdLabel(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
-    `(function(){
-      var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
-      return el === null ? null : el.getAttribute('aria-label');
-    })()`,
-  );
-}
-
 /**
  * Tab until `selector` holds the keyboard key view; throws if it never does.
  *

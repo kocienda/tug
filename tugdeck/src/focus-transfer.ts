@@ -135,7 +135,7 @@ import { mayClaimActivationFocus } from "./components/tugways/focus-manager";
 import type { FocusModality, FocusTarget } from "./components/tugways/focus-manager";
 import { mark as perfMark } from "@/lib/perf-marks";
 import type { IDeckManagerStore } from "./deck-manager-store";
-import type { CardStateBag, FocusSnapshot } from "./layout-tree";
+import type { FocusSnapshot } from "./layout-tree";
 
 /**
  * Pure mapping from a persisted `bag.focus` snapshot to the engine's

@@ -52,8 +52,6 @@ const TEST_TIMEOUT_MS = 180_000;
 const SPACE_ONE = "block-one";
 const SPACE_TWO = "block-two";
 
-const headerFor = (id: string): string =>
-  `.cards-space-header[data-cards-space-id="${id}"]`;
 /** Every element of a workspace's run — the header and its rows together. */
 const runOf = (id: string): string =>
   `.cards-list [data-cards-space-run="${id}"]`;
