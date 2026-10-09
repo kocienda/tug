@@ -240,7 +240,7 @@ pub struct ActionContext<'a> {
 ///
 /// NOTE: session-lifecycle actions (`spawn_session`, `close_session`,
 /// `reset_session`) are handled upstream by `AgentSupervisor::handle_control`
-/// in `feeds/agent_supervisor.rs` and never reach this function — per [D09]
+/// in `feeds/agent_supervisor/` and never reach this function — per [D09]
 /// the supervisor owns the per-session state machine, not the router.
 pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionContext<'_>) {
     let ActionContext {

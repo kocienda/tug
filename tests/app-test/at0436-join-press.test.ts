@@ -45,7 +45,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugdeck/src/lib/shell-session-store.ts
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs
  * @covers tugrust/crates/tugcast/src/shell_ledger.rs
  */
 

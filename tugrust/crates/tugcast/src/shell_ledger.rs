@@ -52,7 +52,7 @@ pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 ///
 /// The exemption is matched by **exact equality** against the recorded
 /// command, and the writers record the bare verb — `use-landing-receipts.ts`
-/// appends `"/arc-join"`, `agent_supervisor.rs` records `"/arc-join"` — so no
+/// appends `"/arc-join"`, `agent_supervisor/control/changeset.rs` records `"/arc-join"` — so no
 /// prefix form belongs here.
 ///
 /// The last three entries are **read-only** spellings nothing writes any more:

@@ -28,7 +28,7 @@
  * card stays in `B`.
  *
  * @covers tugcode/src/session.ts
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/spawn.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_bridge.rs
  * @covers tugdeck/src/lib/directory-change.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx

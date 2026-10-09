@@ -77,7 +77,7 @@
  * @covers tugdeck/src/lib/session-line-store.ts
  * @covers tugdeck/src/action-dispatch.ts
  * @covers tugdeck/src/connection.ts
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/spawn.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

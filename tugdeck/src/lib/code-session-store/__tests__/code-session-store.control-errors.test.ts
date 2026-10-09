@@ -62,7 +62,7 @@ describe("CodeSessionStore — session_unknown CONTROL error (T3.4.a.1)", () => 
     expect(store.getSnapshot().phase).toBe("submitting");
 
     // Supervisor's orphan-dispatcher frame (see
-    // `build_session_unknown_frame` in agent_supervisor.rs) — carries
+    // `build_session_unknown_frame` in agent_supervisor/mod.rs) — carries
     // `tug_session_id`, so the per-card filter routes it directly.
     conn.dispatchDecoded(FeedId.CONTROL, {
       type: "error",

@@ -22,10 +22,10 @@
  * interrupt branch needs a running turn, and that is pinned in Rust over a
  * `LedgerEntry` with a captured `input_rx` rather than guessed at here.
  *
- * `agent_supervisor.rs` is deliberately not named. The CONTROL `arc_stop` arm
- * and `stop_arc_now` both live there and both run in this test, but each is
- * pinned by a Rust test of its own — and that file is at its recorded
- * fan-out, which a claim already covered elsewhere is not worth widening.
+ * `agent_supervisor/control/arc.rs` is deliberately not named. The CONTROL
+ * `arc_stop` arm and `stop_arc_now` both live there and both run in this
+ * test, but each is pinned by a Rust test of its own, and a claim already
+ * covered elsewhere is not worth widening that file's fan-out for.
  * `arc_api.rs` is where this press's server-side decision actually lives.
  *
  * @covers tugdeck/src/components/tugways/arc-verb-row.tsx

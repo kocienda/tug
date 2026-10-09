@@ -38,7 +38,8 @@
  *
  *     TUG_REAL_CLAUDE=1 just app-test tests/app-test/at0619-arc-card-reload-shape.test.ts
  *
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/spawn.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/session.rs
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  */

@@ -5751,7 +5751,7 @@ function handleSessionUnknown(
   event: SessionUnknownEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   // The wire frame carries `tug_session_id` (`build_session_unknown_frame`
-  // in `agent_supervisor.rs`), so `acceptFrame`'s tsid match already
+  // in `agent_supervisor/mod.rs`), so `acceptFrame`'s tsid match already
   // routed it here: this notice is about THIS card, whatever phase it is
   // in. Accept it from any live turn rather than only the two
   // waiting-for-first-token phases — the supervisor has forgotten the

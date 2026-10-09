@@ -91,7 +91,7 @@
  * half a unit test cannot reach.
  *
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_bridge.rs
  * @covers tugrust/crates/tugarc-core/src/arc.rs
  */

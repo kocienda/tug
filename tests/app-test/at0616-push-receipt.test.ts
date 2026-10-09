@@ -45,7 +45,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
  * @covers tugdeck/src/lib/slash-commands.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs
  * @covers tugrust/crates/tugcast/src/shell_ledger.rs
  */
 

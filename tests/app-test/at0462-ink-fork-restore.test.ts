@@ -33,7 +33,8 @@
  *
  * @covers tugrust/crates/tugcast/src/ink_backfill.rs
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/telemetry.rs
  * @covers tugdeck/src/lib/shell-session-store.ts
  */
 

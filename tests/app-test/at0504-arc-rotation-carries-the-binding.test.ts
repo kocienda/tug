@@ -68,7 +68,8 @@
  *
  * @covers tugrust/crates/tugcast/src/feeds/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/arc.rs
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
  * @covers tugrust/crates/tugtool/src/arc.rs
  * @covers tugrust/crates/tugarc-core/src/arc.rs

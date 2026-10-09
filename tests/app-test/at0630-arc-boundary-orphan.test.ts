@@ -36,7 +36,7 @@
  *
  *     TUG_REAL_CLAUDE=1 just app-test tests/app-test/at0630-arc-boundary-orphan.test.ts
  *
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_notes.rs

@@ -54,7 +54,7 @@
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_occupancy.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  */
 

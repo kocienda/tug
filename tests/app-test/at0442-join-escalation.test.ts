@@ -46,7 +46,7 @@
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
  * @covers tugrust/crates/tugarc-core/src/resolve.rs

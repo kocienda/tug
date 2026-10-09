@@ -32,7 +32,7 @@
  * what is checked is a refusal.
  *
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs
  * @covers tugrust/crates/tugarc-core/src/resolve.rs
  * @covers tugrust/crates/tugarc-core/src/workshop.rs
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx

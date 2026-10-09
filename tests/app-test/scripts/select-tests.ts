@@ -211,25 +211,6 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // and the alternative was leaving the new row shape covered by nothing.
     "tugdeck/src/components/tugways/cards/session-card-transcript.tsx": 21,
 
-    // The agent supervisor. Every CONTROL verb the deck sends lands in this one
-    // file, so a test that drives a button and asserts what the server did has
-    // nowhere narrower to name.
-    //
-    // Re-recorded at 22, deleted and re-added rather than raised in place,
-    // which is what the ratchet asks of a widening that is argued rather than
-    // absorbed. The history: 20 until at0486 began driving the Resolve press
-    // rather than stopping in front of it, since the outcome frame that press
-    // turns on is built here; 22 with at0588, whose argument is
-    // `stop_arc_now`'s **order** — the mark before the first act, the card
-    // resolution every effect addresses, the wait on the quiet edge, and the
-    // record written last all live in that one function, and no other app-test
-    // drives them. at0523 presses the same button and declines to name this
-    // file precisely because it seats no claude and rotates nothing, which is
-    // the case at0588 exists to be the opposite of. Naming something narrower
-    // would be a fiction, and the alternative is leaving the protocol's order
-    // covered by no app-test at all.
-    "tugrust/crates/tugcast/src/feeds/agent_supervisor.rs": 22,
-
     // The composer. It is the single field every route types into — the plain
     // prompt, the `$` shell route, the `/` command route, commit mode and the
     // landing draft — so a test that drives the app the way a user does has to

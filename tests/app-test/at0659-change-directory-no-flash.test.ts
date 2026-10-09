@@ -43,7 +43,7 @@
  *
  * @covers tugdeck/src/lib/card-services-store.ts
  * @covers tugdeck/src/lib/directory-change.ts
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/spawn.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

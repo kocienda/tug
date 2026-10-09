@@ -31,7 +31,7 @@
  *      stores hold the right one, and the reverse.
  *
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/spawn.rs
  * @covers tugdeck/src/lib/session-line-store.ts
  * @covers tugdeck/src/lib/session-identity.ts
  * @covers tugdeck/src/lib/card-session-binding-store.ts

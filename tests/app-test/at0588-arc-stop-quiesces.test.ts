@@ -35,7 +35,7 @@
  *
  *     TUG_REAL_CLAUDE=1 just app-test tests/app-test/at0588-arc-stop-quiesces.test.ts
  *
- * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/arc_api.rs
  * @covers tugrust/crates/tugarc-core/src/arc.rs
