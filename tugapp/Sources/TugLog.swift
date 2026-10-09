@@ -77,6 +77,12 @@ enum TugLog {
         write(.error, subsystem, message, fields)
     }
 
+    /// Write at a level chosen at runtime — for a stream whose severity is
+    /// decided by which pipe it came out of, not by the call site.
+    static func write(_ level: Level, _ subsystem: String, _ message: String) {
+        write(level, subsystem, message, [])
+    }
+
     /// Announce the file, mirroring tuglog's `tuglog initialized` line.
     ///
     /// Called once at launch so the file is never zero-length and names its own

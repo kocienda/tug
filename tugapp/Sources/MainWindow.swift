@@ -549,6 +549,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.add(self, name: "getSettings")
         contentController.add(self, name: "frontendReady")
         contentController.add(self, name: "frontendLaunchStalled")
+        contentController.add(self, name: "pageFault")
         contentController.add(self, name: "setTheme")
         contentController.add(self, name: "devBadge")
         contentController.add(self, name: "clipboardRead")
@@ -574,6 +575,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         let config = WKWebViewConfiguration()
         applyWebKitFeatureOverrides(to: config.preferences)
         config.userContentController = contentController
+        // The page's own faults, forwarded to tugapp.log — the only
+        // console this app has. See `PageFaultScript`.
+        PageFaultScript.install(into: config)
 
         // Allow localhost access
         if #available(macOS 14.0, *) {
@@ -1621,6 +1625,20 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         NSLog("MainWindow: didFinish navigation at %@", Date() as CVarArg)
+        // The lap between `loadURL` and `frontendReady`: with this line a
+        // stall at "waiting for the interface" says whether the page ever
+        // finished loading, which is the half of the question `didFail`
+        // cannot answer.
+        TugLog.info("launch", "page loaded", [
+            TugLog.field(
+                "ms",
+                String(
+                    format: "%.1f",
+                    (CFAbsoluteTimeGetCurrent() - AppDelegate.launchStartedAt) * 1000
+                )
+            ),
+            TugLog.field("url", webView.url?.absoluteString ?? ""),
+        ])
         // WebView is NOT revealed here — we wait for frontendReady so the theme
         // and all visual state is applied before the user sees anything.
         bridgeDelegate?.bridgePageDidLoad()
@@ -2230,6 +2248,8 @@ extension MainWindow: WKScriptMessageHandler {
             bridgePageZoom()
             revealWebView()
             bridgeDelegate?.bridgeFrontendReady()
+        case "pageFault":
+            PageFaultScript.log(message.body)
         case "frontendLaunchStalled":
             // The deck bounded its own boot awaits and one of them ran past
             // its horizon. It has not given up — the await is still running

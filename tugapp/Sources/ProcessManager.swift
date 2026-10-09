@@ -393,8 +393,12 @@ class ProcessManager {
         viteEnv[InstanceConfig.envInstanceID] = InstanceConfig.instanceId
         viteProc.environment = viteEnv
 
-        viteProc.standardOutput = FileHandle.standardOutput
-        viteProc.standardError = FileHandle.standardError
+        // Vite's output goes to tugapp.log, not the app's stdout: an app
+        // launched from Finder or Xcode has no terminal, so a transform
+        // error or a proxy failure printed there was read by nobody. The
+        // 2026-10-08 launch stall had no line anywhere because of this.
+        viteProc.standardOutput = ProcessManager.logPipe(subsystem: "vite", level: .info)
+        viteProc.standardError = ProcessManager.logPipe(subsystem: "vite", level: .warn)
 
         // Handle Vite exit: log warning but do not auto-restart (per risk R01)
         viteProc.terminationHandler = { process in
@@ -408,6 +412,41 @@ class ProcessManager {
         } catch {
             NSLog("ProcessManager: failed to start vite server: %@", error.localizedDescription)
         }
+    }
+
+    /// A pipe whose every line lands in `tugapp.log` under `subsystem`.
+    ///
+    /// Lines are split on newline; a partial line is held until its rest
+    /// arrives. ANSI colour is stripped, since Vite writes it even to a
+    /// pipe. The handler runs on the pipe's own queue and `TugLog` is
+    /// async, so nothing here waits on the child.
+    static func logPipe(subsystem: String, level: TugLog.Level) -> Pipe {
+        let pipe = Pipe()
+        var carry = Data()
+        let ansi = try! NSRegularExpression(pattern: "\u{1B}\\[[0-9;]*[A-Za-z]")
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                // EOF: flush what is held and stop reading.
+                if !carry.isEmpty, let rest = String(data: carry, encoding: .utf8) {
+                    TugLog.write(level, subsystem, rest)
+                }
+                handle.readabilityHandler = nil
+                return
+            }
+            carry.append(chunk)
+            while let nl = carry.firstIndex(of: 0x0A) {
+                let lineData = carry[carry.startIndex..<nl]
+                carry.removeSubrange(carry.startIndex...nl)
+                guard var line = String(data: lineData, encoding: .utf8) else { continue }
+                line = ansi.stringByReplacingMatches(
+                    in: line, range: NSRange(line.startIndex..., in: line), withTemplate: "")
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty { continue }
+                TugLog.write(level, subsystem, trimmed)
+            }
+        }
+        return pipe
     }
 
     /// Kill any process listening on the given TCP port.
