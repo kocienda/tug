@@ -356,6 +356,7 @@ lint: tugplug-lint
     cd tugdeck && bun run audit:tokens lint
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
+    bun scripts/third-party-notices.ts --check
 
 # The plugin ships inside Tug.app to projects that are not this one. Refuse
 # every shape under tugplug/ that leans on this checkout or this machine —
@@ -363,6 +364,15 @@ lint: tugplug-lint
 # with no absence clause. Contract: tugplug/CLAUDE.md.
 tugplug-lint:
     bun scripts/tugplug-lint.ts
+
+# Regenerate the "Libraries shipped inside Tug.app" half of
+# THIRD_PARTY_NOTICES.md from the lockfiles. `just lint` runs the same script
+# with `--check`, which fails when the committed section has drifted from the
+# lockfiles or when a shipped package's license is outside the permissive
+# allow-list — L21's rule, and the no-GPL rule, as a check. Run this after any
+# dependency change.
+notices:
+    bun scripts/third-party-notices.ts
 
 # Apply the clippy suggestions `cargo clippy --fix` refuses to, and print the
 # ones no tool should apply unattended. `--fix` applies only what rustc marked

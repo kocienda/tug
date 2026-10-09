@@ -2490,7 +2490,6 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 name = "tugarc-core"
 version = "0.8.18"
 dependencies = [
- "dirs",
  "rand 0.10.0",
  "rusqlite",
  "serde",
@@ -2499,7 +2498,6 @@ dependencies = [
  "tempfile",
  "tugchanges-core",
  "tugcore",
- "tuggram",
  "tugtool-core",
 ]
 
@@ -2548,7 +2546,6 @@ dependencies = [
  "libc",
  "notify",
  "parking_lot",
- "percent-encoding",
  "pty-process",
  "rand 0.10.0",
  "rayon",
@@ -2566,7 +2563,6 @@ dependencies = [
  "tokio-stream",
  "tokio-tungstenite",
  "tokio-util",
- "toml",
  "tower",
  "tower-http",
  "tracing",
@@ -2682,21 +2678,18 @@ dependencies = [
 name = "tugtool"
 version = "0.8.18"
 dependencies = [
- "anyhow",
  "assert_cmd",
  "chrono",
  "clap",
  "glob",
  "libc",
  "parking_lot",
- "regex",
  "rusqlite",
  "serde",
  "serde_json",
  "serial_test",
  "sha2",
  "tempfile",
- "thiserror 2.0.18",
  "toml",
  "tugarc-core",
  "tugbank-core",
@@ -2705,14 +2698,12 @@ dependencies = [
  "tugedit-core",
  "tugtool-core",
  "ureq",
- "uuid",
 ]
 
 [[package]]
 name = "tugtool-core"
 version = "0.8.18"
 dependencies = [
- "dirs",
  "roxmltree",
  "rusqlite",
  "serde",
@@ -2722,7 +2713,6 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "tugcore",
- "uuid",
 ]
 
 [[package]]

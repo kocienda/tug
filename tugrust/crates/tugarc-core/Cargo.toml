@@ -13,14 +13,12 @@ path = "src/lib.rs"
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-dirs.workspace = true
 rand.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
 tugcore.workspace = true
 tugchanges-core.workspace = true
 tugtool-core.workspace = true
-tuggram.workspace = true
 
 [dev-dependencies]
 serial_test = "3"

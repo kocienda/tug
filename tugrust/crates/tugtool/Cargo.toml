@@ -27,9 +27,6 @@ parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
-thiserror.workspace = true
-anyhow.workspace = true
-regex.workspace = true
 glob.workspace = true
 chrono.workspace = true
 tugcore.workspace = true
@@ -40,7 +37,6 @@ tugedit-core.workspace = true
 tugbank-core.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
-uuid.workspace = true
 ureq = { version = "3", features = ["json"] }
 
 [dev-dependencies]

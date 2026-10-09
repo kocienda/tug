@@ -16,10 +16,8 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 thiserror.workspace = true
-dirs.workspace = true
 sha2.workspace = true
 rusqlite.workspace = true
-uuid.workspace = true
 roxmltree.workspace = true
 
 [dev-dependencies]

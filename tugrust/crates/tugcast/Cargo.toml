@@ -34,9 +34,7 @@ regex = { workspace = true }
 rayon = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
-toml = { workspace = true }
 glob = { workspace = true }
-percent-encoding = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 tower-http = { workspace = true }
