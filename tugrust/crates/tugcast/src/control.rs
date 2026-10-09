@@ -173,7 +173,7 @@ impl ControlReader {
                                         dev_runtime = Some(runtime);
                                         let resolved_vite_port = vite_port
                                             .unwrap_or(tugcast_core::DEFAULT_VITE_DEV_PORT);
-                                        auth.lock().unwrap().set_dev_port(Some(resolved_vite_port));
+                                        auth.lock().set_dev_port(Some(resolved_vite_port));
                                         let _ = response_tx
                                             .send(make_dev_mode_result(true, None))
                                             .await;
@@ -192,7 +192,7 @@ impl ControlReader {
                                 // In production mode the frontend is served directly by tugcast
                                 // on port 55255 — no Vite process runs. Clear dev_port so that
                                 // the origin allowlist only permits the tugcast port.
-                                auth.lock().unwrap().set_dev_port(None);
+                                auth.lock().set_dev_port(None);
                                 let _ = response_tx.send(make_dev_mode_result(true, None)).await;
                             }
                         }

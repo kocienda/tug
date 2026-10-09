@@ -1,7 +1,7 @@
 //! DefaultsStore struct and implementation.
 
+use parking_lot::Mutex;
 use std::path::Path;
-use std::sync::Mutex;
 
 use rusqlite::Connection;
 
@@ -69,7 +69,7 @@ impl DefaultsStore {
     ///
     /// Returns an empty `Vec` for a fresh database.
     pub fn list_domains(&self) -> Result<Vec<String>, Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare("SELECT name FROM domains ORDER BY name")?;
         let names = stmt
             .query_map([], |row| row.get::<_, String>(0))?
@@ -88,7 +88,7 @@ impl DefaultsStore {
         if name.is_empty() {
             return Err(Error::InvalidDomain(name.to_owned()));
         }
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock();
         let txn = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let affected = txn.execute(
             "DELETE FROM domains WHERE name = ?1",

@@ -360,7 +360,7 @@ async fn main() {
         new_shared_auth_state(actual_port)
     };
 
-    let token = auth.lock().unwrap().token().unwrap().to_string();
+    let token = auth.lock().token().unwrap().to_string();
     let auth_url = format!("http://127.0.0.1:{actual_port}/auth?token={token}");
     info!("Auth URL: {}", auth_url);
 
@@ -447,7 +447,7 @@ async fn main() {
             // every real feed directory at card-open time. Watch an empty
             // per-instance directory so nothing meaningful is observed.
             let dir = tug_instance::data_dir().join("bootstrap-empty");
-            let _ = std::fs::create_dir_all(&dir);
+            ensure_data_dir(&dir);
             dir
         }
     };
@@ -675,7 +675,7 @@ async fn main() {
     let prompt_ledger: Option<Arc<prompt_ledger::PromptLedger>> = {
         let path = prompt_ledger::PromptLedger::default_path();
         if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            ensure_data_dir(parent);
         }
         match prompt_ledger::PromptLedger::open(&path) {
             Ok(l) => Some(Arc::new(l)),
@@ -1271,7 +1271,7 @@ async fn main() {
     let shell_ledger: Option<Arc<shell_ledger::ShellLedger>> = shell_ledger::ShellLedger::default_path()
         .and_then(|path| {
             if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+                ensure_data_dir(parent);
             }
             match shell_ledger::ShellLedger::open(&path) {
                 Ok(l) => Some(Arc::new(l)),
@@ -1287,7 +1287,7 @@ async fn main() {
     let refs_ledger: Option<Arc<refs_ledger::RefsLedger>> = refs_ledger::RefsLedger::default_path()
         .and_then(|path| {
             if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+                ensure_data_dir(parent);
             }
             match refs_ledger::RefsLedger::open(&path) {
                 Ok(l) => Some(Arc::new(l)),
@@ -2346,6 +2346,18 @@ struct SeedSpec {
     file_events: Vec<SeedFileEvent>,
     #[serde(default)]
     wheel_prompts: Vec<SeedWheelPrompt>,
+}
+
+/// Create a directory tugcast is about to write into, reporting a failure
+/// once, at startup, with the path.
+///
+/// A data directory that cannot be created is a startup fault. Discarding the
+/// error only defers it to the first write into the directory, which then
+/// fails with a message that names a file and not the cause.
+fn ensure_data_dir(dir: &std::path::Path) {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        error!(error = %e, path = %dir.display(), "cannot create data directory");
+    }
 }
 
 /// Seed this instance's ledger from a JSON spec and exit.

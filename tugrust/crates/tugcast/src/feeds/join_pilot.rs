@@ -476,7 +476,7 @@ mod tests {
     #[tokio::test]
     async fn the_mark_is_claimed_before_the_run() {
         struct FailingRunner {
-            saw_mark: Arc<std::sync::Mutex<Option<String>>>,
+            saw_mark: Arc<parking_lot::Mutex<Option<String>>>,
             root: PathBuf,
         }
 
@@ -485,14 +485,13 @@ mod tests {
             async fn reconcile(&self, _project_dir: &str, arc: &str, occupancy: JoinOccupancy) {
                 // What the mark says *while the run is in flight* is the fact
                 // under test.
-                *self.saw_mark.lock().unwrap() =
-                    tugarc_core::verify::read_pilot_mark(&self.root, arc);
+                *self.saw_mark.lock() = tugarc_core::verify::read_pilot_mark(&self.root, arc);
                 drop(occupancy);
             }
         }
 
         let (_dir, root) = repo_with_arc("crashy");
-        let saw_mark = Arc::new(std::sync::Mutex::new(None));
+        let saw_mark = Arc::new(parking_lot::Mutex::new(None));
         let runner = FailingRunner {
             saw_mark: Arc::clone(&saw_mark),
             root: root.clone(),
@@ -508,7 +507,7 @@ mod tests {
 
         let expected = head_pair(&root, "crashy").unwrap().0;
         assert_eq!(
-            saw_mark.lock().unwrap().as_deref(),
+            saw_mark.lock().as_deref(),
             Some(expected.as_str()),
             "the pair is claimed before the ladder starts"
         );

@@ -34,7 +34,7 @@ use rusqlite::types::Value;
 /// empty result — the 2026-07-27 incident surfaced as "no session claims
 /// these" for three days because reads failed silently.
 pub mod health {
-    use std::sync::Mutex;
+    use parking_lot::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     static DEGRADED: AtomicBool = AtomicBool::new(false);
@@ -64,7 +64,7 @@ pub mod health {
             return;
         }
         DEGRADED.store(true, Ordering::Relaxed);
-        let mut announced = ANNOUNCED.lock().expect("health mutex poisoned");
+        let mut announced = ANNOUNCED.lock();
         if !announced.iter().any(|l| l == ledger) {
             announced.push(ledger.to_string());
             tracing::error!(
@@ -81,7 +81,7 @@ pub mod health {
     /// `reason`.
     pub fn note_degraded(reason: &str) {
         DEGRADED.store(true, Ordering::Relaxed);
-        let mut announced = ANNOUNCED.lock().expect("health mutex poisoned");
+        let mut announced = ANNOUNCED.lock();
         if !announced.iter().any(|l| l == reason) {
             announced.push(reason.to_string());
             tracing::error!(
@@ -99,7 +99,7 @@ pub mod health {
     #[cfg(test)]
     pub fn reset_for_test() {
         DEGRADED.store(false, Ordering::Relaxed);
-        ANNOUNCED.lock().expect("health mutex poisoned").clear();
+        ANNOUNCED.lock().clear();
     }
 }
 

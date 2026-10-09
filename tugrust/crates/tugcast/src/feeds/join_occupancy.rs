@@ -27,8 +27,9 @@
 //! compete: a run this process holds suppresses the lease, because the exact
 //! answer beats the derived one wherever it exists.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 /// What is holding an arc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,10 +81,7 @@ pub struct JoinOccupancy {
 
 impl Drop for JoinOccupancy {
     fn drop(&mut self) {
-        registry()
-            .lock()
-            .expect("join occupancy mutex")
-            .remove(&self.owner_key);
+        registry().lock().remove(&self.owner_key);
     }
 }
 
@@ -97,7 +95,7 @@ pub fn acquire(
     kind: JoinRunKind,
     head: Option<String>,
 ) -> Result<JoinOccupancy, String> {
-    let mut map = registry().lock().expect("join occupancy mutex");
+    let mut map = registry().lock();
     if let Some(live) = map.get(owner_key) {
         return Err(format!(
             "a {} is already running for this arc",
@@ -114,7 +112,6 @@ pub fn acquire(
 pub fn run_kind(owner_key: &str) -> Option<&'static str> {
     registry()
         .lock()
-        .expect("join occupancy mutex")
         .get(owner_key)
         .map(|run| run.kind.as_str())
 }
@@ -123,7 +120,6 @@ pub fn run_kind(owner_key: &str) -> Option<&'static str> {
 pub fn run_head(owner_key: &str) -> Option<String> {
     registry()
         .lock()
-        .expect("join occupancy mutex")
         .get(owner_key)
         .and_then(|run| run.head.clone())
 }

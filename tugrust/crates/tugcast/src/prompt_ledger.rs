@@ -35,8 +35,8 @@
 //! `draft_gc` must treat this table as a reachability root — an attachment
 //! referenced only by a prompt row is still referenced (see `draft_gc`).
 
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -156,7 +156,7 @@ impl PromptLedger {
         let conn = tugcore::ledger_db::open(path)?;
         let ledger = Self::from_conn(conn)?;
         if let crate::ledger_integrity::GateOutcome::Quarantined { corrupt_path } = &gate {
-            let db = ledger.db.lock().expect("prompt ledger poisoned");
+            let db = ledger.db.lock();
             crate::ledger_integrity::salvage_into(
                 &db,
                 "main",
@@ -209,7 +209,7 @@ impl PromptLedger {
     /// what makes both the client's retry ladder and the tugbank import
     /// idempotent.
     pub fn append(&self, entry: &NewPromptEntry) -> Result<i64, PromptLedgerError> {
-        let conn = self.db.lock().expect("prompt ledger mutex");
+        let conn = self.db.lock();
         let inserted = conn.execute(
             "INSERT INTO prompt_history
                 (session_id, route, text, atoms_json, project_path, submitted_at_ms, client_entry_id)
@@ -287,7 +287,7 @@ impl PromptLedger {
         // is the answer to "is there more?".
         args.push(rusqlite::types::Value::Integer(limit as i64 + 1));
 
-        let conn = self.db.lock().expect("prompt ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args), prompt_row_from)?;
         let mut fetched = rows.collect::<Result<Vec<_>, _>>()?;
@@ -324,7 +324,7 @@ impl PromptLedger {
         if chain.is_empty() {
             return Ok(0);
         }
-        let mut conn = self.db.lock().expect("prompt ledger mutex");
+        let mut conn = self.db.lock();
         // Every read resolves a chain and offers it here, and the answer is
         // almost always one already on record. Check before opening a write
         // transaction: this ledger is machine-global and several tugcast
@@ -366,7 +366,7 @@ impl PromptLedger {
     /// The recorded chain for `session_id`, nearest first (index 0 is the
     /// session itself). Empty when the session has never been resolved.
     pub fn lineage_of(&self, session_id: &str) -> Result<Vec<String>, PromptLedgerError> {
-        let conn = self.db.lock().expect("prompt ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT ancestor_id FROM session_lineage
              WHERE session_id = ?1 ORDER BY depth ASC",
@@ -378,7 +378,7 @@ impl PromptLedger {
     /// Every session id that owns prompts but has no recorded lineage — the
     /// startup backfill's work list, and empty once it has run.
     pub fn sessions_missing_lineage(&self) -> Result<Vec<String>, PromptLedgerError> {
-        let conn = self.db.lock().expect("prompt ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT DISTINCT session_id FROM prompt_history
              WHERE session_id NOT IN (SELECT session_id FROM session_lineage)",
@@ -400,7 +400,7 @@ impl PromptLedger {
         atom_id: &str,
         path: &str,
     ) -> Result<bool, PromptLedgerError> {
-        let conn = self.db.lock().expect("prompt ledger mutex");
+        let conn = self.db.lock();
         let stored: Option<String> = conn
             .query_row(
                 "SELECT atoms_json FROM prompt_history WHERE client_entry_id = ?1",
@@ -441,7 +441,7 @@ impl PromptLedger {
     /// ledger's contribution to the `draft_gc` reachability root set. Rows with
     /// no atoms cannot reference anything, so they are skipped.
     pub fn atoms_json_with_refs(&self) -> Result<Vec<String>, PromptLedgerError> {
-        let conn = self.db.lock().expect("prompt ledger mutex");
+        let conn = self.db.lock();
         let mut stmt =
             conn.prepare("SELECT atoms_json FROM prompt_history WHERE atoms_json != '[]'")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
@@ -451,7 +451,7 @@ impl PromptLedger {
     /// Whether a row with this client entry id is present. The migration's
     /// verification step, run before it deletes anything.
     pub fn has_entry(&self, client_entry_id: &str) -> Result<bool, PromptLedgerError> {
-        let conn = self.db.lock().expect("prompt ledger mutex");
+        let conn = self.db.lock();
         let found: Option<i64> = conn
             .query_row(
                 "SELECT 1 FROM prompt_history WHERE client_entry_id = ?1",
@@ -773,7 +773,7 @@ mod tests {
     #[test]
     fn a_fresh_database_lands_at_the_current_schema_version() {
         let ledger = PromptLedger::open_in_memory().unwrap();
-        let conn = ledger.db.lock().unwrap();
+        let conn = ledger.db.lock();
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();

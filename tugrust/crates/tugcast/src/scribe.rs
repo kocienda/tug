@@ -626,7 +626,7 @@ mod tests {
         result: Result<String, String>,
         /// Accumulated-text frames to emit over the delta channel, in order.
         scripted_deltas: Vec<String>,
-        seen: std::sync::Mutex<Vec<(String, String)>>,
+        seen: parking_lot::Mutex<Vec<(String, String)>>,
     }
 
     impl FakeSpawner {
@@ -634,14 +634,14 @@ mod tests {
             Arc::new(Self {
                 result,
                 scripted_deltas: Vec::new(),
-                seen: std::sync::Mutex::new(Vec::new()),
+                seen: parking_lot::Mutex::new(Vec::new()),
             })
         }
         fn with_deltas(result: Result<String, String>, deltas: Vec<String>) -> Arc<Self> {
             Arc::new(Self {
                 result,
                 scripted_deltas: deltas,
-                seen: std::sync::Mutex::new(Vec::new()),
+                seen: parking_lot::Mutex::new(Vec::new()),
             })
         }
     }
@@ -653,7 +653,7 @@ mod tests {
             prompt: String,
             deltas: ScribeDeltas,
         ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>> {
-            self.seen.lock().unwrap().push((model, prompt));
+            self.seen.lock().push((model, prompt));
             if let Some(tx) = &deltas {
                 for frame in &self.scripted_deltas {
                     let _ = tx.send(frame.clone());
@@ -672,7 +672,7 @@ mod tests {
             .await
             .expect("success");
         assert_eq!(text, "a tidy summary");
-        let seen = fake.seen.lock().unwrap();
+        let seen = fake.seen.lock();
         assert_eq!(
             seen.as_slice(),
             [("sonnet".to_string(), "the prompt".to_string())]

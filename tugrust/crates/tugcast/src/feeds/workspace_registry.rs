@@ -13,10 +13,11 @@
 //!
 //! Multi-workspace registry: W1 bootstrap path, W2 per-session `get_or_create` + `release`.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
@@ -479,7 +480,7 @@ impl WorkspaceRegistry {
         let workspace_key = WorkspaceKey(Arc::from(canonical));
 
         // 3. Held-mutex check-or-construct.
-        let mut map = self.inner.lock().expect("WorkspaceRegistry mutex poisoned");
+        let mut map = self.inner.lock();
 
         if let Some(existing) = map.get(&workspace_key) {
             existing.ref_count.fetch_add(1, Ordering::Relaxed);
@@ -533,7 +534,7 @@ impl WorkspaceRegistry {
     /// directory the user is searching through Open Quickly is not a project
     /// they have opened, and must not appear in the Changes card.
     pub fn project_dirs(&self) -> Vec<(PathBuf, String)> {
-        let map = self.inner.lock().expect("WorkspaceRegistry mutex poisoned");
+        let map = self.inner.lock();
         let mut dirs: Vec<(PathBuf, String)> = map
             .values()
             .filter(|e| !e.browse_only.load(Ordering::Relaxed))
@@ -569,7 +570,7 @@ impl WorkspaceRegistry {
             .to_string_lossy()
             .into_owned();
         let key = WorkspaceKey(Arc::from(canonical));
-        let map = self.inner.lock().expect("WorkspaceRegistry mutex poisoned");
+        let map = self.inner.lock();
         map.get(&key).map(Arc::clone)
     }
 
@@ -662,19 +663,19 @@ impl WorkspaceRegistry {
     /// tests exercise `release` in the meantime.
     #[allow(dead_code)]
     /// Crate-visible inspection handle for test assertions. The guard
-    /// returned is a std::sync::MutexGuard, so `.len()` and other
+    /// returned is a parking_lot::MutexGuard, so `.len()` and other
     /// `HashMap` methods are available on deref. Not for production
     /// callers — they should use `get_or_create` / `release` instead.
     #[cfg(test)]
     pub(crate) fn inner_for_test(
         &self,
-    ) -> std::sync::MutexGuard<'_, HashMap<WorkspaceKey, Arc<WorkspaceEntry>>> {
-        self.inner.lock().expect("WorkspaceRegistry mutex poisoned")
+    ) -> parking_lot::MutexGuard<'_, HashMap<WorkspaceKey, Arc<WorkspaceEntry>>> {
+        self.inner.lock()
     }
 
     #[allow(dead_code)]
     pub fn release(&self, key: &WorkspaceKey) -> Result<(), WorkspaceError> {
-        let mut map = self.inner.lock().expect("WorkspaceRegistry mutex poisoned");
+        let mut map = self.inner.lock();
         let Some(entry) = map.get(key) else {
             return Err(WorkspaceError::UnknownKey(key.as_ref().to_string()));
         };
@@ -713,7 +714,7 @@ impl WorkspaceRegistry {
     pub fn sweep_missing(&self, keys: &[String]) {
         let mut bump = false;
         {
-            let mut map = self.inner.lock().expect("WorkspaceRegistry mutex poisoned");
+            let mut map = self.inner.lock();
             for key in keys {
                 let key = WorkspaceKey::from_canonical(key);
                 if let Some(entry) = map.remove(&key) {
@@ -798,7 +799,7 @@ mod tests {
         );
 
         {
-            let map = registry.inner.lock().expect("mutex not poisoned");
+            let map = registry.inner.lock();
             assert_eq!(map.len(), 1, "expected exactly one deduped entry");
         }
         assert_eq!(
@@ -1230,7 +1231,7 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(first.ref_count.load(Ordering::Relaxed), 2);
         {
-            let map = registry.inner.lock().expect("mutex");
+            let map = registry.inner.lock();
             assert_eq!(map.len(), 1);
         }
 
@@ -1257,7 +1258,7 @@ mod tests {
         registry.release(&key).expect("first release");
         assert_eq!(first.ref_count.load(Ordering::Relaxed), 1);
         {
-            let map = registry.inner.lock().expect("mutex");
+            let map = registry.inner.lock();
             assert_eq!(map.len(), 1, "entry still present after first release");
         }
 
@@ -1283,7 +1284,7 @@ mod tests {
 
         registry.release(&key).expect("release to zero");
         {
-            let map = registry.inner.lock().expect("mutex");
+            let map = registry.inner.lock();
             assert_eq!(
                 map.len(),
                 0,
@@ -1384,7 +1385,7 @@ mod tests {
         );
         assert_eq!(entry_a.ref_count.load(Ordering::Relaxed), 2);
         {
-            let map = registry.inner.lock().expect("mutex");
+            let map = registry.inner.lock();
             assert_eq!(map.len(), 1);
         }
 

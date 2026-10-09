@@ -11,10 +11,11 @@
 //! Input dispatch enforces single-writer-per-FeedId: the first client to send
 //! on an input FeedId claims it; subsequent clients receive an error frame.
 
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
@@ -228,7 +229,7 @@ pub struct FeedRouter {
 
 /// Pending eval requests awaiting responses from the browser.
 pub(crate) type PendingEvals =
-    Arc<std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<serde_json::Value>>>>;
+    Arc<parking_lot::Mutex<HashMap<String, tokio::sync::oneshot::Sender<serde_json::Value>>>>;
 
 /// Pending ask requests awaiting a human answer in the deck.
 ///
@@ -237,7 +238,7 @@ pub(crate) type PendingEvals =
 /// maps are kept separate so a slow human can never occupy a slot that
 /// diagnostics tooling expects to turn over quickly.
 pub(crate) type PendingAsks =
-    Arc<std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>;
+    Arc<parking_lot::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>;
 
 impl FeedRouter {
     /// Create a new feed router with shared infrastructure channels.
@@ -260,8 +261,8 @@ impl FeedRouter {
             auth,
             shutdown_tx,
             dev_state,
-            pending_evals: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            pending_asks: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            pending_evals: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            pending_asks: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             shared_agent: None,
             wheel: None,
         }
@@ -901,7 +902,7 @@ fn try_claim_input(
     tug_session_id: Option<TugSessionId>,
     client_id: u64,
 ) -> Result<(), u64> {
-    let mut map = ownership.lock().unwrap();
+    let mut map = ownership.lock();
     let key = (feed_id, tug_session_id);
     match map.get(&key).copied() {
         None | Some(0) => {
@@ -915,7 +916,7 @@ fn try_claim_input(
 
 /// Release all input keys owned by the given client.
 fn release_inputs(ownership: &InputOwnership, client_id: u64) {
-    let mut map = ownership.lock().unwrap();
+    let mut map = ownership.lock();
     map.retain(|_, owner| *owner != client_id);
 }
 
@@ -1546,7 +1547,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                 return;
                             }
                             if let Some(session_id) = &session_id {
-                                router.auth.lock().unwrap().validate_session(session_id);
+                                router.auth.lock().validate_session(session_id);
                             }
                         }
                     }
@@ -1884,7 +1885,7 @@ mod tests {
 
         assert_eq!(decision, InputDecision::MissingSession);
         assert!(
-            ownership.lock().unwrap().is_empty(),
+            ownership.lock().is_empty(),
             "rejected frame must not mutate the ownership map"
         );
     }
@@ -1917,7 +1918,7 @@ mod tests {
             InputDecision::NotOwned(TugSessionId::new("sess-x"))
         );
         assert!(
-            ownership.lock().unwrap().is_empty(),
+            ownership.lock().is_empty(),
             "unowned session must not mutate the ownership map"
         );
 
@@ -1939,7 +1940,7 @@ mod tests {
         .await;
         assert_eq!(decision, InputDecision::Forward);
         assert_eq!(
-            ownership.lock().unwrap().len(),
+            ownership.lock().len(),
             1,
             "successful claim writes exactly one entry to the ownership map"
         );

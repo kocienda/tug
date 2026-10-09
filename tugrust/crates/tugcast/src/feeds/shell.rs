@@ -37,10 +37,11 @@
 //! the ledger, not the live process). A `kill` (or per-exchange timeout)
 //! reaps the process group and the session respawns on the next `exec`.
 
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
@@ -348,7 +349,7 @@ async fn revalidate_and_push(
 ) -> (Arc<Vec<String>>, Arc<Vec<PathBuf>>) {
     let (names, dirs, changed) = revalidated_path_commands().await;
     if changed {
-        let sessions: Vec<String> = requesters.lock().unwrap().iter().cloned().collect();
+        let sessions: Vec<String> = requesters.lock().iter().cloned().collect();
         for session in sessions {
             emit_path_commands(output, &session, &names);
         }
@@ -850,7 +851,7 @@ async fn shell_session_task(
                 Ok((sh, pid, notice)) => {
                     child = Some(sh);
                     {
-                        let mut g = shared.lock().unwrap();
+                        let mut g = shared.lock();
                         g.pid = Some(pid);
                         g.cwd = Some(cwd.clone());
                     }
@@ -894,14 +895,14 @@ async fn shell_session_task(
             }),
         );
 
-        shared.lock().unwrap().killed = false;
+        shared.lock().killed = false;
         let result = tokio::time::timeout(exec_timeout, run_command(sh, &marker, &command)).await;
         // An out-of-band `kill` reaps the group mid-exchange. The signal settles
         // the outcome differently across platforms — the shell dies (EOF → no
         // exit code) or its child dies (128+SIGTERM) while the shell survives to
         // emit the sentinel — so honor the kill flag and settle as reaped either
         // way, rather than leaking the child's signal-death code to the deck.
-        let killed = std::mem::take(&mut shared.lock().unwrap().killed);
+        let killed = std::mem::take(&mut shared.lock().killed);
         let (mut out, exit_code, cwd_after, reaped) = match result {
             Ok(Ok(r)) if killed => (r.output, None, r.cwd_after, true),
             Ok(Ok(r)) => {
@@ -911,7 +912,7 @@ async fn shell_session_task(
             Ok(Err(e)) => (format!("shell read error: {e}\n"), None, None, true),
             Err(_) => {
                 // Timed out — reap the wedged group.
-                let pid = shared.lock().unwrap().pid.unwrap_or(0);
+                let pid = shared.lock().pid.unwrap_or(0);
                 reap_group(pid);
                 (String::new(), None, None, true)
             }
@@ -921,7 +922,7 @@ async fn shell_session_task(
         }
         if let Some(c) = &cwd_after {
             cwd = c.clone();
-            shared.lock().unwrap().cwd = Some(cwd.clone());
+            shared.lock().cwd = Some(cwd.clone());
         }
         let settled_at = now_ms();
         let duration_ms = settled_at.saturating_sub(started_at);
@@ -1055,7 +1056,7 @@ async fn shell_session_task(
         if reaped {
             child = None;
             cwd = spawn_cwd.to_string_lossy().to_string();
-            let mut g = shared.lock().unwrap();
+            let mut g = shared.lock();
             g.pid = None;
             // The next exec respawns in the project dir, so that is where the
             // session now stands.
@@ -1064,7 +1065,7 @@ async fn shell_session_task(
     }
 
     // Channel closed (session teardown): reap any live child.
-    let pid = shared.lock().unwrap().pid.take();
+    let pid = shared.lock().pid.take();
     if let Some(pid) = pid {
         reap_group(pid);
     }
@@ -1214,7 +1215,7 @@ async fn run_dispatcher(
                     // the session task by the time the signal lands and its
                     // `run_command` returns (settling the exchange as reaped).
                     let pid = {
-                        let mut g = session.shared.lock().unwrap();
+                        let mut g = session.shared.lock();
                         g.killed = true;
                         g.pid
                     };
@@ -1238,10 +1239,7 @@ async fn run_dispatcher(
                 // Push first, register after: this session's own reply is the
                 // emit below, so registering first would send it the set twice.
                 let (commands, _dirs) = revalidate_and_push(&output, &path_requesters).await;
-                path_requesters
-                    .lock()
-                    .unwrap()
-                    .insert(tug_session_id.clone());
+                path_requesters.lock().insert(tug_session_id.clone());
                 emit_path_commands(&output, &tug_session_id, &commands);
 
                 // The companion answer: what this session's own shell resolves
@@ -1263,7 +1261,7 @@ async fn run_dispatcher(
                 let (commands, path_dirs) = revalidate_and_push(&output, &path_requesters).await;
                 let cwd = sessions
                     .get(&tug_session_id)
-                    .and_then(|s| s.shared.lock().unwrap().cwd.clone());
+                    .and_then(|s| s.shared.lock().cwd.clone());
                 // Read the bodies of the words this line actually names, so an
                 // alias or simple function can lend the grade the grammar of
                 // what it expands to. Behind the typing debounce, not at submit.
@@ -2017,8 +2015,8 @@ mod tests {
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let requesters: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
-        requesters.lock().unwrap().insert("s1".to_string());
-        requesters.lock().unwrap().insert("s2".to_string());
+        requesters.lock().insert("s1".to_string());
+        requesters.lock().insert("s2".to_string());
 
         // Nothing moved: nobody is told anything.
         expire_path_throttle_for_test().await;

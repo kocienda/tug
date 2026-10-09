@@ -36,6 +36,11 @@ uuid = { version = "1", features = ["v4"] }
 # Atomic shared state
 arc-swap = "1"
 
+# Non-poisoning in-process locks. Every Mutex/RwLock in production code is a
+# parking_lot lock, so a panic under one releases it rather than poisoning it
+# for every later caller (tripwired by tugcore's `no_std_sync_locks`).
+parking_lot = "0.12"
+
 # Regex for parsing
 regex = "1"
 

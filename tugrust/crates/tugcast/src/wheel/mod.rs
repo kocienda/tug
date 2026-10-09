@@ -16,9 +16,10 @@
 //! that supervisor's per-session ledger, its spawn queue, and its dispatcher,
 //! and a wheel that owned them would be a second supervisor.
 
+use parking_lot::Mutex as SyncMutex;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -232,21 +233,21 @@ impl Refusal {
 pub struct WheelState {
     /// At most one rotation per tug session id. A second request replaces the
     /// first — the natural reading of a caller changing its mind mid-turn.
-    pending: StdMutex<HashMap<String, RotationRequest>>,
+    pending: SyncMutex<HashMap<String, RotationRequest>>,
     /// Tug session ids owed a hand-back: an arcless rotation onto a named
     /// model pins the card there permanently unless somebody restores the
     /// deck's own selector, and no arc's ending will.
     ///
     /// The fast copy. `sessions.hand_back_owed` is the durable one; the two
     /// move together in [`Self::arm_hand_back`] and [`Self::take_hand_back`].
-    hand_backs: StdMutex<HashSet<String>>,
+    hand_backs: SyncMutex<HashSet<String>>,
     /// Where the armed set is written down so a restart cannot lose it.
     ///
     /// Optional because a `WheelState::default()` is a perfectly good wheel
     /// for a test that never restarts, and refusing to build one without a
     /// ledger would put a database behind every rotation unit test. Attached
     /// once, at startup, by [`Self::attach_ledger`].
-    ledger: StdMutex<Option<Arc<crate::session_ledger::SessionLedger>>>,
+    ledger: SyncMutex<Option<Arc<crate::session_ledger::SessionLedger>>>,
     /// The arc runner's per-arc memory, held here so a stop performed from
     /// outside the runner — the CONTROL-frame user stop — evicts the entry
     /// the runner wrote ([P11]). The runner reads and writes it on every
@@ -258,33 +259,30 @@ impl WheelState {
     /// Park `request` against its session. `true` means it replaced one.
     pub fn park(&self, request: RotationRequest) -> bool {
         let key = request.session.as_str().to_string();
-        self.pending.lock().unwrap().insert(key, request).is_some()
+        self.pending.lock().insert(key, request).is_some()
     }
 
     /// Withdraw a session's pending rotation. `true` means there was one.
     pub fn withdraw(&self, session_id: &str) -> bool {
-        self.pending.lock().unwrap().remove(session_id).is_some()
+        self.pending.lock().remove(session_id).is_some()
     }
 
     /// Take a session's pending rotation, leaving nothing behind.
     pub fn take(&self, session_id: &str) -> Option<RotationRequest> {
-        self.pending.lock().unwrap().remove(session_id)
+        self.pending.lock().remove(session_id)
     }
 
     /// Owe `session_id` a hand-back at its next turn's end. Arming twice is
     /// arming once: the card is handed back after the last stage, not once per
     /// stage.
     pub fn arm_hand_back(&self, session_id: &str) {
-        self.hand_backs
-            .lock()
-            .unwrap()
-            .insert(session_id.to_owned());
+        self.hand_backs.lock().insert(session_id.to_owned());
         self.write_hand_back(session_id, true);
     }
 
     /// Take the hand-back a session is owed. `true` means one was owed.
     pub fn take_hand_back(&self, session_id: &str) -> bool {
-        let owed = self.hand_backs.lock().unwrap().remove(session_id);
+        let owed = self.hand_backs.lock().remove(session_id);
         if owed {
             self.write_hand_back(session_id, false);
         }
@@ -299,7 +297,7 @@ impl WheelState {
     /// nothing about the restore is a special case downstream.
     pub fn attach_ledger(&self, ledger: Arc<crate::session_ledger::SessionLedger>) {
         let owed = ledger.sessions_owed_hand_back().unwrap_or_default();
-        *self.ledger.lock().unwrap() = Some(ledger);
+        *self.ledger.lock() = Some(ledger);
         if owed.is_empty() {
             return;
         }
@@ -307,7 +305,7 @@ impl WheelState {
             sessions = owed.len(),
             "wheel restored armed hand-backs across a restart",
         );
-        let mut hand_backs = self.hand_backs.lock().unwrap();
+        let mut hand_backs = self.hand_backs.lock();
         hand_backs.extend(owed);
     }
 
@@ -315,7 +313,7 @@ impl WheelState {
     /// set is what this process reads, so a failed write costs the *next*
     /// process the debt and costs this one nothing.
     fn write_hand_back(&self, session_id: &str, owed: bool) {
-        let ledger = self.ledger.lock().unwrap().clone();
+        let ledger = self.ledger.lock().clone();
         let Some(ledger) = ledger else { return };
         if let Err(error) = ledger.set_hand_back_owed(session_id, owed) {
             warn!(

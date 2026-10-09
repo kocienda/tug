@@ -124,7 +124,8 @@ fn payload_message(payload: &(dyn Any + Send)) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use parking_lot::Mutex;
+    use std::sync::Arc;
 
     /// Capture the report for one real panic. The hook is process-global,
     /// so the capture keeps only the panic carrying `marker` — another
@@ -136,13 +137,13 @@ mod tests {
         std::panic::set_hook(Box::new(move |info| {
             let report = PanicReport::from_info(info);
             if report.message.contains(marker) {
-                *sink.lock().unwrap() = Some(report);
+                *sink.lock() = Some(report);
             }
         }));
         let outcome = std::panic::catch_unwind(panic);
         std::panic::set_hook(previous);
         assert!(outcome.is_err(), "the closure was expected to panic");
-        seen.lock().unwrap().take().expect("the hook saw the panic")
+        seen.lock().take().expect("the hook saw the panic")
     }
 
     #[test]
@@ -181,13 +182,13 @@ mod tests {
         std::panic::set_hook(Box::new(move |info| {
             let report = PanicReport::from_info(info);
             if report.message.starts_with('<') {
-                *sink.lock().unwrap() = Some(report);
+                *sink.lock() = Some(report);
             }
         }));
         let outcome = std::panic::catch_unwind(|| std::panic::panic_any(7_u32));
         std::panic::set_hook(previous);
         assert!(outcome.is_err());
-        let report = seen.lock().unwrap().take().expect("the hook saw the panic");
+        let report = seen.lock().take().expect("the hook saw the panic");
         assert_eq!(report.message, "<non-string panic payload>");
     }
 
@@ -199,7 +200,7 @@ mod tests {
         std::panic::set_hook(Box::new(move |info| {
             let report = PanicReport::from_info(info);
             if report.message.contains("marker-task") {
-                *sink.lock().unwrap() = Some(report);
+                *sink.lock() = Some(report);
             }
         }));
         let handle = tokio::spawn(async { panic!("marker-task died") });
@@ -207,7 +208,7 @@ mod tests {
         let joined = handle.await;
         std::panic::set_hook(previous);
         assert!(joined.unwrap_err().is_panic());
-        let report = seen.lock().unwrap().take().expect("the hook saw the panic");
+        let report = seen.lock().take().expect("the hook saw the panic");
         assert_eq!(report.task.as_deref(), Some(id.as_str()));
         assert!(report.render().ends_with(&format!("task {id})")));
     }

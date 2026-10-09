@@ -23,9 +23,10 @@
 //! single atomic critical section so a concurrent close/spawn cannot
 //! interleave between the ledger mutation and the affinity mutation.
 //!
+use parking_lot::Mutex as SyncMutex;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::FutureExt;
@@ -2208,10 +2209,10 @@ pub struct AgentSupervisor {
     /// fresh spawn intent within the trailing 60s window, in insertion
     /// order. Trimmed + checked + pushed inside `do_spawn_session`'s
     /// Phase 1 critical section so the rate-limit decision is atomic with
-    /// the ledger insert. `std::sync::Mutex` (not tokio's async mutex)
+    /// the ledger insert. `parking_lot::Mutex` (not tokio's async mutex)
     /// because the critical section is bounded, non-awaiting, and never
     /// crosses an `.await` point.
-    pub spawn_timestamps: Arc<StdMutex<VecDeque<Instant>>>,
+    pub spawn_timestamps: Arc<SyncMutex<VecDeque<Instant>>>,
     /// Latest CHANGESET_ALL aggregate watch receiver, stored at boot by
     /// [`AgentSupervisor::start_draft_engine`]. `do_changeset_draft_request`
     /// borrows its current frame to resolve an on-demand draft against the
@@ -4415,7 +4416,7 @@ fn build_session_unknown_frame(tug_session_id: &TugSessionId) -> Frame {
 fn cap_check_reason(
     ledger: &HashMap<TugSessionId, Arc<Mutex<LedgerEntry>>>,
     max_concurrent_sessions: usize,
-    spawn_timestamps: &StdMutex<VecDeque<Instant>>,
+    spawn_timestamps: &SyncMutex<VecDeque<Instant>>,
     max_spawns_per_minute: usize,
 ) -> Option<&'static str> {
     let reason = spawn_budget_reason(
@@ -4425,10 +4426,7 @@ fn cap_check_reason(
         max_spawns_per_minute,
     );
     if reason.is_none() {
-        spawn_timestamps
-            .lock()
-            .expect("spawn_timestamps mutex poisoned")
-            .push_back(Instant::now());
+        spawn_timestamps.lock().push_back(Instant::now());
     }
     reason
 }
@@ -4450,7 +4448,7 @@ fn cap_check_reason(
 fn spawn_budget_reason(
     ledger: &HashMap<TugSessionId, Arc<Mutex<LedgerEntry>>>,
     max_concurrent_sessions: usize,
-    spawn_timestamps: &StdMutex<VecDeque<Instant>>,
+    spawn_timestamps: &SyncMutex<VecDeque<Instant>>,
     max_spawns_per_minute: usize,
 ) -> Option<&'static str> {
     let mut active = 0usize;
@@ -4468,9 +4466,7 @@ fn spawn_budget_reason(
             }
         }
     }
-    let mut ts = spawn_timestamps
-        .lock()
-        .expect("spawn_timestamps mutex poisoned");
+    let mut ts = spawn_timestamps.lock();
     let now = Instant::now();
     let cutoff = now.checked_sub(Duration::from_secs(60)).unwrap_or(now);
     while ts.front().is_some_and(|&t| t < cutoff) {
@@ -4595,6 +4591,19 @@ pub(crate) fn broadcast_unbind_arc_ok(control_tx: &broadcast::Sender<Frame>, tug
     ));
 }
 
+/// Log a ledger mutation whose failure the caller does not otherwise act on.
+///
+/// The callers bump the changeset aggregate next whatever this says: the bump
+/// is what makes the deck re-read, and suppressing it on failure would hide a
+/// stale row rather than report a failed write. One line per site also keeps
+/// these visually apart from the `let _ = …send(…)` on broadcast channels,
+/// where no receiver is a fine answer.
+fn log_ledger_err<T>(what: &str, key: &str, result: Result<T, crate::session_ledger::LedgerError>) {
+    if let Err(e) = result {
+        warn!(op = what, key, error = %e, "ledger mutation failed");
+    }
+}
+
 impl AgentSupervisor {
     /// Construct a supervisor with pre-made broadcast senders, a sessions
     /// recorder, and a spawner factory. Returns `(supervisor,
@@ -4668,7 +4677,7 @@ impl AgentSupervisor {
             config,
             registry,
             cancel,
-            spawn_timestamps: Arc::new(StdMutex::new(VecDeque::new())),
+            spawn_timestamps: Arc::new(SyncMutex::new(VecDeque::new())),
             changeset_watch: std::sync::OnceLock::new(),
             draft_tasks: crate::feeds::draft_engine::DraftTaskRegistry::default(),
             turn_complete_tx: std::sync::OnceLock::new(),
@@ -6934,15 +6943,15 @@ impl AgentSupervisor {
                 // instead of a silent stall. Pure-hit warm scans emit
                 // nothing.
                 let progress_pd = pd.clone();
-                let last_emit: std::sync::Mutex<Option<std::time::Instant>> =
-                    std::sync::Mutex::new(None);
+                let last_emit: parking_lot::Mutex<Option<std::time::Instant>> =
+                    parking_lot::Mutex::new(None);
                 let scan = crate::external_sessions::scan_external_sessions_cached_with_progress(
                     &ledger_arc,
                     &pd,
                     |done, total| {
                         let now = std::time::Instant::now();
                         {
-                            let mut last = last_emit.lock().expect("progress throttle mutex");
+                            let mut last = last_emit.lock();
                             let boundary = done == 0 || done == total;
                             let due = last.is_none_or(|t| {
                                 now.duration_since(t) >= std::time::Duration::from_millis(100)
@@ -7192,10 +7201,17 @@ impl AgentSupervisor {
             return;
         };
         if request.clear {
-            let _ = ledger.delete_changeset_draft(
-                &request.owner_kind,
-                &request.owner_id,
-                &request.workspace_key,
+            log_ledger_err(
+                "delete_changeset_draft",
+                &format!(
+                    "{}:{} in {}",
+                    request.owner_kind, request.owner_id, request.workspace_key
+                ),
+                ledger.delete_changeset_draft(
+                    &request.owner_kind,
+                    &request.owner_id,
+                    &request.workspace_key,
+                ),
             );
             self.registry.changeset_all_bump().notify_one();
             return;
@@ -8200,9 +8216,17 @@ impl AgentSupervisor {
             vec![owner_key, legacy_key]
         };
         for key in keys {
-            let _ = ledger.delete_changeset_draft("arc", key, canonical.as_str());
+            log_ledger_err(
+                "delete_changeset_draft",
+                &format!("arc:{key} in {}", canonical.as_str()),
+                ledger.delete_changeset_draft("arc", key, canonical.as_str()),
+            );
             if canonical.as_str() != project_dir {
-                let _ = ledger.delete_changeset_draft("arc", key, project_dir);
+                log_ledger_err(
+                    "delete_changeset_draft",
+                    &format!("arc:{key} in {project_dir}"),
+                    ledger.delete_changeset_draft("arc", key, project_dir),
+                );
             }
         }
     }
@@ -8927,7 +8951,11 @@ impl AgentSupervisor {
                         Self::clear_arc_draft(ledger, project_dir, &owner_key);
                         // The arc the sessions were mated to no longer
                         // exists ([P05]) — release every binding to it.
-                        let _ = ledger.clear_arc_bindings_for_arc(&owner_key);
+                        log_ledger_err(
+                            "clear_arc_bindings_for_arc",
+                            &owner_key,
+                            ledger.clear_arc_bindings_for_arc(&owner_key),
+                        );
                     }
                     self.registry.changeset_all_bump().notify_one();
                 }
@@ -9134,7 +9162,9 @@ impl AgentSupervisor {
         };
         let session = session.to_string();
         let selector = selector.to_string();
-        let _ = tokio::task::spawn_blocking(move || {
+        let task_session = session.clone();
+        let joined = tokio::task::spawn_blocking(move || {
+            let session = task_session;
             let Ok(Some(row)) = ledger.get(&session) else {
                 return;
             };
@@ -9163,6 +9193,9 @@ impl AgentSupervisor {
             }
         })
         .await;
+        if let Err(e) = joined {
+            warn!(session = %session, error = %e, "the mid-stage model-switch note did not finish");
+        }
     }
 
     /// The model a card returns to when an arc gives it back — the deck's own
@@ -10209,7 +10242,11 @@ impl AgentSupervisor {
                     Self::clear_arc_draft(ledger, project_dir, &owner_key);
                     // As on the join path: the arc is gone, so its bindings
                     // go with it ([P05]).
-                    let _ = ledger.clear_arc_bindings_for_arc(&owner_key);
+                    log_ledger_err(
+                        "clear_arc_bindings_for_arc",
+                        &owner_key,
+                        ledger.clear_arc_bindings_for_arc(&owner_key),
+                    );
                 }
                 self.registry.changeset_all_bump().notify_one();
                 // The discard's receipt (Spec S02): the header names what was
@@ -13823,7 +13860,7 @@ impl AgentSupervisor {
         let rows = ledger_db.list_with_card_id()?;
         let mut inserted = 0usize;
         // We acquire workspaces via `registry.get_or_create` outside the
-        // ledger mutex (it takes its own std::sync::Mutex internally), so
+        // ledger mutex (it takes its own parking_lot::Mutex internally), so
         // we can't hold the ledger across the loop. Iterate per-record:
         // validate → get_or_create → lock ledger briefly → insert.
         for row in rows {
@@ -14021,7 +14058,7 @@ pub(crate) struct CountingSessionsRecorder {
     /// `None` — the unreadable-JSONL case.
     pub counts: std::collections::HashMap<String, i64>,
     /// Every `(session_id, count)` the code under test wrote, in order.
-    pub writes: std::sync::Mutex<Vec<(String, i64)>>,
+    pub writes: parking_lot::Mutex<Vec<(String, i64)>>,
 }
 
 #[cfg(test)]
@@ -14032,7 +14069,7 @@ impl CountingSessionsRecorder {
                 .iter()
                 .map(|(id, n)| ((*id).to_owned(), *n))
                 .collect(),
-            writes: std::sync::Mutex::new(Vec::new()),
+            writes: parking_lot::Mutex::new(Vec::new()),
         }
     }
 }
@@ -14040,10 +14077,7 @@ impl CountingSessionsRecorder {
 #[cfg(test)]
 impl SessionsRecorder for CountingSessionsRecorder {
     fn set_turn_count(&self, session_id: &str, count: i64) {
-        self.writes
-            .lock()
-            .expect("writes mutex")
-            .push((session_id.to_owned(), count));
+        self.writes.lock().push((session_id.to_owned(), count));
     }
     fn engine_turn_count(&self, session_id: &str, _project_dir: &str) -> Option<i64> {
         self.counts.get(session_id).copied()
@@ -18078,6 +18112,74 @@ mod tests {
         );
     }
 
+    /// A ledger mutation that fails is logged with its operation and key, and
+    /// the aggregate bump after it still fires — so the deck re-reads rather
+    /// than trusting a row the failed delete left behind.
+    #[tokio::test]
+    async fn a_failed_draft_delete_is_logged_and_still_bumps() {
+        #[derive(Clone, Default)]
+        struct Sink(Arc<SyncMutex<Vec<u8>>>);
+        impl std::io::Write for Sink {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let sink = Sink::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer({
+                let sink = sink.clone();
+                move || sink.clone()
+            })
+            .with_ansi(false)
+            .finish();
+        let _log = tracing::subscriber::set_default(subscriber);
+        let logged = || String::from_utf8_lossy(&sink.0.lock()).into_owned();
+
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.session_ledger = Some(Arc::new(
+            crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
+        ));
+        let ledger = sup.session_ledger.clone().unwrap();
+        ledger.break_changeset_drafts_for_test();
+
+        // The landed-arc path: each key's delete fails and says so.
+        AgentSupervisor::clear_arc_draft(&ledger, "/proj", "arc-key");
+        let log = logged();
+        assert!(log.contains("ledger mutation failed"), "no warning: {log}");
+        assert!(log.contains("op=\"delete_changeset_draft\""), "{log}");
+        assert!(log.contains("arc:arc-key in /proj"), "{log}");
+
+        // The post-landing `clear` verb: its delete fails, and the bump fires.
+        let bump = sup.registry.changeset_all_bump();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), bump.notified())
+                .await
+                .is_err(),
+            "no bump is pending before the clear"
+        );
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "workspace_key": "/proj",
+            "owner_kind": "session",
+            "owner_id": "s1",
+            "edited": false,
+            "clear": true,
+        }))
+        .unwrap();
+        sup.handle_control("changeset_draft_set", &payload, 1).await;
+        let log = logged();
+        assert!(log.contains("session:s1 in /proj"), "{log}");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), bump.notified())
+                .await
+                .is_ok(),
+            "the bump still fires after a failed delete"
+        );
+    }
+
     // --- session↔arc binding (Spec S03/S04, [P05], [P08]) ----------------
 
     fn git_in(dir: &std::path::Path, args: &[&str]) {
@@ -19979,7 +20081,7 @@ mod tests {
             let ancient = Instant::now()
                 .checked_sub(Duration::from_secs(120))
                 .expect("test runs with monotonic clock well past 120s");
-            let mut ts = sup.spawn_timestamps.lock().unwrap();
+            let mut ts = sup.spawn_timestamps.lock();
             ts.push_back(ancient);
             ts.push_back(ancient);
         }
@@ -19996,7 +20098,7 @@ mod tests {
 
         // After the two admits, the deque holds exactly two fresh
         // timestamps (the ancient ones were trimmed).
-        let ts = sup.spawn_timestamps.lock().unwrap();
+        let ts = sup.spawn_timestamps.lock();
         assert_eq!(ts.len(), 2);
     }
 
@@ -20020,7 +20122,7 @@ mod tests {
             .await
             .expect_handled_with("reconnect admitted");
         assert_eq!(
-            sup.spawn_timestamps.lock().unwrap().len(),
+            sup.spawn_timestamps.lock().len(),
             0,
             "reconnect must not consume rate budget"
         );
@@ -20030,7 +20132,7 @@ mod tests {
             .await
             .expect_handled_with("fresh spawn admitted (first of the window)");
         assert_eq!(
-            sup.spawn_timestamps.lock().unwrap().len(),
+            sup.spawn_timestamps.lock().len(),
             1,
             "fresh spawn consumes exactly one budget slot"
         );
@@ -29633,7 +29735,7 @@ mod bridge_panic_tests {
                     // The read half stays open so the relay's handshake
                     // write lands somewhere.
                     _keepalive: Box::new(child_stdin_read),
-                    stderr_tail: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+                    stderr_tail: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
                 })
             })
         }
@@ -29641,11 +29743,11 @@ mod bridge_panic_tests {
 
     /// Collects what `tracing` wrote, so the test can read the log line.
     #[derive(Clone, Default)]
-    struct LogSink(Arc<std::sync::Mutex<Vec<u8>>>);
+    struct LogSink(Arc<parking_lot::Mutex<Vec<u8>>>);
 
     impl std::io::Write for LogSink {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
+            self.0.lock().extend_from_slice(bytes);
             Ok(bytes.len())
         }
         fn flush(&mut self) -> std::io::Result<()> {
@@ -29753,7 +29855,7 @@ mod bridge_panic_tests {
         );
 
         // And the log says so, at error, with message and location.
-        let log = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+        let log = String::from_utf8(sink.0.lock().clone()).unwrap();
         let line = log
             .lines()
             .find(|l| l.contains("session relay panicked at "))
@@ -29928,7 +30030,7 @@ mod replay_bracket_close_tests {
                     stdout: Box::new(OPENING),
                     pid: None,
                     _keepalive: Box::new(child_stdin_read),
-                    stderr_tail: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+                    stderr_tail: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
                 })
             })
         }
@@ -30033,7 +30135,7 @@ mod replay_bracket_close_tests {
                     stdout: Box::new(&b""[..]),
                     pid: None,
                     _keepalive: Box::new(child_stdin_read),
-                    stderr_tail: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+                    stderr_tail: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
                 })
             })
         }

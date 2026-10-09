@@ -2521,6 +2521,7 @@ dependencies = [
 name = "tugbank-core"
 version = "0.8.18"
 dependencies = [
+ "parking_lot",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2546,6 +2547,7 @@ dependencies = [
  "ignore",
  "libc",
  "notify",
+ "parking_lot",
  "percent-encoding",
  "pty-process",
  "rand 0.10.0",
@@ -2586,6 +2588,7 @@ name = "tugcast-core"
 version = "0.8.18"
 dependencies = [
  "async-trait",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2613,6 +2616,7 @@ dependencies = [
  "chrono",
  "dirs",
  "libc",
+ "parking_lot",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2684,6 +2688,7 @@ dependencies = [
  "clap",
  "glob",
  "libc",
+ "parking_lot",
  "regex",
  "rusqlite",
  "serde",

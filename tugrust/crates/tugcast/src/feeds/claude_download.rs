@@ -40,9 +40,10 @@
 //! and it is why the write path keys off the response's status rather than off
 //! what was asked for.
 
+use parking_lot::Mutex;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use futures::StreamExt;
 use sha2::{Digest, Sha256};
@@ -115,7 +116,7 @@ fn current() -> &'static Mutex<Option<Control>> {
 /// should not leave two writers on one partial file.
 pub fn take_control() -> Arc<CancellationToken> {
     let token = Arc::new(CancellationToken::new());
-    let mut slot = current().lock().unwrap_or_else(|e| e.into_inner());
+    let mut slot = current().lock();
     if let Some(previous) = slot.take() {
         previous.token.cancel();
     }
@@ -137,7 +138,7 @@ pub fn take_control() -> Arc<CancellationToken> {
 /// `stop_reason()` that defaults to `Cancelled` and deletes bytes the user
 /// asked to keep.
 pub fn release_control(token: &Arc<CancellationToken>) {
-    let mut slot = current().lock().unwrap_or_else(|e| e.into_inner());
+    let mut slot = current().lock();
     if slot
         .as_ref()
         .is_some_and(|control| Arc::ptr_eq(&control.token, token))
@@ -150,7 +151,7 @@ pub fn release_control(token: &Arc<CancellationToken>) {
 /// running — a Pause the user pressed just as the last byte landed is a
 /// no-op rather than an error.
 pub fn stop(reason: StopReason) -> bool {
-    let mut slot = current().lock().unwrap_or_else(|e| e.into_inner());
+    let mut slot = current().lock();
     match slot.as_mut() {
         Some(control) => {
             control.reason = reason;
@@ -166,7 +167,6 @@ pub fn stop(reason: StopReason) -> bool {
 fn stop_reason() -> StopReason {
     current()
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .map_or(StopReason::Cancelled, |control| control.reason)
 }
@@ -713,7 +713,7 @@ mod against_a_local_server {
             return;
         }
 
-        seen.lock().unwrap().push(range.clone());
+        seen.lock().push(range.clone());
         let first = requests.fetch_add(1, Ordering::SeqCst) == 0;
         let start = match range.as_deref().filter(|_| feed.honor_ranges) {
             Some(value) => value
@@ -856,7 +856,7 @@ mod against_a_local_server {
             other => panic!("expected the rest of the bytes, got {other:?}"),
         }
         assert_eq!(
-            *served.ranges.lock().unwrap(),
+            *served.ranges.lock(),
             vec![None, Some("bytes=1024-".to_string())],
             "the resume asks for the byte after the last one it kept"
         );
@@ -913,7 +913,7 @@ mod against_a_local_server {
             other => panic!("expected a restart that verified, got {other:?}"),
         }
         assert_eq!(
-            *served.ranges.lock().unwrap(),
+            *served.ranges.lock(),
             vec![Some("bytes=1024-".to_string())],
             "the range was asked for — the server is the one that declined"
         );

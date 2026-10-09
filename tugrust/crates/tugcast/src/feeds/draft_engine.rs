@@ -14,9 +14,10 @@
 //! CONTROL frames (Spec S10, [P24]). Generation runs on a detached task so the
 //! caller — the router's per-client socket loop — never parks awaiting it.
 
+use parking_lot::Mutex as SyncMutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{broadcast, mpsc};
@@ -57,7 +58,7 @@ struct EntryKey {
 /// Aborting the task drops the scribe's `kill_on_drop` child, so only that
 /// draft's headless `claude` process dies — the interactive session's own turn
 /// is a wholly separate worker and is never touched ([P06]).
-pub type DraftTaskRegistry = Arc<StdMutex<HashMap<DraftIdentity, JoinHandle<()>>>>;
+pub type DraftTaskRegistry = Arc<SyncMutex<HashMap<DraftIdentity, JoinHandle<()>>>>;
 
 /// `(workspace_key, owner_kind, owner_id)` key into [`DraftTaskRegistry`].
 ///
@@ -219,10 +220,8 @@ pub fn spawn_on_demand_draft(
     let handle = tokio::spawn(async move {
         generate_for_entry(&deps, &key, &target).await;
     });
-    if let Ok(mut map) = tasks.lock() {
-        if let Some(old) = map.insert(identity, handle) {
-            old.abort();
-        }
+    if let Some(old) = tasks.lock().insert(identity, handle) {
+        old.abort();
     }
     true
 }
@@ -242,9 +241,7 @@ pub fn cancel_draft(
     owner_id: &str,
 ) -> bool {
     let identity = draft_identity(workspace_key, owner_kind, owner_id);
-    let Ok(mut map) = tasks.lock() else {
-        return false;
-    };
+    let mut map = tasks.lock();
     let Some(handle) = map.remove(&identity) else {
         return false;
     };
@@ -749,9 +746,9 @@ pub(crate) fn now_millis() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::Mutex as SyncMutex;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::Mutex as StdMutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -769,14 +766,14 @@ mod tests {
     struct FakeScribe {
         message: String,
         calls: AtomicUsize,
-        prompts: StdMutex<Vec<String>>,
+        prompts: SyncMutex<Vec<String>>,
     }
     impl FakeScribe {
         fn new(message: &str) -> Arc<Self> {
             Arc::new(Self {
                 message: message.to_string(),
                 calls: AtomicUsize::new(0),
-                prompts: StdMutex::new(Vec::new()),
+                prompts: SyncMutex::new(Vec::new()),
             })
         }
     }
@@ -788,7 +785,7 @@ mod tests {
             deltas: ScribeDeltas,
         ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            self.prompts.lock().unwrap().push(prompt);
+            self.prompts.lock().push(prompt);
             if let Some(tx) = &deltas {
                 let _ = tx.send("partial".to_string());
                 let _ = tx.send(self.message.clone());
@@ -1344,12 +1341,12 @@ mod tests {
 
         // Wait until the scribe is actually running (the task is registered).
         started.notified().await;
-        assert_eq!(tasks.lock().unwrap().len(), 1, "task registered while live");
+        assert_eq!(tasks.lock().len(), 1, "task registered while live");
 
         // Cancel finds the live task and aborts it; the registry empties and no
         // draft row is ever persisted (the scribe never returned).
         assert!(cancel_draft(&tasks, &project, "session", "s1"));
-        assert!(tasks.lock().unwrap().is_empty(), "cancelled task removed");
+        assert!(tasks.lock().is_empty(), "cancelled task removed");
         tokio::time::sleep(Duration::from_millis(60)).await;
         assert!(
             ledger

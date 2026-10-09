@@ -35,7 +35,7 @@ pub(crate) struct DevChangeTracker {
 }
 
 /// Shared change tracker type for thread-safe access from watcher tasks
-pub(crate) type SharedChangeTracker = Arc<std::sync::Mutex<DevChangeTracker>>;
+pub(crate) type SharedChangeTracker = Arc<parking_lot::Mutex<DevChangeTracker>>;
 
 impl DevChangeTracker {
     pub fn new() -> Self {
@@ -116,7 +116,7 @@ pub(crate) async fn enable_dev_mode(
     })?;
 
     // Create change tracker
-    let change_tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+    let change_tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
 
     // Create compiled watcher: backend binary mtime poller.
     let backend_path = source_tree.join("tugrust/target/debug/tugcast");
@@ -270,7 +270,7 @@ pub(crate) fn send_dev_notification(
         .unwrap_or_default()
         .as_millis() as u64;
 
-    let guard = tracker.lock().unwrap();
+    let guard = tracker.lock();
     let (changes, code_count, app_count) = guard.snapshot();
     let count = if notification_type == "restart_available" {
         code_count
@@ -428,7 +428,7 @@ pub(crate) fn dev_rust_source_watcher(
             }
 
             // Phase 3: Mark and notify
-            tracker.lock().unwrap().mark_backend();
+            tracker.lock().mark_backend();
             send_dev_notification("restart_available", &tracker, &client_action_tx);
             info!("dev: sent dev_notification type=restart_available (rust source)");
         }
@@ -469,7 +469,7 @@ pub(crate) fn dev_compiled_watcher(
                     "dev: compiled watcher mtime changed for {}",
                     backend_path.display()
                 );
-                tracker.lock().unwrap().mark_backend();
+                tracker.lock().mark_backend();
                 send_dev_notification("restart_available", &tracker, &client_action_tx);
                 info!("dev: compiled watcher detected backend change");
             }
@@ -531,7 +531,7 @@ pub(crate) fn dev_app_watcher(
             }
 
             // Phase 3: Mark and notify
-            tracker.lock().unwrap().mark_app();
+            tracker.lock().mark_app();
             send_dev_notification("relaunch_available", &tracker, &client_action_tx);
             info!("dev: sent dev_notification type=relaunch_available");
         }
@@ -752,9 +752,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_dev_notification_restart_available() {
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         {
-            let mut guard = tracker.lock().unwrap();
+            let mut guard = tracker.lock();
             guard.mark_backend();
         }
 
@@ -775,9 +775,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_dev_notification_relaunch_available() {
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         {
-            let mut guard = tracker.lock().unwrap();
+            let mut guard = tracker.lock();
             guard.mark_app();
         }
 
@@ -935,7 +935,7 @@ mod tests {
         let target_dir = tugcode_dir.join("target").join("debug");
         fs::create_dir_all(&target_dir).unwrap();
 
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         let (client_action_tx, mut rx) = broadcast::channel(16);
 
         let _watcher =
@@ -964,7 +964,7 @@ mod tests {
         let crates_dir = temp_dir.path().join("crates");
         fs::create_dir_all(&crates_dir).unwrap();
 
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         let (client_action_tx, mut rx) = broadcast::channel(16);
 
         let _watcher =
@@ -994,7 +994,7 @@ mod tests {
                 assert_eq!(json["type"], "restart_available");
 
                 // Verify tracker was marked
-                let guard = tracker.lock().unwrap();
+                let guard = tracker.lock();
                 assert!(guard.backend_dirty);
                 assert!(guard.code_count >= 1);
             }
@@ -1014,7 +1014,7 @@ mod tests {
         // Create the backend file
         fs::write(&backend_path, b"initial content").unwrap();
 
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         let (client_action_tx, mut rx) = broadcast::channel(16);
 
         let _handle = dev_compiled_watcher(backend_path.clone(), tracker.clone(), client_action_tx);
@@ -1035,7 +1035,7 @@ mod tests {
                 assert_eq!(json["type"], "restart_available");
 
                 // Verify tracker was marked
-                let guard = tracker.lock().unwrap();
+                let guard = tracker.lock();
                 assert!(guard.backend_dirty);
                 assert_eq!(guard.code_count, 1);
             }
@@ -1053,7 +1053,7 @@ mod tests {
         let backend_path = temp_dir.path().join("tugcast");
 
         // File does not exist initially
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         let (client_action_tx, mut rx) = broadcast::channel(16);
 
         let _handle = dev_compiled_watcher(backend_path.clone(), tracker.clone(), client_action_tx);
@@ -1091,7 +1091,7 @@ mod tests {
         // Create the backend file
         fs::write(&backend_path, b"initial").unwrap();
 
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         let (client_action_tx, mut rx) = broadcast::channel(16);
 
         let _handle = dev_compiled_watcher(backend_path.clone(), tracker.clone(), client_action_tx);
@@ -1131,7 +1131,7 @@ mod tests {
         let app_sources_dir = temp_dir.path().join("Sources");
         fs::create_dir_all(&app_sources_dir).unwrap();
 
-        let tracker = Arc::new(std::sync::Mutex::new(DevChangeTracker::new()));
+        let tracker = Arc::new(parking_lot::Mutex::new(DevChangeTracker::new()));
         let (client_action_tx, mut rx) = broadcast::channel(16);
 
         let _watcher =
@@ -1159,7 +1159,7 @@ mod tests {
                 assert_eq!(json["type"], "relaunch_available");
 
                 // Verify tracker was marked
-                let guard = tracker.lock().unwrap();
+                let guard = tracker.lock();
                 assert!(guard.app_dirty);
                 assert!(guard.app_count >= 1);
             }

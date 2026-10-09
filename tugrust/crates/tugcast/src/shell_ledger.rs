@@ -24,8 +24,9 @@
 //! rides the line's next user message; the watermark was seeded past every
 //! receipt that existed when it was introduced, so nothing old is told.
 
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -223,7 +224,7 @@ impl ShellLedger {
         let conn = tugcore::ledger_db::open(path)?;
         let ledger = Self::from_conn(conn)?;
         if let crate::ledger_integrity::GateOutcome::Quarantined { corrupt_path } = &gate {
-            let db = ledger.db.lock().expect("shell ledger poisoned");
+            let db = ledger.db.lock();
             crate::ledger_integrity::salvage_into(
                 &db,
                 "main",
@@ -368,7 +369,7 @@ impl ShellLedger {
     /// live copy and the restored copy of one landing are one transcript turn
     /// rather than two.
     pub fn record_exchange(&self, ex: &NewShellExchange) -> Result<i64, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let seq: i64 = conn.query_row(
             "SELECT COALESCE(MAX(seq), 0) + 1 FROM shell_exchanges WHERE line_id = ?1",
             params![ex.line_id],
@@ -428,7 +429,7 @@ impl ShellLedger {
     /// keyed the row under.
     #[cfg(test)]
     pub fn lines_with_rows(&self) -> Result<std::collections::HashSet<String>, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT DISTINCT line_id FROM shell_exchanges")?;
         let ids = stmt
             .query_map([], |row| row.get::<_, String>(0))?
@@ -439,7 +440,7 @@ impl ShellLedger {
     /// Distinct session ids on rows that have no line yet — the pre-lines
     /// shape [`crate::ink_backfill::assign_lines`] resolves ([P09]).
     pub fn sessions_awaiting_a_line(&self) -> Result<Vec<String>, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT DISTINCT tug_session_id FROM shell_exchanges
              WHERE line_id = '' ORDER BY tug_session_id",
@@ -454,7 +455,7 @@ impl ShellLedger {
     /// many rows it named. Touches only rows still carrying the placeholder,
     /// so it can never re-key a row that already knows its line.
     pub fn assign_line(&self, session_id: &str, line_id: &str) -> Result<usize, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let moved = conn.execute(
             "UPDATE shell_exchanges SET line_id = ?2
              WHERE tug_session_id = ?1 AND line_id = ''",
@@ -465,7 +466,7 @@ impl ShellLedger {
 
     /// Whether the named one-time pass has already run against this ledger.
     pub fn backfill_done(&self, name: &str) -> Result<bool, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let done = conn
             .query_row(
                 "SELECT 1 FROM backfills WHERE name = ?1",
@@ -478,7 +479,7 @@ impl ShellLedger {
 
     /// Record that the named one-time pass has run.
     pub fn mark_backfill(&self, name: &str, now_ms: i64) -> Result<(), ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT OR REPLACE INTO backfills (name, done_at_ms) VALUES (?1, ?2)",
             params![name, now_ms],
@@ -489,7 +490,7 @@ impl ShellLedger {
     /// Every anchored row, oldest first: the id, the line, the segment that
     /// wrote it, when, and the anchor it carries. The repair's read.
     pub fn anchored_rows(&self) -> Result<Vec<AnchoredInkRow>, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, line_id, tug_session_id, started_at_ms, anchor_msg_id
              FROM shell_exchanges
@@ -512,7 +513,7 @@ impl ShellLedger {
 
     /// Rewrite one row's anchor. Returns how many rows it touched (0 or 1).
     pub fn set_anchor(&self, id: i64, anchor_msg_id: &str) -> Result<usize, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let moved = conn.execute(
             "UPDATE shell_exchanges SET anchor_msg_id = ?2 WHERE id = ?1",
             params![id, anchor_msg_id],
@@ -579,7 +580,7 @@ impl ShellLedger {
         ];
         binds.extend(exclude_sessions.iter().cloned().map(SqlValue::Text));
 
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
             .query_map(rusqlite::params_from_iter(binds), exchange_from_row)?
@@ -598,7 +599,7 @@ impl ShellLedger {
         line_id: &str,
         since_ms: Option<i64>,
     ) -> Result<Vec<ShellExchangeRow>, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
                     started_at_ms, settled_at_ms, anchor_msg_id
@@ -618,7 +619,7 @@ impl ShellLedger {
         &self,
         line_id: &str,
     ) -> Result<Vec<ShellExchangeRow>, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let told = &*TOLD_COMMANDS_SQL;
         let mut stmt = conn.prepare(&format!(
             "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
@@ -644,7 +645,7 @@ impl ShellLedger {
         through_id: i64,
         now_ms: i64,
     ) -> Result<(), ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT INTO landing_watermarks (line_id, told_through_id, updated_at_ms)
              VALUES (?1, ?2, ?3)
@@ -664,7 +665,7 @@ impl ShellLedger {
     /// between them: rows here but not there is a restore fault; rows in
     /// neither is a write fault.
     pub fn ink_census(&self, only: Option<&str>) -> Result<Vec<InkCensusRow>, ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT line_id, COUNT(*), COALESCE(MAX(seq), 0),
                     MIN(settled_at_ms), MAX(settled_at_ms)
@@ -699,7 +700,7 @@ impl ShellLedger {
         line_id: &str,
         since_ms: Option<i64>,
     ) -> Result<(i64, i64), ShellLedgerError> {
-        let conn = self.db.lock().expect("shell ledger mutex");
+        let conn = self.db.lock();
         let census = conn.query_row(
             "SELECT COUNT(*), COALESCE(MAX(seq), 0)
              FROM shell_exchanges
@@ -1245,14 +1246,13 @@ mod tests {
         led.mark_landings_told("M", salvaged + 10, 1).unwrap();
         led.record_exchange(&ex("M", "/commit", Some(0))).unwrap();
 
-        floor_landing_watermarks(&led.db.lock().unwrap(), 5).unwrap();
+        floor_landing_watermarks(&led.db.lock(), 5).unwrap();
 
         assert!(untold_commands(&led, "L").is_empty());
         // `M` was already above its newest row; the floor does not lower it.
         let told: i64 = led
             .db
             .lock()
-            .unwrap()
             .query_row(
                 "SELECT told_through_id FROM landing_watermarks WHERE line_id = 'M'",
                 [],

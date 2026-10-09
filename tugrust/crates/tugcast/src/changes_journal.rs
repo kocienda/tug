@@ -30,10 +30,10 @@
 //! journal begins at the moment this code first runs on a machine — rows
 //! older than it come from salvage and the snapshots, never from here.
 
+use parking_lot::Mutex;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
@@ -226,7 +226,7 @@ impl ChangesJournal {
             }
         };
         line.push(b'\n');
-        let mut file = self.file.lock().expect("journal mutex poisoned");
+        let mut file = self.file.lock();
         if let Err(err) = file.write_all(&line).and_then(|()| file.sync_data()) {
             tracing::error!(
                 journal = %self.path.display(),

@@ -31,10 +31,11 @@
 //! [`crate::shared_agent`]'s worker already runs; its `drive_worker` is the
 //! working reference this module copies rather than reinvents.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -727,10 +728,7 @@ fn pending_asks() -> &'static Mutex<HashMap<String, oneshot::Sender<String>>> {
 /// card — the question expired, or the resolve died — and not a shrug: a
 /// control the user pressed that reaches nothing must say so ([L31]).
 pub fn answer_question(request_id: &str, answer: String) -> bool {
-    let waiting = pending_asks()
-        .lock()
-        .expect("pending asks mutex")
-        .remove(request_id);
+    let waiting = pending_asks().lock().remove(request_id);
     match waiting {
         Some(tx) => tx.send(answer).is_ok(),
         None => false,
@@ -861,11 +859,11 @@ pub async fn finish_join(
 type Phase = Arc<Mutex<&'static str>>;
 
 fn set_phase(phase: &Phase, what: &'static str) {
-    *phase.lock().expect("resolve phase mutex") = what;
+    *phase.lock() = what;
 }
 
 fn read_phase(phase: &Phase) -> &'static str {
-    *phase.lock().expect("resolve phase mutex")
+    *phase.lock()
 }
 
 async fn finish_join_inner(
@@ -1004,10 +1002,7 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
     };
 
     let (tx, rx) = oneshot::channel::<String>();
-    pending_asks()
-        .lock()
-        .expect("pending asks mutex")
-        .insert(request_id.clone(), tx);
+    pending_asks().lock().insert(request_id.clone(), tx);
 
     {
         let repo = ctx.repo.clone();
@@ -1041,10 +1036,7 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
     let answer = tokio::time::timeout(QUESTION_DEADLINE, rx).await;
 
     // However it ended, the question is no longer live.
-    pending_asks()
-        .lock()
-        .expect("pending asks mutex")
-        .remove(&request_id);
+    pending_asks().lock().remove(&request_id);
     let answered = matches!(answer, Ok(Ok(_)));
     {
         let repo = ctx.repo.clone();

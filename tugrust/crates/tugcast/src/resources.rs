@@ -56,7 +56,7 @@ pub(crate) fn source_tree() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use parking_lot::Mutex;
 
     // Serializes tests that mutate the process-global `TUGCAST_RESOURCE_ROOT`
     // env var. `cargo test` runs tests in parallel by default, so without a
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn test_source_tree_uses_env_var_when_set() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_MUTEX.lock();
         // SAFETY: set_var/remove_var are unsafe on newer Rust editions in
         // multi-threaded contexts. ENV_MUTEX serializes access within this
         // test module, and Step 2's callsite tests will use the same lock.
@@ -82,7 +82,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     fn test_source_tree_fallback_points_at_tugtool_root() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_MUTEX.lock();
         unsafe {
             std::env::remove_var(RESOURCE_ROOT_ENV);
         }
@@ -100,7 +100,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     fn test_source_tree_fallback_is_absolute() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_MUTEX.lock();
         unsafe {
             std::env::remove_var(RESOURCE_ROOT_ENV);
         }
@@ -115,7 +115,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     fn test_source_tree_treats_empty_env_var_as_unset() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_MUTEX.lock();
         // Set to empty string — simulates a Swift caller that fumbled a nil
         // Bundle.main.resourcePath. Without the defense-in-depth check,
         // var_os would return Some("") and source_tree() would return

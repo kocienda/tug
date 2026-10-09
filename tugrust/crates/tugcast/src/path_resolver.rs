@@ -8,9 +8,10 @@
 //! Uses (device, inode) as the fundamental identity — the only reliable
 //! way to determine that two paths refer to the same directory.
 
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use tracing::{debug, info};
 
@@ -70,12 +71,7 @@ impl CanonicalPath {
     /// and that result is memoized when it names a directory, so each distinct
     /// project dir is resolved at most once per process.
     pub fn from_raw(path: &Path) -> Self {
-        if let Some(hit) = memo()
-            .lock()
-            .expect("canonical memo mutex")
-            .get(path)
-            .cloned()
-        {
+        if let Some(hit) = memo().lock().get(path).cloned() {
             return hit;
         }
 
@@ -97,10 +93,7 @@ impl CanonicalPath {
         let resolved = resolve_to_claude_form(path);
         let cp = Self(Arc::from(resolved.to_string_lossy().as_ref()));
         if resolved.is_dir() {
-            memo()
-                .lock()
-                .expect("canonical memo mutex")
-                .insert(path.to_path_buf(), cp.clone());
+            memo().lock().insert(path.to_path_buf(), cp.clone());
         }
         cp
     }
@@ -143,10 +136,7 @@ fn memo() -> &'static Mutex<HashMap<PathBuf, CanonicalPath>> {
 /// Test aid: whether the memo currently holds a resolved entry for `path`.
 #[cfg(test)]
 fn memo_contains(path: &Path) -> bool {
-    memo()
-        .lock()
-        .expect("canonical memo mutex")
-        .contains_key(path)
+    memo().lock().contains_key(path)
 }
 
 // ---------------------------------------------------------------------------
@@ -334,11 +324,9 @@ impl PathResolver {
         }
 
         // Try alt prefixes.
-        if let Ok(alts) = self.alt_prefixes.lock() {
-            for alt in alts.iter() {
-                if let Ok(rel) = abs_path.strip_prefix(alt) {
-                    return Some(rel.to_string_lossy().to_string());
-                }
+        for alt in self.alt_prefixes.lock().iter() {
+            if let Ok(rel) = abs_path.strip_prefix(alt) {
+                return Some(rel.to_string_lossy().to_string());
             }
         }
 
@@ -346,14 +334,13 @@ impl PathResolver {
         #[cfg(unix)]
         if let Some(discovered) = self.resolve_by_inode(abs_path) {
             if let Ok(rel) = abs_path.strip_prefix(&discovered) {
-                if let Ok(mut alts) = self.alt_prefixes.lock() {
-                    if !alts.contains(&discovered) {
-                        info!(
-                            discovered = %discovered.display(),
-                            "PathResolver discovered alt prefix via inode"
-                        );
-                        alts.push(discovered);
-                    }
+                let mut alts = self.alt_prefixes.lock();
+                if !alts.contains(&discovered) {
+                    info!(
+                        discovered = %discovered.display(),
+                        "PathResolver discovered alt prefix via inode"
+                    );
+                    alts.push(discovered);
                 }
                 return Some(rel.to_string_lossy().to_string());
             }

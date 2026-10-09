@@ -22,7 +22,7 @@ use tugcast_core::FeedId;
 /// Helper to build a test app with fresh auth state
 fn build_test_app(port: u16) -> (axum::Router, String) {
     let auth = auth::new_shared_auth_state(port);
-    let token = auth.lock().unwrap().token().unwrap().to_string();
+    let token = auth.lock().token().unwrap().to_string();
 
     let (terminal_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
     let (input_tx, _) = tokio::sync::mpsc::channel(256);

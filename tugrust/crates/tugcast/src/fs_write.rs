@@ -82,11 +82,11 @@ fn next_temp_seq() -> u64 {
 /// locks indexed by path hash gives same-path writes the same lock with no
 /// per-path map to grow or GC; distinct paths that collide onto one lock
 /// just over-serialize briefly — immaterial for debounced autosave writes.
-fn write_lock_for(path: &Path) -> &'static std::sync::Mutex<()> {
+fn write_lock_for(path: &Path) -> &'static parking_lot::Mutex<()> {
     use std::hash::{Hash, Hasher};
     const SHARDS: usize = 64;
-    static LOCKS: std::sync::OnceLock<Vec<std::sync::Mutex<()>>> = std::sync::OnceLock::new();
-    let locks = LOCKS.get_or_init(|| (0..SHARDS).map(|_| std::sync::Mutex::new(())).collect());
+    static LOCKS: std::sync::OnceLock<Vec<parking_lot::Mutex<()>>> = std::sync::OnceLock::new();
+    let locks = LOCKS.get_or_init(|| (0..SHARDS).map(|_| parking_lot::Mutex::new(())).collect());
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut hasher);
     &locks[(hasher.finish() as usize) % SHARDS]
@@ -235,9 +235,7 @@ pub(crate) async fn post_fs_write(
     let result = tokio::task::spawn_blocking(move || {
         // Serialize concurrent writes to the same path (lost-update / shared
         // temp race). Held for the whole read-adjudicate-rename.
-        let _lock = write_lock_for(&canonical)
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _lock = write_lock_for(&canonical).lock();
         write_file(&canonical, &content, baseline_sha256.as_deref(), delete)
     })
     .await;
@@ -370,9 +368,7 @@ mod tests {
             handles.push(thread::spawn(move || {
                 // Same lock the handler takes: serialize the read + write so
                 // the baseline can't go stale under us, and use a unique temp.
-                let _lock = write_lock_for(&path)
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
+                let _lock = write_lock_for(&path).lock();
                 let disk = std::fs::read(&*path).unwrap();
                 write_file(
                     &path,
@@ -413,13 +409,13 @@ mod tests {
 
     #[test]
     fn missing_parents_under_asides_root_are_created() {
+        use parking_lot::Mutex;
         use std::ffi::OsString;
-        use std::sync::Mutex;
 
         // Env mutation is process-global; serialize with the other
         // env-sensitive tests via a local mutex, and restore after.
         static ENV_MUTEX: Mutex<()> = Mutex::new(());
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_MUTEX.lock();
 
         let data = tempfile::tempdir().unwrap();
         let key = tugcore::instance::ENV_DATA_DIR;

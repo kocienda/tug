@@ -224,7 +224,7 @@ pub struct SessionChild {
     /// emitted, populated by the stderr-forwarding task. Read by
     /// `run_session_bridge` after a crash to attach the real failure
     /// reason to the errored frame. Mock spawners leave it empty.
-    pub stderr_tail: Arc<std::sync::Mutex<VecDeque<String>>>,
+    pub stderr_tail: Arc<parking_lot::Mutex<VecDeque<String>>>,
 }
 
 /// Abstraction over subprocess spawning so the supervisor can inject a
@@ -476,8 +476,8 @@ impl ChildSpawner for TugcodeSpawner {
             // the operator. Each line is forwarded verbatim under
             // the `tugcast::tugcode_stderr` target so consumers can
             // grep by that tag.
-            let stderr_tail: Arc<std::sync::Mutex<VecDeque<String>>> =
-                Arc::new(std::sync::Mutex::new(VecDeque::new()));
+            let stderr_tail: Arc<parking_lot::Mutex<VecDeque<String>>> =
+                Arc::new(parking_lot::Mutex::new(VecDeque::new()));
             if let Some(stderr) = child.stderr.take() {
                 let tail = Arc::clone(&stderr_tail);
                 tokio::spawn(async move {
@@ -489,7 +489,8 @@ impl ChildSpawner for TugcodeSpawner {
                                     target: "tugcast::tugcode_stderr",
                                     "{line}",
                                 );
-                                if let Ok(mut buf) = tail.lock() {
+                                {
+                                    let mut buf = tail.lock();
                                     buf.push_back(line);
                                     while buf.len() > STDERR_TAIL_CAP {
                                         buf.pop_front();
@@ -927,7 +928,8 @@ pub async fn run_session_bridge(
                     // The relay died, not tugcode: its stderr has nothing to
                     // say about why. The panic is the failure reason.
                     last_failure_reason = Some(format!("bridge {panic}"));
-                } else if let Ok(buf) = stderr_tail.lock() {
+                } else {
+                    let buf = stderr_tail.lock();
                     if !buf.is_empty() {
                         last_failure_reason =
                             Some(buf.iter().cloned().collect::<Vec<_>>().join("\n"));
@@ -4274,7 +4276,7 @@ mod tests {
                     .unwrap_or(false)
             })
             .expect("the replay_complete was forwarded");
-        let writes = recorder.writes.lock().expect("writes mutex").clone();
+        let writes = recorder.writes.lock().clone();
         (stamped, writes)
     }
 
@@ -6730,7 +6732,7 @@ mod tests {
             stdout: Box::new(stdout),
             pid: Some(pid as u32),
             _keepalive: Box::new(child),
-            stderr_tail: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            stderr_tail: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
         };
 
         // Confirm the process is alive before the drop.

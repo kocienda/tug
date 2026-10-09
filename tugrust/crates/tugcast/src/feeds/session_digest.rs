@@ -1584,24 +1584,21 @@ impl SessionDigester {
 /// the Observer keeps a window it takes and clears at every wake, which a
 /// shared deque cannot be. Both run this code, so both spell an event one way.
 ///
-/// A `std::sync::Mutex`
+/// A `parking_lot::Mutex`
 /// rather than tokio's because nothing here awaits — every call is a parse and
 /// a push — and a guard held across an await point is the one way this could
 /// stall a feed.
-pub type SharedDigester = std::sync::Arc<std::sync::Mutex<SessionDigester>>;
+pub type SharedDigester = std::sync::Arc<parking_lot::Mutex<SessionDigester>>;
 
-/// Lock the shared digester, taking a poisoned lock's contents rather than
-/// panicking.
+/// Lock the shared digester.
 ///
 /// Narration is advisory: a panic anywhere under the lock must not silence the
 /// beat, the standing sentence and the Observer for the life of the process,
-/// which is what propagating the poison would do. The state behind it is a
-/// rolling deque of display lines, so the worst a poisoned digest carries is a
-/// half-accumulated prose block.
-pub fn lock_digester(digester: &SharedDigester) -> std::sync::MutexGuard<'_, SessionDigester> {
-    digester
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+/// and a `parking_lot` lock does not poison, so the next caller proceeds. The
+/// state behind it is a rolling deque of display lines, so the worst a digest
+/// interrupted by a panic carries is a half-accumulated prose block.
+pub fn lock_digester(digester: &SharedDigester) -> parking_lot::MutexGuard<'_, SessionDigester> {
+    digester.lock()
 }
 
 // ──────────────────────────────── the dispatch ───────────────────────────────

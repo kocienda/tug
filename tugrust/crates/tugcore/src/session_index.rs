@@ -34,8 +34,8 @@
 //! adds a migration and bumps [`SESSION_INDEX_SCHEMA_VERSION`], never
 //! edits the DDL alone.
 
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use rusqlite::{Connection, OpenFlags, params};
 
@@ -182,7 +182,7 @@ impl SessionIndex {
     /// entry carries.
     pub fn upsert(&self, entry: &IndexEntry) -> Result<(), SessionIndexError> {
         let leaf = project_leaf_of(&entry.project_dir);
-        let conn = self.db.lock().expect("session index mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT INTO session_index
                 (session_id, line_id, callsign, project_dir, project_leaf,
@@ -220,7 +220,7 @@ impl SessionIndex {
         line_id: &str,
         title: Option<&str>,
     ) -> Result<usize, SessionIndexError> {
-        let conn = self.db.lock().expect("session index mutex");
+        let conn = self.db.lock();
         let touched = conn.execute(
             "UPDATE session_index SET title = ?3, updated_at_ms = ?4
              WHERE instance = ?1 AND line_id = ?2",
@@ -232,7 +232,7 @@ impl SessionIndex {
     /// Forget one segment. The only delete there is — trash is what calls
     /// it, and the index carries no retention policy.
     pub fn remove(&self, session_id: &str) -> Result<usize, SessionIndexError> {
-        let conn = self.db.lock().expect("session index mutex");
+        let conn = self.db.lock();
         let removed = conn.execute(
             "DELETE FROM session_index WHERE session_id = ?1",
             params![session_id],
@@ -242,7 +242,7 @@ impl SessionIndex {
 
     #[cfg(test)]
     fn all(&self) -> Vec<IndexEntry> {
-        let conn = self.db.lock().expect("session index mutex");
+        let conn = self.db.lock();
         let sql = format!("SELECT {INDEX_COLUMNS} FROM session_index ORDER BY session_id");
         let mut stmt = conn.prepare(&sql).expect("prepare");
         stmt.query_map([], |r| Ok(decode(r)))

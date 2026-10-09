@@ -1094,7 +1094,7 @@ mod tests {
     use super::*;
     use crate::shared_agent::test_support::FakeSpawner;
     use crate::shared_agent::{AgentSpec, AgentWorkerSpawner};
-    use std::sync::Mutex;
+    use parking_lot::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
     /// A pool answering a script, on the real job table so timeouts and
@@ -2105,7 +2105,7 @@ mod tests {
                     while let Some(crate::shared_agent::TurnRequest { turn, reply }) =
                         rx.recv().await
                     {
-                        seen.lock().unwrap().push(turn.text);
+                        seen.lock().push(turn.text);
                         let answer = if turns.fetch_add(1, Ordering::SeqCst) == 0 {
                             Err("worker died".to_string())
                         } else {
@@ -2144,7 +2144,7 @@ mod tests {
         let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.body, "Caught up.");
 
-        let turns = seen.lock().unwrap().clone();
+        let turns = seen.lock().clone();
         let composed = turns.last().expect("a second turn was asked");
         assert!(
             composed.contains("The work the failed job never read."),

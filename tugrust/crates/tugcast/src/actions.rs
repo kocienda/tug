@@ -120,7 +120,7 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
     let platform = claude_download::platform();
     // The last thing the fetch reported, so a stop can say where it stopped
     // without the fetch having to hand its bookkeeping back.
-    let last = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0u64, String::new())));
+    let last = std::sync::Arc::new(parking_lot::Mutex::new((0u64, 0u64, String::new())));
 
     let progress_cat = cat.clone();
     let progress_last = std::sync::Arc::clone(&last);
@@ -130,8 +130,7 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
         &platform,
         &token,
         move |received, expected, version| {
-            *progress_last.lock().unwrap_or_else(|e| e.into_inner()) =
-                (received, expected, version.to_string());
+            *progress_last.lock() = (received, expected, version.to_string());
             send_control(
                 &progress_cat,
                 &serde_json::json!({
@@ -152,8 +151,7 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
             claude_download::run_installer(&path).await
         }
         FetchOutcome::Stopped(reason) => {
-            let (received, expected, version) =
-                last.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let (received, expected, version) = last.lock().clone();
             send_control(
                 &cat,
                 &serde_json::json!({
@@ -271,7 +269,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
             // Complete a pending eval request
             if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(raw_payload) {
                 if let Some(request_id) = payload.get("requestId").and_then(|r| r.as_str()) {
-                    let mut pending = pending_evals.lock().unwrap();
+                    let mut pending = pending_evals.lock();
                     if let Some(tx) = pending.remove(request_id) {
                         let result = payload
                             .get("result")
@@ -297,7 +295,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                         .and_then(|c| c.as_str())
                         .unwrap_or_default()
                         .to_owned();
-                    let mut pending = pending_asks.lock().unwrap();
+                    let mut pending = pending_asks.lock();
                     if let Some(tx) = pending.remove(request_id) {
                         let _ = tx.send(choice);
                         info!("dispatch_action: ask-response completed for {}", request_id);
@@ -540,8 +538,8 @@ mod tests {
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
 
-        let pending_evals = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
-        let pending_asks = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
 
         dispatch_action(
             "show-card",
@@ -572,12 +570,12 @@ mod tests {
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
 
-        let pending_evals = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
         let pending_asks: crate::router::PendingAsks =
-            std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+            std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
 
         let (tx, rx) = tokio::sync::oneshot::channel();
-        pending_asks.lock().unwrap().insert("req-1".to_owned(), tx);
+        pending_asks.lock().insert("req-1".to_owned(), tx);
 
         dispatch_action(
             "ask-response",
@@ -594,7 +592,7 @@ mod tests {
         .await;
 
         assert_eq!(rx.await.unwrap(), "run-background-only");
-        assert!(pending_asks.lock().unwrap().is_empty());
+        assert!(pending_asks.lock().is_empty());
     }
 
     /// The observability verbs answer in the shape the local-model verbs did
@@ -609,8 +607,8 @@ mod tests {
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
 
-        let pending_evals = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
-        let pending_asks = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
         let agent = Some(crate::shared_agent::test_support::scripted_haiku_pool(Ok(
             "SHELL".to_string(),
         )));
@@ -655,8 +653,8 @@ mod tests {
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
 
-        let pending_evals = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
-        let pending_asks = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
 
         dispatch_action(
             "shared_agent_classify",
@@ -694,9 +692,9 @@ mod tests {
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
 
-        let pending_evals = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
         let pending_asks: crate::router::PendingAsks =
-            std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+            std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
 
         dispatch_action(
             "ask-response",
@@ -712,6 +710,6 @@ mod tests {
         )
         .await;
 
-        assert!(pending_asks.lock().unwrap().is_empty());
+        assert!(pending_asks.lock().is_empty());
     }
 }

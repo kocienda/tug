@@ -6,8 +6,9 @@
 //! here in tugcast-core so the feed traits can be self-describing; the router
 //! consumes it on `BroadcastStreamRecvError::Lagged`.
 
+use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::protocol::Frame;
 
@@ -32,7 +33,7 @@ impl ReplayBuffer {
 
     /// Push a frame into the buffer, evicting the oldest if at capacity.
     pub fn push(&self, frame: Frame) {
-        let mut buf = self.frames.lock().unwrap();
+        let mut buf = self.frames.lock();
         if buf.len() >= self.capacity {
             buf.pop_front();
         }
@@ -41,24 +42,24 @@ impl ReplayBuffer {
 
     /// Return a snapshot (clone) of all buffered frames.
     pub fn snapshot(&self) -> Vec<Frame> {
-        self.frames.lock().unwrap().iter().cloned().collect()
+        self.frames.lock().iter().cloned().collect()
     }
 
     /// Number of frames currently in the buffer.
     pub fn len(&self) -> usize {
-        self.frames.lock().unwrap().len()
+        self.frames.lock().len()
     }
 
     /// Whether the buffer holds no frames.
     pub fn is_empty(&self) -> bool {
-        self.frames.lock().unwrap().is_empty()
+        self.frames.lock().is_empty()
     }
 }
 
 // Manual Debug (doesn't derive because of the Mutex).
 impl std::fmt::Debug for ReplayBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let len = self.frames.lock().map(|b| b.len()).unwrap_or(0);
+        let len = self.frames.lock().len();
         write!(f, "ReplayBuffer({}/{})", len, self.capacity)
     }
 }

@@ -25,8 +25,9 @@
 //!
 //! [`ConflictBoard`]: super::base_motion
 
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 #[derive(Default)]
 struct SeatingBoard {
@@ -44,7 +45,7 @@ fn board() -> &'static SeatingBoard {
 /// whether the report changed anything — the caller bumps the aggregate
 /// recompute on `true`.
 pub fn set_deck_seatings(client_id: u64, session_ids: HashSet<String>) -> bool {
-    let mut by_client = board().by_client.lock().expect("seating board mutex");
+    let mut by_client = board().by_client.lock();
     if session_ids.is_empty() {
         by_client.remove(&client_id).is_some()
     } else if by_client.get(&client_id) == Some(&session_ids) {
@@ -59,7 +60,7 @@ pub fn set_deck_seatings(client_id: u64, session_ids: HashSet<String>) -> bool {
 /// the caller bumps the aggregate recompute on `true` so a closed deck's
 /// cards stop counting as seated.
 pub fn drop_deck_seatings(client_id: u64) -> bool {
-    let mut by_client = board().by_client.lock().expect("seating board mutex");
+    let mut by_client = board().by_client.lock();
     by_client.remove(&client_id).is_some()
 }
 
@@ -67,6 +68,6 @@ pub fn drop_deck_seatings(client_id: u64) -> bool {
 /// card holds this session" fact the changeset compose folds into liveness.
 /// Empty when no deck is connected, which is the truth in that case.
 pub fn seated_session_ids() -> HashSet<String> {
-    let by_client = board().by_client.lock().expect("seating board mutex");
+    let by_client = board().by_client.lock();
     by_client.values().flatten().cloned().collect()
 }

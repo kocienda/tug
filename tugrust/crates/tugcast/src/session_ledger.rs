@@ -132,9 +132,10 @@
 //! need explicit transactions; sqlite's per-statement implicit
 //! transaction is enough.
 
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::Notify;
@@ -1372,7 +1373,7 @@ impl SessionLedger {
         if records.is_empty() {
             return;
         }
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut applied = 0usize;
         let mut failed = 0usize;
         for record in &records {
@@ -1686,7 +1687,7 @@ impl SessionLedger {
         } else {
             &["main", "changes"]
         };
-        let conn = self.db.lock().expect("ledger mutex poisoned");
+        let conn = self.db.lock();
         databases
             .iter()
             .map(|db| {
@@ -3856,7 +3857,7 @@ impl SessionLedger {
 
     /// All rows in the workspace, ordered newest-first by `last_used_at`.
     pub fn list_for_workspace(&self, workspace_key: &str) -> Result<Vec<SessionRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
              WHERE s.workspace_key = ?1
@@ -3892,7 +3893,7 @@ impl SessionLedger {
     /// into and nothing to point at, and a row that names neither is worse
     /// than an honest absence.
     pub fn list_for_project_dir(&self, project_dir: &str) -> Result<Vec<SessionRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
              WHERE s.project_dir = ?1
@@ -3938,7 +3939,7 @@ impl SessionLedger {
     ///   card path (not a headless test).
     /// - `state != 'failed'` — failed rows are known-unrecoverable.
     pub fn list_with_card_id(&self) -> Result<Vec<SessionRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
              WHERE s.card_id IS NOT NULL
@@ -3965,7 +3966,7 @@ impl SessionLedger {
         active_only: bool,
         limit: usize,
     ) -> Result<Vec<SessionRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
              WHERE (?1 IS NULL OR s.last_used_at >= ?1)
@@ -3989,7 +3990,7 @@ impl SessionLedger {
 
     /// Look up a single row by session id.
     pub fn get(&self, session_id: &str) -> Result<Option<SessionRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
              WHERE s.session_id = ?1
@@ -4098,7 +4099,7 @@ impl SessionLedger {
                 background: false,
             })
         }
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut exact = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED} WHERE s.session_id = ?1 LIMIT 1"
         ))?;
@@ -4243,7 +4244,7 @@ impl SessionLedger {
     /// not the last segment's.
     pub fn list_lines_with_card(&self) -> Result<Vec<(LineRow, SessionRow, i64)>, LedgerError> {
         let lines = {
-            let conn = self.db.lock().expect("ledger mutex");
+            let conn = self.db.lock();
             let mut stmt = conn.prepare(
                 "SELECT line_id, tag, name, name_user_set, card_id,
                         project_dir, created_at, last_used_at
@@ -4279,7 +4280,7 @@ impl SessionLedger {
         &self,
         line_id: &str,
     ) -> Result<Option<SessionRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
              WHERE s.line_id = ?1 AND s.state != 'failed'
@@ -4304,7 +4305,7 @@ impl SessionLedger {
     /// set. `None` for a line no `sessions` row wears (every segment
     /// evicted) — the caller falls back to the raw id it was asked about.
     pub fn line_ownership(&self, line_id: &str) -> Result<Option<LineOwnership>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT s.session_id, s.state FROM sessions s
              WHERE s.line_id = ?1
@@ -4347,7 +4348,7 @@ impl SessionLedger {
     /// A session wearing no line, or no row at all, answers with itself
     /// alone, which degrades the question back to the one it used to ask.
     pub fn line_segments_of(&self, session_id: &str) -> Vec<String> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let line_id: Option<String> = conn
             .query_row(
                 "SELECT line_id FROM sessions WHERE session_id = ?1",
@@ -4384,7 +4385,7 @@ impl SessionLedger {
     /// point: the parent is left out and the chain is counted at its tip. A
     /// rewind edge is the one with a `fork_point`.
     pub fn line_turn_count(&self, line_id: &str) -> Result<i64, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let total: i64 = conn.query_row(
             "SELECT COALESCE(SUM(s.turn_count), 0) FROM sessions s
              WHERE s.line_id = ?1
@@ -4404,7 +4405,7 @@ impl SessionLedger {
     /// when a row written under one segment's id has to be seated in another
     /// segment's transcript ([`crate::ink_backfill::reanchor_rotated_lines`]).
     pub fn segments_of_line(&self, line_id: &str) -> Result<Vec<LineSegment>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT session_id, created_at, project_dir FROM sessions
              WHERE line_id = ?1
@@ -4424,7 +4425,7 @@ impl SessionLedger {
 
     /// One line by id.
     pub fn get_line(&self, line_id: &str) -> Result<Option<LineRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let row = conn
             .query_row(
                 "SELECT line_id, tag, name, name_user_set, card_id,
@@ -4445,7 +4446,7 @@ impl SessionLedger {
     /// id — the answer a durable-ink write falls back on by keying under the
     /// id itself.
     pub fn line_of(&self, session_id: &str) -> Option<String> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         line_of_in(&conn, session_id)
     }
 
@@ -4478,7 +4479,7 @@ impl SessionLedger {
     /// nothing (a line with one live segment resolves to it either way) and
     /// closes the window.
     pub fn live_segment_of(&self, session_id: &str) -> Result<Option<String>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         // `sessions.line_id` is NOT NULL and keyed into `lines`, so the join
         // finds the caller's own row whenever that row is itself live — there
         // is no lineless case left to fall back for.
@@ -4508,7 +4509,7 @@ impl SessionLedger {
     ///
     /// Newest first, so a caller that must pick one picks the seat.
     pub fn live_segments_of_line(&self, line_id: &str) -> Vec<String> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let Ok(mut stmt) = conn.prepare(
             "SELECT session_id FROM sessions
              WHERE line_id = ?1 AND state = 'live'
@@ -4542,7 +4543,7 @@ impl SessionLedger {
         tag: Option<&str>,
         now: i64,
     ) -> Result<LineRow, LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let line = birth_line_in(&tx, line_id, session_id, card_id, project_dir, tag, now)?;
         tx.commit()?;
@@ -4569,7 +4570,7 @@ impl SessionLedger {
         session_id: &str,
         now: i64,
     ) -> Result<Option<String>, LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         /// The `external_scan_cache` columns this query selects, in order:
         /// line id, lineage ancestors, project dir, created-at, last-used-at.
@@ -4739,7 +4740,7 @@ impl SessionLedger {
         line_id: &str,
         tag: Option<&str>,
     ) -> Result<(), LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let existing_created_at: Option<i64> = tx
             .query_row(
@@ -4982,7 +4983,7 @@ impl SessionLedger {
     /// for truncation; the `truncate_user_prompt` helper is provided for
     /// consistency.
     pub fn record_user_prompt(&self, session_id: &str, prompt: &str) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions
              SET last_user_prompt = ?2
@@ -5014,7 +5015,7 @@ impl SessionLedger {
         line_id: &str,
         name: Option<&str>,
     ) -> Result<Vec<DisplacedName>, LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         // Immediate, because the read of who wears the name and the write that
         // takes it must not interleave with another rename.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -5088,7 +5089,7 @@ impl SessionLedger {
     /// written is touched — a retroactive scrub is a separate act, and doing it
     /// silently here would be the wrong kind of surprise.
     pub fn set_session_private(&self, session_id: &str, private: bool) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions SET private = ?2 WHERE session_id = ?1",
             params![session_id, i64::from(private)],
@@ -5105,7 +5106,7 @@ impl SessionLedger {
     /// public — the same reading the write-time check takes, and the reason
     /// the query-time exclusions are `NOT EXISTS` rather than joins.
     pub fn is_session_private(&self, session_id: &str) -> Result<bool, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let private: Option<i64> = conn
             .query_row(
                 "SELECT private FROM sessions WHERE session_id = ?1",
@@ -5126,7 +5127,7 @@ impl SessionLedger {
     /// ledger holds a row for are named: an id it has never seen reads as
     /// public, which is the same reading `NOT EXISTS` takes.
     pub fn private_session_ids(&self) -> Result<Vec<String>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT session_id FROM sessions WHERE private = 1")?;
         let ids = stmt
             .query_map([], |row| row.get::<_, String>(0))?
@@ -5149,7 +5150,7 @@ impl SessionLedger {
         forked_from_session_id: &str,
         fork_point: Option<&str>,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions SET forked_from_session_id = ?2, fork_point = ?3
              WHERE session_id = ?1",
@@ -5180,7 +5181,7 @@ impl SessionLedger {
         label: &str,
         model: Option<&str>,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions SET stage_label = ?2, stage_model = ?3
              WHERE session_id = ?1",
@@ -5200,7 +5201,7 @@ impl SessionLedger {
     /// query error all read as "no rotation seated this", which is what the
     /// lineage restore then falls back to the arc record for.
     pub fn stage_provenance(&self, session_id: &str) -> Option<(String, Option<String>)> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.query_row(
             "SELECT stage_label, stage_model FROM sessions WHERE session_id = ?1",
             params![session_id],
@@ -5229,7 +5230,7 @@ impl SessionLedger {
     /// debt against it is nobody's to settle. Silent by design, and paired
     /// with [`Self::sessions_owed_hand_back`], which is what reads it back.
     pub fn set_hand_back_owed(&self, session_id: &str, owed: bool) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "UPDATE sessions SET hand_back_owed = ?2 WHERE session_id = ?1",
             params![session_id, i64::from(owed)],
@@ -5244,7 +5245,7 @@ impl SessionLedger {
     /// only re-arm something no turn will ever end. Read once, at startup, to
     /// refill the wheel's in-memory set.
     pub fn sessions_owed_hand_back(&self) -> Result<Vec<String>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT session_id FROM sessions
              WHERE hand_back_owed = 1 AND state = 'live'",
@@ -5272,7 +5273,7 @@ impl SessionLedger {
         /// against a corrupt edge set, not a real depth.
         const MAX_HOPS: usize = 16;
 
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut chain = vec![session_id.to_owned()];
         let mut visited = HashSet::new();
         visited.insert(session_id.to_owned());
@@ -5332,7 +5333,7 @@ impl SessionLedger {
         // mutex this function goes on to hold.
         let forks = self.lineage_chain(session_id);
 
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut chain: Vec<String> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for id in forks {
@@ -5366,7 +5367,7 @@ impl SessionLedger {
         if trimmed.is_empty() {
             return Ok(false);
         }
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let Some(line_id) = line_of_in(&conn, session_id) else {
             return Ok(false);
         };
@@ -5409,7 +5410,7 @@ impl SessionLedger {
         if trimmed.is_empty() {
             return Ok(false);
         }
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions
              SET synopsis = ?2
@@ -5430,7 +5431,7 @@ impl SessionLedger {
     /// scan-on-`list_sessions` path — a live `turn_complete` only marks the
     /// row recently used. No-op if the row is absent or not `live`.
     pub fn record_turn(&self, session_id: &str, now: i64) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions
              SET last_used_at = ?2
@@ -5456,7 +5457,7 @@ impl SessionLedger {
         session_id: &str,
         count: i64,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "UPDATE sessions
              SET turn_count = ?2
@@ -5476,7 +5477,7 @@ impl SessionLedger {
         last_user_prompt: Option<&str>,
         now: i64,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "UPDATE sessions
              SET last_user_prompt = ?2,
@@ -5501,7 +5502,7 @@ impl SessionLedger {
         count: i64,
         now: i64,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "UPDATE sessions
              SET turn_count = ?2,
@@ -5528,7 +5529,7 @@ impl SessionLedger {
     /// the *unbound* state — an arc with rounds and no live session — could
     /// never be reached.
     pub fn mark_closed(&self, session_id: &str) -> Result<bool, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             // `demoted = 0`: a deliberate close outranks a prior demote —
             // this row is done and no late event may revive it. The guard
@@ -5564,7 +5565,7 @@ impl SessionLedger {
     /// re-entry into the fact base is a `SessionResumed` under the line's
     /// handle ([P02]), the mirror of the demote's `session_end`.
     pub fn revive_on_activity(&self, session_id: &str, now: i64) -> Result<bool, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let row: Option<(String, String, String)> = conn
             .query_row(
                 "SELECT s.workspace_key, s.project_dir,
@@ -5630,7 +5631,7 @@ impl SessionLedger {
             Some((id, name)) => (Some(id), Some(name)),
             None => (None, None),
         };
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions SET arc_id = ?2, arc_name = ?3
              WHERE session_id = ?1
@@ -5651,7 +5652,7 @@ impl SessionLedger {
     /// this design retires. The caller resolves the key **before** the
     /// teardown that deletes the branch config it lives in ([L23], Risk R02).
     pub fn clear_arc_bindings_for_arc(&self, arc_id: &str) -> Result<usize, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions SET arc_id = NULL, arc_name = NULL WHERE arc_id = ?1",
             params![arc_id],
@@ -5682,7 +5683,7 @@ impl SessionLedger {
         &self,
         arc: &str,
     ) -> Result<Vec<(String, String)>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT session_id, project_dir
              FROM sessions
@@ -5718,7 +5719,7 @@ impl SessionLedger {
     pub fn bound_session_by_arc(
         &self,
     ) -> Result<std::collections::HashMap<String, String>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT arc_id, session_id
              FROM sessions
@@ -5765,7 +5766,7 @@ impl SessionLedger {
         let seats = self.list_lines_with_card()?;
         let mut moved = 0usize;
         {
-            let mut conn = self.db.lock().expect("ledger mutex");
+            let mut conn = self.db.lock();
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             for (_, seat, _) in &seats {
                 if seat.arc_id.is_some() {
@@ -5825,7 +5826,7 @@ impl SessionLedger {
     ) -> Result<Option<(String, String)>, LedgerError> {
         let seated;
         {
-            let mut conn = self.db.lock().expect("ledger mutex");
+            let mut conn = self.db.lock();
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let row: Option<(Option<String>, Option<String>)> = tx
                 .query_row(
@@ -5887,7 +5888,7 @@ impl SessionLedger {
     /// `card_id` is preserved across transitions; see [`mark_closed`], whose
     /// return value means the same thing here.
     pub fn mark_failed(&self, session_id: &str) -> Result<bool, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let affected = conn.execute(
             "UPDATE sessions
              SET state = 'failed'
@@ -5923,7 +5924,7 @@ impl SessionLedger {
     /// `lines_user_name` index so the spelling can be typed again.
     pub fn trash(&self, session_id: &str) -> Result<TrashOutcome, LedgerError> {
         let forwarding = self.forwarding();
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         // Read state + project_dir under the same lock so the JSONL move
         // afterwards has the canonical project_dir we recorded at spawn.
@@ -5995,7 +5996,7 @@ impl SessionLedger {
     /// segment of a user-named line is left where it is — row and JSONL both.
     pub fn trash_for_project_dir(&self, project_dir: &str) -> Result<Vec<String>, LedgerError> {
         let forwarding = self.forwarding();
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let doomed: Vec<String> = {
             let mut stmt =
@@ -6083,7 +6084,7 @@ impl SessionLedger {
     /// work, and closing it strands whatever is running under it. See
     /// [`DemoteScope`].
     pub fn demote_live_to_closed(&self, scope: DemoteScope<'_>) -> Result<usize, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         // Read the doomed rows before the UPDATE erases which ones they were,
         // so each demotion records its own fact. `startup-demote` is the
         // detail because the distinction matters when reading history back:
@@ -6153,7 +6154,7 @@ impl SessionLedger {
     /// All distinct workspace keys currently represented in the ledger.
     /// Used by the trash sweep in step 8 to enumerate workspace dirs.
     pub fn distinct_workspaces(&self) -> Result<Vec<String>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt =
             conn.prepare("SELECT DISTINCT workspace_key FROM sessions ORDER BY workspace_key")?;
         let names = stmt
@@ -6190,7 +6191,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionScanMetrics>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let metrics = conn
             .query_row(
                 "SELECT file_size, turn_count
@@ -6222,7 +6223,7 @@ impl SessionLedger {
     /// because the client replaces its cached row wholesale and a push that
     /// omits a fact downgrades it.
     pub fn usage_for(&self, session_id: &str) -> Result<Option<SessionUsage>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let usage = conn.query_row(
             "SELECT COUNT(*),
                     COALESCE(SUM(input_tokens + output_tokens
@@ -6249,7 +6250,7 @@ impl SessionLedger {
     /// against the current `(file_size, file_mtime)` is the caller's
     /// check — the cache stores what was true at parse time.
     pub fn get_scan_cache(&self, session_id: &str) -> Result<Option<ScanCacheRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             // Epoch-gated: a row written under a prior turn rule (or a
             // pre-column row defaulted to epoch 0) is treated as absent, so
@@ -6285,7 +6286,7 @@ impl SessionLedger {
     /// `name` is not carried, and that is the distinction: it is a per-file
     /// derived fact this scan just regenerated, not identity.
     pub fn upsert_scan_cache(&self, row: &ScanCacheRow) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let existing_line: Option<String> = conn
             .query_row(
                 "SELECT line_id FROM external_scan_cache WHERE session_id = ?1",
@@ -6342,7 +6343,7 @@ impl SessionLedger {
         project_dir: &str,
         keep: &[String],
     ) -> Result<usize, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         if keep.is_empty() {
             let n = conn.execute(
                 "DELETE FROM external_scan_cache WHERE project_dir = ?1",
@@ -6397,7 +6398,7 @@ impl SessionLedger {
         now: i64,
     ) -> Result<(), LedgerError> {
         let attachments_blob = serde_json::to_vec(user_attachments)?;
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT INTO turns (
                 journal_id, session_id, user_text, user_attachments, created_at
@@ -6420,7 +6421,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Option<JournalRow>, LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let row = tx
             .query_row(
@@ -6457,7 +6458,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Vec<JournalRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT journal_id, session_id, user_text, user_attachments, created_at
              FROM turns
@@ -6491,7 +6492,7 @@ impl SessionLedger {
         text: &str,
         now: i64,
     ) -> Result<bool, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let n = conn.execute(
             "INSERT INTO wheel_prompts (prompt_id, line_id, session_id, text, sent_at)
              SELECT ?1, line_id, session_id, ?2, ?3 FROM sessions WHERE session_id = ?4",
@@ -6511,7 +6512,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Vec<String>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT text FROM wheel_prompts
              WHERE line_id = (SELECT line_id FROM sessions WHERE session_id = ?1)
@@ -6534,7 +6535,7 @@ impl SessionLedger {
     /// enough. No explicit transaction needed for the write cadence we
     /// expect (one per `turn_complete`).
     pub fn record_turn_telemetry(&self, row: &TurnTelemetryRow) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT OR REPLACE INTO turn_telemetry (
                 session_id, msg_id,
@@ -6588,7 +6589,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Vec<TurnTelemetryRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT session_id, msg_id,
                     input_tokens, output_tokens,
@@ -6739,7 +6740,7 @@ impl SessionLedger {
                AND s.file_path IN ({placeholders})
              ORDER BY s.tug_session_id, s.file_path, s.tool_use_id, s.seq"
         );
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let table_exists: bool = conn
             .query_row(
                 "SELECT EXISTS (SELECT 1 FROM changes.sqlite_master
@@ -7041,7 +7042,7 @@ impl SessionLedger {
         } else {
             &["main", "changes"]
         };
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         for db in databases {
             let result =
                 conn.query_row(&format!("PRAGMA {db}.wal_checkpoint(TRUNCATE)"), [], |r| {
@@ -7077,7 +7078,7 @@ impl SessionLedger {
     /// Fails if `dest` already exists (SQLite semantics); callers use
     /// timestamped names.
     pub fn snapshot_into(&self, db: &str, dest: &Path) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             &format!("VACUUM {db} INTO ?1"),
             params![dest.to_string_lossy()],
@@ -7100,7 +7101,7 @@ impl SessionLedger {
                 if let Err(err) = self.write_change(record) {
                     tracing::warn!(session = id, error = %err, "session eviction: attribution delete could not be forwarded");
                 }
-            } else if let Some(journal) = &*self.changes_journal.lock().expect("journal mutex") {
+            } else if let Some(journal) = &*self.changes_journal.lock() {
                 journal.append(&record);
             }
         }
@@ -7135,10 +7136,7 @@ impl SessionLedger {
     /// Whether shared-ledger mutations must be forwarded to the instance
     /// that holds the writer claim.
     fn forwarding(&self) -> bool {
-        self.changes_access
-            .lock()
-            .expect("changes access mutex")
-            .is_forwarding()
+        self.changes_access.lock().is_forwarding()
     }
 
     /// Route one shared-ledger mutation: apply it locally when this
@@ -7154,7 +7152,7 @@ impl SessionLedger {
         if record.shapes_rows() {
             self.guard_changes_write()?;
         }
-        let mut access = self.changes_access.lock().expect("changes access mutex");
+        let mut access = self.changes_access.lock();
         let crate::changes_writer::ChangesAccess::Forward(forwarder) = &mut *access else {
             return self.apply_change_locally(&record);
         };
@@ -7238,7 +7236,7 @@ impl SessionLedger {
         &self,
         record: &crate::changes_journal::Record,
     ) -> Result<usize, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let result = Self::apply_journal_record(&conn, record).inspect_err(|err| {
             ledger_integrity::health::note_error("changes", err);
         });
@@ -7253,7 +7251,7 @@ impl SessionLedger {
             Err(_) => true,
         };
         if journal_worthy {
-            if let Some(journal) = &*self.changes_journal.lock().expect("journal mutex") {
+            if let Some(journal) = &*self.changes_journal.lock() {
                 journal.append(record);
             }
         }
@@ -7272,7 +7270,7 @@ impl SessionLedger {
         let Some(path) = self.changes_db_path.as_deref() else {
             return;
         };
-        let mut journal = self.changes_journal.lock().expect("journal mutex");
+        let mut journal = self.changes_journal.lock();
         if journal.is_none() {
             *journal = crate::changes_journal::ChangesJournal::open(path);
         }
@@ -7307,7 +7305,7 @@ impl SessionLedger {
     fn take_over_changes_writer(&self) -> Option<tugcore::ledger_db::WriterLock> {
         let path = self.changes_db_path.as_deref()?;
         let lock = tugcore::ledger_db::claim_writer(path, &self.writer_identity)?;
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         if let Err(err) = conn.execute("DETACH DATABASE changes", []) {
             // Benign when a previous failed takeover left no attach
             // behind — treating it as fatal would poison every future
@@ -7333,7 +7331,7 @@ impl SessionLedger {
     /// while nothing was being written still recovers (and drains what it
     /// is holding) instead of waiting for the next attribution event.
     pub fn retry_changes_takeover(&self) {
-        let mut access = self.changes_access.lock().expect("changes access mutex");
+        let mut access = self.changes_access.lock();
         let crate::changes_writer::ChangesAccess::Forward(forwarder) = &mut *access else {
             return;
         };
@@ -7365,7 +7363,7 @@ impl SessionLedger {
     /// and when the content already matches; called on the maintenance
     /// tick.
     pub fn republish_writer_identity(&self) {
-        let mut access = self.changes_access.lock().expect("changes access mutex");
+        let mut access = self.changes_access.lock();
         if let crate::changes_writer::ChangesAccess::Owner(lock) = &mut *access {
             lock.republish(&self.writer_identity);
         }
@@ -7375,7 +7373,7 @@ impl SessionLedger {
     /// Owner-only duties (checkpointing, snapshot backups) consult it.
     pub fn owns_changes_writer(&self) -> bool {
         matches!(
-            &*self.changes_access.lock().expect("changes access mutex"),
+            &*self.changes_access.lock(),
             crate::changes_writer::ChangesAccess::Owner(_)
                 | crate::changes_writer::ChangesAccess::Unclaimed
         )
@@ -7433,7 +7431,7 @@ impl SessionLedger {
         }
         let mut applied: Vec<FileEventRewrite> = Vec::new();
         {
-            let mut conn = self.db.lock().expect("ledger mutex");
+            let mut conn = self.db.lock();
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             for rw in rewrites {
                 if Self::apply_file_event_rewrite(&tx, canonical_project_dir, rw)? {
@@ -7444,7 +7442,7 @@ impl SessionLedger {
         }
         // Journal after commit so a rolled-back transaction never leaves
         // phantom rewrites in the durable record.
-        if let Some(journal) = &*self.changes_journal.lock().expect("journal mutex") {
+        if let Some(journal) = &*self.changes_journal.lock() {
             for rw in &applied {
                 journal.append(&crate::changes_journal::Record::Rewrite {
                     canonical_project_dir: canonical_project_dir.to_string(),
@@ -7553,7 +7551,7 @@ impl SessionLedger {
         &self,
         tug_session_id: &str,
     ) -> Result<Vec<FileEventRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT tug_session_id, tool_use_id, file_path,
                     tool_name, op, origin, ambiguous,
@@ -7578,7 +7576,7 @@ impl SessionLedger {
         &self,
         project_dir: &str,
     ) -> Result<Vec<ProjectFileEvent>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         // The row's own stamp is the first-choice line ([P01]); the
         // sessions join answers for rows written before v3. A shared
         // database still owned by a pre-v3 build has no `fe.line_id`
@@ -7683,7 +7681,7 @@ impl SessionLedger {
         owner_id: &str,
         project_dir: &str,
     ) -> Result<Option<ChangesetDraftRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT owner_kind, owner_id, project_dir, fingerprint, message, updated_at,
                     edited, selection
@@ -7704,7 +7702,7 @@ impl SessionLedger {
     /// `None` when the table is empty. The aggregate feed's 2 s probe reads
     /// this to observe out-of-process writes (`tugtool draft set`) — [P12].
     pub fn changeset_drafts_version(&self) -> Result<Option<i64>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let version = conn.query_row(
             "SELECT MAX(updated_at) FROM changes.changeset_drafts",
             [],
@@ -7735,7 +7733,7 @@ impl SessionLedger {
         &self,
         project_dir: &str,
     ) -> Result<Vec<ChangesetDraftRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT owner_kind, owner_id, project_dir, fingerprint, message, updated_at,
                     edited, selection
@@ -7764,7 +7762,7 @@ impl SessionLedger {
         payload: &[u8],
         captured_at: i64,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT OR REPLACE INTO session_metadata (session_id, payload, captured_at)
              VALUES (?1, ?2, ?3)",
@@ -7780,7 +7778,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionMetadataRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let row = conn
             .query_row(
                 "SELECT session_id, payload, captured_at
@@ -7810,7 +7808,7 @@ impl SessionLedger {
         payload: &[u8],
         captured_at: i64,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT OR REPLACE INTO session_capabilities (session_id, payload, captured_at)
              VALUES (?1, ?2, ?3)",
@@ -7826,7 +7824,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCapabilitiesRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let row = conn
             .query_row(
                 "SELECT session_id, payload, captured_at
@@ -7861,7 +7859,7 @@ impl SessionLedger {
         payload: &[u8],
         captured_at: i64,
     ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT OR REPLACE INTO context_breakdown_latest (session_id, payload, captured_at)
              VALUES (?1, ?2, ?3)",
@@ -7878,7 +7876,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Option<ContextBreakdownRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let row = conn
             .query_row(
                 "SELECT session_id, payload, captured_at
@@ -7916,7 +7914,7 @@ impl SessionLedger {
         transport_state: &str,
         interrupt_in_flight: bool,
     ) -> Result<bool, LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let most_recent: Option<(String, String, i64)> = tx
             .query_row(
@@ -7961,7 +7959,7 @@ impl SessionLedger {
         &self,
         session_id: &str,
     ) -> Result<Vec<SessionStateChangeRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, session_id, at_ms, phase, transport_state, interrupt_in_flight
              FROM session_state_changes
@@ -8001,7 +7999,7 @@ impl SessionLedger {
         } else {
             serde_json::to_string(&post.attachments).ok()
         };
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT INTO overview_posts
                  (at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir,
@@ -8026,7 +8024,7 @@ impl SessionLedger {
     /// The newest `limit` posts, returned OLDEST-first (display order), which
     /// is what the card's CONTROL tail read wants on mount.
     pub fn list_overview_posts_tail(&self, limit: usize) -> Result<Vec<OverviewPost>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir, attachments FROM (
                  SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir, attachments
@@ -8058,7 +8056,7 @@ impl SessionLedger {
         before_id: Option<i64>,
         limit: usize,
     ) -> Result<(Vec<OverviewPost>, bool), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir, attachments FROM (
                  SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir, attachments
@@ -8090,7 +8088,7 @@ impl SessionLedger {
         session_id: &str,
         limit: usize,
     ) -> Result<Vec<OverviewPost>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir, attachments FROM (
                  SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir, attachments
@@ -8114,7 +8112,7 @@ impl SessionLedger {
         id: i64,
         n: usize,
     ) -> Result<Vec<OverviewPost>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms, project_dir, attachments
              FROM overview_posts
@@ -8142,7 +8140,7 @@ impl SessionLedger {
         filter: &OverviewSearchFilter,
         limit: usize,
     ) -> Result<Vec<OverviewSearchHit>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT p.id, p.at_ms, p.author, p.session_id, p.wake_reason, p.body, p.refs,
                     p.elapsed_ms, p.project_dir, p.attachments,
@@ -8190,7 +8188,7 @@ impl SessionLedger {
     /// already holds.
     ///
     /// **This is the form to call from anywhere that already holds the ledger
-    /// lock.** `SessionLedger.db` is a `std::sync::Mutex<Connection>`, which is
+    /// lock.** `SessionLedger.db` is a `parking_lot::Mutex<Connection>`, which is
     /// not reentrant: `record_spawn` holds it across an IMMEDIATE transaction
     /// for its whole body, so calling the public `record_fact` from in there
     /// would deadlock tugcast on every session spawn — a hang, not an error,
@@ -8241,7 +8239,7 @@ impl SessionLedger {
     /// Append one fact, acquiring the ledger lock. Callers that already hold
     /// it must use [`SessionLedger::record_fact_tx`] instead.
     pub fn record_fact(&self, fact: &NewFact) -> Result<Option<i64>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         Self::record_fact_tx(&conn, fact)
     }
 
@@ -8263,7 +8261,7 @@ impl SessionLedger {
         since_ms: Option<i64>,
         limit: usize,
     ) -> Result<Vec<FactRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(concat!(
             "SELECT id, at_ms, kind, session_id, subject, text, payload FROM (
                  SELECT id, at_ms, kind, session_id, subject, text, payload
@@ -8302,7 +8300,7 @@ impl SessionLedger {
         until_ms: Option<i64>,
         limit: usize,
     ) -> Result<Vec<FactRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(concat!(
             "SELECT id, at_ms, kind, session_id, subject, text, payload
              FROM facts
@@ -8324,7 +8322,7 @@ impl SessionLedger {
     /// The `n` facts on either side of `id`, inclusive of `id` itself — what
     /// else was going on around a search hit.
     pub fn facts_window(&self, id: i64, n: usize) -> Result<Vec<FactRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(concat!(
             "SELECT id, at_ms, kind, session_id, subject, text, payload
              FROM facts
@@ -8347,7 +8345,7 @@ impl SessionLedger {
         filter: &FactSearchFilter,
         limit: usize,
     ) -> Result<Vec<FactSearchHit>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(concat!(
             "SELECT f.id, f.at_ms, f.kind, f.session_id, f.subject, f.text, f.payload,
                     -- Column 1 (`text`), pinned. `-1` means auto-select the
@@ -8394,12 +8392,23 @@ impl SessionLedger {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Drop the changeset-drafts table, so every draft write and delete fails
+    /// from here on — for tests in other modules that need a ledger mutation
+    /// to fail and must see what the caller does about it.
+    #[cfg(test)]
+    pub fn break_changeset_drafts_for_test(&self) {
+        self.db
+            .lock()
+            .execute_batch("DROP TABLE changes.changeset_drafts")
+            .expect("drop changeset_drafts");
+    }
+
     /// A segment's rewind point, for tests in other modules that drive the
     /// relay and need to see which edge kind it recorded. `None` on a rotation
     /// edge, which is exactly the distinction they are checking.
     #[cfg(test)]
     pub fn fork_point_for_test(&self, session_id: &str) -> Option<String> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         conn.query_row(
             "SELECT fork_point FROM sessions WHERE session_id = ?1",
             params![session_id],
@@ -8416,7 +8425,7 @@ impl SessionLedger {
     /// The typed read verbs land with the Operator that consumes them.
     #[cfg(test)]
     pub fn facts_for_test(&self) -> Vec<(String, String, String)> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn
             .prepare("SELECT kind, subject, text FROM facts ORDER BY id ASC")
             .expect("prepare");
@@ -8441,7 +8450,7 @@ impl SessionLedger {
         session_id: &str,
         limit: usize,
     ) -> Result<Vec<FileEventRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(concat!(
             "SELECT tug_session_id, tool_use_id, file_path, tool_name, op, origin,
                     ambiguous, parent_tool_use_id, project_dir, at
@@ -8469,7 +8478,7 @@ impl SessionLedger {
         until_ms: Option<i64>,
         limit: usize,
     ) -> Result<Vec<FileEventRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(concat!(
             "SELECT tug_session_id, tool_use_id, file_path, tool_name, op, origin,
                     ambiguous, parent_tool_use_id, project_dir, at
@@ -9543,7 +9552,7 @@ mod tests {
         // `record_spawn` requires a card id, so the unbound row goes in by
         // raw SQL the way the null-binding tests below do.
         {
-            let conn = l.db.lock().unwrap();
+            let conn = l.db.lock();
             conn.execute(
                 "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
                                     project_dir, created_at, last_used_at)
@@ -10058,7 +10067,7 @@ mod tests {
         }
 
         let l = SessionLedger::open(&path, 0).expect("the migrating open");
-        let conn = l.db.lock().expect("ledger mutex");
+        let conn = l.db.lock();
 
         let line_of = |id: &str| -> String {
             conn.query_row(
@@ -10251,7 +10260,7 @@ mod tests {
     /// nothing to inherit, strand, displace, or climb for.
     fn no_identity_on_segments() {
         let l = fresh();
-        let conn = l.db.lock().expect("ledger mutex");
+        let conn = l.db.lock();
         let columns: Vec<String> = conn
             .prepare("SELECT name FROM pragma_table_info('sessions')")
             .unwrap()
@@ -10390,7 +10399,7 @@ mod tests {
         // A spelling the line spent under an older grammar: recorded against a
         // segment, owned by the line, worn by nothing.
         {
-            let conn = l.db.lock().expect("ledger mutex");
+            let conn = l.db.lock();
             conn.execute(
                 "INSERT INTO minted_tags (tag, line_id, session_id, minted_at)
                  VALUES ('stocky-pixie', 'line-1', 'root', 1)",
@@ -10615,7 +10624,7 @@ mod tests {
             l.get("s1").unwrap().unwrap().tag.as_deref(),
             Some("azure-heron")
         );
-        let conn = l.db.lock().expect("ledger mutex");
+        let conn = l.db.lock();
         let minted: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM minted_tags WHERE session_id = 's1'",
@@ -10699,7 +10708,7 @@ mod tests {
         }
 
         // Provenance lives in the columns, not the spelling.
-        let conn = l.db.lock().unwrap();
+        let conn = l.db.lock();
         let (from, point): (String, String) = conn
             .query_row(
                 "SELECT forked_from_session_id, fork_point FROM sessions
@@ -10766,7 +10775,7 @@ mod tests {
             let l = SessionLedger::open(&path, 0).expect("open");
             l.record_spawn("older", WS_A, "/proj", "card-1", millis(0), "older", None)
                 .expect("record_spawn");
-            let conn = l.db.lock().unwrap();
+            let conn = l.db.lock();
             for name in ["stage_label", "stage_model"] {
                 conn.execute(&format!("ALTER TABLE sessions DROP COLUMN {name}"), [])
                     .expect("drop the column so the reopen has to add it");
@@ -10798,7 +10807,7 @@ mod tests {
         l.set_fork_provenance("rewind", "root", Some("prompt-uuid"))
             .expect("rewind provenance");
 
-        let conn = l.db.lock().unwrap();
+        let conn = l.db.lock();
         let read = |id: &str| -> (String, Option<String>) {
             conn.query_row(
                 "SELECT forked_from_session_id, fork_point FROM sessions
@@ -11190,7 +11199,6 @@ mod tests {
         // names a conversation two files both claim to be.
         let line_id = l.ensure_scan_line(a, millis(0)).unwrap().expect("a line");
         l.db.lock()
-            .expect("ledger mutex")
             .execute(
                 "UPDATE external_scan_cache SET line_id = ?2 WHERE session_id = ?1",
                 params![b, line_id],
@@ -11402,7 +11410,7 @@ mod tests {
         let empty = Connection::open_in_memory().expect("in-memory db");
         SessionLedger::migrate_drop_pulse_overviews(&empty).expect("no-op");
         let ledger = fresh();
-        let conn = ledger.db.lock().expect("ledger mutex");
+        let conn = ledger.db.lock();
         assert!(!has_table(&conn) && !has_trigger(&conn));
     }
 
@@ -11447,7 +11455,7 @@ mod tests {
         let empty = Connection::open_in_memory().expect("in-memory db");
         SessionLedger::migrate_drop_pulse_lines(&empty).expect("no-op");
         let ledger = fresh();
-        let conn = ledger.db.lock().expect("ledger mutex");
+        let conn = ledger.db.lock();
         assert!(!has_table(&conn));
     }
 
@@ -11477,7 +11485,7 @@ mod tests {
     #[test]
     fn fts5_is_available_in_the_bundled_sqlite() {
         let ledger = fresh();
-        let conn = ledger.db.lock().unwrap();
+        let conn = ledger.db.lock();
         conn.execute_batch("CREATE VIRTUAL TABLE fts5_probe USING fts5(x); DROP TABLE fts5_probe;")
             .expect("bundled SQLite must have FTS5 (SQLITE_ENABLE_FTS5)");
     }
@@ -11702,7 +11710,7 @@ mod tests {
         // Straight at the row, which is what eviction ultimately does — and
         // what fires every cascade trigger the schema declares.
         {
-            let conn = ledger.db.lock().unwrap();
+            let conn = ledger.db.lock();
             conn.execute("DELETE FROM sessions WHERE session_id = 's1'", [])
                 .expect("delete session row");
         }
@@ -11872,7 +11880,7 @@ mod tests {
             1
         );
         {
-            let conn = ledger.db.lock().unwrap();
+            let conn = ledger.db.lock();
             conn.execute("DELETE FROM overview_posts WHERE id = ?1", params![id])
                 .expect("delete");
         }
@@ -11905,7 +11913,7 @@ mod tests {
     /// Operator that consumes them, and the write path is what is under test
     /// here.
     fn stored_facts(ledger: &SessionLedger) -> Vec<(String, Option<String>, String, String)> {
-        let conn = ledger.db.lock().unwrap();
+        let conn = ledger.db.lock();
         let mut stmt = conn
             .prepare("SELECT kind, subject, text, payload FROM facts ORDER BY id ASC")
             .expect("prepare");
@@ -11920,7 +11928,7 @@ mod tests {
     /// What the FTS index answers for a query — the shadow tables are part of
     /// the schema under test even before a verb reads them.
     fn fts_hits(ledger: &SessionLedger, query: &str) -> usize {
-        let conn = ledger.db.lock().unwrap();
+        let conn = ledger.db.lock();
         conn.query_row(
             "SELECT COUNT(*) FROM facts_fts WHERE facts_fts MATCH ?1",
             params![query],
@@ -12109,7 +12117,7 @@ mod tests {
 
         // … and the rebuild left a coherent index behind it.
         {
-            let conn = ledger.db.lock().unwrap();
+            let conn = ledger.db.lock();
             let nulls: i64 = conn
                 .query_row("SELECT COUNT(*) FROM facts WHERE tokens IS NULL", [], |r| {
                     r.get(0)
@@ -12168,7 +12176,7 @@ mod tests {
         )
         .expect("first open");
         let tokens_after_first: String = {
-            let conn = ledger.db.lock().unwrap();
+            let conn = ledger.db.lock();
             conn.query_row("SELECT tokens FROM facts WHERE id = 1", [], |r| r.get(0))
                 .unwrap()
         };
@@ -12179,7 +12187,7 @@ mod tests {
             ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
         )
         .expect("second open");
-        let conn = ledger.db.lock().unwrap();
+        let conn = ledger.db.lock();
         let tokens_after_second: String = conn
             .query_row("SELECT tokens FROM facts WHERE id = 1", [], |r| r.get(0))
             .unwrap();
@@ -12372,7 +12380,7 @@ mod tests {
         ledger.record_fact(&f).expect("record");
 
         {
-            let conn = ledger.db.lock().unwrap();
+            let conn = ledger.db.lock();
             conn.execute("DELETE FROM sessions WHERE session_id = 's1'", [])
                 .expect("delete session row");
         }
@@ -12437,7 +12445,7 @@ mod tests {
     /// Set the flag the way the CONTROL verb will once it lands, so the
     /// write-time refusal can be pinned before its toggle exists.
     fn mark_private(ledger: &SessionLedger, session_id: &str, private: bool) {
-        let conn = ledger.db.lock().unwrap();
+        let conn = ledger.db.lock();
         conn.execute(
             "UPDATE sessions SET private = ?2 WHERE session_id = ?1",
             params![session_id, i64::from(private)],
@@ -12708,7 +12716,6 @@ mod tests {
 
         // Simulate the row predating the rule change: stamp it a prior epoch.
         l.db.lock()
-            .expect("ledger mutex")
             .execute(
                 "UPDATE external_scan_cache SET rule_epoch = ?1 WHERE session_id = ?2",
                 params![CURRENT_RULE_EPOCH - 1, "ext-stale"],
@@ -13471,7 +13478,7 @@ mod tests {
         // Insert a row directly with no card binding by recording a
         // spawn under "(empty)" then nulling the binding. The
         // `record_spawn` API requires a card_id, so we use raw SQL.
-        let conn = l.db.lock().unwrap();
+        let conn = l.db.lock();
         conn.execute(
             "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
                                 project_dir, created_at, last_used_at)
@@ -13716,7 +13723,7 @@ mod tests {
     /// difference between the two.
     fn strand(ledger: &SessionLedger, session_id: &str) {
         {
-            let conn = ledger.db.lock().unwrap();
+            let conn = ledger.db.lock();
             conn.execute(
                 "DELETE FROM sessions WHERE session_id = ?1",
                 params![session_id],
@@ -14996,11 +15003,7 @@ mod tests {
             "the second instance must not own the writer claim"
         );
         assert!(
-            follower
-                .changes_journal
-                .lock()
-                .expect("journal mutex")
-                .is_none(),
+            follower.changes_journal.lock().is_none(),
             "a forwarder must not open the journal — opening rotates, and \
              rotation would rename the live owner's file out from under it"
         );
@@ -15028,7 +15031,7 @@ mod tests {
         // The follower's read-only attach must refuse a direct write, so a
         // path that ever escaped the forwarding route fails loudly.
         {
-            let conn = follower.db.lock().expect("ledger mutex");
+            let conn = follower.db.lock();
             assert!(
                 conn.execute("DELETE FROM changes.file_events", []).is_err(),
                 "a non-owner must not be able to write the shared database"
@@ -15518,7 +15521,7 @@ mod tests {
         // Pin the no-migration policy ([DM08] — mid-turn-replay [Step 5.2](#step-5-2)):
         // bootstrap creates exactly `sessions` and `turns`, no `migrations` table.
         let l = fresh();
-        let conn = l.db.lock().expect("ledger mutex");
+        let conn = l.db.lock();
         assert!(has_table(&conn, "sessions"));
         assert!(has_table(&conn, "turns"));
         assert!(!has_table(&conn, "migrations"));
@@ -15529,7 +15532,7 @@ mod tests {
         // Pin the narrowed schema. Five columns; no `claude_message_id`,
         // `partial_text`, `state`, `completed_at`, `ordinal`.
         let l = fresh();
-        let conn = l.db.lock().expect("ledger mutex");
+        let conn = l.db.lock();
         let mut stmt = conn
             .prepare("SELECT name FROM pragma_table_info('turns') ORDER BY cid")
             .unwrap();
@@ -16121,7 +16124,7 @@ mod tests {
     /// stranded span is invisible from the read side, so the R10 tests assert
     /// on the table itself.
     fn spans_of(ledger: &SessionLedger, session: &str) -> Vec<(String, String, i64, String)> {
-        let conn = ledger.db.lock().expect("ledger mutex");
+        let conn = ledger.db.lock();
         let mut stmt = conn
             .prepare(
                 "SELECT tool_use_id, file_path, seq, kind FROM changes.file_event_spans
@@ -16138,7 +16141,7 @@ mod tests {
 
     /// Total span rows in the table, whoever owns them — the orphan detector.
     fn total_spans(ledger: &SessionLedger) -> i64 {
-        let conn = ledger.db.lock().expect("ledger mutex");
+        let conn = ledger.db.lock();
         conn.query_row("SELECT COUNT(*) FROM changes.file_event_spans", [], |r| {
             r.get(0)
         })
@@ -16212,7 +16215,7 @@ mod tests {
     fn a_database_without_the_spans_table_reads_as_span_less() {
         let l = fresh();
         {
-            let conn = l.db.lock().expect("ledger mutex");
+            let conn = l.db.lock();
             conn.execute_batch("DROP TABLE changes.file_event_spans")
                 .unwrap();
         }
@@ -17761,14 +17764,14 @@ mod tests {
 
     #[test]
     fn default_path_routes_via_tug_instance_id() {
+        use parking_lot::Mutex;
         use std::ffi::OsString;
-        use std::sync::Mutex;
 
         // `default_path` reads from the process environment. Use a mutex
         // to serialize the two cases (set / unset) so other tests using
         // env-var-keyed paths can't race us.
         static ENV_MUTEX: Mutex<()> = Mutex::new(());
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.lock();
 
         // The `TUG_SESSIONS_DB` override resolves ahead of everything this
         // test is about, and the cargo test env forces one. Lift it for the
@@ -18146,7 +18149,7 @@ mod tests {
         // and the line wears something else. The index must carry the tag
         // the line ended up with, not the one the caller asked for.
         {
-            let conn = l.db.lock().expect("ledger mutex");
+            let conn = l.db.lock();
             mint(&conn, "curly-apple", "someone-else", 10);
         }
         l.record_spawn(
@@ -18162,7 +18165,6 @@ mod tests {
 
         let ledger_tag: String =
             l.db.lock()
-                .expect("ledger mutex")
                 .query_row(
                     "SELECT tag FROM lines WHERE line_id = 'line-index'",
                     [],
@@ -18310,7 +18312,6 @@ mod tests {
         .expect("record_spawn survives an unopenable index");
         let recorded: i64 =
             l.db.lock()
-                .expect("ledger mutex")
                 .query_row(
                     "SELECT COUNT(*) FROM sessions WHERE session_id = 's_ok'",
                     [],
@@ -18395,7 +18396,7 @@ mod tests {
         )
         .expect("record_spawn");
         {
-            let conn = l.db.lock().expect("ledger mutex");
+            let conn = l.db.lock();
             conn.execute(
                 "UPDATE sessions SET forked_from_session_id = ?1 WHERE session_id = ?2",
                 params![UUID_PARENT, UUID_TIP],

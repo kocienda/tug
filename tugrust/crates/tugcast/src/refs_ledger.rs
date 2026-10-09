@@ -15,8 +15,8 @@
 //! or superseded holds a partial list, and restoring a partial list would
 //! silently renumber what `/ref N` resolves to.
 
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -91,7 +91,7 @@ impl RefsLedger {
         let conn = tugcore::ledger_db::open(path)?;
         let ledger = Self::from_conn(conn)?;
         if let crate::ledger_integrity::GateOutcome::Quarantined { corrupt_path } = &gate {
-            let db = ledger.db.lock().expect("refs ledger poisoned");
+            let db = ledger.db.lock();
             crate::ledger_integrity::salvage_into(
                 &db,
                 "main",
@@ -205,7 +205,7 @@ impl RefsLedger {
     /// Record a completed run, replacing this session's previous one.
     pub fn record_run(&self, run: &NewRefsRun) -> Result<(), RefsLedgerError> {
         let refs_json = serde_json::to_string(&run.refs)?;
-        let conn = self.db.lock().expect("refs ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT INTO refs_runs
                 (line_id, tug_session_id, run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id)
@@ -236,7 +236,7 @@ impl RefsLedger {
     /// wrote — the pre-lines shape [`crate::ink_backfill::assign_lines`]
     /// resolves ([P09]).
     pub fn sessions_awaiting_a_line(&self) -> Result<Vec<String>, RefsLedgerError> {
-        let conn = self.db.lock().expect("refs ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT tug_session_id FROM refs_runs
              WHERE line_id = tug_session_id ORDER BY settled_at_ms ASC, tug_session_id ASC",
@@ -262,7 +262,7 @@ impl RefsLedger {
             // and nothing to say.
             return Ok(0);
         }
-        let mut conn = self.db.lock().expect("refs ledger mutex");
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let settled_at = |key: &str| -> Result<Option<i64>, rusqlite::Error> {
             tx.query_row(
@@ -297,7 +297,7 @@ impl RefsLedger {
 
     /// Whether the named one-time pass has already run against this ledger.
     pub fn backfill_done(&self, name: &str) -> Result<bool, RefsLedgerError> {
-        let conn = self.db.lock().expect("refs ledger mutex");
+        let conn = self.db.lock();
         let done = conn
             .query_row(
                 "SELECT 1 FROM backfills WHERE name = ?1",
@@ -310,7 +310,7 @@ impl RefsLedger {
 
     /// Record that the named one-time pass has run.
     pub fn mark_backfill(&self, name: &str, now_ms: i64) -> Result<(), RefsLedgerError> {
-        let conn = self.db.lock().expect("refs ledger mutex");
+        let conn = self.db.lock();
         conn.execute(
             "INSERT OR REPLACE INTO backfills (name, done_at_ms) VALUES (?1, ?2)",
             params![name, now_ms],
@@ -321,7 +321,7 @@ impl RefsLedger {
     /// Every anchored run: the line, the segment that ran it, when, and the
     /// anchor it carries. The repair's read.
     pub fn anchored_runs(&self) -> Result<Vec<AnchoredRefsRun>, RefsLedgerError> {
-        let conn = self.db.lock().expect("refs ledger mutex");
+        let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT line_id, tug_session_id, settled_at_ms, anchor_msg_id
              FROM refs_runs
@@ -343,7 +343,7 @@ impl RefsLedger {
 
     /// Rewrite a line's run anchor. Returns how many rows it touched (0 or 1).
     pub fn set_anchor(&self, line_id: &str, anchor_msg_id: &str) -> Result<usize, RefsLedgerError> {
-        let conn = self.db.lock().expect("refs ledger mutex");
+        let conn = self.db.lock();
         let moved = conn.execute(
             "UPDATE refs_runs SET anchor_msg_id = ?2 WHERE line_id = ?1",
             params![line_id, anchor_msg_id],
@@ -353,7 +353,7 @@ impl RefsLedger {
 
     /// The line's latest run, or `None` if it has never completed one.
     pub fn list_refs(&self, line_id: &str) -> Result<Option<RefsRunRow>, RefsLedgerError> {
-        let conn = self.db.lock().expect("refs ledger mutex");
+        let conn = self.db.lock();
         let row = conn
             .query_row(
                 "SELECT run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id

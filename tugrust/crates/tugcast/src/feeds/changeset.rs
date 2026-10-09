@@ -9,9 +9,10 @@
 //! and delivers the aggregate; `ChangesetBumper` pings that feed's global
 //! recompute signal after each file-event write.
 
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use tugcast_core::types::{
     ArcStep, ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DocumentArcEntry,
@@ -175,10 +176,7 @@ pub(crate) async fn compose_snapshot(
     // (never a boot walk), preserving the no-TCC-prompt-on-boot property.
     if let Some(ledger) = ledger {
         let canonical = CanonicalPath::from_raw(project_dir);
-        let swept = backfill_marker()
-            .lock()
-            .expect("backfill marker mutex")
-            .contains(canonical.as_str());
+        let swept = backfill_marker().lock().contains(canonical.as_str());
         if !swept {
             let mut rewrites: Vec<FileEventRewrite> = Vec::new();
             let mut purges: Vec<FileEventKey> = Vec::new();
@@ -251,7 +249,6 @@ pub(crate) async fn compose_snapshot(
             if settled {
                 backfill_marker()
                     .lock()
-                    .expect("backfill marker mutex")
                     .insert(canonical.as_str().to_owned());
             }
         }
@@ -1267,7 +1264,7 @@ async fn cached_min_live_at_ms(
         return min_live_at_ms(repo_root, rel).await;
     };
     let key = (canonical_root.as_str().to_owned(), rel.to_owned());
-    if let Some((oid, cut)) = live_cut_cache().lock().expect("live cut cache").get(&key)
+    if let Some((oid, cut)) = live_cut_cache().lock().get(&key)
         && oid == head_oid
     {
         return *cut;
@@ -1275,7 +1272,6 @@ async fn cached_min_live_at_ms(
     let cut = min_live_at_ms(repo_root, rel).await;
     live_cut_cache()
         .lock()
-        .expect("live cut cache")
         .insert(key, (head_oid.to_owned(), cut));
     cut
 }

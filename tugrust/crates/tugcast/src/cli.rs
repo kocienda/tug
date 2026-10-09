@@ -219,8 +219,8 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::Mutex;
     use std::ffi::OsString;
-    use std::sync::Mutex;
 
     /// `default_session()` reads `TUG_INSTANCE_ID` from the process env.
     /// Serialize tests that mutate it.
@@ -232,7 +232,7 @@ mod tests {
     /// name computed from TUG_INSTANCE_ID.
     #[test]
     fn session_default_unset_is_cc0() {
-        let _lock = ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_MUTEX.lock();
         let prior = std::env::var_os("TUG_INSTANCE_ID");
         unsafe {
             std::env::remove_var("TUG_INSTANCE_ID");
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn session_default_with_instance_id_is_cc_id() {
-        let _lock = ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_MUTEX.lock();
         let prior = std::env::var_os("TUG_INSTANCE_ID");
         unsafe {
             std::env::set_var("TUG_INSTANCE_ID", "debug-foo");

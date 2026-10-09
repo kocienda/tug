@@ -25,9 +25,10 @@
 //! blockers stand, the state is `blocked` and no conflict list is rendered, so
 //! the probe does not run at all.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
@@ -77,7 +78,7 @@ fn board() -> Arc<JoinBoard> {
 /// Drop cache entries for arcs that no longer exist.
 pub fn sweep(live_owner_keys: &[String]) {
     let board = board();
-    let mut map = board.by_arc.lock().expect("join board mutex");
+    let mut map = board.by_arc.lock();
     map.retain(|key, _| live_owner_keys.iter().any(|k| k == key));
 }
 
@@ -471,7 +472,7 @@ fn cached_probe(repo_root: &Path, detail: &ArcDetail) -> Option<CachedProbe> {
     let arc_sha = ops::rev_parse(repo_root, &detail.branch).ok()?;
 
     {
-        let map = board.by_arc.lock().expect("join board mutex");
+        let map = board.by_arc.lock();
         if let Some(hit) = map.get(&key) {
             if hit.base_sha == base_sha && hit.arc_sha == arc_sha {
                 return Some(hit.clone());
@@ -503,11 +504,7 @@ fn cached_probe(repo_root: &Path, detail: &ArcDetail) -> Option<CachedProbe> {
             .collect(),
         diffs: HashMap::new(),
     };
-    board
-        .by_arc
-        .lock()
-        .expect("join board mutex")
-        .insert(key, fresh.clone());
+    board.by_arc.lock().insert(key, fresh.clone());
     Some(fresh)
 }
 
@@ -552,7 +549,7 @@ fn candidate_files(
 
     if probe.is_some() {
         let board = board();
-        let mut map = board.by_arc.lock().expect("join board mutex");
+        let mut map = board.by_arc.lock();
         if let Some(entry) = map.get_mut(&detail.owner_key) {
             entry.diffs.insert(candidate.to_string(), files.clone());
         }

@@ -19,6 +19,8 @@ pub mod hostile_repo;
 pub mod instance;
 pub mod janitor;
 pub mod ledger_db;
+#[cfg(test)]
+mod lock_policy_scan;
 pub mod pathform;
 pub mod ports;
 pub mod quiesce;

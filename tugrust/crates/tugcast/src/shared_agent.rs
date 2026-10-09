@@ -29,8 +29,9 @@
 //! pattern): production spawns the persistent child, tests script turn outcomes
 //! and never assert model prose.
 
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -395,7 +396,7 @@ impl SharedAgentPool {
         worker.in_flight.fetch_add(1, Ordering::Relaxed);
         let outcome = self.turn(&worker, spec, turn).await;
         worker.in_flight.fetch_sub(1, Ordering::Relaxed);
-        *worker.last_used.lock().unwrap() = Instant::now();
+        *worker.last_used.lock() = Instant::now();
         if outcome.is_ok() {
             worker.answered.store(true, Ordering::Relaxed);
         }
@@ -467,7 +468,7 @@ impl SharedAgentPool {
             return;
         };
         let worker = {
-            let mut workers = self.workers.lock().unwrap();
+            let mut workers = self.workers.lock();
             self.sweep(&mut workers);
             // A superseded worker is still answering but is on its way out, so
             // it is not the live worker this asks about — it is the reason to
@@ -534,7 +535,7 @@ impl SharedAgentPool {
         tokio::spawn(async move {
             let outcome = one_turn(&worker, turn, WARMUP_TIMEOUT).await;
             worker.in_flight.fetch_sub(1, Ordering::Relaxed);
-            *worker.last_used.lock().unwrap() = Instant::now();
+            *worker.last_used.lock() = Instant::now();
             match outcome {
                 Ok(_) => {
                     worker.answered.store(true, Ordering::Relaxed);
@@ -566,7 +567,7 @@ impl SharedAgentPool {
     /// pool, and that is exactly what [P12] is about: a classify must never
     /// queue behind a *sentence job*, whose ceiling is three times its own.
     fn acquire(&self, class: JobClass) -> Result<Acquired, String> {
-        let mut workers = self.workers.lock().unwrap();
+        let mut workers = self.workers.lock();
         self.sweep(&mut workers);
         let of_class = |w: &&Arc<Worker>| w.class == class;
 
@@ -625,7 +626,7 @@ impl SharedAgentPool {
             if w.retired.load(Ordering::Relaxed) && w.idle() {
                 return false;
             }
-            if w.idle() && now.duration_since(*w.last_used.lock().unwrap()) >= idle_reap(w.class) {
+            if w.idle() && now.duration_since(*w.last_used.lock()) >= idle_reap(w.class) {
                 info!(
                     agent = self.spec.name,
                     worker = w.id,
@@ -665,7 +666,7 @@ impl SharedAgentPool {
     /// Called from the replacement's warmup, which is the moment the lane can
     /// afford to lose them.
     fn retire_superseded(&self, class: JobClass) {
-        let workers = self.workers.lock().unwrap();
+        let workers = self.workers.lock();
         for worker in workers
             .iter()
             .filter(|w| w.class == class && w.superseded.load(Ordering::Relaxed))
@@ -694,7 +695,7 @@ impl SharedAgentPool {
     }
 
     fn note_death(&self, class: JobClass) {
-        let mut deaths = self.last_death.lock().unwrap();
+        let mut deaths = self.last_death.lock();
         let now = Instant::now();
         match deaths.iter_mut().find(|(c, _)| *c == class) {
             Some(entry) => entry.1 = now,
@@ -703,7 +704,7 @@ impl SharedAgentPool {
     }
 
     fn respawn_allowed(&self, class: JobClass) -> bool {
-        let deaths = self.last_death.lock().unwrap();
+        let deaths = self.last_death.lock();
         match deaths.iter().find(|(c, _)| *c == class) {
             Some((_, at)) => Instant::now().duration_since(*at) >= RESPAWN_MIN_INTERVAL,
             None => true,
@@ -714,7 +715,7 @@ impl SharedAgentPool {
     /// and reaping without reaching inside the lock.
     #[cfg(test)]
     pub fn worker_count(&self) -> usize {
-        let mut workers = self.workers.lock().unwrap();
+        let mut workers = self.workers.lock();
         self.sweep(&mut workers);
         workers.len()
     }
@@ -725,7 +726,6 @@ impl SharedAgentPool {
     pub fn lane_warm(&self, class: JobClass) -> bool {
         self.workers
             .lock()
-            .unwrap()
             .iter()
             .any(|w| w.class == class && w.warm() && w.idle())
     }
@@ -1378,7 +1378,7 @@ pub(crate) mod test_support {
                 return Err("no claude here".to_string());
             }
             let (tx, mut rx) = mpsc::channel::<TurnRequest>(8);
-            let answers: Vec<_> = self.answers.lock().unwrap().clone();
+            let answers: Vec<_> = self.answers.lock().clone();
             let delay = self.delay;
             let seen = Arc::clone(&self.seen);
             tokio::spawn(async move {
@@ -1389,7 +1389,7 @@ pub(crate) mod test_support {
                             tokio::time::sleep(delay).await;
                         }
                     }
-                    seen.lock().unwrap().push(turn);
+                    seen.lock().push(turn);
                     let answer = answers
                         .next()
                         .unwrap_or_else(|| Err("fake ran out of answers".to_string()));
@@ -1408,7 +1408,6 @@ pub(crate) mod test_support {
         pub(crate) fn turns_seen(&self) -> Vec<String> {
             self.seen
                 .lock()
-                .unwrap()
                 .iter()
                 .map(|turn| turn.text.clone())
                 .collect()
@@ -1419,7 +1418,6 @@ pub(crate) mod test_support {
         pub(crate) fn images_seen(&self) -> Vec<Vec<TurnImage>> {
             self.seen
                 .lock()
-                .unwrap()
                 .iter()
                 .map(|turn| turn.images.clone())
                 .collect()

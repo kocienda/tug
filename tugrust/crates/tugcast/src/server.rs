@@ -776,7 +776,7 @@ fn apply_arc_request(
     match req.op.as_str() {
         // **What the wheel is waiting for on this seat, if anything.** It needs
         // no wheel, no project and no ledger read: the board is a
-        // `std::sync::Mutex` static keyed by the seat exactly as the binding
+        // `parking_lot::Mutex` static keyed by the seat exactly as the binding
         // spells it, which is why this reads it here in the blocking half
         // rather than resolving anything first ([P02]).
         //
@@ -1547,7 +1547,7 @@ async fn eval_handler(
 
     // Register pending eval
     {
-        let mut pending = router.pending_evals.lock().unwrap();
+        let mut pending = router.pending_evals.lock();
         pending.insert(request_id.clone(), tx);
     }
 
@@ -1581,7 +1581,7 @@ async fn eval_handler(
         }
         Err(_) => {
             // Timeout — clean up pending entry
-            let mut pending = router.pending_evals.lock().unwrap();
+            let mut pending = router.pending_evals.lock();
             pending.remove(&request_id);
             (
                 StatusCode::GATEWAY_TIMEOUT,
@@ -1641,9 +1641,7 @@ struct PendingAskGuard {
 
 impl Drop for PendingAskGuard {
     fn drop(&mut self) {
-        if let Ok(mut pending) = self.map.lock() {
-            pending.remove(&self.request_id);
-        }
+        self.map.lock().remove(&self.request_id);
     }
 }
 
@@ -1784,7 +1782,7 @@ async fn ask_handler(
     let request_id = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = tokio::sync::oneshot::channel();
     {
-        let mut pending = router.pending_asks.lock().unwrap();
+        let mut pending = router.pending_asks.lock();
         if pending.len() >= MAX_PENDING_ASKS {
             return (
                 StatusCode::TOO_MANY_REQUESTS,
@@ -2780,7 +2778,7 @@ mod tests {
         assert_eq!(payload["options"][0]["value"], "run-all");
         let request_id = payload["requestId"].as_str().unwrap().to_owned();
 
-        let tx = fx.pending_asks.lock().unwrap().remove(&request_id).unwrap();
+        let tx = fx.pending_asks.lock().remove(&request_id).unwrap();
         tx.send("run-all".to_owned()).unwrap();
 
         let (status, body) = request.await.unwrap();
@@ -2797,7 +2795,7 @@ mod tests {
 
         assert_eq!(status, 504);
         assert_eq!(body["message"], "timeout waiting for answer");
-        assert!(fx.pending_asks.lock().unwrap().is_empty());
+        assert!(fx.pending_asks.lock().is_empty());
     }
 
     /// A countdown question carries its answer and its duration to the deck,
@@ -2817,7 +2815,7 @@ mod tests {
         assert_eq!(payload["countdownSecs"], 30);
 
         let request_id = payload["requestId"].as_str().unwrap().to_owned();
-        let tx = fx.pending_asks.lock().unwrap().remove(&request_id).unwrap();
+        let tx = fx.pending_asks.lock().remove(&request_id).unwrap();
         tx.send("cancel".to_owned()).unwrap();
         let (status, body) = request.await.unwrap();
         assert_eq!(status, 200);
@@ -2837,7 +2835,7 @@ mod tests {
 
         assert_eq!(status, 200);
         assert_eq!(body["choice"], "run-all");
-        assert!(fx.pending_asks.lock().unwrap().is_empty());
+        assert!(fx.pending_asks.lock().is_empty());
     }
 
     /// An unattended answer nobody offered would count down to a value the
@@ -2894,7 +2892,7 @@ mod tests {
 
         assert_eq!(status, 503);
         assert_eq!(body["message"], "no deck is connected");
-        assert!(fx.pending_asks.lock().unwrap().is_empty());
+        assert!(fx.pending_asks.lock().is_empty());
     }
 
     /// More options than a person can weigh is a malformed question, not a long
@@ -2951,7 +2949,7 @@ mod tests {
         // Fill the map directly — the point under test is the admission check,
         // not the spawning of real waiters.
         {
-            let mut pending = fx.pending_asks.lock().unwrap();
+            let mut pending = fx.pending_asks.lock();
             for i in 0..MAX_PENDING_ASKS {
                 let (tx, _rx) = tokio::sync::oneshot::channel();
                 pending.insert(format!("filler-{i}"), tx);

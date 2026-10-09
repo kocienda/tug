@@ -422,15 +422,15 @@ fn render_age(secs: u64) -> String {
 /// board. The seat is one string from one map — `BoundArc.seat` on the writing
 /// side, `bound_session` on both reading sides.
 ///
-/// A `std::sync::Mutex` rather than tokio's: every access is a map insert or
+/// A `parking_lot::Mutex` rather than tokio's: every access is a map insert or
 /// read with no await inside it, and the blocking half of the arc API reads it
 /// directly.
 #[allow(clippy::type_complexity)]
-static WAIT_BOARD: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (Instant, WaitFact)>>> =
+static WAIT_BOARD: std::sync::OnceLock<parking_lot::Mutex<HashMap<String, (Instant, WaitFact)>>> =
     std::sync::OnceLock::new();
 
-fn wait_board() -> &'static std::sync::Mutex<HashMap<String, (Instant, WaitFact)>> {
-    WAIT_BOARD.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+fn wait_board() -> &'static parking_lot::Mutex<HashMap<String, (Instant, WaitFact)>> {
+    WAIT_BOARD.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
 /// Publish, or retract, what the wheel is waiting for on `seat`.
@@ -439,9 +439,7 @@ fn wait_board() -> &'static std::sync::Mutex<HashMap<String, (Instant, WaitFact)
 /// many ticks read it, and re-stamping it every minute would make a
 /// three-hour hang read as a fresh one — which is the fact the user most wants.
 pub(crate) fn publish_wait(seat: &str, fact: Option<WaitFact>) {
-    let Ok(mut board) = wait_board().lock() else {
-        return;
-    };
+    let mut board = wait_board().lock();
     match fact {
         Some(mut fact) => match board.get(seat) {
             Some((since, held)) => {
@@ -461,7 +459,7 @@ pub(crate) fn publish_wait(seat: &str, fact: Option<WaitFact>) {
 
 /// What the wheel is waiting for on `seat`, if anything.
 pub(crate) fn waiting_for(seat: &str) -> Option<WaitFact> {
-    let board = wait_board().lock().ok()?;
+    let board = wait_board().lock();
     board.get(seat).map(|(_, fact)| fact.clone())
 }
 
@@ -8869,14 +8867,15 @@ Some context.
     /// wrote. Several tests read the runner's own trace, and the writer is the
     /// same fifteen lines for all of them.
     async fn capturing_lines<F: std::future::Future<Output = ()>>(body: F) -> Vec<String> {
-        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+        use parking_lot::Mutex as SyncMutex;
+        use std::sync::Arc as StdArc;
         use tracing_subscriber::fmt::MakeWriter;
 
         #[derive(Clone)]
-        struct Buffer(StdArc<StdMutex<Vec<u8>>>);
+        struct Buffer(StdArc<SyncMutex<Vec<u8>>>);
         impl std::io::Write for Buffer {
             fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(buf);
+                self.0.lock().extend_from_slice(buf);
                 Ok(buf.len())
             }
             fn flush(&mut self) -> std::io::Result<()> {
@@ -8890,7 +8889,7 @@ Some context.
             }
         }
 
-        let sink = Buffer(StdArc::new(StdMutex::new(Vec::new())));
+        let sink = Buffer(StdArc::new(SyncMutex::new(Vec::new())));
         let subscriber = tracing_subscriber::fmt()
             .with_writer(sink.clone())
             .with_ansi(false)
@@ -8899,7 +8898,7 @@ Some context.
         let captured = {
             let _guard = tracing::subscriber::set_default(subscriber);
             body.await;
-            String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
+            String::from_utf8(sink.0.lock().clone()).unwrap()
         };
         captured.lines().map(str::to_string).collect()
     }

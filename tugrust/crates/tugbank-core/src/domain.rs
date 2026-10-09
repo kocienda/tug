@@ -121,7 +121,7 @@ impl<'a> DomainHandle<'a> {
         if key.is_empty() {
             return Err(Error::InvalidKey(key.to_owned()));
         }
-        let conn = self.store.conn.lock().unwrap();
+        let conn = self.store.conn.lock();
         let mut stmt = conn.prepare_cached(
             "SELECT value_kind, value_i64, value_f64, value_text, value_blob \
              FROM entries WHERE domain = ?1 AND key = ?2",
@@ -146,7 +146,7 @@ impl<'a> DomainHandle<'a> {
 
     /// List all keys in this domain, in sorted order.
     pub fn keys(&self) -> Result<Vec<String>, Error> {
-        let conn = self.store.conn.lock().unwrap();
+        let conn = self.store.conn.lock();
         let mut stmt =
             conn.prepare_cached("SELECT key FROM entries WHERE domain = ?1 ORDER BY key")?;
         let keys = stmt
@@ -159,7 +159,7 @@ impl<'a> DomainHandle<'a> {
 
     /// Read all key-value pairs in this domain.
     pub fn read_all(&self) -> Result<BTreeMap<String, Value>, Error> {
-        let conn = self.store.conn.lock().unwrap();
+        let conn = self.store.conn.lock();
         let mut stmt = conn.prepare_cached(
             "SELECT key, value_kind, value_i64, value_f64, value_text, value_blob \
              FROM entries WHERE domain = ?1",
@@ -195,7 +195,7 @@ impl<'a> DomainHandle<'a> {
         check_blob_size(&value)?;
         let now = now_rfc3339();
         let (kind, i64v, f64v, textv, blobv) = encode_value(&value);
-        let mut conn = self.store.conn.lock().unwrap();
+        let mut conn = self.store.conn.lock();
         let txn = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         // Ensure domain row exists.
         txn.execute(
@@ -239,7 +239,7 @@ impl<'a> DomainHandle<'a> {
             return Err(Error::InvalidKey(key.to_owned()));
         }
         let now = now_rfc3339();
-        let mut conn = self.store.conn.lock().unwrap();
+        let mut conn = self.store.conn.lock();
         let txn = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let affected = txn.execute(
             "DELETE FROM entries WHERE domain = ?1 AND key = ?2",
@@ -265,7 +265,7 @@ impl<'a> DomainHandle<'a> {
     ///
     /// Returns `0` if the domain has no rows yet (no writes have occurred).
     pub fn generation(&self) -> Result<u64, Error> {
-        let conn = self.store.conn.lock().unwrap();
+        let conn = self.store.conn.lock();
         let result = conn.query_row(
             "SELECT generation FROM domains WHERE name = ?1",
             rusqlite::params![self.domain],
@@ -297,7 +297,7 @@ impl<'a> DomainHandle<'a> {
         check_blob_size(&value)?;
         let now = now_rfc3339();
         let (kind, i64v, f64v, textv, blobv) = encode_value(&value);
-        let mut conn = self.store.conn.lock().unwrap();
+        let mut conn = self.store.conn.lock();
         let txn = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         // Ensure domain row exists (generation starts at 0).
         txn.execute(
@@ -356,7 +356,7 @@ impl<'a> DomainHandle<'a> {
         F: FnOnce(&mut DomainTxn) -> Result<(), Error>,
     {
         let now = now_rfc3339();
-        let mut conn = self.store.conn.lock().unwrap();
+        let mut conn = self.store.conn.lock();
         let txn = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         // Ensure domain row exists.
         txn.execute(

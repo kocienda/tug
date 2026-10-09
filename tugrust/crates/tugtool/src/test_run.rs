@@ -17,10 +17,11 @@
 //! Every parser here is a pure function over bytes or lines, unit-tested
 //! against output captured from the real runners.
 
+use parking_lot::{Condvar, Mutex};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use tugtool_core::apptest_ledger::resolve_base_root;
@@ -127,7 +128,7 @@ impl Poster {
             let mut throttle = Throttle::default();
             loop {
                 let next = {
-                    let mut state = lock.lock().unwrap();
+                    let mut state = lock.lock();
                     loop {
                         if state.stop {
                             return;
@@ -135,8 +136,10 @@ impl Poster {
                         let now = Instant::now();
                         match state.latest.as_ref().map(|p| throttle.due(p, now)) {
                             Some(due) if due <= now => break state.latest.take(),
-                            Some(due) => state = wake.wait_timeout(state, due - now).unwrap().0,
-                            None => state = wake.wait(state).unwrap(),
+                            Some(due) => {
+                                wake.wait_for(&mut state, due - now);
+                            }
+                            None => wake.wait(&mut state),
                         }
                     }
                 };
@@ -144,7 +147,7 @@ impl Poster {
                 let reached = post(&progress);
                 throttle.posted(&progress, Instant::now());
                 if let Some(id) = reached {
-                    let mut state = lock.lock().unwrap();
+                    let mut state = lock.lock();
                     if state.session.is_none() {
                         state.session = Some(id);
                     }
@@ -161,7 +164,7 @@ impl Poster {
 impl ProgressSink for Poster {
     fn observe(&mut self, progress: &Progress) -> Option<String> {
         let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap();
+        let mut state = lock.lock();
         state.latest = Some(progress.clone());
         wake.notify_one();
         state.session.clone()
@@ -170,13 +173,13 @@ impl ProgressSink for Poster {
     fn finish(&mut self) -> Option<String> {
         {
             let (lock, wake) = &*self.shared;
-            lock.lock().unwrap().stop = true;
+            lock.lock().stop = true;
             wake.notify_one();
         }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
-        self.shared.0.lock().unwrap().session.clone()
+        self.shared.0.lock().session.clone()
     }
 }
 
@@ -667,7 +670,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         pump(
             stderr,
             |chunk| {
-                let mut follow = f.lock().unwrap();
+                let mut follow = f.lock();
                 let before = follow.progress.clone();
                 let out = follow.feed(chunk);
                 if follow.progress != before {
@@ -677,7 +680,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
             },
             true,
         );
-        let mut follow = f.lock().unwrap();
+        let mut follow = f.lock();
         let tail = follow.finish();
         if !tail.is_empty() {
             let _ = std::io::stderr().lock().write_all(&tail);
@@ -687,8 +690,8 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
     let status = child.wait();
     let _ = out_thread.join();
     let _ = err_thread.join();
-    if let Some(id) = sink.lock().unwrap().finish() {
-        session.lock().unwrap().get_or_insert(id);
+    if let Some(id) = sink.lock().finish() {
+        session.lock().get_or_insert(id);
     }
     let code = match status {
         Ok(st) => exit_code_of(st),
@@ -700,7 +703,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
 
     // Record. Telemetry-grade: a failure here is one stderr line and changes
     // nothing about the run's own status.
-    let follow = follow.lock().unwrap();
+    let follow = follow.lock();
     let fresh = std::fs::metadata(&junit_path)
         .and_then(|m| m.modified())
         .is_ok_and(|m| m >= started_wall);
@@ -739,7 +742,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         head_sha,
         dirty,
         suite: args.suite.clone(),
-        session_id: session.lock().unwrap().clone(),
+        session_id: session.lock().clone(),
         command: args.command.join(" "),
         exit_code: i64::from(code),
         wall_secs: clock.elapsed().as_secs_f64(),
@@ -768,8 +771,8 @@ fn observe(
     session: &Arc<Mutex<Option<String>>>,
     progress: &Progress,
 ) {
-    if let Some(id) = sink.lock().unwrap().observe(progress) {
-        let mut s = session.lock().unwrap();
+    if let Some(id) = sink.lock().observe(progress) {
+        let mut s = session.lock();
         if s.is_none() {
             *s = Some(id);
         }
@@ -1018,12 +1021,12 @@ mod tests {
         let posts: Arc<Mutex<Vec<Progress>>> = Arc::default();
         let seen = posts.clone();
         let mut poster = Poster::start(move |p| {
-            seen.lock().unwrap().push(p.clone());
+            seen.lock().push(p.clone());
             Some("seg-1".to_string())
         });
         let wait_for = |n: usize| {
             let deadline = Instant::now() + Duration::from_secs(5);
-            while posts.lock().unwrap().len() < n {
+            while posts.lock().len() < n {
                 assert!(Instant::now() < deadline, "the poster never posted {n}");
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -1041,7 +1044,7 @@ mod tests {
             "the failure did not wait out the second"
         );
         assert_eq!(poster.finish(), Some("seg-1".to_string()));
-        assert_eq!(*posts.lock().unwrap(), vec![state(1, 0), state(4, 1)]);
+        assert_eq!(*posts.lock(), vec![state(1, 0), state(4, 1)]);
     }
 
     #[test]

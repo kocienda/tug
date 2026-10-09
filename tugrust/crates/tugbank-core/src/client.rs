@@ -12,9 +12,10 @@
 //!
 //! `TugbankClient` is `Send + Sync` and intended to be shared via `Arc`.
 
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::notify::broadcast_domain_changed;
 use crate::{DefaultsStore, Error, Value};
@@ -69,9 +70,7 @@ pub struct CallbackHandle {
 
 impl Drop for CallbackHandle {
     fn drop(&mut self) {
-        if let Ok(mut reg) = self.registry.lock() {
-            reg.unregister(self.id);
-        }
+        self.registry.lock().unregister(self.id);
     }
 }
 
@@ -128,7 +127,7 @@ impl TugbankClient {
     /// Read a value from the cache, loading the domain on first access.
     pub fn get(&self, domain: &str, key: &str) -> Result<Option<Value>, Error> {
         self.ensure_domain_loaded(domain)?;
-        let cache = self.inner.cache.lock().unwrap();
+        let cache = self.inner.cache.lock();
         Ok(cache.get(domain).and_then(|snap| snap.get(key)).cloned())
     }
 
@@ -139,7 +138,7 @@ impl TugbankClient {
     pub fn set(&self, domain: &str, key: &str, value: Value) -> Result<(), Error> {
         self.inner.store.domain(domain)?.set(key, value.clone())?;
         {
-            let mut cache = self.inner.cache.lock().unwrap();
+            let mut cache = self.inner.cache.lock();
             cache
                 .entry(domain.to_owned())
                 .or_default()
@@ -156,7 +155,7 @@ impl TugbankClient {
     pub fn delete(&self, domain: &str, key: &str) -> Result<bool, Error> {
         let existed = self.inner.store.domain(domain)?.remove(key)?;
         if existed {
-            let mut cache = self.inner.cache.lock().unwrap();
+            let mut cache = self.inner.cache.lock();
             if let Some(snap) = cache.get_mut(domain) {
                 snap.remove(key);
             }
@@ -169,7 +168,7 @@ impl TugbankClient {
     /// Return the cached snapshot for `domain`, loading it on first access.
     pub fn read_domain(&self, domain: &str) -> Result<DomainSnapshot, Error> {
         self.ensure_domain_loaded(domain)?;
-        let cache = self.inner.cache.lock().unwrap();
+        let cache = self.inner.cache.lock();
         Ok(cache.get(domain).cloned().unwrap_or_default())
     }
 
@@ -188,7 +187,7 @@ impl TugbankClient {
     where
         F: Fn(&str, &DomainSnapshot) + Send + 'static,
     {
-        let mut reg = self.inner.callbacks.lock().unwrap();
+        let mut reg = self.inner.callbacks.lock();
         let id = reg.register(Box::new(callback));
         CallbackHandle {
             id,
@@ -205,11 +204,11 @@ impl TugbankClient {
             Err(_) => return,
         };
         {
-            let mut cache = self.inner.cache.lock().unwrap();
+            let mut cache = self.inner.cache.lock();
             cache.insert(domain.to_owned(), snapshot.clone());
         }
         {
-            let reg = self.inner.callbacks.lock().unwrap();
+            let reg = self.inner.callbacks.lock();
             reg.fire(domain, &snapshot);
         }
     }
@@ -218,12 +217,12 @@ impl TugbankClient {
 
     fn ensure_domain_loaded(&self, domain: &str) -> Result<(), Error> {
         let already_loaded = {
-            let cache = self.inner.cache.lock().unwrap();
+            let cache = self.inner.cache.lock();
             cache.contains_key(domain)
         };
         if !already_loaded {
             let snapshot = self.inner.store.domain(domain)?.read_all()?;
-            let mut cache = self.inner.cache.lock().unwrap();
+            let mut cache = self.inner.cache.lock();
             cache.entry(domain.to_owned()).or_insert(snapshot);
         }
         Ok(())

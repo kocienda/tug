@@ -32,9 +32,10 @@
 //! `observer_wake.rs`. Every case in the gate is then a table test rather than a
 //! server that has to be stood up and driven into the right state.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use tokio::sync::{Notify, broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -361,7 +362,7 @@ pub struct ConflictBoard {
 
 impl ConflictBoard {
     fn set(&self, owner_key: &str, paths: Vec<String>) {
-        let mut board = self.by_arc.lock().expect("conflict board mutex");
+        let mut board = self.by_arc.lock();
         if paths.is_empty() {
             board.remove(owner_key);
         } else {
@@ -377,14 +378,7 @@ static BOARD: OnceLock<Arc<ConflictBoard>> = OnceLock::new();
 pub fn conflict_paths_for(owner_key: &str) -> Vec<String> {
     BOARD
         .get()
-        .and_then(|board| {
-            board
-                .by_arc
-                .lock()
-                .expect("conflict board mutex")
-                .get(owner_key)
-                .cloned()
-        })
+        .and_then(|board| board.by_arc.lock().get(owner_key).cloned())
         .unwrap_or_default()
 }
 
@@ -537,7 +531,7 @@ async fn evaluate_workspace(
         let session = bound_session(&ctx.supervisor_ledger, &bound_by_arc, &owner_key).await;
 
         let (in_flight, conflicted, notified) = {
-            let map = state.lock().expect("base-motion state mutex");
+            let map = state.lock();
             match map.get(&owner_key) {
                 Some(st) => (
                     st.in_flight,
@@ -576,7 +570,7 @@ async fn evaluate_workspace(
             Decision::MarkOnly => {
                 // Nobody to tell, so the log is the only surface this has.
                 let conflict = {
-                    let map = state.lock().expect("base-motion state mutex");
+                    let map = state.lock();
                     map.get(&owner_key)
                         .and_then(|st| st.conflict.as_ref().map(describe_conflict))
                 };
@@ -653,7 +647,7 @@ fn spawn_replay(
     job: ReplayJob,
 ) {
     {
-        let mut map = state.lock().expect("base-motion state mutex");
+        let mut map = state.lock();
         let entry = map.entry(job.owner_key.clone()).or_default();
         if entry.in_flight {
             return;
@@ -681,7 +675,7 @@ fn spawn_replay(
         // the channel send is async and the state mutex is not.
         let mut speak: Option<Speak> = None;
         let refresh = {
-            let mut map = state.lock().expect("base-motion state mutex");
+            let mut map = state.lock();
             let entry = map.entry(job.owner_key.clone()).or_default();
             entry.in_flight = false;
 
@@ -766,7 +760,7 @@ fn spawn_replay(
             if !inject.send(session, &text).await {
                 // Nowhere to send after all — take the latch back off so a
                 // later wake can try again rather than staying silent forever.
-                let mut map = state.lock().expect("base-motion state mutex");
+                let mut map = state.lock();
                 if let Some(entry) = map.get_mut(&job.owner_key) {
                     entry.notified_tip = None;
                 }
@@ -800,7 +794,7 @@ fn compose_for(
     match speak {
         Speak::Conflict => {
             let record = {
-                let map = state.lock().expect("base-motion state mutex");
+                let map = state.lock();
                 map.get(&job.owner_key).and_then(|st| st.conflict.clone())
             };
             let Some(record) = record else {
@@ -929,7 +923,7 @@ fn clear_arc(
     state: &Arc<Mutex<HashMap<String, ArcState>>>,
     owner_key: &str,
 ) {
-    let mut map = state.lock().expect("base-motion state mutex");
+    let mut map = state.lock();
     if let Some(entry) = map.get_mut(owner_key) {
         entry.conflict = None;
         entry.notified_tip = None;
@@ -1881,7 +1875,7 @@ mod tests {
         let ctx = test_context(&registry, &bump, &cancel);
         let board = Arc::new(ConflictBoard::default());
         let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
-        state.lock().unwrap().insert(
+        state.lock().insert(
             "tugarc/demo".to_string(),
             ArcState {
                 in_flight: true,
@@ -1899,12 +1893,7 @@ mod tests {
 
         // Release the lock and the very same call moves the branch, so the
         // refusal above was the lock and not a broken fixture.
-        state
-            .lock()
-            .unwrap()
-            .get_mut("tugarc/demo")
-            .unwrap()
-            .in_flight = false;
+        state.lock().get_mut("tugarc/demo").unwrap().in_flight = false;
         spawn_replay(&ctx, &board, &state, demo_job(&repo));
         assert!(settles(|| repo.tip("tugarc/demo") != before).await);
         cancel.cancel();

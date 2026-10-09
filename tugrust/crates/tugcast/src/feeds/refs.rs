@@ -13,10 +13,11 @@
 //! One run at a time per session — a new command cancels and replaces the
 //! one in flight, because the ledger keeps only the latest run anyway.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use glob::Pattern;
@@ -625,7 +626,7 @@ pub fn execute_run(
         if rows.is_empty() {
             return;
         }
-        emitted.lock().unwrap().extend(rows.iter().cloned());
+        emitted.lock().extend(rows.iter().cloned());
         emit(
             &output,
             session,
@@ -661,7 +662,7 @@ pub fn execute_run(
                             // One lock spans numbering and emission so a ref's
                             // number and its position in the stream cannot
                             // disagree when two files finish at once.
-                            let mut next = next_index.lock().unwrap();
+                            let mut next = next_index.lock();
                             let numbered = number_rows(&path, rows, &mut next);
                             for chunk in numbered.chunks(MAX_ROWS_PER_FRAME) {
                                 send_batch(chunk.to_vec());
@@ -692,7 +693,7 @@ pub fn execute_run(
     }
 
     let cancelled = cancel.is_cancelled();
-    let refs = emitted.into_inner().unwrap();
+    let refs = emitted.into_inner();
 
     // A partial list is not the session's refs — restoring one would make
     // `/ref N` resolve against a list the user never saw finish.
@@ -1418,7 +1419,7 @@ mod tests {
 
     #[test]
     fn run_search_batches_per_file_and_honors_the_skip_model() {
-        use std::sync::Mutex;
+        use parking_lot::Mutex;
 
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -1433,9 +1434,9 @@ mod tests {
             let batches: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
             let compiled = compile_needles(&needles(&["needle"]), flags).unwrap();
             run_search(root, &compiled, flags, |path, rows| {
-                batches.lock().unwrap().push((path, rows.len()));
+                batches.lock().push((path, rows.len()));
             });
-            let mut out = batches.into_inner().unwrap();
+            let mut out = batches.into_inner();
             out.sort();
             out
         };

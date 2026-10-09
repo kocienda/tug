@@ -7,8 +7,9 @@
 //! 3. Server validates token, creates session, sets HttpOnly cookie, invalidates token
 //! 4. All subsequent requests authenticated via session cookie
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::{Query, State};
@@ -180,7 +181,7 @@ pub async fn handle_auth(
     Query(params): Query<AuthQuery>,
     State(auth): State<SharedAuthState>,
 ) -> Response {
-    let mut auth_state = auth.lock().unwrap();
+    let mut auth_state = auth.lock();
 
     if !auth_state.validate_token(&params.token) {
         warn!("Invalid auth token attempt");
@@ -226,7 +227,7 @@ pub fn extract_session_cookie(headers: &HeaderMap) -> Option<String> {
 
 /// Validate that the request has a valid session cookie
 pub fn validate_request_session(headers: &HeaderMap, auth: &SharedAuthState) -> bool {
-    let mut auth_state = auth.lock().unwrap();
+    let mut auth_state = auth.lock();
     if auth_state.no_auth {
         return true;
     }
@@ -241,7 +242,7 @@ pub fn validate_request_session(headers: &HeaderMap, auth: &SharedAuthState) -> 
 
 /// Check that the request origin is allowed
 pub fn check_request_origin(headers: &HeaderMap, auth: &SharedAuthState) -> bool {
-    let auth_state = auth.lock().unwrap();
+    let auth_state = auth.lock();
     if auth_state.no_auth {
         return true;
     }
@@ -292,7 +293,7 @@ impl ApiRefusal {
 /// gate can trust — the server's own, or the Vite proxy's, which forwards
 /// the page's headers unchanged.
 pub fn check_api_request(headers: &HeaderMap, auth: &SharedAuthState) -> Result<(), ApiRefusal> {
-    let mut auth_state = auth.lock().unwrap();
+    let mut auth_state = auth.lock();
     if auth_state.no_auth {
         return Ok(());
     }
@@ -324,7 +325,7 @@ pub fn check_api_request(headers: &HeaderMap, auth: &SharedAuthState) -> Result<
 /// websocket check, so the three cannot drift. `--no-auth` opens it, as it
 /// opens the other two.
 pub fn cors_allows_origin(origin: &str, auth: &SharedAuthState) -> bool {
-    let auth_state = auth.lock().unwrap();
+    let auth_state = auth.lock();
     auth_state.no_auth || auth_state.check_origin(origin)
 }
 
@@ -495,7 +496,7 @@ mod tests {
     /// An auth state with one live session, and that session's cookie.
     fn gated() -> (SharedAuthState, String) {
         let auth = new_shared_auth_state(7890);
-        let session_id = auth.lock().unwrap().create_session();
+        let session_id = auth.lock().create_session();
         (auth, format!("{SESSION_COOKIE_NAME}={session_id}"))
     }
 
@@ -589,7 +590,7 @@ mod tests {
         let (auth, _) = gated();
         assert!(cors_allows_origin("http://127.0.0.1:7890", &auth));
         assert!(!cors_allows_origin("http://localhost:55155", &auth));
-        auth.lock().unwrap().set_dev_port(Some(55155));
+        auth.lock().set_dev_port(Some(55155));
         assert!(cors_allows_origin("http://localhost:55155", &auth));
         assert!(!cors_allows_origin("https://evil.example", &auth));
     }

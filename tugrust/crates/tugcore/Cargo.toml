@@ -17,6 +17,7 @@ test-fixtures = []
 
 [dependencies]
 dirs = { workspace = true }
+parking_lot = { workspace = true }
 rusqlite = { workspace = true }
 libc = { workspace = true }
 serde = { workspace = true }
