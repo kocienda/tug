@@ -319,11 +319,16 @@ export function settleStillCrossing(
   frame: HTMLElement,
   finalHeightPx: number,
 ): number {
-  // The standing record goes first so the mark below starts from nothing.
-  STILL_KIND.held.delete(frame);
-  frame.removeAttribute(STILL_CROSSING_ATTR);
-  const id = markKind(STILL_KIND, frame, finalHeightPx);
-  frame.setAttribute(STILL_SETTLED_ATTR, "");
+  let id = 0;
+  // A retarget that lowers a standing hold changes the interior's height in
+  // this task, so the bottom is kept across it as the release keeps it.
+  preserveBottomAcross(frame, () => {
+    // The standing record goes first so the mark below starts from nothing.
+    STILL_KIND.held.delete(frame);
+    frame.removeAttribute(STILL_CROSSING_ATTR);
+    id = markKind(STILL_KIND, frame, finalHeightPx);
+    frame.setAttribute(STILL_SETTLED_ATTR, "");
+  });
   return id;
 }
 
@@ -483,12 +488,18 @@ export function endFoldCrossing(
   frame: HTMLElement,
   crossingId?: number,
 ): void {
-  const stamp = endKind(FOLD_KIND, frame, crossingId);
+  const stamp = openStamp(FOLD_KIND, frame, crossingId);
   if (stamp === null) return;
   // A fold is a still crossing, so its end is the still crossing's end too.
   // Unguarded, because the id that just matched is the fold's: whoever holds
-  // the live fold id holds the live crossing.
-  endKind(STILL_KIND, frame);
+  // the live fold id holds the live crossing. Both holds come off inside one
+  // bracket, so the distance it keeps is the one read before either did.
+  const still = openStamp(STILL_KIND, frame);
+  preserveBottomAcross(frame, () => {
+    releaseKind(FOLD_KIND, frame);
+    if (still !== null) releaseKind(STILL_KIND, frame);
+  });
+  if (still !== null) announceStillCrossingEnd(frame, still);
   frame.dispatchEvent(
     new CustomEvent<FoldCrossingEventDetail>(FOLD_CROSSING_END, {
       detail: { crossingId: stamp },
@@ -509,18 +520,17 @@ export function endStillCrossing(
   frame: HTMLElement,
   crossingId?: number,
 ): void {
-  endKind(STILL_KIND, frame, crossingId);
+  const stamp = openStamp(STILL_KIND, frame, crossingId);
+  if (stamp === null) return;
+  preserveBottomAcross(frame, () => releaseKind(STILL_KIND, frame));
+  announceStillCrossingEnd(frame, stamp);
 }
 
 /**
- * Take one kind's mark and held height off `frame`. Returns the stamp it
- * closed, or `null` when it closed nothing.
- *
- * The still crossing's end is announced HERE, because this is the mark's only
- * remover: whichever door lifted the hold, the interior that owed its
- * reactions to it hears so once.
+ * The stamp of `kind`'s mark standing on `frame`, or `null` when there is
+ * none or `crossingId` names a crossing that is no longer the live one.
  */
-function endKind(
+function openStamp(
   kind: CrossingKind,
   frame: HTMLElement,
   crossingId?: number,
@@ -528,6 +538,89 @@ function endKind(
   const stamp = frame.getAttribute(kind.attr);
   if (stamp === null) return null;
   if (crossingId !== undefined && Number(stamp) !== crossingId) return null;
+  return Number(stamp);
+}
+
+/**
+ * Announce that the still crossing stamped `id` on `frame` has ended — after
+ * the hold is off AND the bottom is restored, so the interior that hears it
+ * reads a scroller already where it lands.
+ *
+ * Every door that lifts a still hold goes through {@link endStillCrossing} or
+ * {@link endFoldCrossing}, and both announce here: whichever door lifted it,
+ * the interior that owed its reactions to it hears so once.
+ */
+function announceStillCrossingEnd(frame: HTMLElement, id: number): void {
+  frame.dispatchEvent(
+    new CustomEvent<StillCrossingEventDetail>(STILL_CROSSING_END, {
+      detail: { id },
+      cancelable: false,
+      bubbles: false,
+    }),
+  );
+}
+
+/**
+ * The scrollers under `content` whose card root hangs from the bottom — the
+ * same `[data-still-anchor="bottom"]` root the pane's hold rule hangs
+ * (`tug-pane.css`), so the edge the picture hangs from during the crossing
+ * and the edge kept when it ends are one declaration ([B02] of
+ * `briefs/land-preserves-the-bottom-brief.md`).
+ */
+function bottomAnchoredScrollers(content: HTMLElement): HTMLElement[] {
+  return Array.from(
+    content.querySelectorAll<HTMLElement>(
+      `:scope [data-card-host] > [${STILL_ANCHOR_ATTR}="bottom"] [data-slot="tug-list-view"]`,
+    ),
+  );
+}
+
+/**
+ * Run `change` — a write that moves the height of `frame`'s held interior —
+ * and keep every bottom-anchored scroller under it at the distance from its
+ * bottom it stood at before, in the same synchronous task.
+ *
+ * The browser keeps `scrollTop` across a height change, which keeps the TOP:
+ * a scroller whose box shrinks shows its content that much off its bottom
+ * until something writes `scrollTop` again. Every listener that answered that
+ * was one more path a land could miss — the end announced on a frame the
+ * listener was not bound to, a size it had never answered, a gate holding
+ * the observer that would have noticed — and WebKit has no scroll anchoring
+ * to fall back on. So the write that changes the height restores the
+ * position itself, before anything can paint: read the distance, change,
+ * force the layout with one `clientHeight` read, write `scrollTop` back. No
+ * paint falls inside a task, so no frame shows the new height with the old
+ * position. A top-anchored scroller is left alone; keeping `scrollTop` is
+ * exactly what a top anchor wants.
+ *
+ * A scroller with no box on either side of the change — not laid out, or
+ * hidden by the change — has no bottom to keep and is skipped.
+ */
+function preserveBottomAcross(frame: HTMLElement, change: () => void): void {
+  // The box the hold stands on, read before `change` can forget it.
+  const content = STILL_KIND.held.get(frame)?.box ?? contentBoxOf(frame);
+  const scrollers = content === null ? [] : bottomAnchoredScrollers(content);
+  if (scrollers.length === 0) {
+    change();
+    return;
+  }
+  const distances = scrollers.map((el) => {
+    const h = el.clientHeight;
+    return h === 0 ? null : Math.max(0, el.scrollHeight - el.scrollTop - h);
+  });
+  change();
+  scrollers.forEach((el, i) => {
+    const distance = distances[i];
+    if (distance === null || !el.isConnected) return;
+    const h = el.clientHeight;
+    if (h === 0) return;
+    const top = Math.max(0, el.scrollHeight - h - distance);
+    if (el.scrollTop !== top) el.scrollTop = top;
+  });
+}
+
+/** Take one kind's mark and held height off `frame`; the caller has checked it is open. */
+function releaseKind(kind: CrossingKind, frame: HTMLElement): void {
   frame.removeAttribute(kind.attr);
   if (kind === STILL_KIND) frame.removeAttribute(STILL_SETTLED_ATTR);
   // The box the mark was written on, not the one the frame holds now: a pane
@@ -541,16 +634,6 @@ function endKind(
       root.style.removeProperty(kind.prop);
     }
   }
-  if (kind === STILL_KIND) {
-    frame.dispatchEvent(
-      new CustomEvent<StillCrossingEventDetail>(STILL_CROSSING_END, {
-        detail: { id: Number(stamp) },
-        cancelable: false,
-        bubbles: false,
-      }),
-    );
-  }
-  return Number(stamp);
 }
 
 /**
