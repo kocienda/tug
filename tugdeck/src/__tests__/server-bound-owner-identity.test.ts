@@ -145,6 +145,10 @@ function label(hit: Hit): string {
 /** Every wire-verb call in one file's text whose arguments name `tugSessionId`. */
 function scanText(file: string, text: string): Hit[] {
   const hits: Hit[] = [];
+  // A hit needs `tugSessionId` in its arguments, so a file that never names
+  // it has none. Most of the deck doesn't, and skipping it is what keeps the
+  // sweep inside a test's time budget rather than at the edge of it.
+  if (!text.includes("tugSessionId")) return hits;
   for (const verb of WIRE_VERBS) {
     // `.verb(` or `verb(` at a call position — never `function verb(` or a
     // type's method signature, which declare rather than call.
