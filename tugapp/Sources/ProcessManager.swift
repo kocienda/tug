@@ -1014,7 +1014,7 @@ class ProcessManager {
         // fires). --force is identity-gated in tugcast: it only kills a
         // holder the registry confirms is THIS instance's prior tugcast —
         // never another instance or an unrelated process. See
-        // force_kill_port_holder in tugcast/src/main.rs.
+        // force_kill_port_holder in tugcast/src/boot/bind.rs.
         if ProcessInfo.processInfo.environment["TUGAPP_APP_TEST"] == "1" {
             args += ["--force"]
         }

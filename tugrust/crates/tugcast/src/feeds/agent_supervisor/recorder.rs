@@ -209,7 +209,7 @@ impl LedgerSessionsRecorder {
     /// Give the recorder the registry's aggregate-changeset bump, so a seated
     /// binding refreshes the masthead's arc index the way every other binding
     /// writer does. A builder rather than a constructor argument because the
-    /// registry outranks the recorder in main's construction order and every
+    /// registry outranks the recorder in tugcast's boot order and every
     /// test that wants a recorder wants it without one.
     pub fn with_changeset_bump(mut self, bump: Arc<tokio::sync::Notify>) -> Self {
         self.changeset_all_bump = Some(bump);

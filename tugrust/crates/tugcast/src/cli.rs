@@ -77,7 +77,7 @@ pub struct Cli {
     /// the schema and the journal are correct by construction rather than by a
     /// hand-mirrored `CREATE TABLE` that drifts.
     ///
-    /// Refused outside an app-test instance — see `seed_ledger` in `main`.
+    /// Refused outside an app-test instance — see `seed_ledger` in `boot::early`.
     #[arg(long, value_name = "JSON_FILE")]
     pub seed_ledger: Option<PathBuf>,
 
