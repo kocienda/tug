@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildClaudeSpawnEnv } from "./src/session.ts";
+import { buildClaudeSpawnEnv } from "./src/spawn-config.ts";
 
 // The environment a claude spawn runs under is the chain that lets a skill or
 // CLI running inside a Session card self-identify: tugcode → claude → Bash

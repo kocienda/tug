@@ -11,7 +11,7 @@ import { describe, test, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readPluginPrompts } from "../session.ts";
+import { readPluginPrompts } from "../spawn-config.ts";
 
 function withPluginDir(files: Record<string, string>, body: (dir: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), "plugin-prompts-"));

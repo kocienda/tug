@@ -21,6 +21,7 @@ import { describe, expect, test } from "bun:test";
 
 import { drainPendingWrites } from "../ipc.ts";
 import { ActiveTurn, SessionManager } from "../session.ts";
+import { fakeSpawner } from "./fake-spawner.ts";
 import type { OutboundMessage } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -112,8 +113,8 @@ function makeManager(): SessionManager {
   const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
     claudeHome: ClaudeHome.at("/tmp/interrupt-receipts-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
+    spawner: fakeSpawner(() => mockClaudeChild().child),
   });
-  (manager as any).spawnClaude = () => mockClaudeChild().child;
   return manager;
 }
 
@@ -156,7 +157,7 @@ describe("interrupt receipts — no silent early return", () => {
     // The control request still reached stdin — harmless, and claude may act
     // on it — but no escalation is armed, because there is no turn to force.
     expect(handle.writes.length).toBeGreaterThan(0);
-    expect((manager as any).interruptEscalationTimer).toBeNull();
+    expect((manager as any).timers.has("interrupt-escalation")).toBe(false);
   });
 
   test("a real interrupt on a live turn receipts nothing and arms the escalation", async () => {
@@ -173,7 +174,7 @@ describe("interrupt receipts — no silent early return", () => {
     // The ordinary path keeps its silence: a turn that can end needs no
     // receipt, because its ending is the receipt.
     expect(noops(emitted)).toHaveLength(0);
-    expect((manager as any).interruptEscalationTimer).not.toBeNull();
+    expect((manager as any).timers.has("interrupt-escalation")).toBe(true);
     expect(turn.interrupted).toBe(true);
     expect(turn.interruptCause).toBe("user");
   });

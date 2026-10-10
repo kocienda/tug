@@ -7,7 +7,7 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { dirname, resolve } from "node:path";
 
-import { resolvePluginDir } from "../session.ts";
+import { resolvePluginDir } from "../spawn-config.ts";
 
 const savedOverride = process.env.TUG_PLUGIN_DIR;
 afterEach(() => {

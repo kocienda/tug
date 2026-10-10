@@ -18,6 +18,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { SessionManager, jsonlPathFor } from "../session.ts";
+import { fakeSpawner } from "./fake-spawner.ts";
 import { drainPendingWrites } from "../ipc.ts";
 
 const SID = "11111111-1111-1111-1111-111111111111";
@@ -44,6 +45,7 @@ function fixture(opts?: { relocation?: boolean }): {
       opts?.relocation === false
         ? undefined
         : { parentClaudeId: PARENT_ID, parentProjectDir: PARENT_DIR },
+    spawner: fakeSpawner(() => silentChild()),
   });
   // Claude names its folder after the resolved cwd (`/tmp` → `/private/tmp`).
   const ownJsonl = jsonlPathFor(ClaudeHome.at(root), realpathSync(projectDir), SID);
@@ -150,7 +152,6 @@ function silentChild() {
 describe("initialize() in new mode", () => {
   test("a pending relocation announces the relocate edge, then the init", async () => {
     const { manager } = fixture();
-    manager.spawnClaude = () => silentChild();
     const lines = await captureIpc(() => manager.initialize());
     const kinds = lines
       .filter((l) => l.type === "session_segment" || l.type === "session_init")
@@ -168,7 +169,6 @@ describe("initialize() in new mode", () => {
   test("a written fork announces nothing", async () => {
     const { manager, ownJsonl } = fixture();
     writeOwnJsonl(ownJsonl);
-    manager.spawnClaude = () => silentChild();
     const lines = await captureIpc(() => manager.initialize());
     expect(lines.some((l) => l.type === "session_segment")).toBe(false);
     expect(lines.find((l) => l.type === "session_init").session_id).toBe(SID);

@@ -19,6 +19,7 @@ import {
   computeConversationTruncation,
 } from "../session.ts";
 import type { EventMappingContext, JsonlReadResult } from "../session.ts";
+import { fakeSpawner, spawnedAs } from "./fake-spawner.ts";
 import { respondingProcess } from "./responding-process.ts";
 
 // Capture writeLine() output (it routes through Bun.write(Bun.stdout)).
@@ -184,7 +185,7 @@ describe("rewind_preview → rewind_files{dry_run:true}", () => {
     expect(sent.request.user_message_id).toBe("anchor-1");
     expect(sent.request.dry_run).toBe(true);
     expect(typeof sent.request_id).toBe("string");
-    expect((manager as any).pendingRewindRequests.size).toBe(1);
+    expect((manager as any).rewind.pendingRewindRequests.size).toBe(1);
   });
 
   test("a matching control_response relays a rewind_preview_result", async () => {
@@ -223,7 +224,7 @@ describe("rewind_preview → rewind_files{dry_run:true}", () => {
       deletions: 1,
     });
     // Correlation consumed the pending entry.
-    expect((manager as any).pendingRewindRequests.size).toBe(0);
+    expect((manager as any).rewind.pendingRewindRequests.size).toBe(0);
   });
 
   test("a canRewind:false response relays the gating error", async () => {
@@ -268,7 +269,7 @@ describe("rewind_preview → rewind_files{dry_run:true}", () => {
     });
 
     expect(written.length).toBe(0);
-    expect((manager as any).pendingRewindRequests.size).toBe(0);
+    expect((manager as any).rewind.pendingRewindRequests.size).toBe(0);
     const result = out.find((m) => m.type === "rewind_preview_result");
     expect(result.canRewind).toBe(false);
     expect(result.error).toContain("busy");
@@ -402,7 +403,7 @@ describe("session_rewind code dimension → rewind_files{dry_run:false}", () => 
     // it truncates the JSONL + respawns. (No JSONL here ⇒ it errors out, but
     // still without any control request.)
     expect(written.length).toBe(0);
-    expect((manager as any).pendingRewindRequests.size).toBe(0);
+    expect((manager as any).rewind.pendingRewindRequests.size).toBe(0);
   });
 
   test("idle gating: an apply mid-turn is rejected without a control request", async () => {
@@ -595,7 +596,7 @@ function convManager(
   const writes: { path: string; content: string }[] = [];
   const spawns: { id: string | null; mode: string }[] = [];
   let killCalls = 0;
-  const manager = new SessionManager(
+  const manager: SessionManager = new SessionManager(
     "/tmp/tugcode-conv-" + Date.now() + "-" + Math.floor(performance.now()),
     crypto.randomUUID(),
     "resume",
@@ -609,14 +610,14 @@ function convManager(
         writes.push({ path, content });
       },
       sessionsDbPath: null,
+      spawner: fakeSpawner((args) => {
+        spawns.push(spawnedAs(args));
+        return spawnStub(manager);
+      }),
     },
   );
   // A claude process must look present + idle for the guards.
   (manager as any).claudeProcess = { stdin: { write: () => {}, flush: () => {} } };
-  (manager as any).spawnClaude = (id: string | null, mode: string) => {
-    spawns.push({ id, mode });
-    return spawnStub(manager);
-  };
   (manager as any).startStdoutDrain = () => {};
   (manager as any).killAndCleanup = async () => {
     killCalls++;

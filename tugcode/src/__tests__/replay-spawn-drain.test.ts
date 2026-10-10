@@ -29,6 +29,7 @@ import {
   SessionManager,
 } from "../session.ts";
 import type { OutboundMessage } from "../types.ts";
+import { fakeSpawner } from "./fake-spawner.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,7 +82,7 @@ interface DrainTestRig {
    */
   respawns: MockClaudeStdout[];
   /**
-   * Make the NEXT `spawnClaude` throw instead of returning a child, so a
+   * Make the NEXT spawn throw instead of returning a child, so a
    * test can drive the "nothing to reattach to" half of the recovery.
    */
   failNextSpawn(): void;
@@ -128,6 +129,9 @@ function makeDrainRig(opts?: {
         opts?.jsonlReader ??
         (async () => ({ kind: "missing" as const, message: "fixture" })),
       replayTimeoutMs: 10_000,
+      // The spawner is defined below, beside the mock state it reads; it is
+      // first called long after construction.
+      spawner: fakeSpawner(() => spawnMockChild()),
     },
   );
 
@@ -160,7 +164,7 @@ function makeDrainRig(opts?: {
   const respawns: MockClaudeStdout[] = [];
   let spawned = 0;
   let failNext = false;
-  (manager as any).spawnClaude = () => {
+  const spawnMockChild = () => {
     if (failNext) {
       failNext = false;
       throw new Error("claude CLI not found (PATH or ~/.local/bin)");

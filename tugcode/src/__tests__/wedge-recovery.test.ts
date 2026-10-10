@@ -21,6 +21,7 @@ import { describe, expect, test } from "bun:test";
 
 import { drainPendingWrites } from "../ipc.ts";
 import { ActiveTurn, SessionManager } from "../session.ts";
+import { fakeSpawner, spawnedAs } from "./fake-spawner.ts";
 import type { OutboundMessage } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -130,17 +131,17 @@ function makeManager(): {
   const projectDir = `/tmp/wedge-recovery-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+  const spawns: Array<{ id: string | null; mode: string }> = [];
+  let child = mockClaudeChild();
   const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
     claudeHome: ClaudeHome.at("/tmp/wedge-recovery-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
+    spawner: fakeSpawner((args) => {
+      spawns.push(spawnedAs(args));
+      child = mockClaudeChild();
+      return child.child;
+    }),
   });
-  const spawns: Array<{ id: string | null; mode: string }> = [];
-  let child = mockClaudeChild();
-  (manager as any).spawnClaude = (id: string | null, mode: string) => {
-    spawns.push({ id, mode });
-    child = mockClaudeChild();
-    return child.child;
-  };
   return {
     manager,
     spawns,
@@ -159,7 +160,7 @@ describe("exit-watcher classification", () => {
     const handle = mockClaudeChild();
     (manager as any).claudeProcess = handle.child;
     // The handshake acked — claude proved it launched and opened its JSONL.
-    (manager as any).initializeHandshakeAcked = true;
+    (manager as any).claude.setPhase("running");
 
     const { emitted } = await captureIpc(async () => {
       (manager as any).installEarlyExitWatcher();
@@ -192,8 +193,8 @@ describe("exit-watcher classification", () => {
     const { manager } = makeManager();
     const handle = mockClaudeChild();
     (manager as any).claudeProcess = handle.child;
-    (manager as any).initializeHandshakeAcked = true;
-    (manager as any).claudeStderrClassification = "collision";
+    (manager as any).claude.setPhase("running");
+    (manager as any).claude.stderrClassification = "collision";
 
     const { emitted } = await captureIpc(async () => {
       (manager as any).installEarlyExitWatcher();
@@ -235,12 +236,12 @@ describe("cancel escalation arming", () => {
     (manager as any).activeTurn = turn;
 
     manager.handleInterrupt();
-    expect((manager as any).interruptEscalationTimer).not.toBeNull();
+    expect((manager as any).timers.has("interrupt-escalation")).toBe(true);
 
     // The turn completes cleanly (claude acked the interrupt) → timer cleared.
     turn.finish();
     await new Promise((r) => setTimeout(r, 0));
-    expect((manager as any).interruptEscalationTimer).toBeNull();
+    expect((manager as any).timers.has("interrupt-escalation")).toBe(false);
   });
 });
 
@@ -275,7 +276,7 @@ describe("result-liveness watchdog arming", () => {
         delta: { stop_reason: "tool_use" },
         usage: {},
       });
-      expect((manager as any).resultWatchdogTimer).toBeNull();
+      expect((manager as any).timers.has("result-watchdog")).toBe(false);
 
       // A terminal end_turn stop arms the watchdog (result must follow).
       dispatchStreamEvent(manager, turn, {
@@ -283,7 +284,7 @@ describe("result-liveness watchdog arming", () => {
         delta: { stop_reason: "end_turn" },
         usage: {},
       });
-      expect((manager as any).resultWatchdogTimer).not.toBeNull();
+      expect((manager as any).timers.has("result-watchdog")).toBe(true);
     });
   });
 
@@ -300,7 +301,7 @@ describe("result-liveness watchdog arming", () => {
         delta: { stop_reason: "end_turn" },
         usage: {},
       });
-      expect((manager as any).resultWatchdogTimer).not.toBeNull();
+      expect((manager as any).timers.has("result-watchdog")).toBe(true);
 
       // Claude's terminal result lands.
       (manager as any).dispatchEventToTurn(turn, {
@@ -308,7 +309,7 @@ describe("result-liveness watchdog arming", () => {
         subtype: "success",
         result: "",
       });
-      expect((manager as any).resultWatchdogTimer).toBeNull();
+      expect((manager as any).timers.has("result-watchdog")).toBe(false);
     });
   });
 });

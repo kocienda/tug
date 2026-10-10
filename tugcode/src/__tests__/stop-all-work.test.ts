@@ -6,7 +6,7 @@
 // turns on ([P12]), so it is pinned here on its own rather than only seen
 // through the app-test chain.
 //
-// The process-group signal is stubbed at `signalProcessGroup`, the one seam
+// The process-group signal is stubbed at `ClaudeProcess.signalProcessGroup`, the one seam
 // that spells `kill(-pid, …)`: a test that let it reach the OS with a made-up
 // pid would be signalling somebody else's process group.
 
@@ -15,6 +15,7 @@ import { describe, expect, test } from "bun:test";
 
 import { drainPendingWrites } from "../ipc.ts";
 import { ActiveTurn, SessionManager } from "../session.ts";
+import { fakeSpawner, spawnedAs } from "./fake-spawner.ts";
 import type { OutboundMessage } from "../types.ts";
 
 interface MockChild {
@@ -112,19 +113,19 @@ function makeManager(): {
   const projectDir = `/tmp/stop-all-work-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+  const spawns: Array<{ id: string | null; mode: string }> = [];
   const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
     claudeHome: ClaudeHome.at("/tmp/stop-all-work-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
+    spawner: fakeSpawner((args) => {
+      spawns.push(spawnedAs(args));
+      return politeClaudeChild(5151).child;
+    }),
   });
-  const spawns: Array<{ id: string | null; mode: string }> = [];
   const groupSignals: Array<{ pid: number; signal: string }> = [];
   const stoppedTasks: string[] = [];
   const m = manager as any;
-  m.spawnClaude = (id: string | null, mode: string) => {
-    spawns.push({ id, mode });
-    return politeClaudeChild(5151).child;
-  };
-  m.signalProcessGroup = (pid: number, signal: string) => {
+  m.claude.signalProcessGroup = (pid: number, signal: string) => {
     groupSignals.push({ pid, signal });
     return "sent";
   };

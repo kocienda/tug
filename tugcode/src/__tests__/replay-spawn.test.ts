@@ -36,6 +36,7 @@ import {
   SessionManager,
   jsonlPathFor,
 } from "../session.ts";
+import { fakeSpawner } from "./fake-spawner.ts";
 import type {
   OutboundMessage,
   ReplayComplete,
@@ -228,10 +229,10 @@ async function makePrimedManager(opts: {
         (async () => ({ kind: "ok" as const, jsonl: twoTurnJsonl() })),
       replayTimeoutMs: opts.replayTimeoutMs ?? 10_000,
       replayTimeSliceMs: opts.replayTimeSliceMs,
+      spawner: fakeSpawner(() => claudeHandle.child),
     },
   );
   const claudeHandle = mockClaudeChild({ stderr: opts.stderr });
-  (manager as any).spawnClaude = () => claudeHandle.child;
   await captureIpc(async () => {
     await manager.initialize();
   });
@@ -323,23 +324,23 @@ describe("runReplay — symlink canonicalization", () => {
             observedPaths.push(path);
             return { kind: "missing", message: "fixture" };
           },
+          spawner: fakeSpawner(() => ({
+            stdout: new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.close();
+              },
+            }),
+            stderr: new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.close();
+              },
+            }),
+            stdin: { write: () => {}, end: () => {}, flush: () => {} },
+            exited: new Promise<number>(() => {}),
+            kill: () => {},
+          })),
         },
       );
-      (manager as any).spawnClaude = () => ({
-        stdout: new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.close();
-          },
-        }),
-        stderr: new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.close();
-          },
-        }),
-        stdin: { write: () => {}, end: () => {}, flush: () => {} },
-        exited: new Promise<number>(() => {}),
-        kill: () => {},
-      });
 
       // Capture stdout to absorb writeLine output during initialize +
       // runReplay; we don't assert on it here.
@@ -387,23 +388,23 @@ describe("runReplay — symlink canonicalization", () => {
           observed.push(path);
           return { kind: "missing", message: "fixture" };
         },
+        spawner: fakeSpawner(() => ({
+          stdout: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          stderr: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          }),
+          stdin: { write: () => {}, end: () => {}, flush: () => {} },
+          exited: new Promise<number>(() => {}),
+          kill: () => {},
+        })),
       },
     );
-    (manager as any).spawnClaude = () => ({
-      stdout: new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.close();
-        },
-      }),
-      stderr: new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.close();
-        },
-      }),
-      stdin: { write: () => {}, end: () => {}, flush: () => {} },
-      exited: new Promise<number>(() => {}),
-      kill: () => {},
-    });
     const originalWrite = Bun.write;
     (Bun as any).write = () => Promise.resolve(0);
     try {
@@ -486,9 +487,9 @@ describe("runReplay — happy path", () => {
         seen.push(path);
         return { kind: "ok", jsonl: twoTurnJsonl() };
       },
+      spawner: fakeSpawner(() => handle.child),
     });
     const handle = mockClaudeChild();
-    (manager as any).spawnClaude = () => handle.child;
     await captureIpc(async () => {
       await manager.initialize();
       await manager.runReplay();
@@ -514,10 +515,10 @@ describe("runReplay — happy path", () => {
           seen.push(path);
           return { kind: "ok", jsonl: twoTurnJsonl() };
         },
+        spawner: fakeSpawner(() => handle.child),
       },
     );
     const handle = mockClaudeChild();
-    (manager as any).spawnClaude = () => handle.child;
     await captureIpc(async () => {
       await manager.initialize();
       await manager.runReplay();
@@ -551,9 +552,9 @@ describe("runReplay — non-resume mode (post-Step-5 close-out fix)", () => {
         jsonlReaderCalls += 1;
         return { kind: "missing" as const, message: "no JSONL for fresh new session" };
       },
+      spawner: fakeSpawner(() => handle.child),
     });
     const handle = mockClaudeChild();
-    (manager as any).spawnClaude = () => handle.child;
     const { emitted } = await captureIpc(async () => {
       await manager.initialize();
       await manager.runReplay();
@@ -840,7 +841,7 @@ describe("runReplay — claude crash during replay", () => {
       const replayPromise = manager.runReplay();
       await gate.started;
       // Allow the stderr reader a couple of ticks to drain the stub
-      // stream and set claudeStderrClassification before claude
+      // stream and set the stderr classification before claude
       // "exits."
       await new Promise((r) => setTimeout(r, 5));
       claudeHandle.exit(1);
@@ -891,6 +892,7 @@ describe("Step R0d — cold-boot resume order", () => {
           opts?.jsonlReader ??
           (async () => ({ kind: "ok" as const, jsonl: twoTurnJsonl() })),
         replayTimeoutMs: 10_000,
+        spawner: fakeSpawner(() => claudeHandle.child),
       },
     );
     const claudeHandle = mockClaudeChild({ stderr: opts?.stderr });
@@ -899,7 +901,6 @@ describe("Step R0d — cold-boot resume order", () => {
     // the spawn handle is wired up" by holding the synchronous return
     // of `spawnClaude` open. In production, `Bun.spawn` returns
     // synchronously; here we simulate a delay by gating on a Promise.
-    (manager as any).spawnClaude = () => claudeHandle.child;
     return { manager, claudeHandle, sessionId };
   }
 
@@ -1014,7 +1015,7 @@ describe("Step R0d — cold-boot resume order", () => {
       await manager.spawnClaudeAndWatch();
       // Stderr lines have been emitted by the mock above; the
       // stderr reader needs a tick or two to drain them and set
-      // `claudeStderrClassification` before claude exits.
+      // `ClaudeProcess.stderrClassification` before claude exits.
       await new Promise((r) => setTimeout(r, 5));
       claudeHandle.exit(1);
       // Let the watcher's exit branch run.
@@ -1326,7 +1327,7 @@ describe("runReplay — bracket close is exception-proof", () => {
     const { manager } = await makePrimedManager({});
     // `injectPendingRowSynthetics` runs inside the try, immediately after
     // the bracket-open frame is written — the earliest post-open throw site.
-    (manager as any).injectPendingRowSynthetics = () => {
+    (manager as any).replay.injectPendingRowSynthetics = () => {
       throw new Error("synthetic replay failure");
     };
     const { raw } = await captureIpc(async () => {

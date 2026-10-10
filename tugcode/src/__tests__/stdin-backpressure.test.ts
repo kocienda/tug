@@ -13,6 +13,7 @@ import { describe, expect, test } from "bun:test";
 
 import { drainPendingWrites } from "../ipc.ts";
 import { SessionManager } from "../session.ts";
+import { fakeSpawner, spawnedAs } from "./fake-spawner.ts";
 import type { OutboundMessage, UserMessage } from "../types.ts";
 
 /** The write bound every test below narrows to. */
@@ -103,18 +104,18 @@ function makeManager(child: ReturnType<typeof mockClaudeChild>["child"]) {
   const projectDir = `/tmp/stdin-backpressure-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+  const spawns: Array<{ id: string | null; mode: string }> = [];
   const manager = new SessionManager(projectDir, sessionId, "resume", undefined, {
     claudeHome: ClaudeHome.at("/tmp/stdin-backpressure-fixtures"),
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
+    spawner: fakeSpawner((args) => {
+      spawns.push(spawnedAs(args));
+      return mockClaudeChild(() => 0).child;
+    }),
   });
   (manager as any).stdinWriteTimeoutMs = TEST_TIMEOUT_MS;
   (manager as any).claudeReadyPromise = Promise.resolve();
   (manager as any).claudeProcess = child;
-  const spawns: Array<{ id: string | null; mode: string }> = [];
-  (manager as any).spawnClaude = (id: string | null, mode: string) => {
-    spawns.push({ id, mode });
-    return mockClaudeChild(() => 0).child;
-  };
   return { manager, spawns };
 }
 

@@ -16,6 +16,7 @@
 import { describe, test, expect } from "bun:test";
 import { ActiveTurn, SessionManager } from "../session.ts";
 import type { JsonlReadResult } from "../session.ts";
+import { fakeSpawner, spawnedAs } from "./fake-spawner.ts";
 import { respondingProcess } from "./responding-process.ts";
 
 async function captureIpcOutput(fn: () => void | Promise<void>): Promise<any[]> {
@@ -83,7 +84,7 @@ function retractManager(jsonl: string | null) {
   const writes: { path: string; content: string }[] = [];
   const spawns: { id: string | null; mode: string }[] = [];
   let killCalls = 0;
-  const manager = new SessionManager(
+  const manager: SessionManager = new SessionManager(
     "/tmp/tugcode-retract-" + Date.now() + "-" + Math.floor(performance.now()),
     crypto.randomUUID(),
     "resume",
@@ -97,13 +98,13 @@ function retractManager(jsonl: string | null) {
         writes.push({ path, content });
       },
       sessionsDbPath: null,
+      spawner: fakeSpawner((args) => {
+        spawns.push(spawnedAs(args));
+        return respondingProcess(manager);
+      }),
     },
   );
   (manager as any).claudeProcess = { stdin: { write: () => {}, flush: () => {} } };
-  (manager as any).spawnClaude = (id: string | null, mode: string) => {
-    spawns.push({ id, mode });
-    return respondingProcess(manager);
-  };
   (manager as any).startStdoutDrain = () => {};
   (manager as any).killAndCleanup = async () => {
     killCalls++;
