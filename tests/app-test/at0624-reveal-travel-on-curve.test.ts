@@ -72,6 +72,8 @@
  * this gesture, and a bar that can only be argued about after it goes red is
  * worth less than one standing before it does.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
+ * @covers tugdeck/src/cascade.ts
  * @covers tugdeck/src/lib/open-file-in-card.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/lib/settle-frame-probe.ts

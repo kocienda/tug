@@ -24,6 +24,23 @@ import {
   type DeckImposition,
 } from "./lib/layout-imposer";
 
+/**
+ * One space as the manager holds it ([P03]).
+ *
+ * The in-memory twin of `SpaceState`, with one difference that is the whole
+ * design: `deck` is `null` for the ACTIVE space, whose live deck is
+ * `DeckManager.deckState`. Holding the active deck in two places is the bug
+ * this shape exists to make impossible — every mutator writes `deckState`, and
+ * the record it belongs to carries no stale copy to disagree with it.
+ */
+export interface SpaceRecord {
+  id: string;
+  name: string;
+  deck: DeckState | null;
+  focusedCardId?: string;
+  theme?: string;
+}
+
 /** The user-facing name a migrated pre-v5 deck comes back under ([B09]). */
 export const MAIN_SPACE_NAME = "Main";
 

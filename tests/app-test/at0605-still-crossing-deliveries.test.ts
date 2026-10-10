@@ -73,6 +73,7 @@
  * overflows its scroller several times over, which is all the streamed turns
  * ever stood in for.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css

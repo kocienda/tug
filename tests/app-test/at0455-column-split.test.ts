@@ -39,6 +39,7 @@
  * outright and the lint fails on the commit that creates it. The rail twin of
  * every store verb used here is covered from at0401, which does name it.
  *
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx

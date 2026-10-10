@@ -28,6 +28,7 @@
  *      the travelling edge clips a resident animation's figure — a write the
  *      move itself causes, and the reason it exists is to stop work.
  *
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.tsx
  */

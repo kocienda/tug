@@ -53,6 +53,8 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @foreground
+ * @covers tugdeck/src/card-state-cache.ts
+ * @covers tugdeck/src/layout-persistence.ts
  * @covers tugdeck/src/components/tugways/component-state-preservation-registry.ts
  * @covers tugdeck/src/components/tugways/tug-accordion.tsx
  * @covers tugdeck/src/serialization.ts

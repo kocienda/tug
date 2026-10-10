@@ -70,6 +70,7 @@
  * test reaches either side of a breakpoint. Preferences are seeded through
  * tugbank rather than assumed.
  *
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/card-registry.ts

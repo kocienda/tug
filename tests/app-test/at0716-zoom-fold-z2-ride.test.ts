@@ -33,6 +33,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/components/tugways/cards/use-z2-seat-hold.ts

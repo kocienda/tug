@@ -79,6 +79,7 @@
  * and `cards-card.css` join them for leg 7 — the eye is rendered in the one
  * and the column that holds its width is stated in the other.
  *
+ * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/components/chrome/space-layer.ts
  * @covers tugdeck/src/spaces.ts
  * @covers tugdeck/src/components/chrome/space-layer.css

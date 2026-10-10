@@ -24,7 +24,7 @@
  */
 
 import type { DeckState } from "@/layout-tree";
-import { columnIsWall } from "@/deck-manager";
+import { columnIsWall } from "@/fold";
 import { deckColumnsOf, deckFlowStrip } from "@/deck-store-selectors";
 import {
   centerSlot,

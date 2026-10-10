@@ -44,6 +44,7 @@
  * comes from is a unit test's subject. A declaration is a claim about what a
  * test would CATCH first rather than about what it touches.
  *
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
  * @covers tugdeck/src/components/tugways/action-vocabulary.ts
  * @covers tugdeck/src/action-dispatch.ts

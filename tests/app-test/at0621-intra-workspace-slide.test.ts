@@ -92,6 +92,7 @@
  * card's own work under the slide is a frame lost here. The other workspace
  * keeps its plain cards: it is only ever crossed to and back.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/chrome/space-layer.ts
  * @covers tests/app-test/real-transcript-fixture.ts

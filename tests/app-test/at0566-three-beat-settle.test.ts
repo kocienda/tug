@@ -55,6 +55,7 @@
  * beat's curve is cut from. The fold's own reading of a resize beat is
  * at0563's and at0555's and is not restated here ([B05]).
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/imposer-motion.ts

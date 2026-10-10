@@ -18,6 +18,7 @@
  * `tug-pane.tsx` is the hub at its fan-out ceiling, so the pane's half is
  * named by the module its drag and resize thresholds call.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/settle-take.ts
  */

@@ -100,6 +100,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
+ * @covers tugdeck/src/engine-hooks.ts
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/card-state-orchestrator.ts
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx

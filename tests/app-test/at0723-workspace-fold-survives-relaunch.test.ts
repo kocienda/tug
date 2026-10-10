@@ -12,6 +12,7 @@
  * real cue and waits for the write to land on disk; the second asserts the
  * header stands with nothing under it from its first paint, with no gesture.
  *
+ * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/components/cards/cards-store/cards-store.ts
  * @covers tugdeck/src/components/cards/cards-store/reducer.ts
  * @covers tugdeck/src/components/cards/cards-data-source.ts

@@ -47,8 +47,6 @@ import {
 import {
   contentBoxHeight,
   contentBoxWidth,
-  ARRIVAL_PREPARE_MS,
-  FOLD_PREPARE_MS,
   adoptFoldCrossing,
   adoptStillCrossing,
   announceStillCrossingSettled,
@@ -69,18 +67,15 @@ import {
 } from "@/deck-trace";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import {
-  bullseyePaneIdOf,
   deckColumnsOf,
-  placeAllocationTerm,
   type PlaceRuns,
-  sidebarRailsOf,
 } from "@/deck-store-selectors";
 import type { DeckState, TugPaneState } from "@/layout-tree";
 import {
   predictHeightCrossings,
   type HeightArrangement,
 } from "@/lib/height-crossing-prediction";
-import { standingDeck } from "@/lib/departing";
+import { BEAT_RECIPE, arrangementSignature, armPath, holdCapMs, launchedBeats, planSettleSchedule, readArmChange } from "./settle-plan";
 import {
   SETTLE_TAKE_EVENT,
   SETTLE_TAKE_FLOW_EVENT,
@@ -97,7 +92,6 @@ import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
   MAX_FLIP_SCALE_DISTORTION,
-  BEAT_ORDER,
   beatLaunchVelocity,
   flipDelta,
   planSettleBeats,
@@ -117,13 +111,11 @@ import {
   dispatchImposerSettleEnd,
 } from "@/lib/settle-notice";
 import {
-  motionDurationMs,
   motionForwardVelocityLimit,
   motionKeyframes,
   motionLaunchVelocity,
   velocityAt,
   type MotionCurve,
-  type MotionRecipe,
 } from "@/lib/imposer-motion";
 import {
   dropPendingFlash,
@@ -146,7 +138,6 @@ import {
   IMPOSITION_SETTLE_MS,
   readSettleMs,
   PANE_ENTER_RISE_PX,
-  impositionLayout,
   type SidebarSide,
 } from "@/lib/layout-imposer";
 
@@ -186,216 +177,6 @@ function railTravelPx(rect: DOMRect, side: SidebarSide, canvas: DOMRect): number
   return side === "left"
     ? -(rect.right - canvas.left)
     : canvas.right - rect.left;
-}
-
-/**
- * The arrangement signature, in its two readings.
- *
- * `full` is the whole of it — every term, the one the settle arms on. `size`
- * is the same string with the two terms a PURE SLIDE moves taken out: the flow
- * offset, and each pane's slot. Two commits with the same `size` put every
- * frame at the same WIDTH and in the same tier, however far they have
- * travelled across the band, which is the exact predicate for "is this a
- * resize?" ([P07], [B06]).
- *
- * It cannot go stale by construction: `size` is built from the same terms
- * `full` is, in the same pass, so a width-bearing term added to one is added
- * to the other by the act of adding it.
- */
-interface ArrangementSignature {
-  /** Every term. What the settle arms on. */
-  readonly full: string;
-  /** Every term except the flow offset and each pane's slot. */
-  readonly size: string;
-  /** Every term except the flow offset. Equal across a pure flow slide. */
-  readonly sansOffset: string;
-}
-
-/**
- * Everything the imposer reads, as one string — and that string again with the
- * two purely positional terms dropped ({@link ArrangementSignature}). The
- * imposition record, which pane holds which slot, and the pinned rail's width.
- * Two decks with the same `full` signature put every derived frame in the same
- * place, so a change to it is exactly the set of moments the deck should cross
- * to a new arrangement rather than cut.
- *
- * The pane terms are sorted, so the signature is blind to the panes array's
- * ORDER — which is z-order, and z-order moves nothing: `imposeRect` reads a
- * pane's slot, its width, and the span, never its place in the array. Order
- * sensitivity here would make every pane activation — a click on a title bar —
- * arm a settle window with no frame to move in it, holding session
- * notifications for the length of a motion that never happens.
- *
- * The rail widths are terms because the space allocator can change them with
- * the arrangement otherwise untouched — a settled window resize re-solves them
- * and nothing else — and every imposed frame moves when they do. Without the
- * terms that motion would cut. They change on a rail edge drag too, which arms
- * a window whose tweens are all no-ops: the drag wrote the width live, so each
- * frame's first and last rects are the same one.
- *
- * A pane's own WIDTH is a term for the same reason: `imposeRect` reads it, so a
- * width preset — the deck-wide one from the Layouts section, or one card's from
- * its title bar — moves every seam in the chain and resizes the panes it lands
- * on. It is the one arrangement input a pointer also writes: a hand-dragged
- * edge changes it too, and arms a window whose tweens are the same no-ops a
- * rail drag's are, for the same reason.
- *
- * A pane's FOLDED flag is a term, and the frame's stored height is still
- * not one. The two facts belong together. A stored height moves only when a
- * pointer is already writing the frame live, so a term for it would arm
- * windows full of no-ops; but folding is an arrangement gesture in every
- * sense that matters here — it re-pins the frame from the open card's tier to
- * the folded one ([P04]), and in a split column it re-allocates every
- * sibling — and the Last pass has always been willing to interpolate a real
- * height delta.
- *
- * Without the term the fold armed nothing except where some OTHER term
- * happened to move: a split column's allocation changes, so a wall folded on
- * the settle's clock, while the same card on a free pane or alone in a stacked
- * slot cut. The free pane looked animated only because `.tug-pane` carries the
- * [D07] window-shade ease, a 100ms snap underneath a 400ms interior collapse;
- * the stacked slot, whose height the imposer writes as geometry with no
- * transition, did not even have that. One gesture drew three different ways
- * depending on where the card happened to be standing.
- *
- * The flag rather than the resolved height, because the flag is what the
- * gesture writes and the height is what the layout derives from it: a term
- * reading the derived value would have to be recomputed here against the size
- * policy, the slot, and the column's allocation — three answers this function
- * does not otherwise need — and would go wrong exactly when one of them
- * changed. The frame's real before-and-after height is measured by the First
- * and Last passes, which is where a height belongs.
- *
- * The rail terms are read through `sidebarRailsOf`, which orders its members by
- * the imposition and by registration — never by the panes array. Until a rail
- * could be split that ordering was z-derived, which made this function's
- * documented z-blindness false of the rail term: activating a rail member
- * reordered `state.panes`, changed the term, and armed a settle window with no
- * frame to move in it. The same fix that keeps a split rail's members from
- * trading places on a click is what finally makes the claim above true here.
- *
- * A side's MODE and its ALLOCATED HEIGHTS are terms because both move frames: a
- * mode flip changes every member's height, and a seam drag changes two. The
- * heights are rounded to the pixel so sub-pixel allocation arithmetic cannot
- * arm a settle nobody can see — and they are the heights themselves rather
- * than the weights behind them, because that is what the frames are pinned at:
- * a rail crossing between sharing its run and stacking a strip moves every
- * member without any weight changing at all. A seam drag's own commit arms a
- * window whose tweens are all no-ops — the drag wrote the properties live, so
- * each frame's first and last rects are the same one — which is the
- * coexistence the rail width terms already have.
- *
- * A side's OFFSET is a term for the reason a column's is: past two members a
- * rail stops dividing and starts scrolling, and a reveal that slides its strip
- * moves every member's `top` while side, width, mode and order all hold still.
- *
- * The bullseye term is the DERIVED id, not the raw field, because that is
- * what the render path places from. Entering and leaving bullseye re-places
- * and re-widths a frame — a one-up placement at comfy on the way in, the
- * pane's own mode and width on the way out — which is exactly the kind of
- * moment the settle exists for. Reading the raw field would miss every
- * focus-shaped exit: clicking another pane ends bullseye through the
- * derivation with the field untouched, and that exit would cut rather than
- * cross. Deriving also keeps activation from arming a pointless window — the
- * term only moves while bullseye is actually on, which is exactly when there
- * is a frame to move.
- */
-function arrangementSignature(
-  state: DeckState,
-  runs: PlaceRuns,
-): ArrangementSignature {
-  // A DEPARTING pane is no term either: it has already left the arrangement
-  // the survivors cross to, and the commit that finally unmounts it at the
-  // land must arm no settle of its own.
-  state = standingDeck(state);
-  const paneTerms = state.panes
-    // A pane still marked ARRIVING is no term of the arrangement, on the same
-    // rule that keeps it out of its column's division ([B08]) and out of the
-    // strip: it is drawn hidden at the seat it will take, so nothing about it
-    // is on screen to cross to. With a term here the HIDDEN commit changed the
-    // signature and armed a settle of its own — a whole arm, with First rects
-    // measured and a beat launched over frames that had nowhere to go — a
-    // commit before the arrival the reader actually watches. Its term appears
-    // when its mark clears, which is the reveal, which is the one settle an
-    // arrival is.
-    .filter((pane) => state.arriving?.[pane.id] !== true)
-    .map(
-      (pane) => ({
-        id: pane.id,
-        slot: pane.slot ?? "",
-        // Everything about the pane that is not its slot: the two terms that
-        // decide how big the frame is drawn.
-        size: `${pane.size.width}:${pane.folded === true ? "m" : ""}`,
-      }),
-    )
-    // By id alone, which is exactly what the string sort here always was —
-    // every term starts with the id and ids are unique, so no term after it
-    // ever reached the comparison.
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const panes = paneTerms.map((pane) => `${pane.id}:${pane.slot}:${pane.size}`);
-  const panesSize = paneTerms.map((pane) => `${pane.id}:${pane.size}`);
-  const bullseye = bullseyePaneIdOf(state) ?? "";
-  const rails = sidebarRailsOf(state, runs)
-    .map(
-      (rail) =>
-        `${rail.side}:${rail.width}:${rail.members
-          .map((m) => m.componentId)
-          .join("+")}:${placeAllocationTerm(rail.allocation)}:${Math.round(
-          state.railOffsets?.[rail.side] ?? 0,
-        )}`,
-    )
-    .join(";");
-  // The layout MODE is a term of its own, and the offset does not cover it.
-  // Toggling fit↔flow moves every pane's `left` while kind, slots, widths,
-  // rails and bullseye all hold still — and at rest the offset is 0 on both
-  // sides of the toggle, so without this term the signature would not move,
-  // no settle would arm, and the mode flip would CUT: the one gesture flow
-  // exists to offer ([P10]).
-  const layout = impositionLayout(state.imposition);
-  // The offset, rounded to the pixel it is written at. Sub-pixel churn is not
-  // an arrangement change, and the property carries the rounded value anyway.
-  const flow = `${layout}:${Math.round(state.flowOffset ?? 0)}`;
-  // The size half takes the mode and leaves the offset. A fit↔flow toggle
-  // re-solves the chain and can land a frame at a different width; a slide
-  // along the band is the gesture this arc exists for and changes no size at
-  // all.
-  const flowSize = layout;
-  // A slot's MODE and its ALLOCATED HEIGHTS are terms for exactly the reasons a
-  // rail's are: a split flip changes every member's height, and a seam drag
-  // changes two. The pane terms above would not cover either — a flip moves no
-  // pane between slots and changes no stored width, so without this the one
-  // gesture the feature exists for would CUT.
-  //
-  // The MEMBER ORDER is a term too, and it is not redundant with the pane
-  // terms: reordering a split column swaps two frames' vertical pins while
-  // every pane keeps its slot and its width, so the sorted pane list is
-  // identical either side of the move.
-  //
-  // And the OFFSET is a term for the reason flow's is: an overflowing column
-  // reveals a member by sliding its strip, which moves every member's `top`
-  // while slot, width and order all hold still. Rounded to the pixel it is
-  // written at, so a reveal that computes no move arms nothing ([P12]).
-  const columns = deckColumnsOf(state, runs.column)
-    .filter((column) => column.mode === "split")
-    .map(
-      (column) =>
-        `${column.slot}:${column.members.join("+")}:${placeAllocationTerm(
-          column.allocation,
-        )}:${Math.round(state.columnOffsets?.[column.slot] ?? 0)}`,
-    )
-    .join(";");
-  const kind = state.imposition.kind ?? "";
-  return {
-    full: `${kind}|${flow}|${bullseye}|${rails}|${columns}|${panes.join(",")}`,
-    // The rail and column terms stay in whole. Each carries an offset of its
-    // own, and a strip that slides moves no frame's size — but each also
-    // carries a mode and an allocation that move every member's HEIGHT, and
-    // the terms are one string apiece. Keeping them is the conservative side
-    // of the gate: an episode raised where none was needed costs what today
-    // costs, where one skipped costs the reader their place.
-    size: `${kind}|${flowSize}|${bullseye}|${rails}|${columns}|${panesSize.join(",")}`,
-    sansOffset: `${kind}|${layout}|${bullseye}|${rails}|${columns}|${panes.join(",")}`,
-  };
 }
 
 /**
@@ -542,30 +323,6 @@ function landDepartingTarget(target: DepartingTarget): void {
   }
   for (const restore of target.restores) restore();
 }
-
-/**
- * The recipe each beat of a settle plays on. The move beat IS the crossing —
- * the settle the whole choreography is measured against — and the two resize
- * beats have recipes of their own in `lib/imposer-motion.ts`.
- *
- * The two outer beats are fades and share `divide-join`: a frame appearing in
- * a place or leaving one is carried by opacity rather than by travel, so what
- * it needs from a recipe is a window rather than a spring. A column mode flip
- * is not one of them — it is a cover, not a fade ([B02] of
- * `briefs/column-flip-cover-brief.md`), so its survivor rides the fused beat
- * and its other members hold still.
- */
-const BEAT_RECIPE: Record<BeatKind, MotionRecipe> = {
-  depart: "divide-join",
-  // The fused beat IS the crossing, for the move beat's reason: it is the one
-  // motion the settle is measured against, and a settle that carries an
-  // arrival or a departure runs its whole geometry on that one clock ([P08]).
-  room: "crossing",
-  shrink: "shrink",
-  move: "crossing",
-  grow: "grow",
-  arrive: "divide-join",
-};
 
 /** Where a settle's beats write their rows: the deck's trace, beside the
  *  settle's own frame record. */
@@ -1814,7 +1571,15 @@ export function useSettleEngine({
         rail: store.getRailRunHeight(),
         column: store.getColumnRunHeight(),
       });
-      if (next.full === arrangementRef.current) {
+      const change = readArmChange(
+        {
+          full: arrangementRef.current,
+          size: sizeSignatureRef.current,
+          sansOffset: sansOffsetRef.current,
+        },
+        next,
+      );
+      if (change.unchanged) {
         // Nothing the imposer reads moved. Recorded rather than passed over,
         // because "the subscriber ran and found nothing" and "the subscriber
         // never ran" are the same silence otherwise, and only one of them is
@@ -1836,10 +1601,9 @@ export function useSettleEngine({
       // arrangements old. `[B06]`: the anchor discovery of `[F06]` belongs to
       // the moment an episode actually needs to re-anchor, which is a resize
       // and not a translate.
-      const sizeChanged = next.size !== sizeSignatureRef.current;
+      const { sizeChanged, flowOnly } = change;
       sizeSignatureRef.current = next.size;
       // Is this commit a pure flow slide, and by how much?
-      const flowOnly = next.sansOffset === sansOffsetRef.current && !sizeChanged;
       sansOffsetRef.current = next.sansOffset;
       const prevFlowOffset = flowOffsetRef.current;
       const nextFlowOffset = Math.round(state.flowOffset ?? 0);
@@ -1931,62 +1695,26 @@ export function useSettleEngine({
       // eye actually is. Cancelling comes after the measurement, and is safe at
       // any moment because the tween's last keyframe is no transform at all:
       // there is no wrong pose to snap to.
-      // Under reduced motion there will be no tween: the layout snap IS the
-      // settle. Measuring would force a layout for rects nobody reads, and
-      // holding would defer session notifications against a commit-during-
-      // animation cost that cannot arise without an animation — so both are
-      // skipped, while cancelling any straggler tween stays unconditional.
-      //
-      // A switch epoch is reduced motion for the length of one switch, and
-      // that is the whole of [P02]'s enforcement. It reaches the same branch
-      // rather than the cut's because the two say different things: a cut says
-      // the frames have not moved, and this says they have moved and must not
-      // be seen to. So the episodes are still raised, the imposer's settle-end
-      // notice still goes out, and only the tweens are refused.
-      const motion = isTugMotionEnabled() && !switching;
-      // Launch the move from here only for a strip a HAND let go of: a
-      // trackpad lift that handed its velocity over with the commit, when
-      // nothing else is in flight and the whole change is the strip's offset.
-      // The beat starts inside the gesture's task, from the drawn offset at
-      // the hand's speed, before React renders, and the Last pass adopts it
-      // rather than planning one. Measuring is skipped for a pre-launched
-      // settle: the Last pass finds no First rects and leaves the marks and
-      // the hold to this beat's own landing.
-      //
-      // Every other slide — a click, a key, a wheel that ended on its quiet —
-      // is set up and then goes, like every other gesture ([B06] of
-      // set-up-and-go): it measures here, React commits the new offset, and
-      // the Last pass launches the move after that commit, so the commit is
-      // paid in the set-up and never lands under the moving strip. The lift is
-      // the one exception, and it is a different gesture rather than a slower
-      // click: the hand was already moving the strip, the curve continues
-      // that motion at the hand's speed (`flow-swipe-one-move` [B02]), and a
-      // set-up frame between the two would stand the strip still between the
-      // fingers leaving and the curve taking over.
-      const prelaunch =
-        motion &&
-        flowOnly &&
-        flowHandVelocity !== null &&
-        flowOrigin !== nextFlowOffset &&
-        settleTweensRef.current.size === 0 &&
-        // Nothing MEASURED and unrendered ([B02]). A First rect standing here
-        // is an earlier arm in this same task whose Last pass has not run —
-        // two commits in one task produce two synchronous arms and, under the
-        // deferral, ONE coalesced React commit. Without this clause the
-        // second arm passes on "no running tweens" (there are none yet: the
-        // Last pass has not launched them), takes the prelaunch path, and
-        // `firstRects.clear()` throws away the first arm's measurement — so
-        // the coalesced Last pass finds nothing to plan and every frame the
-        // first commit moved CUTS. `hideSidebarRail` and the flow retune
-        // after a rail retune are the shapes that do it ([F03]).
-        //
-        // A prelaunch is a beat planned from the store delta alone, and it is
-        // only valid when no beat is waiting on the DOM. That is the
-        // definition the Beat primitive will need too.
-        settleFirstRectsRef.current.size === 0 &&
-        pendingArrivalsRef.current.size === 0;
+      // Which path this arm takes ({@link armPath} carries the clauses and
+      // their reasons): reduced motion and a switch epoch animate nothing, a
+      // strip a hand let go of is prelaunched from here, inside the gesture's
+      // task, and everything else measures here and launches from the Last
+      // pass after React commits. Measuring is skipped where nothing will
+      // tween — it would force a layout for rects nobody reads — and for a
+      // prelaunched settle, whose Last pass finds no First rects and leaves
+      // the marks and the hold to this beat's own landing.
+      const { motion, prelaunch, measure } = armPath({
+        motionEnabled: isTugMotionEnabled(),
+        switching,
+        flowOnly,
+        handVelocity: flowHandVelocity,
+        flowOrigin,
+        nextFlowOffset,
+        tweensRunning: settleTweensRef.current.size,
+        firstRectsPending: settleFirstRectsRef.current.size,
+        arrivalsPending: pendingArrivalsRef.current.size,
+      });
       if (!prelaunch) prelaunchRef.current = null;
-      const measure = motion && !prelaunch;
       const firstRects = settleFirstRectsRef.current;
       // Under `measure` only, for the clause above's reason: a prelaunch must
       // never discard a measurement somebody is still waiting on. It cannot
@@ -2470,7 +2198,7 @@ export function useSettleEngine({
         gestureScope.open("prelaunch");
         // And past the land: the slide's beats launch here, so this is its
         // motion's first frame ([B05]).
-        closeMotionGate(Math.max(2 * settleMs * getTugTiming(), 1000));
+        closeMotionGate(holdCapMs(settleMs, getTugTiming()));
         // The strip's new place, written now on every reader so every pane's
         // `left` is at its destination in the frame the tween's inverse holds
         // it at its origin. The layer's own effect writes the same value after
@@ -3790,57 +3518,24 @@ export function useSettleEngine({
       // fire mid-choreography and snap every frame to its end. The store
       // hold's cap is re-sized against the same total, for the same reason:
       // a cap that fired mid-choreography would publish into a beat.
-      //
-      // A kind counts when some frame has a beat of it OR — for the outer two,
-      // which no frame plans — when anything is arriving or departing. Leaving
-      // them out of the sum would size the window to the middle three alone and
-      // fire the sweep and the hold's cap mid-choreography.
-      const launched = BEAT_ORDER.filter((kind) => {
-        if (kind === "depart") return departures.length > 0;
-        if (kind === "arrive") return arrivals.length > 0;
-        return choreography.some((c) => c.beats.some((b) => b.kind === kind));
-      });
-      // A FOLD'S PREPARE BEAT: one move at a time. A fold's commit changes the
-      // card's interior — on an unfold the transcript slot comes back from
-      // `display: none` — and what answers that change arrives a frame later:
-      // observers' rAF-coalesced writes, the after-paint React notify. Left to
-      // land under the tween they held the main thread 30–47ms right after
-      // the first moving frame, where the spring covers most of its travel, so
-      // the edge crossed half the card in a hole. So a settle that opens a
-      // fold crossing holds every beat off by this much: the frame stands at
-      // First for the frame those answers land in — nothing visible changes,
-      // the held interior is clipped by a frame that has not moved — and the
-      // edge starts on the frame after. One and a half display frames rather
-      // than two, so the second frame is always inside it and the third never
-      // is. A crossing this settle merely adopted is already travelling and
-      // pays nothing.
-      //
-      // An ARRIVAL takes a prepare beat for the same reason, one frame
-      // longer: the revealed card is laid out for the first time in the frame
-      // after its commit, and the observers its passive effects attach after
-      // that paint deliver in the frame after that ([B05] of
-      // set-up-and-go-fixups). Its gate closes after both, so what lands in
-      // them is the set-up's.
-      //
-      // So does a frame whose WIDTH settles at its final size: its interior
-      // re-flows at the new width in the set-up, and the observers inside it
-      // answer that in the same two frames an arrival's do.
-      const lateClose = arrivals.length > 0 || widthSettles;
-      const prepareMs =
-        lateClose
-          ? ARRIVAL_PREPARE_MS
-          : opensFoldCrossing
-            ? FOLD_PREPARE_MS
-            : 0;
-      const totalMs =
-        prepareMs +
-        launched.reduce(
-          (sum, kind) => sum + motionDurationMs(BEAT_RECIPE[kind], duration),
-          0,
-        );
+      const launched = launchedBeats(
+        choreography.map((c) => c.beats),
+        arrivals.length,
+        departures.length,
+      );
+      // The prepare beat, each beat's delay, and the total the sweep and the
+      // hold are sized against. `planSettleSchedule` says why a fold, an
+      // arrival and a settling width each hold the beats off.
+      const { lateClose, beats: schedule, totalMs } =
+        planSettleSchedule({
+          launched,
+          arrivals: arrivals.length,
+          widthSettles,
+          opensFoldCrossing,
+          durationMs: duration,
+        });
       if (totalMs > crossing.durationMs) {
-        const totalWindowMs = totalMs * getTugTiming();
-        settleSweepRef.current?.(Math.max(2 * totalWindowMs, 1000));
+        settleSweepRef.current?.(holdCapMs(totalMs, getTugTiming()));
       }
       // The land, pre-paid ([B04]): each settled interior pays its pin, its
       // restore, its extent rebase and its re-window now, inside the set-up
@@ -3852,7 +3547,7 @@ export function useSettleEngine({
       // set-up commit's layout effect, so that commit is in, and nothing
       // after it may tell React before the land. The cap is the hold's, a
       // wedge guard behind the release that normally opens it.
-      const gateCapMs = Math.max(2 * totalMs * getTugTiming(), 1000);
+      const gateCapMs = holdCapMs(totalMs, getTugTiming());
       if (lateClose) closeMotionGateAfterPaint(gateCapMs);
       else closeMotionGate(gateCapMs);
       // Every launched beat's effect is created in THIS frame, each held off
@@ -4361,15 +4056,9 @@ export function useSettleEngine({
       // frames and re-plans them, which is exactly what it already did for a
       // beat that was in flight, and now does for beats that are merely
       // delayed.
-      let beatDelayMs = prepareMs;
       const beatRuns: Array<Promise<void>> = [];
       if (settleGenerationRef.current === generation) {
-        for (const kind of BEAT_ORDER) {
-          beatRuns.push(runBeat(kind, beatDelayMs));
-          if (launched.includes(kind)) {
-            beatDelayMs += motionDurationMs(BEAT_RECIPE[kind], duration);
-          }
-        }
+        for (const beat of schedule) beatRuns.push(runBeat(beat.kind, beat.delayMs));
       }
       void Promise.all(beatRuns)
         .then(() => {

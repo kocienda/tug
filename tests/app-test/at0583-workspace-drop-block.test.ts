@@ -32,6 +32,7 @@
  * block lights over the row you are dragging past and the drag silently does
  * nothing. Leg 2 fails exactly that way without the fix.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/tugways/block-reorder.ts
  * @covers tugdeck/src/components/cards/cards-card.tsx
  */

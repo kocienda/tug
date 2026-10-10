@@ -70,6 +70,7 @@
  * declaration is the surface the gesture is driven through, and the fix this
  * test earns will name whatever it actually lands on.
  *
+ * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/components/cards/cards-card.tsx
  */
 

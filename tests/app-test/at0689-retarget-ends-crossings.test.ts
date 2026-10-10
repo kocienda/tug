@@ -37,6 +37,8 @@
  * stands once it has, because those two exits end what the settle holds open
  * with nothing behind them to end it later.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/chrome/settle-crossings.ts
  * @covers tugdeck/src/lib/fold-crossing.ts

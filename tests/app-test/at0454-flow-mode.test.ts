@@ -56,6 +56,7 @@
  *     rides the close's own commit rather than the flip beside it, so the
  *     slot emptying and the deck settling onto the survivor are one motion.
  *
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/flow-offset.ts

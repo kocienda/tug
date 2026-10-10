@@ -61,6 +61,8 @@
  * holds the interior still against the imposer's mark, and the module that owns
  * the mark every claim here is read over.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/styles/chrome.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css

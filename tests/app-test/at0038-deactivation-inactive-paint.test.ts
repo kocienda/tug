@@ -51,6 +51,7 @@
  *
  * @foreground
  *
+ * @covers tugdeck/src/engine-hooks.ts
  * @covers tugdeck/src/components/tugways/selection-guard.ts
  * @covers tugdeck/src/card-state-orchestrator.ts
  * @covers tugdeck/src/focus-transfer.ts

@@ -18,6 +18,8 @@
  *   - `setCardWidths` — the card-addressed width verb, same inline shape.
  *   - `assignCardsToSlots` — writes `slot` on its own path. `assignCardToSlot`
  *     is a one-element batch through it and therefore has no clear of its own.
+ *     It and `movePaneToSlot` live in `layout-imposition.ts`, where the clear
+ *     is `deps.clearBullseyeFor`, which the manager wires to the one helper.
  *
  * WHAT THIS TEST CATCHES: a clear being dropped from one of the four, and
  * a fifth call site appearing without this file being updated to say why.
@@ -40,6 +42,24 @@ const SRC = readFileSync(
   join(import.meta.dir, "..", "deck-manager.ts"),
   "utf8",
 );
+
+/** The slot-assignment gestures, lifted out of the manager. */
+const IMPOSITION_SRC = readFileSync(
+  join(import.meta.dir, "..", "layout-imposition.ts"),
+  "utf8",
+);
+
+/** The fold gesture, lifted out of the manager. */
+const FOLD_SRC = readFileSync(join(import.meta.dir, "..", "fold.ts"), "utf8");
+
+/** The body of a top-level exported function in `layout-imposition.ts`. */
+function functionBodyOf(name: string, src: string = IMPOSITION_SRC): string {
+  const start = src.indexOf(`\nexport function ${name}(`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = src.indexOf("\n}\n", start);
+  expect(end).toBeGreaterThan(start);
+  return src.slice(start, end);
+}
 
 /**
  * The body of a two-space-indented class method, from its signature to the
@@ -81,8 +101,15 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
   });
 
   test("assignCardsToSlots clears — it writes slot on its own path", () => {
-    const body = stripComments(bodyOf("  assignCardsToSlots("));
-    expect(body).toContain("this._clearBullseyeFor(");
+    const body = stripComments(functionBodyOf("assignCardsToSlots"));
+    expect(body).toContain("deps.clearBullseyeFor(");
+  });
+
+  test("the imposition gestures' clear is the one helper", () => {
+    // `deps.clearBullseyeFor` honors the rule only if it IS `_clearBullseyeFor`.
+    expect(stripComments(SRC)).toMatch(
+      /clearBullseyeFor:\s*\(paneId\)\s*=>\s*this\._clearBullseyeFor\(paneId\)/,
+    );
   });
 
   test("assignCardToSlot delegates, so it needs no clear of its own", () => {
@@ -96,8 +123,8 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     // card-addressed, so it does not reach `assignCardsToSlots`' clear and needs
     // its own: a pane dragged out of bullseye into a slot is being re-placed,
     // and a posture that survived the placing would be a resting lie.
-    const body = stripComments(bodyOf("  movePaneToSlot("));
-    expect(body).toContain("this._clearBullseyeFor(");
+    const body = stripComments(functionBodyOf("movePaneToSlot"));
+    expect(body).toContain("deps.clearBullseyeFor(");
   });
 
   test("setCardWidths clears — it bypasses movePane, as setContentWidth does", () => {
@@ -111,14 +138,23 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     // the same shape `setCardWidths` takes, and it owes the same clear. A
     // bullseye that survived a fold would be a posture claimed for a card whose
     // transcript is no longer on screen.
-    const body = stripComments(bodyOf("  setPaneFolded("));
-    expect(body).toContain("this._clearBullseyeFor(");
+    const body = stripComments(functionBodyOf("setPaneFolded", FOLD_SRC));
+    expect(body).toContain("deps.clearBullseyeFor(");
+    // ...and that `deps.clearBullseyeFor` is the imposition deps' one helper:
+    // the manager runs the module over `foldDeps`, which spreads them and
+    // overrides no clear of its own.
+    expect(stripComments(bodyOf("  setPaneFolded("))).toContain("fold.setPaneFolded(this.foldDeps");
+    const depsStart = SRC.indexOf("private readonly foldDeps: FoldDeps = {");
+    expect(depsStart).toBeGreaterThan(-1);
+    const deps = stripComments(SRC.slice(depsStart, SRC.indexOf("\n  };", depsStart)));
+    expect(deps).toMatch(/=\s*\{\s*\.\.\.this\.impositionDeps,/);
+    expect(deps).not.toContain("clearBullseyeFor");
   });
 
   test("setCardFolded does NOT clear — it delegates to setPaneFolded", () => {
-    const body = stripComments(bodyOf("  setCardFolded("));
-    expect(body).not.toContain("_clearBullseyeFor");
-    expect(body).toContain("this.setPaneFolded(");
+    const body = stripComments(functionBodyOf("setCardFolded", FOLD_SRC));
+    expect(body).not.toContain("clearBullseyeFor");
+    expect(body).toContain("setPaneFolded(deps,");
   });
 
   test("_setPaneWidth does NOT clear — it reaches movePane, and one rule is enough", () => {
@@ -130,8 +166,19 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
   test("there are exactly six honoring call sites", () => {
     // Pinned so a seventh site cannot arrive without this file being updated
     // to say which path it is and why it needs its own clear.
-    const calls = stripComments(SRC).match(/this\._clearBullseyeFor\(/g) ?? [];
-    expect(calls.length).toBe(6);
+    // Three in the manager, two in `layout-imposition.ts`, one in `fold.ts` —
+    // the manager's `deps` wiring is the forwarder, not a site, and is
+    // subtracted.
+    const managerCalls = stripComments(SRC).match(/this\._clearBullseyeFor\(/g) ?? [];
+    const forwarders =
+      stripComments(SRC).match(/=>\s*this\._clearBullseyeFor\(paneId\)/g) ?? [];
+    const moduleCalls =
+      stripComments(IMPOSITION_SRC).match(/deps\.clearBullseyeFor\(/g) ?? [];
+    const foldCalls = stripComments(FOLD_SRC).match(/deps\.clearBullseyeFor\(/g) ?? [];
+    expect(forwarders.length).toBe(1);
+    expect(
+      managerCalls.length - forwarders.length + moduleCalls.length + foldCalls.length,
+    ).toBe(6);
   });
 });
 

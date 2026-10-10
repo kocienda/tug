@@ -36,6 +36,7 @@
  * never run and the case would pass without asking its question. A folded
  * card's Z2 row is on screen, so there is a real target to aim at.
  *
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/tugways/tug-placard.tsx
  * @covers tugdeck/src/components/tugways/pane-raise.ts
  * @covers tugdeck/src/components/tugways/tug-status-cell.tsx

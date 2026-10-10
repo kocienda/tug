@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   columnOffsetSignal,
+  gaugeSubscriberCount,
   gaugeListenerCount,
   publishColumnOffset,
   publishFlowOffset,
@@ -114,16 +115,20 @@ describe("registerGaugeListener", () => {
   });
 
   test("a signal with listeners and no elements still fires", () => {
-    // `flow-offset` has no registered element in this process — nothing here
-    // can create one — so this is exactly the case the fast path would have
-    // swallowed had it counted elements only.
+    // `flow-offset` has no registered element — a deck mounted by an earlier
+    // file in this process unregisters its own on unmount — so this is exactly
+    // the case the fast path would have swallowed had it counted elements only.
+    expect(gaugeSubscriberCount("flow-offset")).toBe(0);
     const log = heard();
     const off = registerGaugeListener("flow-offset", log.fn);
+    // A signal an earlier file published primes the listener with its standing
+    // value; only the firing the publish below causes is this test's.
+    const primed = log.calls.length;
 
     publishFlowOffset(0.125);
 
-    expect(log.calls).toHaveLength(1);
-    expect(log.calls[0]?.get("--gauge-flow-offset")).toBe("0.1250");
+    expect(log.calls).toHaveLength(primed + 1);
+    expect(log.calls[primed]?.get("--gauge-flow-offset")).toBe("0.1250");
     off();
     publishFlowOffset(null);
   });

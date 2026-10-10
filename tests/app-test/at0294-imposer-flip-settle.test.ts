@@ -83,6 +83,7 @@
  * `deck-manager.ts` is deliberately NOT a `@covers` line here: it is at its
  * fan-out budget, and the width applier's own contract is `at0357`'s.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/lib/pane-flip.ts

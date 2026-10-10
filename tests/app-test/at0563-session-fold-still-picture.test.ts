@@ -70,6 +70,8 @@
  * may be paid down but never refinanced — the same reason at0555 leaves it
  * out. A break in it surfaces here, through the mark.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  * @covers tugdeck/src/components/chrome/settle-engine.ts

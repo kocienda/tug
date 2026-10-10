@@ -106,6 +106,8 @@
  * edit that changes when a card is said to have activated selects this file
  * through it.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/card-lifecycle.ts

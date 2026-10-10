@@ -28,6 +28,7 @@
  * arrives in a background app-test like ⌘1..9 do, rather than needing the
  * foreground the way a menu key equivalent would.
  *
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
  * @covers tugdeck/src/components/tugways/action-vocabulary.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx

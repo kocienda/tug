@@ -61,6 +61,7 @@
  * asserted here against the real pointer and the real key, because both failed
  * in exactly the layer a unit test does not have.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/cards/cards-data-source.ts
  * @covers tugdeck/src/components/cards/cards-store/cards-store.ts
  * @covers tugdeck/src/components/cards/cards-space-header.tsx

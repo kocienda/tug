@@ -60,6 +60,7 @@
  * the corpus, and the ratchet lets recorded debt be paid down rather than
  * refinanced.
  *
+ * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/spaces.ts
  * @covers tugdeck/src/lib/card-services-store.ts
  * @covers tugdeck/src/components/cards/cards-card.tsx

@@ -51,6 +51,7 @@
  * reason at0455 states: that path is already at the selection budget's ceiling,
  * and naming it here would make an edit to the store a run the budget refuses.
  *
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */

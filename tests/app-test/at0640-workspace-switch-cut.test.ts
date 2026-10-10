@@ -89,6 +89,7 @@
  * the sample count is asserted so a run that did not sample cannot read as a
  * run that found nothing.
  *
+ * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/space-layer.ts
  * @covers tugdeck/src/components/chrome/space-layer.css

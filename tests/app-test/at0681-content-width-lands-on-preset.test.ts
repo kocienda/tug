@@ -16,6 +16,7 @@
  * `--tug-imposer-inset-*` values rather than typed here, so a deck whose band
  * is narrower than `wide` still asks the honest question.
  *
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  */

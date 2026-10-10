@@ -34,6 +34,7 @@
  *   hold goes on, and the browser clamps its scroll ([B04]: the held member
  *   opens its still crossing at arm).
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx

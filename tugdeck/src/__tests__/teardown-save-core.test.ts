@@ -24,12 +24,22 @@ const DECK_MANAGER_SRC = readFileSync(
   "utf8",
 );
 
+/** The layout save timer lives here, behind `LayoutPersistence`. */
+const LAYOUT_PERSISTENCE_SRC = readFileSync(
+  resolve(import.meta.dir, "..", "layout-persistence.ts"),
+  "utf8",
+);
+
+/** The core's sequence lives here; the manager wires it through `teardownDeps`. */
+const TEARDOWN_SRC = readFileSync(resolve(import.meta.dir, "..", "teardown.ts"), "utf8");
+
 /**
- * Return the body of a class member declared at two-space indentation,
- * from its opening brace to the matching close.
+ * Return the body of a member declared at `indent` (two spaces: a class
+ * member; none: a top-level function), from its opening brace to the
+ * matching close.
  */
-function memberBody(src: string, declaration: string): string {
-  const start = src.indexOf(`\n  ${declaration}`);
+function memberBody(src: string, declaration: string, indent = "  "): string {
+  const start = src.indexOf(`\n${indent}${declaration}`);
   expect(start).toBeGreaterThan(-1);
   // The body brace is the first `{` outside the parameter list — an inline
   // options-object type would otherwise be mistaken for it.
@@ -83,11 +93,28 @@ describe("teardown-save core", () => {
   }
 
   test("the core retires the pending layout timer and saves the layout", () => {
-    const core = memberBody(DECK_MANAGER_SRC, "private teardownSave(");
-    expect(core).toContain("clearTimeout(this.saveTimer)");
-    expect(core).toContain("this.saveTimer = null");
-    expect(core).toContain("this.saveLayout()");
-    expect(core).toContain("this.invokeSaveCallback(");
-    expect(core).toContain("this.flushDirtyCardStates(");
+    // The manager's core is the module's, run over the manager's own deps.
+    const wrapper = memberBody(DECK_MANAGER_SRC, "private teardownSave(");
+    expect(wrapper).toContain("teardown.teardownSave(this.teardownDeps");
+    const core = memberBody(TEARDOWN_SRC, "export function teardownSave(", "");
+    expect(core).toContain("deps.takePendingLayoutSave()");
+    expect(core).toContain("deps.saveLayout()");
+    expect(core).toContain("deps.invokeSaveCallback(");
+    expect(core).toContain("deps.flushDirtyCardStates(");
+
+    // Each dep is the manager's real step, not a stand-in.
+    const depsStart = DECK_MANAGER_SRC.indexOf("private readonly teardownDeps");
+    expect(depsStart).toBeGreaterThan(-1);
+    const deps = DECK_MANAGER_SRC.slice(depsStart, DECK_MANAGER_SRC.indexOf("\n  };", depsStart));
+    // The timer is `LayoutPersistence`'s; the core retires it through
+    // `takePendingSave`, which must clear it and say whether it was pending.
+    expect(deps).toContain("takePendingLayoutSave: () => this.persistence.takePendingSave()");
+    const take = memberBody(LAYOUT_PERSISTENCE_SRC, "takePendingSave(");
+    expect(take).toContain("clearTimeout(this.saveTimer)");
+    expect(take).toContain("this.saveTimer = null");
+    expect(deps).toContain("saveLayout: () => this.saveLayout()");
+    expect(deps).toContain("saveCallbackIds: () => this.cardStates.saveCallbackIds()");
+    expect(deps).toContain("invokeSaveCallback: (cardId, source) => this.invokeSaveCallback(cardId, source)");
+    expect(deps).toContain("flushDirtyCardStates: (options) => this.flushDirtyCardStates(options)");
   });
 });

@@ -26,6 +26,8 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
+ * @covers tugdeck/src/card-state-cache.ts
+ * @covers tugdeck/src/teardown.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/card-state-orchestrator.ts
  * @covers tugdeck/src/lib/card-lifecycle.ts

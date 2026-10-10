@@ -26,6 +26,7 @@
  * at0669 covers what a folded Text card does with the surfaces it is asked
  * for; this file covers the form itself.
  *
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/card-registry.ts
  * @covers tugdeck/src/lib/folded-body.ts
  * @covers tugdeck/src/components/chrome/card-fold-glyph.tsx

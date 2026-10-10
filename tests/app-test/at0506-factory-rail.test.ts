@@ -36,6 +36,8 @@
  * rule is reached here through the deck manager that appends the panes, which
  * is the half this test can actually move.
  *
+ * @covers tugdeck/src/cascade.ts
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/deck-manager.ts
  */
 

@@ -46,6 +46,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
+ * @covers tugdeck/src/engine-hooks.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  * @covers tugdeck/src/components/tugways/component-state-preservation-registry.ts

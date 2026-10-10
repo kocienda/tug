@@ -39,13 +39,23 @@ import {
   clampPanesToDeck,
   sweptArriving,
 } from "./layout-tree";
-import { buildDefaultLayout, serialize, deserialize } from "./serialization";
+import { buildDefaultLayout } from "./serialization";
+import { LayoutPersistence, loadBootLayout } from "./layout-persistence";
+import { CardStateCache, type CardFlushResult } from "./card-state-cache";
+import { SpacesStore } from "./spaces-store";
+import * as layoutImposition from "./layout-imposition";
+import type { ImpositionDeps, SlotAssignment } from "./layout-imposition";
+import { ComponentStateRegistries, EngineHookRegistry } from "./engine-hooks";
+import * as teardown from "./teardown";
+import type { TeardownSaveDeps, TeardownSaveOptions, TeardownSaveResult, TerminationVerdict } from "./teardown";
+import { seedDeckState, type SeedDeckStateArgs } from "./deck-manager-test-seed";
+import * as fold from "./fold";
+import { panesWithWallFolded, type FoldDeps } from "./fold";
+import { nextCascadePosition } from "./cascade";
 import { composeDeparting, type DepartingEntry } from "./lib/departing";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./lib/after-paint";
 import { SpaceSwitchMark, switchMarkDeadlineMs } from "./lib/space-switch-mark";
 import {
-  MAIN_SPACE_NAME,
-  activeSpaceTheme,
   duplicatedDeck,
   moveCardBetweenDecks,
   nextSpaceName,
@@ -83,7 +93,6 @@ import {
   bullseyePaneIdOf,
   columnAllocationOf,
   columnMembersOf,
-  columnDrawsSplit,
   columnMoveOrder,
   deckColumnsOf,
   deckFlowStrip,
@@ -124,7 +133,6 @@ import { TugRestoreGate } from "./components/tugways/tug-restore-gate";
 import { ErrorBoundary } from "./components/chrome/error-boundary";
 import {
   CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
-  paneCanvasOf,
   SPACE_SWITCHING_ATTRIBUTE,
 } from "./components/chrome/space-layer";
 import { TugBannerProvider } from "./components/chrome/tug-banner-bridge";
@@ -136,13 +144,10 @@ import { ResponderChainProvider } from "./components/tugways/responder-chain-pro
 import { TugTooltipProvider } from "./components/tugways/tug-tooltip";
 import { TugAlertProvider } from "./components/tugways/tug-alert";
 import { TugBulletinProvider } from "./components/tugways/tug-bulletin";
-import { putLayout, putCardState } from "./settings-api";
-import { flushPromptHistorySync } from "./lib/prompt-history-api";
 import {
   TugThemeProvider,
   applyLoadedTheme,
   applyTheme,
-  preloadTheme,
   type ThemeName,
 } from "./contexts/theme-provider";
 import { composeProviders } from "./lib/compose-providers";
@@ -169,8 +174,6 @@ import {
   flowBandEdges,
   type FlowBandEdges,
   wallRevealOffset,
-  impositionLayout,
-  impositionResizeSlot,
   impositionGapBottomPx,
   IMPOSITION_GAP_PX,
   RAIL_EDGE_INSET_PX,
@@ -182,15 +185,12 @@ import {
   withColumnMode,
   sweptColumnOrders,
   withColumnOrder,
-  withMemberSeated,
-  arrivalSharesOf,
   withColumnShares,
   withRailShares,
   placeSharesFromHeights,
   CONTENT_WIDTH_SLIM_PX,
   DEFAULT_CONTENT_WIDTH,
   DEFAULT_IMPOSITION_KIND,
-  DEFAULT_SIDEBAR_SIDE,
   withSidebarPinned,
   withSidebarSide,
   resolveContentWidthPx,
@@ -217,7 +217,6 @@ import {
   getTugTiming,
   isTugMotionEnabled,
 } from "./components/tugways/scale-timing";
-import { pageZoomFactor } from "./lib/page-zoom-store";
 import { DeckManagerContext } from "./deck-manager-context";
 import { BASE_THEME_NAME } from "./theme-constants";
 import {
@@ -248,7 +247,7 @@ import {
   installLifecycleCascade,
   type LifecycleCascadeHandle,
 } from "./lib/lifecycle-cascade";
-import { ComponentStatePreservationRegistry } from "./components/tugways/component-state-preservation-registry";
+import type { ComponentStatePreservationRegistry } from "./components/tugways/component-state-preservation-registry";
 import {
   CardStateOrchestrator,
   type CardAssembler,
@@ -263,16 +262,12 @@ import type { CardBinding } from "./protocol";
 import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
 import { mark as perfMark } from "@/lib/perf-marks";
-import type { CodeSessionStore } from "./lib/code-session-store";
 import {
   mayDeferCommit,
   reactivateCurrentFocusDestination,
   transferFocusAfterMove,
   transferFocusForActivation,
 } from "./focus-transfer";
-
-/** Debounce delay for saving layout (ms) */
-const SAVE_DEBOUNCE_MS = 500;
 
 /**
  * The registered `componentId` of a Session card.
@@ -298,106 +293,9 @@ function cachedRowIsLive(row: CardBinding | undefined): row is CardBinding {
   return row.is_alive === true || row.has_jsonl === true || row.turn_count > 0;
 }
 
-/**
- * Outcome of one card-state write attempt, reported by
- * `flushDirtyCardStates` so teardown-class callers can retry the
- * failures and name the survivors instead of assuming success.
- */
-export interface CardFlushResult {
-  cardId: string;
-  ok: boolean;
-}
-
-/** What one run of the teardown-save core actually persisted. */
-export interface TeardownSaveResult {
-  layoutSaved: boolean;
-  cards: CardFlushResult[];
-}
-
-/**
- * What the deck actually managed to do before the host tore the process
- * down — the resolved value of {@link DeckManager.prepareForTermination},
- * returned across the bridge and logged verbatim by the host.
- *
- * `ok: false` never blocks or delays the quit; it makes the failure named
- * instead of silent, which is the whole point of the pipeline.
- */
-/**
- * Whether a slot arrangement took.
- *
- * `assignCardsToSlots` refuses the whole batch rather than half-applying it,
- * so the caller needs to hear which of the two happened before it decides
- * whether to show a receipt or a refusal. `blockedCardId` is present when the
- * refusal has a member to blame — a slot outside the arrangement — and absent
- * when the batch never had a subject at all (no imposition, no such card, a
- * sidebar host), which is a programming fault rather than an edge the user
- * pressed into.
- */
-export type SlotAssignment =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly blockedCardId?: string };
-
-/**
- * One space as the manager holds it ([P03]).
- *
- * The in-memory twin of `SpaceState`, with one difference that is the whole
- * design: `deck` is `null` for the ACTIVE space, whose live deck is
- * `DeckManager.deckState`. Holding the active deck in two places is the bug
- * this shape exists to make impossible — every mutator writes `deckState`, and
- * the record it belongs to carries no stale copy to disagree with it.
- */
-interface SpaceRecord {
-  id: string;
-  name: string;
-  deck: DeckState | null;
-  focusedCardId?: string;
-  theme?: string;
-}
-
-export interface TerminationVerdict {
-  /** True when every phase below came back clean. */
-  ok: boolean;
-  /** `tug_session_id`s interrupted and observed to settle. */
-  interrupted: string[];
-  /** Interrupt sent, but the session had not settled when the bound expired. */
-  unacknowledged: string[];
-  /** Card bags written and confirmed by tugbank. */
-  flushedCards: number;
-  /** Card ids whose writes still failed after the retry budget. */
-  failedCards: string[];
-  layoutSaved: boolean;
-  elapsedMs: number;
-}
-
-/**
- * How long the termination pipeline waits for interrupted sessions to
- * settle. Sized to contain tugcode's own ladder — a 2 s in-band ack grace
- * plus a 1.5 s SIGINT grace — with margin. A session that has not settled
- * by then is reported unacknowledged and the quit proceeds ([P04]: a quit
- * may be slow, never hung).
- */
-const TERMINATION_INTERRUPT_AWAIT_MS = 5000;
-
-/**
- * Total time the pipeline will spend re-attempting card-state writes that
- * tugbank rejected, and the gap between attempts. Covers the supervisor's
- * first restart-backoff steps, which is the realistic reason a write fails
- * at quit time.
- */
-const TERMINATION_FLUSH_RETRY_BUDGET_MS = 5000;
-const TERMINATION_FLUSH_RETRY_INTERVAL_MS = 250;
-
-/**
- * Debounce delay for flushing dirty per-card state bags (ms). Kept
- * tighter than the layout debounce: with the 250ms dirty-pipeline
- * debounce in `use-card-dirty-state.ts` this bounds the worst-case
- * edit→durable window at ~0.5s — the most a crash or force-quit (no
- * `saveState` RPC, no `beforeunload` in WKWebView) can lose. [L23]
- */
-const CARD_STATE_FLUSH_DEBOUNCE_MS = 250;
-
-/** Cascade step between consecutive new stacks (pixels) */
-const CASCADE_STEP = 30;
+export type { SlotAssignment } from "./layout-imposition";
+export type { TeardownSaveResult, TerminationVerdict } from "./teardown";
+export { columnIsWall, panesWithFolded, panesWithWallFolded } from "./fold";
 
 /**
  * Module-scope guard so the window `focus` / `blur` listeners that
@@ -744,39 +642,6 @@ export function filterDeckStateByRegistration(
 }
 
 /**
- * The pane array a fold commit writes: `paneId`'s entry carries
- * `folded: true`, or has the key DELETED on `false`.
- *
- * Deleted rather than written `false` because the field's contract is
- * absent-means-not-folded ([P01]) — a persisted `folded: false` would
- * be a second spelling of the resting state, and the two would then have to
- * agree forever. The array is returned by IDENTITY when nothing changes, so
- * the caller can short-circuit its commit on `panes === state.panes` rather
- * than diffing.
- *
- * Pure and exported for the same reason {@link sweepImposition} is: it is the
- * whole of what the commit decides, and it is testable without a DeckManager.
- * The rail refusal is NOT here — it needs the card registry — and neither is
- * the wall's membership, which needs the imposition; see
- * {@link panesWithWallFolded}, which this composes with.
- */
-export function panesWithFolded(
-  panes: readonly TugPaneState[],
-  paneId: string,
-  folded: boolean,
-): readonly TugPaneState[] {
-  const pane = panes.find((p) => p.id === paneId);
-  if (!pane) return panes;
-  if ((pane.folded === true) === folded) return panes;
-  return panes.map((p) => {
-    if (p.id !== paneId) return p;
-    if (folded) return { ...p, folded: true as const };
-    const { folded: _dropped, ...rest } = p;
-    return rest;
-  });
-}
-
-/**
  * The reservations record a sheet's report writes: `memberId`'s entry set to
  * `height`, or REMOVED when the height is `null` and the sheet has gone.
  *
@@ -923,76 +788,6 @@ export function arrivingWith(
 }
 
 /**
- * Whether a column is a WALL: some member other than `openPaneId` is folded.
- *
- * The definition [P06] rests on, and separate from {@link panesWithWallFolded}
- * because the two questions come apart. A wall whose siblings are ALREADY
- * folded needs no fold — that helper answers by identity — but it is still a
- * wall, and opening a card in it still owes the reveal. Gating the reveal on
- * the fold having changed something is exactly the bug this predicate exists
- * to prevent: the common case, opening a second card in a settled wall, is
- * the one where nothing needs folding.
- */
-export function columnIsWall(
-  panes: readonly TugPaneState[],
-  openPaneId: string,
-  memberIds: readonly string[],
-): boolean {
-  const members = new Set(memberIds);
-  members.delete(openPaneId);
-  if (members.size === 0) return false;
-  return panes.some((p) => members.has(p.id) && p.folded === true);
-}
-
-/**
- * The pane array a WALL OPEN writes: every other member of the column folded,
- * so the wall stays a wall ([P06]).
- *
- * A wall is a split column with at least one FOLDED member. Opening a card
- * in one folds its siblings, because the whole shape rests on a wall having
- * exactly one card being read at a time — a second open card takes the run the
- * first one needs and the wall stops being legible as a wall.
- *
- * The guard is the definition: a split column with no folded member is not
- * a wall, it is two or three full sessions sharing a slot, and a fold there
- * would take away a division the user made with the seams. So `memberIds` is
- * checked for another folded member first, and the array comes back by
- * IDENTITY when there is none.
- *
- * `openPaneId` is expected to be already open in `panes` — this composes after
- * {@link panesWithFolded}, which is what cleared its flag.
- */
-export function panesWithWallFolded(
-  panes: readonly TugPaneState[],
-  openPaneId: string,
-  memberIds: readonly string[],
-): readonly TugPaneState[] {
-  if (!columnIsWall(panes, openPaneId, memberIds)) return panes;
-  const members = new Set(memberIds);
-  members.delete(openPaneId);
-  const toFold = panes.filter(
-    (p) => members.has(p.id) && p.folded !== true,
-  );
-  if (toFold.length === 0) return panes;
-  const foldIds = new Set(toFold.map((p) => p.id));
-  return panes.map((p) =>
-    foldIds.has(p.id) ? { ...p, folded: true as const } : p,
-  );
-}
-
-/**
- * Read the DEBUG-only `__tugPersistInTestMode` flag. When `true` AND
- * `__tugTestMode` is also `true`, the test-mode persistence bypass
- * in the `put*Guarded` wrappers is skipped — writes go through.
- * Used by cold-boot harness tests that pair test-mode IPC with
- * per-test `TUGBANK_PATH` isolation. See
- * `tugapp/Sources/TestHarness/TestHarnessUserScript.swift`.
- */
-function shouldPersistInTestMode(): boolean {
-  return typeof window !== "undefined" && window.__tugPersistInTestMode === true;
-}
-
-/**
  * Read the DEBUG-only `__tugRestoreInTestMode` flag. When `true` AND
  * `__tugTestMode` is also `true`, the constructor honors the
  * tugbank-sourced boot arguments (layout, card-state bags, focused
@@ -1052,39 +847,24 @@ export class DeckManager implements IDeckManagerStore {
   /** Current canvas state (two-table shape). */
   private deckState: DeckState;
 
-  /** Debounce timer for layout saves */
-  private saveTimer: number | null = null;
+  /**
+   * The layout save timer and the guarded tugbank writers. Constructed in the
+   * constructor, once `testMode` is known; it reads the spaces through
+   * {@link spacesState} at save time and holds none of its own.
+   */
+  private readonly persistence: LayoutPersistence;
 
   // ---- Per-card state cache ([D01], [D06]) ----
 
-  /** In-memory cache of per-card state bags. Primary read source during a session. */
-  private cardStateCache: Map<string, CardStateBag> = new Map();
-
-  /** Debounce timer for per-card state saves (separate from layout save timer). */
-  private cardStateSaveTimer: number | null = null;
-
-  /** Set of card IDs with unsaved (dirty) state bags. Used for flush-on-destroy. */
-  private dirtyCardIds: Set<string> = new Set();
-
   /**
-   * Nesting depth of active card-state-save suspensions. While > 0, the
-   * debounced flush ([A9] persistence) defers — a card mid-load holds the
-   * gate so the scroll / region-scroll / content churn of its settle does
-   * not fire a `fetch` per dirty card on the same thread the load needs.
-   * Sync (will-phase / unload) flushes bypass the gate. Released via the
-   * disposer `suspendCardStateSaves` returns, which flushes once if still
-   * dirty.
+   * Every card's state bag, the dirty set and its debounced flush, the save
+   * gate a batch load holds, and the close-time save callbacks. Constructed
+   * in the constructor beside {@link persistence}, whose guarded writer it
+   * flushes through.
    */
-  private cardSaveSuspendDepth = 0;
+  private readonly cardStates: CardStateCache;
 
-  // ---- Save callbacks for close-time state flush ([D01]) ----
-
-  /**
-   * Map of registered save callbacks keyed by card ID. Called on
-   * visibilitychange (hidden) and beforeunload so each active card can
-   * capture its current state before the page is discarded.
-   */
-  private saveCallbacks: Map<string, (source?: SaveCallbackSource) => void> = new Map();
+  // ---- Card-state capture ([A9c]) ----
 
   /**
    * Per-card Component State Preservation Protocol registries ([D13],
@@ -1094,8 +874,7 @@ export class DeckManager implements IDeckManagerStore {
    * card is destroyed (`_removeCard` / `_closePane`). A card that uses
    * no opt-in components never gets an entry here.
    */
-  private componentStatePreservationRegistries: Map<string, ComponentStatePreservationRegistry> =
-    new Map();
+  private readonly componentStateRegistries = new ComponentStateRegistries();
 
   /**
    * Framework orchestrator for capture ([A9c]). Every save trigger
@@ -1108,7 +887,7 @@ export class DeckManager implements IDeckManagerStore {
    */
   private readonly cardStateOrchestrator: CardStateOrchestrator =
     new CardStateOrchestrator((cardId) =>
-      this.componentStatePreservationRegistries.get(cardId),
+      this.componentStateRegistries.peek(cardId),
     );
 
   private readonly handleVisibilityChange = (): void => {
@@ -1180,17 +959,12 @@ export class DeckManager implements IDeckManagerStore {
   // ---- Spaces: the level above the deck ([P03]) ----
 
   /**
-   * Every space this instance holds, in the user's order.
-   *
-   * `deck` is `null` for exactly one entry — the ACTIVE one — whose live deck
-   * is {@link deckState}. That is what keeps every existing mutator, selector
-   * and law working unchanged: there is still one deck being rendered and
-   * written to, and the others are parked data nothing renders ([B11]).
+   * The spaces list, the active space, the mounted set, and the spaces
+   * `useSyncExternalStore` contract ([L02]). The active space's record holds
+   * `deck: null`; its live deck is {@link deckState}, handed to the store's
+   * readers rather than copied into it.
    */
-  private spaces: SpaceRecord[] = [];
-
-  /** Which entry in {@link spaces} is rendered. */
-  private activeSpaceId = "";
+  private readonly spacesStore = new SpacesStore();
 
   /** When the last {@link activateSpace} began — see the store interface. */
   private spaceSwitchStartedAt: number | null = null;
@@ -1202,31 +976,6 @@ export class DeckManager implements IDeckManagerStore {
   private impositionGestureAt: number | null = null;
 
   public getImpositionGestureAt = (): number | null => this.impositionGestureAt;
-
-  /**
-   * The workspaces React is holding mounted ([P01], [B06]).
-   *
-   * A workspace joins on its first activation and never leaves except by
-   * being deleted: a switch hides and shows rather than unmounting, so the
-   * cost of returning to a workspace the user has already visited is a style
-   * change rather than a rebuild of every card in it. The boot workspace is
-   * seeded here because it is mounted without anybody activating it.
-   *
-   * There is deliberately no eviction policy: [B07] deferred one, and a
-   * budget nobody has measured a need for is a guess with a knob on it.
-   */
-  private mountedSpaceIds: Set<string> = new Set();
-
-  /** Subscribers to the spaces store — the list's shape, not the decks. */
-  private spacesSubscribers: Set<() => void> = new Set();
-
-  /**
-   * The last {@link SpacesSnapshot} handed out, rebuilt only when the list
-   * changes. `useSyncExternalStore` compares by identity and would loop
-   * forever on a snapshot minted per read, so this cache is the contract
-   * rather than an optimisation ([L02]).
-   */
-  private spacesSnapshotCache: SpacesSnapshot | null = null;
 
   private initialTheme: ThemeName;
 
@@ -1502,49 +1251,12 @@ export class DeckManager implements IDeckManagerStore {
 
   // ---- Spaces store (a second useSyncExternalStore contract, [P03], [L02]) ----
 
-  /**
-   * Subscribe to changes in the SPACE LIST — a space added, renamed, removed,
-   * reordered, or activated. Not to changes inside a deck: those are the deck
-   * store's, and a Workspaces-card row that re-rendered on every pane move
-   * would be paying for a fact it does not draw.
-   */
-  public subscribeSpaces = (callback: () => void): (() => void) => {
-    this.spacesSubscribers.add(callback);
-    return () => {
-      this.spacesSubscribers.delete(callback);
-    };
-  };
+  /** See `SpacesStore.subscribe`. Stable identity: an arrow property, made once. */
+  public subscribeSpaces = (callback: () => void): (() => void) =>
+    this.spacesStore.subscribe(callback);
 
-  /**
-   * The space list's identities and order, plus which is active. Stable by
-   * identity until the list changes — see {@link spacesSnapshotCache}.
-   */
-  public getSpacesSnapshot = (): SpacesSnapshot => {
-    if (this.spacesSnapshotCache === null) {
-      const mountedSpaceIds = this.spaces
-        .filter((s) => this.mountedSpaceIds.has(s.id))
-        .map((s) => s.id);
-      const mountedDecks = new Map<string, DeckState>();
-      for (const space of this.spaces) {
-        // The active space's deck is the live one and is not cached here —
-        // see {@link SpacesSnapshot}.
-        if (space.deck === null) continue;
-        if (!this.mountedSpaceIds.has(space.id)) continue;
-        mountedDecks.set(space.id, space.deck);
-      }
-      this.spacesSnapshotCache = {
-        spaces: this.spaces.map((s) => ({
-          id: s.id,
-          name: s.name,
-          ...(s.theme !== undefined ? { theme: s.theme } : {}),
-        })),
-        activeSpaceId: this.activeSpaceId,
-        mountedSpaceIds,
-        mountedDecks,
-      };
-    }
-    return this.spacesSnapshotCache;
-  };
+  /** See `SpacesStore.getSnapshot`. Stable until the list changes ([L02]). */
+  public getSpacesSnapshot = (): SpacesSnapshot => this.spacesStore.getSnapshot();
 
   /**
    * Which space holds `cardId` — the active one or a parked one — or `null`
@@ -1554,23 +1266,15 @@ export class DeckManager implements IDeckManagerStore {
    * the workspace it is leaving for the length of its fade: its own content
    * reads who it is this way.
    */
-  public spaceOf = (cardId: string): string | null => {
-    for (const space of this.spaces) {
-      const deck = space.deck ?? this.getPicture();
-      if (deck.cards.some((c) => c.id === cardId)) return space.id;
-    }
-    return null;
-  };
+  public spaceOf = (cardId: string): string | null =>
+    this.spacesStore.spaceOf(cardId, this.getPicture());
 
   /**
    * The deck of any space, active or parked. The active space answers with the
    * live {@link deckState}, so no caller has to know which one it asked about.
    */
-  public getSpaceDeck = (spaceId: string): DeckState | null => {
-    const space = this.spaces.find((s) => s.id === spaceId);
-    if (space === undefined) return null;
-    return space.deck ?? this.getSnapshot();
-  };
+  public getSpaceDeck = (spaceId: string): DeckState | null =>
+    this.spacesStore.deckOf(spaceId, this.getSnapshot());
 
   /**
    * Every card id this instance holds, across every space.
@@ -1580,24 +1284,8 @@ export class DeckManager implements IDeckManagerStore {
    * their state bags, so a workspace the user had not opened this run would
    * come back empty.
    */
-  public allSpaceCardIds = (): Set<string> => {
-    const ids = new Set<string>();
-    for (const space of this.spaces) {
-      const deck = space.deck ?? this.getSnapshot();
-      for (const card of deck.cards) ids.add(card.id);
-    }
-    return ids;
-  };
-
-  /**
-   * Drop the cached snapshot and tell the spaces store's subscribers. Called
-   * by every mutation of the list — and by nothing else, because a rebuild
-   * with no change would hand React a new identity for the same list.
-   */
-  private invalidateSpacesSnapshot(): void {
-    this.spacesSnapshotCache = null;
-    for (const callback of this.spacesSubscribers) callback();
-  }
+  public allSpaceCardIds = (): Set<string> =>
+    this.spacesStore.allCardIds(this.getSnapshot());
 
   /**
    * Called after a space's deck is on screen, with that deck, so the session
@@ -1646,13 +1334,13 @@ export class DeckManager implements IDeckManagerStore {
    */
   public activateSpace = (spaceId: string): void => {
     // (1) Already there.
-    if (spaceId === this.activeSpaceId) return;
-    const incoming = this.spaces.find((s) => s.id === spaceId);
+    if (spaceId === this.spacesStore.activeSpaceId) return;
+    const incoming = this.spacesStore.find(spaceId);
     if (incoming === undefined || incoming.deck === null) {
       console.warn(`activateSpace: no parked space with id "${spaceId}"`);
       return;
     }
-    const outgoing = this.spaces.find((s) => s.id === this.activeSpaceId);
+    const outgoing = this.spacesStore.active();
     if (outgoing === undefined) {
       console.warn(`activateSpace: no active space to leave`);
       return;
@@ -1710,13 +1398,11 @@ export class DeckManager implements IDeckManagerStore {
         // with no notify of its own, so the single `notify` below carries the
         // arrangement already correct and `arm` still finds nothing to move.
         this._resolveShownArrangement();
-        this.activeSpaceId = spaceId;
         incoming.deck = null;
         // This workspace is mounted from here on ([P01]). Inside the commit
         // so the invalidation below carries it, and before it so the one
         // snapshot subscribers see already names the new arrangement.
-        this.mountedSpaceIds.add(spaceId);
-        this.invalidateSpacesSnapshot();
+        this.spacesStore.activate(spaceId);
         // The theme changes in this commit, with the cut ([L06]: a stylesheet
         // flip, no React state in the way). Every workspace's theme is
         // loaded ahead of use, so the flip is synchronous and the first frame
@@ -1864,21 +1550,17 @@ export class DeckManager implements IDeckManagerStore {
     const chosen =
       trimmed !== undefined && trimmed.length > 0
         ? trimmed
-        : nextSpaceName(this.spaces.map((s) => s.name));
+        : nextSpaceName(this.spacesStore.list.map((s) => s.name));
     const id = crypto.randomUUID();
     // The new workspace wears the theme of the one being left, so creating
     // one never changes what is on screen.
-    const theme = activeSpaceTheme({
-      spaces: this.spaces,
-      activeSpaceId: this.activeSpaceId,
-    });
-    this.spaces.push({
+    const theme = this.spacesStore.activeTheme();
+    this.spacesStore.insert({
       id,
       name: chosen,
       deck: buildDefaultLayout(),
       ...(theme !== undefined ? { theme } : {}),
     });
-    this.invalidateSpacesSnapshot();
     this.activateSpace(id);
     // The latch would otherwise stand a SECOND rail the first time a card
     // opened here: it is armed at boot by an empty boot deck and this deck is
@@ -1894,16 +1576,7 @@ export class DeckManager implements IDeckManagerStore {
    * because a row with no name is a row nobody can address.
    */
   public renameSpace = (spaceId: string, name: string): void => {
-    const space = this.spaces.find((s) => s.id === spaceId);
-    if (space === undefined) {
-      console.warn(`renameSpace: no space with id "${spaceId}"`);
-      return;
-    }
-    const trimmed = name.trim();
-    if (trimmed.length === 0 || trimmed === space.name) return;
-    space.name = trimmed;
-    this.invalidateSpacesSnapshot();
-    this.scheduleSave();
+    if (this.spacesStore.rename(spaceId, name)) this.scheduleSave();
   };
 
   /**
@@ -1918,12 +1591,12 @@ export class DeckManager implements IDeckManagerStore {
    * Returns the new space's id, or `null` when `spaceId` names no space.
    */
   public duplicateSpace = (spaceId: string): string | null => {
-    const index = this.spaces.findIndex((s) => s.id === spaceId);
+    const index = this.spacesStore.indexOf(spaceId);
     if (index === -1) {
       console.warn(`duplicateSpace: no space with id "${spaceId}"`);
       return null;
     }
-    const source = this.spaces[index];
+    const source = this.spacesStore.list[index];
     const deck = duplicatedDeck(
       source.deck ?? this.deckState,
       () => crypto.randomUUID(),
@@ -1932,13 +1605,15 @@ export class DeckManager implements IDeckManagerStore {
       validateDeckState(deck);
     }
     const id = crypto.randomUUID();
-    this.spaces.splice(index + 1, 0, {
-      id,
-      name: `${source.name} copy`,
-      deck,
-      ...(source.theme !== undefined ? { theme: source.theme } : {}),
-    });
-    this.invalidateSpacesSnapshot();
+    this.spacesStore.insert(
+      {
+        id,
+        name: `${source.name} copy`,
+        deck,
+        ...(source.theme !== undefined ? { theme: source.theme } : {}),
+      },
+      index + 1,
+    );
     this.scheduleSave();
     return id;
   };
@@ -1949,16 +1624,7 @@ export class DeckManager implements IDeckManagerStore {
    * back here once the active workspace's theme is applied.
    */
   public setSpaceTheme = (spaceId: string, theme: string): void => {
-    const space = this.spaces.find((s) => s.id === spaceId);
-    if (space === undefined) {
-      console.warn(`setSpaceTheme: no space with id "${spaceId}"`);
-      return;
-    }
-    if (space.theme === theme) return;
-    space.theme = theme;
-    preloadTheme(theme);
-    this.invalidateSpacesSnapshot();
-    this.scheduleSave();
+    if (this.spacesStore.setTheme(spaceId, theme)) this.scheduleSave();
   };
 
   /**
@@ -1968,7 +1634,7 @@ export class DeckManager implements IDeckManagerStore {
    * only the record moves, and nothing repaints until the user goes there.
    */
   public chooseSpaceTheme = (spaceId: string, theme: string): void => {
-    if (spaceId !== this.activeSpaceId) {
+    if (spaceId !== this.spacesStore.activeSpaceId) {
       this.setSpaceTheme(spaceId, theme);
       return;
     }
@@ -1982,20 +1648,7 @@ export class DeckManager implements IDeckManagerStore {
    * wears it, so nothing on screen changes; a no-op when they all do.
    */
   public applyThemeToAllSpaces = (): void => {
-    const theme = activeSpaceTheme({
-      spaces: this.spaces,
-      activeSpaceId: this.activeSpaceId,
-    });
-    if (theme === undefined) return;
-    let changed = false;
-    for (const space of this.spaces) {
-      if (space.theme === theme) continue;
-      space.theme = theme;
-      changed = true;
-    }
-    if (!changed) return;
-    this.invalidateSpacesSnapshot();
-    this.scheduleSave();
+    if (this.spacesStore.applyActiveThemeToAll()) this.scheduleSave();
   };
 
   /**
@@ -2063,20 +1716,21 @@ export class DeckManager implements IDeckManagerStore {
    * Returns whether the workspace was deleted.
    */
   public deleteSpace = (spaceId: string): boolean => {
-    const index = this.spaces.findIndex((s) => s.id === spaceId);
+    const index = this.spacesStore.indexOf(spaceId);
     if (index === -1) {
       console.warn(`deleteSpace: no space with id "${spaceId}"`);
       return false;
     }
-    if (this.spaces.length === 1) {
+    const spaces = this.spacesStore.list;
+    if (spaces.length === 1) {
       console.warn(`deleteSpace: refusing to delete the last workspace`);
       return false;
     }
-    if (spaceId === this.activeSpaceId) {
-      const neighbour = this.spaces[index - 1] ?? this.spaces[index + 1];
+    if (spaceId === this.spacesStore.activeSpaceId) {
+      const neighbour = spaces[index - 1] ?? spaces[index + 1];
       this.activateSpace(neighbour.id);
     }
-    const doomed = this.spaces[index];
+    const doomed = spaces[index];
     const deck = doomed.deck;
     if (deck === null) {
       console.warn(`deleteSpace: "${spaceId}" is still active after the swap`);
@@ -2094,12 +1748,10 @@ export class DeckManager implements IDeckManagerStore {
     for (const card of deck.cards) {
       this.cardLifecycle.notifyCardWillBeginDestruction(card.id);
       this.discardComponentStatePreservationRegistry(card.id);
-      this.cardStateCache.delete(card.id);
+      this.cardStates.delete(card.id);
     }
 
-    this.spaces.splice(index, 1);
-    this.mountedSpaceIds.delete(spaceId);
-    this.invalidateSpacesSnapshot();
+    this.spacesStore.remove(spaceId);
     this.scheduleSave();
     return true;
   };
@@ -2113,20 +1765,7 @@ export class DeckManager implements IDeckManagerStore {
    * from a surface that has not seen a new workspace yet cannot lose it.
    */
   public reorderSpaces = (order: readonly string[]): void => {
-    const byId = new Map(this.spaces.map((s) => [s.id, s]));
-    const next: SpaceRecord[] = [];
-    const seen = new Set<string>();
-    for (const id of order) {
-      const space = byId.get(id);
-      if (space === undefined || seen.has(id)) continue;
-      seen.add(id);
-      next.push(space);
-    }
-    for (const space of this.spaces) {
-      if (!seen.has(space.id)) next.push(space);
-    }
-    this.spaces = next;
-    this.invalidateSpacesSnapshot();
+    this.spacesStore.reorder(order);
     this.scheduleSave();
   };
 
@@ -2158,7 +1797,7 @@ export class DeckManager implements IDeckManagerStore {
    * [B06] that is true of a workspace nobody is looking at, too: a visited
    * workspace stays mounted, so its panes are live React trees a move takes
    * down. So every case captures first ([L23]) — the bag lands in
-   * `cardStateCache` for the replay on the far side, and a card whose host is
+   * `cardStates` for the replay on the far side, and a card whose host is
    * not mounted has no callback registered and costs nothing.
    *
    * A no-op when the card is already in `spaceId`, when no space has that id,
@@ -2168,7 +1807,7 @@ export class DeckManager implements IDeckManagerStore {
    * Returns whether the card moved.
    */
   public moveCardToSpace = (cardId: string, spaceId: string): boolean => {
-    const destRecord = this.spaces.find((s) => s.id === spaceId);
+    const destRecord = this.spacesStore.find(spaceId);
     if (destRecord === undefined) {
       console.warn(`moveCardToSpace: no space with id "${spaceId}"`);
       return false;
@@ -2179,7 +1818,7 @@ export class DeckManager implements IDeckManagerStore {
       return false;
     }
     if (sourceId === spaceId) return false;
-    const sourceRecord = this.spaces.find((s) => s.id === sourceId);
+    const sourceRecord = this.spacesStore.find(sourceId);
     if (sourceRecord === undefined) return false;
 
     const sourceDeck = sourceRecord.deck ?? this.deckState;
@@ -2205,7 +1844,7 @@ export class DeckManager implements IDeckManagerStore {
       // A parked record the spaces snapshot may be holding has been
       // rewritten, and the canvas renders a mounted workspace's panes from
       // that snapshot ([B06]) — so the cached identity has to go.
-      this.invalidateSpacesSnapshot();
+      this.spacesStore.notify();
       this.scheduleSave();
       return true;
     }
@@ -2214,7 +1853,7 @@ export class DeckManager implements IDeckManagerStore {
       destRecord.deck = moved.dest;
       const commit = (): void => {
         this.deckState = moved.source;
-        this.invalidateSpacesSnapshot();
+        this.spacesStore.notify();
         this.notify("moveCardToSpace");
         this.scheduleSave();
       };
@@ -2239,7 +1878,7 @@ export class DeckManager implements IDeckManagerStore {
     // The destination is on screen: the pane arrives.
     sourceRecord.deck = moved.source;
     this.deckState = moved.dest;
-    this.invalidateSpacesSnapshot();
+    this.spacesStore.notify();
     this.notify("moveCardToSpace");
     this.scheduleSave();
     for (const id of movingCardIds) {
@@ -2593,6 +2232,10 @@ export class DeckManager implements IDeckManagerStore {
     this.rateLimitStore = new RateLimitStore(connection);
     this.usageStore = new UsageStore(connection);
     this.testMode = options?.testMode === true;
+    this.persistence = new LayoutPersistence({
+      testMode: this.testMode,
+      spacesState: () => this.spacesState(),
+    });
     // Test mode: discard any tugbank-sourced boot arguments so the deck
     // starts empty. The harness drives state exclusively via
     // `seedDeckState`; silently honoring a stray pre-populated layout
@@ -2608,9 +2251,13 @@ export class DeckManager implements IDeckManagerStore {
     this.initialTheme = initialTheme ?? BASE_THEME_NAME;
     this.fallbackTheme = options?.fallbackTheme;
 
-    if (initialCardStates && !dropBootState) {
-      this.cardStateCache = new Map(initialCardStates);
-    }
+    this.cardStates = new CardStateCache(
+      {
+        putCardState: (cardId, bag, putOptions) =>
+          this.persistence.putCardStateGuarded(cardId, bag, putOptions),
+      },
+      initialCardStates && !dropBootState ? initialCardStates : undefined,
+    );
 
     this.initialFocusedCardId = dropBootState ? undefined : initialFocusedCardId;
 
@@ -2666,7 +2313,7 @@ export class DeckManager implements IDeckManagerStore {
     // so adopt it once, here, and let the row go unwritten from now on
     // (Spec S02). A space that already names a focused card is authoritative:
     // the row is older than the blob beside it.
-    const bootSpace = this.spaces.find((s) => s.id === this.activeSpaceId);
+    const bootSpace = this.spacesStore.active();
     if (bootSpace !== undefined) {
       if (bootSpace.focusedCardId === undefined) {
         if (this.initialFocusedCardId !== undefined) {
@@ -2710,7 +2357,7 @@ export class DeckManager implements IDeckManagerStore {
               // The theme on screen is the active workspace's, so a theme
               // chosen and applied is a theme that workspace now wears.
               onThemeApplied: (theme: string) =>
-                this.setSpaceTheme(this.activeSpaceId, theme),
+                this.setSpaceTheme(this.spacesStore.activeSpaceId, theme),
             },
           ],
           [TugTooltipProvider, null],
@@ -3105,10 +2752,11 @@ export class DeckManager implements IDeckManagerStore {
             x: Math.max(0, Math.floor((canvasWidthForCap - cappedPreferredWidth) / 2)),
             y: Math.max(0, Math.floor((canvasHeightForCap - cappedPreferredHeight) / 2)),
           }
-        : this.nextCascadePosition({
-            width: cappedPreferredWidth,
-            height: cappedPreferredHeight,
-          });
+        : nextCascadePosition(
+            this.deckState.panes.map((pane) => pane.position),
+            { width: this.container.clientWidth, height: this.container.clientHeight },
+            { width: cappedPreferredWidth, height: cappedPreferredHeight },
+          );
 
     const seededCards: CardState[] = [];
     if (registration.defaultCards && registration.defaultCards.length > 0) {
@@ -3131,7 +2779,7 @@ export class DeckManager implements IDeckManagerStore {
 
     const firstCardId = seededCards[0].id;
     if (initialContent !== undefined) {
-      this.cardStateCache.set(firstCardId, { content: initialContent });
+      this.cardStates.seed(firstCardId, { content: initialContent });
     }
     // Under a multi-slot arrangement a new card joins it at a slot rather
     // than walking the cascade — the arrangement is the user's stated intent
@@ -6270,374 +5918,74 @@ export class DeckManager implements IDeckManagerStore {
   // ---- Layout imposition ----
 
   /**
-   * Read a pane frame's live on-screen rect in canvas coordinates, or `null`
-   * when the frame is not in the DOM. An imposed pane's `position`/`size` hold
-   * last-known values while its real rect is derived by CSS, so any code that
-   * needs the truth has to measure the frame. Layout space, not visual: the
-   * measurements are divided by `body { zoom }` the same way `snapshotCardRects`
-   * does, so the result is directly comparable with stored geometry.
+   * What the imposition gestures in `layout-imposition.ts` act through: the
+   * live deck, this store's public surface, and the commit primitives they
+   * share with the rest of the manager. Built once; every member reads `this`
+   * at call time, so it is safe to build before the constructor body runs.
    */
-  private _readPaneFrameRect(
-    paneId: string,
-  ): { x: number; y: number; width: number; height: number } | null {
-    if (typeof document === "undefined") return null;
-    const escaped = paneId.replace(/["\\]/g, "\\$&");
-    const frame = document.querySelector<HTMLElement>(
-      `.tug-pane[data-pane-id="${escaped}"]`,
-    );
-    if (!frame) return null;
-    const canvas = paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
-    const zoom = pageZoomFactor();
-    const rect = frame.getBoundingClientRect();
-    return {
-      x: (rect.left - (canvas ? canvas.left : 0)) / zoom,
-      y: (rect.top - (canvas ? canvas.top : 0)) / zoom,
-      width: rect.width / zoom,
-      height: rect.height / zoom,
-    };
-  }
+  private readonly impositionDeps: ImpositionDeps = {
+    store: this,
+    deck: () => this.deckState,
+    setDeck: (next) => {
+      this.deckState = next;
+    },
+    notify: (caller) => this.notify(caller),
+    scheduleSave: () => this.scheduleSave(),
+    lifecycle: () => this.cardLifecycle,
+    commitImposition: (imposition, panes, opts) =>
+      this._commitImposition(imposition, panes, opts),
+    withSidebarsPinned: (imposition) => this._withSidebarsPinned(imposition),
+    pinSidebars: () => this.pinSidebars(),
+    detachCard: (paneId, cardId, position) =>
+      this._detachCard(paneId, cardId, position),
+    clearBullseyeFor: (paneId) => this._clearBullseyeFor(paneId),
+    placeRunHeight: (kind) => this._placeRunHeight(kind),
+    revealAfterTravel: (cardId) => this._revealAfterTravel(cardId),
+    movePane: (paneId, position, size, opts) =>
+      this.movePane(paneId, position, size, opts),
+  };
 
-  /**
-   * Set the deck's active imposition, or clear it.
-   *
-   * A kind change keeps every assignment: a slot the new kind does not have is
-   * clamped to its last slot rather than dropped, so nothing silently falls out
-   * of the arrangement when the user goes from four-up to two-up.
-   *
-   * Clearing freezes each imposed pane where the user last saw it — the live
-   * frame rect is written into `position`/`size` before `slot` goes away, so
-   * turning the structure off does not scatter panes back to stale
-   * pre-imposition coordinates.
-   *
-   * Either way the rails return to their pins: choosing an arrangement is
-   * choosing one they stand at the ends of. A rail dragged loose and left there
-   * is put back by any choice in the Layout card, which is why an unchanged
-   * kind is not simply a no-op.
-   */
+  /** See `layout-imposition.ts`. */
   setImposition(kind: ImpositionKind | null): void {
-    const current = this.deckState.imposition.kind;
-    if (current === (kind ?? undefined)) {
-      this.pinSidebars();
-      this.retuneSidebarAllocation();
-      return;
-    }
-    const railCardIds = findSidebarPanes(this.deckState).map(
-      ({ pane }) => pane.activeCardId,
-    );
-
-    if (kind === null) {
-      const frozen = this.deckState.panes.map((pane) => {
-        if (pane.slot === undefined) return pane;
-        const next: TugPaneState = { ...pane };
-        delete next.slot;
-        // The slot's height goes with the slot, as in `movePane`'s eviction.
-        delete next.slotHeight;
-        const rect = this._readPaneFrameRect(pane.id);
-        if (rect !== null) {
-          next.position = { x: rect.x, y: rect.y };
-          next.size = { width: rect.width, height: rect.height };
-        }
-        return next;
-      });
-      const changes = this._geometryChanges(this.deckState.panes, frozen);
-      for (const ch of changes) {
-        if (ch.positionChanged) this.cardLifecycle.notifyCardWillMove(ch.id);
-        if (ch.sizeChanged) this.cardLifecycle.notifyCardWillResize(ch.id);
-      }
-      const imposition: DeckImposition = {
-        ...this._withSidebarsPinned(this.deckState.imposition),
-      };
-      delete imposition.kind;
-      for (const cardId of railCardIds) this.cardLifecycle.notifyCardWillMove(cardId);
-      this.deckState = { ...this.deckState, panes: frozen, imposition };
-      this.notify("setImposition");
-      for (const ch of changes) {
-        if (ch.positionChanged) this.cardLifecycle.notifyCardDidMove(ch.id);
-        if (ch.sizeChanged) this.cardLifecycle.notifyCardDidResize(ch.id);
-      }
-      for (const cardId of railCardIds) this.cardLifecycle.notifyCardDidMove(cardId);
-      this.scheduleSave();
-      return;
-    }
-
-    const panes = this.deckState.panes.map((pane) => {
-      if (pane.slot === undefined) return pane;
-      const clamped = clampSlot(kind, pane.slot);
-      return clamped === pane.slot ? pane : { ...pane, slot: clamped };
-    });
-    this._commitImposition(
-      {
-        ...this._withSidebarsPinned(this.deckState.imposition),
-        kind,
-      },
-      panes,
-    );
+    layoutImposition.setImposition(this.impositionDeps, kind);
   }
 
-  /**
-   * Choose how the deck resolves its slots: `"fit"`, where a slot is an anchor
-   * at a fraction of the band, or `"flow"`, where the occupied slots stand in a
-   * strip and never overlap.
-   *
-   * Every pane keeps its slot — the mode changes what a slot MEANS, not which
-   * one a card holds — so this commits the record and nothing else, and the
-   * frames follow because their `left` is derived from it.
-   *
-   * A Layouts click is one of THE MOMENTS the deck may re-solve its rails, so
-   * this goes through {@link _commitImposition} with the retune left on. It has
-   * real work to do here in one direction: leaving flow, the rails have been
-   * standing at their preferred widths (the allocator's flow answer) and the
-   * seams the fit picture wants are almost certainly somewhere else.
-   */
+  /** See `layout-imposition.ts`. */
   setImpositionLayout(layout: ImpositionLayout): void {
-    const imposition = this.deckState.imposition;
-    if (impositionLayout(imposition) === layout) return;
-    this._commitImposition({ ...imposition, layout }, this.deckState.panes);
+    layoutImposition.setImpositionLayout(this.impositionDeps, layout);
   }
 
-  /**
-   * Choose what an edge resize does to an imposed card's slot: keep it, or
-   * release the card into free pixels.
-   *
-   * A rule for the NEXT gesture, so nothing moves: every pane keeps its slot
-   * and its frame, and the commit carries the record alone. The rails are left
-   * where they stand — choosing how a later resize behaves is not one of the
-   * moments the deck may arrange itself.
-   */
+  /** See `layout-imposition.ts`. */
   setResizeSlot(resizeSlot: ResizeSlot): void {
-    const imposition = this.deckState.imposition;
-    if (impositionResizeSlot(imposition) === resizeSlot) return;
-    this._commitImposition(
-      { ...imposition, resizeSlot },
-      this.deckState.panes,
-      { retuneRails: false },
-    );
+    layoutImposition.setResizeSlot(this.impositionDeps, resizeSlot);
   }
 
-  /**
-   * Give a slotted card back its run's full height: delete the height its
-   * bottom edge gave it, so it follows the run again. The width menu's Fill
-   * Height row. One write, through the same commit an edge resize takes, and a
-   * card that already fills its run is left alone.
-   */
+  /** See `layout-imposition.ts`. */
   fillPaneHeight(paneId: string): void {
-    const pane = this.deckState.panes.find((p) => p.id === paneId);
-    if (pane === undefined || pane.slotHeight === undefined) return;
-    this.movePane(paneId, pane.position, pane.size, { slotHeight: null });
+    layoutImposition.fillPaneHeight(this.impositionDeps, paneId);
   }
 
   /**
-   * Assign a card to a numbered slot in the active imposition.
-   *
-   * A card sharing a pane with others is pulled out of that tab strip first —
-   * the imposer exists to replace tab strips, so it slots cards, never whole
-   * tab groups. A card already alone in its pane slots that pane in place.
-   *
-   * The assignment always raises, and raises first: slots are stacks, so
-   * clicking a number that another pane already holds puts this one on top of
-   * it rather than doing nothing — and the raise lands in its own commit ahead
-   * of the geometry, so the frame crosses to its slot over the arrangement
-   * rather than under it.
-   *
-   * Because the chain packs tight, a card joining it moves every pane after it
-   * as well — the lifecycle ledger below covers the whole chain, not just the
-   * card that was clicked. A card JOINING the chain is also one of the moments
-   * the space allocator re-solves the rails for (see `retuneSidebarAllocation`):
-   * the deck makes room for what it was just asked to arrange. A card already
-   * in the chain moving to another slot is not — see {@link assignCardsToSlots},
-   * which draws that line.
-   *
-   * One card is the degenerate batch — {@link assignCardsToSlots} is the
-   * implementation, so the single-card and multi-card gestures cannot drift.
+   * Assign a card to a numbered slot in the active imposition. One card is
+   * the degenerate batch — {@link assignCardsToSlots} is the implementation,
+   * so the single-card and multi-card gestures cannot drift.
    */
   assignCardToSlot(cardId: string, slot: number): SlotAssignment {
     return this.assignCardsToSlots([{ cardId, slot }]);
   }
 
   /**
-   * Assign several cards to slots as one arrangement.
-   *
-   * The batch is the multi-card gesture's whole point: the FLIP settle in
-   * `deck-canvas.tsx` measures where the frames were on the store event and
-   * where they landed after React's commit, so a gesture that notifies once
-   * per card offers that measurement a half-moved deck each time and re-arms
-   * the settle window on every one of them. All the slot writes land in ONE
-   * geometry commit, the same reasoning that made `setContentWidth` one
-   * commit rather than one per pane.
-   *
-   * The detaches and the raises still run per card, ahead of the geometry,
-   * because that is what they are: pulling a card out of a tab strip changes
-   * what the strip IS, and a raise moves nothing (the settle's arrangement
-   * signature is z-blind), so neither arms a window of its own. The cards come
-   * forward in the order given, which leaves the last one first responder.
-   *
-   * GROUP REFUSAL. The batch is validated whole before anything moves: one
-   * ineligible card refuses all of them. A gesture that half-applies is worse
-   * than one that refuses, because the user cannot see which half took.
-   *
-   * A slot outside the arrangement is one of those ineligibilities rather than
-   * something to clamp. Clamping is right when the arrangement itself shrinks
-   * (`clampSlot` on a kind change pulls orphaned panes back in); it is wrong
-   * for a gesture, because a group clamped against the edge arrives with its
-   * members stacked on one slot — the arrangement the user was moving,
-   * destroyed by the move. The refusal names the card that blocked it so the
-   * caller can point at it.
+   * Assign several cards to slots as one arrangement. See
+   * `layout-imposition.ts` — it clears each re-placed pane's bullseye through
+   * `deps.clearBullseyeFor`, since it writes `slot` on its own path.
    */
   assignCardsToSlots(
     entries: readonly { readonly cardId: string; readonly slot: number }[],
   ): SlotAssignment {
-    if (entries.length === 0) return { ok: false };
-    const kind = this.deckState.imposition.kind;
-    if (kind === undefined) {
-      console.warn(
-        "assignCardsToSlots: no active imposition; cannot slot cards",
-      );
-      return { ok: false };
-    }
-
-    const lastSlot = slotCount(kind) - 1;
-    for (const { cardId, slot } of entries) {
-      const host = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
-      if (!host) {
-        console.warn(`assignCardsToSlots: no pane holds card "${cardId}"`);
-        return { ok: false };
-      }
-      const hostsSidebar = this.deckState.cards.some(
-        (c) => host.cardIds.includes(c.id) && isSidebarCard(c.componentId),
-      );
-      if (hostsSidebar) {
-        // A sidebar card pins to a deck edge and insets the band — it is the
-        // imposition's fixed end, not the chain's to place.
-        console.warn(
-          `assignCardsToSlots: card "${cardId}" is hosted in the sidebar pane "${host.id}"`,
-        );
-        return { ok: false };
-      }
-      if (!Number.isFinite(slot) || slot < 0 || slot > lastSlot) {
-        return { ok: false, blockedCardId: cardId };
-      }
-    }
-
-    // Which panes already stood in the chain, read BEFORE anything moves.
-    // This is what separates a card joining the chain from a card moving
-    // inside it, and the two get different answers below.
-    const chainBefore = new Set(
-      this.deckState.panes.filter((p) => p.slot !== undefined).map((p) => p.id),
-    );
-
-    const targets = new Map<string, number>();
-    for (const { cardId, slot } of entries) {
-      // Re-read the host each pass: an earlier detach rebuilds the panes array.
-      const host = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
-      if (!host) continue;
-
-      // `_detachCard` returns null when the card is alone in its pane — that is
-      // exactly the "slot the existing host" branch, no detach needed.
-      const detachedPaneId =
-        host.cardIds.length > 1
-          ? this._detachCard(host.id, cardId, host.position)
-          : null;
-      const targetPaneId = detachedPaneId ?? host.id;
-
-      // Raise BEFORE the geometry, in its own commit.
-      //
-      // Assigning always raises: the slotted card becomes the active one, as a
-      // first-class activation. Doing it after the geometry commit would leave
-      // the frame crossing to its slot underneath the panes it is on its way to
-      // sitting in front of — the raise is a precondition of the motion, not its
-      // epilogue.
-      //
-      // A raw `activateCard` here would flip the first responder but skip the
-      // focus transfer — the outgoing card (the Cards card, whose list dispatched the
-      // assign) would never save its bag, and the slotted card would never
-      // receive its focus claim (no caret until the user clicks into it).
-      // Detaching has already raised and activated the new pane, in which case
-      // this is the same-bit refresh.
-      transferFocusForActivation({
-        outgoingCardId: this.getFirstResponderCardId(),
-        incomingCardId: cardId,
-        store: this,
-        commitMutation: () => this.activateCard(cardId),
-      });
-
-      targets.set(targetPaneId, clampSlot(kind, slot));
-    }
-    if (targets.size === 0) return { ok: false };
-
-    // Re-placing a pane ends its bullseye. This path writes `slot` on its own
-    // rather than through `movePane`, so it honors the rule explicitly.
-    for (const paneId of targets.keys()) this._clearBullseyeFor(paneId);
-
-    const panes = this.deckState.panes.map((p) => {
-      const slot = targets.get(p.id);
-      return slot === undefined ? p : ({ ...p, slot } as TugPaneState);
-    });
-    // Everything in the chain moves, including the panes that kept their
-    // slots: these cards' widths are now part of what precedes them.
-    //
-    // Whether the RAILS move too turns on membership, not on the verb. A pane
-    // ENTERING the chain — a loose card gaining a slot, or a card pulled out of
-    // a tab group into a pane of its own — changes what the chain is, and the
-    // deck makes room for what it was just asked to arrange; that is the moment
-    // `retuneSidebarAllocation` was written for. A pane that already had a slot
-    // taking a different one is not that gesture: membership is unchanged,
-    // nothing new needs room, and re-solving would hand the width freed by a
-    // tighter pack to the rails — growing a sidebar by most of a card on a
-    // chord that named one card.
-    //
-    // Which is the same fault, from the other side, that `setCardWidths` takes
-    // `retuneRails: false` for. Both verbs are card-addressed and neither may
-    // spend a rail; what licenses a re-solve is the Layouts click, the settled
-    // resize, and a change to who is in the chain.
-    const joinsChain = [...targets.keys()].some((id) => !chainBefore.has(id));
-    // Every pane that CROSSED into a slot is seated at the bottom of that
-    // slot's column ([D194]), in the order the batch named them. A pane the
-    // batch re-assigned to the slot it already stood in has not arrived
-    // anywhere and keeps its place.
-    let imposition = this.deckState.imposition;
-    for (const [id, slot] of targets) {
-      const before = this.deckState.panes.find((p) => p.id === id);
-      const stayed =
-        before?.slot !== undefined && clampSlot(kind, before.slot) === slot;
-      if (stayed) continue;
-      imposition = this._impositionSeating(imposition, panes, id, slot);
-    }
-    this._commitImposition(imposition, panes, {
-      retuneRails: joinsChain,
-      // The batch leaves its last card first responder, and that is the card
-      // the user is looking for; a slot whose column overflows must scroll it
-      // into the run or the assignment lands somewhere nobody can see.
-      revealPaneId: [...targets.keys()][targets.size - 1],
-    });
-    return { ok: true };
+    return layoutImposition.assignCardsToSlots(this.impositionDeps, entries);
   }
 
-  /**
-   * The imposition the arriving pane's column should hold, with the pane
-   * seated at the index a drop asked for, and at the bottom otherwise
-   * ([D194]). The rule itself is {@link withMemberSeated}; this reads the
-   * column the way the deck draws it and hands the reading over.
-   *
-   * Folded into the assignment's own commit rather than written after it,
-   * because a card crossing into a split column changes two things about the
-   * arrangement — which slot it stands in and where in that slot's order it
-   * stands — and the settle can only animate them as one motion if they arrive
-   * as one commit. Two commits would measure the deck once with the card
-   * arrived but unplaced, which is a frame nobody asked to see.
-   *
-   * `panes` already carries the arrival, so a slot that held one pane reads
-   * back as a column of two: the arrival plus the sitter it divides with.
-   * Takes the imposition it seats into rather than reading the store's, so a
-   * batch can seat several panes into one commit.
-   *
-   * `session` is the session-only state the commit is about to write
-   * alongside the seating — the arriving marks, and the opening bid a card
-   * arrives on — read here rather than off the store because the store does
-   * not hold them yet and the seating has to be answered against the deck as
-   * the commit will leave it. A pane marked arriving is left out of the
-   * column's reading ([B08]): it is seated in the order, so it lands at the
-   * bottom when revealed, but it takes no weight until then.
-   */
+  /** See `layout-imposition.ts`'s `impositionSeating`. */
   private _impositionSeating(
     imposition: DeckImposition,
     panes: readonly TugPaneState[],
@@ -6647,368 +5995,71 @@ export class DeckManager implements IDeckManagerStore {
     session?: Pick<DeckState, "openingBids" | "arriving">,
     weighSeated = false,
   ): DeckImposition {
-    const state = {
-      ...this.deckState,
+    return layoutImposition.impositionSeating(
+      this.impositionDeps,
+      imposition,
       panes,
-      imposition,
-      // Keyed on the key's PRESENCE, never on its value. Both records encode
-      // "empty" as the field GONE — `arrivingWith` drops `arriving` with its
-      // last mark, so the reveal's cleared record IS `undefined` — and a
-      // `!== undefined` test read that as "the caller passed nothing" and left
-      // the store's own record standing. At the reveal that record still
-      // carried the mark, so `columnMembersOf` went on leaving the newcomer
-      // out, `_arrivalShares` saw a column of one, and the weight the reveal
-      // exists to write was never written ([B05]). The two encodings are both
-      // right and they collide only here.
-      ...(session !== undefined && "openingBids" in session
-        ? { openingBids: session.openingBids }
-        : {}),
-      ...(session !== undefined && "arriving" in session
-        ? { arriving: session.arriving }
-        : {}),
-    };
-    const seated = withMemberSeated(
-      imposition,
+      paneId,
       slot,
-      columnMembersOf(state, slot),
-      paneId,
       index,
+      session,
+      weighSeated,
     );
-    // Unchanged means the ORDER did not move, which for a card crossing into a
-    // column means nothing arrived anywhere the column can divide — no
-    // sitters, or a stacked column no drop asked to split — so there is no
-    // division to write either.
-    //
-    // `weighSeated` is the one case where that reading is wrong. A card that
-    // arrived HIDDEN was seated in the order a commit ago and takes its weight
-    // at the reveal ([B04]/[B08]), so at the reveal the order is already right
-    // and this shortcut would skip the very write the reveal exists to make —
-    // leaving the newcomer unweighted, and the column's next division handing
-    // it the unnamed default's fraction instead of the room the eye just saw
-    // it take ([B05]). `_arrivalShares` refuses a stacked column and a column
-    // of one on its own, so nothing the shortcut guarded is lost by passing it.
-    if (seated === imposition && !weighSeated) return seated;
-    return this._arrivalShares({ ...state, imposition: seated }, paneId, slot);
   }
 
   /**
-   * The seated imposition with the arriving member's weight written into
-   * `slot`'s division ([B05]) — {@link arrivalSharesOf}'s answer, in the same
-   * commit as the seating that earned it.
-   *
-   * In the SAME commit for {@link _impositionSeating}'s own reason: which slot
-   * the card stands in, where in the column it stands, and how much of the run
-   * it takes are three things about one arrangement change, and the settle can
-   * animate them as one motion only if they arrive together. A weight written
-   * a commit later would re-target a settle already in flight.
-   *
-   * `state` is the deck as the commit will leave it — the arrival's pane
-   * standing in `slot`, the seated order, and (at `addCard`) the opening bid
-   * the same commit writes, which is the floor the newcomer actually arrives
-   * on. Answering off the store's own state instead would weigh the newcomer
-   * at a floor its card never stood at.
-   */
-  private _arrivalShares(
-    state: DeckState,
-    paneId: string,
-    slot: number,
-  ): DeckImposition {
-    const imposition = state.imposition;
-    if (columnModeOf(imposition, slot) !== "split") return imposition;
-    const run = this._placeRunHeight("column");
-    if (!(run > 0)) return imposition;
-    const members = columnMembersOf(state, slot);
-    if (members.length < 2) return imposition;
-    const shares = arrivalSharesOf(
-      placeMembers(
-        state,
-        "column",
-        members,
-        imposition.columns?.[slot]?.shares,
-      ),
-      paneId,
-      run,
-      IMPOSITION_GAP_PX,
-    );
-    if (Object.keys(shares).length === 0) return imposition;
-    return withColumnShares(imposition, slot, shares);
-  }
-
-  /**
-   * Move a whole pane to `slot`, optionally landing it at `index` in that
-   * slot's split column — the drop-zone drag's commit for a card crossing
-   * places ([P10]).
-   *
-   * Pane-addressed, where {@link assignCardsToSlots} is card-addressed, because
-   * the two gestures have different subjects. The Layouts click names a card
-   * and means that card, so a card pulled from a tab stack detaches into a pane
-   * of its own. A title-bar drag names the pane — the box the hand is holding,
-   * tabs and all — and detaching its front tab mid-flight would leave the rest
-   * of the stack behind at the place the user just dragged away from.
-   *
-   * One call and one commit, which is the point of taking the index here rather
-   * than in a `setColumnOrder` afterwards: the slot write and the order write
-   * are the same arrangement change, and the settle animates an arrangement
-   * change once. Two commits would show the deck a frame with the pane arrived
-   * but unplaced.
-   *
-   * Refuses on the same grounds a slot assignment refuses — no imposition, no
-   * such pane, a slot outside the arrangement, a pane pinned to a rail — and
-   * the drop must read the answer rather than assume it ([P09]).
+   * Move a whole pane to `slot` — the drop-zone drag's commit ([P10]). See
+   * `layout-imposition.ts`; it clears the pane's bullseye through
+   * `deps.clearBullseyeFor`, since it writes `slot` on its own path.
    */
   movePaneToSlot(paneId: string, slot: number, index?: number): SlotAssignment {
-    const kind = this.deckState.imposition.kind;
-    if (kind === undefined) {
-      console.warn("movePaneToSlot: no active imposition; cannot place a pane");
-      return { ok: false };
-    }
-    const pane = this.deckState.panes.find((p) => p.id === paneId);
-    if (pane === undefined) {
-      console.warn(`movePaneToSlot: no pane "${paneId}"`);
-      return { ok: false };
-    }
-    const hostsSidebar = this.deckState.cards.some(
-      (c) => pane.cardIds.includes(c.id) && isSidebarCard(c.componentId),
-    );
-    if (hostsSidebar) {
-      console.warn(`movePaneToSlot: pane "${paneId}" is a sidebar pane`);
-      return { ok: false };
-    }
-    if (!Number.isFinite(slot) || slot < 0 || slot > slotCount(kind) - 1) {
-      return { ok: false, blockedCardId: pane.activeCardId };
-    }
-
-    const joinsChain = pane.slot === undefined;
-    // The raise goes ahead of the geometry for the reason it does in
-    // `assignCardsToSlots`: a pane crossing to its new place must travel over
-    // the panes it is about to sit in front of, not under them.
-    //
-    // The raise reveals nothing and neither does the move: a drop is TWO
-    // MOVES, on the rule `_revealAfterArrival` states. The first commit puts
-    // the card in the slot the hand released it over, at the offset standing,
-    // so the crossing lands the card under the hand. The slide that shows it
-    // whole is a second commit, after the crossing has ended. Spread into
-    // this one, the slide and the crossing rode one settle — the card flew to
-    // where it would stand AFTER the slide while the strip slid under it —
-    // and the release read as the card hopping backwards.
-    transferFocusForActivation({
-      outgoingCardId: this.getFirstResponderCardId(),
-      incomingCardId: pane.activeCardId,
-      store: this,
-      commitMutation: () =>
-        this.activateCard(pane.activeCardId, { reveal: false }),
-    });
-    this._clearBullseyeFor(paneId);
-
-    const placed = clampSlot(kind, slot);
-    const panes = this.deckState.panes.map((p) =>
-      p.id === paneId ? ({ ...p, slot: placed } as TugPaneState) : p,
-    );
-    // A pane dropped into the slot it already stands in, with no index named,
-    // has not arrived anywhere and keeps its place in the column.
-    const stayed =
-      pane.slot !== undefined && clampSlot(kind, pane.slot) === placed;
-    this._commitImposition(
-      stayed && index === undefined
-        ? this.deckState.imposition
-        : this._impositionSeating(this.deckState.imposition, panes, paneId, placed, index),
-      panes,
-      { retuneRails: joinsChain, revealPaneId: null },
-    );
-    this._revealAfterTravel(pane.activeCardId);
-    return { ok: true };
+    return layoutImposition.movePaneToSlot(this.impositionDeps, paneId, slot, index);
   }
-
-  /** Per-pane position/size deltas between two pane arrays of the same shape,
-   *  keyed by active card, for the will/did move/resize lifecycle events. */
-  private _geometryChanges(
-    before: readonly TugPaneState[],
-    after: readonly TugPaneState[],
-  ): { id: string; positionChanged: boolean; sizeChanged: boolean }[] {
-    const changes: {
-      id: string;
-      positionChanged: boolean;
-      sizeChanged: boolean;
-    }[] = [];
-    for (let i = 0; i < before.length; i += 1) {
-      const b = before[i];
-      const a = after[i];
-      const positionChanged =
-        b.position.x !== a.position.x || b.position.y !== a.position.y;
-      const sizeChanged =
-        b.size.width !== a.size.width || b.size.height !== a.size.height;
-      if (positionChanged || sizeChanged) {
-        changes.push({ id: a.activeCardId, positionChanged, sizeChanged });
-      }
-    }
-    return changes;
-  }
-
   // ---- Per-card state cache API ([D01], [D06]) ----
 
   getCardState(cardId: string): CardStateBag | undefined {
-    return this.cardStateCache.get(cardId);
+    return this.cardStates.get(cardId);
   }
 
   setCardState(cardId: string, bag: CardStateBag): void {
-    this.cardStateCache.set(cardId, bag);
-    this.dirtyCardIds.add(cardId);
-
-    // While a batch load holds the save gate, mark dirty but schedule no
-    // flush — never a `fetch` mid-load. The accumulated state is persisted a
-    // beat after the load when the gate releases (see `suspendCardStateSaves`),
-    // and any sync unload flush bypasses the gate regardless.
-    if (this.cardSaveSuspendDepth > 0) return;
-
-    if (this.cardStateSaveTimer !== null) {
-      window.clearTimeout(this.cardStateSaveTimer);
-    }
-    this.cardStateSaveTimer = window.setTimeout(() => {
-      this.flushDirtyCardStates();
-      this.cardStateSaveTimer = null;
-    }, CARD_STATE_FLUSH_DEBOUNCE_MS);
+    this.cardStates.set(cardId, bag);
   }
 
   /**
    * Capture `cardId`'s current bag and persist it durably immediately,
-   * skipping the {@link CARD_STATE_FLUSH_DEBOUNCE_MS} window. The prompt
-   * entry calls this on submit: `editor.clear()` empties the draft, but the
-   * debounced save that would persist the cleared state is still pending,
-   * and WKWebView fires no `beforeunload`/`visibilitychange` on quit — so a
-   * relaunch in that window would otherwise restore the just-submitted
-   * message from the stale pre-submit bag. Forcing the write here closes
-   * the window independent of the quit path.
-   *
-   * `keepalive` lets the PUT outlive an immediately-following teardown. A
-   * batch load that holds the save gate leaves the bag captured in the
-   * in-memory cache and dirty; the post-load debounce persists it. [L23].
+   * skipping the debounce window. The prompt entry calls this on submit:
+   * `editor.clear()` empties the draft, but the debounced save that would
+   * persist the cleared state is still pending, and WKWebView fires no
+   * `beforeunload`/`visibilitychange` on quit — so a relaunch in that window
+   * would otherwise restore the just-submitted message from the stale
+   * pre-submit bag. Forcing the write here closes the window independent of
+   * the quit path.
    */
   flushCardStateNow(cardId: string): void {
-    this.setCardState(cardId, this.captureCardState(cardId));
-    if (this.cardStateSaveTimer !== null) {
-      window.clearTimeout(this.cardStateSaveTimer);
-      this.cardStateSaveTimer = null;
-    }
-    void this.flushDirtyCardStates({ keepalive: true });
+    this.cardStates.flushNow(cardId, this.captureCardState(cardId));
   }
 
-  /**
-   * Write all dirty per-card state bags to tugbank and clear the dirty set.
-   *
-   * Persists under `dev.tugapp.deck.cardstate/{cardId}`. `putCardState` uses
-   * the card id, which is numerically identical to the former tab id from the one-table model.
-   */
-  /**
-   * Suspend debounced card-state saves while a batch load runs, returning a
-   * disposer that resumes them. Counted, so overlapping loads compose. A card
-   * holds this across its load + settle so persistence never fetches mid-load.
-   *
-   * On the final release the settled state is persisted, but one beat PAST the
-   * load — the disposer schedules the debounced flush rather than fetching
-   * synchronously, so the write lands well clear of the load's hot path. The
-   * beat is a macrotask timer (the existing save debounce), never a
-   * `requestAnimationFrame` ([L05]). A new load starting within that window
-   * cancels the pending flush on engage and re-schedules on its own release.
-   * Sync unload flushes are never suspended.
-   */
-  suspendCardStateSaves = (): (() => void) => {
-    this.cardSaveSuspendDepth += 1;
-    // Cancel a flush scheduled just before the gate engaged (a pre-load save,
-    // or a prior release's deferred flush) so nothing fires ungated mid-load.
-    if (this.cardStateSaveTimer !== null) {
-      window.clearTimeout(this.cardStateSaveTimer);
-      this.cardStateSaveTimer = null;
-    }
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      this.cardSaveSuspendDepth = Math.max(0, this.cardSaveSuspendDepth - 1);
-      // Final release with dirty state: persist it a beat past the load via
-      // the debounced flush ([L05] — a macrotask timer, never rAF), off the
-      // hot path. A real `setCardState` in the meantime just resets the same
-      // debounce; the next load's engage cancels it.
-      if (this.cardSaveSuspendDepth === 0 && this.dirtyCardIds.size > 0) {
-        if (this.cardStateSaveTimer !== null) {
-          window.clearTimeout(this.cardStateSaveTimer);
-        }
-        this.cardStateSaveTimer = window.setTimeout(() => {
-          void this.flushDirtyCardStates();
-          this.cardStateSaveTimer = null;
-        }, CARD_STATE_FLUSH_DEBOUNCE_MS);
-      }
-    };
-  };
+  /** See `CardStateCache.suspendSaves`. */
+  suspendCardStateSaves = (): (() => void) => this.cardStates.suspendSaves();
 
-  /**
-   * Write all dirty per-card state bags to tugbank, clear the dirty set,
-   * and resolve one {@link CardFlushResult} per attempted write.
-   *
-   * A card whose write failed is re-marked dirty before the promise
-   * resolves, so the next flush — the debounced one, or the termination
-   * pipeline's retry — picks it up again. Silently dropping the bag was
-   * the loss path this replaces ([L23]).
-   */
+  /** See `CardStateCache.flushDirty`. */
   private flushDirtyCardStates(options?: { keepalive?: boolean; sync?: boolean; force?: boolean }): Promise<CardFlushResult[]> {
-    // Deferred while a batch load holds the save gate — the dirty set is
-    // retained and saved on a later ungated trigger. A `sync` flush
-    // (will-phase / unload) must always run, so it bypasses; `force` is
-    // the async-fetch equivalent for teardown-class callers that await
-    // the writes (prepareForReload) — "no fetch mid-load" is moot when
-    // the page is about to be torn down.
-    if (this.cardSaveSuspendDepth > 0 && options?.sync !== true && options?.force !== true) {
-      return Promise.resolve([]);
-    }
-    const promises: Promise<CardFlushResult>[] = [];
-    for (const cardId of this.dirtyCardIds) {
-      const bag = this.cardStateCache.get(cardId);
-      if (bag !== undefined) {
-        promises.push(
-          this.putCardStateGuarded(cardId, bag, options).then((ok) => {
-            if (!ok) this.dirtyCardIds.add(cardId);
-            return { cardId, ok };
-          }),
-        );
-      }
-    }
-    this.dirtyCardIds.clear();
-    return Promise.all(promises);
+    return this.cardStates.flushDirty(options);
   }
 
   // ---- Save callback registration ([D01]) ----
 
   registerSaveCallback(id: string, callback: (source?: SaveCallbackSource) => void): void {
-    this.saveCallbacks.set(id, callback);
+    this.cardStates.registerSaveCallback(id, callback);
   }
 
   unregisterSaveCallback(id: string): void {
-    this.saveCallbacks.delete(id);
+    this.cardStates.unregisterSaveCallback(id);
   }
 
-  /**
-   * Invoke the registered save callback for `id`, if any, recording a
-   * `save-callback` deck-trace event tagged with the caller-supplied
-   * `source`. `source` is optional for backward compatibility with
-   * mock stores in the test suite (they implement the interface with
-   * the one-arg shape and still type-check); live callers always pass
-   * an explicit tag so the trace preserves the triggering path.
-   *
-   * The tag is also handed to the callback itself, which forwards it
-   * down the capture chain: a card can then capture differently for a
-   * save it will never get a render after (`"termination"`) than for a
-   * steady-state one.
-   *
-   * See `deck-trace` for the `save-callback` event shape
-   * and the recording-sites list for per-source wiring.
-   */
+  /** See `CardStateCache.invokeSaveCallback`. */
   invokeSaveCallback(id: string, source?: SaveCallbackSource): void {
-    const tag: SaveCallbackSource = source ?? "manual";
-    deckTrace.record({
-      kind: "save-callback",
-      cardId: id,
-      source: tag,
-    });
-    this.saveCallbacks.get(id)?.(tag);
+    this.cardStates.invokeSaveCallback(id, source);
   }
 
   // ---- Focus-transfer channels (focus-transfer.ts seam) ----
@@ -7100,94 +6151,22 @@ export class DeckManager implements IDeckManagerStore {
     return this.cardHostRoots.get(cardId) ?? null;
   }
 
+
   // ---- Engine hooks (Phase E.11 single-channel dispatcher seam) ----
 
-  /**
-   * Per-card engine hooks (`paintMirrorAsActive` / `paintMirrorAsInactive`).
-   * Last-registration-wins per cardId. Phase E.11 Step 2 adds the
-   * channel (additive, no consumer yet); Step 3 wires
-   * `applyBagFocus` to invoke through these hooks for the `engine`
-   * resolution kind.
-   */
-  private engineHooks: Map<string, EngineHooks> = new Map();
-
-  /**
-   * Per-card engine-hook-change listeners. `CardHost` subscribes
-   * here in a `useLayoutEffect` so its cold-boot RESTORE effect
-   * re-fires when an engine registers late (dev's editor mounts
-   * after `feedsReady`). Last-registration-wins per (cardId,
-   * listener) — the listener identity is what we key on internally,
-   * via a Set per cardId.
-   */
-  private engineHooksListeners: Map<string, Set<() => void>> = new Map();
+  /** Per-card engine hooks and their change listeners. */
+  private readonly engineHooks = new EngineHookRegistry();
 
   registerEngineHooks(cardId: string, hooks: EngineHooks): () => void {
-    this.engineHooks.set(cardId, hooks);
-    // Notify CardHost (and any other subscriber) that the engine
-    // hooks for this card just changed — drives Phase E.11 Step 4's
-    // `deferred-engine` retry. Listeners fire even on
-    // last-write-wins re-registration so a TugTextEditor remount
-    // (HMR, cross-pane move) lights up the dispatcher's re-fire
-    // path.
-    const listeners = this.engineHooksListeners.get(cardId);
-    if (listeners !== undefined) {
-      for (const listener of listeners) {
-        try {
-          listener();
-        } catch (err) {
-          console.error("[deck-manager] engine-hooks listener threw:", err);
-        }
-      }
-    }
-    return () => {
-      // Only clear when we still own the slot.
-      if (this.engineHooks.get(cardId) === hooks) {
-        this.engineHooks.delete(cardId);
-        // Notify on unregister too so subscribers can clear
-        // engine-derived state cleanly. A successor registration
-        // (e.g. cross-pane move) fires a second notify when its
-        // own `registerEngineHooks` runs.
-        const cleanupListeners = this.engineHooksListeners.get(cardId);
-        if (cleanupListeners !== undefined) {
-          for (const listener of cleanupListeners) {
-            try {
-              listener();
-            } catch (err) {
-              console.error(
-                "[deck-manager] engine-hooks listener threw on unregister:",
-                err,
-              );
-            }
-          }
-        }
-      }
-    };
+    return this.engineHooks.register(cardId, hooks);
   }
 
   invokeEnginePaintMirrorAsActive(cardId: string): void {
-    const hooks = this.engineHooks.get(cardId);
-    if (hooks === undefined) return;
-    try {
-      hooks.paintMirrorAsActive();
-    } catch (err) {
-      console.error(
-        "[deck-manager] engine paintMirrorAsActive threw:",
-        err,
-      );
-    }
+    this.engineHooks.paintMirrorAsActive(cardId);
   }
 
   invokeEnginePaintMirrorAsInactive(cardId: string): void {
-    const hooks = this.engineHooks.get(cardId);
-    if (hooks === undefined) return;
-    try {
-      hooks.paintMirrorAsInactive();
-    } catch (err) {
-      console.error(
-        "[deck-manager] engine paintMirrorAsInactive threw:",
-        err,
-      );
-    }
+    this.engineHooks.paintMirrorAsInactive(cardId);
   }
 
   hasEngineHooks(cardId: string): boolean {
@@ -7195,67 +6174,31 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Subscribe to engine-hook registration events for `cardId`. The
-   * listener fires after `registerEngineHooks` (or its cleanup)
-   * runs, including last-write-wins re-registrations from the same
-   * `cardId`. Returns an unsubscribe function.
-   *
-   * Used by `CardHost` to re-fire its cold-boot RESTORE effect when
-   * a late-mounting engine registers; bridges the dispatcher's
-   * `deferred-engine` retry path to the engine's mount lifecycle.
-   * The channel is Phase E.11 Step 2 infrastructure; Step 4 wires
-   * the retry in `CardHost`.
+   * Subscribe to engine-hook registration events for `cardId`. Used by
+   * `CardHost` to re-fire its cold-boot RESTORE effect when a
+   * late-mounting engine registers.
    */
   subscribeEngineHooksChange(
     cardId: string,
     listener: () => void,
   ): () => void {
-    let listeners = this.engineHooksListeners.get(cardId);
-    if (listeners === undefined) {
-      listeners = new Set();
-      this.engineHooksListeners.set(cardId, listeners);
-    }
-    listeners.add(listener);
-    return () => {
-      const set = this.engineHooksListeners.get(cardId);
-      if (set !== undefined) {
-        set.delete(listener);
-        if (set.size === 0) this.engineHooksListeners.delete(cardId);
-      }
-    };
+    return this.engineHooks.subscribeChange(cardId, listener);
   }
 
   /**
-   * Return the per-card Component State Preservation Protocol registry
-   * ([D13], [A9]) for `cardId`, creating it lazily on first call. Used
-   * by `useComponentStatePreservation` to register / unregister
-   * capture/restore closures; used by the framework orchestration layer
-   * (`captureCardState`) at save time.
-   *
-   * The registry is discarded in
-   * `discardComponentStatePreservationRegistry(cardId)` once the card
-   * is destroyed, so repeated create / destroy cycles of the same
-   * cardId yield fresh registries.
+   * The per-card Component State Preservation Protocol registry ([D13],
+   * [A9]) for `cardId`, created lazily. Used by
+   * `useComponentStatePreservation` to register capture/restore closures.
    */
   getComponentStatePreservationRegistry(cardId: string): ComponentStatePreservationRegistry {
-    let registry = this.componentStatePreservationRegistries.get(cardId);
-    if (!registry) {
-      registry = new ComponentStatePreservationRegistry();
-      this.componentStatePreservationRegistries.set(cardId, registry);
-    }
-    return registry;
+    return this.componentStateRegistries.get(cardId);
   }
 
-  /**
-   * Look up a card's component state preservation registry without
-   * creating one. Returns `undefined` when the card has never
-   * registered an opt-in component. Used by the capture/restore
-   * orchestration so a non-participating card incurs no allocation.
-   */
+  /** The card's registry without creating one. */
   peekComponentStatePreservationRegistry(
     cardId: string,
   ): ComponentStatePreservationRegistry | undefined {
-    return this.componentStatePreservationRegistries.get(cardId);
+    return this.componentStateRegistries.peek(cardId);
   }
 
   /**
@@ -7265,10 +6208,7 @@ export class DeckManager implements IDeckManagerStore {
    * closures don't outlive the card itself.
    */
   private discardComponentStatePreservationRegistry(cardId: string): void {
-    const registry = this.componentStatePreservationRegistries.get(cardId);
-    if (!registry) return;
-    registry.clear();
-    this.componentStatePreservationRegistries.delete(cardId);
+    this.componentStateRegistries.discard(cardId);
   }
 
   /**
@@ -7324,6 +6264,8 @@ export class DeckManager implements IDeckManagerStore {
     }
   }
 
+  // ---- Teardown saves (`teardown.ts`) ----
+
   /**
    * Iterate every active card, fire its registered save callback
    * tagged with `reason` for the deck-trace ring, flush any pending
@@ -7364,276 +6306,59 @@ export class DeckManager implements IDeckManagerStore {
     void this.teardownSave(reason, { sync: true });
   }
 
+  /** What the teardown-save core reaches on this manager. */
+  private readonly teardownDeps: TeardownSaveDeps = {
+    takePendingLayoutSave: () => this.persistence.takePendingSave(),
+    saveLayout: () => this.saveLayout(),
+    saveCallbackIds: () => this.cardStates.saveCallbackIds(),
+    invokeSaveCallback: (cardId, source) => this.invokeSaveCallback(cardId, source),
+    flushDirtyCardStates: (options) => this.flushDirtyCardStates(options),
+  };
+
   /**
-   * The teardown-save core every teardown-class path runs through.
-   *
-   * Always, in this order: retire the pending debounced layout save
-   * (writing it when one was in flight, or unconditionally when the
-   * caller asks), invoke every registered save callback tagged with
-   * `source`, then flush the dirty card-state bags. The wrappers add
-   * only their own guard semantics — the *guarantee* lives here, once,
-   * so no entry point can hold a partial version of it. `saveAndFlushSync`
-   * used to skip the layout half entirely, which dropped any layout
-   * change still inside its debounce window on ⌘Q.
-   *
-   * `layoutSave: "always"` is for callers that own a whole termination
-   * (reload, quit): the extra write costs nothing on a once-per-exit path
-   * and makes the reported `layoutSaved` mean "the current layout is on
-   * disk". The default `"if-pending"` keeps the frequent teardown signals
-   * (HMR, visibilitychange) from writing a layout that never changed.
-   *
-   * Everything imperative happens synchronously before the first await, so
-   * a `sync` caller on the unload path still gets its XHR writes issued
-   * inline. [L23]; [L10] — per-card capture is dispatched through
-   * `invokeSaveCallback`, never by reaching into card internals.
+   * The teardown-save core every teardown-class path runs through —
+   * see `teardown.teardownSave` for the guarantee and its order.
    */
   private teardownSave(
     source: SaveCallbackSource,
-    options?: { layoutSave?: "if-pending" | "always"; sync?: boolean; force?: boolean },
+    options?: TeardownSaveOptions,
   ): Promise<TeardownSaveResult> {
-    const layoutPending = this.saveTimer !== null;
-    if (this.saveTimer !== null) {
-      window.clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    const layoutPromise =
-      layoutPending || options?.layoutSave === "always"
-        ? this.saveLayout()
-        : Promise.resolve(true);
-
-    // Snapshot the keys first so a callback that unregisters another
-    // card mid-iteration does not confuse the Map iterator.
-    for (const cardId of Array.from(this.saveCallbacks.keys())) {
-      this.invokeSaveCallback(cardId, source);
-    }
-
-    // Drain any prompt append still in the outbox. A `sync` teardown is the
-    // page going away, where a queued fetch would never settle — and a prompt
-    // the user submitted has to reach the ledger before the process does. Runs
-    // after the card callbacks so a submit folded in by `"termination"` is
-    // already queued. [L23]
-    if (options?.sync === true) {
-      flushPromptHistorySync();
-    }
-
-    const cardsPromise = this.flushDirtyCardStates({
-      sync: options?.sync,
-      force: options?.force,
-    });
-
-    return Promise.all([layoutPromise, cardsPromise]).then(([layoutSaved, cards]) => ({
-      layoutSaved,
-      cards,
-    }));
+    return teardown.teardownSave(this.teardownDeps, source, options);
   }
 
   /**
    * The deck's half of an application quit, run to completion before the
-   * host signals any child process.
-   *
-   * Four ordered phases:
-   *
-   *   1. **Interrupt** every session that reports `canInterrupt`, and wait
-   *      for each to settle (bounded). Nothing else may run first: a turn
-   *      that is still streaming when the process group dies is a rug pull,
-   *      and a CASE A interrupt parks the user's un-answered submission in
-   *      `pendingDraftRestore` — which only exists for the capture phase to
-   *      find if the interrupt happened first.
-   *   2. **Capture** through the teardown-save core with source
-   *      `"termination"`, which is the tag that tells a card to fold in
-   *      text it holds outside its visible surface (queued sends, the
-   *      pulled-back submission from phase 1).
-   *   3. **Retry** any card write tugbank rejected, within a bounded
-   *      budget — quit routinely races the supervisor restarting tugcast.
-   *   4. **Report** what actually happened. The host logs the verdict; it
-   *      does not act on it.
-   *
-   * Never rejects and never blocks indefinitely: every wait is bounded and
-   * early-exits, so a quit with nothing live and nothing dirty pays for
-   * none of them. Re-entrant calls join the first run's promise.
-   *
-   * [L23] — this is the transition the whole plan exists to make safe.
+   * host signals any child process — see `teardown.runTerminationPipeline`
+   * for its four phases. Never rejects and never blocks indefinitely.
+   * Re-entrant calls join the first run's promise. [L23]
    */
   prepareForTermination(): Promise<TerminationVerdict> {
     if (this.terminationRun !== null) return this.terminationRun;
-    this.terminationRun = this.runTerminationPipeline();
+    this.terminationRun = teardown.runTerminationPipeline({
+      teardownSave: (source, options) => this.teardownSave(source, options),
+      saveLayout: () => this.saveLayout(),
+      flushDirtyCardStates: (options) => this.flushDirtyCardStates(options),
+      interruptLiveSessions: () => this.interruptLiveSessions(),
+      lockSaves: () => {
+        this.stateFlushed = true;
+      },
+    });
     return this.terminationRun;
   }
 
   private terminationRun: Promise<TerminationVerdict> | null = null;
 
-  private async runTerminationPipeline(): Promise<TerminationVerdict> {
-    const startedAt = Date.now();
-
-    const { interrupted, unacknowledged } = await this.interruptLiveSessions();
-
-    const attempted = new Set<string>();
-    const first = await this.teardownSave("termination", {
-      layoutSave: "always",
-      force: true,
-    });
-    for (const result of first.cards) attempted.add(result.cardId);
-
-    let failedCards = first.cards.filter((r) => !r.ok).map((r) => r.cardId);
-    let layoutSaved = first.layoutSaved;
-    if (failedCards.length > 0 || !layoutSaved) {
-      const retried = await this.retryFailedWrites(attempted, layoutSaved);
-      failedCards = retried.failedCards;
-      layoutSaved = retried.layoutSaved;
-    }
-
-    // Lock the framework against further saves the way `saveAndFlushSync`
-    // does — a late `beforeunload` must not re-open the bags this run
-    // just closed.
-    this.stateFlushed = true;
-
-    return {
-      ok: unacknowledged.length === 0 && failedCards.length === 0 && layoutSaved,
-      interrupted,
-      unacknowledged,
-      flushedCards: attempted.size - failedCards.length,
-      failedCards,
-      layoutSaved,
-      elapsedMs: Date.now() - startedAt,
-    };
-  }
-
   /**
-   * Interrupt every live session and wait for each to settle, up to
-   * {@link TERMINATION_INTERRUPT_AWAIT_MS}.
-   *
-   * Public because it has two callers with the same need and one correct
-   * implementation. The termination pipeline runs it because a quit ends
-   * every turn whether or not anybody says so; the update wizard's *Stop
-   * work in flight* row runs it because the user asked to stop them. A
-   * second copy of "interrupt and wait, bounded" would drift from this one
-   * the first time either changed.
-   *
-   * "Live" is the session's own published `canInterrupt` — [L28]: the
-   * lifecycle owner decides what can be interrupted, and a caller that
-   * re-derived the phase test would drift from it. In particular a
-   * `replaying` session is deliberately excluded: the bracket window owns
-   * the card, nothing durable is at risk (replay re-runs on the next boot),
-   * and `handleInterrupt` has no `replaying` guard — an interrupt sent
-   * there would reset the store to idle mid-replay.
-   *
-   * Settled is `phase ∈ {idle, errored}`: a CASE A interrupt reaches it
-   * synchronously; a CASE B turn reaches it when the wire's
-   * `turn_complete(error)` commits the interrupted entry. Every
-   * subscription is released on acknowledgment *and* on expiry ([L27]).
+   * Interrupt every live session and wait for each to settle, bounded.
+   * Public because the update wizard's *Stop work in flight* row runs it
+   * as well as the termination pipeline; one implementation, in
+   * `teardown.interruptLiveSessions`.
    */
-  async interruptLiveSessions(): Promise<{
+  interruptLiveSessions(): Promise<{
     interrupted: string[];
     unacknowledged: string[];
   }> {
-    const live = cardServicesStore
-      .allServices()
-      .map((services) => services.codeSessionStore)
-      .filter((store) => store.getSnapshot().canInterrupt);
-
-    if (live.length === 0) {
-      return Promise.resolve({ interrupted: [], unacknowledged: [] });
-    }
-
-    return new Promise((resolve) => {
-      const interrupted: string[] = [];
-      const pending = new Map<CodeSessionStore, () => void>();
-      let timer: number | null = null;
-
-      const settled = (store: CodeSessionStore): boolean => {
-        const phase = store.getSnapshot().phase;
-        return phase === "idle" || phase === "errored";
-      };
-
-      const finish = (): void => {
-        if (timer !== null) {
-          window.clearTimeout(timer);
-          timer = null;
-        }
-        const unacknowledged: string[] = [];
-        for (const [store, unsubscribe] of pending) {
-          unsubscribe();
-          unacknowledged.push(store.getSnapshot().tugSessionId);
-        }
-        pending.clear();
-        resolve({ interrupted, unacknowledged });
-      };
-
-      const acknowledge = (store: CodeSessionStore): void => {
-        const unsubscribe = pending.get(store);
-        if (unsubscribe === undefined) return;
-        unsubscribe();
-        pending.delete(store);
-        interrupted.push(store.getSnapshot().tugSessionId);
-        if (pending.size === 0) finish();
-      };
-
-      // Subscribe to every store before interrupting any of them: a CASE A
-      // interrupt settles synchronously inside `interrupt()`, so a
-      // subscribe-then-interrupt-per-store loop would let the first store's
-      // acknowledgment see an incomplete pending set and finish early.
-      for (const store of live) {
-        pending.set(
-          store,
-          store.subscribe(() => {
-            if (settled(store)) acknowledge(store);
-          }),
-        );
-      }
-
-      // Preserve each session's queued text before interrupting: a CASE A
-      // interrupt clears `queuedSends`, so the capture phase would
-      // otherwise find an empty queue for exactly the sessions that had
-      // one.
-      for (const store of live) {
-        store.stashUnsentText();
-        store.interrupt();
-      }
-
-      // Sweep for anything that settled without notifying us in a way we
-      // observed (a synchronous settle during `interrupt()` is handled by
-      // the subscription; this covers the rest).
-      for (const store of Array.from(pending.keys())) {
-        if (settled(store)) acknowledge(store);
-      }
-
-      if (pending.size === 0) return;
-      timer = window.setTimeout(finish, TERMINATION_INTERRUPT_AWAIT_MS);
-    });
-  }
-
-  /**
-   * Re-attempt whatever tugbank rejected — card bags and the layout alike —
-   * until it all lands or the budget runs out.
-   *
-   * The realistic reason a write fails at quit is that tugcast is
-   * mid-restart (the supervisor's first backoff step is a second), so the
-   * same outage takes down every write in the run and one retry pass
-   * recovers all of them. `flushDirtyCardStates` re-marks a failed card
-   * dirty, so each pass naturally targets exactly the outstanding cards;
-   * the layout has no dirty bit, so it is simply re-sent until it sticks.
-   *
-   * Returns what is still failing when the budget expired, for the verdict
-   * to report by name.
-   */
-  private async retryFailedWrites(
-    attempted: Set<string>,
-    layoutAlreadySaved: boolean,
-  ): Promise<{ layoutSaved: boolean; failedCards: string[] }> {
-    const deadline = Date.now() + TERMINATION_FLUSH_RETRY_BUDGET_MS;
-    let layoutSaved = layoutAlreadySaved;
-    let failed: string[] = [];
-    while (Date.now() < deadline) {
-      await new Promise<void>((r) =>
-        window.setTimeout(() => r(), TERMINATION_FLUSH_RETRY_INTERVAL_MS),
-      );
-      if (!layoutSaved) layoutSaved = await this.saveLayout();
-      const results = await this.flushDirtyCardStates({ force: true });
-      for (const result of results) attempted.add(result.cardId);
-      failed = results.filter((r) => !r.ok).map((r) => r.cardId);
-      if (layoutSaved && failed.length === 0) return { layoutSaved, failedCards: [] };
-    }
-    return { layoutSaved, failedCards: failed };
+    return teardown.interruptLiveSessions();
   }
 
   saveAndFlushSync(): void {
@@ -7654,126 +6379,34 @@ export class DeckManager implements IDeckManagerStore {
     this.reloadPending = true;
   }
 
-  // ---- Test-mode state seeding ([D02]) ----
+  // ---- Test-mode state seeding ([D02], `deck-manager-test-seed.ts`) ----
 
   /**
    * Replace the current `DeckState` atomically, merge per-card state
-   * bags into the in-memory cache, and optionally activate a focused
-   * card. The single source of state for a test-mode session ([D02]):
-   * harness authors describe the desired axis state; this method
-   * installs it in one commit.
-   *
-   * Semantics:
-   * - `this.deckState` is replaced with `args.state` verbatim (no
-   *   merge with the previous state). The caller is responsible for
-   *   passing a fully-formed `DeckState`.
-   * - The space list is untouched: a seed replaces the ACTIVE space's deck,
-   *   and every parked space stays where it is. A manager holding one space
-   *   keeps that space's id, so a seed does not look like a new workspace to
-   *   anything reading the list.
-   * - `args.cardStates` (if present) is merged into
-   *   `this.cardStateCache`; existing entries for other card ids are
-   *   preserved so repeated `seedDeckState` calls can layer state.
-   * - `args.focusCardId` (if present) drives the cold-boot restore
-   *   path — `activateCard(id)` runs after the state commit when the
-   *   card exists in the new state.
-   *
-   * Callable in non-test-mode too so harness-authored scenarios can
-   * exercise the same entry point inside unit tests that don't
-   * construct a whole bridge. The I/O guards elsewhere ensure a
-   * non-test-mode caller still routes writes to tugbank normally —
-   * `seedDeckState` itself issues no tugbank I/O.
-   *
-   * Subscribers are notified exactly once via `this.notify()` at the
-   * end of the commit; `useSyncExternalStore` consumers see a single
-   * state transition, not a series of partial ones.
+   * bags into the cache, and optionally activate a focused card — the
+   * harness's one-commit seed. The work is `deck-manager-test-seed.ts`'s;
+   * this keeps the name every harness and test calls.
    */
-  seedDeckState(args: {
-    state: DeckState;
-    cardStates?: Map<string, CardStateBag>;
-    focusCardId?: string;
-  }): void {
-    // A seed replaces the deck whole, so nothing departing from the old one
-    // may be composed into it.
-    this._reapDepartures();
-
-    // Clear construction lifecycle memory for cards that are leaving
-    // the deck so a later `seedDeckState` call that re-introduces an
-    // id does not double-fire construction. Fresh-card construction
-    // below picks up the id set that resulted from the replace.
-    const previousCardIds = new Set(this.deckState.cards.map((c) => c.id));
-    const nextCardIds = new Set(args.state.cards.map((c) => c.id));
-
-    // Atomic state replace: one assignment, one notify, one snapshot
-    // transition for useSyncExternalStore consumers. hasFocus is
-    // session-only — the caller supplies it in `args.state`.
-    //
-    // The state arrives as JSON across the test bridge, so its type is a
-    // claim rather than a guarantee: a seed that predates `imposition`
-    // omits it. Fill the default rather than letting `undefined` reach the
-    // render, the same posture `deserialize` takes at the wire boundary.
-    this.deckState = {
-      ...args.state,
-      imposition: args.state.imposition ?? {
-        kind: DEFAULT_IMPOSITION_KIND,
-        sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
+  seedDeckState(args: SeedDeckStateArgs): void {
+    seedDeckState(
+      {
+        reapDepartures: () => this._reapDepartures(),
+        deck: () => this.deckState,
+        setDeck: (state) => {
+          this.deckState = state;
+        },
+        reflectAppActive: (active) => this.reflectAppActive(active),
+        seedCardState: (cardId, bag) => this.cardStates.seed(cardId, bag),
+        notifyCardDidFinishConstruction: (cardId) =>
+          this.cardLifecycle.notifyCardDidFinishConstruction(cardId),
+        discardComponentStateRegistry: (cardId) => this.componentStateRegistries.discard(cardId),
+        notify: (caller) => this.notify(caller),
+        activateCard: (cardId) => {
+          this.activateCard(cardId);
+        },
       },
-    };
-
-    // Re-project the seeded `hasFocus` onto `data-app-active`. The
-    // constructor seeds the DOM bit from `document.hasFocus()`, but a
-    // seed supplies its own `hasFocus` (tests typically `true`); without
-    // this the projection stays stuck at the construction-time reading,
-    // leaving `data-app-active` out of sync with `deckState.hasFocus`.
-    // `setHasFocus` can't recover it (it early-returns when the value is
-    // unchanged), so the focus-language ring on a foregrounded seed would
-    // stay quiet. Reflect here so the DOM matches the seeded state.
-    this.reflectAppActive(this.deckState.hasFocus);
-
-    if (args.cardStates) {
-      for (const [cardId, bag] of args.cardStates) {
-        this.cardStateCache.set(cardId, bag);
-      }
-    }
-
-    // Fire construction for every card that just entered the deck so
-    // lifecycle subscribers' `constructedCards` set matches reality
-    // (mirrors the constructor's post-load fan-out in the normal boot
-    // path).
-    for (const card of args.state.cards) {
-      if (!previousCardIds.has(card.id)) {
-        this.cardLifecycle.notifyCardDidFinishConstruction(card.id);
-      }
-    }
-
-    // Discard per-card component state preservation registries for
-    // cards that left the deck so closures don't outlive the card.
-    // Explicit cleanup, symmetric with `_removeCard` / `_closePane`.
-    for (const prevId of previousCardIds) {
-      if (!nextCardIds.has(prevId)) {
-        // discardComponentStatePreservationRegistry is private; inline
-        // the equivalent cleanup so we don't widen the surface.
-        const registry = this.componentStatePreservationRegistries.get(prevId);
-        if (registry) {
-          registry.clear();
-          this.componentStatePreservationRegistries.delete(prevId);
-        }
-      }
-    }
-
-    this.notify("seedDeckState");
-
-    // Cold-boot restore: after the state commit, activate the
-    // requested focus card. `activateCard` is the single entry point
-    // for z-order + lifecycle + responder-chain updates ([D03]).
-    if (args.focusCardId !== undefined) {
-      const exists = this.deckState.cards.some(
-        (c) => c.id === args.focusCardId,
-      );
-      if (exists) {
-        this.activateCard(args.focusCardId);
-      }
-    }
+      args,
+    );
   }
 
   // ---- Stack/card mutators () ----
@@ -7816,7 +6449,7 @@ export class DeckManager implements IDeckManagerStore {
     // Seed the bag BEFORE construction so the card mounts through the
     // restore path with the payload in hand (mirrors `addCard`).
     if (initialContent !== undefined) {
-      this.cardStateCache.set(cardId, { content: initialContent });
+      this.cardStates.seed(cardId, { content: initialContent });
     }
 
     const isActiveStack = paneId === this.deckState.activePaneId;
@@ -8469,137 +7102,30 @@ export class DeckManager implements IDeckManagerStore {
     });
   }
 
-  // ---- Fold ----
+  // ---- Fold (`fold.ts`) ----
 
   /**
-   * Fold or show one content pane.
-   *
-   * The flag is the pane's ([P01]): a pane is one box shared by its tabs, and
-   * folded describes the box. This is the one writer, and it lands in ONE
-   * commit — the flag, the bullseye clear, and the reveal together — because
-   * the settle is FLIP and a gesture that notifies twice offers that
-   * measurement a half-changed deck the first time. Same reasoning as
-   * {@link setCardWidths}, and the same `retuneRails: false`: folding a
-   * card never mentioned the rails, so it may not spend the user's rail width
-   * on a re-solve.
-   *
-   * A sidebar pane is refused with a warning, as `_setPaneWidth` refuses one:
-   * a rail's height is the allocator's and it wears no masthead to fold
-   * into.
-   *
-   * Showing a card in a WALL folds its siblings ([P06]) and scrolls the column
-   * to put the opened card under its neighbour above ([B07]) — both in the
-   * same commit, for the same one-notify reason. A split column with nothing
-   * folded in it is not a wall and is left alone.
+   * What the fold gesture reaches on this manager: the imposition deps —
+   * so its bullseye clear is the same `_clearBullseyeFor` forwarder — plus
+   * the rail lookup, the wall reveal, and the gesture stamp.
    */
+  private readonly foldDeps: FoldDeps = {
+    ...this.impositionDeps,
+    sidebarComponentIdOfPane: (paneId) => this._sidebarComponentIdOfPane(paneId),
+    wallRevealFor: (paneId, panes, slot) => this._wallRevealFor(paneId, panes, slot),
+    stampGesture: (at) => {
+      this.impositionGestureAt = at;
+    },
+  };
+
+  /** Fold or show one content pane — see `fold.setPaneFolded`. */
   setPaneFolded(paneId: string, folded: boolean): void {
-    // The gesture origin the settle's frame record measures from ([P02]).
-    // Taken HERE so the number contains the mutator's own preamble — the
-    // `_placeRunHeight`, the `deckColumnsOf` and the wall fold below are all
-    // time the user waited through — and published only at the commit, so
-    // none of the three refusals between here and there leaves a stamp behind
-    // for the next settle to read as its own.
-    const gestureAt = performance.now();
-    // The bench's origin for the fold's PREAMBLE ([B08]). `tug:arm-end` is
-    // the canvas arming, and everything before it on a fold read as an
-    // unattributed 11–12 ms on the click-task timeline: the mutator's own
-    // work, the commit, and the deferred notify all landed in one anonymous
-    // stretch. A mark at the entry gives that stretch a left edge, so the
-    // gap can be split into "before the store wrote" and "after it did".
-    perfMark("tug:set-pane-folded");
-    const pane = this.deckState.panes.find((p) => p.id === paneId);
-    if (!pane) return;
-    if (this._sidebarComponentIdOfPane(paneId) !== undefined) {
-      console.warn(
-        `setPaneFolded: pane "${paneId}" hosts a sidebar card; rails do not fold`,
-      );
-      return;
-    }
-
-    let panes = panesWithFolded(this.deckState.panes, paneId, folded);
-    // Identity means the pane already read the way it was asked to read.
-    if (panes === this.deckState.panes) return;
-
-    // Opening into a wall: fold the siblings, and take the reveal off the new
-    // panes rather than the old ones — the strip this scrolls is the one the
-    // fold just made, and computing it from the pre-fold heights would land
-    // the column at a coordinate that no longer exists.
-    let columnReveal: { slot: number; offset: number } | undefined;
-    if (!folded) {
-      const run = this._placeRunHeight("column");
-      const column = deckColumnsOf(
-        { ...this.deckState, panes },
-        run > 0 ? run : null,
-      ).find((c) => c.members.includes(paneId));
-      if (column !== undefined && columnDrawsSplit(column)) {
-        // The reveal is owed by the WALL, not by the fold: a settled wall
-        // whose siblings are already folded has nothing to write and still
-        // has to scroll.
-        if (columnIsWall(panes, paneId, column.members)) {
-          panes = panesWithWallFolded(panes, paneId, column.members);
-          columnReveal = this._wallRevealFor(paneId, panes, column.slot);
-        }
-      }
-    }
-
-    // The pane's height changes, so its bullseye ends — honored explicitly
-    // because this path builds its pane array inline and hands it to
-    // `_commitImposition`, bypassing `movePane`.
-    this._clearBullseyeFor(paneId);
-    this.impositionGestureAt = gestureAt;
-    this._commitImposition(this.deckState.imposition, panes, {
-      retuneRails: false,
-      revealPaneId: paneId,
-      ...(columnReveal !== undefined ? { columnReveal } : {}),
-    });
+    fold.setPaneFolded(this.foldDeps, paneId, folded);
   }
 
-  /**
-   * The card-addressed twin of {@link setPaneFolded}: resolve the hosting
-   * pane and fold that. This is what the action handler calls, because
-   * every door to fold — the control, the menu item, the chord —
-   * knows which card it is about and not which pane holds it.
-   */
+  /** The card-addressed twin of {@link setPaneFolded} — see `fold.setCardFolded`. */
   setCardFolded(cardId: string, folded: boolean): void {
-    const pane = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
-    if (!pane) return;
-    this.setPaneFolded(pane.id, folded);
-  }
-
-  // ---- Cascade positioning ----
-
-  private nextCascadePosition(stackSize: { width: number; height: number }): { x: number; y: number } {
-    const canvasWidth = this.container.clientWidth || 800;
-    const canvasHeight = this.container.clientHeight || 600;
-
-    // Classic macOS cascade: there is a prime ("zero") slot near the
-    // top-left and a sequence of slots stepping down-and-to-the-right
-    // from it. A new card fills the FIRST open slot in that sequence —
-    // it does not just keep stepping past freed positions — so closing
-    // a card opens its slot for the next one. A slot counts as occupied
-    // when an existing pane's top-left sits within CASCADE_SLOP of it,
-    // so the match is fuzzy rather than pixel-exact.
-    const CASCADE_ORIGIN = 10;
-    const CASCADE_SLOP = CASCADE_STEP / 2;
-
-    const occupied = this.deckState.panes.map((pane) => pane.position);
-    const slotTaken = (x: number, y: number): boolean =>
-      occupied.some((p) => Math.abs(p.x - x) < CASCADE_SLOP && Math.abs(p.y - y) < CASCADE_SLOP);
-
-    for (let i = 0; ; i += 1) {
-      const x = CASCADE_ORIGIN + CASCADE_STEP * i;
-      const y = CASCADE_ORIGIN + CASCADE_STEP * i;
-
-      // Walked off the canvas before finding a gap: restart the cascade
-      // at the prime slot (the next card sits atop the first one).
-      if (x + stackSize.width > canvasWidth || y + stackSize.height > canvasHeight) {
-        return { x: CASCADE_ORIGIN, y: CASCADE_ORIGIN };
-      }
-
-      if (!slotTaken(x, y)) {
-        return { x, y };
-      }
-    }
+    fold.setCardFolded(this.foldDeps, cardId, folded);
   }
 
   // ---- Layout Persistence ----
@@ -8611,7 +7137,7 @@ export class DeckManager implements IDeckManagerStore {
    * `dev.tugapp.deck.state` row ([P02]): one workspace per focused card is the
    * only shape that can answer "where was I in THIS workspace", and a single
    * global row could not. There is no tugbank write of its own to guard —
-   * `scheduleSave` goes through `putLayoutGuarded`, which carries the
+   * `scheduleSave` goes through `LayoutPersistence.putLayoutGuarded`, which carries the
    * test-mode bypass and the `__tugPersistInTestMode` escape hatch for the
    * cold-boot harness tests ([D02]).
    *
@@ -8620,107 +7146,28 @@ export class DeckManager implements IDeckManagerStore {
    * responder flips, which have no other reason to know about spaces.
    */
   private putFocusedCardIdGuarded(focusedCardId: string): void {
-    const space = this.spaces.find((s) => s.id === this.activeSpaceId);
-    if (space === undefined) return;
-    if (space.focusedCardId === focusedCardId) return;
-    space.focusedCardId = focusedCardId;
-    this.scheduleSave();
+    if (this.spacesStore.setActiveFocusedCard(focusedCardId)) this.scheduleSave();
   }
 
   /**
-   * `putLayout` with a test-mode bypass. Resolves the write's success
-   * flag, or `true` under the bypass — a suppressed write is not a
-   * failed one, and teardown callers read this to decide whether the
-   * layout actually landed. See {@link putFocusedCardIdGuarded} for
-   * the `__tugPersistInTestMode` escape hatch.
-   */
-  private putLayoutGuarded(layout: object): Promise<boolean> {
-    if (this.testMode && !shouldPersistInTestMode()) return Promise.resolve(true);
-    return putLayout(layout);
-  }
-
-  /**
-   * `putCardState` with a test-mode bypass. Resolves the write's
-   * success flag, or `true` under the bypass so `flushDirtyCardStates`
-   * can gather the batch without special-casing the empty-network
-   * branch. See {@link putFocusedCardIdGuarded} for the
-   * `__tugPersistInTestMode` escape hatch.
-   */
-  private putCardStateGuarded(
-    cardId: string,
-    bag: CardStateBag,
-    options?: { keepalive?: boolean; sync?: boolean },
-  ): Promise<boolean> {
-    if (this.testMode && !shouldPersistInTestMode()) return Promise.resolve(true);
-    return putCardState(cardId, bag, options);
-  }
-
-  /**
-   * Read every space out of the boot layout, seed {@link spaces} and
-   * {@link activeSpaceId}, and return the ACTIVE space's deck — which the
-   * constructor assigns to {@link deckState}.
-   *
-   * `filterRegisteredCards` runs over every space's deck, not only the active
-   * one: a parked space whose deck names a component this build no longer
-   * registers would otherwise carry the bad card until the day it is activated
-   * and then fail there, a long way from the boot that read it (brief [F09]).
+   * Seed {@link spacesStore} from the boot layout and
+   * return the ACTIVE space's deck — which the constructor assigns to
+   * {@link deckState}. The parse lives in `loadBootLayout`; what it found is
+   * applied here, where the spaces live.
    */
   private loadLayout(): DeckState {
-    const canvasWidth = this.container.clientWidth || 800;
-    const canvasHeight = this.container.clientHeight || 600;
-
-    let loaded: SpacesState | null = null;
-
-    if (this.initialLayout !== null) {
-      try {
-        const json = JSON.stringify(this.initialLayout);
-        loaded = deserialize(
-          json,
-          canvasWidth,
-          canvasHeight,
-          this.fallbackTheme,
-        );
-      } catch (e) {
-        console.warn("DeckManager: failed to deserialize initialLayout from API, falling back", e);
-      }
-      this.initialLayout = null;
-    }
-
-    if (loaded === null) {
-      this.factoryFresh = this.bootStateHonored;
-      const id = crypto.randomUUID();
-      this.spaces = [
-        { id, name: MAIN_SPACE_NAME, deck: null, theme: this.initialTheme },
-      ];
-      this.activeSpaceId = id;
-      this.mountedSpaceIds = new Set([id]);
-      this.invalidateSpacesSnapshot();
-      return this.filterRegisteredCards(buildDefaultLayout());
-    }
-
-    const activeIndex = Math.max(
-      0,
-      loaded.spaces.findIndex((s) => s.id === loaded.activeSpaceId),
-    );
-    this.spaces = loaded.spaces.map((space, i) => ({
-      id: space.id,
-      name: space.name,
-      deck: i === activeIndex ? null : this.filterRegisteredCards(space.deck),
-      ...(space.focusedCardId !== undefined
-        ? { focusedCardId: space.focusedCardId }
-        : {}),
-      ...(space.theme !== undefined ? { theme: space.theme } : {}),
-    }));
-    this.activeSpaceId = this.spaces[activeIndex].id;
-    this.mountedSpaceIds = new Set([this.activeSpaceId]);
-    this.invalidateSpacesSnapshot();
-    // Every workspace's theme is loaded now, so that switching to one never
-    // waits on a stylesheet.
-    for (const space of this.spaces) {
-      if (space.theme !== undefined) preloadTheme(space.theme);
-    }
-
-    return this.filterRegisteredCards(loaded.spaces[activeIndex].deck);
+    const boot = loadBootLayout({
+      initialLayout: this.initialLayout,
+      canvasWidth: this.container.clientWidth || 800,
+      canvasHeight: this.container.clientHeight || 600,
+      initialTheme: this.initialTheme,
+      fallbackTheme: this.fallbackTheme,
+      filterRegisteredCards: (state) => this.filterRegisteredCards(state),
+    });
+    this.initialLayout = null;
+    if (boot.fresh) this.factoryFresh = this.bootStateHonored;
+    this.spacesStore.seed(boot.spaces, boot.activeSpaceId);
+    return boot.deck;
   }
 
   /**
@@ -8728,23 +7175,11 @@ export class DeckManager implements IDeckManagerStore {
    * from the live {@link deckState} — the one place it lives.
    */
   private spacesState(): SpacesState {
-    return {
-      spaces: this.spaces.map((space) => ({
-        id: space.id,
-        name: space.name,
-        deck: space.deck ?? this.deckState,
-        ...(space.focusedCardId !== undefined
-          ? { focusedCardId: space.focusedCardId }
-          : {}),
-        ...(space.theme !== undefined ? { theme: space.theme } : {}),
-      })),
-      activeSpaceId: this.activeSpaceId,
-    };
+    return this.spacesStore.persistable(this.deckState);
   }
 
   private saveLayout(): Promise<boolean> {
-    const serialized = serialize(this.spacesState());
-    return this.putLayoutGuarded(serialized);
+    return this.persistence.saveLayout();
   }
 
   private scheduleSave(): void {
@@ -8754,13 +7189,7 @@ export class DeckManager implements IDeckManagerStore {
       this.batchPendingSave = true;
       return;
     }
-    if (this.saveTimer !== null) {
-      window.clearTimeout(this.saveTimer);
-    }
-    this.saveTimer = window.setTimeout(() => {
-      this.saveLayout();
-      this.saveTimer = null;
-    }, SAVE_DEBOUNCE_MS);
+    this.persistence.scheduleSave();
   }
 
   /**
@@ -8780,17 +7209,8 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   destroy(): void {
-    if (this.saveTimer !== null) {
-      window.clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-      this.saveLayout();
-    }
-
-    if (this.cardStateSaveTimer !== null) {
-      window.clearTimeout(this.cardStateSaveTimer);
-      this.cardStateSaveTimer = null;
-      this.flushDirtyCardStates();
-    }
+    this.persistence.dispose();
+    this.cardStates.dispose();
 
     if (this.reactRoot) {
       this.reactRoot.unmount();

@@ -57,6 +57,7 @@
  * precedent: it is already the second widest fan-out in the corpus and the
  * ratchet lets recorded debt be paid down rather than refinanced.
  *
+ * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/spaces.ts
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/tugways/block-reorder.ts

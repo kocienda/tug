@@ -28,6 +28,7 @@
  * allocator wanted the width all along; the slot move simply declined to take
  * it.
  *
+ * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/action-dispatch.ts
  */

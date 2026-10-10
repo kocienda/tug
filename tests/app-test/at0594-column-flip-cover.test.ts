@@ -40,6 +40,7 @@
  * records the survivor's rect through each settle as `note()` lines so the
  * fused beat can be read from the report.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/cut-detector.ts
  */

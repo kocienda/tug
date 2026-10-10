@@ -21,6 +21,7 @@
  * is quiet. Unfixed, the rail re-shown most of the way out cut 182 px in one
  * frame.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/sidebar-toggle.ts
  */

@@ -125,6 +125,7 @@
  * the settle engine's arm, and the hump's size, which is the constant in
  * `layout-imposer.ts`; all three are named below.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/deck-manager-store.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/layout-imposer.ts

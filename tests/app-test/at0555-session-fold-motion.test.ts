@@ -82,6 +82,8 @@
  * at0551 drives the same effect's output from a narrower file, which is where
  * a break in it would surface.
  *
+ * @covers tugdeck/src/components/chrome/settle-plan.ts
+ * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/layout-imposer.ts

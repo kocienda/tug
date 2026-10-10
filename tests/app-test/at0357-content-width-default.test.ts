@@ -31,6 +31,7 @@
  * canvas the harness can launch at; wide is the same code path with a bigger
  * number, and asserting it would only be asserting the canvas.
  *
+ * @covers tugdeck/src/cascade.ts
  * @covers tugdeck/src/components/layout/layout-card.tsx
  * @covers tugdeck/src/components/layout/layout-miniature.tsx
  * @covers tugdeck/src/deck-manager.ts
