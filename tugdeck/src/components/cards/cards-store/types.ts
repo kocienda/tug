@@ -61,6 +61,10 @@ export interface CardsSnapshot {
    * a migration.
    */
   cardsGroupOrder: readonly string[];
-  /** Groups the user has collapsed. */
+  /**
+   * Groups the user has collapsed, one entry per workspace and group — the
+   * run key `groupRunKey(spaceId, group)`. A fold is per workspace, so the
+   * same group can be open in one and folded in another.
+   */
   collapsedCardGroups: readonly string[];
 }

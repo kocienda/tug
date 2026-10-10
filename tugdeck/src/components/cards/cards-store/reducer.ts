@@ -10,7 +10,10 @@
  * @module components/cards/cards-store/reducer
  */
 
-import type { CardsGroup } from "@/components/cards/cards-groups";
+import {
+  spaceOfRunKey,
+  type CardsGroup,
+} from "@/components/cards/cards-groups";
 import type { CardsRowOrder, CardsSnapshot } from "./types";
 
 /**
@@ -33,8 +36,14 @@ export type CardsEvent =
   | { type: "set_cards_group_order"; order: readonly string[] }
   | {
       type: "set_cards_group_collapsed";
-      group: CardsGroup;
+      /** The workspace-scoped run key, `groupRunKey(spaceId, group)`. */
+      key: string;
       collapsed: boolean;
+    }
+  | {
+      /** Drop every fold whose workspace is not in `live`. */
+      type: "prune_collapsed_card_groups";
+      live: ReadonlySet<string>;
     }
   | {
       /**
@@ -138,10 +147,20 @@ export function reduce(state: CardsState, event: CardsEvent): CardsState {
     case "set_cards_group_collapsed": {
       const next = withMembership(
         state.collapsedCardGroups,
-        event.group,
+        event.key,
         event.collapsed,
       );
       if (next === state.collapsedCardGroups) return state;
+      return { ...state, collapsedCardGroups: next };
+    }
+
+    case "prune_collapsed_card_groups": {
+      // A key whose workspace is gone — or a bare group name from before the
+      // fold was per workspace — has nothing to fold, so it goes.
+      const next = state.collapsedCardGroups.filter((key) =>
+        event.live.has(spaceOfRunKey(key)),
+      );
+      if (next.length === state.collapsedCardGroups.length) return state;
       return { ...state, collapsedCardGroups: next };
     }
 

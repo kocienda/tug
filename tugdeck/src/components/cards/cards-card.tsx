@@ -551,7 +551,7 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
         <BlockFoldCue
           className="cards-header-fold"
           collapsed={row.collapsed}
-          onToggle={() => ctx.onToggleGroup(row.group)}
+          onToggle={() => ctx.onToggleGroup(row.spaceId, row.group)}
           collapsedLabel="Expand"
           expandedLabel="Collapse"
           ariaLabelExpand={`Expand ${title}`}
@@ -1264,10 +1264,19 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     [chain],
   );
 
-  const onToggleGroup = useCallback((group: CardsGroup): void => {
-    const collapsed = cardsStore.getSnapshot().collapsedCardGroups;
-    cardsStore.setCardGroupCollapsed(group, !collapsed.includes(group));
-  }, []);
+  // A group folds in ITS workspace only: the collapsed set holds run keys, so
+  // folding Sessions here leaves every other workspace's Sessions as it was.
+  const onToggleGroup = useCallback(
+    (spaceId: string, group: CardsGroup): void => {
+      const collapsed = cardsStore.getSnapshot().collapsedCardGroups;
+      cardsStore.setCardGroupCollapsed(
+        spaceId,
+        group,
+        !collapsed.includes(groupRunKey(spaceId, group)),
+      );
+    },
+    [],
+  );
 
   // The fold cue on any workspace's header. Every workspace folds, the active
   // one included ([B02]), so there is no case to special-case: the store holds
@@ -1567,7 +1576,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         return;
       }
       if (row.type === "group-header") {
-        onToggleGroup(row.group);
+        onToggleGroup(row.spaceId, row.group);
         return;
       }
       // The `None` row fronts no card, so there is nothing to activate. The

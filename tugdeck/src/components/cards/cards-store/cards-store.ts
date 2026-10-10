@@ -36,7 +36,7 @@ import {
   type CardsState,
 } from "./reducer";
 import type { CardsGroup } from "@/components/cards/cards-groups";
-import { GROUP_ORDER } from "@/components/cards/cards-groups";
+import { GROUP_ORDER, groupRunKey } from "@/components/cards/cards-groups";
 import {
   CARDS_DOMAIN,
   CARDS_KEYS,
@@ -167,10 +167,29 @@ class CardsStore {
     this._dispatch({ type: "set_cards_group_order", order });
   };
 
-  /** Expand/collapse one group. Persists. */
-  setCardGroupCollapsed = (group: CardsGroup, collapsed: boolean): void => {
+  /** Expand/collapse one group in one workspace. Persists. */
+  setCardGroupCollapsed = (
+    spaceId: string,
+    group: CardsGroup,
+    collapsed: boolean,
+  ): void => {
     this._ensureInitialized();
-    this._dispatch({ type: "set_cards_group_collapsed", group, collapsed });
+    this._dispatch({
+      type: "set_cards_group_collapsed",
+      key: groupRunKey(spaceId, group),
+      collapsed,
+    });
+  };
+
+  /**
+   * Forget the folds of every workspace not in `live`. Persists, and only when
+   * something was dropped. An empty `live` is a deck store that has not
+   * answered yet, not a deck with no workspaces, so it prunes nothing.
+   */
+  pruneCollapsedCardGroups = (live: ReadonlySet<string>): void => {
+    if (live.size === 0) return;
+    this._ensureInitialized();
+    this._dispatch({ type: "prune_collapsed_card_groups", live });
   };
 
   /**

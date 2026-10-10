@@ -46,7 +46,8 @@ export interface CardsCellContextValue {
     group: CardsGroup,
     event: React.PointerEvent,
   ) => void;
-  onToggleGroup: (group: CardsGroup) => void;
+  /** A group's fold cue. Scoped to its workspace: the fold is per workspace. */
+  onToggleGroup: (spaceId: string, group: CardsGroup) => void;
   /** A workspace header is its run's drag handle ([P10]). */
   onSpacePointerDown: (spaceId: string, event: React.PointerEvent) => void;
   /** The fold cue on an inactive workspace's header ([P09]). */

@@ -102,3 +102,8 @@ export function groupRunKey(spaceId: string, group: CardsGroup): string {
 export function groupOfRunKey(runKey: string): CardsGroup {
   return runKey.slice(runKey.lastIndexOf(":") + 1) as CardsGroup;
 }
+
+/** The workspace half of a {@link groupRunKey}; empty for a bare group name. */
+export function spaceOfRunKey(runKey: string): string {
+  return runKey.slice(0, Math.max(0, runKey.lastIndexOf(":")));
+}

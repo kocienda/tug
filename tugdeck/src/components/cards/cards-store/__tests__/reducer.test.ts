@@ -101,21 +101,21 @@ describe("CardsStore reducer — set_cards_group_collapsed", () => {
   it("collapsing adds the group", () => {
     const next = reduce(fresh(), {
       type: "set_cards_group_collapsed",
-      group: "tools",
+      key: "s1:tools",
       collapsed: true,
     });
-    expect(next.collapsedCardGroups).toEqual(["tools"]);
+    expect(next.collapsedCardGroups).toEqual(["s1:tools"]);
   });
 
   it("expanding removes it", () => {
     const collapsed = reduce(fresh(), {
       type: "set_cards_group_collapsed",
-      group: "tools",
+      key: "s1:tools",
       collapsed: true,
     });
     const next = reduce(collapsed, {
       type: "set_cards_group_collapsed",
-      group: "tools",
+      key: "s1:tools",
       collapsed: false,
     });
     expect(next.collapsedCardGroups).toEqual([]);
@@ -124,13 +124,13 @@ describe("CardsStore reducer — set_cards_group_collapsed", () => {
   it("idempotent collapse is a no-op (same-ref)", () => {
     const a = reduce(fresh(), {
       type: "set_cards_group_collapsed",
-      group: "files",
+      key: "s1:files",
       collapsed: true,
     });
     expect(
       reduce(a, {
         type: "set_cards_group_collapsed",
-        group: "files",
+        key: "s1:files",
         collapsed: true,
       }),
     ).toBe(a);
@@ -140,10 +140,35 @@ describe("CardsStore reducer — set_cards_group_collapsed", () => {
     const before = fresh();
     const next = reduce(before, {
       type: "set_cards_group_collapsed",
-      group: "files",
+      key: "s1:files",
       collapsed: true,
     });
     expect(next.cardsRowOrder).toBe(before.cardsRowOrder);
+  });
+});
+
+describe("CardsStore reducer — prune_collapsed_card_groups", () => {
+  it("drops the folds of a workspace that is gone, and bare group names", () => {
+    let s = fresh();
+    for (const key of ["s1:files", "gone:tools", "sessions"]) {
+      s = reduce(s, { type: "set_cards_group_collapsed", key, collapsed: true });
+    }
+    const next = reduce(s, {
+      type: "prune_collapsed_card_groups",
+      live: new Set(["s1"]),
+    });
+    expect(next.collapsedCardGroups).toEqual(["s1:files"]);
+  });
+
+  it("a prune that drops nothing is a no-op (same-ref)", () => {
+    const s = reduce(fresh(), {
+      type: "set_cards_group_collapsed",
+      key: "s1:files",
+      collapsed: true,
+    });
+    expect(
+      reduce(s, { type: "prune_collapsed_card_groups", live: new Set(["s1"]) }),
+    ).toBe(s);
   });
 });
 

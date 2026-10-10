@@ -76,7 +76,7 @@ describe("CardsStore — persistence", () => {
   });
 
   it("setCardGroupCollapsed PUTs the collapsed-group json array", async () => {
-    cardsStore.setCardGroupCollapsed("tools", true);
+    cardsStore.setCardGroupCollapsed("s1", "tools", true);
     await Promise.resolve();
     const put = captured.find(
       (c) =>
@@ -84,11 +84,11 @@ describe("CardsStore — persistence", () => {
         c.url.endsWith(`/${CARDS_KEYS.CARDS_COLLAPSED_GROUPS}`),
     );
     expect(put).toBeDefined();
-    expect(put!.body).toEqual({ kind: "json", value: ["tools"] });
+    expect(put!.body).toEqual({ kind: "json", value: ["s1:tools"] });
   });
 
   it("a no-op mutation issues no PUT", async () => {
-    cardsStore.setCardGroupCollapsed("tools", false); // never collapsed
+    cardsStore.setCardGroupCollapsed("s1", "tools", false); // never collapsed
     await Promise.resolve();
     expect(captured.filter((c) => c.method === "PUT").length).toBe(0);
   });

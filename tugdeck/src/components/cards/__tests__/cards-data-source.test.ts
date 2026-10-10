@@ -416,7 +416,7 @@ describe("groups", () => {
       [pane("p1", ["t1"]), pane("p2", ["t2"])],
     );
     const rows = innerRows(
-      inputs(d, { collapsedGroups: ["files"] }),
+      inputs(d, { collapsedGroups: ["s1:files"] }),
       resolvers({
         groups: STANDARD_GROUPS,
         paths: { t1: "/x/a.txt", t2: "/x/b.txt" },
@@ -465,7 +465,7 @@ describe("groups", () => {
       [pane("p1", ["t1"]), pane("p2", ["g1"])],
     );
     const rows = innerRows(
-      inputs(d, { collapsedGroups: ["files"] }),
+      inputs(d, { collapsedGroups: ["s1:files"] }),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
     expect(shape(rows)).toEqual([
@@ -1012,7 +1012,9 @@ describe("CardsDataSource", () => {
     expect(all.length).toBeGreaterThan(0);
     const groups = source().groupByOrderKey();
     const collapsedGroup = groups.get(all[0])!.group;
-    const narrowed = source({ collapsedGroups: [collapsedGroup] }).visibleOrder();
+    const narrowed = source({
+      collapsedGroups: [`s1:${collapsedGroup}`],
+    }).visibleOrder();
     expect(narrowed).not.toContain(all[0]);
   });
 
@@ -1028,7 +1030,7 @@ describe("CardsDataSource", () => {
     const plain = source().censusByGroup();
     const narrowed = source({
       filterQuery: "zzz-no-match",
-      collapsedGroups: ["files", "tools", "sessions"],
+      collapsedGroups: ["s1:files", "s1:tools", "s1:sessions"],
     }).censusByGroup();
     expect(narrowed).toEqual(plain);
   });
@@ -1399,11 +1401,10 @@ describe("workspaces as the outer level", () => {
   });
 
   it("a collapsed GROUP does not empty a workspace's count", () => {
-    // The collapsed set is one arrangement shared by every workspace, so a
-    // count read back off the rendered rows would report `0 cards` for every
-    // workspace in the list the moment a reader folded Files once.
+    // A count read back off the rendered rows would report `0 cards` for a
+    // workspace whose every group is folded.
     const rows = buildCardsRows(
-      twoSpaces({ collapsedGroups: ["files"] }, true),
+      twoSpaces({ collapsedGroups: ["home:files", "away:files"] }, true),
       r,
     );
     const headers = rows.filter((row) => row.type === "space-header");
@@ -1418,6 +1419,21 @@ describe("workspaces as the outer level", () => {
       "space:Home(1)",
       "header:files(1)",
       "pane:file-pane:alpha.txt",
+      "space:Away(2)",
+      "header:files(2)",
+      "pane:file-pane:beta.txt",
+      "pane:file-pane:gamma.txt",
+    ]);
+  });
+
+  it("folding a group in one workspace leaves the same group open in another", () => {
+    expect(
+      shape(
+        buildCardsRows(twoSpaces({ collapsedGroups: ["home:files"] }, true), r),
+      ),
+    ).toEqual([
+      "space:Home(1)",
+      "header:files(1)-collapsed",
       "space:Away(2)",
       "header:files(2)",
       "pane:file-pane:beta.txt",

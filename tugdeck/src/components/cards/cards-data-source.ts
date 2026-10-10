@@ -76,11 +76,13 @@ import {
 } from "@/lib/text-card-open-registry";
 import { filterAndRank, filterQueryMatch } from "@/lib/text-match";
 
+import { cardsStore } from "./cards-store/cards-store";
 import { collapsedSpacesStore } from "./cards-space-expansion";
 import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
 
 import {
   GROUP_ORDER,
+  groupRunKey,
   orderedGroups,
   resolveCardsGroup,
   type CardsGroup,
@@ -491,7 +493,11 @@ export interface LensCardsInputs {
   readonly cardsRowOrder: CardsRowOrder;
   /** The user's persisted group order; empty means the built-in one. */
   readonly groupOrder: readonly string[];
-  /** Groups the user has collapsed. */
+  /**
+   * Groups the user has collapsed, as workspace-scoped run keys
+   * (`groupRunKey(spaceId, group)`) — folding Sessions in one workspace
+   * leaves every other workspace's Sessions open.
+   */
   readonly collapsedGroups: readonly string[];
   /** The band's filter query. Empty / whitespace → every row. */
   readonly filterQuery: string;
@@ -806,10 +812,13 @@ function countLiveSessions(
  *
  * The two are not the same number, which is why the count is returned rather
  * than read back off the rows. A collapsed GROUP emits its header and none of
- * its pane rows, and the collapsed set is one arrangement shared by every
- * workspace ([B09]) — so a reader who folded Sessions once would see every
- * workspace in the list report `0 cards` while holding plenty. The count is
- * taken from the filter's survivors, before the fold decides what to draw.
+ * its pane rows, so a workspace whose groups are all folded would report
+ * `0 cards` while holding plenty. The count is taken from the filter's
+ * survivors, before the fold decides what to draw.
+ *
+ * The fold is per workspace: the collapsed set holds run keys, so folding a
+ * group here says nothing about the same group in any other workspace. The
+ * row ORDER, by contrast, is one arrangement shared by every workspace ([B09]).
  */
 function buildSpaceRows(
   space: SpaceRowsInput,
@@ -917,7 +926,7 @@ function buildSpaceRows(
     if (survivors.length === 0) continue;
 
     paneCount += survivors.length;
-    const isCollapsed = collapsed.has(group);
+    const isCollapsed = collapsed.has(groupRunKey(spaceId, group));
     rows.push({
       type: "group-header",
       spaceId,
@@ -1382,6 +1391,9 @@ export function useCardsDataSource(
   );
   useLayoutEffect(() => {
     collapsedSpacesStore.prune(liveSpaceIds);
+    // The persisted group folds are keyed by workspace too, so a deleted
+    // workspace's folds go with it rather than accumulating forever.
+    cardsStore.pruneCollapsedCardGroups(liveSpaceIds);
     // Same sweep, for the same reason: a rename field or a confirm opened
     // over a workspace that is gone has nothing to act on ([P08]).
     cardsSpaceVerbRequest.prune(liveSpaceIds);
