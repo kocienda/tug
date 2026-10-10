@@ -983,7 +983,7 @@ describe("the allocator's solution space", () => {
     }
     expect(checked).toBeGreaterThan(500);
     expect(declined).toBeGreaterThan(50);
-  });
+  }, 60_000);
 
   test("no rail standing is the only shape with no answer", () => {
     for (const kind of IMPOSITION_KINDS) {

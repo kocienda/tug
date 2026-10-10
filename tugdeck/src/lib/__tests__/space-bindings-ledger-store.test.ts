@@ -9,7 +9,7 @@
  * instead of to a picker).
  */
 
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
 import { spaceBindingsLedgerStore } from "../space-bindings-ledger-store";
 import { publishListCardBindingsOk } from "../session-ledger-events";
@@ -24,6 +24,15 @@ function row(over: Partial<CardBinding> & { card_id: string }): CardBinding {
     ...over,
   };
 }
+
+// Before as well as after: the store is a module singleton, and a file that
+// installed it through `installRegistrySubscriptions` without resetting it
+// leaves the install guard set. Once another file resets the event bus that
+// subscription is gone, and this file's first `installOnce()` would no-op
+// against a guard that no longer guards anything.
+beforeEach(() => {
+  spaceBindingsLedgerStore._resetForTest();
+});
 
 afterEach(() => {
   spaceBindingsLedgerStore._resetForTest();
