@@ -2195,10 +2195,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // the probe, and never read back as an input.
     const extentFloorRef = React.useRef<HTMLDivElement | null>(null);
     const extentFloorStateRef = React.useRef({ height: 0, inset: 0 });
-    // The pane frame this list sits in, resolved once at mount, whose still
-    // crossing holds the interior; and whether a floor rebase is owed to
-    // the end of one. Local data, never React state ([L02], [L06]).
-    const heldFrameRef = React.useRef<HTMLElement | null>(null);
+    // Whether a floor rebase is owed to the end of a still crossing. The pane
+    // frame whose crossing holds this list's interior is NOT cached: a card
+    // moves between panes ([D194]) without this list remounting, so the frame
+    // is resolved live wherever it is read. Local data, never React state
+    // ([L02], [L06]).
     const owedRebaseRef = React.useRef(false);
     // The scrollport size a settled crossing's set-up already answered, so
     // the container observer's first delivery of that same size — in the
@@ -3625,8 +3626,16 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // geometry the interior settles at. Registered here, beside the
       // scroller it serves, so it is in place before any event can need it
       // ([L03]).
-      const heldFrame = el.closest<HTMLElement>(".tug-pane[data-pane-id]");
-      heldFrameRef.current = heldFrame;
+      // The pane frame a card sits in CHANGES when the card moves slots
+      // ([D194] assign-slot, a drag): `CardPortal` carries this list view to
+      // the new pane without remounting it ([L26]), so a frame captured once
+      // here goes stale the moment the card moves. The land-pin bound to the
+      // old frame is then never heard on the pane the crossing actually ends
+      // on, and the transcript stands off its bottom until a later React
+      // commit pins it — the land hop. So the pane is RESOLVED LIVE on every
+      // use (`closest` is a tree walk, no layout).
+      const resolveHeldFrame = (): HTMLElement | null =>
+        el.closest<HTMLElement>(".tug-pane[data-pane-id]");
       const onStillCrossingEnd = (): void => {
         smartScroll.catchUp();
         if (!owedRebaseRef.current) return;
@@ -3703,11 +3712,27 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           settledSizeRef.current = null;
         });
       };
-      if (heldFrame !== null) {
-        smartScroll.setHeldSource(() => isInteriorHeld(heldFrame));
-        heldFrame.addEventListener(STILL_CROSSING_END, onStillCrossingClosed);
-        heldFrame.addEventListener(STILL_CROSSING_SETTLED, onStillCrossingSettled);
-      }
+      // Bound in CAPTURE on the document root, not on the pane frame: a
+      // `tug-still-crossing-*` event is dispatched on a pane frame with
+      // `bubbles: false`, so a capture listener on a stable ancestor hears
+      // every one wherever the card now lives, and `pane.contains(el)` keeps
+      // only the crossing of the pane THIS scroller currently sits in. A frame
+      // cached at mount would miss the end on the pane a moved card arrived in.
+      smartScroll.setHeldSource(() => {
+        const f = resolveHeldFrame();
+        return f !== null && isInteriorHeld(f);
+      });
+      const crossingRoot = el.getRootNode();
+      const forThisScroller = (e: Event): boolean =>
+        e.target instanceof HTMLElement && e.target.contains(el);
+      const onCrossingClosedCapture = (e: Event): void => {
+        if (forThisScroller(e)) onStillCrossingClosed();
+      };
+      const onCrossingSettledCapture = (e: Event): void => {
+        if (forThisScroller(e)) onStillCrossingSettled();
+      };
+      crossingRoot.addEventListener(STILL_CROSSING_END, onCrossingClosedCapture, true);
+      crossingRoot.addEventListener(STILL_CROSSING_SETTLED, onCrossingSettledCapture, true);
       // Surface the initial follow-bottom intent: `onFollowBottomChanged`
       // fires only on transitions, so a consumer's observer would
       // otherwise miss the mount-time state.
@@ -4113,9 +4138,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         el.removeEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
         revealObserver.disconnect();
         revealSeamRef.current = null;
-        heldFrame?.removeEventListener(STILL_CROSSING_END, onStillCrossingClosed);
-        heldFrame?.removeEventListener(STILL_CROSSING_SETTLED, onStillCrossingSettled);
-        heldFrameRef.current = null;
+        crossingRoot.removeEventListener(STILL_CROSSING_END, onCrossingClosedCapture, true);
+        crossingRoot.removeEventListener(STILL_CROSSING_SETTLED, onCrossingSettledCapture, true);
         smartScroll.dispose();
         smartScrollRef.current = null;
       };
@@ -4566,7 +4590,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       {
         const floorEl = extentFloorRef.current;
         if (floorEl !== null) {
-          const heldFrame = heldFrameRef.current;
+          const heldFrame = el.closest<HTMLElement>(".tug-pane[data-pane-id]");
           if (heldFrame !== null && isInteriorHeld(heldFrame)) {
             owedRebaseRef.current = true;
           } else {
