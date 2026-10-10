@@ -72,6 +72,9 @@ describe("reducer — transport downtime", () => {
       block_index: 0,
       text: "thinking",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     advance(30);
@@ -107,6 +110,9 @@ describe("reducer — transport downtime", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     advance(40);
@@ -169,6 +175,9 @@ describe("reducer — a queued send belongs to the user, not the turn", () => {
         block_index: 0,
         text: "working",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       {
         type: "send",
@@ -250,6 +259,9 @@ describe("reducer — a queued send belongs to the user, not the turn", () => {
         block_index: 0,
         text: "working",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       {
         type: "send",
@@ -282,6 +294,9 @@ describe("reducer — transport loss is not a card error", () => {
         block_index: 0,
         text: "thinking",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       { type: "transport_close" },
     ]);

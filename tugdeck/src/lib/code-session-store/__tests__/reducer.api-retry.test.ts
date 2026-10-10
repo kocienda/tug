@@ -95,7 +95,7 @@ describe("reducer — handleApiRetry", () => {
   it("cost_update clears the retry announcement", () => {
     const after = applyAll(fresh(), [
       apiRetry(),
-      { type: "cost_update", total_cost_usd: 0.01, modelUsage: null } as CodeSessionEvent,
+      { type: "cost_update", total_cost_usd: 0.01, modelUsage: {}, num_turns: 0, duration_ms: 0, duration_api_ms: 0, usage: {} } as CodeSessionEvent,
     ]);
     expect(after.apiRetry).toBeNull();
   });

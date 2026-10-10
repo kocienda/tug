@@ -5,6 +5,7 @@
 //! `list_refs`).
 
 use super::super::*;
+use tugcast_core::ControlAction;
 
 /// Parsed payload of the `record_turn_telemetry` CONTROL action.
 /// Tugdeck → tugcast: the reducer dispatches this from
@@ -240,60 +241,60 @@ impl AgentSupervisor {
     /// reached through one delegating arm there.
     pub(in crate::feeds::agent_supervisor) async fn handle_telemetry_control(
         &self,
-        action: &str,
+        action: ControlAction,
         payload: &[u8],
     ) -> ControlOutcome {
         let result: Result<(), ControlError> = match action {
-            "record_turn_telemetry" => {
+            ControlAction::RecordTurnTelemetry => {
                 let parsed = match parse_record_turn_telemetry_payload(payload) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected record_turn_telemetry");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected record_turn_telemetry");
                         return ControlOutcome::Error(e);
                     }
                 };
                 self.do_record_turn_telemetry(parsed).await;
                 Ok(())
             }
-            "record_context_breakdown" => {
+            ControlAction::RecordContextBreakdown => {
                 let parsed = match parse_record_context_breakdown_payload(payload) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected record_context_breakdown");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected record_context_breakdown");
                         return ControlOutcome::Error(e);
                     }
                 };
                 self.do_record_context_breakdown(parsed).await;
                 Ok(())
             }
-            "record_session_state_change" => {
+            ControlAction::RecordSessionStateChange => {
                 let parsed = match parse_record_session_state_change_payload(payload) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected record_session_state_change");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected record_session_state_change");
                         return ControlOutcome::Error(e);
                     }
                 };
                 self.do_record_session_state_change(parsed).await;
                 Ok(())
             }
-            "list_session_state_changes" => {
+            ControlAction::ListSessionStateChanges => {
                 let parsed = match parse_list_session_state_changes_payload(payload) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected list_session_state_changes");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected list_session_state_changes");
                         return ControlOutcome::Error(e);
                     }
                 };
                 self.do_list_session_state_changes(parsed).await;
                 Ok(())
             }
-            "list_digest_lines" => {
+            ControlAction::ListDigestLines => {
                 // App-scoped read — no session id, no payload fields.
                 self.do_list_digest_lines().await;
                 Ok(())
             }
-            "list_overview_posts" => {
+            ControlAction::ListOverviewPosts => {
                 // App-scoped read — the Overview card's tail on mount, and
                 // each older page as the reader scrolls back. Both arguments
                 // are optional, and absent means "the tail", so a client that
@@ -312,7 +313,7 @@ impl AgentSupervisor {
                 self.do_list_overview_posts(before_id, limit).await;
                 Ok(())
             }
-            "list_shell_exchanges" => {
+            ControlAction::ListShellExchanges => {
                 // Session-scoped read — the deck's shell-restore tail fetch.
                 // `since_ms` is the replay window's oldest-turn timestamp when
                 // the deck knows it, so ink rows span what the turns span.
@@ -333,7 +334,7 @@ impl AgentSupervisor {
                     .await;
                 Ok(())
             }
-            "list_refs" => {
+            ControlAction::ListRefs => {
                 // Session-scoped read — the deck's refs-restore fetch.
                 let tug_session_id = serde_json::from_slice::<serde_json::Value>(payload)
                     .ok()

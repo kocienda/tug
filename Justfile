@@ -120,6 +120,7 @@ test-ts:
     suite tugdeck tugdeck bun test
     suite tugdeck tugdeck-scripts bun test ./scripts/__tests__
     suite tugcode tugcode bun test
+    suite tugproto tugproto bun test
     suite tests/app-test app-test-logic bun test scripts/ _harness/
     exit "$status"
 

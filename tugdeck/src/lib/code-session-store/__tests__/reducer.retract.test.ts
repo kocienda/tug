@@ -85,6 +85,8 @@ describe("reducer — interrupt retract intent", () => {
         block_index: 0,
         text: "hmm",
         is_partial: true,
+        seq: 0,
+        status: "partial",
       },
     ]);
     const { effects } = applyAll(submitted, [{ type: "interrupt_action" }]);
@@ -106,6 +108,9 @@ describe("reducer — interrupt retract intent", () => {
         block_index: 0,
         text: "partial answer",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     const { effects } = applyAll(streaming, [{ type: "interrupt_action" }]);

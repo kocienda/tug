@@ -27,6 +27,7 @@ import type {
   CapabilityModel,
   SessionCapabilities,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import { extractFrontmatter } from "./context-breakdown.ts";
 import { readFrontmatterField } from "./skills-inventory.ts";
 
@@ -140,7 +141,7 @@ export function buildSessionCapabilities(
     account: asObject(obj.account),
     effort,
     version,
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }
 

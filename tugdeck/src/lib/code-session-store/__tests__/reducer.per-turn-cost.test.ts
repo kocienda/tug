@@ -63,6 +63,9 @@ describe("reducer — per-turn cost delta", () => {
       block_index: 0,
       text: "ok",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
       {
         type: "cost_update",
@@ -74,9 +77,11 @@ describe("reducer — per-turn cost delta", () => {
           cache_creation_input_tokens: 6180,
           cache_read_input_tokens: 12507,
         },
-        modelUsage: null,
+        modelUsage: {},
+        duration_ms: 0,
+        duration_api_ms: 0,
       },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ];
     const { effects } = applyAll(fresh(), events);
     const entry = appended(effects)[0].entry;
@@ -97,6 +102,9 @@ describe("reducer — per-turn cost delta", () => {
       block_index: 0,
       text: "ok",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
       {
         type: "cost_update",
@@ -108,9 +116,11 @@ describe("reducer — per-turn cost delta", () => {
           cache_creation_input_tokens: 6180,
           cache_read_input_tokens: 12507,
         },
-        modelUsage: null,
+        modelUsage: {},
+        duration_ms: 0,
+        duration_api_ms: 0,
       },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     // Turn 2: per-turn usage=(4, 180, 6349, 31204); cumulative cost=0.060.
     const r2 = applyAll(r1.state, [
@@ -121,6 +131,9 @@ describe("reducer — per-turn cost delta", () => {
       block_index: 0,
       text: "done",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
       {
         type: "cost_update",
@@ -132,9 +145,11 @@ describe("reducer — per-turn cost delta", () => {
           cache_creation_input_tokens: 6349,
           cache_read_input_tokens: 31204,
         },
-        modelUsage: null,
+        modelUsage: {},
+        duration_ms: 0,
+        duration_api_ms: 0,
       },
-      { type: "turn_complete", msg_id: "m2", result: "success" },
+      { type: "turn_complete", msg_id: "m2", result: "success", seq: 0 },
     ]);
     const entry2 = appended(r2.effects)[0].entry;
     // Token fields are turn 2's raw usage — NOT differenced against turn 1.
@@ -155,8 +170,11 @@ describe("reducer — per-turn cost delta", () => {
       block_index: 0,
       text: "ok",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     const entry = appended(effects)[0].entry;
     expect(entry.cost.inputTokens).toBe(0);
@@ -176,6 +194,9 @@ describe("reducer — per-turn cost delta", () => {
       block_index: 0,
       text: "ok",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
       {
         type: "cost_update",
@@ -187,9 +208,11 @@ describe("reducer — per-turn cost delta", () => {
           cache_creation_input_tokens: 6180,
           cache_read_input_tokens: 12507,
         },
-        modelUsage: null,
+        modelUsage: {},
+        duration_ms: 0,
+        duration_api_ms: 0,
       },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]).state;
 
     // New send. costAtSubmit should equal the seeded lastCost.

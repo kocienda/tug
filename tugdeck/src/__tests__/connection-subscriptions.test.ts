@@ -256,7 +256,7 @@ describe("TugConnection — feed subscriptions", () => {
     // A CONTROL write records nothing: it is exempt server-side, and
     // recording it would make every subscribe_feeds frame schedule another.
     ws.sent.length = 0;
-    conn.trySendControlFrame("some_action", {});
+    conn.trySendControlFrame("check_auth", {});
     await settle();
     expect(subscriptions(ws)).toEqual([]);
   });

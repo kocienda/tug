@@ -61,8 +61,11 @@ describe("[D07] messageKey stability across inflight → committed", () => {
         block_index: 0,
         text: "ok",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "m", result: "success" },
+      { type: "turn_complete", msg_id: "m", result: "success", seq: 0 },
     ]);
     const committed = effects.find(
       (e): e is AppendTranscriptEffect => e.kind === "append-transcript",
@@ -96,6 +99,9 @@ describe("[D07] messageKey stability across inflight → committed", () => {
         block_index: 0,
         text: piece,
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       }).state;
       const m = deriveActiveTurnSnapshot(cur)!
         .messages.find((mm) => mm.kind === "assistant_text");
@@ -104,7 +110,7 @@ describe("[D07] messageKey stability across inflight → committed", () => {
 
     // Commit; key still identical on the TurnEntry.
     const { effects } = applyAll(cur, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     const committed = effects.find(
       (e): e is AppendTranscriptEffect => e.kind === "append-transcript",
@@ -144,9 +150,10 @@ describe("[D07] messageKey stability across inflight → committed", () => {
         tool_use_id: "tu1",
         tool_name: "Bash",
         input: { command: "ls" },
+        seq: 0,
       },
-      { type: "tool_result", tool_use_id: "tu1", output: "files" },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "tool_result", tool_use_id: "tu1", output: "files", is_error: false },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     // Sanity check (state lifecycle drains the in-flight cycle, so
     // deriveActiveTurnSnapshot returns null after commit — the key

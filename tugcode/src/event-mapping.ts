@@ -20,6 +20,7 @@ import type {
   TaskProgress,
   BackgroundTasksChanged,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import { extractTaskNotificationWake } from "./replay.ts";
 
 /**
@@ -169,7 +170,7 @@ export function buildWakeStartedMessage(
       summary: terseWakeSummary((event.summary as string) ?? ""),
       output_file: (event.output_file as string) ?? "",
     },
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }
 
@@ -229,7 +230,7 @@ export function buildTaskStartedMessage(
     description: typeof event.description === "string" ? event.description : "",
     task_type: typeof event.task_type === "string" ? event.task_type : "",
     ...(typeof subagentType === "string" ? { subagent_type: subagentType } : {}),
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }
 
@@ -261,7 +262,7 @@ export function buildTaskUpdatedMessage(
     task_id: taskId,
     status,
     ...(typeof endTime === "number" ? { end_time: endTime } : {}),
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }
 
@@ -369,7 +370,7 @@ export function buildTaskProgressMessage(
     ...(typeof subagentType === "string" ? { subagent_type: subagentType } : {}),
     ...(typeof lastToolName === "string" ? { last_tool_name: lastToolName } : {}),
     ...(usage && Object.keys(usage).length > 0 ? { usage } : {}),
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }
 
@@ -401,7 +402,7 @@ export function buildBackgroundTasksChangedMessage(
     type: "background_tasks_changed",
     session_id: sessionId,
     payload,
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }
 
@@ -558,7 +559,7 @@ export function routeTopLevelEvent(
           output_style: (event.output_style as string) || "",
           fast_mode_state: (event.fast_mode_state as string) || "",
           apiKeySource: (event.apiKeySource as string) || "",
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         };
         messages.push(sysMsg);
       } else if (subtype === "compact_boundary") {
@@ -591,7 +592,7 @@ export function routeTopLevelEvent(
           ...(typeof meta.trigger === "string" ? { trigger: meta.trigger } : {}),
           ...(preTokens !== undefined ? { pre_tokens: preTokens } : {}),
           ...(postTokens !== undefined ? { post_tokens: postTokens } : {}),
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         };
         messages.push(marker);
         // Arm the ordering-armed summary capture ([P08]): the next synthetic
@@ -607,7 +608,7 @@ export function routeTopLevelEvent(
           retry_delay_ms: (event.retry_delay_ms as number) || 0,
           error_status: (event.error_status as number | null) ?? null,
           error: (event.error as string) || "unknown",
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       } else if (subtype === "model_refusal_fallback") {
         // The model declined and the SDK retried on a fallback model — a
@@ -625,7 +626,7 @@ export function routeTopLevelEvent(
             "",
           trigger: (event.trigger as string) || "",
           direction: (event.direction as string) || "",
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       } else if (subtype === "task_started") {
         // Background-task lifecycle frames can fire mid-turn (the
@@ -721,7 +722,7 @@ export function routeTopLevelEvent(
       // path only — replay has its own translator and shouldn't re-fire a
       // past turn's truncation.)
       if (message?.stop_reason === "max_tokens") {
-        messages.push({ type: "output_truncated", ipc_version: 2 });
+        messages.push({ type: "output_truncated", ipc_version: IPC_VERSION });
       }
 
       for (let blockIndex = 0; blockIndex < content.length; blockIndex++) {
@@ -738,7 +739,7 @@ export function routeTopLevelEvent(
               msg_id: effectiveMsgId,
               block_index: blockIndex,
               kind: "text",
-              ipc_version: 2,
+              ipc_version: IPC_VERSION,
             });
             messages.push({
               type: "assistant_text",
@@ -749,7 +750,7 @@ export function routeTopLevelEvent(
               text,
               is_partial: false,
               status: "complete",
-              ipc_version: 2,
+              ipc_version: IPC_VERSION,
             });
           }
         } else if (block.type === "tool_use") {
@@ -784,7 +785,7 @@ export function routeTopLevelEvent(
             kind: "tool_use",
             tool_use_id: toolUseId,
             tool_name: toolName,
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
           messages.push({
             type: "tool_use",
@@ -793,7 +794,7 @@ export function routeTopLevelEvent(
             tool_name: toolName,
             tool_use_id: toolUseId,
             input: (block.input as object) || {},
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
         }
       }
@@ -832,7 +833,7 @@ export function routeTopLevelEvent(
             type: "goal_feedback",
             condition: feedback.condition,
             reason: feedback.reason,
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
         } else if (
           ctx.pendingCompactSummary === true &&
@@ -846,7 +847,7 @@ export function routeTopLevelEvent(
           messages.push({
             type: "compact_summary",
             summary: rawContent,
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
           pendingCompactSummary = false;
         }
@@ -894,7 +895,7 @@ export function routeTopLevelEvent(
             msg_id: localEchoMsgId,
             block_index: 0,
             kind: "text",
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
           messages.push({
             type: "assistant_text",
@@ -905,7 +906,7 @@ export function routeTopLevelEvent(
             text: stdoutMatch[1],
             is_partial: false,
             status: "complete",
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
         }
         const stderrMatch = rawContent.match(/<local-command-stderr>([\s\S]*?)<\/local-command-stderr>/);
@@ -948,7 +949,7 @@ export function routeTopLevelEvent(
             tool_use_id: toolUseId,
             output,
             is_error: block.is_error === true,
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
         }
       }
@@ -961,7 +962,7 @@ export function routeTopLevelEvent(
           tool_use_id: firstToolUseId,
           tool_name: (toolUseResult.toolName as string) || "",
           structured_result: toolUseResult,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       }
 
@@ -980,7 +981,7 @@ export function routeTopLevelEvent(
                   msg_id: localEchoMsgId,
                   block_index: 0,
                   kind: "text",
-                  ipc_version: 2,
+                  ipc_version: IPC_VERSION,
                 });
                 messages.push({
                   type: "assistant_text",
@@ -991,7 +992,7 @@ export function routeTopLevelEvent(
                   text: stdoutMatch[1],
                   is_partial: false,
                   status: "complete",
-                  ipc_version: 2,
+                  ipc_version: IPC_VERSION,
                 });
               }
               const stderrMatch = blockContent.match(/<local-command-stderr>([\s\S]*?)<\/local-command-stderr>/);
@@ -1056,7 +1057,7 @@ export function routeTopLevelEvent(
         resultMetadata.permission_denials.length > 0
           ? { permission_denials: resultMetadata.permission_denials }
           : {}),
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       };
       messages.push(costMsg);
 
@@ -1104,7 +1105,7 @@ export function routeTopLevelEvent(
               ? { utilization: info.utilization }
               : {}),
           },
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         };
         messages.push(evt);
       }
@@ -1139,7 +1140,7 @@ export function routeTopLevelEvent(
           elapsed_time_seconds: elapsed,
           parent_tool_use_id:
             typeof event.parent_tool_use_id === "string" ? event.parent_tool_use_id : null,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         };
         messages.push(msg);
       }
@@ -1153,7 +1154,7 @@ export function routeTopLevelEvent(
         const cancelMsg: ControlRequestCancel = {
           type: "control_request_cancel",
           request_id: cancelId,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         };
         messages.push(cancelMsg);
       } else {
@@ -1173,7 +1174,7 @@ export function routeTopLevelEvent(
         type: "unknown_event",
         original_type: originalType,
         payload_hex_preview: payloadHexPreview(event),
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
       break;
     }
@@ -1223,7 +1224,7 @@ export function streamingUsageFrame(
   if (typeof usage !== "object" || usage === null) return null;
   const u = usage as Record<string, unknown>;
   if (!USAGE_TOKEN_KEYS.some((k) => typeof u[k] === "number")) return null;
-  return { type: "streaming_usage", msg_id: msgId, usage: u, ipc_version: 2 };
+  return { type: "streaming_usage", msg_id: msgId, usage: u, ipc_version: IPC_VERSION };
 }
 
 /**
@@ -1364,7 +1365,7 @@ export function mapStreamEvent(
         msg_id: ctx.msgId,
         block_index: blockIndex,
         kind: "text",
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     } else if (contentBlock?.type === "thinking") {
       messages.push({
@@ -1372,7 +1373,7 @@ export function mapStreamEvent(
         msg_id: ctx.msgId,
         block_index: blockIndex,
         kind: "thinking",
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     } else if (contentBlock?.type === "tool_use") {
       // Two emissions: a content_block_start so the reducer mints the
@@ -1403,7 +1404,7 @@ export function mapStreamEvent(
         kind: "tool_use",
         tool_use_id: toolUseId,
         tool_name: toolName,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
       messages.push({
         type: "tool_use",
@@ -1412,7 +1413,7 @@ export function mapStreamEvent(
         tool_name: toolName,
         tool_use_id: toolUseId,
         input: {},
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     }
   } else if (eventType === "content_block_delta") {
@@ -1434,7 +1435,7 @@ export function mapStreamEvent(
         text: delta.text,
         is_partial: true,
         status: "partial",
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     } else if (delta?.type === "thinking_delta" && typeof delta.thinking === "string") {
       // Per §14: thinking_delta has delta.thinking (NOT delta.text).
@@ -1446,7 +1447,7 @@ export function mapStreamEvent(
         text: delta.thinking,
         is_partial: true,
         status: "partial",
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       };
       messages.push(thinkingMsg);
     }
@@ -1463,7 +1464,7 @@ export function mapStreamEvent(
       tool_name: event.name as string,
       tool_use_id: event.id as string,
       input: (event.input as object) || {},
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     });
   } else if (eventType === "tool_result" || eventType === "tool_progress") {
     messages.push({
@@ -1471,7 +1472,7 @@ export function mapStreamEvent(
       tool_use_id: (event.tool_use_id as string) || "",
       output: (event.output as string) || "",
       is_error: event.is_error === true,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     });
   }
 

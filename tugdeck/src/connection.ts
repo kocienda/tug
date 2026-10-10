@@ -5,6 +5,7 @@
  * and reconnection with exponential backoff.
  */
 
+import type { ControlAction } from "@tugproto/control";
 import {
   FeedId,
   FeedIdValue,
@@ -728,7 +729,7 @@ export class TugConnection {
   /**
    * Send a control frame with the given action
    */
-  sendControlFrame(action: string, params?: Record<string, unknown>): void {
+  sendControlFrame(action: ControlAction, params?: Record<string, unknown>): void {
     const frame = controlFrame(action, params);
     this.send(frame.feedId, frame.payload);
   }
@@ -738,7 +739,7 @@ export class TugConnection {
    * {@link trySend} of {@link sendControlFrame} — for writes whose caller
    * retries rather than shrugs.
    */
-  trySendControlFrame(action: string, params?: Record<string, unknown>): boolean {
+  trySendControlFrame(action: ControlAction, params?: Record<string, unknown>): boolean {
     const frame = controlFrame(action, params);
     return this.trySend(frame.feedId, frame.payload);
   }

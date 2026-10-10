@@ -84,6 +84,7 @@ import type {
   ControlRequestCancel,
   ResumeFailed,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import { errorFrame } from "./ipc.ts";
 
 /**
@@ -261,13 +262,13 @@ export class StubReplayEngine {
       type: "protocol_ack",
       version: protocolVersion,
       session_id: this.sessionId,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     this.emit(ack);
     const init: SessionInit = {
       type: "session_init",
       session_id: this.sessionId,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     this.emit(init);
   }

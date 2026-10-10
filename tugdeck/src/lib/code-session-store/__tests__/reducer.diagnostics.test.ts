@@ -71,12 +71,15 @@ describe("reducer — diagnostics", () => {
       block_index: 0,
       text: "thinking",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     expect(s2.firstAssistantDeltaAt).toBe(submitAt + 200);
     advance(50);
     const { effects } = applyAll(s2, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     const entry = appended(effects)[0].entry;
     expect(entry.ttftMs).toBe(200);
@@ -96,6 +99,7 @@ describe("reducer — diagnostics", () => {
         tool_use_id: "t1",
         tool_name: "Bash",
         input: { command: "ls" },
+        seq: 0,
       },
     ]);
     expect(s2.firstToolUseAt).toBe(submitAt + 120);
@@ -115,7 +119,7 @@ describe("reducer — diagnostics", () => {
     expect(t1Msg.toolWallMs).toBe(80);
     advance(40);
     const { effects } = applyAll(s3, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     const entry = appended(effects)[0].entry;
     expect(entry.ttftMs).toBeNull(); // no assistant_text in this turn
@@ -136,6 +140,9 @@ describe("reducer — diagnostics", () => {
       block_index: 0,
       text: "a",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     advance(150);
@@ -146,6 +153,9 @@ describe("reducer — diagnostics", () => {
       block_index: 0,
       text: "b",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     expect(s3.maxStreamGapMs).toBe(150);
@@ -157,12 +167,15 @@ describe("reducer — diagnostics", () => {
       block_index: 0,
       text: "c",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     expect(s4.maxStreamGapMs).toBe(700);
     advance(30);
     const { effects } = applyAll(s4, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     expect(appended(effects)[0].entry.maxStreamGapMs).toBe(700);
   });
@@ -176,8 +189,11 @@ describe("reducer — diagnostics", () => {
       block_index: 0,
       text: "done",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     expect(appended(effects)[0].entry.turnEndReason).toBe("complete");
   });
@@ -191,12 +207,15 @@ describe("reducer — diagnostics", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       { type: "interrupt_action" },
     ]);
     expect(state.interruptInFlight).toBe(true);
     const { effects } = applyAll(state, [
-      { type: "turn_complete", msg_id: "m1", result: "error" },
+      { type: "turn_complete", msg_id: "m1", result: "error", seq: 0 },
     ]);
     const entry = appended(effects)[0].entry;
     expect(entry.turnEndReason).toBe("interrupted");
@@ -212,11 +231,14 @@ describe("reducer — diagnostics", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     expect(state.interruptInFlight).toBe(false);
     const { effects } = applyAll(state, [
-      { type: "turn_complete", msg_id: "m1", result: "error" },
+      { type: "turn_complete", msg_id: "m1", result: "error", seq: 0 },
     ]);
     expect(appended(effects)[0].entry.turnEndReason).toBe("error");
   });

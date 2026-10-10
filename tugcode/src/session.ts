@@ -42,6 +42,7 @@ import type {
   StopAllWorkDone,
   SessionStageSpec,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import { existsSync, realpathSync } from "node:fs";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
 import {
@@ -1219,7 +1220,7 @@ export class SessionManager {
       const frame: StopAllWorkDone = {
         type: "stop_all_work_done",
         tug_session_id: this.sessionId,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       };
       writeLine(frame);
     };
@@ -1373,7 +1374,7 @@ export class SessionManager {
         kind: armed.kind,
         parentSessionId: armed.parentSessionId,
         newSessionId: announced,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
       return;
     }
@@ -1391,7 +1392,7 @@ export class SessionManager {
       kind: "respawn",
       parentSessionId: live,
       newSessionId: announced,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     });
   }
 
@@ -1413,7 +1414,7 @@ export class SessionManager {
     writeLine({
       type: "session_init",
       session_id: claudeId,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     });
   }
 
@@ -1744,7 +1745,7 @@ export class SessionManager {
           kind: "relocate",
           parentSessionId: this.relocation.parentClaudeId,
           newSessionId: this.sessionId,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       }
       this.writeSyntheticSessionInit(this.resolveClaudeId());
@@ -1882,7 +1883,7 @@ export class SessionManager {
             type: "resume_failed",
             reason,
             stale_session_id: sessionId,
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           },
           0,
         );
@@ -2286,7 +2287,7 @@ export class SessionManager {
     writeLine({
       type: "system_metadata",
       cwd: this.projectDir,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     });
   }
 
@@ -2396,7 +2397,7 @@ export class SessionManager {
         summary: terseWakeSummary(wake.summary),
         output_file: "",
       },
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     writeLine(frame);
     this.isInWake = true;
@@ -2453,7 +2454,7 @@ export class SessionManager {
             : "scheduled wake",
         output_file: "",
       },
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     writeLine(frame);
     this.isInWake = true;
@@ -2509,7 +2510,7 @@ export class SessionManager {
     }
     if (event.type === "system" && event.subtype === "init") {
       const sessionId = (event.session_id as string) || "unknown";
-      writeLine({ type: "session_init", session_id: sessionId, ipc_version: 2 });
+      writeLine({ type: "session_init", session_id: sessionId, ipc_version: IPC_VERSION });
     }
     if (event.type === "system" && event.subtype === "task_notification") {
       this.handleTaskNotification(event);
@@ -2610,7 +2611,7 @@ export class SessionManager {
     const frame: ActivityDelta = {
       type: "activity_delta",
       channels,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     writeLine(frame);
   }
@@ -2757,7 +2758,7 @@ export class SessionManager {
         writeLine({
           type: "prompt_anchor",
           promptUuid: routeResult.promptUuid,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       }
     }
@@ -2957,7 +2958,7 @@ export class SessionManager {
           blocked_path: request.blocked_path as string | undefined,
           tool_use_id: request.tool_use_id as string | undefined,
           is_question: isQuestion,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         };
         // Gate site 3/7. The pendingControlRequests entry above is
         // still recorded so a tool_approval response from tugdeck
@@ -3035,7 +3036,7 @@ export class SessionManager {
             text: block.text,
             is_partial: false,
             status: "complete",
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
         } else {
           writeLine({
@@ -3046,7 +3047,7 @@ export class SessionManager {
             text: block.text,
             is_partial: false,
             status: "complete",
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
         }
       }
@@ -3071,7 +3072,7 @@ export class SessionManager {
           // running: the arc reads this to stop rather than judge documents
           // the stage never touched.
           ...(routeResult.resultMetadata?.is_api_error === true ? { is_api_error: true } : {}),
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       }
       turn.finish();
@@ -3139,7 +3140,7 @@ export class SessionManager {
       // bracket), so carry the captured uuid here so the freshly-bound
       // client recovers the anchor for the in-flight turn.
       ...(turn.promptUuid !== null ? { promptUuid: turn.promptUuid } : {}),
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     });
 
     // 2. Per-message block stream — for each msg_id observed during
@@ -3172,7 +3173,7 @@ export class SessionManager {
             msg_id: blockMsgId,
             block_index: block.index,
             kind: "text",
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
           if (block.text.length > 0) {
             writeLine({
@@ -3184,7 +3185,7 @@ export class SessionManager {
               text: block.text,
               is_partial: false,
               status: "streaming",
-              ipc_version: 2,
+              ipc_version: IPC_VERSION,
             });
           }
         } else if (block.kind === "thinking") {
@@ -3193,7 +3194,7 @@ export class SessionManager {
             msg_id: blockMsgId,
             block_index: block.index,
             kind: "thinking",
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
           if (block.text.length > 0) {
             writeLine({
@@ -3204,7 +3205,7 @@ export class SessionManager {
               text: block.text,
               is_partial: false,
               status: "streaming",
-              ipc_version: 2,
+              ipc_version: IPC_VERSION,
             });
           }
         } else if (block.kind === "tool_use") {
@@ -3217,7 +3218,7 @@ export class SessionManager {
             kind: "tool_use",
             tool_use_id: block.toolUseId,
             tool_name: block.toolName,
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
           writeLine({
             type: "tool_use",
@@ -3226,7 +3227,7 @@ export class SessionManager {
             tool_name: block.toolName,
             tool_use_id: block.toolUseId,
             input: block.toolInput,
-            ipc_version: 2,
+            ipc_version: IPC_VERSION,
           });
           if (block.toolResult !== undefined) {
             writeLine({
@@ -3234,7 +3235,7 @@ export class SessionManager {
               tool_use_id: block.toolUseId,
               output: block.toolResult.output,
               is_error: block.toolResult.isError,
-              ipc_version: 2,
+              ipc_version: IPC_VERSION,
             });
           }
           if (block.toolStructuredResult !== undefined) {
@@ -3243,7 +3244,7 @@ export class SessionManager {
               tool_use_id: block.toolUseId,
               tool_name: block.toolName,
               structured_result: block.toolStructuredResult,
-              ipc_version: 2,
+              ipc_version: IPC_VERSION,
             });
           }
         } else {
@@ -3327,7 +3328,7 @@ export class SessionManager {
           kind: "tool_use",
           tool_use_id: toolUseId,
           tool_name: toolName,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
         writeLine({
           type: "tool_use",
@@ -3336,7 +3337,7 @@ export class SessionManager {
           tool_name: toolName,
           tool_use_id: toolUseId,
           input: toolInput,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       }
       writeLine({
@@ -3351,7 +3352,7 @@ export class SessionManager {
         blocked_path: request.blocked_path as string | undefined,
         tool_use_id: request.tool_use_id as string | undefined,
         is_question: isQuestion,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     }
 
@@ -3365,7 +3366,7 @@ export class SessionManager {
         msg_id: msgId,
         seq: this.nextSeq(),
         result: "success",
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     } else if (turn.interrupted) {
       writeLine({
@@ -3376,7 +3377,7 @@ export class SessionManager {
           ? turn.partialText
           : "User interrupted",
         ...(turn.interruptCause === "recovery" ? { is_recovery: true } : {}),
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     }
   }
@@ -3422,7 +3423,7 @@ export class SessionManager {
           seq: turn.seq,
           partial_result: turn.partialText || "User interrupted",
           ...(turn.interruptCause === "recovery" ? { is_recovery: true } : {}),
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       }
     } else if (!turn.gotResult) {
@@ -3807,7 +3808,7 @@ export class SessionManager {
       type: "interrupt_noop",
       tug_session_id: this.sessionId,
       reason,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     writeLine(frame);
   }
@@ -3878,7 +3879,7 @@ export class SessionManager {
       request_id: requestId,
       answer,
       synthetic,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     writeLine(frame);
   }
@@ -4307,12 +4308,12 @@ export class SessionManager {
             ...(stage.prompt !== undefined ? { prompt: stage.prompt } : {}),
           }
         : {}),
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     });
     // Synthesize a session_init for tugcast immediately — the
     // claude id is known synchronously here (we minted it above), so
     // no need to wait for claude's own emission.
-    writeLine({ type: "session_init", session_id: this.sessionId, ipc_version: 2 });
+    writeLine({ type: "session_init", session_id: this.sessionId, ipc_version: IPC_VERSION });
   }
 
   /**

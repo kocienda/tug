@@ -46,6 +46,7 @@
 import "./arc-verb-row.css";
 
 import React, { useCallback } from "react";
+import type { ControlAction } from "@tugproto/control";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   GitCommitHorizontal,
@@ -75,7 +76,7 @@ import type {
 export type ArcSurfaceVerbKind = Exclude<ArcVerbKind, ArcTransportVerb>;
 
 /** The CONTROL action each transport verb sends. */
-const ACTION_FOR: Record<ArcTransportVerb, string> = {
+const ACTION_FOR: Record<ArcTransportVerb, ControlAction> = {
   start: "arc_run",
   resume: "arc_resume",
   stop: "arc_stop",

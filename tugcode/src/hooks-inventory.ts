@@ -18,6 +18,7 @@ import type {
   HookMatcherGroup,
   HooksInventory,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 
 /** Narrow an unknown to a plain object (not null, not array). */
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -117,6 +118,6 @@ export function buildHooksInventory(
     tug_session_id: sessionId,
     request_id: requestId,
     events,
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }

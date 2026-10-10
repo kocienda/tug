@@ -20,10 +20,7 @@ import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import type { TugConnection } from "@/connection";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
-import {
-  CONTROL_ACTION_RECORD_SESSION_STATE_CHANGE,
-  FeedId,
-} from "@/protocol";
+import { FeedId } from "@/protocol";
 import type { CodeSessionEvent } from "@/lib/code-session-store/events";
 
 interface StateChangeWire {
@@ -61,7 +58,7 @@ function stateChangeFrames(
       const json = new TextDecoder().decode(bytes);
       return JSON.parse(json) as StateChangeWire;
     })
-    .filter((p) => p.action === CONTROL_ACTION_RECORD_SESSION_STATE_CHANGE);
+    .filter((p) => p.action === "record_session_state_change");
 }
 
 describe("CodeSessionStore — record_session_state_change emission", () => {

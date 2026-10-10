@@ -8,6 +8,7 @@ import type {
   OutboundMessage,
   ToolInputProgress,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import { parseToolInputProgress } from "./event-mapping.ts";
 
 /**
@@ -735,7 +736,7 @@ export class ActiveTurn {
       bytes: prog.bytes,
       content_lines: lines,
       file_path: prog.filePath,
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
   }
 }

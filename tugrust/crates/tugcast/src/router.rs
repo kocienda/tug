@@ -31,8 +31,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use tugcast_core::{
-    CLOSE_BAD_HANDSHAKE, CLOSE_HANDSHAKE_TIMEOUT, CLOSE_VERSION_MISMATCH, FeedId, Frame,
-    HANDSHAKE_TIMEOUT, PROTOCOL_NAME, PROTOCOL_VERSION, TugSessionId,
+    CLOSE_BAD_HANDSHAKE, CLOSE_HANDSHAKE_TIMEOUT, CLOSE_VERSION_MISMATCH, ControlAction, FeedId,
+    Frame, HANDSHAKE_TIMEOUT, PROTOCOL_NAME, PROTOCOL_VERSION, TugSessionId,
 };
 
 use crate::auth::{self, SharedAuthState};
@@ -1355,7 +1355,8 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                     // reaches the supervisor or dispatch_action.
                                                     // The subscription argument is None until
                                                     // the connection can name its feeds.
-                                                    if action == "feed_stats" {
+                                                    let parsed = action.parse::<ControlAction>().ok();
+                                                    if parsed == Some(ControlAction::FeedStats) {
                                                         let stats = build_feed_stats_json(
                                                             sink.client_id,
                                                             sink.subscription.as_ref(),
@@ -1363,7 +1364,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                             &sink.global_counters,
                                                         );
                                                         let _ = sink.send_control_json(FeedId::CONTROL, &stats).await;
-                                                    } else if action == "subscribe_feeds" {
+                                                    } else if parsed == Some(ControlAction::SubscribeFeeds) {
                                                         // A full replacement set (Spec S01).
                                                         // Idempotent, no delta form, no
                                                         // unsubscribe verb, no acknowledgement
@@ -1432,7 +1433,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                     "detail": detail,
                                                                 });
                                                                 if let Some(obj) = err.as_object_mut() {
-                                                                    if action == "spawn_session" {
+                                                                    if parsed == Some(ControlAction::SpawnSession) {
                                                                         obj.insert(
                                                                             "action".into(),
                                                                             "spawn_session_error".into(),

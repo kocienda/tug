@@ -16,6 +16,7 @@ import type {
   RewindPreviewResult,
   RewindResult,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import { realpath } from "node:fs/promises";
 import { writeLine } from "./ipc.ts";
 import { sendControlRequest, generateRequestId } from "./control.ts";
@@ -465,7 +466,7 @@ export class Rewind {
         parentSessionId: liveId,
         newSessionId: newId,
         forkPoint: promptUuid,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
       await this.host.respawnIntoRewindFork(newId);
       return { canRewind: true, newSessionId: newId, cutAtMs };
@@ -497,7 +498,7 @@ export class Rewind {
     }
     // The id did not change, so no segment frame says anything happened.
     // tugcast re-reads the truncated file and pushes the corrected row.
-    writeLine({ type: "session_rewound", sessionId: liveId, ipc_version: 2 });
+    writeLine({ type: "session_rewound", sessionId: liveId, ipc_version: IPC_VERSION });
     return { canRewind: true, cutAtMs };
   }
 
@@ -669,7 +670,7 @@ export class Rewind {
       ...(fields.conversationRewindable !== undefined
         ? { conversationRewindable: fields.conversationRewindable }
         : {}),
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     writeLine(msg);
   }
@@ -695,7 +696,7 @@ export class Rewind {
         ? { newSessionId: fields.newSessionId }
         : {}),
       ...(fields.cutAtMs !== undefined ? { cutAtMs: fields.cutAtMs } : {}),
-      ipc_version: 2,
+      ipc_version: IPC_VERSION,
     };
     writeLine(msg);
   }

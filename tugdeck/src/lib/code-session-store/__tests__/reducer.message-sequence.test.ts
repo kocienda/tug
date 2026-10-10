@@ -78,6 +78,9 @@ describe("[D07] reducer message-sequence", () => {
         block_index: 0,
         text: "Working",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
       {
         type: "content_block_start",
@@ -93,11 +96,13 @@ describe("[D07] reducer message-sequence", () => {
         tool_use_id: "tu1",
         tool_name: "Bash",
         input: { command: "ls" },
+        seq: 0,
       },
       {
         type: "tool_result",
         tool_use_id: "tu1",
         output: "file1\nfile2",
+        is_error: false,
       },
       {
         type: "content_block_start",
@@ -111,8 +116,11 @@ describe("[D07] reducer message-sequence", () => {
         block_index: 2,
         text: "Done.",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: msgId, result: "success" },
+      { type: "turn_complete", msg_id: msgId, result: "success", seq: 0 },
     ]);
 
     const messages = committedMessages(effects);
@@ -145,6 +153,8 @@ describe("[D07] reducer message-sequence", () => {
         block_index: 0,
         text: "thinking",
         is_partial: false,
+        seq: 0,
+        status: "complete",
       },
       {
         type: "content_block_start",
@@ -160,8 +170,9 @@ describe("[D07] reducer message-sequence", () => {
         tool_use_id: "tuA",
         tool_name: "Read",
         input: { path: "/x" },
+        seq: 0,
       },
-      { type: "tool_result", tool_use_id: "tuA", output: "data" },
+      { type: "tool_result", tool_use_id: "tuA", output: "data", is_error: false },
       // Second msgId iteration
       {
         type: "content_block_start",
@@ -175,8 +186,11 @@ describe("[D07] reducer message-sequence", () => {
         block_index: 0,
         text: "The answer.",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "msgB", result: "success" },
+      { type: "turn_complete", msg_id: "msgB", result: "success", seq: 0 },
     ]);
     const messages = committedMessages(effects);
     // [user_message, thinking(msgA), tool_use(msgA), assistant_text(msgB)]
@@ -207,6 +221,8 @@ describe("[D07] reducer message-sequence", () => {
         block_index: 0,
         text: "pondering",
         is_partial: false,
+        seq: 0,
+        status: "complete",
       },
       {
         type: "content_block_start",
@@ -220,8 +236,11 @@ describe("[D07] reducer message-sequence", () => {
         block_index: 1,
         text: "answer",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: msgId, result: "success" },
+      { type: "turn_complete", msg_id: msgId, result: "success", seq: 0 },
     ]);
     const messages = committedMessages(effects);
     expect(messages).toHaveLength(3);

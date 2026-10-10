@@ -6,7 +6,7 @@ use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, sleep};
 use tracing::info;
-use tugcast_core::{FeedId, Frame};
+use tugcast_core::{ControlAction, FeedId, Frame};
 
 /// Control message received from parent process over UDS
 #[derive(Debug, Deserialize)]
@@ -108,7 +108,7 @@ impl ControlReader {
                     match serde_json::from_str::<ControlMessage>(&line) {
                         Ok(ControlMessage::Tell { action, payload }) => {
                             // Intercept relaunch action for special handling
-                            if action == "relaunch" {
+                            if action.parse::<ControlAction>() == Ok(ControlAction::Relaunch) {
                                 let shared = shared_dev_state.clone();
                                 let cat = client_action_tx.clone();
                                 let stx = shutdown_tx.clone();

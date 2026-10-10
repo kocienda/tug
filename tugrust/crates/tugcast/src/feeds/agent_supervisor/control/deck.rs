@@ -3,6 +3,7 @@
 //! mirrored into `tugcast.log`.
 
 use super::super::*;
+use tugcast_core::ControlAction;
 
 /// A `deck_seatings` CONTROL request: the deck's full-replacement report of
 /// which tug sessions its open Session cards are seated on. Only the session
@@ -33,12 +34,12 @@ impl AgentSupervisor {
     /// same arms, the same replies, reached through one delegating arm there.
     pub(in crate::feeds::agent_supervisor) async fn handle_deck_control(
         &self,
-        action: &str,
+        action: ControlAction,
         payload: &[u8],
         client_id: ClientId,
     ) -> ControlOutcome {
         let result: Result<(), ControlError> = match action {
-            "deck_seatings" => {
+            ControlAction::DeckSeatings => {
                 // Full-replacement report of which sessions this deck client
                 // has seated on open Session cards. Keyed by the WebSocket
                 // client id, so the state can never outlive the deck that
@@ -54,7 +55,7 @@ impl AgentSupervisor {
                     Err(e) => return ControlOutcome::Error(e),
                 }
             }
-            "deck_log" => {
+            ControlAction::DeckLog => {
                 // The deck's `warn`/`error` dev-log entries, mirrored here so
                 // they survive into `tugcast.log`. The DevTools Log tab is only
                 // readable live, and a release build exposes no handle onto

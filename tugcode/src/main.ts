@@ -9,7 +9,7 @@ import {
   writeLine,
   writeLineAndExit,
 } from "./ipc.ts";
-import { isProtocolInit, isUserMessage } from "./types.ts";
+import { IPC_VERSION, isProtocolInit, isUserMessage } from "./types.ts";
 import { dispatchInbound } from "./inbound-dispatch.ts";
 import { SessionManager, resolvePluginDir } from "./session.ts";
 import { isPermissionMode, type PermissionMode } from "./permissions.ts";
@@ -448,7 +448,7 @@ async function main() {
         type: "protocol_ack",
         version: 1,
         session_id: "pending", // Will be replaced by session_init
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
 
       // Step R0d cold-boot order. Resume mode emits the synthetic

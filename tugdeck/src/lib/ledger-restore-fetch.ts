@@ -38,6 +38,7 @@
  * @module lib/ledger-restore-fetch
  */
 
+import type { ControlAction } from "@tugproto/control";
 import { FeedId } from "../protocol";
 import { getConnection } from "./connection-singleton";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
@@ -53,7 +54,7 @@ const WARN_AFTER_ATTEMPTS = 6;
 
 export interface LedgerRestoreFetchOptions {
   /** CONTROL action to send, e.g. `"list_shell_exchanges"`. */
-  action: string;
+  action: ControlAction;
   /** The session whose rows are being restored; rides the request. */
   tugSessionId: string;
   /** Dev-log source for this fetch's warnings, e.g. `"shell-restore"`. */
@@ -76,7 +77,7 @@ export interface LedgerRestoreFetchOptions {
 }
 
 export class LedgerRestoreFetch {
-  private readonly _action: string;
+  private readonly _action: ControlAction;
   private readonly _tugSessionId: string;
   private readonly _logSource: string;
   private readonly _params: (() => Record<string, unknown>) | null;

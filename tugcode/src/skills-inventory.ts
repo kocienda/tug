@@ -22,6 +22,7 @@ import { countTokens } from "./tokenizer.ts";
 
 import { extractFrontmatter } from "./context-breakdown.ts";
 import type { SkillInventoryEntry, SkillsInventory } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 
 /**
  * Read a single `field: value` line out of a SKILL.md frontmatter block.
@@ -145,6 +146,6 @@ export function buildSkillsInventory(
     tug_session_id: sessionId,
     request_id: requestId,
     skills: [...pluginSkills, ...userSkills],
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }

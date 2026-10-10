@@ -62,6 +62,7 @@ function backgroundAgentLaunch(): CodeSessionEvent[] {
       tool_use_id: AGENT_TU,
       tool_name: "Agent",
       input: { prompt: "explore", run_in_background: true },
+      seq: 0,
     },
     {
       type: "tool_result",
@@ -70,6 +71,7 @@ function backgroundAgentLaunch(): CodeSessionEvent[] {
         "Async agent launched successfully.\n" +
         `agentId: ${AGENT_JOB_ID} (internal)\n` +
         "output_file: /tmp/agent.output",
+      is_error: false,
     },
   ];
 }
@@ -128,8 +130,9 @@ describe("subagent child routing — open and fill converge on one record", () =
         tool_name: "Bash",
         input: { command: "ls -la" },
         parent_tool_use_id: AGENT_TU,
+        seq: 0,
       },
-      { type: "tool_result", tool_use_id: "c1", output: "total 0" },
+      { type: "tool_result", tool_use_id: "c1", output: "total 0", is_error: false },
     ]);
 
     // One record: still exactly one ledger child, filled and terminal,
@@ -161,6 +164,7 @@ describe("subagent child routing — open and fill converge on one record", () =
         tool_use_id: AGENT_TU,
         tool_name: "Agent",
         input: { prompt: "explore", run_in_background: true },
+        seq: 0,
       },
       {
         type: "content_block_start",
@@ -179,6 +183,7 @@ describe("subagent child routing — open and fill converge on one record", () =
           "Async agent launched successfully.\n" +
           `agentId: ${AGENT_JOB_ID} (internal)\n` +
           "output_file: /tmp/agent.output",
+        is_error: false,
       },
       // …then the fill arrives. It must land on the scratch mint.
       {
@@ -188,6 +193,7 @@ describe("subagent child routing — open and fill converge on one record", () =
         tool_name: "Read",
         input: { file_path: "/tmp/foo.ts" },
         parent_tool_use_id: AGENT_TU,
+        seq: 0,
       },
     ]);
 
@@ -199,7 +205,7 @@ describe("subagent child routing — open and fill converge on one record", () =
     expect(jobChild(state, "c2")).toBeUndefined();
 
     state = applyAll(state, [
-      { type: "tool_result", tool_use_id: "c2", output: "file body" },
+      { type: "tool_result", tool_use_id: "c2", output: "file body", is_error: false },
     ]);
     const done = scratchToolCall(state, "c2");
     expect(done?.status).toBe("done");
@@ -230,11 +236,13 @@ describe("subagent child routing — open and fill converge on one record", () =
     state = applyAll(state, [
       {
         type: "tool_use",
+        msg_id: "m-c4",
         tool_use_id: "c4",
         tool_name: "Bash",
         input: { command: "pwd" },
         parent_tool_use_id: AGENT_TU,
         timestamp: t0,
+        seq: 0,
       },
       {
         type: "tool_result",

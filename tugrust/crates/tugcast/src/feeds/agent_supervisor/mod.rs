@@ -51,6 +51,7 @@ use super::session_metadata::{
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
 use crate::background_session::background_card_id;
+use tugcast_core::ControlAction;
 #[cfg(test)]
 use tugcast_core::LagPolicy;
 
@@ -1934,49 +1935,75 @@ impl AgentSupervisor {
         // Each CONTROL family answers its own actions in its own module
         // (`control/`). Any action not named here is not owned by the
         // supervisor: the caller falls through to `dispatch_action`.
+        let Ok(action) = action.parse::<ControlAction>() else {
+            return ControlOutcome::PassThrough;
+        };
+        use ControlAction as A;
         match action {
-            "spawn_session" | "close_session" | "reset_session" | "list_sessions"
-            | "list_card_bindings" | "resolve_sessions" | "request_replay" => {
+            A::SpawnSession
+            | A::CloseSession
+            | A::ResetSession
+            | A::ListSessions
+            | A::ListCardBindings
+            | A::ResolveSessions
+            | A::RequestReplay => {
                 self.handle_session_control(action, payload, client_id)
                     .await
             }
-            "bind_arc" | "arc_resume" | "arc_run" | "arc_stop" | "unbind_arc" => {
+            A::BindArc | A::ArcResume | A::ArcRun | A::ArcStop | A::UnbindArc => {
                 self.handle_arc_control(action, payload).await
             }
-            "changeset_git_init"
-            | "changeset_commit"
-            | "changeset_push"
-            | "changeset_claim"
-            | "changeset_disclaim"
-            | "changeset_refresh"
-            | "changeset_draft_request"
-            | "changeset_draft_cancel"
-            | "changeset_draft_set"
-            | "landing_receipt"
-            | "changeset_join"
-            | "changeset_join_resolve"
-            | "changeset_join_resolve_base"
-            | "changeset_join_resolve_base_undo"
-            | "changeset_join_question_answer"
-            | "changeset_discard"
-            | "changeset_delete_documents"
-            | "changeset_replay" => self.handle_changeset_control(action, payload).await,
-            "deck_seatings" | "deck_log" => {
+            A::ChangesetGitInit
+            | A::ChangesetCommit
+            | A::ChangesetPush
+            | A::ChangesetClaim
+            | A::ChangesetDisclaim
+            | A::ChangesetRefresh
+            | A::ChangesetDraftRequest
+            | A::ChangesetDraftCancel
+            | A::ChangesetDraftSet
+            | A::LandingReceipt
+            | A::ChangesetJoin
+            | A::ChangesetJoinResolve
+            | A::ChangesetJoinResolveBase
+            | A::ChangesetJoinResolveBaseUndo
+            | A::ChangesetJoinQuestionAnswer
+            | A::ChangesetDiscard
+            | A::ChangesetDeleteDocuments
+            | A::ChangesetReplay => self.handle_changeset_control(action, payload).await,
+            A::DeckSeatings | A::DeckLog => {
                 self.handle_deck_control(action, payload, client_id).await
             }
-            "trash_session"
-            | "rename_session"
-            | "set_session_private"
-            | "trash_project_dir_sessions" => self.handle_rows_control(action, payload).await,
-            "record_turn_telemetry"
-            | "record_context_breakdown"
-            | "record_session_state_change"
-            | "list_session_state_changes"
-            | "list_digest_lines"
-            | "list_overview_posts"
-            | "list_shell_exchanges"
-            | "list_refs" => self.handle_telemetry_control(action, payload).await,
-            _ => ControlOutcome::PassThrough,
+            A::TrashSession
+            | A::RenameSession
+            | A::SetSessionPrivate
+            | A::TrashProjectDirSessions => self.handle_rows_control(action, payload).await,
+            A::RecordTurnTelemetry
+            | A::RecordContextBreakdown
+            | A::RecordSessionStateChange
+            | A::ListSessionStateChanges
+            | A::ListDigestLines
+            | A::ListOverviewPosts
+            | A::ListShellExchanges
+            | A::ListRefs => self.handle_telemetry_control(action, payload).await,
+            // The router's own reads and the legacy pipeline's verbs.
+            A::FeedStats
+            | A::SubscribeFeeds
+            | A::EvalResponse
+            | A::AskResponse
+            | A::Relaunch
+            | A::CheckAuth
+            | A::CheckHostTools
+            | A::OfferHostTools
+            | A::InstallClaude
+            | A::ClaudeDownloadResume
+            | A::ClaudeDownloadPause
+            | A::ClaudeDownloadCancel
+            | A::CheckClaudeVersion
+            | A::UpdateClaude
+            | A::ClaudeSignIn
+            | A::ClaudeLogout
+            | A::SharedAgentClassify => ControlOutcome::PassThrough,
         }
     }
 
@@ -5065,7 +5092,7 @@ mod tests {
     }
 
     /// A wake closes the job its notification is about. The bytes are tugcode's
-    /// translated `WakeStarted` shape (`tugcode/src/types.ts`), not the raw
+    /// translated `WakeStarted` shape (`tugproto/src/outbound.ts`), not the raw
     /// claude `system/task_notification` the fixture catalog pins — that
     /// capture is the input *to* tugcode, and nothing wearing that shape ever
     /// reaches this wire.

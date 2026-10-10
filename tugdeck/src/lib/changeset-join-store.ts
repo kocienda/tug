@@ -729,23 +729,6 @@ export class ChangesetJoinStore {
   }
 
   /**
-   * Record that the user has read what the ladder decided — the second beat of
-   * the review the land gate holds for.
-   *
-   * The acknowledgment is pinned to `candidate`'s sha server-side, so it cannot
-   * outlive the artifact it answered: a candidate rebuilt after the base moved
-   * demands a fresh reading. The mark comes back on the arc's feed entry; this
-   * send only asks for it.
-   */
-  review(workspaceKey: string, arc: string, candidate: string): void {
-    this._connection.sendControlFrame("changeset_join_review", {
-      project_dir: workspaceKey,
-      arc: arc,
-      candidate,
-    });
-  }
-
-  /**
    * Answer the escalation a blocked resolve raised ([P06]).
    *
    * `requestId` is what makes the answer safe: the resolver may have expired,
@@ -881,7 +864,6 @@ export function useChangesetJoinResolve(
 ): ResolveState & {
   resolve: () => void;
   clear: () => void;
-  review: (candidate: string) => void;
 } {
   const state = useSyncExternalStore(
     (listener) => {
@@ -898,10 +880,7 @@ export function useChangesetJoinResolve(
   const clear = (): void => {
     _activeStore?.clear(workspaceKey, arc);
   };
-  const review = (candidate: string): void => {
-    _activeStore?.review(workspaceKey, arc, candidate);
-  };
-  return { ...state, resolve, clear, review };
+  return { ...state, resolve, clear };
 }
 
 /**

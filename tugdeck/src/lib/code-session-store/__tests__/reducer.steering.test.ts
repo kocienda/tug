@@ -110,6 +110,7 @@ function openTurnWithPendingTool(turnKey: string): CodeSessionState {
       tool_use_id: "tu1",
       tool_name: "Bash",
       input: { command: "ls" },
+      seq: 0,
     },
   ]);
   expect(state.phase).toBe("tool_work");
@@ -127,7 +128,7 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
     expect(state.queuedSends.length).toBe(1);
 
     // Boundary: the tool completes. The head entry is picked up.
-    const pickup = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok" });
+    const pickup = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok", is_error: false });
     state = pickup.state;
 
     // Exactly one user_message frame forwarded — the steered content.
@@ -157,7 +158,7 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
     // The boundary can be a long way from the submission — a tool call runs
     // for as long as it runs. The row's timestamp is the user's submit.
     await Bun.sleep(5);
-    state = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok" }).state;
+    state = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok", is_error: false }).state;
 
     const steered = state.scratch.get("t1")!.messages[2] as UserMessage;
     expect(steered.submitAt).toBe(queuedAt);
@@ -169,7 +170,7 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
     let state = openTurnWithPendingTool("t1");
     state = reduce(state, send("steer me", "s1")).state;
 
-    const pickup = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok" });
+    const pickup = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok", is_error: false });
     state = pickup.state;
     expect(state.queuedSends.length).toBe(0);
 
@@ -177,8 +178,8 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
     // carries the merged shape [user, tool, user, assistant].
     const done = applyAll(state, [
       { type: "content_block_start", msg_id: "m1", block_index: 1, kind: "text" },
-      { type: "assistant_text", msg_id: "m1", block_index: 1, text: "done", is_partial: false },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "assistant_text", msg_id: "m1", block_index: 1, text: "done", is_partial: false, seq: 0, rev: 0, status: "complete" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     expect(userMessageFrames(done.effects)).toEqual([]);
     expect(done.state.phase).toBe("idle");
@@ -199,8 +200,8 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
     const { state: opened } = applyAll(fresh(), [
       send("go", "t1"),
       { type: "content_block_start", msg_id: "m1", block_index: 0, kind: "text" },
-      { type: "assistant_text", msg_id: "m1", block_index: 0, text: "h", is_partial: true },
-      { type: "assistant_text", msg_id: "m1", block_index: 0, text: "hi", is_partial: true },
+      { type: "assistant_text", msg_id: "m1", block_index: 0, text: "h", is_partial: true, seq: 0, rev: 0, status: "partial" },
+      { type: "assistant_text", msg_id: "m1", block_index: 0, text: "hi", is_partial: true, seq: 0, rev: 0, status: "partial" },
     ]);
     expect(opened.phase).toBe("streaming");
     let state = reduce(opened, send("next turn", "s1")).state;
@@ -208,7 +209,7 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
 
     // No tool_result ever fired, so the queue flushes at turn_complete:
     // one user_message frame, and the entry opens the next turn.
-    const complete = reduce(state, { type: "turn_complete", msg_id: "m1", result: "success" });
+    const complete = reduce(state, { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 });
     state = complete.state;
     expect(userMessageFrames(complete.effects)).toEqual(["next turn"]);
     expect(state.phase).toBe("submitting");
@@ -247,9 +248,9 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
     const { state: opened } = applyAll(fresh(), [
       send("go", "t1"),
       { type: "content_block_start", msg_id: "m1", block_index: 0, kind: "tool_use", tool_use_id: "tu1", tool_name: "Bash" },
-      { type: "tool_use", msg_id: "m1", tool_use_id: "tu1", tool_name: "Bash", input: {} },
+      { type: "tool_use", msg_id: "m1", tool_use_id: "tu1", tool_name: "Bash", input: {}, seq: 0 },
       { type: "content_block_start", msg_id: "m1", block_index: 1, kind: "tool_use", tool_use_id: "tu2", tool_name: "Read" },
-      { type: "tool_use", msg_id: "m1", tool_use_id: "tu2", tool_name: "Read", input: {} },
+      { type: "tool_use", msg_id: "m1", tool_use_id: "tu2", tool_name: "Read", input: {}, seq: 0 },
     ]);
     expect(opened.phase).toBe("tool_work");
 
@@ -261,13 +262,13 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
     ]);
 
     // First boundary picks up the head only.
-    const b1 = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok" });
+    const b1 = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok", is_error: false });
     state = b1.state;
     expect(userMessageFrames(b1.effects)).toEqual(["first steer"]);
     expect(state.queuedSends.map((q) => q.text)).toEqual(["second steer"]);
 
     // Second boundary picks up the next.
-    const b2 = reduce(state, { type: "tool_result", tool_use_id: "tu2", output: "ok" });
+    const b2 = reduce(state, { type: "tool_result", tool_use_id: "tu2", output: "ok", is_error: false });
     state = b2.state;
     expect(userMessageFrames(b2.effects)).toEqual(["second steer"]);
     expect(state.queuedSends.length).toBe(0);
@@ -293,8 +294,8 @@ describe("mid-turn steering — reload-authoritative placement (JSONL replay)", 
       { type: "replay_started" },
       addUserMessage("t1", "opener"),
       { type: "content_block_start", msg_id: "m1", block_index: 0, kind: "tool_use", tool_use_id: "tu1", tool_name: "Bash" },
-      { type: "tool_use", msg_id: "m1", tool_use_id: "tu1", tool_name: "Bash", input: {} },
-      { type: "tool_result", tool_use_id: "tu1", output: "ok" },
+      { type: "tool_use", msg_id: "m1", tool_use_id: "tu1", tool_name: "Bash", input: {}, seq: 0 },
+      { type: "tool_result", tool_use_id: "tu1", output: "ok", is_error: false },
       // Steered message merged after the tool_result — its own turnKey.
       addUserMessage("s1", "steered"),
     ]);
@@ -320,8 +321,8 @@ describe("mid-turn steering — reload-authoritative placement (JSONL replay)", 
     const { state } = applyAll(fresh(), [
       { type: "replay_started" },
       addUserMessage("t1", "first"),
-      { type: "assistant_text", msg_id: "m1", block_index: 0, text: "a", is_partial: false },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "assistant_text", msg_id: "m1", block_index: 0, text: "a", is_partial: false, seq: 0, rev: 0, status: "complete" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
       // pendingTurn is null here → the next opener opens a fresh turn.
       addUserMessage("t2", "second"),
     ]);

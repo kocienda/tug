@@ -76,6 +76,9 @@ describe("reducer — interrupt-in-flight accumulator", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     expect(s.interruptInFlight).toBe(false);
@@ -100,6 +103,9 @@ describe("reducer — interrupt-in-flight accumulator", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     advance(1_000);
@@ -112,7 +118,7 @@ describe("reducer — interrupt-in-flight accumulator", () => {
     advance(750);
     const closeAt = now;
     const { state: completed } = applyAll(midInterrupt, [
-      { type: "turn_complete", msg_id: "m1", result: "error" },
+      { type: "turn_complete", msg_id: "m1", result: "error", seq: 0 },
     ]);
 
     // Latched bool resets via `resetPerTurnTelemetry`; segment start
@@ -150,9 +156,12 @@ describe("reducer — interrupt-in-flight accumulator", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       { type: "interrupt_action" },
-      { type: "turn_complete", msg_id: "m1", result: "error" },
+      { type: "turn_complete", msg_id: "m1", result: "error", seq: 0 },
     ]);
     expect(prior.interruptInFlightIntervals.length).toBe(1);
 
@@ -172,8 +181,11 @@ describe("reducer — interrupt-in-flight accumulator", () => {
       { type: "send", text: "hi", atoms: [], content: [{ type: "text" as const, text: "hi" }], turnKey: "k1" },
       { type: "assistant_text", msg_id: "m1",
       block_index: 0,
-      text: "ok", is_partial: false },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      text: "ok", is_partial: false,
+      seq: 0,
+      rev: 0,
+      status: "complete" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     expect(state.interruptInFlight).toBe(false);
     expect(state.interruptInFlightSegmentStartedAt).toBeNull();
@@ -191,11 +203,16 @@ describe("reducer — pause-axis interval arrays at turn boundary", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       {
         type: "control_request_forward",
         request_id: "r1",
         is_question: false,
+        tool_name: "Bash",
+        input: {},
       },
     ]);
     expect(opened.awaitingApprovalSince).toBe(now);
@@ -224,6 +241,9 @@ describe("reducer — pause-axis interval arrays at turn boundary", () => {
       block_index: 0,
       text: "partial",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       { type: "transport_close" },
       { type: "transport_open" },

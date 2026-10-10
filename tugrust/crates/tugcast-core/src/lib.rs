@@ -6,16 +6,19 @@
 //!
 //! ## Modules
 //!
+//! - [`control`] - The CONTROL request action vocabulary
 //! - [`protocol`] - Binary frame protocol and FeedId definitions
 //! - [`feed`] - Feed traits for stream and snapshot feeds
 //! - [`lag`] - Lag-recovery policy and replay buffer for stream feeds
 //! - [`types`] - Data structures for snapshot feeds (FsEvent, GitStatus)
 
+pub mod control;
 pub mod feed;
 pub mod lag;
 pub mod protocol;
 pub mod types;
 
+pub use control::{ControlAction, DECK_ONLY_ACTIONS, RUST_ONLY_ACTIONS, UnknownControlAction};
 pub use feed::{DEFAULT_BROADCAST_CAPACITY, SnapshotFeed, StreamFeed, spawn_snapshot_feed};
 pub use lag::{LagPolicy, ReplayBuffer};
 pub use protocol::{

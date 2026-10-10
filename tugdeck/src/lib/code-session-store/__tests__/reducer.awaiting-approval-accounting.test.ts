@@ -82,6 +82,9 @@ describe("reducer — awaiting-approval accounting", () => {
       block_index: 0,
       text: "hello",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]);
     advance(20);
@@ -113,6 +116,7 @@ describe("reducer — awaiting-approval accounting", () => {
         type: "turn_complete",
         msg_id: "m1",
         result: "success",
+        seq: 0,
       },
     ]);
     expect(s5.awaitingApprovalAccumulatedMs).toBe(0); // reset after commit
@@ -135,6 +139,9 @@ describe("reducer — awaiting-approval accounting", () => {
       block_index: 0,
       text: "hello",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]).state;
 
@@ -186,6 +193,7 @@ describe("reducer — awaiting-approval accounting", () => {
         type: "turn_complete",
         msg_id: "m1",
         result: "success",
+        seq: 0,
       },
     ]);
     const appended = appendedEntries(effects);
@@ -201,6 +209,9 @@ describe("reducer — awaiting-approval accounting", () => {
       block_index: 0,
       text: "thinking",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
     ]).state;
 
@@ -209,6 +220,8 @@ describe("reducer — awaiting-approval accounting", () => {
         type: "control_request_forward",
         request_id: "rq1",
         is_question: true,
+        tool_name: "AskUserQuestion",
+        input: {},
         question: "pick one",
         options: ["a", "b"],
       },
@@ -236,6 +249,9 @@ describe("reducer — awaiting-approval accounting", () => {
       block_index: 0,
       text: "thinking",
         is_partial: true,
+        seq: 0,
+        rev: 0,
+        status: "partial",
       },
       {
         type: "control_request_forward",
@@ -262,6 +278,7 @@ describe("reducer — awaiting-approval accounting", () => {
         type: "turn_complete",
         msg_id: "m1",
         result: "error",
+        seq: 0,
       },
     ]);
     const appended = appendedEntries(effects);
@@ -278,8 +295,11 @@ describe("reducer — awaiting-approval accounting", () => {
       block_index: 0,
       text: "done",
         is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     const appended = appendedEntries(effects);
     expect(appended[0].entry.awaitingApprovalMs).toBe(0);

@@ -25,6 +25,7 @@ import { join } from "node:path";
 
 import type { InboundMessage } from "@tugproto/inbound";
 import type { OutboundMessage } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import type { SessionManager } from "./session.ts";
 import { errorFrame } from "./ipc.ts";
 import { buildSkillsInventory } from "./skills-inventory.ts";
@@ -151,7 +152,7 @@ export const INBOUND_HANDLERS: InboundHandlers = {
         promptUuid: msg.promptUuid,
         canRewind: false,
         error: `Rewind preview failed: ${err}`,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     });
   },
@@ -167,7 +168,7 @@ export const INBOUND_HANDLERS: InboundHandlers = {
         scope: msg.scope,
         canRewind: false,
         error: `Session rewind failed: ${err}`,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
     });
   },

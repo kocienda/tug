@@ -101,6 +101,7 @@ describe("handleTurnComplete — live path", () => {
         is_partial: false,
         rev: 0,
         seq: 0,
+        status: "complete",
       },
       {
         type: "cost_update",
@@ -114,8 +115,9 @@ describe("handleTurnComplete — live path", () => {
           cache_creation_input_tokens: 10,
           cache_read_input_tokens: 20,
         },
+        modelUsage: {},
       },
-      { type: "turn_complete", msg_id: "msg-A", result: "success" },
+      { type: "turn_complete", msg_id: "msg-A", result: "success", seq: 0 },
     ]);
 
     // Live commit appended one TurnEntry with derived telemetry.
@@ -141,7 +143,7 @@ describe("handleTurnComplete — live path", () => {
     const { effects } = applyAll(initial, [
       { type: "send", text: "ask", atoms: [], content: [{ type: "text" as const, text: "ask" }], turnKey: "tk1" },
       // No cost_update — turn ends without one.
-      { type: "turn_complete", msg_id: "msg-A", result: "error" },
+      { type: "turn_complete", msg_id: "msg-A", result: "error", seq: 0 },
     ]);
 
     const persists = recordTelemetryEffects(effects);
@@ -180,12 +182,14 @@ describe("handleTurnComplete — replay path", () => {
         is_partial: false,
         rev: 0,
         seq: 0,
+        status: "complete",
       },
       {
         type: "turn_complete",
         msg_id: "msg-replay-A",
         result: "success",
         telemetry: SAMPLE_INLINE_TELEMETRY,
+        seq: 0,
       },
     ]);
 
@@ -255,6 +259,7 @@ describe("handleTurnComplete — replay path", () => {
         msg_id: "msg-old",
         result: "success",
         timestamp: REPLAYED_AT,
+        seq: 0,
         // No `telemetry` field — pre-feature turn or evicted row.
       },
     ]);
@@ -299,6 +304,7 @@ describe("handleTurnComplete — [replay-2] terminal-reason recovery", () => {
         msg_id: "msg-int",
         result: "error",
         telemetry: { ...SAMPLE_INLINE_TELEMETRY, turnEndReason: "interrupted" },
+        seq: 0,
       },
     ]);
 
@@ -333,6 +339,7 @@ describe("handleTurnComplete — [replay-2] terminal-reason recovery", () => {
         msg_id: "msg-pre",
         result: "error",
         telemetry: SAMPLE_INLINE_TELEMETRY,
+        seq: 0,
       },
     ]);
 
@@ -355,8 +362,9 @@ describe("handleTurnComplete — [replay-2] terminal-reason recovery", () => {
         is_partial: false,
         rev: 0,
         seq: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "msg-A", result: "success" },
+      { type: "turn_complete", msg_id: "msg-A", result: "success", seq: 0 },
     ]);
 
     const persists = recordTelemetryEffects(effects);

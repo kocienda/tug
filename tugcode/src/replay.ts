@@ -67,16 +67,8 @@ import type {
   TurnEndReason,
   TurnTelemetry,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import type { ReplayWindow } from "@tugproto/inbound";
-
-/**
- * IPC version stamped onto every emitted OutboundMessage. Held local
- * to this module rather than imported from a shared constant because
- * the live IPC version is also a literal `2` everywhere; a future
- * version bump that affects both live and replay would update both
- * sites in one edit.
- */
-const IPC_VERSION = 2;
 
 /**
  * Default continuous-work budget for the session-level async

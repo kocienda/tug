@@ -39,6 +39,7 @@
 
 import { getTugbankClient } from "../tugbank-singleton";
 import { getConnection } from "../connection-singleton";
+import type { ControlAction } from "@tugproto/control";
 import { FeedId } from "../../protocol";
 import type { TaggedValue } from "../tugbank-client";
 import {
@@ -472,7 +473,7 @@ function mirrorToHost(
       FeedId.CONTROL,
       new TextEncoder().encode(
         JSON.stringify({
-          action: "deck_log",
+          action: "deck_log" satisfies ControlAction,
           level,
           source,
           message,

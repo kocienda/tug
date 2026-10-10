@@ -4,6 +4,7 @@
 //! and the deck's `landing_receipt` diagnostic.
 
 use super::super::*;
+use tugcast_core::ControlAction;
 
 /// Parsed `changeset_commit` request: project dir, repo-relative file list,
 /// commit message (Spec S03). The file list may parse empty — the handler
@@ -715,25 +716,25 @@ pub(in crate::feeds::agent_supervisor) fn parse_landing_receipt_payload(
 impl AgentSupervisor {
     pub(in crate::feeds::agent_supervisor) async fn handle_changeset_control(
         &self,
-        action: &str,
+        action: ControlAction,
         payload: &[u8],
     ) -> ControlOutcome {
         let result: Result<(), ControlError> = match action {
-            "changeset_git_init" => match parse_project_dir_payload(payload) {
+            ControlAction::ChangesetGitInit => match parse_project_dir_payload(payload) {
                 Ok(project_dir) => {
                     self.do_changeset_git_init(&project_dir).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "changeset_commit" => match parse_changeset_commit_payload(payload) {
+            ControlAction::ChangesetCommit => match parse_changeset_commit_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_commit(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "changeset_push" => match parse_changeset_push_payload(payload) {
+            ControlAction::ChangesetPush => match parse_changeset_push_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_push(&parsed).await;
                     Ok(())
@@ -744,14 +745,14 @@ impl AgentSupervisor {
             // ingress ignores it (the body was already broadcast on CONTROL),
             // and the `/api/tell` bridge hands it back over HTTP so the CLI
             // reports the actual outcome rather than inferring one from 200.
-            "changeset_claim" => match parse_changeset_claim_payload(payload) {
+            ControlAction::ChangesetClaim => match parse_changeset_claim_payload(payload) {
                 Ok(parsed) => {
                     let reply = self.do_changeset_claim(&parsed).await;
                     return ControlOutcome::HandledWith(reply);
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "changeset_disclaim" => match parse_changeset_disclaim_payload(payload) {
+            ControlAction::ChangesetDisclaim => match parse_changeset_disclaim_payload(payload) {
                 Ok(parsed) => {
                     let reply = self.do_changeset_disclaim(&parsed).await;
                     return ControlOutcome::HandledWith(reply);
@@ -764,32 +765,36 @@ impl AgentSupervisor {
             // drifted from the cached snapshot (an orphan created while no FS
             // event landed) — the Changes shade fires it on open so looking is
             // always fresh. No payload, no reply.
-            "changeset_refresh" => {
+            ControlAction::ChangesetRefresh => {
                 self.registry.changeset_all_bump().notify_one();
                 Ok(())
             }
-            "changeset_draft_request" => match parse_changeset_draft_request_payload(payload) {
-                Ok(parsed) => {
-                    self.do_changeset_draft_request(&parsed);
-                    Ok(())
+            ControlAction::ChangesetDraftRequest => {
+                match parse_changeset_draft_request_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_draft_request(&parsed);
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
                 }
-                Err(e) => return ControlOutcome::Error(e),
-            },
-            "changeset_draft_cancel" => match parse_changeset_draft_cancel_payload(payload) {
-                Ok(parsed) => {
-                    self.do_changeset_draft_cancel(&parsed);
-                    Ok(())
+            }
+            ControlAction::ChangesetDraftCancel => {
+                match parse_changeset_draft_cancel_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_draft_cancel(&parsed);
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
                 }
-                Err(e) => return ControlOutcome::Error(e),
-            },
-            "changeset_draft_set" => match parse_changeset_draft_set_payload(payload) {
+            }
+            ControlAction::ChangesetDraftSet => match parse_changeset_draft_set_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_draft_set(&parsed);
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "landing_receipt" => {
+            ControlAction::LandingReceipt => {
                 let receipt = parse_landing_receipt_payload(payload);
                 tracing::info!(
                     kind = %receipt.kind,
@@ -800,35 +805,39 @@ impl AgentSupervisor {
                 );
                 Ok(())
             }
-            "changeset_join" => match parse_changeset_join_payload(payload) {
+            ControlAction::ChangesetJoin => match parse_changeset_join_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_join(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "changeset_join_resolve" => match parse_changeset_join_resolve_payload(payload) {
-                Ok(parsed) => {
-                    self.do_changeset_join_resolve(&parsed).await;
-                    Ok(())
+            ControlAction::ChangesetJoinResolve => {
+                match parse_changeset_join_resolve_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_join_resolve(&parsed).await;
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
                 }
-                Err(e) => return ControlOutcome::Error(e),
-            },
+            }
             // The base-side resolve, which is a different act from the one
             // above: that reconciles a conflicted merge, this clears the
             // uncommitted base work refusing the merge in the first place.
             // They share a payload shape and nothing else.
-            "changeset_join_resolve_base" => match parse_changeset_join_resolve_payload(payload) {
-                Ok(parsed) => {
-                    self.do_changeset_join_resolve_base(&parsed).await;
-                    Ok(())
+            ControlAction::ChangesetJoinResolveBase => {
+                match parse_changeset_join_resolve_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_join_resolve_base(&parsed).await;
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
                 }
-                Err(e) => return ControlOutcome::Error(e),
-            },
+            }
             // And its reversal, offered beside the fold's own receipt. It
             // shares the payload shape for the same reason: one act, one arc,
             // named the same way.
-            "changeset_join_resolve_base_undo" => {
+            ControlAction::ChangesetJoinResolveBaseUndo => {
                 match parse_changeset_join_resolve_payload(payload) {
                     Ok(parsed) => {
                         self.do_changeset_join_resolve_base_undo(&parsed).await;
@@ -837,7 +846,7 @@ impl AgentSupervisor {
                     Err(e) => return ControlOutcome::Error(e),
                 }
             }
-            "changeset_join_question_answer" => {
+            ControlAction::ChangesetJoinQuestionAnswer => {
                 match parse_changeset_join_question_answer_payload(payload) {
                     Ok(parsed) => {
                         self.do_changeset_join_question_answer(&parsed);
@@ -846,14 +855,14 @@ impl AgentSupervisor {
                     Err(e) => return ControlOutcome::Error(e),
                 }
             }
-            "changeset_discard" => match parse_changeset_discard_payload(payload) {
+            ControlAction::ChangesetDiscard => match parse_changeset_discard_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_discard(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "changeset_delete_documents" => {
+            ControlAction::ChangesetDeleteDocuments => {
                 match parse_changeset_delete_documents_payload(payload) {
                     Ok(parsed) => {
                         self.do_changeset_delete_documents(&parsed).await;
@@ -862,7 +871,7 @@ impl AgentSupervisor {
                     Err(e) => return ControlOutcome::Error(e),
                 }
             }
-            "changeset_replay" => match parse_changeset_replay_payload(payload) {
+            ControlAction::ChangesetReplay => match parse_changeset_replay_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_replay(&parsed).await;
                     Ok(())

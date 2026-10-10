@@ -4,6 +4,7 @@
 //! (`do_spawn_session`) lives in the parent with its spawn-state machinery.
 
 use super::super::*;
+use tugcast_core::ControlAction;
 
 fn parse_session_ids_payload(payload: &[u8]) -> Result<Vec<String>, ControlError> {
     /// The most ids one request may name.
@@ -50,16 +51,16 @@ impl AgentSupervisor {
     /// reached through one delegating arm there.
     pub(in crate::feeds::agent_supervisor) async fn handle_session_control(
         &self,
-        action: &str,
+        action: ControlAction,
         payload: &[u8],
         client_id: ClientId,
     ) -> ControlOutcome {
         let result: Result<(), ControlError> = match action {
-            "spawn_session" => {
+            ControlAction::SpawnSession => {
                 let parsed = match parse_control_payload_owned(payload) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected spawn_session");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected spawn_session");
                         return ControlOutcome::Error(e);
                     }
                 };
@@ -84,11 +85,11 @@ impl AgentSupervisor {
                 )
                 .await
             }
-            "close_session" => {
+            ControlAction::CloseSession => {
                 let parsed = match parse_control_payload_owned(payload) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected close_session");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected close_session");
                         return ControlOutcome::Error(e);
                     }
                 };
@@ -96,11 +97,11 @@ impl AgentSupervisor {
                     .await;
                 Ok(())
             }
-            "reset_session" => {
+            ControlAction::ResetSession => {
                 let parsed = match parse_control_payload_owned(payload) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected reset_session");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected reset_session");
                         return ControlOutcome::Error(e);
                     }
                 };
@@ -111,29 +112,29 @@ impl AgentSupervisor {
                     .await;
                 Ok(())
             }
-            "list_sessions" => match parse_project_dir_payload(payload) {
+            ControlAction::ListSessions => match parse_project_dir_payload(payload) {
                 Ok(project_dir) => {
                     self.do_list_sessions(&project_dir).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "list_card_bindings" => {
+            ControlAction::ListCardBindings => {
                 self.do_list_card_bindings().await;
                 Ok(())
             }
-            "resolve_sessions" => match parse_session_ids_payload(payload) {
+            ControlAction::ResolveSessions => match parse_session_ids_payload(payload) {
                 Ok(ids) => {
                     self.do_resolve_sessions(&ids).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "request_replay" => {
+            ControlAction::RequestReplay => {
                 let tug_session_id = match parse_tug_session_id_payload(payload) {
                     Ok(id) => id,
                     Err(e) => {
-                        warn!(action, error = %e, "handle_control: rejected request_replay");
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected request_replay");
                         return ControlOutcome::Error(e);
                     }
                 };

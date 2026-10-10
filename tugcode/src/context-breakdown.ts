@@ -31,6 +31,7 @@ import { countTokens } from "./tokenizer.ts";
 
 import type { ClaudeCodeSettings } from "./claude-code-settings.ts";
 import type { ContextBreakdown, ContextBreakdownCategory } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 
 /**
  * Heuristic estimate of the CLI's internal system prompt in tokens.
@@ -381,7 +382,7 @@ export function buildContextBreakdownFrame(
     tug_session_id: sessionId,
     context_max: contextMax,
     categories,
-    ipc_version: 2,
+    ipc_version: IPC_VERSION,
   };
 }
 

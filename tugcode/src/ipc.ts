@@ -6,7 +6,7 @@ import type {
   InboundMessage,
   OutboundMessage,
 } from "./types.ts";
-import { isInboundMessage } from "./types.ts";
+import { IPC_VERSION, isInboundMessage } from "./types.ts";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
 import { LineSplitter } from "./line-splitter.ts";
 
@@ -160,7 +160,7 @@ export function errorFrame(
   recoverable: boolean,
 ): ErrorEvent {
   logSessionLifecycle("tugcode.error_frame", { site, message, recoverable });
-  return { type: "error", message, recoverable, site, ipc_version: 2 };
+  return { type: "error", message, recoverable, site, ipc_version: IPC_VERSION };
 }
 
 /**

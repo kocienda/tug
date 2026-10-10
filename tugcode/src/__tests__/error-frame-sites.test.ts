@@ -44,7 +44,10 @@ function sourceFiles(): { name: string; text: string }[] {
 
 /** The slugs of the `ErrorFrameSite` union, read from its declaration. */
 function declaredSites(): string[] {
-  const types = readFileSync(join(SRC_DIR, "types.ts"), "utf8");
+  const types = readFileSync(
+    join(SRC_DIR, "..", "..", "tugproto", "src", "outbound.ts"),
+    "utf8",
+  );
   const decl = types.match(
     /export type ErrorFrameSite =([\s\S]*?);\n/,
   );
@@ -104,13 +107,14 @@ function captureLifecycleLog(fn: () => void): string[] {
 describe("error frame sites", () => {
   test("the frame is built in exactly one place", () => {
     // A hand-rolled `{ type: "error", … }` anywhere else is a site that can
-    // forget to log — which is the whole defect. `types.ts` declares the
-    // shape and `ipc.ts` builds it; nothing else may construct one.
+    // forget to log — which is the whole defect. `@tugproto/outbound`
+    // declares the shape and `ipc.ts` builds it; nothing else may construct
+    // one.
     const constructors = sourceFiles()
       .filter(({ text }) => text.includes('type: "error"'))
       .map(({ name }) => name)
       .sort();
-    expect(constructors).toEqual(["ipc.ts", "types.ts"]);
+    expect(constructors).toEqual(["ipc.ts"]);
   });
 
   test("every declared site is used by a real emit site", () => {
@@ -120,7 +124,7 @@ describe("error frame sites", () => {
     const sites = declaredSites();
     expect(sites.length).toBeGreaterThan(0);
     const callers = sourceFiles().filter(
-      ({ name }) => name !== "types.ts" && name !== "ipc.ts",
+      ({ name }) => name !== "ipc.ts",
     );
     const unused = sites.filter(
       (site) => !callers.some(({ text }) => text.includes(`"${site}"`)),

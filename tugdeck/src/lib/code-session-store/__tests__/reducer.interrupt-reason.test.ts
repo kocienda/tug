@@ -75,13 +75,16 @@ function interruptedTurn(reason?: "logout") {
       block_index: 0,
       text: "partial",
       is_partial: true,
+      seq: 0,
+      rev: 0,
+      status: "partial",
     },
   ]);
   const { state: mid } = applyAll(opened, [
     { type: "interrupt_action", reason },
   ]);
   const { state, effects } = applyAll(mid, [
-    { type: "turn_complete", msg_id: "m1", result: "error" },
+    { type: "turn_complete", msg_id: "m1", result: "error", seq: 0 },
   ]);
   return { midState: mid, state, entry: appended(effects)[0]!.entry };
 }

@@ -29,10 +29,7 @@ import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import type { TugConnection } from "@/connection";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
-import {
-  CONTROL_ACTION_RECORD_CONTEXT_BREAKDOWN,
-  FeedId,
-} from "@/protocol";
+import { FeedId } from "@/protocol";
 
 interface RecordContextBreakdownWire {
   action: string;
@@ -63,7 +60,7 @@ function recordContextBreakdownFrames(
       const json = new TextDecoder().decode(bytes);
       return JSON.parse(json) as RecordContextBreakdownWire;
     })
-    .filter((p) => p.action === CONTROL_ACTION_RECORD_CONTEXT_BREAKDOWN);
+    .filter((p) => p.action === "record_context_breakdown");
 }
 
 describe("CodeSessionStore — context_breakdown wire-frame ingestion", () => {

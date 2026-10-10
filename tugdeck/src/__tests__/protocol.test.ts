@@ -1,8 +1,5 @@
 import { describe, test, expect } from "bun:test";
 import {
-  CONTROL_ACTION_CLOSE_SESSION,
-  CONTROL_ACTION_RESET_SESSION,
-  CONTROL_ACTION_SPAWN_SESSION,
   FEED_ID_SESSION_STATE,
   FeedId,
   FrameFlags,
@@ -71,22 +68,22 @@ describe("parseActivityFrame", () => {
 });
 
 describe("controlFrame", () => {
-  test("restart produces correct feedId and payload", () => {
-    const frame = controlFrame("restart");
+  test("check_auth produces correct feedId and payload", () => {
+    const frame = controlFrame("check_auth");
     expect(frame.feedId).toBe(0xc0);
     const payload = JSON.parse(new TextDecoder().decode(frame.payload));
-    expect(payload).toEqual({ action: "restart" });
+    expect(payload).toEqual({ action: "check_auth" });
   });
 
-  test("reset produces correct feedId and payload", () => {
-    const frame = controlFrame("reset");
+  test("reset_session produces correct feedId and payload", () => {
+    const frame = controlFrame("reset_session");
     expect(frame.feedId).toBe(0xc0);
     const payload = JSON.parse(new TextDecoder().decode(frame.payload));
-    expect(payload).toEqual({ action: "reset" });
+    expect(payload).toEqual({ action: "reset_session" });
   });
 
-  test("round-trip restart through encode/decode", () => {
-    const original = controlFrame("restart");
+  test("round-trip check_auth through encode/decode", () => {
+    const original = controlFrame("check_auth");
     const encoded = encodeFrame(original);
     const decoded = decodeFrame(encoded);
     expect(decoded.feedId).toBe(original.feedId);
@@ -170,12 +167,6 @@ describe("session protocol constants", () => {
   test("FEED_ID_SESSION_STATE is 0x52", () => {
     expect(FEED_ID_SESSION_STATE).toBe(0x52);
     expect(FeedId.SESSION_STATE).toBe(0x52);
-  });
-
-  test("CONTROL_ACTION_* names match supervisor expectations", () => {
-    expect(CONTROL_ACTION_SPAWN_SESSION).toBe("spawn_session");
-    expect(CONTROL_ACTION_CLOSE_SESSION).toBe("close_session");
-    expect(CONTROL_ACTION_RESET_SESSION).toBe("reset_session");
   });
 });
 
@@ -309,10 +300,9 @@ describe("session CONTROL frame builders", () => {
     // request_replay is addressed by tug-side session id alone; no
     // card_id (the verb is dispatch-side bookkeeping) and no
     // project_dir (supervisor knows the workspace from the ledger).
-    const { encodeRequestReplay, CONTROL_ACTION_REQUEST_REPLAY } = await import(
+    const { encodeRequestReplay } = await import(
       "../protocol"
     );
-    expect(CONTROL_ACTION_REQUEST_REPLAY).toBe("request_replay");
     const frame = encodeRequestReplay("sess-r1");
     expect(frame.feedId).toBe(FeedId.CONTROL);
     expect(frame.flags).toBe(FrameFlags.DATA);

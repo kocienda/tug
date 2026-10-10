@@ -94,28 +94,6 @@ describe("changeset join resolve overlay", () => {
     expect(done.error).toBeNull();
   });
 
-  test("review pins the acknowledgment to the candidate's sha, on the wire", () => {
-    // The review is not a client flag: it is a mark the server writes against
-    // this exact candidate, so a candidate rebuilt after the base moved cannot
-    // inherit a reading that answered a different one. The store's whole part
-    // is the send.
-    const sent: { action: string; body: Record<string, unknown> }[] = [];
-    const conn = {
-      onFrame: () => () => {},
-      sendControlFrame: (action: string, body: Record<string, unknown>) => {
-        sent.push({ action, body });
-      },
-    } as never;
-    const store = attachChangesetJoinStore(conn);
-    store.review("/u/src/tugtool", "demo", "abc123");
-    expect(sent).toEqual([
-      {
-        action: "changeset_join_review",
-        body: { project_dir: "/u/src/tugtool", arc: "demo", candidate: "abc123" },
-      },
-    ]);
-  });
-
   test("answering an escalation carries the request id that scopes it", () => {
     // The request id is the whole safety of this send. A resolve that already
     // expired, or a later one asking something else, must not be resolved by

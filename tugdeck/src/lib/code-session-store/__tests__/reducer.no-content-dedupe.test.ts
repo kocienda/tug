@@ -85,8 +85,9 @@ function localCommandTurn(
       is_partial: false,
       rev: 0,
       seq: 0,
+      status: "complete",
     },
-    { type: "turn_complete", msg_id: msgId, result: "success" },
+    { type: "turn_complete", msg_id: msgId, result: "success", seq: 0 },
   ];
 }
 
@@ -163,8 +164,9 @@ describe("handleTurnComplete — no-content-turn dedupe (the /compact-after-/mod
         is_partial: false,
         rev: 0,
         seq: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "msg_real", result: "success" },
+      { type: "turn_complete", msg_id: "msg_real", result: "success", seq: 0 },
     ]);
     expect(first.state.committedMsgIds.has("msg_real")).toBe(true);
 
@@ -184,8 +186,9 @@ describe("handleTurnComplete — no-content-turn dedupe (the /compact-after-/mod
         is_partial: false,
         rev: 0,
         seq: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "msg_real", result: "success" },
+      { type: "turn_complete", msg_id: "msg_real", result: "success", seq: 0 },
     ]);
 
     // The duplicate commit is suppressed…

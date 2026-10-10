@@ -29,7 +29,6 @@
  */
 
 import {
-  CONTROL_ACTION_RECORD_SESSION_STATE_CHANGE,
   decodeCodeInputPayload,
   FeedId,
   type FeedIdValue,
@@ -46,7 +45,7 @@ function isStateChangeFrame(frame: {
   try {
     const json = new TextDecoder().decode(decoded);
     const parsed = JSON.parse(json) as { action?: string };
-    return parsed.action === CONTROL_ACTION_RECORD_SESSION_STATE_CHANGE;
+    return parsed.action === "record_session_state_change";
   } catch {
     return false;
   }

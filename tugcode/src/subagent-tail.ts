@@ -48,14 +48,7 @@ import {
   type SubagentTranscript,
 } from "./replay.ts";
 import type { OutboundMessage, ToolUseStructured } from "./types.ts";
-
-/**
- * IPC version stamped onto the composed parent frame. Held local as a
- * literal `2` for the same reason `replay.ts` holds its own copy — the
- * version is a literal everywhere, and a real bump updates every site
- * in one sweep.
- */
-const IPC_VERSION = 2;
+import { IPC_VERSION } from "./types.ts";
 
 /** Default poll cadence — cheap enough to feel live, coarse enough to idle. */
 export const DEFAULT_TAIL_INTERVAL_MS = 250;

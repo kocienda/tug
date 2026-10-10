@@ -37,6 +37,7 @@
  * @module lib/pending-ask-store
  */
 
+import type { ControlAction } from "@tugproto/control";
 import type { PendingAsk, PendingAskOption } from "./code-session-store/types";
 
 /**
@@ -63,7 +64,7 @@ export interface PendingAskSession {
  * of it is obtained — and so its whole behavior is reachable from a test.
  */
 export interface PendingAskContext {
-  sendControlFrame: (action: string, payload: Record<string, unknown>) => void;
+  sendControlFrame: (action: ControlAction, payload: Record<string, unknown>) => void;
   /** The focused session's `tugSessionId`, or `null` if none is focused. */
   focusedTugSessionId: () => string | null;
   /** Resolve a session by `tugSessionId`, or `null` if no card holds it. */

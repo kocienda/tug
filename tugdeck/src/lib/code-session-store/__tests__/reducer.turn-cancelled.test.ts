@@ -88,6 +88,9 @@ function streamingTurn(): CodeSessionState {
       block_index: 0,
       text: "partial",
       is_partial: true,
+      seq: 0,
+      rev: 0,
+      status: "partial",
     },
   ]).state;
 }

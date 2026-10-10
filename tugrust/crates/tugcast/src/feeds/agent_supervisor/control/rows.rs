@@ -3,6 +3,7 @@
 //! — the picker's edits to persisted session records.
 
 use super::super::*;
+use tugcast_core::ControlAction;
 
 /// Parse a `trash_session` CONTROL payload: `{ session_id, project_dir? }`.
 /// `project_dir` is optional — the picker supplies it for external rows
@@ -71,11 +72,11 @@ impl AgentSupervisor {
     /// the same arms, the same replies, reached through one delegating arm there.
     pub(in crate::feeds::agent_supervisor) async fn handle_rows_control(
         &self,
-        action: &str,
+        action: ControlAction,
         payload: &[u8],
     ) -> ControlOutcome {
         let result: Result<(), ControlError> = match action {
-            "trash_session" => match parse_trash_session_payload(payload) {
+            ControlAction::TrashSession => match parse_trash_session_payload(payload) {
                 Ok((session_id, project_dir)) => {
                     self.do_trash_session(&session_id, project_dir.as_deref())
                         .await;
@@ -83,21 +84,21 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "rename_session" => match parse_rename_session_payload(payload) {
+            ControlAction::RenameSession => match parse_rename_session_payload(payload) {
                 Ok((line_id, name)) => {
                     self.do_rename_session(&line_id, name.as_deref()).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "set_session_private" => match parse_set_session_private_payload(payload) {
+            ControlAction::SetSessionPrivate => match parse_set_session_private_payload(payload) {
                 Ok((session_id, private)) => {
                     self.do_set_session_private(&session_id, private).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "trash_project_dir_sessions" => match parse_project_dir_payload(payload) {
+            ControlAction::TrashProjectDirSessions => match parse_project_dir_payload(payload) {
                 Ok(project_dir) => {
                     self.do_trash_project_dir_sessions(&project_dir).await;
                     Ok(())

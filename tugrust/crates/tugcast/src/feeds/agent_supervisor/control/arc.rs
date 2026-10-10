@@ -3,6 +3,7 @@
 //! transport presses that start, resume, and stop it.
 
 use super::super::*;
+use tugcast_core::ControlAction;
 
 /// A `bind_arc` request: which session is taking up which arc, in which
 /// project (Spec S03).
@@ -49,11 +50,11 @@ impl AgentSupervisor {
     /// same arms, the same replies, reached through one delegating arm there.
     pub(in crate::feeds::agent_supervisor) async fn handle_arc_control(
         &self,
-        action: &str,
+        action: ControlAction,
         payload: &[u8],
     ) -> ControlOutcome {
         let result: Result<(), ControlError> = match action {
-            "bind_arc" => match parse_bind_arc_payload(payload) {
+            ControlAction::BindArc => match parse_bind_arc_payload(payload) {
                 Ok(parsed) => {
                     self.do_bind_arc(&parsed).await;
                     Ok(())
@@ -63,7 +64,7 @@ impl AgentSupervisor {
             // Same payload as `bind_arc`, deliberately: a resume *is* a bind
             // with the stop cleared first, so a second shape would be a
             // second spelling of one fact.
-            "arc_resume" => match parse_bind_arc_payload(payload) {
+            ControlAction::ArcResume => match parse_bind_arc_payload(payload) {
                 Ok(parsed) => {
                     self.do_arc_resume(&parsed).await;
                     Ok(())
@@ -74,7 +75,7 @@ impl AgentSupervisor {
             // arc's kind off its documents ([P03]), so a press that computed
             // one and sent it would be a control owning a fact about the
             // responder's data.
-            "arc_run" => match parse_bind_arc_payload(payload) {
+            ControlAction::ArcRun => match parse_bind_arc_payload(payload) {
                 Ok(parsed) => {
                     self.do_arc_run(&parsed).await;
                     Ok(())
@@ -83,14 +84,14 @@ impl AgentSupervisor {
             },
             // And once more for the stop, which names no kind: the arc it
             // stops is the one the card is already running.
-            "arc_stop" => match parse_bind_arc_payload(payload) {
+            ControlAction::ArcStop => match parse_bind_arc_payload(payload) {
                 Ok(parsed) => {
                     self.do_arc_stop(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "unbind_arc" => match parse_tug_session_id_payload(payload) {
+            ControlAction::UnbindArc => match parse_tug_session_id_payload(payload) {
                 Ok(session_id) => {
                     self.do_unbind_arc(session_id.as_str()).await;
                     Ok(())

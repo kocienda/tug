@@ -100,6 +100,9 @@ describe("[D07] handleContentBlockStart idempotence", () => {
       block_index: 0,
       text: "hello",
       is_partial: true,
+      seq: 0,
+      rev: 0,
+      status: "partial",
     });
     // Replay-style re-emit of the open envelope.
     const r3 = reduce(r2.state, {
@@ -115,6 +118,9 @@ describe("[D07] handleContentBlockStart idempotence", () => {
       block_index: 0,
       text: " world",
       is_partial: true,
+      seq: 0,
+      rev: 0,
+      status: "partial",
     });
     const messages = deriveActiveTurnSnapshot(r4.state)!.messages;
     const texts = messages.filter((m) => m.kind === "assistant_text");

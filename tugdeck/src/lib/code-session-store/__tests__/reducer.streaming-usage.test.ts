@@ -185,8 +185,11 @@ describe("reducer — handleStreamingUsage", () => {
       streamingUsage("msg_a", { input_tokens: 3, cache_read_input_tokens: 18572, output_tokens: 80 }),
       { type: "assistant_text", msg_id: "msg_a",
       block_index: 0,
-      text: "ok", is_partial: false },
-      { type: "turn_complete", msg_id: "msg_a", result: "success" },
+      text: "ok", is_partial: false,
+      seq: 0,
+      rev: 0,
+      status: "complete" },
+      { type: "turn_complete", msg_id: "msg_a", result: "success", seq: 0 },
     ]);
     expect(afterTurn.sessionInitTokens).toBe(18575);
     const nextTurn = applyAll(afterTurn, [
@@ -202,7 +205,7 @@ describe("reducer — handleStreamingUsage", () => {
     const { state, effects } = reduce(afterSend, {
       type: "streaming_usage",
       usage: { output_tokens: 50 },
-    } as CodeSessionEvent);
+    } as unknown as CodeSessionEvent);
     expect(state).toBe(afterSend);
     expect(effects).toEqual([]);
     expect(state.sessionInitTokens).toBeNull();

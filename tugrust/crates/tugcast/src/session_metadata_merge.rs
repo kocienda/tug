@@ -12,8 +12,11 @@
 //! # Wire-format key reality
 //!
 //! The `system_metadata` JSON uses a mixed casing convention,
-//! confirmed against `tugcode/src/session.ts:498,508` and
-//! `replay.ts:995,1004`:
+//! fixed by tugproto's `SystemMetadata` interface
+//! (`tugproto/src/outbound.ts`) and emitted by tugcode's
+//! `routeTopLevelEvent` (`event-mapping.ts`, the live `system/init`),
+//! `emitInitialSessionCwd` (`session.ts`, the spawn-time `cwd`-only
+//! frame), and `translateJsonlSession` (`replay.ts`, the resumed model):
 //!
 //! - **camelCase keys:** `permissionMode`, `apiKeySource`.
 //! - **snake_case keys:** `session_id`, `cwd`, `tools`, `model`,
@@ -22,6 +25,7 @@
 //!
 //! All key constants below use the on-wire names verbatim — using the
 //! wrong case silently no-ops the merge on that field.
+//! `keys_match_the_tugproto_interface` holds them to the interface.
 
 use serde_json::{Map, Value};
 
@@ -221,8 +225,8 @@ mod tests {
     use serde_json::json;
 
     fn live_payload() -> Value {
-        // Mirror what `tugcode/src/session.ts:511-528` emits on live
-        // session_init — rich payload, suffixed model.
+        // Mirror what tugcode's `routeTopLevelEvent` emits on a live
+        // `system/init` — rich payload, suffixed model.
         json!({
             "type": "system_metadata",
             "session_id": "sess-1",
@@ -244,7 +248,7 @@ mod tests {
     }
 
     fn replay_payload() -> Value {
-        // Mirror what `tugcode/src/replay.ts:989-1006` synthesizes on
+        // Mirror what tugcode's `translateJsonlSession` synthesizes on
         // resume — bare model, every other scalar empty, every array
         // empty. This is the exact shape that without this merge would
         // clobber the live values.
@@ -269,6 +273,66 @@ mod tests {
     }
 
     // ---- merge_session_metadata --------------------------------------
+
+    /// Every key the merge names, whether it merges it or passes it through.
+    fn merged_keys() -> std::collections::BTreeSet<&'static str> {
+        [keys::TYPE, keys::SESSION_ID, keys::MODEL, keys::IPC_VERSION]
+            .into_iter()
+            .chain(SCALAR_FIELDS.iter().copied())
+            .chain(ARRAY_FIELDS.iter().copied())
+            .collect()
+    }
+
+    /// The fields of `SystemMetadata` in `tugproto/src/outbound.ts`, read as
+    /// text, each with whether its type is an array.
+    fn tugproto_fields() -> Vec<(String, bool)> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tugproto/src/outbound.ts");
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let start = source
+            .find("export interface SystemMetadata {")
+            .expect("outbound.ts declares SystemMetadata");
+        let body = &source[start..];
+        let body = &body[body.find('{').unwrap() + 1..body.find("\n}").unwrap()];
+        body.lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                // Line and block comments, JSDoc included: a `* Note: …`
+                // line would otherwise read as a field named `* Note`.
+                if line.starts_with("//") || line.starts_with("/*") || line.starts_with('*') {
+                    return None;
+                }
+                let (name, ty) = line.split_once(':')?;
+                let name = name.trim_end_matches('?');
+                Some((name.to_owned(), ty.trim().ends_with("[];")))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn keys_match_the_tugproto_interface() {
+        let fields = tugproto_fields();
+        assert!(!fields.is_empty(), "no fields read from SystemMetadata");
+        let interface: std::collections::BTreeSet<&str> =
+            fields.iter().map(|(name, _)| name.as_str()).collect();
+        let merged = merged_keys();
+        assert_eq!(
+            merged, interface,
+            "session_metadata_merge.rs keys and tugproto SystemMetadata disagree.\n  merge keys: {merged:?}\n  interface:  {interface:?}"
+        );
+
+        let interface_arrays: std::collections::BTreeSet<&str> = fields
+            .iter()
+            .filter(|(_, is_array)| *is_array)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let arrays: std::collections::BTreeSet<&str> = ARRAY_FIELDS.iter().copied().collect();
+        assert_eq!(
+            arrays, interface_arrays,
+            "ARRAY_FIELDS and SystemMetadata's array-typed fields disagree.\n  ARRAY_FIELDS: {arrays:?}\n  interface:    {interface_arrays:?}"
+        );
+    }
 
     #[test]
     fn first_observation_returns_incoming_verbatim() {

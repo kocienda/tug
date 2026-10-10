@@ -124,7 +124,7 @@ import { cardServicesStore } from "./card-services-store";
 import { pickerNoticeStore } from "./picker-notice-store";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
-import { CONTROL_ACTION_LIST_CARD_BINDINGS, FeedId } from "../protocol";
+import { FeedId } from "../protocol";
 import type { CardBinding } from "../protocol";
 import type { CodeSessionState } from "./code-session-store/reducer";
 
@@ -702,7 +702,7 @@ function fireRestoreRetry(ctx: RestoreRetryContext): void {
     }
   });
 
-  connection.sendControlFrame(CONTROL_ACTION_LIST_CARD_BINDINGS, {});
+  connection.sendControlFrame("list_card_bindings", {});
 }
 
 // ---------------------------------------------------------------------------
@@ -903,7 +903,7 @@ export function restoreSessions(
     // the first switch to a session-bearing workspace pays a round trip and
     // the picker flash the cache exists to prevent (Risk R02). The frame is
     // one control request at boot and the response is read by both.
-    connection.sendControlFrame(CONTROL_ACTION_LIST_CARD_BINDINGS, {});
+    connection.sendControlFrame("list_card_bindings", {});
     return;
   }
 
@@ -1006,7 +1006,7 @@ export function restoreSessions(
   // Fire the request. `action-dispatch` decodes the response and
   // publishes onto `listCardBindingsOkBus`, which the subscription
   // above consumes.
-  connection.sendControlFrame(CONTROL_ACTION_LIST_CARD_BINDINGS, {});
+  connection.sendControlFrame("list_card_bindings", {});
 }
 
 /**

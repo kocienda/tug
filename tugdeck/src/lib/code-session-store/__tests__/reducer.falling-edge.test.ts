@@ -70,6 +70,9 @@ function delta(text: string): CodeSessionEvent {
     block_index: 0,
     text,
     is_partial: true,
+    seq: 0,
+    rev: 0,
+    status: "partial",
   };
 }
 
@@ -109,6 +112,7 @@ const LIVE_PHASE_ROUTES: ReadonlyArray<{
           tool_use_id: "t1",
           tool_name: "Bash",
           input: { command: "true" },
+          seq: 0,
         },
       ]),
   },
@@ -128,13 +132,13 @@ const TERMINAL_EVENTS: ReadonlyArray<{
 }> = [
   {
     name: "turn_complete(error)",
-    event: { type: "turn_complete", msg_id: "m1", result: "error" },
+    event: { type: "turn_complete", msg_id: "m1", result: "error", seq: 0 },
   },
   {
     // The wire's own error frame — tagged `error`, not `wire_error`
     // (`wire_error` is the `lastError.cause` it stamps, not the event).
     name: "wire error frame",
-    event: { type: "error", message: "boom" },
+    event: { type: "error", message: "boom", recoverable: false, site: "drain_eof_open_turn" },
   },
   {
     name: "session_state_errored",
@@ -228,7 +232,7 @@ describe("the wave itself falls with the phase", () => {
   it("reaches a quiet phase once the interrupt's echo lands", () => {
     const done = applyAll(LIVE_PHASE_ROUTES[2].reach(), [
       { type: "interrupt_action" },
-      { type: "turn_complete", msg_id: "m1", result: "error" },
+      { type: "turn_complete", msg_id: "m1", result: "error", seq: 0 },
     ]);
     expect(QUIET_PHASES.has(done.phase)).toBe(true);
     expect(done.interruptInFlight).toBe(false);

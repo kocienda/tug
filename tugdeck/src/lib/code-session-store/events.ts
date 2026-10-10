@@ -13,7 +13,24 @@
 import type { AtomSegment } from "../tug-atom-img";
 import type { ContentBlock } from "../../protocol";
 import type { PermissionMode } from "@tugproto/inbound";
-import type { ControlRequestForward, InterruptReason, TextRef } from "./types";
+import type { InterruptReason, TextRef } from "./types";
+import type * as Wire from "@tugproto/outbound";
+
+/**
+ * A tugcode frame as `frameToEvent` hands it to the reducer, typed from its
+ * one declaration in `@tugproto/outbound` rather than restated here. tugcast
+ * stamps `tug_session_id` on the way through and the deck never reads
+ * `ipc_version`; the index signature keeps a field a newer tugcode adds
+ * readable before the deck names it. `Narrowed` lists fields the event
+ * re-types (intersected back in by the caller). Distributes over a union
+ * frame such as `content_block_start`.
+ */
+type WireEvent<T, Narrowed extends keyof T = never> = T extends unknown
+  ? Omit<T, "ipc_version" | Narrowed> & {
+      tug_session_id?: string;
+      [key: string]: unknown;
+    }
+  : never;
 
 /** Internal `send` action injected by `CodeSessionStore.send`. */
 /**
@@ -192,44 +209,19 @@ export interface SendActionEvent {
 }
 
 /** `session_init` frame — carries Claude's `session_id` (for `--resume`). */
-export interface SessionInitEvent {
-  type: "session_init";
-  session_id?: string;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type SessionInitEvent = WireEvent<Wire.SessionInit>;
 
 /** Decoded assistant_text partial or terminal frame. `block_index`
  *  correlates the delta with its opening `content_block_start` via
  *  the wire's `(msg_id, block_index)` coordinate ([D07]). Required —
  *  every text frame tugcode emits after Step 5 carries it.
  */
-export interface AssistantTextEvent {
-  type: "assistant_text";
-  msg_id: string;
-  block_index: number;
-  text: string;
-  is_partial: boolean;
-  rev?: number;
-  seq?: number;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type AssistantTextEvent = WireEvent<Wire.AssistantText>;
 
 /** Decoded thinking_text partial or terminal frame. See
  *  {@link AssistantTextEvent} for the `block_index` correlation
  *  contract. */
-export interface ThinkingTextEvent {
-  type: "thinking_text";
-  msg_id: string;
-  block_index: number;
-  text: string;
-  is_partial: boolean;
-  rev?: number;
-  seq?: number;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type ThinkingTextEvent = WireEvent<Wire.ThinkingText>;
 
 /**
  * `content_block_start` — wire-derived block-open marker emitted by
@@ -248,35 +240,7 @@ export interface ThinkingTextEvent {
  * (the substrate needs them to construct the `ToolUseMessage`); the
  * other kinds omit them.
  */
-export interface ContentBlockStartEvent {
-  type: "content_block_start";
-  msg_id: string;
-  block_index: number;
-  kind: "text" | "thinking" | "tool_use";
-  tool_use_id?: string;
-  tool_name?: string;
-  /**
-   * Spawning `Agent` call's `tool_use_id` when this block belongs to a
-   * subagent — tugcode stamps it on every routed frame, the open
-   * included. The reducer needs it at mint time: a child of a
-   * *background* agent must open on the job ledger (its `tool_use`
-   * input-fill routes there), and a foreground child's mint carries
-   * `parentToolUseId` from the start so it nests immediately.
-   */
-  parent_tool_use_id?: string;
-  /**
-   * Original JSONL entry time (epoch ms) of the entry this block came from.
-   * Present only on the resume/replay path (tugcode's translator stamps it);
-   * live frames omit it, where the reducer's own clock is honest.
-   *
-   * Declared rather than left to the index signature below, which would type
-   * it `unknown`: this event mints the Message whose `createdAt` the
-   * committed transcript sorts on, so the mint reads it as a number.
-   */
-  timestamp?: number;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type ContentBlockStartEvent = WireEvent<Wire.ContentBlockStart>;
 
 /**
  * `tool_use` — Claude opens or updates a tool call. The first event
@@ -290,24 +254,7 @@ export interface ContentBlockStartEvent {
  * `AgentTranscriptBlock` instead of rendering them as flat siblings
  * ([#step-17-5]).
  */
-export interface ToolUseEvent {
-  type: "tool_use";
-  msg_id?: string;
-  tool_use_id: string;
-  tool_name: string;
-  input: unknown;
-  seq?: number;
-  parent_tool_use_id?: string;
-  tug_session_id?: string;
-  /**
-   * Original JSONL entry time (epoch ms) of this call's `tool_use` block.
-   * Present only on the resume/replay path (tugcode's translator stamps
-   * it); live frames omit it. Paired with {@link ToolResultEvent.timestamp}
-   * it lets the reducer recover the call's wall time on resume.
-   */
-  timestamp?: number;
-  [key: string]: unknown;
-}
+export type ToolUseEvent = WireEvent<Wire.ToolUse>;
 
 /**
  * `tool_result` — terminates a logical call. `is_error: true` routes
@@ -315,34 +262,14 @@ export interface ToolUseEvent {
  * transition `tool_work → streaming` fires only when every entry in
  * `toolCallMap` is terminal.
  */
-export interface ToolResultEvent {
-  type: "tool_result";
-  tool_use_id: string;
-  output?: unknown;
-  is_error?: boolean;
-  tug_session_id?: string;
-  /**
-   * Original JSONL entry time (epoch ms) of this call's `tool_result`
-   * block. Replay-only, paired with {@link ToolUseEvent.timestamp} to
-   * recover the call's wall time on resume; live frames omit it.
-   */
-  timestamp?: number;
-  [key: string]: unknown;
-}
+export type ToolResultEvent = WireEvent<Wire.ToolResult>;
 
 /**
  * `tool_use_structured` — structured result for a prior `tool_result`.
  * Populates `structuredResult` on the matching map entry without
  * changing its terminal status.
  */
-export interface ToolUseStructuredEvent {
-  type: "tool_use_structured";
-  tool_use_id: string;
-  tool_name?: string;
-  structured_result?: unknown;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type ToolUseStructuredEvent = WireEvent<Wire.ToolUseStructured>;
 
 /**
  * `turn_complete` — closes the active turn.
@@ -363,22 +290,9 @@ export interface ToolUseStructuredEvent {
  * clock anchors + cost snapshots. See `mergeTurnTelemetry` in
  * `telemetry.ts` and the design in plan `#step-20-3-3`.
  */
-export interface TurnCompleteEvent {
-  type: "turn_complete";
-  msg_id: string;
+export type TurnCompleteEvent = WireEvent<Wire.TurnComplete, "result"> & {
   result: "success" | "error" | "interrupted";
-  tug_session_id?: string;
-  telemetry?: import("./telemetry").TurnTelemetry;
-  /**
-   * Optional original wall-clock timestamp (epoch ms) of the terminal
-   * assistant JSONL entry that closes this turn. Set only on the replay
-   * path so the reducer stamps the committed `TurnEntry.endedAt` with
-   * the original completion time. Live `turn_complete` frames omit it
-   * and the reducer falls back to `Date.now()`.
-   */
-  timestamp?: number;
-  [key: string]: unknown;
-}
+};
 
 /**
  * `turn_cancelled` — closes the active turn as cancelled. tugcode writes it
@@ -402,18 +316,14 @@ export interface TurnCompleteEvent {
  * still working. An older frame carries no field and reads as a user cancel,
  * which is what every frame before this was.
  *
- * Field names mirror `TurnCancelled` in `tugcode/src/types.ts` rather than
+ * Field names mirror `TurnCancelled` in `@tugproto/outbound` rather than
  * being normalized to camelCase: the frame carries no value the wrapper has
  * to stamp or synthesize, so a normalization pass would have nothing to do.
  */
-export interface TurnCancelledEvent {
-  type: "turn_cancelled";
-  msg_id: string;
-  seq: number;
-  partial_result: string;
-  is_recovery?: boolean;
-  [key: string]: unknown;
-}
+export type TurnCancelledEvent = Pick<
+  Wire.TurnCancelled,
+  "type" | "msg_id" | "seq" | "partial_result" | "is_recovery"
+>;
 
 /**
  * `interrupt_noop` — the receipt for an interrupt that found nothing to
@@ -425,21 +335,14 @@ export interface TurnCancelledEvent {
  * so the handler clears the per-interrupt flags and leaves the transcript
  * exactly as it found it.
  */
-export interface InterruptNoopEvent {
-  type: "interrupt_noop";
-  reason: "no_process" | "no_turn";
-  [key: string]: unknown;
-}
+export type InterruptNoopEvent = Pick<Wire.InterruptNoop, "type" | "reason">;
 
 /**
  * `system_metadata` — per [D09], `SessionMetadataStore` owns this feed.
  * The reducer sees the event only to explicitly drop it (so its
  * presence on CODE_OUTPUT stays grep-friendly).
  */
-export interface SystemMetadataEvent {
-  type: "system_metadata";
-  [key: string]: unknown;
-}
+export type SystemMetadataEvent = WireEvent<Wire.SystemMetadata>;
 
 /**
  * `control_request_forward` — Claude forwards a permission prompt
@@ -449,9 +352,7 @@ export interface SystemMetadataEvent {
  * The extra fields beyond `type` are preserved on `pendingApproval` /
  * `pendingQuestion` so UI code can read `tool_name`, `options`, etc.
  */
-export type ControlRequestForwardEvent = {
-  type: "control_request_forward";
-} & ControlRequestForward;
+export type ControlRequestForwardEvent = WireEvent<Wire.ControlRequestForward>;
 
 /**
  * Internal action injected by `CodeSessionStore.respondApproval`. Not
@@ -706,28 +607,7 @@ export interface ClearJobsActionEvent {
  * the renderer paints them. `autocompact_buffer` is conditional;
  * `mcp_tools` is never present (out of scope).
  */
-export interface ContextBreakdownEvent {
-  type: "context_breakdown";
-  tug_session_id?: string;
-  context_max: number;
-  categories: ReadonlyArray<{
-    id: import("./types").ContextBreakdownCategoryId;
-    label: string;
-    tokens: number;
-  }>;
-  /**
-   * Set to `true` by the tugcast supervisor when it synthesizes this
-   * frame from the persisted ledger row at bind time. The reducer
-   * uses this flag to suppress the redundant `record-context-breakdown`
-   * effect — the row already exists, re-persisting it would write
-   * identical bytes back to the same UPSERT slot.
-   *
-   * Absent on live frames from tugcode (those get persisted as
-   * normal). The popover renderer ignores the flag.
-   */
-  from_supervisor_attach?: boolean;
-  [key: string]: unknown;
-}
+export type ContextBreakdownEvent = WireEvent<Wire.ContextBreakdown>;
 
 /**
  * `cost_update` — telemetry frame carrying cumulative dollar cost and
@@ -737,17 +617,7 @@ export interface ContextBreakdownEvent {
  * with token breakdowns — the reducer passes those through as
  * `unknown` for renderers that want them.
  */
-export interface CostUpdateEvent {
-  type: "cost_update";
-  total_cost_usd: number;
-  num_turns?: number;
-  duration_ms?: number;
-  duration_api_ms?: number;
-  usage?: unknown;
-  modelUsage?: unknown;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type CostUpdateEvent = WireEvent<Wire.CostUpdate>;
 
 /**
  * `streaming_usage` — live intra-turn token usage emitted by tugcode
@@ -763,13 +633,7 @@ export interface CostUpdateEvent {
  * `cost_update` is authoritative and supersedes the live frame at
  * turn-complete.
  */
-export interface StreamingUsageEvent {
-  type: "streaming_usage";
-  msg_id?: string;
-  usage?: unknown;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type StreamingUsageEvent = WireEvent<Wire.StreamingUsage>;
 
 /**
  * `api_retry` — claude's SDK is backing off and retrying a retryable API
@@ -808,9 +672,7 @@ export interface ModelRefusalFallbackEvent {
  * `outputTruncated` true (no phase change), cleared at the next turn boundary.
  * Payload-free.
  */
-export interface OutputTruncatedEvent {
-  type: "output_truncated";
-}
+export type OutputTruncatedEvent = Pick<Wire.OutputTruncated, "type">;
 
 /**
  * `goal_feedback` — the `/goal` Stop-hook evaluator judged the condition
@@ -820,11 +682,7 @@ export interface OutputTruncatedEvent {
  * reducer folds each into `CodeSessionState.goal` (round count + the
  * evaluator's latest reason); no phase change, no transcript ink.
  */
-export interface GoalFeedbackEvent {
-  type: "goal_feedback";
-  condition: string;
-  reason: string;
-}
+export type GoalFeedbackEvent = Pick<Wire.GoalFeedback, "type" | "condition" | "reason">;
 
 /**
  * `compact_boundary` — claude compacted its context (auto-compaction at
@@ -866,33 +724,12 @@ export interface CompactBoundaryEvent {
  * the arc's earlier stages stay on screen and the whole arc reads as one
  * scroll.
  */
-export interface SessionStageEvent {
-  type: "session_stage";
-  /** Which stage of the arc the fresh session runs. */
-  stage: string;
-  /** The model selector the rotation set, or empty for the account default. */
-  model: string;
-  /** The document the arc opened on, repo-relative. */
-  document: string;
-  /** The arc name the arc is keyed by. */
-  arc: string;
-  /**
-   * The inclusive step range (`N-M`) a *continued* implement stage walks.
-   * Absent on every other stage, which is what tells the divider a continued
-   * stage from a first one.
-   */
-  steps?: string;
-  /**
-   * The stage's opening prompt — the `user_message` the runner sent right
-   * behind the rotation. Nobody in the deck submitted it, so nothing here has
-   * opened a turn for it, and the reducer drops every frame of a turn it did
-   * not open. With a prompt the stage opens that turn itself, exactly as a
-   * `send` would, minus the frame the runner already sent.
-   */
-  prompt?: string;
-  /** The turn key the wrapper minted for `prompt`; present iff `prompt` is. */
-  turnKey?: string;
-}
+export type SessionStageEvent = Omit<Wire.ReplayStage, "type" | "ipc_version"> &
+  Pick<Wire.SessionSegment, "steps" | "prompt"> & {
+    type: "session_stage";
+    /** The turn key the wrapper minted for `prompt`; present iff `prompt` is. */
+    turnKey?: string;
+  };
 
 /**
  * `session_relocation` — the card changed its project directory here. A
@@ -901,13 +738,11 @@ export interface SessionStageEvent {
  * the old directory, before the first turn said in the new one. Display-only,
  * like a replayed stage: the reducer asks for one divider and nothing moves.
  */
-export interface SessionRelocationEvent {
+export type SessionRelocationEvent = {
   type: "session_relocation";
-  /** The directory the card moved away from. */
-  fromDir: string;
-  /** The directory the card moved into. */
-  toDir: string;
-}
+  fromDir: Wire.ReplayRelocation["from_dir"];
+  toDir: Wire.ReplayRelocation["to_dir"];
+};
 
 /**
  * `compact_summary` — the compaction summary text, emitted right after
@@ -916,10 +751,7 @@ export interface SessionRelocationEvent {
  * no phase change, no transcript ink. Latest-wins: a later compaction's
  * summary overwrites an earlier one.
  */
-export interface CompactSummaryEvent {
-  type: "compact_summary";
-  summary: string;
-}
+export type CompactSummaryEvent = Pick<Wire.CompactSummary, "type" | "summary">;
 
 /**
  * `unknown_event` — tugcode's forward-compat catch-all: claude streamed a
@@ -942,21 +774,7 @@ export interface UnknownEventEvent {
  * exercise it via synthetic dispatch. Routes to the `errored` phase
  * with cause `wire_error`.
  */
-export interface WireErrorEvent {
-  type: "error";
-  message?: string;
-  recoverable?: boolean;
-  /**
-   * The bridge's slug for the emit site that wrote this frame
-   * (`drain_eof_open_turn`, `send_after_eof`, `inbound_dispatch`, …).
-   * Absent on a frame from a tugcode older than the field. The banner shows
-   * it in the detail panel, because "Protocol error" on its own asks the
-   * reader to go find tugcode's source.
-   */
-  site?: string;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type WireErrorEvent = WireEvent<Wire.ErrorEvent>;
 
 /**
  * Internal event mapped from a `SESSION_STATE { state: "errored" }`
@@ -1112,13 +930,7 @@ export interface SessionNotOwnedEvent {
  * `ResumeFailed` outcome. The card observer reads `lastError.cause`
  * and clears the binding so the picker re-presents with the reason.
  */
-export interface ResumeFailedEvent {
-  type: "resume_failed";
-  /** Machine-readable category (e.g. `"exit"`, `"timeout"`). */
-  reason?: string;
-  /** The id tugcode attempted to resume. */
-  stale_session_id?: string;
-}
+export type ResumeFailedEvent = WireEvent<Wire.ResumeFailed>;
 
 /**
  * Replay user-message frame emitted by tugcode's JSONL replay
@@ -1229,28 +1041,14 @@ export interface AddUserMessageEvent {
  * commits onto the `TurnEntry`; a no-op when there's no pending turn or the
  * anchor is already set (first wins). Purely additive — never mints a turn.
  */
-export interface PromptAnchorEvent {
-  type: "prompt_anchor";
-  promptUuid: string;
-}
+export type PromptAnchorEvent = WireEvent<Wire.PromptAnchor>;
 
 /**
  * Relayed `rewind_preview_result` ([#step-7-1]) — the per-turn diff-stat for
  * the anchor the sheet requested via `rewind_preview`. The reducer folds it
  * into `rewindPreviews[promptUuid]` (clearing the `loading` flag).
  */
-export interface RewindPreviewResultEvent {
-  type: "rewind_preview_result";
-  promptUuid: string;
-  canRewind: boolean;
-  filesChanged?: ReadonlyArray<string>;
-  insertions?: number;
-  deletions?: number;
-  error?: string;
-  /** Whether the conversation dimension can rewind to this anchor ([#step-7-3]);
-   *  `false` crosses a `/compact` boundary. The picker disables such rows. */
-  conversationRewindable?: boolean;
-}
+export type RewindPreviewResultEvent = WireEvent<Wire.RewindPreviewResult>;
 
 /**
  * Relayed `rewind_result` ([#step-7-2]) — the applied-rewind ack. The reducer
@@ -1261,14 +1059,7 @@ export interface RewindPreviewResultEvent {
  * (not an optimistic pre-send mutation) means a refused rewind never mangles
  * the transcript.
  */
-export interface RewindResultEvent {
-  type: "rewind_result";
-  promptUuid: string;
-  scope: "conversation" | "code" | "both";
-  canRewind: boolean;
-  error?: string;
-  newSessionId?: string;
-}
+export type RewindResultEvent = WireEvent<Wire.RewindResult>;
 
 /**
  * Store-method action ([#step-7-3]): request a per-turn diff-stat preview.
@@ -1329,27 +1120,7 @@ export interface SessionRewindActionEvent {
  * See `arc/tugplan-session-wake.md` [D01], [D02] for the
  * bracket pattern and detection rationale.
  */
-export interface WakeStartedEvent {
-  type: "wake_started";
-  session_id: string;
-  wake_trigger: {
-    task_id: string;
-    tool_use_id: string;
-    status: "completed" | "failed" | "stopped";
-    summary: string;
-    output_file: string;
-  };
-  tug_session_id?: string;
-  /**
-   * Stable per-turn React-key seed, generated by the store wrapper
-   * (`frameToEvent`) on receipt of the wire `wake_started` frame.
-   * Same minting contract as {@link AddUserMessageEvent.turnKey}
-   * — the wire frame itself does not carry it; the wrapper mints
-   * before dispatch to keep the reducer pure.
-   */
-  turnKey: string;
-  [key: string]: unknown;
-}
+export type WakeStartedEvent = WireEvent<Wire.WakeStarted> & { turnKey: string };
 
 /**
  * Neutral assistant-originated turn opener — the reducer event the store
@@ -1403,20 +1174,7 @@ export interface TugNoticeEvent {
   [key: string]: unknown;
 }
 
-export interface AssistantOpenerEvent {
-  type: "assistant_opener";
-  /** Original JSONL entry time (replay), so the turn's timestamp is the
-   * archived wall-clock rather than the replay-emission time. */
-  timestamp?: number;
-  tug_session_id?: string;
-  /**
-   * Stable per-turn React-key seed, minted by the store wrapper
-   * (`frameToEvent`) on receipt — same contract as
-   * {@link WakeStartedEvent.turnKey}.
-   */
-  turnKey: string;
-  [key: string]: unknown;
-}
+export type AssistantOpenerEvent = WireEvent<Wire.AssistantOpener> & { turnKey: string };
 
 /**
  * Background-job lifecycle opener — tugcode's forward of claude's
@@ -1499,11 +1257,7 @@ export interface TaskProgressEvent {
  * `phase: {idle | errored} → replaying` and gates `canSubmit` /
  * `canInterrupt` to `false` for the duration.
  */
-export interface ReplayStartedEvent {
-  type: "replay_started";
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type ReplayStartedEvent = WireEvent<Wire.ReplayStarted>;
 
 /**
  * Bracket marker emitted by the replay translator at end-of-JSONL
@@ -1512,44 +1266,7 @@ export interface ReplayStartedEvent {
  * `count` is the number of `turn_complete` events emitted during the
  * window; `error` is set for non-success terminations.
  */
-export interface ReplayCompleteEvent {
-  type: "replay_complete";
-  count: number;
-  error?: {
-    kind:
-      | "jsonl_missing"
-      | "jsonl_unreadable"
-      | "jsonl_malformed"
-      | "replay_timeout"
-      | "replay_exception";
-    message: string;
-  };
-  /**
-   * Recency-window metadata, present only when the replay request
-   * carried a window (absent on a full / legacy replay). The reducer
-   * records these so the transcript knows which slice loaded and
-   * whether older turns remain to page in:
-   *   - `firstLoadedTurnIndex` — absolute index (from the oldest turn)
-   *     of the first loaded turn; i.e. the oldest loaded turn index. The
-   *     transcript adds it to a row's window-relative turn index for true
-   *     session turn addressing.
-   *   - `totalTurns` — the whole session's committed turn count.
-   *   - `hasOlder` — whether any turns precede the loaded window.
-   */
-  firstLoadedTurnIndex?: number;
-  totalTurns?: number;
-  hasOlder?: boolean;
-  /**
-   * Wall-clock (epoch ms) of the session's first real turn — when the
-   * conversation began. Session-level, so it rides every success
-   * `replay_complete` (windowed or full) and a backward-paging bracket
-   * reports the same value. Absent only when no entry carried a parseable
-   * timestamp. Drives the dev transcript's permanent Z0 "Session created".
-   */
-  sessionCreatedAtMs?: number;
-  tug_session_id?: string;
-  [key: string]: unknown;
-}
+export type ReplayCompleteEvent = WireEvent<Wire.ReplayComplete>;
 
 /**
  * Internal action injected by `CodeSessionStore.notifyResumeBindingLanded()`.
@@ -1674,10 +1391,7 @@ export interface ForceStopActionEvent {
  * `turn_cancelled{is_recovery:true}`, so this is the belt to that frame's
  * braces, and a teardown that half-worked still settles the card.
  */
-export interface StopAllWorkDoneEvent {
-  type: "stop_all_work_done";
-  [key: string]: unknown;
-}
+export type StopAllWorkDoneEvent = WireEvent<Wire.StopAllWorkDone>;
 
 /** Discriminated union of events the reducer accepts. */
 export type CodeSessionEvent =

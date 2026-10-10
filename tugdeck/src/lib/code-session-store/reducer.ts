@@ -2257,7 +2257,7 @@ function handleContentBlockStart(
       break;
     }
     default: {
-      const _exhaustive: never = event.kind;
+      const _exhaustive: never = event;
       void _exhaustive;
       return { state, effects: [] };
     }

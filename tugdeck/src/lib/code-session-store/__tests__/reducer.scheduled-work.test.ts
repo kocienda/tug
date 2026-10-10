@@ -54,8 +54,8 @@ function toolCall(
       tool_use_id: toolUseId,
       tool_name: toolName,
     },
-    { type: "tool_use", msg_id: "m1", tool_use_id: toolUseId, tool_name: toolName, input },
-    { type: "tool_result", tool_use_id: toolUseId, output: result },
+    { type: "tool_use", msg_id: "m1", tool_use_id: toolUseId, tool_name: toolName, input, seq: 0 },
+    { type: "tool_result", tool_use_id: toolUseId, output: result, is_error: false },
   ];
 }
 
@@ -84,7 +84,7 @@ function registerElapsedWakeup(turnKey: string, toolUseId: string): CodeSessionE
       "Next wakeup scheduled.",
       toolUseId,
     ),
-    { type: "turn_complete", msg_id: "m1", result: "success" },
+    { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
   ];
 }
 
@@ -119,7 +119,7 @@ describe("scheduled-work registration in the reducer", () => {
       ...toolCall("ScheduleWakeup", WAKEUP_INPUT, WAKEUP_RESULT, "tu_w1"),
     ]);
     state = applyAll(state, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
       send("again", "t2"),
       ...toolCall("ScheduleWakeup", WAKEUP_INPUT, WAKEUP_RESULT, "tu_w2"),
     ]);
@@ -141,7 +141,7 @@ describe("scheduled-work registration in the reducer", () => {
     });
 
     state = applyAll(state, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
       send("cancel", "t2"),
       ...toolCall("CronDelete", { id: "3ea6c934" }, "Deleted.", "tu_d"),
     ]);
@@ -201,7 +201,7 @@ describe("RemoteTrigger routines register as remote scheduled rows", () => {
       ...toolCall("RemoteTrigger", RT_CREATE_INPUT, RT_CREATE_RESULT, "tu_rt1"),
     ]);
     state = applyAll(state, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
       send("again", "t2"),
       ...toolCall("RemoteTrigger", RT_CREATE_INPUT, RT_CREATE_RESULT, "tu_rt2"),
     ]);
@@ -215,7 +215,7 @@ describe("RemoteTrigger routines register as remote scheduled rows", () => {
       ...toolCall("RemoteTrigger", RT_CREATE_INPUT, RT_CREATE_RESULT, "tu_rt"),
     ]);
     state = applyAll(state, [
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
       send("retime", "t2"),
       ...toolCall(
         "RemoteTrigger",
@@ -287,10 +287,10 @@ describe("scheduled-work wake reconciliation + respawn sweep", () => {
     let state = applyAll(fresh(), [
       send("go", "t1"),
       ...toolCall("ScheduleWakeup", WAKEUP_INPUT, WAKEUP_RESULT, "tu_w"),
-      { type: "turn_complete", msg_id: "m1", result: "success" },
+      { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 },
     ]);
     expect(state.jobs[0].status).toBe("scheduled");
-    state = reduce(state, { type: "session_init" }).state;
+    state = reduce(state, { type: "session_init", session_id: "s" }).state;
     expect(state.jobs[0].status).toBe("scheduled");
   });
 });

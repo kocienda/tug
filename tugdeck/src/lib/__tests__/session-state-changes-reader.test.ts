@@ -16,7 +16,6 @@ import {
 } from "@/lib/session-ledger-events";
 import { loadSessionStateChanges } from "@/lib/session-state-changes-reader";
 import {
-  CONTROL_ACTION_LIST_SESSION_STATE_CHANGES,
   FeedId,
   type FeedIdValue,
 } from "@/protocol";
@@ -56,7 +55,7 @@ describe("loadSessionStateChanges", () => {
     expect(conn.frames.length).toBe(1);
     const decoded = decodeFrame(conn.frames[0]!);
     expect(conn.frames[0]!.feedId).toBe(FeedId.CONTROL);
-    expect(decoded.action).toBe(CONTROL_ACTION_LIST_SESSION_STATE_CHANGES);
+    expect(decoded.action).toBe("list_session_state_changes");
     expect(decoded.tug_session_id).toBe("sess-A");
     // Resolve so the promise settles cleanly.
     publishListSessionStateChangesOk({ tug_session_id: "sess-A", rows: [] });

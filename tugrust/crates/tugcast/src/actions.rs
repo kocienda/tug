@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use tokio::sync::{broadcast, mpsc};
 use tracing::info;
-use tugcast_core::{FeedId, Frame};
+use tugcast_core::{ControlAction as A, FeedId, Frame};
 
 use crate::router::LagPolicy;
 
@@ -251,8 +251,8 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
         pending_asks,
         shared_agent,
     } = *ctx;
-    match action {
-        "relaunch" => {
+    match action.parse::<A>() {
+        Ok(A::Relaunch) => {
             info!("dispatch_action: relaunch requested");
             let shared = shared_dev_state.clone();
             let cat = stream_outputs
@@ -265,7 +265,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 }
             });
         }
-        "eval-response" => {
+        Ok(A::EvalResponse) => {
             // Complete a pending eval request
             if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(raw_payload) {
                 if let Some(request_id) = payload.get("requestId").and_then(|r| r.as_str()) {
@@ -284,7 +284,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 }
             }
         }
-        "ask-response" => {
+        Ok(A::AskResponse) => {
             // Complete a pending ask request. Unlike eval-response, a missing
             // entry is unremarkable: the requester may have already timed out
             // and gone away, and the deck has no way to know that.
@@ -303,7 +303,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 }
             }
         }
-        "check_auth" => {
+        Ok(A::CheckAuth) => {
             // App-level auth probe (no login): runs `claude auth status` and
             // broadcasts the result so the deck can gate at launch and before
             // the session picker without spawning a session.
@@ -316,7 +316,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 broadcast_auth_result(cat, state, None);
             });
         }
-        "check_host_tools" => {
+        Ok(A::CheckHostTools) => {
             // The host-tools probe: does this machine carry a git Tug can use?
             // Silent by construction — see `host_tools`'s module docs for why
             // the order matters — so it is safe to fire at launch, before the
@@ -330,7 +330,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 broadcast_host_tools_result(cat, tools);
             });
         }
-        "offer_host_tools" => {
+        Ok(A::OfferHostTools) => {
             // Ask macOS to install the Command Line Tools. `xcode-select
             // --install` returns as soon as Apple's panel is up, so its success
             // means the offer was made rather than that git has arrived — the
@@ -369,7 +369,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 }
             });
         }
-        "install_claude" | "claude_download_resume" => {
+        Ok(A::InstallClaude | A::ClaudeDownloadResume) => {
             // Tug-managed install: fetch the release ourselves so the row can
             // draw a real bar, verify it, and hand the binary its own
             // `install` subcommand; the official script is the fallback when
@@ -395,14 +395,14 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
             };
             tokio::spawn(run_claude_install(cat, result_action));
         }
-        "claude_download_pause" => {
+        Ok(A::ClaudeDownloadPause) => {
             // Drop the in-flight request and keep the partial file ([B09]).
             // A press that lands after the last byte finds nothing running,
             // which is a no-op rather than an error.
             info!("dispatch_action: claude download pause requested");
             crate::feeds::claude_download::stop(crate::feeds::claude_download::StopReason::Paused);
         }
-        "claude_download_cancel" => {
+        Ok(A::ClaudeDownloadCancel) => {
             // Cancel is pause plus forgetting the bytes. The sweep runs
             // whether or not anything was in flight: cancelling an *already*
             // paused download is the case where nothing is, and the partial
@@ -416,7 +416,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 crate::feeds::claude_download::discard_partials(&dir)
             });
         }
-        "check_claude_version" => {
+        Ok(A::CheckClaudeVersion) => {
             // Version probe for the wizard's install row: what is installed here
             // and what the stable channel is offering. Both are optional — a
             // missing CLI or an unreachable network answers `null` and the row
@@ -430,7 +430,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 broadcast_version_result(cat).await;
             });
         }
-        "update_claude" => {
+        Ok(A::UpdateClaude) => {
             // Update in place: the official installer always lands the stable
             // channel's newest build, so an update is the same operation as a
             // first install — only the reporting differs, so the wizard can say
@@ -442,7 +442,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 .map(|(tx, _)| tx.clone());
             tokio::spawn(run_claude_install(cat, "claude_update_result"));
         }
-        "claude_sign_in" => {
+        Ok(A::ClaudeSignIn) => {
             // Drive `claude auth login` and report the result back so the
             // app-wide sheet (and the card that asked) can resume. login()
             // awaits the CLI's exit — the CLI blocks on its own browser OAuth
@@ -464,7 +464,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 broadcast_auth_result(cat, state, tug_session_id);
             });
         }
-        "claude_logout" => {
+        Ok(A::ClaudeLogout) => {
             // Drive `claude auth logout`. Report the command's own success as a
             // `claude_logout_result` (so a failed logout surfaces an error
             // rather than a silent no-op), then re-probe and broadcast the
@@ -490,7 +490,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 broadcast_auth_result(cat, state, None);
             });
         }
-        "shared_agent_classify" => {
+        Ok(A::SharedAgentClassify) => {
             let cat = stream_outputs
                 .get(&FeedId::CONTROL)
                 .map(|(tx, _)| tx.clone());
@@ -515,8 +515,19 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 None => info!("dispatch_action: shared_agent_classify missing text"),
             }
         }
-        other => {
-            info!("dispatch_action: broadcasting client action: {}", other);
+        // Everything else goes out on CONTROL unchanged: an action the
+        // supervisor or router owns that reached here without them, and an
+        // action string tugcast does not know at all — the second is how one
+        // client reaches another, so it is logged by name rather than refused.
+        parsed => {
+            if parsed.is_err() {
+                info!(
+                    action,
+                    "dispatch_action: unmatched action string, broadcasting"
+                );
+            } else {
+                info!("dispatch_action: broadcasting client action: {}", action);
+            }
             if let Some((tx, _)) = stream_outputs.get(&FeedId::CONTROL) {
                 let frame = Frame::new(FeedId::CONTROL, raw_payload.to_vec());
                 let _ = tx.send(frame);

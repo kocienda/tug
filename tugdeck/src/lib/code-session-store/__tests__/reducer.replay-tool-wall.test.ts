@@ -59,6 +59,7 @@ describe("reducer — replay toolWallMs from frame timestamps", () => {
         tool_name: "Task",
         input: { description: "d" },
         timestamp: T0,
+        seq: 0,
       },
       {
         type: "tool_use",
@@ -68,6 +69,7 @@ describe("reducer — replay toolWallMs from frame timestamps", () => {
         input: { command: "ls" },
         parent_tool_use_id: "parent",
         timestamp: T0 + 500,
+        seq: 0,
       },
       {
         type: "tool_result",
@@ -98,7 +100,7 @@ describe("reducer — replay toolWallMs from frame timestamps", () => {
     try {
       let s = applyAll(fresh(), [
         { type: "send", text: "hi", atoms: [], content: [{ type: "text", text: "hi" }], turnKey: "k1" },
-        { type: "tool_use", msg_id: "m1", tool_use_id: "t1", tool_name: "Bash", input: { command: "ls" } },
+        { type: "tool_use", msg_id: "m1", tool_use_id: "t1", tool_name: "Bash", input: { command: "ls" }, seq: 0 },
       ]);
       now += 120;
       s = applyAll(s, [

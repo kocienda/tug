@@ -14,6 +14,7 @@
  */
 
 import type { InboundMessage, ReplayWindow } from "@tugproto/inbound";
+import type { ControlAction } from "@tugproto/control";
 
 /** Feed identifiers for different data streams (open u8 namespace) */
 export const FeedId = {
@@ -86,18 +87,6 @@ export type FeedIdValue = (typeof FeedId)[keyof typeof FeedId];
  */
 export const FEED_ID_SESSION_STATE = FeedId.SESSION_STATE;
 
-/** CONTROL action names routed to `AgentSupervisor::handle_control`. */
-export const CONTROL_ACTION_SPAWN_SESSION = "spawn_session";
-export const CONTROL_ACTION_CLOSE_SESSION = "close_session";
-export const CONTROL_ACTION_RESET_SESSION = "reset_session";
-export const CONTROL_ACTION_LIST_SESSIONS = "list_sessions";
-export const CONTROL_ACTION_LIST_CARD_BINDINGS = "list_card_bindings";
-export const CONTROL_ACTION_RESOLVE_SESSIONS = "resolve_sessions";
-export const CONTROL_ACTION_TRASH_SESSION = "trash_session";
-export const CONTROL_ACTION_RENAME_SESSION = "rename_session";
-export const CONTROL_ACTION_SET_SESSION_PRIVATE = "set_session_private";
-export const CONTROL_ACTION_TRASH_PROJECT_DIR_SESSIONS = "trash_project_dir_sessions";
-export const CONTROL_ACTION_REQUEST_REPLAY = "request_replay";
 /**
  * Default cold-resume window in **turns** — the canonical unit
  * (`tuglaws/turn-metric.md`). A turn is one committed response cycle, so
@@ -106,12 +95,6 @@ export const CONTROL_ACTION_REQUEST_REPLAY = "request_replay";
  * Tunable in one place.
  */
 export const DEFAULT_REPLAY_WINDOW_TURNS = 10;
-export const CONTROL_ACTION_RECORD_TURN_TELEMETRY = "record_turn_telemetry";
-export const CONTROL_ACTION_RECORD_CONTEXT_BREAKDOWN = "record_context_breakdown";
-export const CONTROL_ACTION_RECORD_SESSION_STATE_CHANGE =
-  "record_session_state_change";
-export const CONTROL_ACTION_LIST_SESSION_STATE_CHANGES =
-  "list_session_state_changes";
 
 /**
  * Wire shape for one row of the tugcast-side session ledger.
@@ -507,7 +490,7 @@ export type {
 
 /**
  * Subscription-quota status, mirroring tugcode's `RateLimitInfo`
- * (`tugcode/src/types.ts`) verbatim. Carried by {@link RateLimitEvent}
+ * (`@tugproto/outbound`) verbatim. Carried by {@link RateLimitEvent}
  * on the per-turn quota broadcast claude 2.1.x emits at the start of
  * every turn. The Z4B rate-limit chip reads this to surface "X until
  * reset" and to escalate when `status !== "allowed"`.
@@ -579,7 +562,7 @@ export function decodeCodeInputPayload(
 /**
  * Create a control frame with a JSON action payload
  */
-export function controlFrame(action: string, params?: Record<string, unknown>): Frame {
+export function controlFrame(action: ControlAction, params?: Record<string, unknown>): Frame {
   const json = JSON.stringify({ action, ...params });
   return {
     feedId: FeedId.CONTROL,
@@ -682,7 +665,7 @@ export function encodeSpawnSession(
   if (relocateFrom !== undefined) {
     payload.relocate_from = relocateFrom;
   }
-  return controlFrame(CONTROL_ACTION_SPAWN_SESSION, payload);
+  return controlFrame("spawn_session", payload);
 }
 
 /**
@@ -690,7 +673,7 @@ export function encodeSpawnSession(
  * See [`encodeSpawnSession`] for payload shape and rationale.
  */
 export function encodeCloseSession(cardId: string, tugSessionId: string): Frame {
-  return controlFrame(CONTROL_ACTION_CLOSE_SESSION, {
+  return controlFrame("close_session", {
     card_id: cardId,
     tug_session_id: tugSessionId,
   });
@@ -701,7 +684,7 @@ export function encodeCloseSession(cardId: string, tugSessionId: string): Frame 
  * See [`encodeSpawnSession`] for payload shape and rationale.
  */
 export function encodeResetSession(cardId: string, tugSessionId: string): Frame {
-  return controlFrame(CONTROL_ACTION_RESET_SESSION, {
+  return controlFrame("reset_session", {
     card_id: cardId,
     tug_session_id: tugSessionId,
   });
@@ -718,7 +701,7 @@ export function encodeResetSession(cardId: string, tugSessionId: string): Frame 
  * DESC`. Errors broadcast `list_sessions_err { project_dir, reason }`.
  */
 export function encodeListSessions(projectDir: string): Frame {
-  return controlFrame(CONTROL_ACTION_LIST_SESSIONS, {
+  return controlFrame("list_sessions", {
     project_dir: projectDir,
   });
 }
@@ -740,7 +723,7 @@ export function encodeListSessions(projectDir: string): Frame {
  * miss rather than re-ask on every repaint.
  */
 export function encodeResolveSessions(ids: readonly string[]): Frame {
-  return controlFrame(CONTROL_ACTION_RESOLVE_SESSIONS, { ids });
+  return controlFrame("resolve_sessions", { ids });
 }
 
 
@@ -755,7 +738,7 @@ export function encodeResolveSessions(ids: readonly string[]): Frame {
  */
 export function encodeTrashSession(sessionId: string, projectDir?: string): Frame {
   return controlFrame(
-    CONTROL_ACTION_TRASH_SESSION,
+    "trash_session",
     projectDir !== undefined
       ? // `project_dir` lets the supervisor trash an external session
         // (no ledger row to look the directory up from). Harmless for
@@ -779,7 +762,7 @@ export function encodeTrashSession(sessionId: string, projectDir?: string): Fram
  * than silent.
  */
 export function encodeRenameSession(lineId: string, name: string): Frame {
-  return controlFrame(CONTROL_ACTION_RENAME_SESSION, {
+  return controlFrame("rename_session", {
     line_id: lineId,
     name,
   });
@@ -795,7 +778,7 @@ export function encodeRenameSession(lineId: string, name: string): Frame {
  * resting state, and `set_session_private_ok` acks the transition.
  */
 export function encodeSetSessionPrivate(sessionId: string, isPrivate: boolean): Frame {
-  return controlFrame(CONTROL_ACTION_SET_SESSION_PRIVATE, {
+  return controlFrame("set_session_private", {
     session_id: sessionId,
     private: isPrivate,
   });
@@ -812,7 +795,7 @@ export function encodeSetSessionPrivate(sessionId: string, isPrivate: boolean): 
  * `trash_project_dir_sessions_ok { project_dir, count }` on success.
  */
 export function encodeTrashProjectDirSessions(projectDir: string): Frame {
-  return controlFrame(CONTROL_ACTION_TRASH_PROJECT_DIR_SESSIONS, {
+  return controlFrame("trash_project_dir_sessions", {
     project_dir: projectDir,
   });
 }
@@ -850,7 +833,7 @@ export function encodeRequestReplay(
   tugSessionId: string,
   window?: ReplayWindow,
 ): Frame {
-  return controlFrame(CONTROL_ACTION_REQUEST_REPLAY, {
+  return controlFrame("request_replay", {
     tug_session_id: tugSessionId,
     ...(window !== undefined ? { window } : {}),
   });
@@ -876,7 +859,7 @@ export function encodeRecordTurnTelemetry(input: {
   telemetry: import("./lib/code-session-store/telemetry").TurnTelemetry;
   endedAt: number;
 }): Frame {
-  return controlFrame(CONTROL_ACTION_RECORD_TURN_TELEMETRY, {
+  return controlFrame("record_turn_telemetry", {
     tug_session_id: input.tugSessionId,
     msg_id: input.msgId,
     telemetry: input.telemetry,
@@ -904,7 +887,7 @@ export function encodeRecordContextBreakdown(input: {
   payload: import("./lib/code-session-store/types").ContextBreakdownSnapshot;
   capturedAt: number;
 }): Frame {
-  return controlFrame(CONTROL_ACTION_RECORD_CONTEXT_BREAKDOWN, {
+  return controlFrame("record_context_breakdown", {
     tug_session_id: input.tugSessionId,
     payload: {
       context_max: input.payload.contextMax,
@@ -951,7 +934,7 @@ export function encodeRecordSessionStateChange(input: {
   transportState: import("./lib/code-session-store/types").TransportState;
   interruptInFlight: boolean;
 }): Frame {
-  return controlFrame(CONTROL_ACTION_RECORD_SESSION_STATE_CHANGE, {
+  return controlFrame("record_session_state_change", {
     tug_session_id: input.tugSessionId,
     at_ms: input.atMs,
     phase: input.phase,
@@ -971,7 +954,7 @@ export function encodeRecordSessionStateChange(input: {
  * the same "no history yet" UI for both.
  */
 export function encodeListSessionStateChanges(tugSessionId: string): Frame {
-  return controlFrame(CONTROL_ACTION_LIST_SESSION_STATE_CHANGES, {
+  return controlFrame("list_session_state_changes", {
     tug_session_id: tugSessionId,
   });
 }

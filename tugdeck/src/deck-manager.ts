@@ -30,6 +30,7 @@
  *   filtered out at load time (see `filterRegisteredCards`).
  */
 
+import type { ControlAction } from "@tugproto/control";
 import {
   type DeckState,
   type CardState,
@@ -2637,7 +2638,7 @@ export class DeckManager implements IDeckManagerStore {
     return this.getSnapshot();
   }
 
-  sendControlFrame(action: string, params?: Record<string, unknown>): void {
+  sendControlFrame(action: ControlAction, params?: Record<string, unknown>): void {
     this.connection.sendControlFrame(action, params);
   }
 

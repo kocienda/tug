@@ -85,6 +85,9 @@ function caseBInterrupt(): CodeSessionState {
       block_index: 0,
       text: "partial",
       is_partial: true,
+      seq: 0,
+      rev: 0,
+      status: "partial",
     },
   ]).state;
   return applyAll(streaming, [
@@ -112,7 +115,7 @@ const TERMINALS: Record<LastErrorCause, TerminalRow> = {
     event: { type: "session_state_errored", detail: "session errored" },
   },
   wire_error: {
-    event: { type: "error", message: "protocol error", site: "drain_eof" },
+    event: { type: "error", message: "protocol error", recoverable: false, site: "drain_eof_open_turn" },
   },
   session_unknown: {
     event: { type: "session_unknown", detail: "session unknown" },
@@ -213,7 +216,7 @@ describe("reducer — every terminal clears the per-interrupt fields", () => {
 
   it("the wire_error row keeps the bridge's emit site", () => {
     const { state } = drive(TERMINALS.wire_error!);
-    expect(state.lastError?.site).toBe("drain_eof");
+    expect(state.lastError?.site).toBe("drain_eof_open_turn");
   });
 
   it("transport_close keeps its own extra state", () => {

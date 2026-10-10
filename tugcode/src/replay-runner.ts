@@ -17,6 +17,7 @@ import type {
   ReplayRelocationOrigin,
   ReplayRelocation,
 } from "./types.ts";
+import { IPC_VERSION } from "./types.ts";
 import { realpath } from "node:fs/promises";
 import { Database } from "bun:sqlite";
 import { writeLine, writeLineAndExit, drainPendingWrites } from "./ipc.ts";
@@ -334,7 +335,7 @@ export class ReplayRunner {
           model: entry.model ?? "",
           document: entry.document ?? "",
           arc: entry.arc ?? "",
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         });
       }
       // The last entry is the session being resumed; the main pass emits its
@@ -523,7 +524,7 @@ export class ReplayRunner {
           type: "replay_relocation",
           from_dir: reloc.fromDir,
           to_dir: reloc.toDir,
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         };
         if (rawInput.kind === "missing") {
           rawInput = parentRead;
@@ -712,7 +713,7 @@ export class ReplayRunner {
       if (batch.length === 1) {
         writeRaw(batch[0]!);
       } else {
-        writeLine({ type: "replay_batch", frames: [...batch], ipc_version: 2 });
+        writeLine({ type: "replay_batch", frames: [...batch], ipc_version: IPC_VERSION });
         messagesEmitted += 1;
         framesEmitted += batch.length;
       }
@@ -1011,7 +1012,7 @@ export class ReplayRunner {
         type: "replay_complete",
         count,
         aborted: true,
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       };
       writeLine(complete);
       logReplay("aborted", {
@@ -1030,7 +1031,7 @@ export class ReplayRunner {
           kind: "replay_timeout",
           message: `replay exceeded ${this.replayTimeoutMs}ms budget`,
         },
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       };
       writeLine(complete);
       logReplay("error", {
@@ -1050,7 +1051,7 @@ export class ReplayRunner {
           kind: "jsonl_unreadable",
           message: "claude_exited_during_replay",
         },
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       };
       writeLine(complete);
       logReplay("error", {
@@ -1079,7 +1080,7 @@ export class ReplayRunner {
           type: "resume_failed",
           reason,
           stale_session_id: this.host.sessionId(),
-          ipc_version: 2,
+          ipc_version: IPC_VERSION,
         },
         0,
       );
@@ -1102,7 +1103,7 @@ export class ReplayRunner {
               ? replayException.message
               : String(replayException ?? "replay ended without bracket close"),
         },
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       };
       writeLine(complete);
     }
@@ -1284,7 +1285,7 @@ export class ReplayRunner {
         // holds the text as it went out, which is what the wheel's record
         // holds too.
         ...(wheelPrompts.claim(row.user_text) ? { origin: "wheel" as const } : {}),
-        ipc_version: 2,
+        ipc_version: IPC_VERSION,
       });
       logReplay("pending_row_synthetic_emit", {
         session_id: this.host.sessionId(),

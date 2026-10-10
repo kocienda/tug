@@ -90,6 +90,7 @@ describe("handleTurnComplete — no-content fallback (#spec-reducer-state rule 2
         type: "turn_complete",
         msg_id: "orphan-0",
         result: "interrupted",
+        seq: 0,
       },
     ]);
 
@@ -146,6 +147,7 @@ describe("handleTurnComplete — no-content fallback (#spec-reducer-state rule 2
         type: "turn_complete",
         msg_id: "orphan-0",
         result: "interrupted",
+        seq: 0,
       },
     ]);
 
@@ -199,6 +201,7 @@ describe("handleTurnComplete — no-content fallback (#spec-reducer-state rule 2
           type: "turn_complete",
           msg_id: "orphan-7",
           result: "interrupted",
+          seq: 0,
         },
       ],
     );
@@ -216,6 +219,7 @@ describe("handleTurnComplete — no-content fallback (#spec-reducer-state rule 2
           type: "turn_complete",
           msg_id: "orphan-7",
           result: "interrupted",
+          seq: 0,
         },
       ],
     );
@@ -242,6 +246,7 @@ describe("handleTurnComplete — no-content fallback (#spec-reducer-state rule 2
         type: "turn_complete",
         msg_id: "orphan-stray",
         result: "interrupted",
+        seq: 0,
       },
     ]);
 
@@ -268,8 +273,9 @@ describe("handleTurnComplete — no-content fallback (#spec-reducer-state rule 2
         is_partial: false,
         rev: 0,
         seq: 0,
+        status: "complete",
       },
-      { type: "turn_complete", msg_id: "msg_real", result: "success" },
+      { type: "turn_complete", msg_id: "msg_real", result: "success", seq: 0 },
     ]);
 
     const turns = appended(effects);

@@ -98,6 +98,7 @@ describe("reducer / context_breakdown", () => {
     const s0 = freshState();
     const malformed = {
       type: "context_breakdown" as const,
+      tug_session_id: "tug-session-test",
       context_max: "huge" as unknown as number,
       categories: [],
     };
@@ -110,6 +111,7 @@ describe("reducer / context_breakdown", () => {
     const s0 = freshState();
     const malformed = {
       type: "context_breakdown" as const,
+      tug_session_id: "tug-session-test",
       context_max: 200_000,
       categories: "not-an-array" as unknown as ContextBreakdownEvent["categories"],
     };

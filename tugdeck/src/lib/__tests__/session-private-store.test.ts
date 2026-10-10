@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { sessionPrivateStore } from "../session-private-store";
-import { CONTROL_ACTION_SET_SESSION_PRIVATE, encodeSetSessionPrivate } from "@/protocol";
+import { encodeSetSessionPrivate } from "@/protocol";
 
 describe("sessionPrivateStore", () => {
   test("a session is public until marked, and the flag round-trips", () => {
@@ -52,7 +52,7 @@ describe("encodeSetSessionPrivate", () => {
   test("the frame carries the action, the session, and the value it is setting", () => {
     const frame = encodeSetSessionPrivate("sess-1", true);
     const payload = JSON.parse(new TextDecoder().decode(frame.payload));
-    expect(payload.action).toBe(CONTROL_ACTION_SET_SESSION_PRIVATE);
+    expect(payload.action).toBe("set_session_private");
     expect(payload.session_id).toBe("sess-1");
     expect(payload.private).toBe(true);
     // Both directions ride one verb — turning it off is not a second action.
