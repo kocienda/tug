@@ -12,11 +12,14 @@
  * real cue and waits for the write to land on disk; the second asserts the
  * header stands with nothing under it from its first paint, with no gesture.
  *
+ * `cards-card.tsx` is not named, though the fold cue this test clicks is
+ * wired there: that one line is at0582's subject, and naming the card here
+ * would put a 21st test behind every edit to it for a claim about the store.
+ *
  * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/components/cards/cards-store/cards-store.ts
  * @covers tugdeck/src/components/cards/cards-store/reducer.ts
  * @covers tugdeck/src/components/cards/cards-data-source.ts
- * @covers tugdeck/src/components/cards/cards-card.tsx
  */
 
 import { describe, expect, test } from "bun:test";

@@ -325,7 +325,16 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugapp/Sources/TestHarness/": 9,
 
     // The bridge. A single binary with no interior a test could name instead.
-    "tugcode/": 85,
+    //
+    // 85 → 92 for the session split (`eb2dc9c71`), which carved `session.ts`
+    // into `active-turn.ts`, `claude-process.ts`, `event-mapping.ts`,
+    // `journal.ts`, `replay-runner.ts`, `rewind.ts`, `spawn-config.ts` and
+    // `timer-set.ts`. Nothing joined the bridge that was not already in it;
+    // the same code now sits in more files, and the tests naming this subtree
+    // drive turns, replay and respawn end to end through all of them. Raised
+    // in place, which trips the refinance rule until it is committed, for the
+    // reason the `tug-text-editor/` entry below gives.
+    "tugcode/": 92,
 
     // Cards and editors, where the directory genuinely IS the unit — the card is what the
     // test drives, and naming one module inside it would be the narrower fiction.
