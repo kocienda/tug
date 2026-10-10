@@ -245,6 +245,20 @@ body {
   white-space: inherit;
 }
 
+/* A chip identity (Read / Edit / Write's file atom) is one unbreakable
+ * `nowrap` run, so a long name would overflow the detail column and paint
+ * over the trailing timing and actions. Seat it as a fit-content block
+ * capped at the column's width and clip the name with an ellipsis: the
+ * column already shrinks (`min-width: 0`), and this makes its content
+ * shrink with it. The full name is one click (or expand) away. */
+.tool-call-header-detail > .tug-atom-ref {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .tool-call-header-detail code {
   font-family: inherit;
   font-size: inherit;
