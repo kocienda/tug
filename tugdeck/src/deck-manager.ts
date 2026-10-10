@@ -445,6 +445,9 @@ function installDeckStoreFocusListeners(): void {
   window.addEventListener("blur", onBlur);
 }
 
+/** How many distinct cards {@link DeckManager}'s activation history keeps. */
+const ACTIVATION_HISTORY_LIMIT = 64;
+
 /**
  * Pure helper: remove `cardId` from the stack's `cardIds` and pick a new
  * `activeCardId` if the removed card was active. Mirrors the fallback rule
@@ -1160,6 +1163,17 @@ export class DeckManager implements IDeckManagerStore {
    * to notice.
    */
   private _lastPlaceRuns: PlaceRuns = { rail: null, column: null };
+
+  /**
+   * Every card the first responder has landed on, most recent first, each id
+   * once. {@link _flipFirstResponder} writes it, because every activation
+   * passes through there; a close reads it, so the card it hands the reader
+   * is the one they were last working in rather than whichever stands
+   * nearest. Ids of closed cards are not pruned here — the reader filters to
+   * what still stands — and the list is capped so it cannot grow without
+   * bound over a long session.
+   */
+  private _activationHistory: string[] = [];
 
   private initialLayout: object | null;
 
@@ -4738,7 +4752,22 @@ export class DeckManager implements IDeckManagerStore {
       rail: this._placeRunHeight("rail"),
       column: this._placeRunHeight("column"),
     };
-    return resolveCloseSuccessor(this.deckState, runs, closingPaneId);
+    return resolveCloseSuccessor(
+      this.deckState,
+      runs,
+      closingPaneId,
+      this._activationHistory,
+    );
+  }
+
+  /** Move `cardId` to the front of {@link _activationHistory}. */
+  private _noteActivation(cardId: string): void {
+    const history = this._activationHistory.filter((id) => id !== cardId);
+    history.unshift(cardId);
+    if (history.length > ACTIVATION_HISTORY_LIMIT) {
+      history.length = ACTIVATION_HISTORY_LIMIT;
+    }
+    this._activationHistory = history;
   }
 
   /**
@@ -4950,6 +4979,7 @@ export class DeckManager implements IDeckManagerStore {
     trigger: string,
   ): void {
     const oldFR = this.getFirstResponderCardId();
+    if (newFR !== null) this._noteActivation(newFR);
     if (oldFR === newFR) {
       commit();
       // Same-bit refresh still counts as a flip trigger for trace
@@ -7864,7 +7894,14 @@ export class DeckManager implements IDeckManagerStore {
     const owesHandoff = wasRemovingFR || currentFR === null;
     const spliced = spliceCardFromStack(win, cardId);
     // `cardIds.length > 1` above guarantees a survivor → activeCardId !== null.
-    const newActiveCardId = spliced.activeCardId as string;
+    // When the front tab goes, the tab that takes its place is the sibling the
+    // reader activated most recently, not the one beside it; the positional
+    // pick stands in only for siblings the history has never seen.
+    const recentSibling =
+      win.activeCardId === cardId
+        ? this._activationHistory.find((id) => spliced.cardIds.includes(id))
+        : undefined;
+    const newActiveCardId = recentSibling ?? (spliced.activeCardId as string);
 
     // Phase 1 (FR-removal only): flip composite bit to the neighbor
     // BEFORE destruction. Commit updates `win.activeCardId` but

@@ -2,11 +2,18 @@
  * close-successor.ts — which card a close hands the reader.
  *
  * A close is an activation ([P12]): the slot empties and the deck settles onto
- * a card. This is the one function that says which card that is, and it is a
- * **spatial** answer — the survivor that takes the closing pane's place in the
- * arrangement, not whichever pane happens to have been raised most recently.
- * The reckoning itself is {@link resolveDirectionalFocus}'s ([D184]); this
- * module is the order it is asked in and the one exclusion it owes.
+ * a card. This is the one function that says which card that is, and it is the
+ * **most recently activated** survivor: the card the reader was working in
+ * before the one they closed, wherever it stands. A card that merely stands
+ * close by is not the answer — closing a card is going back, not sideways.
+ *
+ * This reverses `5013bdcfe`, which gave closes a spatial successor (the
+ * survivor taking the closing pane's place) in place of raise order. Raise
+ * order was the wrong record — a rail raised last won the close — but a
+ * neighbour is not what the reader wants either. The activation history is the
+ * record of where the reader actually was. The spatial reckoning
+ * ({@link resolveDirectionalFocus}'s, [D184]) survives only as the fallback for
+ * a deck whose history names no survivor, such as one just restored.
  *
  * **A rail member is never the answer.** A target standing in no slot
  * (`slot === null`) is a sidebar card, and handing the first responder to the
@@ -46,9 +53,13 @@ const CLOSE_SUCCESSOR_DIRECTIONS: readonly FocusDirection[] = [
  * The card `closingPaneId`'s close should hand the first responder to, or
  * `null` when there is nobody to hand it to.
  *
+ * `recent` is the deck's activation history, most recent first. The first
+ * card in it that still stands outside the closing pane and outside every
+ * rail is the answer.
+ *
  * Call it with the state the close has not yet mutated — the closing pane
  * still standing — because the place being vacated is the whole reference the
- * spatial answer is reckoned from.
+ * spatial fallback is reckoned from.
  *
  * The fallback is the most-recently-raised remaining **content** pane, for a
  * deck with no imposition at all: there are no places to reckon over and the
@@ -61,9 +72,20 @@ export function resolveCloseSuccessor(
   state: DeckState,
   runs: PlaceRuns,
   closingPaneId: string,
+  recent: readonly string[] = [],
 ): string | null {
   const closing = state.panes.find((pane) => pane.id === closingPaneId);
   if (closing === undefined) return null;
+
+  const railPaneIds = new Set(
+    findSidebarPanes(state).map(({ pane }) => pane.id),
+  );
+  for (const cardId of recent) {
+    const host = state.panes.find((pane) => pane.cardIds.includes(cardId));
+    if (host === undefined || host.id === closingPaneId) continue;
+    if (railPaneIds.has(host.id)) continue;
+    return cardId;
+  }
 
   for (const direction of CLOSE_SUCCESSOR_DIRECTIONS) {
     const target = resolveDirectionalFocus(
@@ -77,9 +99,6 @@ export function resolveCloseSuccessor(
     return target.cardId;
   }
 
-  const railPaneIds = new Set(
-    findSidebarPanes(state).map(({ pane }) => pane.id),
-  );
   const remaining = state.panes.filter((pane) => pane.id !== closingPaneId);
   for (let i = remaining.length - 1; i >= 0; i--) {
     if (!railPaneIds.has(remaining[i].id)) return remaining[i].activeCardId;

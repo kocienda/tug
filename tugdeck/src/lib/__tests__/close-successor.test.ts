@@ -14,6 +14,10 @@
  * The regression that motivated the whole thing is the third describe: a deck
  * whose rail was raised last used to hand the close to the rail, so the reader
  * closed one of several cards and watched the furniture light up instead.
+ *
+ * The first describe is the rule: the most recently activated survivor wins.
+ * Every describe after it asks with no history, which is the spatial fallback
+ * a freshly restored deck reads.
  */
 
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -96,10 +100,59 @@ function deck(
 const UNMEASURED: PlaceRuns = { rail: null, column: null };
 
 /** The card the close of `cardId`'s pane hands over. */
-function successorOfClosing(state: DeckState, cardId: string): string | null {
+function successorOfClosing(
+  state: DeckState,
+  cardId: string,
+  recent: readonly string[] = [],
+): string | null {
   const host = state.panes.find((p) => p.cardIds.includes(cardId));
-  return resolveCloseSuccessor(state, UNMEASURED, host?.id ?? "missing");
+  return resolveCloseSuccessor(
+    state,
+    UNMEASURED,
+    host?.id ?? "missing",
+    recent,
+  );
 }
+
+describe("the most recently activated survivor", () => {
+  /** Slot 0 split three ways, top to bottom; slots 1 and 2 hold one each. */
+  const wide = (): DeckState => {
+    const { cards, panes } = columns({ 0: ["a", "b", "c"], 1: ["d"], 2: ["e"] });
+    return deck(cards, panes, {
+      kind: "three-up",
+      sidebars: {},
+      columns: { 0: { mode: "split", order: ["p-a", "p-b", "p-c"] } },
+    });
+  };
+
+  test("wins over the card standing beside the close", () => {
+    // Spatially `a` hands over to `b` below it; the reader was last in `e`,
+    // two slots away, so that is where the close takes them back to.
+    expect(successorOfClosing(wide(), "a", ["a", "e", "b"])).toBe("e");
+  });
+
+  test("skips the closing card itself", () => {
+    expect(successorOfClosing(wide(), "d", ["d", "c"])).toBe("c");
+  });
+
+  test("skips cards that no longer stand", () => {
+    expect(successorOfClosing(wide(), "a", ["a", "gone", "d"])).toBe("d");
+  });
+
+  test("skips a rail even when it was activated last", () => {
+    const { cards, panes } = columns({ 0: ["a"], 1: ["b"], 2: ["c"] });
+    const state = deck(
+      [...cards, card("rt", "closeRailTop")],
+      [...panes, pane("p-rt", ["rt"])],
+      { kind: "three-up", sidebars: { closeRailTop: { side: "left" } } },
+    );
+    expect(successorOfClosing(state, "a", ["a", "rt", "c"])).toBe("c");
+  });
+
+  test("a history naming no survivor falls back to the arrangement", () => {
+    expect(successorOfClosing(wide(), "a", ["a", "gone"])).toBe("b");
+  });
+});
 
 describe("inside the closing card's own place", () => {
   /** Slot 0 split three ways, top to bottom; slot 1 holds one card. */

@@ -1045,12 +1045,12 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
       // the deck activating something it will not show.
       //
       // WHICH card inherits is `lib/close-successor.ts`'s answer and not this
-      // file's to pin: the survivor that takes the closing pane's place in the
-      // arrangement, which for a lone member of a slot is the slot beside it,
-      // right before left. What this case needs from that is only that the
-      // inheritor start OFF the band, so the reveal has something to do — so
-      // the fixture is the wide one, where a slot and a half fill the band and
-      // the next slot along is entirely outside it.
+      // file's to settle: the card the reader activated most recently before
+      // the one they closed, wherever it stands. What this case needs from
+      // that is only that the inheritor start OFF the band, so the reveal has
+      // something to do — so the fixture is the wide one, where a slot and a
+      // half fill the band, and the inheritor is the strip's first card while
+      // the closing one is its last.
       //
       // Pinned through the real X, because the close box is the gesture that
       // found it. A `hello` card does not opt into `confirmClose`, so a click
@@ -1072,22 +1072,22 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         await setLayout(app, "flow");
         await wait(AFTER_LAND_MS);
 
-        // Raise E, the strip's last card: it comes to the band's far edge and
-        // carries D — the card its close will hand over — half off the near
-        // one. A slot keeps its place in the strip when a neighbour closes, so
-        // the survivor of a close is wherever it was standing, and here that is
-        // outside the band. The inheritor is D rather than the pane raised
-        // before E, because a close hands over to the survivor that takes its
-        // place in the arrangement, and nothing stands right of the last slot.
+        // Activate A, then E, the strip's last card: E comes to the band's far
+        // edge and carries A — the card its close will hand back to, because
+        // the reader was in it last — off the near one. A slot keeps its place
+        // in the strip when a neighbour closes, so the survivor of a close is
+        // wherever it was standing, and here that is outside the band.
+        await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
+        await wait(AFTER_LAND_MS);
         await app.evalJS<null>(`(window.__tug.activateCard("E"), null)`);
         await wait(AFTER_LAND_MS);
 
         const bandBefore = await band(app);
         const survivorBefore = (await slotRects(app)).find(
-          (r) => r.paneId === "p4",
+          (r) => r.paneId === "p1",
         );
         note(
-          `before the close: offset ${await flowOffset(app)}, p4 spans ${Math.round(
+          `before the close: offset ${await flowOffset(app)}, p1 spans ${Math.round(
             survivorBefore?.left ?? NaN,
           )}..${Math.round(survivorBefore?.right ?? NaN)}, band ${Math.round(
             bandBefore.left,
@@ -1114,15 +1114,15 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         );
         expect(
           activePaneId,
-          "the close hands the first responder to the pane that takes the closing one's place",
-        ).toBe("p4");
+          "the close hands the first responder back to the card activated before it",
+        ).toBe("p1");
 
         const closeCuts = await takeCuts(app);
         await app.evalJS<null>(`(window.__tug.disarmCutDetector(), null)`);
         const bandAfter = await band(app);
-        const survivor = (await slotRects(app)).find((r) => r.paneId === "p4");
+        const survivor = (await slotRects(app)).find((r) => r.paneId === "p1");
         note(
-          `after the close: offset ${await flowOffset(app)}, p4 spans ${Math.round(
+          `after the close: offset ${await flowOffset(app)}, p1 spans ${Math.round(
             survivor?.left ?? NaN,
           )}..${Math.round(survivor?.right ?? NaN)}, band left ${Math.round(
             bandAfter.left,
