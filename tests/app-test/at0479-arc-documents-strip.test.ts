@@ -37,7 +37,8 @@
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
- * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/show.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/documents.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

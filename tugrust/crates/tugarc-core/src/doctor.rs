@@ -48,6 +48,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::error::ArcError;
 use crate::log::{ArcDeclarations, StepPhase, read_declarations, step_declaration_note};
 use crate::ops;
 
@@ -776,11 +777,11 @@ pub struct DoctorOutcome {
 /// id in git — is refused rather than pronounced healthy: "the records
 /// agree" about an arc that does not exist is the reading that hid the
 /// missing seat in the first place.
-pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcome, String> {
+pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcome, ArcError> {
     if crate::arc::read_arc(repo_root, name).is_none()
         && !ops::arc_record_exists(&ops::main_repo_root(repo_root), name)
     {
-        return Err(format!("no arc named `{name}`"));
+        return Err(ArcError::Refused(format!("no arc named `{name}`")));
     }
     let diagnosis = diagnose(repo_root, name);
     let mut appended = Vec::new();
@@ -792,13 +793,14 @@ pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcom
             };
             match fix {
                 ArcRepair::Append { marker, note, .. } => {
-                    crate::log::append_arc_log(repo_root, name, marker, note)
-                        .map_err(|e| format!("the reconciling append failed: {e}"))?;
+                    crate::log::append_arc_log(repo_root, name, marker, note).map_err(|e| {
+                        ArcError::arc_log(repo_root, e).context("the reconciling append failed")
+                    })?;
                     appended.push(format!("{marker}  {note}"));
                 }
                 ArcRepair::MakeSeat { .. } => {
                     let outcome = ops::create_in(repo_root, name, None, false, None)
-                        .map_err(|e| format!("the seat could not be made: {e}"))?;
+                        .map_err(|e| e.context("the seat could not be made"))?;
                     made.push(outcome.worktree);
                 }
             }
@@ -819,8 +821,8 @@ pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcom
 }
 
 /// [`doctor`] against the cwd's repo — the CLI's entry point.
-pub fn doctor_here(name: &str, repair: bool) -> Result<DoctorOutcome, String> {
-    let repo_root = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
+pub fn doctor_here(name: &str, repair: bool) -> Result<DoctorOutcome, ArcError> {
+    let repo_root = ops::cwd_repo_root()?;
     doctor(&repo_root, name, repair)
 }
 

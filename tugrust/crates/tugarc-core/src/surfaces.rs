@@ -17,6 +17,8 @@ use std::path::Path;
 use std::process::Command;
 use tugtool_core::config::{Config, Surface};
 
+use crate::error::ArcError;
+
 /// What a verify run should do, decided before anything runs.
 ///
 /// The four variants are checked in declaration order and the order is
@@ -369,14 +371,20 @@ fn run_plans(worktree: &Path, plans: Vec<SurfacePlan>) -> Vec<SurfaceResult> {
 
 /// The paths a range moved, in the order git reported them, with a rename
 /// reported at its destination.
-fn touched_paths(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+fn touched_paths(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, ArcError> {
     let range = format!("{base}..{head}");
     // `-c core.quotepath=false` used to sit here: a local discovery that
     // un-quotes a non-ASCII name and leaves a `"`, a `\`, a tab and a newline
     // quoted. The [B01] door supersedes it — `-z` is total where that was
     // partial — so the flag is gone rather than kept beside it.
-    let records = tugchanges_core::listing(repo, &["diff", "--name-status", "-M", &range])
-        .map_err(|e| format!("git diff --name-status {range} failed: {e}"))?;
+    let args = ["diff", "--name-status", "-M", &range];
+    let records = tugchanges_core::listing(repo, &args).map_err(|e| {
+        ArcError::git(
+            format!("git diff --name-status {range} failed"),
+            &args,
+            e.to_string(),
+        )
+    })?;
     Ok(crate::ops::name_status_paths(&records))
 }
 
@@ -392,7 +400,7 @@ pub fn verify_in(
     name: &str,
     base_override: Option<&str>,
     head_override: Option<&str>,
-) -> Result<VerifyReport, String> {
+) -> Result<VerifyReport, ArcError> {
     let repo = crate::ops::main_repo_root(repo_root);
     let branch = crate::ops::branch_name(name);
     if crate::ops::git_stdout(
@@ -401,14 +409,16 @@ pub fn verify_in(
     )
     .is_err()
     {
-        return Err(format!("Arc not found: {name}"));
+        return Err(ArcError::NotFound {
+            name: name.to_string(),
+        });
     }
     let worktree = crate::ops::worktree_path(&repo, name);
     if !worktree.is_dir() {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "arc '{name}' has no worktree at {} — checks run from the worktree root",
             worktree.display()
-        ));
+        )));
     }
 
     let head = match head_override {
@@ -424,7 +434,8 @@ pub fn verify_in(
     };
 
     let touched = touched_paths(&repo, &base, &head)?;
-    let config = Config::load_from_project(&worktree).map_err(|e| e.to_string())?;
+    let config =
+        Config::load_from_project(&worktree).map_err(|e| ArcError::Refused(e.to_string()))?;
     let surfaces = config.tugtool.arc.surfaces;
 
     let resolution = plan_verification(&surfaces, &base, &head, &touched);
@@ -512,7 +523,7 @@ pub fn verify_in(
                         "{head} onto {base} · {checked} surfaces checked · {claimed_unchecked} claimed unchecked"
                     ),
                 )
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| ArcError::arc_log(&repo, e))?;
             }
             VerifyReport {
                 base,

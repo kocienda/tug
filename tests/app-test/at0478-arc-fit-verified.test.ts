@@ -29,7 +29,8 @@
  * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
  * @covers tugdeck/src/lib/arc-meta-facts.ts
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/show.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/commit.rs
  * @covers tugrust/crates/tugarc-core/src/surfaces.rs
  */
 

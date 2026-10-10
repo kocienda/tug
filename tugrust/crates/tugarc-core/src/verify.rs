@@ -23,6 +23,7 @@
 
 use std::path::Path;
 
+use crate::error::ArcError;
 use crate::ops::{config_get, git_output};
 
 /// The branch-config key an older build wrote a candidate's verdict to.
@@ -78,16 +79,15 @@ pub fn read_pilot_mark(repo: &Path, name: &str) -> Option<String> {
 }
 
 /// Record the head pair the pilot is about to act on.
-pub fn write_pilot_mark(repo: &Path, name: &str, head_pair: &str) -> Result<(), String> {
-    let out = git_output(
-        repo,
-        &["config", "--replace-all", &pilot_mark_key(name), head_pair],
-    )?;
+pub fn write_pilot_mark(repo: &Path, name: &str, head_pair: &str) -> Result<(), ArcError> {
+    let key = pilot_mark_key(name);
+    let args = ["config", "--replace-all", &key, head_pair];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "failed to record the pilot attempt for {}: {}",
-            name,
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            format!("failed to record the pilot attempt for {}", name),
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(())

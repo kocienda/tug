@@ -2301,7 +2301,9 @@ app-test *FILES:
     [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
 
     # Every file's wedge cap, from one history call before anything runs: three
-    # times its last recorded wall time, floored at two minutes (wedge-cap.ts).
+    # times its last recorded wall time, floored at two minutes — or, with no
+    # recorded time, at the file's own declared timeout when that is longer
+    # (wedge-cap.ts).
     # A file past its cap is killed and recorded as WEDGED rather than waited
     # on — a hung app otherwise walks the rest of the selection into the same
     # wall, one file at a time. No ledger means every file gets the floor: the

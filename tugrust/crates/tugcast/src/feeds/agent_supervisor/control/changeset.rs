@@ -1959,7 +1959,12 @@ impl AgentSupervisor {
             }
             Ok(Err(detail)) => {
                 tracing::info!(arc = %request.arc, detail = %detail, "arc-join: refused");
-                Self::send_changeset_join_err(&self.control_tx, project_dir, &request.arc, &detail);
+                Self::send_changeset_join_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.arc,
+                    &detail.to_string(),
+                );
                 false
             }
             Err(join_err) => {
@@ -2335,7 +2340,7 @@ impl AgentSupervisor {
                     &self.control_tx,
                     project_dir,
                     arc_name,
-                    &detail,
+                    &detail.to_string(),
                 );
             }
             Err(join_err) => {
@@ -2590,7 +2595,7 @@ impl AgentSupervisor {
                     &self.control_tx,
                     project_dir,
                     &request.arc,
-                    &detail,
+                    &detail.to_string(),
                 );
             }
             Err(e) => {
@@ -2754,7 +2759,7 @@ impl AgentSupervisor {
                     &self.control_tx,
                     project_dir,
                     &request.arc,
-                    &detail,
+                    &detail.to_string(),
                 );
             }
             Err(e) => {
@@ -2897,7 +2902,7 @@ impl AgentSupervisor {
                     &self.control_tx,
                     project_dir,
                     &request.arc,
-                    &detail,
+                    &detail.to_string(),
                 );
             }
             Err(join_err) => {
@@ -3011,7 +3016,7 @@ impl AgentSupervisor {
                     &self.control_tx,
                     project_dir,
                     &request.arc,
-                    &detail,
+                    &detail.to_string(),
                 );
             }
             Err(join_err) => {
@@ -3123,7 +3128,7 @@ impl AgentSupervisor {
                     project_dir,
                     &request.arc,
                     request.session_id.as_deref(),
-                    &detail,
+                    &detail.to_string(),
                 );
             }
             Err(join_err) => {

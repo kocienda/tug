@@ -14,6 +14,9 @@ pub mod log;
 /// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;
 
+/// The arc engine's one error type — a variant per cause a caller can act on.
+pub mod error;
+
 /// Arc verb orchestration — `create` / `commit` / `join` / `discard` /
 /// `list` / `show`, each returning a typed outcome.
 pub mod ops;
@@ -54,6 +57,7 @@ pub use arc::{
     read_arc,
 };
 pub use doctor::{ArcDiagnosis, ArcFinding, ArcRepair, DoctorOutcome, diagnose, doctor};
+pub use error::ArcError;
 pub use log::{
     ArcDeclaration, ArcDeclarations, ArcRoundMeta, MarkStage, StepPhase, append_arc_log,
     arc_has_ended, detect_default_branch, is_terminal, read_declarations, split_log_line,

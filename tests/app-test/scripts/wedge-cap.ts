@@ -10,7 +10,9 @@
  * The rule is three times the file's last recorded wall time, floored at two minutes. The
  * multiple leaves room for a slow machine and a loaded batch; the floor keeps a 5 s file
  * from being killed by a cold build or a busy neighbour. A file with no recorded time gets
- * the floor.
+ * the floor, or its own declared `TEST_TIMEOUT_MS` when that is longer: a file that cannot
+ * finish inside the floor would otherwise be killed on every run and, since a wedge records
+ * no time, never earn the history that would lift its cap.
  *
  * As a command it reads `tugtool apptest history --json` on stdin and prints one line per
  * named file — `<file>\t<cap secs>\t<last secs or ->` — for the recipe to look up. Empty or
@@ -21,10 +23,24 @@
 export const WEDGE_MULTIPLE = 3;
 export const WEDGE_FLOOR_SECS = 120;
 
-/** The cap for a file whose newest recorded outcome took `lastSecs`, or none. */
-export function capSecs(lastSecs: number | null): number {
-    if (lastSecs === null || !Number.isFinite(lastSecs) || lastSecs <= 0) return WEDGE_FLOOR_SECS;
+/**
+ * The cap for a file whose newest recorded outcome took `lastSecs`, or none. With no
+ * recorded time, the file's declared timeout (`declaredSecs`) raises the floor.
+ */
+export function capSecs(lastSecs: number | null, declaredSecs: number | null = null): number {
+    if (lastSecs === null || !Number.isFinite(lastSecs) || lastSecs <= 0) {
+        const declared = declaredSecs !== null && Number.isFinite(declaredSecs) ? declaredSecs : 0;
+        return Math.max(WEDGE_FLOOR_SECS, Math.ceil(declared));
+    }
     return Math.max(WEDGE_FLOOR_SECS, Math.ceil(lastSecs * WEDGE_MULTIPLE));
+}
+
+/** A test file's declared `const TEST_TIMEOUT_MS = …;`, in seconds; null when it has none. */
+export function declaredTimeoutSecs(source: string): number | null {
+    const m = source.match(/const TEST_TIMEOUT_MS = ([\d_]+);/);
+    if (!m) return null;
+    const ms = Number(m[1].replaceAll("_", ""));
+    return Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
 }
 
 /** Each file's last recorded seconds, from the history verb's JSON; absent when unknown. */
@@ -47,15 +63,27 @@ export function lastSecsFrom(historyJson: string): Map<string, number> {
 }
 
 /** The lines the recipe reads, one per file, in the order given. */
-export function capLines(historyJson: string, files: string[]): string[] {
+export function capLines(
+    historyJson: string,
+    files: string[],
+    declared: Map<string, number> = new Map(),
+): string[] {
     const last = lastSecsFrom(historyJson);
     return files.map((f) => {
         const secs = last.get(f) ?? null;
-        return `${f}\t${capSecs(secs)}\t${secs ?? "-"}`;
+        return `${f}\t${capSecs(secs, declared.get(f) ?? null)}\t${secs ?? "-"}`;
     });
 }
 
 if (import.meta.main) {
     const stdin = await Bun.stdin.text();
-    for (const line of capLines(stdin, process.argv.slice(2))) console.log(line);
+    const files = process.argv.slice(2);
+    // The recipe runs this from the app-test directory, naming files relative to it.
+    const declared = new Map<string, number>();
+    for (const f of files) {
+        const source = await Bun.file(f).text().catch(() => "");
+        const secs = declaredTimeoutSecs(source);
+        if (secs !== null) declared.set(f, secs);
+    }
+    for (const line of capLines(stdin, files, declared)) console.log(line);
 }

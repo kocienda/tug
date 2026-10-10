@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 
 use tugtool_core::worktree::sanitize_branch_name;
 
+use crate::error::ArcError;
 use crate::ops::{
     arc_base, branch_exists, branch_name, git_output, git_stdout, main_repo_root, run_post_create,
 };
@@ -107,16 +108,18 @@ impl Workshop {
     /// Refuses a stale chain rather than opening it: a conflict commit encodes
     /// one merge of two specific tips, and once either has moved the tree it
     /// holds describes a merge nobody is performing.
-    pub fn open_conflict(repo: &Path, name: &str) -> Result<Self, String> {
+    pub fn open_conflict(repo: &Path, name: &str) -> Result<Self, ArcError> {
         let repo_root = main_repo_root(repo);
         let chain = crate::resolve::read_conflict(&repo_root, name).ok_or_else(|| {
-            format!("no conflict is recorded for '{name}' — run the resolve ladder first")
+            ArcError::Refused(format!(
+                "no conflict is recorded for '{name}' — run the resolve ladder first"
+            ))
         })?;
         if !crate::resolve::conflict_is_valid(&repo_root, name, &chain) {
-            return Err(format!(
+            return Err(ArcError::Refused(format!(
                 "the recorded conflict for '{name}' is stale — its base or arc head has moved \
                  since it was written; resolve again"
-            ));
+            )));
         }
         let ws = Self::ensure(&repo_root, name)?;
         ws.reset_to(&chain.tip)?;
@@ -130,13 +133,13 @@ impl Workshop {
     /// cold; this one is the opposite promise, and exists because the resolver's
     /// edits live in the worktree between the turn that made them and the
     /// commit that captures them.
-    pub fn open_existing(repo: &Path, name: &str) -> Result<Self, String> {
+    pub fn open_existing(repo: &Path, name: &str) -> Result<Self, ArcError> {
         Self::ensure(repo, name)
     }
 
     /// Reset the workshop to an existing candidate, so commands can run against
     /// the tree a join would produce.
-    pub fn open_candidate(repo: &Path, name: &str, sha: &str) -> Result<Self, String> {
+    pub fn open_candidate(repo: &Path, name: &str, sha: &str) -> Result<Self, ArcError> {
         let ws = Self::ensure(repo, name)?;
         ws.reset_to(sha)?;
         Ok(ws)
@@ -150,12 +153,14 @@ impl Workshop {
     /// resolver's report is then required to account for — a report that need
     /// not mention a file the resolver created is a report that cannot catch
     /// one being smuggled in.
-    pub fn touched_since(&self, baseline: &str) -> Result<Vec<String>, String> {
-        let out = git_output(&self.path, &["add", "-A"])?;
+    pub fn touched_since(&self, baseline: &str) -> Result<Vec<String>, ArcError> {
+        let args = ["add", "-A"];
+        let out = git_output(&self.path, &args)?;
         if !out.status.success() {
-            return Err(format!(
-                "workshop add failed: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
+            return Err(ArcError::git(
+                "workshop add failed",
+                &args,
+                String::from_utf8_lossy(&out.stderr).trim(),
             ));
         }
         crate::ops::git_paths(&self.path, &["diff", "--cached", "--name-only", baseline])
@@ -168,7 +173,7 @@ impl Workshop {
     /// commit standing rather than re-committing its tree onto the base head,
     /// which would convert a replay join into a squash as a side effect of
     /// reading it.
-    pub fn matches(&self, sha: &str) -> Result<bool, String> {
+    pub fn matches(&self, sha: &str) -> Result<bool, ArcError> {
         if crate::ops::has_uncommitted(&self.path)? {
             return Ok(false);
         }
@@ -189,12 +194,14 @@ impl Workshop {
     /// this method's own first act. What a resolution cannot survive is
     /// markers left in the content, which is exactly what a worker that
     /// reported done without touching anything leaves behind.
-    pub fn commit(&self, message: &str) -> Result<String, String> {
-        let out = git_output(&self.path, &["add", "-A"])?;
+    pub fn commit(&self, message: &str) -> Result<String, ArcError> {
+        let args = ["add", "-A"];
+        let out = git_output(&self.path, &args)?;
         if !out.status.success() {
-            return Err(format!(
-                "workshop add failed: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
+            return Err(ArcError::git(
+                "workshop add failed",
+                &args,
+                String::from_utf8_lossy(&out.stderr).trim(),
             ));
         }
         // Only what this candidate would actually change is scanned — a
@@ -206,10 +213,10 @@ impl Workshop {
         )?;
         let markers = self.marker_paths(&touched);
         if !markers.is_empty() {
-            return Err(format!(
+            return Err(ArcError::Refused(format!(
                 "the merge is unfinished — conflict markers remain in {}",
                 markers.join(", ")
-            ));
+            )));
         }
 
         let tree = git_stdout(&self.path, &["write-tree"])?;
@@ -224,7 +231,7 @@ impl Workshop {
     /// conflict has a clean stage-0 index by construction, so the question is
     /// now asked of the content, which is where it was always really settled:
     /// the marker scan is what `commit` already refuses on.
-    pub fn unresolved(&self) -> Result<Vec<String>, String> {
+    pub fn unresolved(&self) -> Result<Vec<String>, ArcError> {
         let repo_root = main_repo_root(&self.repo);
         let Some(chain) = crate::resolve::read_conflict(&repo_root, &self.name) else {
             return Ok(Vec::new());
@@ -292,16 +299,22 @@ impl Workshop {
     /// resolver that introduced a conflict marker somewhere nobody asked it to
     /// touch is not making progress, and a checkpoint is exactly the wrong
     /// place to find that out later.
-    pub fn checkpoint(&self, message: &str) -> Result<Option<String>, String> {
+    pub fn checkpoint(&self, message: &str) -> Result<Option<String>, ArcError> {
         let repo_root = main_repo_root(&self.repo);
-        let chain = crate::resolve::read_conflict(&repo_root, &self.name)
-            .ok_or_else(|| format!("no conflict chain to check point for '{}'", self.name))?;
+        let chain = crate::resolve::read_conflict(&repo_root, &self.name).ok_or_else(|| {
+            ArcError::Refused(format!(
+                "no conflict chain to check point for '{}'",
+                self.name
+            ))
+        })?;
 
-        let add = git_output(&self.path, &["add", "-A"])?;
+        let args = ["add", "-A"];
+        let add = git_output(&self.path, &args)?;
         if !add.status.success() {
-            return Err(format!(
-                "workshop checkpoint: git add failed: {}",
-                String::from_utf8_lossy(&add.stderr).trim()
+            return Err(ArcError::git(
+                "workshop checkpoint: git add failed",
+                &args,
+                String::from_utf8_lossy(&add.stderr).trim(),
             ));
         }
 
@@ -321,11 +334,11 @@ impl Workshop {
             .filter(|p| !known.contains(p))
             .collect();
         if !stray.is_empty() {
-            return Err(format!(
+            return Err(ArcError::Refused(format!(
                 "workshop checkpoint refused: conflict markers in {}, which the conflict does \
                  not list",
                 stray.join(", ")
-            ));
+            )));
         }
 
         let tree = git_stdout(&self.path, &["write-tree"])?;
@@ -337,7 +350,7 @@ impl Workshop {
     // -- internals ----------------------------------------------------------
 
     /// The workshop, created and hydrated if it is not already there.
-    fn ensure(repo: &Path, name: &str) -> Result<Self, String> {
+    fn ensure(repo: &Path, name: &str) -> Result<Self, ArcError> {
         let repo_root = main_repo_root(repo);
 
         // A workshop belongs to an arc. When the arc is gone — joined, or
@@ -348,9 +361,9 @@ impl Workshop {
         // running, the verification's next `open_*` re-creates it, and the
         // orphan outlives the arc by however long the checkout survives.
         if !branch_exists(&repo_root, &branch_name(name)) {
-            return Err(format!(
+            return Err(ArcError::Refused(format!(
                 "the arc {name} is gone — its workshop cannot be opened"
-            ));
+            )));
         }
 
         ensure_tug_ignored(&repo_root);
@@ -389,22 +402,14 @@ impl Workshop {
         let mut ignored = Vec::new();
         remove(&repo_root, name, &mut ignored);
 
-        let out = git_output(
-            &repo_root,
-            &[
-                "worktree",
-                "add",
-                &path.to_string_lossy(),
-                "-b",
-                &branch,
-                &ws.base_head,
-            ],
-        )?;
+        let path_arg = path.to_string_lossy();
+        let args = ["worktree", "add", &path_arg, "-b", &branch, &ws.base_head];
+        let out = git_output(&repo_root, &args)?;
         if !out.status.success() {
-            return Err(format!(
-                "failed to create workshop for {}: {}",
-                name,
-                String::from_utf8_lossy(&out.stderr).trim()
+            return Err(ArcError::git(
+                format!("failed to create workshop for {}", name),
+                &args,
+                String::from_utf8_lossy(&out.stderr).trim(),
             ));
         }
 
@@ -451,19 +456,20 @@ impl Workshop {
     /// Return the workshop to `commitish`, discarding everything a previous use
     /// left behind — but **not** ignored build outputs, which are the warmth
     /// this whole design exists to keep (`clean -fd`, never `-x`).
-    fn reset_to(&self, commitish: &str) -> Result<(), String> {
+    fn reset_to(&self, commitish: &str) -> Result<(), ArcError> {
         // No `merge --abort` precedes this any more, and its absence is the
         // feature: nothing in a workshop's life starts a merge, so there is
         // never a `MERGE_HEAD` to abort. The one path that can still find one is
         // a workshop left by a build that predates conflict commits, and
         // [`Self::ensure`] sweeps that once rather than making every reset pay
         // for it.
-        let out = git_output(&self.path, &["reset", "--hard", commitish])?;
+        let args = ["reset", "--hard", commitish];
+        let out = git_output(&self.path, &args)?;
         if !out.status.success() {
-            return Err(format!(
-                "failed to reset workshop for {}: {}",
-                self.name,
-                String::from_utf8_lossy(&out.stderr).trim()
+            return Err(ArcError::git(
+                format!("failed to reset workshop for {}", self.name),
+                &args,
+                String::from_utf8_lossy(&out.stderr).trim(),
             ));
         }
         let _ = git_output(&self.path, &["clean", "-fd"]);
@@ -738,7 +744,7 @@ mod tests {
         git(repo, &["commit", "-m", "base moves"]);
 
         let err = match Workshop::open_conflict(repo, "demo") {
-            Err(e) => e,
+            Err(e) => e.to_string(),
             Ok(_) => panic!("a stale conflict refuses to open"),
         };
         assert!(err.contains("stale"), "{err}");
@@ -774,7 +780,10 @@ mod tests {
             "a\n<<<<<<< ours\nb\n=======\nc\n>>>>>>> theirs\n",
         );
 
-        let err = ws.checkpoint("tugresolve(demo): checkpoint").unwrap_err();
+        let err = ws
+            .checkpoint("tugresolve(demo): checkpoint")
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("only-arc.txt"), "{err}");
     }
 
@@ -819,7 +828,7 @@ mod tests {
         let ws = open_conflicted(repo);
         // Straight off the merge the file is markers, and no amount of staging
         // changes that — the refusal is about content, not about the index.
-        let err = ws.commit("candidate").unwrap_err();
+        let err = ws.commit("candidate").unwrap_err().to_string();
         assert!(err.contains("conflict markers remain"), "{err}");
         assert!(err.contains("f.txt"), "{err}");
 

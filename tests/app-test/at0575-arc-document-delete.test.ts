@@ -32,7 +32,7 @@
  * @covers tugdeck/src/components/tugways/arc-verb-row.tsx
  * @covers tugdeck/src/lib/arc-verbs.ts
  * @covers tugdeck/src/lib/changeset-verb-store.ts
- * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/discard.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

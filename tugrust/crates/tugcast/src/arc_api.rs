@@ -235,7 +235,7 @@ pub(crate) fn bind(
     }
     let arc_id = match tugarc_core::ops::ensure_arc_id(project_dir, arc) {
         Ok(id) => id,
-        Err(e) => return ArcApiOutcome::Error(e),
+        Err(e) => return ArcApiOutcome::Error(e.to_string()),
     };
     // One arc, one card: a second holder is refused by name, so the user is
     // told which card to go and stop rather than left with two rows arguing.
@@ -292,7 +292,7 @@ pub(crate) fn arc_run(
     };
     if tugarc_core::arc::read_arc(project_dir, arc).is_none() {
         if let Err(e) = tugarc_core::ops::open_arc(project_dir, arc) {
-            return ArcApiOutcome::Error(e);
+            return ArcApiOutcome::Error(e.to_string());
         }
     }
     bind(ledger, project_dir, tug_session_id.as_str(), arc)
@@ -338,7 +338,7 @@ pub(crate) fn arc_resume(
     // must not have its stop cleared by a card that will not be seated on it.
     let arc_id = match tugarc_core::ops::ensure_arc_id(project_dir, arc) {
         Ok(id) => id,
-        Err(e) => return ArcApiOutcome::Error(e),
+        Err(e) => return ArcApiOutcome::Error(e.to_string()),
     };
     if let Some(holder) = other_holder(ledger, &arc_id, tug_session_id.as_str()) {
         return ArcApiOutcome::Error(format!("{holder} is running {arc}"));

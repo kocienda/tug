@@ -24,7 +24,8 @@
  * @covers tugdeck/src/components/tugways/arc-trouble-notes.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/join.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/show.rs
  * @covers tugrust/crates/tugcast/src/feeds/base_motion.rs
  */
 

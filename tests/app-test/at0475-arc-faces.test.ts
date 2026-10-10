@@ -35,7 +35,8 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/show.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/steps.rs
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
  * @covers tugdeck/src/lib/changeset-types.ts

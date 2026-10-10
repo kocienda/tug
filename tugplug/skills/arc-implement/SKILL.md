@@ -196,7 +196,7 @@ Walk the resolved steps in dependency order. For each step:
 
 Pragmatics:
 
-- **A refused `arc step` is telling you about the document, not the tool.** It exits 1, names the ledger and the row, and leaves the file untouched — a document that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, a `pending` row you tried to close without opening, a `done` row you tried to `start` or `reset`, or a `withdrawn` row you tried to finish (a withdrawn step that is now to be walked goes through `start` first, the same path every other step takes).
+- **A refused `arc step` is telling you about the document, not the tool.** It exits 3 (2 when the arc or its name is not there), names the ledger and the row, and leaves the file untouched — a document that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, a `pending` row you tried to close without opening, a `done` row you tried to `start` or `reset`, or a `withdrawn` row you tried to finish (a withdrawn step that is now to be walked goes through `start` first, the same path every other step takes).
 
   **Every one of those has a verb behind it, so reach for the verb rather than for a dialog or a hand-edit.** A `done` row that must move is `step reopen <n> --why …`; an opened row to put down is `step reset <n>`; a refusal you cannot place at all is `tugtool arc doctor <name>`, which compares the ledger table against the arc log, the binding, and the arc record and names which of them disagrees — very often the answer is that they already did, before this turn.
 

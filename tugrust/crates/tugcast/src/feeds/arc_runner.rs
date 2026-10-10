@@ -2232,6 +2232,7 @@ fn seat_for(project: &Path, name: &str, stage: ArcStage) -> Result<PathBuf, Stri
             }
             tugarc_core::ops::create_in(project, name, None, false, None)
                 .map(|outcome| PathBuf::from(outcome.worktree))
+                .map_err(|e| e.to_string())
         }
         ArcStage::Devise | ArcStage::Review => Ok(tugarc_core::ops::worktree_path(project, name)),
     }

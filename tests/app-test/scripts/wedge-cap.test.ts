@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { capLines, capSecs, lastSecsFrom, WEDGE_FLOOR_SECS } from "./wedge-cap";
+import { capLines, capSecs, declaredTimeoutSecs, lastSecsFrom, WEDGE_FLOOR_SECS } from "./wedge-cap";
 
 const RUN_CAPPED = join(import.meta.dir, "run-capped.sh");
 
@@ -29,6 +29,30 @@ describe("capSecs", () => {
         expect(capSecs(0)).toBe(120);
         expect(capSecs(-3)).toBe(120);
         expect(capSecs(Number.NaN)).toBe(120);
+    });
+
+    // A file that cannot finish inside the floor would be killed on every run, and a wedge
+    // records no time, so it would never earn the history that lifts its cap.
+    test("with no recorded time, a declared timeout longer than the floor is the cap", () => {
+        expect(capSecs(null, 300)).toBe(300);
+        expect(capSecs(null, 60)).toBe(120);
+        expect(capSecs(160, 300)).toBe(480);
+    });
+});
+
+describe("declaredTimeoutSecs", () => {
+    test("reads the file's declared TEST_TIMEOUT_MS in seconds", () => {
+        expect(declaredTimeoutSecs("const TEST_TIMEOUT_MS = 300_000;\n")).toBe(300);
+        expect(declaredTimeoutSecs("const TEST_TIMEOUT_MS = 90000;")).toBe(90);
+        expect(declaredTimeoutSecs("test('x', () => {});")).toBeNull();
+    });
+
+    test("capLines raises an unrecorded file's cap to what it declares", () => {
+        const declared = new Map([["slow.test.ts", 300]]);
+        expect(capLines("", ["slow.test.ts", "quick.test.ts"], declared)).toEqual([
+            "slow.test.ts\t300\t-",
+            "quick.test.ts\t120\t-",
+        ]);
     });
 });
 

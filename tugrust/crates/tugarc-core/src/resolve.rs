@@ -40,6 +40,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tugtool_core::sanitize_branch_name;
 
+use crate::error::ArcError;
 use crate::ops::{
     arc_base, branch_exists, branch_name, commit_worktree_dirt, config_get, git_output, git_stdout,
     integrate_message, main_repo_root, worktree_path,
@@ -183,8 +184,8 @@ pub struct ResolveOutcome {
 pub fn resolve_conflicts_cwd(
     name: &str,
     merger: Option<&dyn FileMerger>,
-) -> Result<ResolveOutcome, String> {
-    let repo = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
+) -> Result<ResolveOutcome, ArcError> {
+    let repo = crate::ops::cwd_repo_root()?;
     resolve_conflicts(&repo, name, merger)
 }
 
@@ -198,7 +199,7 @@ pub fn resolve_conflicts(
     repo: &Path,
     name: &str,
     merger: Option<&dyn FileMerger>,
-) -> Result<ResolveOutcome, String> {
+) -> Result<ResolveOutcome, ArcError> {
     let mut outcome = resolve_ladder(repo, name, merger)?;
 
     // Anchor at one site rather than at each of the ladder's four success
@@ -267,10 +268,12 @@ fn resolve_ladder(
     repo: &Path,
     name: &str,
     merger: Option<&dyn FileMerger>,
-) -> Result<ResolveOutcome, String> {
+) -> Result<ResolveOutcome, ArcError> {
     let branch = branch_name(name);
     if !branch_exists(repo, &branch) {
-        return Err(format!("Arc not found: {}", name));
+        return Err(ArcError::NotFound {
+            name: name.to_string(),
+        });
     }
     let base_branch = arc_base(repo, name)?;
     let worktree = worktree_path(repo, name);
@@ -362,7 +365,8 @@ fn resolve_ladder(
 
     // Rungs 2–5, per file. A scratch tempdir holds the merge-file / driver
     // working files; the rerere rung has its own scratch worktree.
-    let scratch = tempfile::tempdir().map_err(|e| format!("resolve: tempdir: {}", e))?;
+    let scratch = tempfile::tempdir()
+        .map_err(|e| ArcError::io("resolve: tempdir", std::env::temp_dir(), e))?;
     let intent = resolve_intent(repo, &base_branch, &branch);
 
     // Rung 2a — salvage, above rerere and consulted before it.
@@ -682,7 +686,7 @@ pub(crate) fn replay_probe(
     base_head: &str,
     base_branch: &str,
     branch: &str,
-) -> Result<Option<ReplayedRounds>, String> {
+) -> Result<Option<ReplayedRounds>, ArcError> {
     match crate::replay::walk_rounds(repo, base_head, base_branch, branch)? {
         ReplayWalk::Clean(replayed) => Ok(Some(replayed)),
         ReplayWalk::Conflicted { .. } | ReplayWalk::Unavailable => Ok(None),
@@ -786,7 +790,7 @@ fn merge_tree_stages(
     repo: &Path,
     base: &str,
     branch: &str,
-) -> Result<(String, BTreeMap<String, RawStages>), String> {
+) -> Result<(String, BTreeMap<String, RawStages>), ArcError> {
     let out = git_output(repo, &["merge-tree", "--write-tree", "-z", base, branch])?;
     let stdout = out.stdout;
     let mut fields = stdout.split(|&b| b == 0);
@@ -1018,20 +1022,18 @@ struct ScratchWorktree {
 }
 
 impl ScratchWorktree {
-    fn open(repo: &Path, at: &str) -> Result<Self, String> {
-        let dir = tempfile::tempdir().map_err(|e| format!("scratch tempdir: {}", e))?;
-        let out = git_output(
-            repo,
-            &[
-                "worktree",
-                "add",
-                "--detach",
-                &dir.path().to_string_lossy(),
-                at,
-            ],
-        )?;
+    fn open(repo: &Path, at: &str) -> Result<Self, ArcError> {
+        let dir = tempfile::tempdir()
+            .map_err(|e| ArcError::io("scratch tempdir", std::env::temp_dir(), e))?;
+        let path = dir.path().to_string_lossy();
+        let args = ["worktree", "add", "--detach", &path, at];
+        let out = git_output(repo, &args)?;
         if !out.status.success() {
-            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+            return Err(ArcError::git(
+                "",
+                &args,
+                String::from_utf8_lossy(&out.stderr).trim(),
+            ));
         }
         Ok(Self {
             repo: repo.to_path_buf(),
@@ -1197,7 +1199,7 @@ fn patch_tree(
     scratch: &Path,
     base_tree: &str,
     resolved: &[ResolvedFile],
-) -> Result<String, String> {
+) -> Result<String, ArcError> {
     let index = scratch.join("resolve-index");
     git_with_index(repo, &index, &["read-tree", base_tree])?;
     for r in resolved {
@@ -1221,12 +1223,14 @@ pub(crate) fn commit_tree(
     tree: &str,
     parent: &str,
     msg: &str,
-) -> Result<String, String> {
-    let out = git_output(repo, &["commit-tree", tree, "-p", parent, "-m", msg])?;
+) -> Result<String, ArcError> {
+    let args = ["commit-tree", tree, "-p", parent, "-m", msg];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "commit-tree failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            "commit-tree failed",
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -1238,60 +1242,63 @@ pub(crate) fn commit_tree(
 
 /// Run a git command with an explicit `GIT_INDEX_FILE`, returning trimmed
 /// stdout on success.
-fn git_with_index(repo: &Path, index: &Path, args: &[&str]) -> Result<String, String> {
+fn git_with_index(repo: &Path, index: &Path, args: &[&str]) -> Result<String, ArcError> {
     let out = tugcore::git_command()
         .arg("-C")
         .arg(repo)
         .args(args)
         .env("GIT_INDEX_FILE", index)
         .output()
-        .map_err(|e| format!("git {}: {}", args.join(" "), e))?;
+        .map_err(|e| ArcError::git(format!("git {}", args.join(" ")), args, e.to_string()))?;
     if !out.status.success() {
-        return Err(format!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            format!("git {} failed", args.join(" ")),
+            args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 /// Read a blob body by OID.
-fn cat_blob(repo: &Path, oid: &str) -> Result<Vec<u8>, String> {
-    let out = git_output(repo, &["cat-file", "blob", oid])?;
+fn cat_blob(repo: &Path, oid: &str) -> Result<Vec<u8>, ArcError> {
+    let args = ["cat-file", "blob", oid];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "cat-file {} failed: {}",
-            oid,
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            format!("cat-file {} failed", oid),
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(out.stdout)
 }
 
 /// Write `bytes` as a loose blob (`git hash-object -w --stdin`) → its OID.
-fn hash_blob(repo: &Path, bytes: &[u8]) -> Result<String, String> {
+fn hash_blob(repo: &Path, bytes: &[u8]) -> Result<String, ArcError> {
+    const ARGS: [&str; 3] = ["hash-object", "-w", "--stdin"];
     let mut child = tugcore::git_command()
         .arg("-C")
         .arg(repo)
-        .args(["hash-object", "-w", "--stdin"])
+        .args(ARGS)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("hash-object: {}", e))?;
+        .map_err(|e| ArcError::git("hash-object", &ARGS, e.to_string()))?;
     child
         .stdin
         .take()
-        .ok_or("hash-object: no stdin")?
+        .ok_or_else(|| ArcError::git("hash-object", &ARGS, "no stdin"))?
         .write_all(bytes)
-        .map_err(|e| format!("hash-object write: {}", e))?;
+        .map_err(|e| ArcError::git("hash-object write", &ARGS, e.to_string()))?;
     let out = child
         .wait_with_output()
-        .map_err(|e| format!("hash-object wait: {}", e))?;
+        .map_err(|e| ArcError::git("hash-object wait", &ARGS, e.to_string()))?;
     if !out.status.success() {
-        return Err(format!(
-            "hash-object failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            "hash-object failed",
+            &ARGS,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -1688,13 +1695,15 @@ impl ResolvedBy {
 }
 
 /// Anchor a candidate commit at the arc's join ref.
-pub fn write_candidate_ref(repo: &Path, name: &str, sha: &str) -> Result<(), String> {
-    let out = git_output(repo, &["update-ref", &candidate_ref_name(name), sha])?;
+pub fn write_candidate_ref(repo: &Path, name: &str, sha: &str) -> Result<(), ArcError> {
+    let ref_name = candidate_ref_name(name);
+    let args = ["update-ref", &ref_name, sha];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "failed to anchor join candidate for {}: {}",
-            name,
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            format!("failed to anchor join candidate for {}", name),
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(())
@@ -1774,7 +1783,7 @@ pub fn anchor_candidate(
     name: &str,
     candidate: &str,
     arc_head: &str,
-) -> Result<(), String> {
+) -> Result<(), ArcError> {
     write_candidate_ref(repo, name, candidate)?;
     clear_candidate_marks(repo, name);
     let _ = git_output(
@@ -1820,18 +1829,17 @@ pub fn stuck_config_key(name: &str) -> String {
 }
 
 /// Store a resolver report for a candidate, as a blob the config points at.
-pub fn write_report(repo: &Path, name: &str, candidate: &str, json: &str) -> Result<(), String> {
+pub fn write_report(repo: &Path, name: &str, candidate: &str, json: &str) -> Result<(), ArcError> {
     let blob = hash_blob(repo, json.as_bytes())?;
     let value = format!("{}:{}", candidate, blob);
-    let out = git_output(
-        repo,
-        &["config", "--replace-all", &report_config_key(name), &value],
-    )?;
+    let key = report_config_key(name);
+    let args = ["config", "--replace-all", &key, &value];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "failed to record the resolver report for {}: {}",
-            name,
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            format!("failed to record the resolver report for {}", name),
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(())
@@ -2089,9 +2097,9 @@ pub fn write_conflict_commit(
     name: &str,
     tree: &str,
     record: &ConflictRecord,
-) -> Result<String, String> {
-    let body =
-        serde_json::to_string_pretty(record).map_err(|e| format!("conflict record encode: {e}"))?;
+) -> Result<String, ArcError> {
+    let body = serde_json::to_string_pretty(record)
+        .map_err(|e| ArcError::Refused(format!("conflict record encode: {e}")))?;
     let message = format!(
         "{}{}): {} unresolved\n\n{}",
         CONFLICT_SUBJECT_PREFIX,
@@ -2099,31 +2107,33 @@ pub fn write_conflict_commit(
         record.paths.len(),
         body
     );
-    let out = git_output(
-        repo,
-        &[
-            "commit-tree",
-            tree,
-            "-p",
-            &record.base_head,
-            "-p",
-            &record.arc_head,
-            "-m",
-            &message,
-        ],
-    )?;
+    let args = [
+        "commit-tree",
+        tree,
+        "-p",
+        &record.base_head,
+        "-p",
+        &record.arc_head,
+        "-m",
+        &message,
+    ];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "conflict commit-tree failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            "conflict commit-tree failed",
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let set = git_output(repo, &["update-ref", &conflict_ref_name(name), &sha])?;
+    let ref_name = conflict_ref_name(name);
+    let set_args = ["update-ref", &ref_name, &sha];
+    let set = git_output(repo, &set_args)?;
     if !set.status.success() {
-        return Err(format!(
-            "cannot write the conflict ref: {}",
-            String::from_utf8_lossy(&set.stderr).trim()
+        return Err(ArcError::git(
+            "cannot write the conflict ref",
+            &set_args,
+            String::from_utf8_lossy(&set.stderr).trim(),
         ));
     }
     Ok(sha)
@@ -2189,12 +2199,15 @@ pub fn valid_conflict(repo: &Path, name: &str) -> Option<ConflictChain> {
 }
 
 /// Advance the conflict ref to a checkpoint built on the chain.
-pub fn advance_conflict_ref(repo: &Path, name: &str, sha: &str) -> Result<(), String> {
-    let out = git_output(repo, &["update-ref", &conflict_ref_name(name), sha])?;
+pub fn advance_conflict_ref(repo: &Path, name: &str, sha: &str) -> Result<(), ArcError> {
+    let ref_name = conflict_ref_name(name);
+    let args = ["update-ref", &ref_name, sha];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "cannot advance the conflict ref: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            "cannot advance the conflict ref",
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(())
@@ -2240,20 +2253,19 @@ fn resolve_marker_subject(name: &str, edge: &str) -> String {
 /// resets to the same bytes, and the salvage rung reads the same blobs. What
 /// changes is the subject, which is the whole point: the chain becomes the
 /// resolve's own operation log, readable by any process from git alone.
-fn append_marker(repo: &Path, name: &str, subject: &str) -> Result<String, String> {
+fn append_marker(repo: &Path, name: &str, subject: &str) -> Result<String, ArcError> {
     let repo = &main_repo_root(repo);
     let Some(chain) = read_conflict(repo, name) else {
         return Ok(String::new());
     };
     let tree = format!("{}^{{tree}}", chain.tip);
-    let out = git_output(
-        repo,
-        &["commit-tree", &tree, "-p", &chain.tip, "-m", subject],
-    )?;
+    let args = ["commit-tree", &tree, "-p", &chain.tip, "-m", subject];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "resolve marker commit-tree failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            "resolve marker commit-tree failed",
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -2265,7 +2277,7 @@ fn append_marker(repo: &Path, name: &str, subject: &str) -> Result<String, Strin
 ///
 /// A no-op when no chain stands — a resolve that opens on a candidate rather
 /// than a conflict has nothing to write on, and that is a shape, not a failure.
-pub fn mark_resolve_begun(repo: &Path, name: &str) -> Result<String, String> {
+pub fn mark_resolve_begun(repo: &Path, name: &str) -> Result<String, ArcError> {
     append_marker(repo, name, &resolve_marker_subject(name, "begin"))
 }
 
@@ -2275,7 +2287,7 @@ pub fn mark_resolve_begun(repo: &Path, name: &str) -> Result<String, String> {
 /// parked with no resolver on it must never acquire an `end`, or the next
 /// reader would see a released lease where there was never one to release. The
 /// same guard makes a second call idempotent.
-pub fn mark_resolve_ended(repo: &Path, name: &str) -> Result<String, String> {
+pub fn mark_resolve_ended(repo: &Path, name: &str) -> Result<String, ArcError> {
     let repo_root = main_repo_root(repo);
     let Some(chain) = read_conflict(&repo_root, name) else {
         return Ok(String::new());
@@ -2387,7 +2399,7 @@ pub enum CandidateStatus {
 
 /// [`candidate_status`] for a caller that does not already hold the base
 /// branch, resolving it the same way every other arc verb does.
-pub fn candidate_status_in(repo: &Path, name: &str) -> Result<CandidateStatus, String> {
+pub fn candidate_status_in(repo: &Path, name: &str) -> Result<CandidateStatus, ArcError> {
     let base = arc_base(repo, name)?;
     Ok(candidate_status(repo, name, &base))
 }

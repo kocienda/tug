@@ -81,7 +81,8 @@
  * @covers tugdeck/src/lib/arc-join-register.ts
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugrust/crates/tugarc-core/src/log.rs
- * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/join.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/show.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs

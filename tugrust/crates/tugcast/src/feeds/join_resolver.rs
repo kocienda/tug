@@ -1132,13 +1132,15 @@ async fn open_workshop(
 
     tokio::task::spawn_blocking(move || {
         let workshop = match &inherited_candidate {
-            Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)?,
+            Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)
+                .map_err(|e| e.to_string())?,
             None => match tugarc_core::resolve::valid_conflict(&repo, &arc) {
                 // Something is still unresolved, so the ladder parked a
                 // conflict. Its tree already carries the rungs' own
                 // resolutions, so opening it is the whole of the setup.
                 Some(_) => {
-                    let ws = tugarc_core::Workshop::open_conflict(&repo, &arc)?;
+                    let ws = tugarc_core::Workshop::open_conflict(&repo, &arc)
+                        .map_err(|e| e.to_string())?;
                     // The chain is this resolve's own operation log, and the
                     // begin marker is what makes "a resolver opened this at T"
                     // a git fact a second process can read. Best-effort: a
@@ -1154,7 +1156,8 @@ async fn open_workshop(
                 // edge case: a squash the machines finish completely reaches
                 // the resolver as an audit with nothing left to merge.
                 None => match &squash_candidate {
-                    Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)?,
+                    Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)
+                        .map_err(|e| e.to_string())?,
                     None => {
                         return Err(format!(
                             "the ladder left neither a conflict nor a candidate for '{arc}'"
@@ -1163,7 +1166,7 @@ async fn open_workshop(
                 },
             },
         };
-        let unresolved = workshop.unresolved()?;
+        let unresolved = workshop.unresolved().map_err(|e| e.to_string())?;
         let mut resolution_set: Vec<String> = ladder_resolved
             .iter()
             .map(|(p, _)| p.clone())
@@ -1217,11 +1220,14 @@ async fn commit_candidate(
     let report_for_validation = report.clone();
 
     tokio::task::spawn_blocking(move || {
-        let workshop = tugarc_core::Workshop::open_existing(&repo, &arc)?;
+        let workshop =
+            tugarc_core::Workshop::open_existing(&repo, &arc).map_err(|e| e.to_string())?;
         // What the resolver changed can only be read from the tree it left, so
         // the report is validated here rather than before the task — against
         // the machine's decisions *and* the resolver's own edits.
-        let touched = workshop.touched_since(&baseline)?;
+        let touched = workshop
+            .touched_since(&baseline)
+            .map_err(|e| e.to_string())?;
         validate_report(&report_for_validation, &resolution_set, &touched)?;
         let branch = format!("tugarc/{}", arc);
         // The candidate is an intermediate — the join composes the message the
@@ -1231,11 +1237,14 @@ async fn commit_candidate(
         // Committing an identical tree anyway would reparent it onto the base
         // head, turning a replay join into a squash without anybody asking.
         let candidate = match &inherited {
-            Some(sha) if workshop.matches(sha)? => sha.clone(),
-            _ => workshop.commit(&format!("{message}\n\nResolved for the join."))?,
+            Some(sha) if workshop.matches(sha).map_err(|e| e.to_string())? => sha.clone(),
+            _ => workshop
+                .commit(&format!("{message}\n\nResolved for the join."))
+                .map_err(|e| e.to_string())?,
         };
-        let arc_head = tugarc_core::ops::rev_parse(&repo, &branch)?;
-        tugarc_core::resolve::anchor_candidate(&repo, &arc, &candidate, &arc_head)?;
+        let arc_head = tugarc_core::ops::rev_parse(&repo, &branch).map_err(|e| e.to_string())?;
+        tugarc_core::resolve::anchor_candidate(&repo, &arc, &candidate, &arc_head)
+            .map_err(|e| e.to_string())?;
 
         // Which rung a path ends up credited to: the resolver for anything it
         // finished or redid, the original machine rung for a resolution it
@@ -1276,6 +1285,7 @@ async fn record_report(
     })
     .await
     .map_err(|e| format!("report task failed: {e}"))?
+    .map_err(|e| e.to_string())
 }
 
 /// One `changeset_join_resolve_delta` for the resolver rung.
@@ -2122,7 +2132,7 @@ mod tests {
         git(repo, &["branch", "-D", "tugarc/demo"]);
 
         let err = match tugarc_core::workshop::Workshop::open_existing(repo, "demo") {
-            Err(e) => e,
+            Err(e) => e.to_string(),
             Ok(_) => panic!("a gone arc refuses"),
         };
         assert!(err.contains("is gone"), "{err}");

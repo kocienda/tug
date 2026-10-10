@@ -15,6 +15,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::error::ArcError;
 use crate::log::append_arc_log;
 use crate::ops::{
     arc_base, branch_exists, branch_name, git_output, git_stdout, join_in_flight, ledger_file,
@@ -97,7 +98,7 @@ struct OpenOp {
 }
 
 impl OpenOp {
-    fn begin(repo: &Path, name: &str) -> Result<Self, String> {
+    fn begin(repo: &Path, name: &str) -> Result<Self, ArcError> {
         let before = crate::oplog::capture_before(repo, name)?;
         let tips = crate::oplog::tips_of(&before);
         let seq =
@@ -125,8 +126,8 @@ impl OpenOp {
 /// the `tugtool arc replay` entry point. `main_repo_root` normalization inside
 /// means it answers the same from the base checkout and from inside any arc
 /// worktree, the way `join` does.
-pub fn replay(name: &str) -> Result<ReplayOutcome, String> {
-    let repo = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
+pub fn replay(name: &str) -> Result<ReplayOutcome, ArcError> {
+    let repo = crate::ops::cwd_repo_root()?;
     replay_onto(&repo, name)
 }
 
@@ -139,12 +140,14 @@ pub fn replay(name: &str) -> Result<ReplayOutcome, String> {
 /// moves the branch — `branch -f` is refused by git on a checked-out branch, and
 /// a bare `update-ref` would leave HEAD, the index, and the working tree
 /// disagreeing.
-pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String> {
+pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, ArcError> {
     let repo = main_repo_root(repo_root);
     let repo = repo.as_path();
     let branch = branch_name(name);
     if !branch_exists(repo, &branch) {
-        return Err(format!("Arc not found: {}", name));
+        return Err(ArcError::NotFound {
+            name: name.to_string(),
+        });
     }
     if !git_supports_merge_base_flag() {
         return Ok(ReplayOutcome::deferred(
@@ -254,7 +257,7 @@ pub(crate) fn cas_reset(
     worktree: &Path,
     expected_tip: &str,
     head: &str,
-) -> Result<Option<ReplayOutcome>, String> {
+) -> Result<Option<ReplayOutcome>, ArcError> {
     if crate::ops::has_uncommitted(worktree)? {
         return Ok(Some(ReplayOutcome::deferred(
             "dirty-worktree",
@@ -289,7 +292,7 @@ pub(crate) fn walk_rounds(
     base_head: &str,
     base_branch: &str,
     branch: &str,
-) -> Result<ReplayWalk, String> {
+) -> Result<ReplayWalk, ArcError> {
     if !git_supports_merge_base_flag() {
         return Ok(ReplayWalk::Unavailable);
     }
@@ -399,7 +402,7 @@ pub(crate) fn reconcile_ledger_cells(
     branch: &str,
     base_branch: &str,
     mapping: Option<&[(String, String)]>,
-) -> Result<Reconciled, String> {
+) -> Result<Reconciled, ArcError> {
     let mut out = Reconciled::default();
     // Whichever document carries the ledger — a replayed task-list arc owns
     // its commit cells exactly as a plan does.
@@ -475,7 +478,7 @@ fn branch_rounds(
     repo: &Path,
     base_branch: &str,
     branch: &str,
-) -> Result<Vec<(String, String)>, String> {
+) -> Result<Vec<(String, String)>, ArcError> {
     let out = git_stdout(
         repo,
         &[
@@ -515,8 +518,8 @@ fn abbreviate(repo: &Path, commit: &str, width: usize) -> String {
 
 /// The arc log's record of a replay (Spec S02) — the one thing git cannot say
 /// for itself, since the rounds it names no longer exist under that branch.
-fn log_replay(repo: &Path, name: &str, note: &str) -> Result<(), String> {
-    append_arc_log(repo, name, "replayed", note).map_err(|e| e.to_string())
+fn log_replay(repo: &Path, name: &str, note: &str) -> Result<(), ArcError> {
+    append_arc_log(repo, name, "replayed", note).map_err(|e| ArcError::arc_log(repo, e))
 }
 
 /// `onto <base>: <old>-><new>[, …]` — an engine replay's note.
@@ -813,7 +816,9 @@ mod tests {
         // reset that did not check.
         let later = f.round("h.txt", "typed later\n", "later round");
 
-        let err = crate::oplog::undo_in(f.path(), Some("demo")).unwrap_err();
+        let err = crate::oplog::undo_in(f.path(), Some("demo"))
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("tip-moved:"), "{err}");
         assert_eq!(f.tip("tugarc/demo"), later, "the later round is untouched");
     }

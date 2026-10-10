@@ -99,7 +99,21 @@ pub(crate) fn integration_test_sources() -> Vec<(PathBuf, String)> {
 /// The workspace convention is a trailing `#[cfg(test)]` followed
 /// (possibly through more attributes) by `mod …`. A lone `#[cfg(test)]`
 /// on a single item must NOT truncate the scan, so the `mod` is required.
+///
+/// A file that declares itself test-only with an inner `#![cfg(test)]` — a
+/// fixtures module split out of a test block — is test code from its first
+/// byte. Only the file's preamble — the doc comments, blank lines, and inner
+/// attributes before its first item — is read for it: the same line inside an
+/// inline `mod … { }` scopes that module alone, and must not blind a scan to
+/// the production code around it.
 pub(crate) fn test_module_start(text: &str) -> Option<usize> {
+    let mut preamble = text
+        .lines()
+        .map(str::trim)
+        .take_while(|l| l.is_empty() || l.starts_with("//") || l.starts_with("#!["));
+    if preamble.any(|l| l == "#![cfg(test)]") {
+        return Some(0);
+    }
     let mut search_from = 0;
     while let Some(rel) = text[search_from..].find("#[cfg(test)]") {
         let at = search_from + rel;
@@ -115,4 +129,28 @@ pub(crate) fn test_module_start(text: &str) -> Option<usize> {
         search_from = at + "#[cfg(test)]".len();
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_module_start;
+
+    #[test]
+    fn a_trailing_test_module_is_cut_and_a_lone_test_item_is_not() {
+        let text = "fn a() {}\n#[cfg(test)]\nfn helper() {}\n#[cfg(test)]\nmod tests {}\n";
+        let cut = test_module_start(text).unwrap();
+        assert_eq!(&text[..cut], "fn a() {}\n#[cfg(test)]\nfn helper() {}\n");
+    }
+
+    #[test]
+    fn a_file_that_declares_itself_test_only_is_test_code_throughout() {
+        let text = "//! Fixtures.\n\n#![cfg(test)]\n\nfn fixture() {}\n";
+        assert_eq!(test_module_start(text), Some(0));
+    }
+
+    #[test]
+    fn an_inline_modules_inner_attribute_does_not_exempt_the_file() {
+        let text = "fn production() {}\n\nmod fixtures {\n    #![cfg(test)]\n    fn f() {}\n}\n";
+        assert_eq!(test_module_start(text), None);
+    }
 }

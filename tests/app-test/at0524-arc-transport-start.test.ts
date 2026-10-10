@@ -25,7 +25,8 @@
  * @covers tugdeck/src/lib/arc-verbs.ts
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugrust/crates/tugcast/src/arc_api.rs
- * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/create.rs
+ * @covers tugrust/crates/tugarc-core/src/ops/documents.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

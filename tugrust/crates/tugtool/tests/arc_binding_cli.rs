@@ -373,7 +373,11 @@ fn arc_join_names_a_live_resolve_and_break_lease_lands_it() {
     refused.current_dir(&root);
     refused.args(["arc", "join", "demo"]);
     let out = refused.output().unwrap();
-    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "a live resolve blocks the join, and a blocked join is a refusal"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("A resolve may still be running"),
@@ -433,7 +437,11 @@ fn arc_join_resolve_refuses_over_a_live_chain_and_leaves_it_standing() {
     resolve.current_dir(&root);
     resolve.args(["arc", "join", "demo", "--resolve"]);
     let out = resolve.output().unwrap();
-    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "the --resolve door refuses with the code the engine's blocked join carries"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("A resolve may still be running"),

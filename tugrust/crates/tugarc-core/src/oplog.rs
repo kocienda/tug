@@ -46,6 +46,7 @@ use tugtool_core::paths::project_state_dir;
 use tugtool_core::sanitize_branch_name;
 use tugtool_core::session::now_iso8601;
 
+use crate::error::ArcError;
 use crate::log::refuse_unredirected_temp_repo;
 use crate::ops::{
     arc_base, base_config_key, branch_name, config_get, description_config_key, git_output,
@@ -349,12 +350,14 @@ fn ref_seqs(repo: &Path) -> Vec<u64> {
 
 /// The empty tree's object id, asked of git rather than hard-coded — the SHA-1
 /// constant is wrong in a SHA-256 repository.
-fn empty_tree(repo: &Path) -> Result<String, String> {
-    let out = git_output(repo, &["hash-object", "-t", "tree", "/dev/null"])?;
+fn empty_tree(repo: &Path) -> Result<String, ArcError> {
+    let args = ["hash-object", "-t", "tree", "/dev/null"];
+    let out = git_output(repo, &args)?;
     if !out.status.success() {
-        return Err(format!(
-            "oplog: cannot resolve the empty tree: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            "oplog: cannot resolve the empty tree",
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -368,7 +371,7 @@ fn keepalive_commit(
     arc: &str,
     seq: u64,
     tips: &[String],
-) -> Result<String, String> {
+) -> Result<String, ArcError> {
     let tree = empty_tree(repo)?;
     let message = format!("tug oplog {} {} {}", seq, verb.as_str(), arc);
 
@@ -398,9 +401,10 @@ fn keepalive_commit(
     let borrowed: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let out = git_output(repo, &borrowed)?;
     if !out.status.success() {
-        return Err(format!(
-            "oplog: commit-tree failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+        return Err(ArcError::git(
+            "oplog: commit-tree failed",
+            &borrowed,
+            String::from_utf8_lossy(&out.stderr).trim(),
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -418,7 +422,7 @@ fn keepalive_commit(
 /// work — so an undo would faithfully restore an arc missing everything the
 /// sweep captured. `resolve.rs` learned the same lesson about `tugjoinsource`,
 /// where reading before the sweep made every candidate stale at birth.
-pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, String> {
+pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, ArcError> {
     let branch = branch_name(name);
     let base_branch = arc_base(repo, name)?;
     Ok(OpBefore {
@@ -473,10 +477,11 @@ pub fn record_begin(
     arc: &str,
     before: OpBefore,
     tips: &[String],
-) -> Result<u64, String> {
+) -> Result<u64, ArcError> {
     refuse_unredirected_temp_repo(repo);
     let dir = project_state_dir(repo);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("oplog: cannot create {dir:?}: {e}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| ArcError::io(format!("oplog: cannot create {dir:?}"), &dir, e))?;
 
     let mut last_err = String::new();
     for _ in 0..SEQ_ATTEMPTS {
@@ -507,15 +512,17 @@ pub fn record_begin(
         prune(repo);
         return Ok(seq);
     }
-    Err(format!(
-        "oplog: could not allocate a sequence number after {SEQ_ATTEMPTS} attempts: {last_err}"
+    Err(ArcError::git(
+        format!("oplog: could not allocate a sequence number after {SEQ_ATTEMPTS} attempts"),
+        &["update-ref"],
+        last_err,
     ))
 }
 
 /// Attach the after-state to a recorded operation, marking it complete.
-pub fn record_complete(repo: &Path, seq: u64, after: OpAfter) -> Result<(), String> {
-    let mut payload =
-        read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to complete"))?;
+pub fn record_complete(repo: &Path, seq: u64, after: OpAfter) -> Result<(), ArcError> {
+    let mut payload = read_op(repo, seq)
+        .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to complete")))?;
     payload.after = Some(after);
     write_payload(repo, &payload)
 }
@@ -523,9 +530,9 @@ pub fn record_complete(repo: &Path, seq: u64, after: OpAfter) -> Result<(), Stri
 /// Mark the join `seq` as having left the base in a state nothing could prove
 /// untouched. The record is kept open — no `after` — because the join landed
 /// nothing; what it carries is the warning.
-pub fn record_stranded(repo: &Path, seq: u64, stranded: StrandedBase) -> Result<(), String> {
-    let mut payload =
-        read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to mark stranded"))?;
+pub fn record_stranded(repo: &Path, seq: u64, stranded: StrandedBase) -> Result<(), ArcError> {
+    let mut payload = read_op(repo, seq)
+        .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to mark stranded")))?;
     payload.stranded = Some(stranded);
     write_payload(repo, &payload)
 }
@@ -552,17 +559,17 @@ pub fn stranded_detail(op: &OpPayload) -> String {
 }
 
 /// Mark `seq` as reversed by the undo operation `by`.
-pub fn record_undone_by(repo: &Path, seq: u64, by: Option<u64>) -> Result<(), String> {
-    let mut payload =
-        read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to mark undone"))?;
+pub fn record_undone_by(repo: &Path, seq: u64, by: Option<u64>) -> Result<(), ArcError> {
+    let mut payload = read_op(repo, seq)
+        .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to mark undone")))?;
     payload.undone_by = by;
     write_payload(repo, &payload)
 }
 
 /// Record which operation `seq` reverses.
-pub fn record_reverses(repo: &Path, seq: u64, reverses: u64) -> Result<(), String> {
-    let mut payload =
-        read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to pair"))?;
+pub fn record_reverses(repo: &Path, seq: u64, reverses: u64) -> Result<(), ArcError> {
+    let mut payload = read_op(repo, seq)
+        .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to pair")))?;
     payload.reverses = Some(reverses);
     write_payload(repo, &payload)
 }
@@ -574,9 +581,12 @@ pub fn record_reverses(repo: &Path, seq: u64, reverses: u64) -> Result<(), Strin
 /// leaves a record claiming less than was achieved, which the idempotent
 /// teardown repeats harmlessly, rather than more than was achieved, which it
 /// would skip.
-pub fn record_join_progress(repo: &Path, seq: u64, progress: JoinProgress) -> Result<(), String> {
-    let mut payload = read_op(repo, seq)
-        .ok_or_else(|| format!("oplog: no operation {seq} to record join progress on"))?;
+pub fn record_join_progress(repo: &Path, seq: u64, progress: JoinProgress) -> Result<(), ArcError> {
+    let mut payload = read_op(repo, seq).ok_or_else(|| {
+        ArcError::Refused(format!(
+            "oplog: no operation {seq} to record join progress on"
+        ))
+    })?;
     payload.join = Some(progress);
     write_payload(repo, &payload)
 }
@@ -661,16 +671,17 @@ fn legacy_journal_path(repo: &Path, arc: &str) -> PathBuf {
 ///
 /// The file is removed **only after** the payload write returns `Ok`. A crash
 /// in between re-enters here and folds again onto the same open record.
-pub fn fold_legacy_join_journal(repo: &Path, arc: &str) -> Result<Option<u64>, String> {
+pub fn fold_legacy_join_journal(repo: &Path, arc: &str) -> Result<Option<u64>, ArcError> {
     let path = legacy_journal_path(repo, arc);
     let txt = match std::fs::read_to_string(&path) {
         Ok(txt) => txt,
         Err(_) => return Ok(None),
     };
     let journal: LegacyJoinJournal = serde_json::from_str(&txt).map_err(|e| {
-        format!(
-            "legacy-join-journal-unreadable: {}: {e}",
-            path.to_string_lossy()
+        ArcError::io(
+            format!("legacy-join-journal-unreadable: {}", path.to_string_lossy()),
+            &path,
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e),
         )
     })?;
 
@@ -723,11 +734,17 @@ pub fn abandon(repo: &Path, seq: u64) {
     let _ = std::fs::remove_file(payload_path(repo, seq));
 }
 
-fn write_payload(repo: &Path, payload: &OpPayload) -> Result<(), String> {
+fn write_payload(repo: &Path, payload: &OpPayload) -> Result<(), ArcError> {
     refuse_unredirected_temp_repo(repo);
-    let body = serde_json::to_string_pretty(payload)
-        .map_err(|e| format!("oplog: cannot encode operation {}: {e}", payload.seq))?;
-    write_atomic(&payload_path(repo, payload.seq), &body)
+    let path = payload_path(repo, payload.seq);
+    let body = serde_json::to_string_pretty(payload).map_err(|e| {
+        ArcError::io(
+            format!("oplog: cannot encode operation {}", payload.seq),
+            &path,
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e),
+        )
+    })?;
+    write_atomic(&path, &body)
 }
 
 /// Read one operation's payload, if it is there.
@@ -842,7 +859,7 @@ pub struct UndoOutcome {
 /// What it restores is git state only. Session bindings live in a per-instance
 /// ledger and are live-sessions-only by design, so a restored arc reads as
 /// unbound and rebinding is the user's gesture.
-pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, String> {
+pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> {
     let repo = crate::ops::main_repo_root(repo);
     let repo = repo.as_path();
 
@@ -863,7 +880,7 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, String> {
         .iter()
         .find(|op| op.after.is_none() && op.stranded.is_some())
     {
-        return Err(stranded_detail(op));
+        return Err(ArcError::Refused(stranded_detail(op)));
     }
 
     let op = match candidates.iter().find(|op| op.is_undoable()) {
@@ -874,35 +891,37 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, String> {
             // different facts, and a single blank refusal hides both.
             if let Some(op) = candidates.first() {
                 if let Some(undone_by) = op.undone_by {
-                    return Err(format!(
+                    return Err(ArcError::Refused(format!(
                         "already-undone: operation {} ({} of '{}') was reversed by operation {}",
                         op.seq,
                         op.verb.as_str(),
                         op.arc,
                         undone_by
-                    ));
+                    )));
                 }
                 if op.after.is_none() {
-                    return Err(format!(
+                    return Err(ArcError::Refused(format!(
                         "incomplete-op: operation {} ({} of '{}') never finished, so what it \
                          changed is unknown; it cannot be undone automatically",
                         op.seq,
                         op.verb.as_str(),
                         op.arc
-                    ));
+                    )));
                 }
             }
-            return Err(match arc {
+            return Err(ArcError::Refused(match arc {
                 Some(d) => format!("nothing-to-undo: no completed operation recorded for '{d}'"),
                 None => "nothing-to-undo: no completed operation is recorded".to_string(),
-            });
+            }));
         }
     };
 
-    let after = op
-        .after
-        .clone()
-        .ok_or_else(|| format!("incomplete-op: operation {} never finished", op.seq))?;
+    let after = op.after.clone().ok_or_else(|| {
+        ArcError::Refused(format!(
+            "incomplete-op: operation {} never finished",
+            op.seq
+        ))
+    })?;
 
     let mut warnings = Vec::new();
     let name = op.arc.clone();
@@ -986,14 +1005,14 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, String> {
 /// So the verb reads the newest undoable operation, refuses by name unless it
 /// is a `resolve-base`, and only then delegates. The refusal is a sentence
 /// rather than a silence because the face has somewhere to put it ([L31]).
-pub fn undo_resolve_base_in(repo: &Path, arc: &str) -> Result<UndoOutcome, String> {
+pub fn undo_resolve_base_in(repo: &Path, arc: &str) -> Result<UndoOutcome, ArcError> {
     let repo = crate::ops::main_repo_root(repo);
     match newest_undoable(&repo, Some(arc)) {
-        None => Err(format!("nothing to undo on '{arc}'")),
-        Some(op) if op.verb != OpVerb::ResolveBase => Err(format!(
+        None => Err(ArcError::Refused(format!("nothing to undo on '{arc}'"))),
+        Some(op) if op.verb != OpVerb::ResolveBase => Err(ArcError::Refused(format!(
             "the newest operation on '{arc}' is a {}, not a resolve — nothing here to undo",
             op.verb.as_str()
-        )),
+        ))),
         Some(_) => undo_in(&repo, Some(arc)),
     }
 }
@@ -1033,7 +1052,7 @@ pub struct RedoOutcome {
 ///
 /// Every re-application is a compare-and-swap against the recorded tips, with
 /// the same refusal vocabulary undo established. Nothing forces.
-pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, String> {
+pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, ArcError> {
     let repo = crate::ops::main_repo_root(repo);
     let repo = repo.as_path();
 
@@ -1050,23 +1069,23 @@ pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, String> {
             // redone and one that died mid-flight are different facts.
             if let Some(op) = candidates.iter().find(|op| op.verb == OpVerb::Undo) {
                 if let Some(by) = op.undone_by {
-                    return Err(format!(
+                    return Err(ArcError::Refused(format!(
                         "already-redone: undo {} (of '{}') was reversed by operation {by}",
                         op.seq, op.arc
-                    ));
+                    )));
                 }
                 if op.after.is_none() {
-                    return Err(format!(
+                    return Err(ArcError::Refused(format!(
                         "incomplete-op: undo {} (of '{}') never finished, so what it changed is \
                          unknown; it cannot be redone automatically",
                         op.seq, op.arc
-                    ));
+                    )));
                 }
             }
-            return Err(match arc {
+            return Err(ArcError::Refused(match arc {
                 Some(d) => format!("nothing-to-redo: no undo is recorded for '{d}'"),
                 None => "nothing-to-redo: no undo is recorded".to_string(),
-            });
+            }));
         }
     };
 
@@ -1078,16 +1097,16 @@ pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, String> {
         .or_else(|| all.iter().find(|op| op.undone_by == Some(undo.seq)))
         .cloned()
         .ok_or_else(|| {
-            format!(
+            ArcError::Refused(format!(
                 "incomplete-op: undo {} does not name the operation it reversed",
                 undo.seq
-            )
+            ))
         })?;
     let original_after = original.after.clone().ok_or_else(|| {
-        format!(
+        ArcError::Refused(format!(
             "incomplete-op: operation {} never recorded what it did",
             original.seq
-        )
+        ))
     })?;
 
     // **`superseded` is the legible guard, not the load-bearing one.** It
@@ -1098,13 +1117,13 @@ pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, String> {
         .iter()
         .find(|op| op.arc == original.arc && op.seq > undo.seq && !op.verb.is_reversal())
     {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "superseded: operation {} ({} of '{}') has run since the undo, so re-applying it \
              would trample newer work",
             newer.seq,
             newer.verb.as_str(),
             newer.arc
-        ));
+        )));
     }
 
     let mut warnings = Vec::new();
@@ -1194,7 +1213,7 @@ pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, String> {
 /// undo-of-an-undo, where a surprise costs more than a second gesture — and
 /// moving somebody's files as a side effect of bookkeeping is what this engine
 /// does not do.
-fn refuse_dirty_worktree(op: &OpPayload) -> Result<(), String> {
+fn refuse_dirty_worktree(op: &OpPayload) -> Result<(), ArcError> {
     let worktree = PathBuf::from(&op.before.worktree);
     if !worktree.exists() {
         return Ok(());
@@ -1207,12 +1226,12 @@ fn refuse_dirty_worktree(op: &OpPayload) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
-    Err(format!(
+    Err(ArcError::Refused(format!(
         "worktree-dirty: '{}' has uncommitted work in {}; redoing would delete it, so commit or \
          discard those changes first",
         op.before.worktree,
         paths.join(", ")
-    ))
+    )))
 }
 
 /// Re-apply a folded base edit: move the base back to the commit the fold made.
@@ -1225,11 +1244,10 @@ fn refuse_dirty_worktree(op: &OpPayload) -> Result<(), String> {
 fn redo_resolve_base(
     repo: &Path,
     after: &OpAfter,
-) -> Result<(Option<String>, Option<String>), String> {
-    let tip = after
-        .base_tip
-        .as_deref()
-        .ok_or("incomplete-op: the resolve recorded no resulting base tip")?;
+) -> Result<(Option<String>, Option<String>), ArcError> {
+    let tip = after.base_tip.as_deref().ok_or_else(|| {
+        ArcError::Refused("incomplete-op: the resolve recorded no resulting base tip".to_string())
+    })?;
     git_stdout(repo, &["reset", "--keep", tip])?;
     Ok((None, Some(tip.to_string())))
 }
@@ -1241,44 +1259,45 @@ fn redo_join(
     op: &OpPayload,
     after: &OpAfter,
     warnings: &mut Vec<String>,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ArcError> {
     let base_branch = &op.before.base_branch;
-    let landed = after
-        .base_tip
-        .as_deref()
-        .ok_or("incomplete-op: the join recorded no resulting base tip")?;
+    let landed = after.base_tip.as_deref().ok_or_else(|| {
+        ArcError::Refused("incomplete-op: the join recorded no resulting base tip".to_string())
+    })?;
 
     // The world must still look like what the undo left.
     let current = git_stdout(repo, &["rev-parse", base_branch])?;
     if current != op.before.base_tip {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "tip-moved: '{base_branch}' is at {} but the undo left it at {}; something has landed \
              since, so re-applying the join would destroy it",
             &current[..current.len().min(9)],
             &op.before.base_tip[..op.before.base_tip.len().min(9)]
-        ));
+        )));
     }
     let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
         let arc_now = git_stdout(repo, &["rev-parse", &branch])?;
         if arc_now != op.before.arc_tip {
-            return Err(format!(
+            return Err(ArcError::Refused(format!(
                 "tip-moved: '{branch}' is at {} but the join consumed {}; the arc has moved since \
                  the undo restored it",
                 &arc_now[..arc_now.len().min(9)],
                 &op.before.arc_tip[..op.before.arc_tip.len().min(9)]
-            ));
+            )));
         }
     }
     refuse_dirty_worktree(op)?;
 
     // `--keep` for the same reason the undo uses it: it refuses over tracked
     // changes rather than discarding them.
-    let reset = git_output(repo, &["reset", "--keep", landed])?;
+    let args = ["reset", "--keep", landed];
+    let reset = git_output(repo, &args)?;
     if !reset.status.success() {
-        return Err(format!(
-            "base-dirty: git refused to move '{base_branch}' forward: {}",
-            String::from_utf8_lossy(&reset.stderr).trim()
+        return Err(ArcError::git(
+            format!("base-dirty: git refused to move '{base_branch}' forward"),
+            &args,
+            String::from_utf8_lossy(&reset.stderr).trim(),
         ));
     }
 
@@ -1298,18 +1317,17 @@ fn redo_replay(
     repo: &Path,
     op: &OpPayload,
     after: &OpAfter,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ArcError> {
     let worktree = PathBuf::from(&op.before.worktree);
     if !worktree.exists() {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "no-worktree: '{}' is gone, and the branch move happens from inside it",
             op.before.worktree
-        ));
+        )));
     }
-    let target = after
-        .arc_tip
-        .as_deref()
-        .ok_or("incomplete-op: the replay recorded no resulting arc tip")?;
+    let target = after.arc_tip.as_deref().ok_or_else(|| {
+        ArcError::Refused("incomplete-op: the replay recorded no resulting arc tip".to_string())
+    })?;
 
     match crate::replay::cas_reset(&worktree, &op.before.arc_tip, target)? {
         None => {
@@ -1319,9 +1337,11 @@ fn redo_replay(
             Ok((Some(target.to_string()), None))
         }
         Some(crate::replay::ReplayOutcome::Deferred { reason, detail }) => {
-            Err(format!("{reason}: {detail}"))
+            Err(ArcError::Refused(format!("{reason}: {detail}")))
         }
-        Some(other) => Err(format!("the branch could not be moved forward: {other:?}")),
+        Some(other) => Err(ArcError::Refused(format!(
+            "the branch could not be moved forward: {other:?}"
+        ))),
     }
 }
 
@@ -1335,17 +1355,17 @@ fn redo_discard(
     repo: &Path,
     op: &OpPayload,
     warnings: &mut Vec<String>,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ArcError> {
     let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
         let arc_now = git_stdout(repo, &["rev-parse", &branch])?;
         if arc_now != op.before.arc_tip {
-            return Err(format!(
+            return Err(ArcError::Refused(format!(
                 "tip-moved: '{branch}' is at {} but the discard removed {}; the arc has moved \
                  since the undo restored it",
                 &arc_now[..arc_now.len().min(9)],
                 &op.before.arc_tip[..op.before.arc_tip.len().min(9)]
-            ));
+            )));
         }
     }
     refuse_dirty_worktree(op)?;
@@ -1385,38 +1405,39 @@ fn undo_join(
     op: &OpPayload,
     after: &OpAfter,
     warnings: &mut Vec<String>,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ArcError> {
     let base_branch = &op.before.base_branch;
-    let expected = after
-        .base_tip
-        .as_deref()
-        .ok_or("incomplete-op: the join recorded no resulting base tip")?;
+    let expected = after.base_tip.as_deref().ok_or_else(|| {
+        ArcError::Refused("incomplete-op: the join recorded no resulting base tip".to_string())
+    })?;
     let current = git_stdout(repo, &["rev-parse", base_branch])?;
     if current != expected {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "tip-moved: '{base_branch}' is at {} but the join left it at {}; something landed \
              since, so undoing would destroy it",
             &current[..current.len().min(9)],
             &expected[..expected.len().min(9)]
-        ));
+        )));
     }
 
     let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "branch-exists: '{branch}' is already here, so the arc this join tore down has \
              since been rebuilt; undoing would overwrite it"
-        ));
+        )));
     }
 
     // `reset --keep` rather than `--hard`: it refuses over tracked-file changes
     // that would be lost instead of discarding them, which is the whole
     // difference between an undo and a wipe.
-    let reset = git_output(repo, &["reset", "--keep", &op.before.base_tip])?;
+    let args = ["reset", "--keep", &op.before.base_tip];
+    let reset = git_output(repo, &args)?;
     if !reset.status.success() {
-        return Err(format!(
-            "base-dirty: git refused to move '{base_branch}' back: {}",
-            String::from_utf8_lossy(&reset.stderr).trim()
+        return Err(ArcError::git(
+            format!("base-dirty: git refused to move '{base_branch}' back"),
+            &args,
+            String::from_utf8_lossy(&reset.stderr).trim(),
         ));
     }
 
@@ -1484,20 +1505,19 @@ fn undo_resolve_base(
     repo: &Path,
     op: &OpPayload,
     after: &OpAfter,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ArcError> {
     let base_branch = &op.before.base_branch;
-    let expected = after
-        .base_tip
-        .as_deref()
-        .ok_or("incomplete-op: the resolve recorded no resulting base tip")?;
+    let expected = after.base_tip.as_deref().ok_or_else(|| {
+        ArcError::Refused("incomplete-op: the resolve recorded no resulting base tip".to_string())
+    })?;
     let current = git_stdout(repo, &["rev-parse", base_branch])?;
     if current != expected {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "tip-moved: '{base_branch}' is at {} but the resolve left it at {}; something landed \
              since, so undoing would destroy it",
             &current[..current.len().min(9)],
             &expected[..expected.len().min(9)]
-        ));
+        )));
     }
     git_stdout(repo, &["reset", "--mixed", &op.before.base_tip])?;
     Ok((None, Some(op.before.base_tip.clone())))
@@ -1513,18 +1533,17 @@ fn undo_replay(
     repo: &Path,
     op: &OpPayload,
     after: &OpAfter,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ArcError> {
     let worktree = PathBuf::from(&op.before.worktree);
     if !worktree.exists() {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "no-worktree: '{}' is gone, and the branch move happens from inside it",
             op.before.worktree
-        ));
+        )));
     }
-    let expected = after
-        .arc_tip
-        .as_deref()
-        .ok_or("incomplete-op: the replay recorded no resulting arc tip")?;
+    let expected = after.arc_tip.as_deref().ok_or_else(|| {
+        ArcError::Refused("incomplete-op: the replay recorded no resulting arc tip".to_string())
+    })?;
 
     // The same compare-and-swap the replay itself used, in the other
     // direction. Its refusals are outcomes rather than errors, so they are
@@ -1543,9 +1562,11 @@ fn undo_replay(
             Ok((Some(op.before.arc_tip.clone()), None))
         }
         Some(crate::replay::ReplayOutcome::Deferred { reason, detail }) => {
-            Err(format!("{reason}: {detail}"))
+            Err(ArcError::Refused(format!("{reason}: {detail}")))
         }
-        Some(other) => Err(format!("the branch could not be moved back: {other:?}")),
+        Some(other) => Err(ArcError::Refused(format!(
+            "the branch could not be moved back: {other:?}"
+        ))),
     }
 }
 
@@ -1554,12 +1575,12 @@ fn undo_discard(
     repo: &Path,
     op: &OpPayload,
     warnings: &mut Vec<String>,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ArcError> {
     let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
-        return Err(format!(
+        return Err(ArcError::Refused(format!(
             "branch-exists: '{branch}' is already here; the arc was rebuilt since the discard"
-        ));
+        )));
     }
     restore_arc(repo, op, warnings)?;
     restore_conflict_ref(repo, op, warnings);
@@ -1572,13 +1593,15 @@ fn undo_discard(
 /// history are the irreplaceable half, and refusing to restore them because
 /// `bun install` failed would trade the whole recovery for a re-runnable
 /// chore.
-fn restore_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Result<(), String> {
+fn restore_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Result<(), ArcError> {
     let branch = crate::ops::branch_name(&op.arc);
-    let create = git_output(repo, &["branch", &branch, &op.before.arc_tip])?;
+    let args = ["branch", &branch, &op.before.arc_tip];
+    let create = git_output(repo, &args)?;
     if !create.status.success() {
-        return Err(format!(
-            "cannot recreate '{branch}': {}",
-            String::from_utf8_lossy(&create.stderr).trim()
+        return Err(ArcError::git(
+            format!("cannot recreate '{branch}'"),
+            &args,
+            String::from_utf8_lossy(&create.stderr).trim(),
         ));
     }
 
@@ -2064,7 +2087,7 @@ mod tests {
             progress(JoinPhase::WorktreeRemoved, "abc123"),
         )
         .unwrap();
-        let err = undo_in(f.path(), Some("demo")).unwrap_err();
+        let err = undo_in(f.path(), Some("demo")).unwrap_err().to_string();
         assert!(err.starts_with("incomplete-op:"), "got {err}");
     }
 
@@ -2141,7 +2164,9 @@ mod tests {
         let path = dir.join("join-journal-broken.json");
         std::fs::write(&path, "{ not json at all").unwrap();
 
-        let err = fold_legacy_join_journal(f.path(), "broken").unwrap_err();
+        let err = fold_legacy_join_journal(f.path(), "broken")
+            .unwrap_err()
+            .to_string();
         assert!(
             err.starts_with("legacy-join-journal-unreadable:"),
             "got {err}"

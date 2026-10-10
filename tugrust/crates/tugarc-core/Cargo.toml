@@ -16,6 +16,7 @@ serde_json.workspace = true
 rand.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
+thiserror.workspace = true
 tugcore.workspace = true
 tugchanges-core.workspace = true
 tugtool-core.workspace = true

@@ -9,22 +9,23 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 use tugarc_core::{
-    ArcRecord, ArcRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops, replay,
-    resolve,
+    ArcError, ArcRecord, ArcRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops,
+    replay, resolve,
 };
 
 use crate::arc_turn::{self, StepMove};
+use crate::changes::AppError;
 use crate::cli::{ArcCommands, StepAction};
 use crate::output::print_ok;
 
-/// Dispatch a `arc` subcommand, mapping a `Result<(), String>` to an exit code
-/// (exit 1 on any error, matching the former standalone tugarc binary).
+/// Dispatch an `arc` subcommand, mapping its error to an exit code: an engine
+/// failure by [`exit_code_for`], a failure of this shell's own exit 1.
 pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
     if let Some(refusal) = git_preflight(&cmd) {
         eprintln!("error: {refusal}");
         return ExitCode::from(1);
     }
-    let result: Result<(), String> = match cmd {
+    let result: Result<(), AppError> = match cmd {
         ArcCommands::Create {
             name,
             description,
@@ -126,10 +127,46 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {}", e);
-            ExitCode::from(1)
+            if !e.message().is_empty() {
+                eprintln!("error: {}", e.message());
+            }
+            ExitCode::from(e.exit_code())
         }
     }
+}
+
+/// The exit code an engine failure leaves `tugtool arc` with — the one table.
+///
+/// It follows the convention the rest of tugtool keeps: 2 is input the verb
+/// cannot resolve (a name the validator refuses, an arc that is not there), 3
+/// is the engine declining with a reason (a join's blockers, its conflicts, a
+/// refusal sentence), and 1 is something failing underneath (git, the
+/// filesystem). A script reads which of the three it was without parsing the
+/// sentence.
+pub fn exit_code_for(e: &ArcError) -> u8 {
+    match e {
+        ArcError::InvalidName(_) | ArcError::NotFound { .. } => 2,
+        ArcError::Blocked(_) | ArcError::Conflicted(_) | ArcError::Refused(_) => 3,
+        ArcError::Git { .. } | ArcError::Io { .. } => 1,
+    }
+}
+
+impl From<ArcError> for AppError {
+    fn from(e: ArcError) -> Self {
+        let message = e.to_string();
+        match exit_code_for(&e) {
+            2 => AppError::Exit2(message),
+            3 => AppError::Exit3(message),
+            _ => AppError::Exit1(message),
+        }
+    }
+}
+
+/// Report an engine failure from a verb that owns its exit code, and return
+/// the code [`exit_code_for`] gives it.
+fn engine_failed(e: &ArcError) -> ExitCode {
+    eprintln!("error: {e}");
+    ExitCode::from(exit_code_for(e))
 }
 
 /// Refuse an arc verb the machine's git cannot carry out, by name and up front.
@@ -164,7 +201,7 @@ fn run_create(
     base: Option<&str>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let data = ops::create(name, description, carry, base)?;
     let claim = claim_arc(name);
     if json {
@@ -184,7 +221,7 @@ fn run_create(
     // not happen is the record of who is working it — and that is the half a
     // stderr warning on an exit-0 run used to swallow.
     match claim.refusal(name) {
-        Some(refusal) => Err(refusal),
+        Some(refusal) => Err(refusal.into()),
         None => Ok(()),
     }
 }
@@ -306,7 +343,7 @@ fn print_base_census(data: &ops::CreateOutcome) {
     }
 }
 
-fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), String> {
+fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), AppError> {
     // Round metadata arrives on stdin (the one datum git lacks: the verbatim
     // instruction). A terminal stdin means none was piped.
     let round_meta: Option<ArcRoundMeta> = if !io::stdin().is_terminal() {
@@ -360,7 +397,7 @@ fn capture_owner_key(name: &str) -> Option<(std::path::PathBuf, String)> {
     Some((repo, key))
 }
 
-fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<(), String> {
+fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<(), AppError> {
     let previewing = opts.preview;
     let captured = (!previewing).then(|| capture_owner_key(name)).flatten();
     let data = ops::join(name, opts)?;
@@ -420,12 +457,13 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
             }
         }
     }
-    // A real (non-preview) join that hit conflicts is a failure exit for scripts.
+    // A real (non-preview) join that hit conflicts is a refusal exit for
+    // scripts — the code an engine `Conflicted` carries.
     if !data.previewed && !data.conflicts.is_empty() {
-        return Err(format!(
+        return Err(AppError::Exit3(format!(
             "join conflicts in {} file(s); working tree restored",
             data.conflicts.len()
-        ));
+        )));
     }
     Ok(())
 }
@@ -440,7 +478,7 @@ fn run_join_resolve(
     break_lease: bool,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     // The third cross-process door, and the one a lease check inside the join
     // would never see: the ladder clears the conflict chain on both its arms,
     // so by the time `ops::join` runs there is nothing left to protect. The
@@ -452,7 +490,9 @@ fn run_join_resolve(
     if !break_lease
         && let Some(lease) = resolve::resolve_lease(&repo_root, name, std::time::SystemTime::now())
     {
-        return Err(ops::live_resolve_detail(name, &lease, "resolve"));
+        return Err(AppError::Exit3(ops::live_resolve_detail(
+            name, &lease, "resolve",
+        )));
     }
 
     let outcome = resolve::resolve_conflicts_cwd(name, None)?;
@@ -474,10 +514,10 @@ fn run_join_resolve(
                 println!("  resolved {} ({:?})", r.path, r.resolved_by);
             }
         }
-        return Err(format!(
+        return Err(AppError::Exit3(format!(
             "{} file(s) unresolved; run the join from a Session card for AI assist",
             outcome.unresolved.len()
-        ));
+        )));
     };
 
     // Captured before the teardown, for the reason `capture_owner_key` states.
@@ -528,7 +568,7 @@ fn run_join_resolve(
     Ok(())
 }
 
-fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result<(), String> {
+fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result<(), AppError> {
     // Captured before the teardown, for the reason `capture_owner_key` states.
     let captured = capture_owner_key(name);
     let data = ops::discard(name, Some("cli"), break_lease)?;
@@ -563,7 +603,7 @@ fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result
 /// No `broadcast_arc_gone`: nothing about the arc's git state or its record
 /// changed, and a row that was drawn off the documents stops being drawn
 /// because the documents stopped existing. The scan recomputes on its own.
-fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), String> {
+fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
     let data = ops::delete_documents(name)?;
     if json {
         print_ok("arc delete-documents", &data);
@@ -582,7 +622,7 @@ fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), Strin
     Ok(())
 }
 
-fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
+fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
     let data = ops::status(name)?;
     // **What the wheel is waiting for**, asked only when the answer will be
     // printed and there is a seat to ask about. `--quiet` must not pay an HTTP
@@ -704,7 +744,7 @@ fn status_lines(data: &ops::ArcStatus, waiting: Option<&serde_json::Value>) -> V
 /// that reconciles every reconcilable finding still exits 1 if something was
 /// left for a person — the arc is not healthy just because the doctor did
 /// what it could.
-fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), String> {
+fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), AppError> {
     let outcome = tugarc_core::doctor::doctor_here(name, repair)?;
 
     if json {
@@ -750,16 +790,18 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
         Err(format!(
             "'{name}' has {} record disagreement(s) no automatic repair can settle",
             outcome.left_for_a_person
-        ))
+        )
+        .into())
     }
 }
 
 /// Drive one ledger row and its arc log line (Spec S02).
 ///
 /// Every refusal — an unknown arc, an arc with no plan, a document that does
-/// not parse, a row that cannot make the transition — exits 1 with the plan and
-/// the row named, and leaves the plan file untouched.
-fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), String> {
+/// not parse, a row that cannot make the transition — exits non-zero by
+/// [`exit_code_for`] with the plan and the row named, and leaves the plan file
+/// untouched.
+fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), AppError> {
     let mut claim = None;
     let mut jobs_ended = None;
     let mv = match &action {
@@ -831,7 +873,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
     }
     // The row moved either way; what may not have happened is the claim.
     match claim.as_ref().and_then(|claim| claim.refusal(name)) {
-        Some(refusal) => Err(refusal),
+        Some(refusal) => Err(refusal.into()),
         None => Ok(()),
     }
 }
@@ -843,7 +885,7 @@ fn run_mark(
     note: Option<String>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let data = ops::mark(name, stage, note.as_deref())?;
     if json {
         print_ok("arc mark", &data);
@@ -932,10 +974,7 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
     let outcome =
         match tugarc_core::ops::resolve_base_in(&repo, name, &std::collections::BTreeMap::new()) {
             Ok(o) => o,
-            Err(e) => {
-                eprintln!("error: {}", e);
-                return ExitCode::from(1);
-            }
+            Err(e) => return engine_failed(&e),
         };
     if json {
         print_ok("arc resolve-base", &outcome);
@@ -962,10 +1001,7 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
 fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
     let outcome = match replay::replay(name) {
         Ok(o) => o,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return ExitCode::from(1);
-        }
+        Err(e) => return engine_failed(&e),
     };
     if json {
         print_ok("arc replay", &outcome);
@@ -997,10 +1033,7 @@ fn run_verify(
     let report =
         match tugarc_core::surfaces::verify_in(&repo, name, base.as_deref(), head.as_deref()) {
             Ok(r) => r,
-            Err(e) => {
-                eprintln!("error: {}", e);
-                return ExitCode::from(1);
-            }
+            Err(e) => return engine_failed(&e),
         };
 
     if json {
@@ -1120,10 +1153,7 @@ fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
 
     let outcome = match tugarc_core::undo_in(&repo, name) {
         Ok(o) => o,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return ExitCode::from(1);
-        }
+        Err(e) => return engine_failed(&e),
     };
     if json {
         print_ok("arc undo", &outcome);
@@ -1207,10 +1237,7 @@ fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
 
     let outcome = match tugarc_core::redo_in(&repo, name) {
         Ok(o) => o,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return ExitCode::from(1);
-        }
+        Err(e) => return engine_failed(&e),
     };
     if json {
         print_ok("arc redo", &outcome);
@@ -1389,8 +1416,8 @@ fn run_documents(
     bind: bool,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
-    tugarc_core::validate_arc_name(name).map_err(|e| e.to_string())?;
+) -> Result<(), AppError> {
+    tugarc_core::validate_arc_name(name).map_err(ArcError::InvalidName)?;
     let root = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
     let dir = tugarc_core::documents_dir(&root, name);
 
@@ -1476,7 +1503,7 @@ fn run_arc_run(
     session: Option<String>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     // The arc runs on a card: every stage is a rotation of the calling
     // session's own tugcode ([B05]). Without a session there is nowhere for a
     // stage to go, so this refuses rather than recording an arc nobody can run.
@@ -1542,7 +1569,7 @@ fn run_arc_report(
     project: Option<std::path::PathBuf>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let root = arc_project_root(project)?;
     let arc = tugarc_core::read_arc(&root, name);
 
@@ -1824,7 +1851,7 @@ fn run_bind(
     session: Option<&str>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let session = calling_session_id("arc binding", session)?;
     let project = binding_project(project)?;
     let response = post_arc_api(serde_json::json!({
@@ -1863,7 +1890,7 @@ fn run_arc_stop(
     session: Option<&str>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let session = calling_session_id("arc stop", session)?;
     let project = binding_project(project)?;
     let response = post_arc_api(serde_json::json!({
@@ -1903,7 +1930,7 @@ fn run_arc_ask(
     session: Option<&str>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let session = calling_session_id("arc ask", session)?;
     let project = binding_project(project)?;
     let response = post_arc_api(serde_json::json!({
@@ -1949,7 +1976,7 @@ fn run_bind_dry_run(
     session: Option<&str>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let resolved = calling_session_id("arc binding", session)?;
     let state = resolved
         .state
@@ -2179,7 +2206,7 @@ fn run_unbind(
     session: Option<&str>,
     json: bool,
     quiet: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let session = calling_session_id("arc binding", session)?;
     let _project = binding_project(project)?;
     let response = post_arc_api(serde_json::json!({
@@ -2310,7 +2337,7 @@ struct ConfigPayload {
 /// The project root is the standard `.tugtool/` upward walk, so from an arc
 /// worktree this reads the worktree's own committed copy — the copy the run is
 /// about. A missing config file is the all-undeclared state, not an error.
-fn run_config(json: bool, quiet: bool) -> Result<(), String> {
+fn run_config(json: bool, quiet: bool) -> Result<(), AppError> {
     let root = tugtool_core::config::find_project_root().map_err(|e| e.to_string())?;
     let config =
         tugtool_core::config::Config::load_from_project(&root).map_err(|e| e.to_string())?;
@@ -2406,7 +2433,7 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn run_list(json: bool, quiet: bool) -> Result<(), String> {
+fn run_list(json: bool, quiet: bool) -> Result<(), AppError> {
     let items = ops::list()?;
     if json {
         print_ok("arc list", ListPayload { arcs: items });
@@ -2465,7 +2492,7 @@ fn document_words(item: &ops::ArcListItem) -> String {
     words.join(", ")
 }
 
-fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), String> {
+fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
     let data = ops::show(name)?;
     if json {
         print_ok("arc show", &data);
@@ -2498,6 +2525,78 @@ fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── the exit-code table ────────────────────────────────────────────────
+
+    /// Each row of the table, carried through `AppError` the way `dispatch`
+    /// reads it: the code it exits with, and the engine's sentence unchanged.
+    fn exits(e: ArcError) -> (u8, String) {
+        let code = exit_code_for(&e);
+        let words = e.to_string();
+        let app = AppError::from(e);
+        assert_eq!(app.exit_code(), code, "AppError keeps the table's code");
+        assert_eq!(app.message(), words, "and the engine's sentence");
+        (code, words)
+    }
+
+    #[test]
+    fn a_name_the_validator_refuses_is_a_usage_error() {
+        let refused = tugarc_core::validate_arc_name("join").unwrap_err();
+        assert_eq!(exits(ArcError::InvalidName(refused)).0, 2);
+    }
+
+    /// The shell's own name check is the same refusal, so it exits the same
+    /// way: `arc documents` validates before it touches anything.
+    #[test]
+    fn arc_documents_refuses_an_invalid_name_as_a_usage_error() {
+        let err = run_documents("join", false, false, false, true).unwrap_err();
+        assert_eq!(err.exit_code(), 2, "{}", err.message());
+    }
+
+    #[test]
+    fn an_arc_that_is_not_there_is_a_usage_error() {
+        let (code, words) = exits(ArcError::NotFound {
+            name: "ghost".into(),
+        });
+        assert_eq!(code, 2);
+        assert_eq!(words, "Arc not found: ghost");
+    }
+
+    #[test]
+    fn a_blocked_join_is_a_refusal() {
+        assert_eq!(exits(ArcError::Blocked(Vec::new())).0, 3);
+    }
+
+    #[test]
+    fn a_conflicted_join_is_a_refusal() {
+        assert_eq!(exits(ArcError::Conflicted(vec!["a.rs".into()])).0, 3);
+    }
+
+    #[test]
+    fn a_refusal_sentence_is_a_refusal() {
+        assert_eq!(exits(ArcError::Refused("step 2 is done".into())).0, 3);
+    }
+
+    #[test]
+    fn git_failing_is_a_failure() {
+        let (code, words) = exits(ArcError::Git {
+            what: "git add failed".into(),
+            args: vec!["add".into()],
+            stderr: "fatal: index.lock".into(),
+        });
+        assert_eq!(code, 1);
+        assert_eq!(words, "git add failed: fatal: index.lock");
+    }
+
+    #[test]
+    fn the_filesystem_failing_is_a_failure() {
+        let e = ArcError::Io {
+            what: "cannot write x".into(),
+            path: "x".into(),
+            source: std::io::Error::other("denied"),
+        };
+        assert_eq!(exits(e).0, 1);
+    }
 
     // ── the step receipt (Spec S03) ────────────────────────────────────────
 
@@ -2708,8 +2807,9 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.contains("--through"),
-            "the refusal must name the flag: {err}"
+            err.message().contains("--through"),
+            "the refusal must name the flag: {}",
+            err.message()
         );
     }
 
@@ -2723,8 +2823,9 @@ mod tests {
     fn step_withdraw_needs_no_through() {
         let err = run_step("any-arc", StepAction::Withdraw { step: 1 }, false, true).unwrap_err();
         assert!(
-            !err.contains("--through"),
-            "a withdrawal inherits the run's selection rather than declaring one: {err}"
+            !err.message().contains("--through"),
+            "a withdrawal inherits the run's selection rather than declaring one: {}",
+            err.message()
         );
     }
 
@@ -2829,7 +2930,9 @@ mod tests {
     #[serial_test::serial]
     fn a_arc_with_no_documents_says_to_write_one() {
         let fixture = arc_fixture();
-        let err = tugarc_core::ops::open_arc(fixture.root(), "empty").unwrap_err();
+        let err = tugarc_core::ops::open_arc(fixture.root(), "empty")
+            .unwrap_err()
+            .to_string();
         assert!(
             err.contains("has no brief, plan, or task list") && err.contains(".tug/arcs/empty"),
             "the refusal must name the address to write to: {err}"
