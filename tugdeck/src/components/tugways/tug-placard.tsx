@@ -35,7 +35,9 @@
  * a long composed `TugPopupList` scroller caps and scrolls rather than
  * overflowing — the same custom property the list CSS reads for a real Radix
  * popover, so no shared CSS changes ([R01]). Upward (the default) that gap runs
- * from the panel's bottom edge to the top of the viewport; downward it runs
+ * from the panel's bottom edge to the lower of the viewport top and the top of
+ * the nearest ancestor that clips it — in a card, the pane body, whose top is
+ * the masthead's bottom edge; downward it runs
  * from the panel's top edge to {@link TugPlacardProps.bottomBoundEl}'s bottom,
  * never past the window.
  *
@@ -84,6 +86,20 @@ const DEFAULT_FRACTION = 1;
 
 /** Inset (px) kept short of the edge the guard measures toward. */
 const AVAILABLE_EDGE_INSET = 8;
+
+/**
+ * The ancestors that clip the panel vertically — any whose `overflow-y` is not
+ * `visible`. An in-DOM placard lives inside its card, and the card's body clips
+ * (`overflow: clip`), so the space above the anchor ends at the masthead, not
+ * at the window top.
+ */
+function verticalClipAncestorsOf(panel: HTMLElement): HTMLElement[] {
+  const clips: HTMLElement[] = [];
+  for (let el = panel.parentElement; el !== null; el = el.parentElement) {
+    if (getComputedStyle(el).overflowY !== "visible") clips.push(el);
+  }
+  return clips;
+}
 
 /**
  * Horizontal travel available to the panel: the container's inner width
@@ -178,6 +194,7 @@ function applyAvailableHeight(
   panel: HTMLDivElement,
   growth: TugPlacardGrowth,
   bottomBoundEl: HTMLElement | null | undefined,
+  clipAncestors: ReadonlyArray<HTMLElement>,
 ): void {
   // Layout px throughout: the value is a CSS length, and the window and the
   // rects are divided by the zoom to meet it.
@@ -189,10 +206,16 @@ function applyAvailableHeight(
     bottomBoundEl == null
       ? windowBottom
       : Math.min(layoutRectOf(bottomBoundEl).bottom, windowBottom);
+  // Upward, the ceiling is the lowest clipping top among the panel's
+  // ancestors — painting above it would be cut off, so it is not room.
+  let ceiling = 0;
+  for (const el of clipAncestors) {
+    ceiling = Math.max(ceiling, layoutRectOf(el).top);
+  }
   const available =
     growth === "down"
       ? Math.max(0, floor - box.top - AVAILABLE_EDGE_INSET)
-      : Math.max(0, box.bottom - AVAILABLE_EDGE_INSET);
+      : Math.max(0, box.bottom - ceiling - AVAILABLE_EDGE_INSET);
   panel.style.setProperty(
     "--radix-popover-content-available-height",
     `${available}px`,
@@ -318,11 +341,14 @@ export function TugPlacard({
     const panel = panelRef.current;
     if (!panel) return;
 
+    // Only an upward panel measures to its clip; a downward one is portaled
+    // out of its pane and bounds itself on `bottomBoundEl`.
+    const clipAncestors = growth === "up" ? verticalClipAncestorsOf(panel) : [];
     const apply = (): void => {
       if (!draggingRef.current) {
         applyPlacement(panel, { reposition, fraction, anchorCenter });
       }
-      applyAvailableHeight(panel, growth, bottomBoundEl);
+      applyAvailableHeight(panel, growth, bottomBoundEl, clipAncestors);
     };
     apply();
 
@@ -333,6 +359,9 @@ export function TugPlacard({
     if (container && typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(apply);
       observer.observe(container);
+      // The clip's top moves when the masthead above it grows or shrinks,
+      // which resizes the clip without resizing the container.
+      for (const el of clipAncestors) observer.observe(el);
     }
     return () => {
       window.removeEventListener("resize", onWindowResize);

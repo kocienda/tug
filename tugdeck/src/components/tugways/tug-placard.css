@@ -33,6 +33,10 @@
   border: 1px solid var(--tugx-placard-border);
   border-radius: 0.5rem;
   box-shadow: var(--tugx-placard-shadow);
+  /* The guard's height caps the whole panel, header included, so the body —
+     and the composed list's scroller inside it — absorbs the squeeze rather
+     than the panel painting past its clip (the masthead, upward). */
+  max-height: var(--radix-popover-content-available-height, none);
   /* Above the status strip's own content; the panel escapes the strip upward
      over the transcript, which sits in a lower sibling stacking context. */
   z-index: 20;
@@ -65,6 +69,7 @@
 .tug-placard-header {
   position: relative;
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   padding: 4px var(--tug-space-xl);
