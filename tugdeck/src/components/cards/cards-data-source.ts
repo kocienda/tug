@@ -77,7 +77,6 @@ import {
 import { filterAndRank, filterQueryMatch } from "@/lib/text-match";
 
 import { cardsStore } from "./cards-store/cards-store";
-import { collapsedSpacesStore } from "./cards-space-expansion";
 import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
 
 import {
@@ -470,8 +469,9 @@ export interface SpaceRowsInput {
   readonly theme?: string;
   /**
    * Whether this workspace's rows are shown, for EVERY workspace including
-   * the active one ([B02]). The caller reads it from `collapsedSpacesStore`,
-   * where expanded is the default and an id present means folded. There is no
+   * the active one ([B02]). The caller reads it from the cards store's
+   * persisted `collapsedSpaces`, where expanded is the default and an id
+   * present means folded. There is no
    * active-is-always-expanded rule any more: it made the one cue a person
    * with a single workspace could reach a cue that did nothing.
    */
@@ -1355,10 +1355,16 @@ export function useCardsDataSource(
     deckStore !== null ? deckStore.getSpacesSnapshot : () => EMPTY_SPACES,
     () => EMPTY_SPACES,
   );
-  const collapsedSpaces = useSyncExternalStore(
-    collapsedSpacesStore.subscribe,
-    collapsedSpacesStore.getSnapshot,
-    collapsedSpacesStore.getSnapshot,
+  // Which workspaces are folded shut — persisted, so the list comes back the
+  // way the user left it across a relaunch.
+  const collapsedSpaceList = useSyncExternalStore(
+    cardsStore.subscribe,
+    () => cardsStore.getSnapshot().collapsedSpaces,
+    () => cardsStore.getSnapshot().collapsedSpaces,
+  );
+  const collapsedSpaces = useMemo(
+    () => new Set(collapsedSpaceList),
+    [collapsedSpaceList],
   );
   // The workspace headers' `· N live` reads the bindings cache, so a frame
   // landing after the list is drawn has to re-run the projection.
@@ -1390,10 +1396,10 @@ export function useCardsDataSource(
     [spacesSnapshot],
   );
   useLayoutEffect(() => {
-    collapsedSpacesStore.prune(liveSpaceIds);
-    // The persisted group folds are keyed by workspace too, so a deleted
-    // workspace's folds go with it rather than accumulating forever.
-    cardsStore.pruneCollapsedCardGroups(liveSpaceIds);
+    // Workspace folds and group folds are both persisted and keyed by
+    // workspace, so a deleted workspace's folds go with it rather than
+    // accumulating forever.
+    cardsStore.pruneToSpaces(liveSpaceIds);
     // Same sweep, for the same reason: a rename field or a confirm opened
     // over a workspace that is gone has nothing to act on ([P08]).
     cardsSpaceVerbRequest.prune(liveSpaceIds);

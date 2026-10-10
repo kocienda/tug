@@ -62,7 +62,7 @@
  * in exactly the layer a unit test does not have.
  *
  * @covers tugdeck/src/components/cards/cards-data-source.ts
- * @covers tugdeck/src/components/cards/cards-space-expansion.ts
+ * @covers tugdeck/src/components/cards/cards-store/cards-store.ts
  * @covers tugdeck/src/components/cards/cards-space-header.tsx
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/cards/cards-space-verb-request.ts

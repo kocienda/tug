@@ -131,7 +131,6 @@ import {
   type CardsRow,
   type CardsDataSource,
 } from "./cards-data-source";
-import { collapsedSpacesStore } from "./cards-space-expansion";
 import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
 import {
   GROUP_TITLES,
@@ -1282,7 +1281,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // one included ([B02]), so there is no case to special-case: the store holds
   // collapsed ids and the toggle is the same gesture on every row.
   const onToggleSpace = useCallback((spaceId: string): void => {
-    collapsedSpacesStore.toggle(spaceId);
+    cardsStore.toggleSpaceCollapsed(spaceId);
   }, []);
 
   // "Go there" — the meaning a click carries anywhere in an inactive

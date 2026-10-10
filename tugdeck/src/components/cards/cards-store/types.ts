@@ -1,7 +1,7 @@
 /**
  * Public types for the Cards store — the persisted presentation state of the
  * Cards card's rows: their order within each group, the order of the groups
- * themselves, and which groups the user has collapsed.
+ * themselves, which groups the user has collapsed, and which workspaces.
  *
  * Nothing here is geometry. A card's live placement belongs to the deck layout
  * blob, and the width the Cards rail reopens at belongs to `sidebarWidthStore`
@@ -33,6 +33,7 @@ export const CARDS_KEYS = {
   CARDS_ROW_ORDER: "cardsRowOrder",
   CARDS_GROUP_ORDER: "cardsGroupOrder",
   CARDS_COLLAPSED_GROUPS: "cardsCollapsedGroups",
+  CARDS_COLLAPSED_SPACES: "cardsCollapsedSpaces",
 } as const;
 
 /**
@@ -67,4 +68,11 @@ export interface CardsSnapshot {
    * same group can be open in one and folded in another.
    */
   collapsedCardGroups: readonly string[];
+  /**
+   * Workspaces the user has folded shut, by space id. Expanded is the default,
+   * so an empty list is the whole list open; every workspace can be in it, the
+   * active one included ([B02]). Persisted, so a relaunch brings the list
+   * back the way the user left it.
+   */
+  collapsedSpaces: readonly string[];
 }

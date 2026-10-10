@@ -147,14 +147,14 @@ describe("CardsStore reducer — set_cards_group_collapsed", () => {
   });
 });
 
-describe("CardsStore reducer — prune_collapsed_card_groups", () => {
+describe("CardsStore reducer — prune_to_spaces", () => {
   it("drops the folds of a workspace that is gone, and bare group names", () => {
     let s = fresh();
     for (const key of ["s1:files", "gone:tools", "sessions"]) {
       s = reduce(s, { type: "set_cards_group_collapsed", key, collapsed: true });
     }
     const next = reduce(s, {
-      type: "prune_collapsed_card_groups",
+      type: "prune_to_spaces",
       live: new Set(["s1"]),
     });
     expect(next.collapsedCardGroups).toEqual(["s1:files"]);
@@ -167,8 +167,32 @@ describe("CardsStore reducer — prune_collapsed_card_groups", () => {
       collapsed: true,
     });
     expect(
-      reduce(s, { type: "prune_collapsed_card_groups", live: new Set(["s1"]) }),
+      reduce(s, { type: "prune_to_spaces", live: new Set(["s1"]) }),
     ).toBe(s);
+  });
+
+  it("drops a gone workspace's own fold and keeps a live one's", () => {
+    let s = fresh();
+    s = reduce(s, { type: "toggle_space_collapsed", spaceId: "s1" });
+    s = reduce(s, { type: "toggle_space_collapsed", spaceId: "gone" });
+    const next = reduce(s, { type: "prune_to_spaces", live: new Set(["s1"]) });
+    expect(next.collapsedSpaces).toEqual(["s1"]);
+    expect(next.collapsedCardGroups).toBe(s.collapsedCardGroups);
+  });
+});
+
+describe("CardsStore reducer — toggle_space_collapsed", () => {
+  it("folds an open workspace and opens a folded one", () => {
+    const folded = reduce(fresh(), { type: "toggle_space_collapsed", spaceId: "s1" });
+    expect(folded.collapsedSpaces).toEqual(["s1"]);
+    const open = reduce(folded, { type: "toggle_space_collapsed", spaceId: "s1" });
+    expect(open.collapsedSpaces).toEqual([]);
+  });
+
+  it("leaves the group folds untouched", () => {
+    const before = fresh();
+    const next = reduce(before, { type: "toggle_space_collapsed", spaceId: "s1" });
+    expect(next.collapsedCardGroups).toBe(before.collapsedCardGroups);
   });
 });
 
@@ -178,6 +202,7 @@ describe("CardsStore reducer — hydrate", () => {
       cardsRowOrder: EMPTY_CARDS_ROW_ORDER,
       cardsGroupOrder: ["tools"],
       collapsedCardGroups: ["files"],
+      collapsedSpaces: ["s1"],
     };
     expect(reduce(seeded, { type: "hydrate" })).toBe(seeded);
   });
@@ -188,6 +213,7 @@ describe("CardsStore reducer — hydrate", () => {
       cardsRowOrder: { sessions: ["s1"], files: ["f1"], tools: [] },
       cardsGroupOrder: ["tools", "files"],
       collapsedCardGroups: ["files"],
+      collapsedSpaces: ["s1"],
     });
     expect(next.cardsRowOrder).toEqual({
       sessions: ["s1"],
@@ -196,6 +222,7 @@ describe("CardsStore reducer — hydrate", () => {
     });
     expect(next.cardsGroupOrder).toEqual(["tools", "files"]);
     expect(next.collapsedCardGroups).toEqual(["files"]);
+    expect(next.collapsedSpaces).toEqual(["s1"]);
   });
 
   it("equal hydrate values do not bump the reference", () => {
@@ -203,12 +230,14 @@ describe("CardsStore reducer — hydrate", () => {
       cardsRowOrder: EMPTY_CARDS_ROW_ORDER,
       cardsGroupOrder: ["files", "tools"],
       collapsedCardGroups: [],
+      collapsedSpaces: ["s1"],
     };
     const next = reduce(seeded, {
       type: "hydrate",
       cardsRowOrder: { sessions: [], files: [], tools: [] },
       cardsGroupOrder: ["files", "tools"],
       collapsedCardGroups: [],
+      collapsedSpaces: ["s1"],
     });
     expect(next).toBe(seeded);
   });
@@ -227,6 +256,7 @@ describe("CardsStore reducer — toSnapshot", () => {
       cardsRowOrder: { sessions: ["s1"], files: [], tools: ["t1"] },
       cardsGroupOrder: ["tools", "sessions"],
       collapsedCardGroups: ["files"],
+      collapsedSpaces: [],
     };
     const snap = toSnapshot(s);
     expect(snap.cardsRowOrder.sessions).toEqual(["s1"]);

@@ -1,7 +1,7 @@
 /**
  * `CardsStore` — module-scope owner of the Cards card's persisted presentation
- * state: the order of the rows within each group, the order of the groups, and
- * which groups are collapsed.
+ * state: the order of the rows within each group, the order of the groups,
+ * which groups are collapsed, and which workspaces are.
  *
  * The store is constructed lazily on first read so tests that never touch the
  * Cards card pay zero cost. It:
@@ -82,6 +82,9 @@ class CardsStore {
     const collapsedCardGroups = readStringArray(
       this._read(CARDS_KEYS.CARDS_COLLAPSED_GROUPS),
     );
+    const collapsedSpaces = readStringArray(
+      this._read(CARDS_KEYS.CARDS_COLLAPSED_SPACES),
+    );
     // Same tolerance for the group ORDER: the projection filters it against
     // the live group set on every build, so an unknown name costs nothing and
     // a missing one falls back to its built-in position.
@@ -97,6 +100,7 @@ class CardsStore {
         ...(cardsRowOrder !== undefined ? { cardsRowOrder } : {}),
         ...(cardsGroupOrder !== undefined ? { cardsGroupOrder } : {}),
         ...(collapsedCardGroups !== undefined ? { collapsedCardGroups } : {}),
+        ...(collapsedSpaces !== undefined ? { collapsedSpaces } : {}),
       },
       { persist: false },
     );
@@ -131,6 +135,9 @@ class CardsStore {
     }
     if (prev.collapsedCardGroups !== next.collapsedCardGroups) {
       putJson(CARDS_KEYS.CARDS_COLLAPSED_GROUPS, next.collapsedCardGroups);
+    }
+    if (prev.collapsedSpaces !== next.collapsedSpaces) {
+      putJson(CARDS_KEYS.CARDS_COLLAPSED_SPACES, next.collapsedSpaces);
     }
   }
 
@@ -181,15 +188,22 @@ class CardsStore {
     });
   };
 
+  /** Fold a workspace's rows shut, or open a folded one's. Persists. */
+  toggleSpaceCollapsed = (spaceId: string): void => {
+    this._ensureInitialized();
+    this._dispatch({ type: "toggle_space_collapsed", spaceId });
+  };
+
   /**
-   * Forget the folds of every workspace not in `live`. Persists, and only when
-   * something was dropped. An empty `live` is a deck store that has not
-   * answered yet, not a deck with no workspaces, so it prunes nothing.
+   * Forget the folds — workspace and group — of every workspace not in
+   * `live`. Persists, and only when something was dropped. An empty `live` is
+   * a deck store that has not answered yet, not a deck with no workspaces, so
+   * it prunes nothing.
    */
-  pruneCollapsedCardGroups = (live: ReadonlySet<string>): void => {
+  pruneToSpaces = (live: ReadonlySet<string>): void => {
     if (live.size === 0) return;
     this._ensureInitialized();
-    this._dispatch({ type: "prune_collapsed_card_groups", live });
+    this._dispatch({ type: "prune_to_spaces", live });
   };
 
   /**

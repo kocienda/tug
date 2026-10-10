@@ -75,7 +75,7 @@ class SpaceVerbRequestStore {
 
   /**
    * Drop a request naming a workspace no longer in `live`. The same
-   * defensive shape `collapsedSpacesStore.prune` takes, and for a sharper
+   * defensive shape `cardsStore.pruneToSpaces` takes, and for a sharper
    * reason: a rename field or a confirm opened over a workspace that is gone
    * has nothing to act on.
    *

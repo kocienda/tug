@@ -78,6 +78,14 @@ describe("CardsStore — where the state resolves from", () => {
     expect(snap.cardsRowOrder).toEqual({ sessions: [], files: [], tools: [] });
     expect(snap.cardsGroupOrder).toEqual([]);
     expect(snap.collapsedCardGroups).toEqual([]);
+    expect(snap.collapsedSpaces).toEqual([]);
+  });
+
+  it("a stored workspace fold hydrates, so a relaunch keeps it", () => {
+    setTugbankClient(
+      fakeClient({ [CARDS_KEYS.CARDS_COLLAPSED_SPACES]: jsonArray(["s1"]) }),
+    );
+    expect(cardsStore.getSnapshot().collapsedSpaces).toEqual(["s1"]);
   });
 });
 
@@ -99,6 +107,7 @@ describe("CardsStore — the retired fields leave no trace", () => {
       "cardsGroupOrder",
       "cardsRowOrder",
       "collapsedCardGroups",
+      "collapsedSpaces",
     ]);
     expect(snap.cardsRowOrder).toEqual({ sessions: [], files: [], tools: [] });
   });

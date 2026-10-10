@@ -25,6 +25,7 @@ export interface CardsState {
   cardsRowOrder: CardsRowOrder;
   cardsGroupOrder: readonly string[];
   collapsedCardGroups: readonly string[];
+  collapsedSpaces: readonly string[];
 }
 
 export type CardsEvent =
@@ -41,8 +42,13 @@ export type CardsEvent =
       collapsed: boolean;
     }
   | {
-      /** Drop every fold whose workspace is not in `live`. */
-      type: "prune_collapsed_card_groups";
+      /** Fold an open workspace shut, or open a folded one. */
+      type: "toggle_space_collapsed";
+      spaceId: string;
+    }
+  | {
+      /** Drop every fold — workspace or group — whose workspace is not in `live`. */
+      type: "prune_to_spaces";
       live: ReadonlySet<string>;
     }
   | {
@@ -56,6 +62,7 @@ export type CardsEvent =
       cardsRowOrder?: CardsRowOrder;
       cardsGroupOrder?: readonly string[];
       collapsedCardGroups?: readonly string[];
+      collapsedSpaces?: readonly string[];
     };
 
 export function createInitialState(): CardsState {
@@ -63,6 +70,7 @@ export function createInitialState(): CardsState {
     cardsRowOrder: EMPTY_CARDS_ROW_ORDER,
     cardsGroupOrder: [],
     collapsedCardGroups: [],
+    collapsedSpaces: [],
   };
 }
 
@@ -154,14 +162,31 @@ export function reduce(state: CardsState, event: CardsEvent): CardsState {
       return { ...state, collapsedCardGroups: next };
     }
 
-    case "prune_collapsed_card_groups": {
+    case "toggle_space_collapsed": {
+      const folded = state.collapsedSpaces.includes(event.spaceId);
+      return {
+        ...state,
+        collapsedSpaces: withMembership(state.collapsedSpaces, event.spaceId, !folded),
+      };
+    }
+
+    case "prune_to_spaces": {
       // A key whose workspace is gone — or a bare group name from before the
       // fold was per workspace — has nothing to fold, so it goes.
-      const next = state.collapsedCardGroups.filter((key) =>
+      const groups = state.collapsedCardGroups.filter((key) =>
         event.live.has(spaceOfRunKey(key)),
       );
-      if (next.length === state.collapsedCardGroups.length) return state;
-      return { ...state, collapsedCardGroups: next };
+      // And a deleted workspace's own fold, which a later workspace could
+      // otherwise inherit if it ever reused the id.
+      const spaces = state.collapsedSpaces.filter((id) => event.live.has(id));
+      const groupsMoved = groups.length !== state.collapsedCardGroups.length;
+      const spacesMoved = spaces.length !== state.collapsedSpaces.length;
+      if (!groupsMoved && !spacesMoved) return state;
+      return {
+        ...state,
+        ...(groupsMoved ? { collapsedCardGroups: groups } : {}),
+        ...(spacesMoved ? { collapsedSpaces: spaces } : {}),
+      };
     }
 
     case "hydrate": {
@@ -193,6 +218,13 @@ export function reduce(state: CardsState, event: CardsEvent): CardsState {
       ) {
         bump();
         next.collapsedCardGroups = [...event.collapsedCardGroups];
+      }
+      if (
+        event.collapsedSpaces !== undefined &&
+        !listsEqual(state.collapsedSpaces, event.collapsedSpaces)
+      ) {
+        bump();
+        next.collapsedSpaces = [...event.collapsedSpaces];
       }
       return next;
     }

@@ -87,6 +87,18 @@ describe("CardsStore — persistence", () => {
     expect(put!.body).toEqual({ kind: "json", value: ["s1:tools"] });
   });
 
+  it("toggleSpaceCollapsed PUTs the collapsed-workspace json array", async () => {
+    cardsStore.toggleSpaceCollapsed("s1");
+    await Promise.resolve();
+    const put = captured.find(
+      (c) =>
+        c.method === "PUT" &&
+        c.url.endsWith(`/${CARDS_KEYS.CARDS_COLLAPSED_SPACES}`),
+    );
+    expect(put).toBeDefined();
+    expect(put!.body).toEqual({ kind: "json", value: ["s1"] });
+  });
+
   it("a no-op mutation issues no PUT", async () => {
     cardsStore.setCardGroupCollapsed("s1", "tools", false); // never collapsed
     await Promise.resolve();
