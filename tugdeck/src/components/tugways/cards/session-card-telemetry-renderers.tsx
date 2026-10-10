@@ -1032,11 +1032,14 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     key: PlacardKind;
     anchorCenter: number;
     /**
-     * Folded only: the Z2 row's bottom edge in the pane frame's coordinates —
-     * the line the placard hangs from ([B06]). `null` in the open form, whose
-     * vertical placement is the stylesheet's `bottom: 100%`.
+     * The line the placard hangs from, in the pane frame's coordinates: open,
+     * the distance from the frame's bottom edge up to the Z2 row's top, which
+     * the panel's `bottom` takes; folded, the row's bottom edge from the
+     * frame's top, which its `top` takes ([B06]). `null` when the placard is
+     * not portaled to a frame, where the stylesheet's `100%` of the strip
+     * places it.
      */
-    foldedTop: number | null;
+    line: number | null;
     /**
      * The cell this placard was opened from — the ONE node its auto-dismiss
      * watcher exempts ([B01]), so a pointerdown on any other card's cell closes
@@ -1050,18 +1053,19 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const placardKeyRef = useRef<PlacardKind | null>(null);
   placardKeyRef.current = placard?.key ?? null;
 
-  // Whether this card wears the FOLDED form of the placard ([B01]): the pane
-  // is folded AND this card is the tab on show. Deck state, so it enters React
-  // through `useSyncExternalStore` ([L02]), read off the process-wide registry
-  // rather than `useDeckManager()` — a Session card renders in the gallery and
-  // in tests that bootstrap no DeckManager, and the honest answer there is
-  // not-folded rather than a crash.
+  // Which form of the placard this card wears: `hidden` when it is a
+  // background tab (or has no deck at all), `open` when it is the tab on show
+  // in an open pane, `folded` when the pane is folded and it is the tab on
+  // show ([B01]). Deck state, so it enters React through
+  // `useSyncExternalStore` ([L02]), read off the process-wide registry rather
+  // than `useDeckManager()` — a Session card renders in the gallery and in
+  // tests that bootstrap no DeckManager, and the honest answer there is
+  // hidden rather than a crash.
   //
-  // The active-tab half is load-bearing rather than belt-and-braces. A folded
-  // placard portals to the pane frame, which puts it OUTSIDE the `display:
-  // none` a background card is hidden with — the one property `TugPlacard` was
-  // built for ("hides with its card") and the one this form would otherwise
-  // give away.
+  // The active-tab half is load-bearing rather than belt-and-braces. A showing
+  // card's placard portals to the pane frame, which puts it OUTSIDE the
+  // `display: none` a background card is hidden with — so a card that is not
+  // on show keeps its placard in the chrome, where the hide reaches it.
   const cardId = useContext(CardIdContext);
   const paneFrameEl = useContext(TugPaneFrameContext);
   const subscribeToDeck = useCallback((onStoreChange: () => void) => {
@@ -1069,17 +1073,21 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     if (store === null) return () => {};
     return store.subscribe(onStoreChange);
   }, []);
-  const foldedShowing = useSyncExternalStore(subscribeToDeck, () => {
+  const cardForm = useSyncExternalStore(subscribeToDeck, (): "hidden" | "open" | "folded" => {
     const store = getDeckStore();
     // No card identity (the gallery, a fixture) is the same honest answer as
-    // no deck: this card is not a folded pane's showing tab.
-    if (store === null || cardId === null) return false;
+    // no deck: this card is not a pane's showing tab.
+    if (store === null || cardId === null) return "hidden";
     const state = store.getSnapshot();
-    return (
-      cardFoldedOf(state, cardId) &&
-      state.panes.some((pane) => pane.activeCardId === cardId)
-    );
+    if (!state.panes.some((pane) => pane.activeCardId === cardId)) return "hidden";
+    return cardFoldedOf(state, cardId) ? "folded" : "open";
   });
+  const foldedShowing = cardForm === "folded";
+  // Portaled to the pane frame and lifted above the peers: every showing
+  // card's placard, open or folded. The chrome clips and the frame does not,
+  // and a Z2 placard has to be seen whole — over the masthead and the wall
+  // above it when the card is open, over the wall below when it is folded.
+  const overhangForm = cardForm !== "hidden" && paneFrameEl !== null;
   const foldedForm = foldedShowing && paneFrameEl !== null;
 
   // What stands in the Z2 row INSTEAD of the five telemetry cells, on a folded
@@ -1148,23 +1156,24 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // on the x it is given and clamps in-card, so a right-edge anchor is stated
   // as the strip's own right edge; the clamp does the rest.
   //
-  // Folded, the container is the PANE FRAME the placard portals into rather
-  // than the strip ([B07]), so both numbers are measured in the frame's
-  // padding box — and the second number exists at all: the line the panel
-  // hangs from is the Z2 row's own bottom edge, which only the frame's
-  // coordinates can state.
+  // Overhanging, the container is the PANE FRAME the placard portals into
+  // rather than the strip ([B07]), so both numbers are measured in the
+  // frame's padding box — and the second number exists at all: the line the
+  // panel hangs from is the Z2 row's own edge (its top when the panel grows
+  // up, its bottom when it hangs down), which only the frame's coordinates
+  // can state.
   const measurePlacement = useCallback(
     (
       key: PlacardKind,
-    ): { anchorCenter: number; foldedTop: number | null; triggerEl: HTMLElement | null } => {
-      const nowhere = { anchorCenter: 0, foldedTop: null, triggerEl: null };
+    ): { anchorCenter: number; line: number | null; triggerEl: HTMLElement | null } => {
+      const nowhere = { anchorCenter: 0, line: null, triggerEl: null };
       const row = rowRef.current;
       if (row === null) return nowhere;
       const statusBar = row.closest<HTMLElement>(
         '[data-slot="session-card-status-bar"]',
       );
       if (statusBar === null) return nowhere;
-      const container = foldedForm ? (paneFrameEl as HTMLElement) : statusBar;
+      const container = overhangForm ? (paneFrameEl as HTMLElement) : statusBar;
       // Layout px: the placement lands in the placard's `left`/`top` and meets
       // `client*`, so every rect is divided by the zoom.
       const containerRect = layoutRectOf(container);
@@ -1185,12 +1194,16 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         anchorCenter = cellRect.left + cellRect.width / 2 - originX;
         triggerEl = cell;
       }
-      const foldedTop = foldedForm
-        ? barRect.bottom - (containerRect.top + container.clientTop)
-        : null;
-      return { anchorCenter, foldedTop, triggerEl };
+      let line: number | null = null;
+      if (overhangForm) {
+        const paddingTop = containerRect.top + container.clientTop;
+        line = foldedForm
+          ? barRect.bottom - paddingTop
+          : paddingTop + container.clientHeight - barRect.top;
+      }
+      return { anchorCenter, line, triggerEl };
     },
-    [foldedForm, paneFrameEl],
+    [overhangForm, foldedForm, paneFrameEl],
   );
 
   const showPlacard = useCallback(
@@ -1209,25 +1222,29 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   );
   const closePlacard = useCallback(() => setPlacard(null), []);
 
-  // A fold closes the open placard rather than re-measuring under it. The line
-  // it hangs from and the container it lives in both change with the form, and
-  // a placard the user opened on one card shape is not a reading they asked to
-  // keep on the other.
-  const lastFoldRef = useRef(foldedForm);
+  // A change of form closes the open placard rather than re-measuring under
+  // it. The line it hangs from and the container it lives in both change with
+  // the form, and a placard the user opened on one card shape is not a reading
+  // they asked to keep on the other. The tab going to the background is a form
+  // change too: an overhanging placard stands outside the `display: none` the
+  // card is hidden with, so it closes rather than staying up over a card that
+  // is no longer showing.
+  const form = `${overhangForm}/${foldedForm}`;
+  const lastFormRef = useRef(form);
   useEffect(() => {
-    if (lastFoldRef.current === foldedForm) return;
-    lastFoldRef.current = foldedForm;
+    if (lastFormRef.current === form) return;
+    lastFormRef.current = form;
     setPlacard(null);
-  }, [foldedForm]);
+  }, [form]);
 
-  // And while a FOLDED placard is up, its frame paints above every peer — the
+  // And while an overhanging placard is up, its frame paints above every peer — the
   // same one attribute, rule and ref-count a sheet takes ([B07]), so a sheet
   // and a placard sharing a frame release it in either order. A layout effect
   // so the lift lands in the same frame the panel first paints in.
   useLayoutEffect(() => {
-    if (placard === null || !foldedForm || paneFrameEl === null) return;
+    if (placard === null || !overhangForm || paneFrameEl === null) return;
     return raisePaneAbovePeers(paneFrameEl);
-  }, [placard, foldedForm, paneFrameEl]);
+  }, [placard, overhangForm, paneFrameEl]);
 
   // [P10] Escape ownership while a Z2 placard is open. The placard is
   // non-modal, focus-refusing chrome (it never pushes a focus mode of its
@@ -1732,22 +1749,25 @@ export const SessionTelemetryStatusRow = React.forwardRef<
                   ? <SideQuestionBody store={sideQuestionStore} annotation={annotation} pendingContextStore={pendingContextStore} />
                   : null;
 
-  // The placard element itself, before it is placed. Folded it is portaled to
-  // the pane frame and hangs downward off the Z2 row; open it renders in place
-  // above the strip. One element either way — the form is two props and a
-  // portal, not two placards.
+  // The placard element itself, before it is placed. On a showing card it is
+  // portaled to the pane frame: open it stands up off the Z2 row's top, over
+  // the transcript, the masthead and whatever is above the card; folded it
+  // hangs down off the row's bottom over the wall. In the chrome (a card
+  // nobody is looking at, the gallery) it renders in place above the strip.
+  // One element every way — the form is two props and a portal, not three
+  // placards.
   //
   // The anchor line is memoised because the placard's placement effect takes
   // this object as an input: a fresh one per render would tear down and
   // rebuild its `ResizeObserver` every time a telemetry value ticked.
-  const foldedPlacardStyle = useMemo(
+  const placardLineStyle = useMemo(
     () =>
-      placard?.foldedTop == null
+      placard?.line == null
         ? undefined
         : ({
-            "--tugx-folded-placard-top": `${placard.foldedTop}px`,
+            "--tugx-placard-line": `${placard.line}px`,
           } as React.CSSProperties),
-    [placard?.foldedTop],
+    [placard?.line],
   );
   const placardEl =
     placard === null ? null : (
@@ -1758,11 +1778,11 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         triggerEl={placard.triggerEl}
         anchorCenter={placard.anchorCenter}
         growth={foldedForm ? "down" : "up"}
-        // The visible canvas is what caps a downward panel, not the window top
-        // the upward guard measures to ([B06]).
-        bottomBoundEl={foldedForm && paneFrameEl !== null ? paneCanvasOf(paneFrameEl) : null}
+        // The visible canvas is what bounds an overhanging panel either way —
+        // never the card, whose masthead the open form paints over ([B06]).
+        boundEl={overhangForm && paneFrameEl !== null ? paneCanvasOf(paneFrameEl) : null}
         className="session-telemetry-status-placard"
-        style={foldedPlacardStyle}
+        style={placardLineStyle}
         title={PLACARD_TITLES[placard.key]}
         aria-label={PLACARD_TITLES[placard.key]}
       >
@@ -1850,12 +1870,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       ) : null}
       {/* One card-scoped placard over whichever Z2 surface is open — auto-
           dismiss, fixed under its trigger cell, one at a time ([P05]/[P06]).
-          Open, its offsetParent is the (position:relative)
-          `.session-card-status-bar`, so it floats just above Z2 over the
-          transcript's tail. Folded, there is no transcript and the chrome
-          clips, so it goes to the pane frame instead — which clips nothing —
-          and hangs down over the wall ([B07]). */}
-      {foldedForm && placardEl !== null
+          On a showing card it goes to the pane frame — which clips nothing,
+          where the chrome does — so it is seen whole: open, standing up off
+          Z2 over the masthead and past the frame's top; folded, hanging down
+          over the wall ([B07]). A card not on show keeps it in the chrome,
+          whose offsetParent is the (position:relative)
+          `.session-card-status-bar`, so the hide reaches it. */}
+      {overhangForm && placardEl !== null
         ? createPortal(placardEl, paneFrameEl as HTMLElement)
         : placardEl}
       {arcVerbs.confirm}

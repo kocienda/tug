@@ -117,28 +117,29 @@
   pointer-events: none;
 }
 
-/* The Z2 detail placard floats just above the status row, over the
-   transcript's tail. Its offsetParent is the (position:relative)
-   `.session-card-status-bar`, so `bottom: 100%` sits it right on top of the
-   strip; `left` is written imperatively by TugPlacard from the trigger
-   cell's offset. Width follows the composed TugPopupList's own per-kind
-   caps (the placard is a shrink-to-fit absolute box), bounded by the
-   status strip so a wide log popup in a narrow card clips its preview
-   column instead of painting past the card edge. */
+/* The Z2 detail placard stands just above the status row, over the
+   transcript, the masthead and past the frame's top when it needs the room.
+   On a showing card its container is the pane frame it was portaled into,
+   so `100%` would mean the whole frame: the line it stands on is measured —
+   the Z2 row's top edge from the frame's bottom — and written as
+   `--tugx-placard-line` when the placard opens. In the chrome (no frame) its
+   offsetParent is the (position:relative) `.session-card-status-bar`, and
+   the `100%` fallback sits it right on top of the strip. `left` is written
+   imperatively by TugPlacard from the trigger cell's offset. Width follows
+   the composed TugPopupList's own per-kind caps (the placard is a
+   shrink-to-fit absolute box), bounded by the container — the card's width
+   either way — so a wide log popup in a narrow card clips its preview column
+   instead of painting past the card edge. */
 .tug-placard.session-telemetry-status-placard {
-  bottom: calc(100% + var(--tug-space-sm));
+  bottom: calc(var(--tugx-placard-line, 100%) + var(--tug-space-sm));
   max-width: 100%;
 }
 
-/* Folded, the same placard hangs the other way ([B06]). Its container is the
-   pane frame it was portaled into rather than the strip, so `100%` would mean
-   the whole frame: the line it hangs from is measured — the Z2 row's own
-   bottom edge in frame coordinates — and written as
-   `--tugx-folded-placard-top` when the placard opens. `max-width` follows the
-   frame here, which is the card's width, the same bound the open form takes
-   from the strip. */
+/* Folded, the same placard hangs the other way ([B06]): the same measured
+   line, now the Z2 row's bottom edge from the frame's top, and `top` takes
+   it instead of `bottom`. */
 .tug-placard.session-telemetry-status-placard[data-growth="down"] {
-  top: calc(var(--tugx-folded-placard-top, 100%) + var(--tug-space-sm));
+  top: calc(var(--tugx-placard-line, 100%) + var(--tug-space-sm));
   bottom: auto;
 }
 

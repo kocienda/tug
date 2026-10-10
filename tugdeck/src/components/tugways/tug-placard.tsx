@@ -4,10 +4,13 @@
  * `TugPlacard` is a third floating surface alongside the popover and the
  * modal (sheet/alert) families documented in {@link file://./internal/floating-surface-notes.ts}.
  * Unlike a `TugPopover` it renders **in place** rather than portaling to the
- * deck-level canvas overlay, which makes it card-scoped for free: it hides with
- * its card when the card becomes a background tab (`display: none`), reappears
- * intact on refront, and never bleeds over a neighbouring pane. Rendering
- * in-DOM also lets it own its own position.
+ * deck-level canvas overlay, which makes it card-scoped for free: it moves
+ * with its pane, closes with its card, and owns its own position. Where in
+ * the card it renders is the caller's choice — inside the chrome, where the
+ * pane body clips it, or portaled to the pane frame, which clips nothing, so
+ * the panel can overhang the frame and paint over the masthead above it or
+ * the wall below it (the Z2 placards, with the frame lifted above its peers
+ * through `pane-raise.ts`).
  *
  * ## Behavior axes
  *
@@ -34,12 +37,15 @@
  * root from the gap between its anchored edge and the edge it grows toward, so
  * a long composed `TugPopupList` scroller caps and scrolls rather than
  * overflowing — the same custom property the list CSS reads for a real Radix
- * popover, so no shared CSS changes ([R01]). Upward (the default) that gap runs
- * from the panel's bottom edge to the lower of the viewport top and the top of
- * the nearest ancestor that clips it — in a card, the pane body, whose top is
- * the masthead's bottom edge; downward it runs
- * from the panel's top edge to {@link TugPlacardProps.bottomBoundEl}'s bottom,
- * never past the window.
+ * popover, so no shared CSS changes ([R01]). The gap runs from the panel's
+ * anchored edge to the matching edge of {@link TugPlacardProps.boundEl} — the
+ * visible canvas, for a panel overhanging its own pane — and never past the
+ * window: upward (the default) from the panel's bottom edge to the bound's
+ * top, downward from the panel's top edge to the bound's bottom. The panel
+ * takes that height as its `max-height`, so a panel taller than the room
+ * scrolls inside the room rather than painting past it; the bound is the
+ * canvas, never the card, so the room above a Z2 row is the whole card and
+ * the wall above it, masthead included.
  *
  * ## Growth
  *
@@ -86,20 +92,6 @@ const DEFAULT_FRACTION = 1;
 
 /** Inset (px) kept short of the edge the guard measures toward. */
 const AVAILABLE_EDGE_INSET = 8;
-
-/**
- * The ancestors that clip the panel vertically — any whose `overflow-y` is not
- * `visible`. An in-DOM placard lives inside its card, and the card's body clips
- * (`overflow: clip`), so the space above the anchor ends at the masthead, not
- * at the window top.
- */
-function verticalClipAncestorsOf(panel: HTMLElement): HTMLElement[] {
-  const clips: HTMLElement[] = [];
-  for (let el = panel.parentElement; el !== null; el = el.parentElement) {
-    if (getComputedStyle(el).overflowY !== "visible") clips.push(el);
-  }
-  return clips;
-}
 
 /**
  * Horizontal travel available to the panel: the container's inner width
@@ -150,11 +142,12 @@ export interface TugPlacardProps {
    */
   growth?: TugPlacardGrowth;
   /**
-   * The element whose bottom edge bounds a downward placard — the visible
-   * canvas, for a placard hanging past its own pane. Clamped to the window in
-   * either case. Only meaningful with `growth="down"`.
+   * The element whose edge bounds the panel in its growth direction — its top
+   * for an upward placard, its bottom for a downward one. The visible canvas,
+   * for a placard overhanging its own pane. Clamped to the window either way,
+   * and the window alone bounds it when omitted.
    */
-  bottomBoundEl?: HTMLElement | null;
+  boundEl?: HTMLElement | null;
   /**
    * Horizontal center (px, within the positioned container) to center the
    * placard on when {@link reposition} is false — the host measures the
@@ -193,25 +186,17 @@ export interface TugPlacardProps {
 function applyAvailableHeight(
   panel: HTMLDivElement,
   growth: TugPlacardGrowth,
-  bottomBoundEl: HTMLElement | null | undefined,
-  clipAncestors: ReadonlyArray<HTMLElement>,
+  boundEl: HTMLElement | null | undefined,
 ): void {
   // Layout px throughout: the value is a CSS length, and the window and the
   // rects are divided by the zoom to meet it.
   const box = layoutRectOf(panel);
   const windowBottom = layoutPxOf(window.innerHeight);
-  // Downward, the floor is the bound element's bottom — but never past the
-  // window, which the bound (a canvas taller than the window, scrolled) can be.
-  const floor =
-    bottomBoundEl == null
-      ? windowBottom
-      : Math.min(layoutRectOf(bottomBoundEl).bottom, windowBottom);
-  // Upward, the ceiling is the lowest clipping top among the panel's
-  // ancestors — painting above it would be cut off, so it is not room.
-  let ceiling = 0;
-  for (const el of clipAncestors) {
-    ceiling = Math.max(ceiling, layoutRectOf(el).top);
-  }
+  // The bound's edge in the growth direction — but never past the window,
+  // which the bound (a canvas taller than the window, scrolled) can be.
+  const bound = boundEl == null ? null : layoutRectOf(boundEl);
+  const floor = bound === null ? windowBottom : Math.min(bound.bottom, windowBottom);
+  const ceiling = bound === null ? 0 : Math.max(bound.top, 0);
   const available =
     growth === "down"
       ? Math.max(0, floor - box.top - AVAILABLE_EDGE_INSET)
@@ -313,7 +298,7 @@ export function TugPlacard({
   dismiss = "explicit",
   reposition = false,
   growth = "up",
-  bottomBoundEl,
+  boundEl,
   anchorCenter,
   triggerEl,
   persistKey,
@@ -341,14 +326,11 @@ export function TugPlacard({
     const panel = panelRef.current;
     if (!panel) return;
 
-    // Only an upward panel measures to its clip; a downward one is portaled
-    // out of its pane and bounds itself on `bottomBoundEl`.
-    const clipAncestors = growth === "up" ? verticalClipAncestorsOf(panel) : [];
     const apply = (): void => {
       if (!draggingRef.current) {
         applyPlacement(panel, { reposition, fraction, anchorCenter });
       }
-      applyAvailableHeight(panel, growth, bottomBoundEl, clipAncestors);
+      applyAvailableHeight(panel, growth, boundEl);
     };
     apply();
 
@@ -359,15 +341,12 @@ export function TugPlacard({
     if (container && typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(apply);
       observer.observe(container);
-      // The clip's top moves when the masthead above it grows or shrinks,
-      // which resizes the clip without resizing the container.
-      for (const el of clipAncestors) observer.observe(el);
     }
     return () => {
       window.removeEventListener("resize", onWindowResize);
       observer?.disconnect();
     };
-  }, [open, reposition, fraction, anchorCenter, growth, bottomBoundEl, style]);
+  }, [open, reposition, fraction, anchorCenter, growth, boundEl, style]);
 
   function onHeaderPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
     if (event.button !== 0) return;
