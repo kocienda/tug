@@ -99,4 +99,33 @@ Corrections the Large briefs carry against the list above:
 - **Item 31.** The 96 `@objc` actions stay on `AppDelegate` as forwarders, since AppKit owns their selector and validation wiring. The tugcast `main` is 2,166 lines, not 2,280.
 - **Ordering.** `agent-supervisor-split` and `tugcast-boot-builders` both touch the supervisor's construction. Run them one after the other in either order, never concurrently.
 
-The **Medium** and **Doc drift** items are not briefed yet.
+The **Medium** items are briefed as thirteen arcs, one per item.
+
+| Brief | Item | Arc |
+|---|---|---|
+| [`protocol-parity-and-outbound-frames-brief.md`](protocol-parity-and-outbound-frames-brief.md) | 14 | `/arc protocol-parity-and-outbound-frames @briefs/protocol-parity-and-outbound-frames-brief.md` |
+| [`deck-boundary-decode-guards-brief.md`](deck-boundary-decode-guards-brief.md) | 15 | `/arc deck-boundary-decode-guards @briefs/deck-boundary-decode-guards-brief.md` |
+| [`stream-json-wire-types-brief.md`](stream-json-wire-types-brief.md) | 16 | `/arc stream-json-wire-types @briefs/stream-json-wire-types-brief.md` |
+| [`async-ledger-handle-brief.md`](async-ledger-handle-brief.md) | 17 | `/arc async-ledger-handle @briefs/async-ledger-handle-brief.md` |
+| [`supervisor-deps-and-control-frame-brief.md`](supervisor-deps-and-control-frame-brief.md) | 18 | `/arc supervisor-deps-and-control-frame @briefs/supervisor-deps-and-control-frame-brief.md` |
+| [`tugtool-json-error-envelope-brief.md`](tugtool-json-error-envelope-brief.md) | 19 | `/arc tugtool-json-error-envelope @briefs/tugtool-json-error-envelope-brief.md` |
+| [`arc-core-cwd-and-hermetic-git-brief.md`](arc-core-cwd-and-hermetic-git-brief.md) | 20 | `/arc arc-core-cwd-and-hermetic-git @briefs/arc-core-cwd-and-hermetic-git-brief.md` |
+| [`ledger-schema-owner-brief.md`](ledger-schema-owner-brief.md) | 21 | `/arc ledger-schema-owner @briefs/ledger-schema-owner-brief.md` |
+| [`tugdeck-import-cycles-brief.md`](tugdeck-import-cycles-brief.md) | 22 | `/arc tugdeck-import-cycles @briefs/tugdeck-import-cycles-brief.md` |
+| [`store-base-and-reducer-cap-brief.md`](store-base-and-reducer-cap-brief.md) | 23 | `/arc store-base-and-reducer-cap @briefs/store-base-and-reducer-cap-brief.md` |
+| [`app-test-runner-script-brief.md`](app-test-runner-script-brief.md) | 24 | `/arc app-test-runner-script @briefs/app-test-runner-script-brief.md` |
+| [`harness-helpers-and-tolerances-brief.md`](harness-helpers-and-tolerances-brief.md) | 25 | `/arc harness-helpers-and-tolerances @briefs/harness-helpers-and-tolerances-brief.md` |
+| [`swift-xctest-target-brief.md`](swift-xctest-target-brief.md) | 26 | `/arc swift-xctest-target @briefs/swift-xctest-target-brief.md` |
+
+Corrections the Medium briefs carry against the list above:
+
+- **Item 14.** tugcode has 55 outbound tags, not 57. The CONTROL asymmetry is 3 Rust-only and 1 deck-only (`changeset_join_review`, which falls into a catch-all today), not 72 and 21. Eight tugcode tags are dropped by the deck and nothing says so.
+- **Item 16.** The catalog holds tugcode's IPC output, not Claude's raw wire, so nothing can be typed from it. The brief adds a raw-wire tap to the capture and types by hand.
+- **Item 20.** `tugarc-core` has 311 `#[serial]` tests, not 217, and 40 test `fn git` helpers exist across five crates, not 31 in one.
+- **Item 22.** The reducer's edge into the component tree runs through `lib/tug-atom-img.ts`, not the reducer itself. oxlint already ships `import/no-cycle`; no new tool is needed.
+- **Item 23.** The transcript lives in the store, not the reducer, and a load-previous door already exists for older turns; the cap uses it.
+- **Item 25.** The identical groups total 84, not 83; `at0719` does not exist.
+- **Item 26.** Five `swift -` tests exist, not zero. `MenuState` is still inside `AppDelegate.swift`; the XCTest brief moves it.
+- **Ordering.** Three pairs share files and must not run concurrently: `async-ledger-handle` with `supervisor-deps-and-control-frame` and with `ledger-schema-owner`; `protocol-parity-and-outbound-frames` before `deck-boundary-decode-guards` and not beside `stream-json-wire-types`; `app-test-runner-script` before `harness-helpers-and-tolerances` if both run.
+
+The **Doc drift** item is not briefed yet.
