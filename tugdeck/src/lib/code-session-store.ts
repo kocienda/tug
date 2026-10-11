@@ -38,7 +38,7 @@ import {
   PropertyStore,
 } from "@/components/tugways/property-store";
 import { FeedStore } from "@/lib/feed-store";
-import { RunProgressStore, type RunProgressFrame } from "@/lib/run-progress-store";
+import { RunProgressStore } from "@/lib/run-progress-store";
 import type { AtomSegment } from "./tug-atom-img";
 import { TUG_ATOM_CHAR } from "./tug-atom-img";
 import { hasLeadingCommandAtom } from "./command-atom";
@@ -57,10 +57,17 @@ import {
   splitCompactionSeed,
 } from "./compaction-request";
 import {
-  narrowTaskStartedFrame,
-  narrowTaskUpdatedFrame,
-  narrowTaskProgressFrame,
+  taskStartedEvent,
+  taskUpdatedEvent,
+  taskProgressEvent,
 } from "./code-session-store/select-jobs";
+import { isDecodeError } from "@tugproto/decode";
+import {
+  decodeTagged,
+  OUTBOUND_DECODERS,
+  type AnyDecodedFrame,
+  type DecodedTag,
+} from "@tugproto/outbound-decoders";
 import { goalIsActive } from "./code-session-store/select-goal";
 import {
   createInitialState,
@@ -297,142 +304,60 @@ function sessionAtomVerdict(atom: AtomSegment): {
   return { verdict: answer.status === "unknown" ? "absent" : "unverified" };
 }
 
-/** CODE_OUTPUT frame `type` values the reducer currently handles. */
-export const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
-  "session_init",
-  "content_block_start",
-  "assistant_text",
-  "thinking_text",
-  "tool_use",
-  "tool_result",
-  "tool_use_structured",
-  "turn_complete",
-  // The cancel receipt: tugcode closes an interrupted turn with this rather
-  // than `turn_complete` whenever the turn ended with `ActiveTurn.interrupted`
-  // set — the escalation ladder that force-terminates a wedged claude, the
-  // drain's EOF path, and `stop_all_work`. The reducer commits the turn as
-  // interrupted and clears the per-interrupt flags; `is_recovery: true` marks
-  // a cancel tugcode performed to recover a wedged claude, which commits the
-  // same way but is not badged as a stop the user asked for.
-  "turn_cancelled",
-  // The receipt for an interrupt that found nothing to interrupt — tugcode's
-  // `handleInterrupt` reached a card with no claude process (`no_process`) or
-  // a live claude with no turn open (`no_turn`). Either way no turn can end,
-  // so the reducer clears the per-interrupt flags and leaves the transcript
-  // alone: by construction there was no turn to commit.
-  "interrupt_noop",
-  // tugcode's answer to `stop_all_work` — the group was swept and its
-  // respawn acked. Emitted on its failure paths too, which is exactly why
-  // the deck listens: it is the belt to `turn_cancelled`'s braces, so a
-  // teardown that half-worked still settles a card offering Force Stop.
-  "stop_all_work_done",
-  "system_metadata",
-  "control_request_forward",
-  "cost_update",
-  // Claude's SDK is backing off and retrying a retryable API failure.
-  // Display-only: the reducer folds it into `apiRetry`, no phase change.
-  "api_retry",
-  // A model declined and the SDK retried on a fallback model (non-fatal).
-  // Display-only: the reducer folds it into `refusalFallback`, no phase change.
-  "model_refusal_fallback",
-  // An assistant message closed on `max_tokens` — the output was truncated.
-  // Display-only: the reducer folds it into `outputTruncated`, no phase change.
-  "output_truncated",
-  // `/goal` evaluator feedback — the Stop-hook evaluator judged the goal
-  // condition unmet mid-cycle. The reducer folds it into `goal` (round
-  // count + latest reason); no phase change, no transcript ink.
-  "goal_feedback",
-  // Claude compacted its context (auto-compaction at capacity, or a native
-  // `/compact`). The reducer appends a compaction `system_note` divider to the
-  // active turn (or the last committed turn on replay).
-  "compact_boundary",
-  // The compaction summary text, emitted right after `compact_boundary` on both
-  // the live and replay paths. The reducer folds it into `compactionSeed` so
-  // the carry-forward block restores; no phase change, no transcript ink.
-  "compact_summary",
-  // tugcode announced that the card's live claude session id changed, and
-  // how. Only `kind: "rotation"` — the server seating the next stage of an
-  // arc — reaches the reducer, as its `session_stage` event: a stage
-  // `system_note` divider so the arc reads as one scroll, and the wheel's
-  // turn opened from the prompt the frame echoes. Every other kind is the
-  // bridge's identity record and draws nothing; no phase change, and the
-  // transcript survives the rotation.
-  "session_segment",
-  // The same boundary, replayed: tugcode emits this between the JSONLs of an
-  // arc's stages during a lineage restore. A separate wire type from
-  // `session_segment` because a replayed rotation is only a divider — the
-  // identity transfer it names already happened.
-  "replay_stage",
-  // tugcode marks, in a replay, where the card changed its project
-  // directory: after the history it carried from the old directory and
-  // before the first turn said in the new one. Only a divider, like
-  // `replay_stage` — the move itself already happened.
-  "replay_relocation",
-  // tugcode's forward-compat catch-all: claude streamed a top-level event
-  // type this build doesn't translate. The reducer folds it into
-  // `unknownEvent`, driving a soft warn banner; no phase change.
-  "unknown_event",
-  // Live intra-turn token usage — high-frequency telemetry frame published
-  // to the streaming document's live-usage path (never the snapshot); no
-  // phase change, no persist.
-  "streaming_usage",
-  "context_breakdown",
-  "error",
-  // tugcode emits this after a failed `--resume` spawn. The reducer
-  // rolls it into `lastError`.
-  "resume_failed",
-  // Replay bracket events emitted by the JSONL replay translator.
-  // The reducer transitions into / out of the `replaying` phase on
-  // these and populates `lastReplayResult` on completion.
-  "replay_started",
-  "replay_complete",
-  // Per-turn synthetic user-message frame emitted by the replay
-  // translator at the start of each replayed turn (and by tugcode's
-  // mid-turn snapshot path). The reducer's `handleAddUserMessage`
-  // mints a `pendingTurn` whose `initialMessages` is `[user_message]`
-  // so the subsequent `turn_complete` commits a `TurnEntry` with the
-  // historical user submission text. Named per [D15]'s `add_<kind>`
-  // template.
-  "add_user_message",
-  // Wake-bracket opener emitted by tugcode when claude resumes from
-  // idle in response to an async deferred-completion trigger
-  // (Monitor / CronCreate / ScheduleWakeup / …). The reducer
-  // transitions `idle → waking` and accepts the wake's content
-  // events; the bracket closes implicitly on the next `turn_complete`.
-  // See `arc/tugplan-session-wake.md` [D01].
-  "wake_started",
-  // Neutral assistant-originated turn opener (`tuglaws/turn-metric.md`
-  // S02): opens an assistant-only turn for orphan assistant content
-  // (`--continue` leading orphan, `/compact` continuation) with no user
-  // message — the honest replacement for the deleted synth add_user_message.
-  "assistant_opener",
-  // Server-originated turn opener, emitted by tugcast (not tugcode) beside
-  // every turn Tug injects into a session — today the base-motion engine's,
-  // when an arc's base moves under it. Journaling an injection makes the turn
-  // real to the server, not visible on screen: the live user row comes from the
-  // composer echoing its own submission, and an injection has no composer. This
-  // is what keeps a server-initiated turn from arriving with no visible cause.
-  "tug_notice",
-  // Background-job lifecycle frames (the JOBS cell's feed — unrelated
-  // to the TaskCreate/TaskUpdate tool calls behind TASKS). tugcode
-  // forwards claude's `system/task_started` / `system/task_updated`
-  // from both routing tiers; the reducer folds them into the
-  // session-lifetime jobs ledger.
-  "task_started",
-  "task_updated",
-  // `task_progress`: in-flight ticks for a backgrounded agent (NEW on
-  // the 2.1.197-era wire). The reducer folds the latest tick's tool +
-  // usage onto the running job row; it never inserts a row.
-  "task_progress",
-  // `/rewind` frames ([#step-7-1]/[#step-7-2]). `prompt_anchor` carries the
-  // live turn's rewind anchor (the reducer stamps it onto the turn);
-  // `rewind_preview_result` carries a per-turn diff-stat (folded into the
-  // preview cache); `rewind_result` is the applied-rewind ack (records the
-  // result + drives the L26-safe local truncation).
-  "prompt_anchor",
-  "rewind_preview_result",
-  "rewind_result",
+/**
+ * CODE_OUTPUT tags the store takes apart before admission. Each has a
+ * decoder, and none reaches the reducer as itself: `routeFrame` unwraps a
+ * `replay_batch` and routes its frames one by one, and `divertProgress`
+ * sends the two progress frames to {@link RunProgressStore}.
+ */
+export const UNWRAPPED_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set<DecodedTag>([
+  "replay_batch",
+  "tool_progress",
+  "run_progress",
 ]);
+
+/**
+ * CODE_OUTPUT frame `type` values the reducer admits: every tag in the
+ * decoder table (`@tugproto/outbound-decoders`) that the store does not
+ * take apart first. What each one means to the reducer is written at its
+ * case in `CodeSessionStore.wireToEvent`.
+ */
+export const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set(
+  (Object.keys(OUTBOUND_DECODERS) as DecodedTag[]).filter(
+    (tag) => !UNWRAPPED_CODE_OUTPUT_TYPES.has(tag),
+  ),
+);
+
+/**
+ * Decode a CODE_OUTPUT value by its own tag. A value whose tag the decoder
+ * table does not know is dropped silently, as an unknown tag always was. A
+ * frame whose tag has a decoder and whose shape has drifted is dropped with
+ * one line naming the tag, the path, what was expected and what arrived, so
+ * an upstream drift reads as a decode error here and never reaches the
+ * reducer as the wrong shape.
+ */
+function decodeCodeOutput(value: unknown): AnyDecodedFrame | null {
+  const frame = decodeTagged(value);
+  if (isDecodeError(frame)) {
+    tugDevLogStore.warn("code-session-store", `CODE_OUTPUT decode error: ${frame.toString()}`, {
+      tag: frame.tag,
+      path: frame.path,
+      expected: frame.expected,
+      got: frame.got,
+    });
+    return null;
+  }
+  return frame;
+}
+
+/**
+ * tugcast's `tug_session_id` stamp, which no decoder declares and every
+ * decoded frame carries through untouched.
+ */
+function stampedSessionId(frame: object): string | undefined {
+  const id = (frame as { tug_session_id?: unknown }).tug_session_id;
+  return typeof id === "string" ? id : undefined;
+}
 
 export interface CodeSessionStoreOptions {
   conn: TugConnection;
@@ -775,7 +700,7 @@ export class CodeSessionStore {
   /**
    * Test-only. Feed a wire frame into the store exactly as
    * `onFeedStoreChange` would for a real frame off the connection —
-   * decode via `frameToEvent`, then `dispatch`. The app-test harness
+   * decode through the tag's decoder, then `dispatch`. The app-test harness
    * drives a session card through the lifecycle matrix with this;
    * production frames always arrive through the `FeedStore`
    * subscription, never here.
@@ -783,7 +708,8 @@ export class CodeSessionStore {
    * `feedId` is a `FeedId` value (`CODE_OUTPUT` / `SESSION_STATE` /
    * `CONTROL`); `decoded` is the already-decoded frame payload, with
    * a `tug_session_id` matching this store's session. A frame whose
-   * `type` is not reducer-relevant decodes to `null` and is a no-op.
+   * `type` is not reducer-relevant is a no-op, and one whose shape has
+   * drifted from its decoder is logged and dropped.
    *
    * @internal — reached only through the DEV-gated `window.__tug` test
    *  surface; not part of the public L02 contract.
@@ -2045,32 +1971,33 @@ export class CodeSessionStore {
   }
 
   /**
-   * Route one decoded feed value into the reducer. A CODE_OUTPUT
-   * `replay_batch` is a transport-only envelope: its `frames` are
-   * unwrapped here and each dispatched through the same
-   * `frameToEvent` + `dispatch` path a per-frame replay would take, so
-   * the reducer never sees the batch. Everything else takes the
-   * single-frame path unchanged. The session filter has already run on
-   * the outer value at the FeedStore boundary, so inner frames dispatch
+   * Route one decoded feed value into the reducer. A CODE_OUTPUT value is
+   * decoded by its tag first ({@link decodeCodeOutput}), and one that does
+   * not decode goes no further. A `replay_batch` is a transport-only
+   * envelope: its `frames` are decoded and admitted one by one, exactly as
+   * a per-frame replay would be, so one drifted frame drops alone and the
+   * reducer never sees the batch. The session filter has already run on the
+   * outer value at the FeedStore boundary, so inner frames dispatch
    * post-filter and need no `tug_session_id` of their own.
    */
   private routeFrame(feedId: number, value: unknown): void {
-    if (feedId === FeedId.CODE_OUTPUT && this.divertProgress(value)) return;
-    if (
-      feedId === FeedId.CODE_OUTPUT &&
-      (value as { type?: string }).type === "replay_batch"
-    ) {
-      const frames = (value as { frames?: unknown }).frames;
-      if (Array.isArray(frames)) {
-        for (const inner of frames) {
-          if (this.divertProgress(inner)) continue;
-          const event = this.frameToEvent(feedId, inner);
-          if (event !== null) this.dispatch(event, "wire");
-        }
-        return;
-      }
+    if (feedId !== FeedId.CODE_OUTPUT) {
+      const event = this.frameToEvent(feedId, value);
+      if (event !== null) this.dispatch(event, "wire");
+      return;
     }
-    const event = this.frameToEvent(feedId, value);
+    const frame = decodeCodeOutput(value);
+    if (frame?.type === "replay_batch") {
+      for (const inner of frame.frames) this.admitWireFrame(decodeCodeOutput(inner));
+      return;
+    }
+    this.admitWireFrame(frame);
+  }
+
+  /** Divert a decoded CODE_OUTPUT frame's progress meaning, then dispatch its event. */
+  private admitWireFrame(frame: AnyDecodedFrame | null): void {
+    if (frame === null || this.divertProgress(frame)) return;
+    const event = this.wireToEvent(frame);
     if (event !== null) this.dispatch(event, "wire");
   }
 
@@ -2080,312 +2007,339 @@ export class CodeSessionStore {
    * a `tool_result` also closes its call here, and still goes on to the
    * reducer.
    */
-  private divertProgress(value: unknown): boolean {
-    const frame = value as { type?: string; tool_use_id?: unknown };
+  private divertProgress(frame: AnyDecodedFrame): boolean {
     switch (frame.type) {
-      case "tool_progress": {
-        const elapsed = (value as { elapsed_time_seconds?: unknown })
-          .elapsed_time_seconds;
-        if (typeof frame.tool_use_id === "string" && typeof elapsed === "number") {
-          this.runProgress.applyHeartbeat(frame.tool_use_id, elapsed, Date.now());
-        }
+      case "tool_progress":
+        this.runProgress.applyHeartbeat(
+          frame.tool_use_id,
+          frame.elapsed_time_seconds,
+          Date.now(),
+        );
         return true;
-      }
       case "run_progress":
         this.runProgress.applyReport(
-          value as RunProgressFrame,
+          frame,
           Date.now(),
           (id) =>
             this.state.jobs.some((j) => j.toolUseId === id && j.status === "running"),
         );
         return true;
       case "tool_result":
-        if (typeof frame.tool_use_id === "string") {
-          this.runProgress.close(frame.tool_use_id);
-        }
+        this.runProgress.close(frame.tool_use_id);
         return false;
       default:
         return false;
     }
   }
 
-  private frameToEvent(
-    feedId: number,
-    decoded: unknown,
-  ): CodeSessionEvent | null {
-    if (feedId === FeedId.CODE_OUTPUT) {
-      const ev = decoded as { type?: string } & Record<string, unknown>;
-      if (typeof ev.type !== "string") return null;
-      if (!KNOWN_CODE_OUTPUT_TYPES.has(ev.type)) return null;
-      if (ev.type === "session_init") {
+  /**
+   * The reducer event a decoded CODE_OUTPUT frame becomes, or null for a
+   * frame the reducer has nothing to do with. Most frames are their own
+   * event; the rest are renamed to camelCase here, or carry a value only
+   * this impure wrapper can supply (a minted `turnKey`, a wall-clock
+   * deadline), so the reducer stays pure.
+   */
+  private wireToEvent(frame: AnyDecodedFrame): CodeSessionEvent | null {
+    switch (frame.type) {
+      case "session_init": {
         // Divergence check: log loudly if claude's session_id differs
         // from our tugSessionId. Tugdeck operates on a single id
         // (tugSessionId, decided by the picker); a divergence here
         // would be a tugcast/tugcode bug that broke the post-Phase-B
         // invariant. The store does not consume claude's id for any
         // user-facing purpose — see reducer.handleSessionInit.
-        const claudeSid = typeof ev.session_id === "string" ? ev.session_id : null;
+        const claudeSid = frame.session_id ?? null;
         logSessionLifecycle("code_store.session_init_recv", {
           tug_session_id: this.tugSessionId,
           claude_session_id: claudeSid,
           divergent: claudeSid !== null && claudeSid !== this.tugSessionId,
         });
-      } else if (ev.type === "resume_failed") {
-        logSessionLifecycle("code_store.resume_failed_recv", {
-          tug_session_id: this.tugSessionId,
-          stale_session_id: typeof ev.stale_session_id === "string"
-            ? ev.stale_session_id
-            : null,
-          reason: typeof ev.reason === "string" ? ev.reason : null,
-        });
+        return frame;
       }
-      if (ev.type === "add_user_message") {
-        // `turnKey` is a client-side React-key seed minted by the
-        // store wrapper for every dispatched replay event. The wire
-        // doesn't (and shouldn't) carry it — replay is a synthesis
-        // of historical user submissions, and the cell wrapper
-        // identity is purely React's concern. Minting here keeps the
-        // reducer pure: it never calls `crypto.randomUUID()`.
-        //
-        // Step 5c: the wire's `content` blocks (Anthropic API shape,
-        // carried verbatim through tugcast / tugcode) are walked
-        // through `synthesizeUserMessageFromBlocks` to produce the
-        // substrate `(text, atoms)` pair. No resolver — replay path
-        // mints fresh atom ids; the bytes-store is per-card-mount
-        // (fresh on reload) so orphan-from-id-reuse is impossible.
-        const rawContent = Array.isArray(ev.content)
-          ? (ev.content as ContentBlock[])
-          : [];
-        // A `/compact`-born first message carries the recap as a marked
-        // leading content block (it rode the wire with the user's text).
-        // Split it off the *raw* content before synthesis so the recap
-        // never passes through `synthesizeUserMessageFromBlocks` (which
-        // parses `@`-mention markers): the bubble is the residual user
-        // content, the recap re-marks `compactionSeed` so the
-        // carry-forward summary renders on reload exactly as live.
-        const lead = rawContent[0];
-        const leadText = lead !== undefined && lead.type === "text" ? lead.text : "";
-        const seedSummary = leadText !== "" ? splitCompactionSeed(leadText) : null;
-        // A canceled `/compact` leaves its throwaway summarization turn in the
-        // discarded session's JSONL (claude persisted it; the client's
-        // `suppress` never crossed the wire). Recognize it on reload and mark
-        // the turn suppressed so it is dropped, not committed.
-        const suppressedTurn = leadText !== "" && isCompactionSummarizeText(leadText);
-        const content =
-          seedSummary !== null ? rawContent.slice(1) : rawContent;
-        const synth = synthesizeUserMessageFromBlocks(
-          content,
-          this.atomBytesStore,
-        );
-        return {
-          type: "add_user_message",
-          text: synth.text,
-          atoms: synth.atoms,
-          tug_session_id: typeof ev.tug_session_id === "string"
-            ? ev.tug_session_id
-            : undefined,
-          turnKey: mintTurnKey(),
-          timestamp:
-            typeof ev.timestamp === "number" && Number.isFinite(ev.timestamp)
-              ? ev.timestamp
-              : undefined,
-          // `/rewind` anchor on the replay / mid-turn-snapshot path
-          // ([#step-7-1]); the reducer stamps it onto the turn.
-          promptUuid:
-            typeof ev.promptUuid === "string" && ev.promptUuid.length > 0
-              ? ev.promptUuid
-              : undefined,
-          // Who authored the submission, as tugcode's translator stated it on
-          // the one frame it identified as a stage's opening prompt. The value
-          // is narrowed rather than passed through: this boundary's job is to
-          // make an untrusted wire value one of the shapes the reducer knows,
-          // exactly as every sibling field here does.
-          origin: ev.origin === "wheel" ? "wheel" : undefined,
-          ...(seedSummary !== null ? { compactionSummary: seedSummary } : {}),
-          ...(suppressedTurn ? { suppressedTurn: true } : {}),
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "wake_started") {
-        // Same mint contract as `add_user_message`: the wake's
-        // turnKey is a React-key seed with no meaning on the wire.
-        // tugcode does not mint it (tugcode is a Node subprocess; it
-        // has no React); the store wrapper mints it on receipt and
-        // threads it onto the dispatched event so the reducer stays
-        // pure. See `arc/tugplan-session-wake.md` [D02].
-        return { ...ev, turnKey: mintTurnKey() } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "assistant_opener") {
-        // Honest assistant-originated opener (`tuglaws/turn-metric.md`
-        // S02) — opens an assistant-only turn for orphan assistant
-        // content, no user message. Same turnKey mint contract as
-        // `wake_started`; the reducer seeds an empty scratch.
-        return { ...ev, turnKey: mintTurnKey() } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "tug_notice") {
-        // Same turnKey mint contract as `wake_started` / `assistant_opener`:
-        // tugcast does not mint it (it has no React), so the wrapper mints on
-        // receipt and the reducer stays pure.
-        return { ...ev, turnKey: mintTurnKey() } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "api_retry") {
-        // The wire carries `retry_delay_ms` (a duration); the banner
-        // wants an absolute `deadline` to count down toward. Stamping
-        // `Date.now() + delay` HERE — in the impure wrapper, like
-        // `add_user_message` mints its turnKey — keeps the reducer
-        // time-free. Wire fields are snake_case; normalize to camelCase
-        // for the reducer event.
-        const delayMs =
-          typeof ev.retry_delay_ms === "number" ? ev.retry_delay_ms : 0;
-        return {
-          type: "api_retry",
-          attempt: typeof ev.attempt === "number" ? ev.attempt : 0,
-          maxRetries: typeof ev.max_retries === "number" ? ev.max_retries : 0,
-          deadline: Date.now() + delayMs,
-          error: typeof ev.error === "string" ? ev.error : "unknown",
-          errorStatus:
-            typeof ev.error_status === "number" ? ev.error_status : null,
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "model_refusal_fallback") {
-        // Snake_case wire → camelCase reducer event. Display-only one-shot.
-        return {
-          type: "model_refusal_fallback",
-          originalModel:
-            typeof ev.original_model === "string" ? ev.original_model : "",
-          fallbackModel:
-            typeof ev.fallback_model === "string" ? ev.fallback_model : "",
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "turn_cancelled") {
-        // Defensive narrowing, the same contract every sibling here keeps:
-        // make an untrusted wire value one of the shapes the reducer knows.
-        // The field names stay the wire's — the frame carries nothing the
-        // wrapper has to stamp (no turnKey to mint, no deadline to compute),
-        // so there is no camelCase event shape to normalize toward.
+      case "content_block_start":
+      case "assistant_text":
+      case "thinking_text":
+      case "tool_use":
+      case "tool_result":
+      case "tool_use_structured":
+      case "turn_complete":
+      case "system_metadata":
+      case "control_request_forward":
+      case "cost_update":
+      case "context_breakdown":
+      case "error":
+        return frame;
+      case "turn_cancelled":
+        // The cancel receipt: tugcode closes an interrupted turn with this
+        // rather than `turn_complete` whenever the turn ended with
+        // `ActiveTurn.interrupted` set — the escalation ladder that
+        // force-terminates a wedged claude, the drain's EOF path, and
+        // `stop_all_work`. The reducer commits the turn as interrupted and
+        // clears the per-interrupt flags; `is_recovery: true` marks a cancel
+        // tugcode performed to recover a wedged claude, which commits the
+        // same way but is not badged as a stop the user asked for. The field
+        // names stay the wire's: there is no turnKey to mint and no deadline
+        // to compute, so nothing to normalize toward.
         return {
           type: "turn_cancelled",
-          msg_id: typeof ev.msg_id === "string" ? ev.msg_id : "",
-          seq: typeof ev.seq === "number" ? ev.seq : 0,
-          partial_result:
-            typeof ev.partial_result === "string" ? ev.partial_result : "",
-          ...(ev.is_recovery === true ? { is_recovery: true } : {}),
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "interrupt_noop") {
-        // Defensive narrowing. An unrecognized `reason` narrows to `no_turn`,
-        // the conservative of the two: it says the bridge is up and idle,
-        // which is what a card that got an unreadable receipt should assume
-        // rather than that its claude is gone.
+          msg_id: frame.msg_id,
+          seq: frame.seq,
+          partial_result: frame.partial_result,
+          ...(frame.is_recovery === true ? { is_recovery: true } : {}),
+        };
+      case "interrupt_noop":
+        // The receipt for an interrupt that found nothing to interrupt —
+        // tugcode's `handleInterrupt` reached a card with no claude process
+        // (`no_process`) or a live claude with no turn open (`no_turn`).
+        // Either way no turn can end, so the reducer clears the
+        // per-interrupt flags and leaves the transcript alone.
+        return { type: "interrupt_noop", reason: frame.reason };
+      case "stop_all_work_done":
+        // tugcode's answer to `stop_all_work` — the group was swept and its
+        // respawn acked. Emitted on its failure paths too, which is exactly
+        // why the deck listens: it is the belt to `turn_cancelled`'s
+        // braces, so a teardown that half-worked still settles a card
+        // offering Force Stop.
+        return frame;
+      case "api_retry":
+        // Claude's SDK is backing off and retrying a retryable API failure.
+        // Display-only: the reducer folds it into `apiRetry`, no phase
+        // change. The wire carries `retry_delay_ms` (a duration); the banner
+        // wants an absolute `deadline` to count down toward, stamped here so
+        // the reducer stays time-free.
         return {
-          type: "interrupt_noop",
-          reason: ev.reason === "no_process" ? "no_process" : "no_turn",
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "output_truncated") {
-        // No payload — the reducer flips a per-turn boolean. Drop the wire's
-        // `ipc_version` so the reducer event is clean.
-        return { type: "output_truncated" } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "goal_feedback") {
-        // Flat string payload; drop `ipc_version`, narrow defensively.
+          type: "api_retry",
+          attempt: frame.attempt,
+          maxRetries: frame.max_retries,
+          deadline: Date.now() + frame.retry_delay_ms,
+          error: frame.error,
+          errorStatus: frame.error_status,
+        };
+      case "model_refusal_fallback":
+        // A model declined and the SDK retried on a fallback model
+        // (non-fatal). Display-only: the reducer folds it into
+        // `refusalFallback`, no phase change.
+        return {
+          type: "model_refusal_fallback",
+          originalModel: frame.original_model,
+          fallbackModel: frame.fallback_model,
+        };
+      case "output_truncated":
+        // An assistant message closed on `max_tokens`. Display-only: the
+        // reducer flips `outputTruncated`, no phase change.
+        return { type: "output_truncated" };
+      case "goal_feedback":
+        // `/goal` evaluator feedback — the Stop-hook evaluator judged the
+        // goal condition unmet mid-cycle. The reducer folds it into `goal`
+        // (round count + latest reason); no phase change, no transcript ink.
         return {
           type: "goal_feedback",
-          condition: typeof ev.condition === "string" ? ev.condition : "",
-          reason: typeof ev.reason === "string" ? ev.reason : "",
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "compact_boundary") {
-        // Normalize the wire's snake_case `pre_tokens` to the reducer
-        // event's `preTokens`; both fields are optional (claude omits
-        // `compactMetadata` on some boundaries).
+          condition: frame.condition,
+          reason: frame.reason,
+        };
+      case "compact_boundary":
+        // Claude compacted its context (auto-compaction at capacity, or a
+        // native `/compact`). The reducer appends a compaction `system_note`
+        // divider to the active turn (or the last committed turn on replay).
+        // Every field is optional: claude omits `compactMetadata` on some
+        // boundaries.
         return {
           type: "compact_boundary",
-          ...(typeof ev.trigger === "string" ? { trigger: ev.trigger } : {}),
-          ...(typeof ev.pre_tokens === "number"
-            ? { preTokens: ev.pre_tokens }
-            : {}),
-          ...(typeof ev.post_tokens === "number"
-            ? { postTokens: ev.post_tokens }
-            : {}),
-          ...(typeof ev.timestamp === "number" ? { timestamp: ev.timestamp } : {}),
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "session_segment" && ev.kind !== "rotation") {
-        // A rewind, fork, continue, respawn, or `/new` — the bridge's
-        // lineage record. The transcript has nothing to draw for it.
-        return null;
-      }
-      if (ev.type === "session_segment" || ev.type === "replay_stage") {
-        // The arc's stage announcement, straight off tugcode's IPC line. Only
-        // the display fields are carried across: the session ids belong to the
-        // bridge's identity transfer, not to the divider.
+          ...(frame.trigger !== undefined ? { trigger: frame.trigger } : {}),
+          ...(frame.pre_tokens !== undefined ? { preTokens: frame.pre_tokens } : {}),
+          ...(frame.post_tokens !== undefined ? { postTokens: frame.post_tokens } : {}),
+          ...(frame.timestamp !== undefined ? { timestamp: frame.timestamp } : {}),
+        };
+      case "compact_summary":
+        // The compaction summary text, emitted right after
+        // `compact_boundary` on both the live and replay paths. The reducer
+        // folds it into `compactionSeed` so the carry-forward block
+        // restores; no phase change, no transcript ink.
+        return { type: "compact_summary", summary: frame.summary };
+      case "session_segment":
+        // tugcode announced that the card's live claude session id changed,
+        // and how. Only `kind: "rotation"` — the server seating the next
+        // stage of an arc — reaches the reducer, as its `session_stage`
+        // event: a stage divider so the arc reads as one scroll, and the
+        // wheel's turn opened from the prompt the frame echoes. Every other
+        // kind is the bridge's identity record and draws nothing. Only the
+        // display fields cross: the session ids belong to the bridge's
+        // identity transfer, not to the divider.
+        if (frame.kind !== "rotation") return null;
         return {
           type: "session_stage",
-          stage: typeof ev.stage === "string" ? ev.stage : "",
-          model: typeof ev.model === "string" ? ev.model : "",
-          document: typeof ev.document === "string" ? ev.document : "",
-          arc: typeof ev.arc === "string" ? ev.arc : "",
-          ...(typeof ev.steps === "string" && ev.steps.length > 0
-            ? { steps: ev.steps }
+          stage: frame.stage ?? "",
+          model: frame.model ?? "",
+          document: frame.document ?? "",
+          arc: frame.arc ?? "",
+          ...(frame.steps !== undefined && frame.steps.length > 0
+            ? { steps: frame.steps }
             : {}),
-          // A live rotation carries the prompt the runner sent behind it;
-          // the turn key is minted here because the reducer is pure.
-          ...(ev.type === "session_segment" &&
-          typeof ev.prompt === "string" &&
-          ev.prompt.length > 0
-            ? { prompt: ev.prompt, turnKey: mintTurnKey() }
+          // The turn key is minted here because the reducer is pure.
+          ...(frame.prompt !== undefined && frame.prompt.length > 0
+            ? { prompt: frame.prompt, turnKey: mintTurnKey() }
             : {}),
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "replay_relocation") {
-        // Where a directory change sits in the replayed history.
+        };
+      case "replay_stage":
+        // The same boundary, replayed: tugcode emits this between the
+        // JSONLs of an arc's stages during a lineage restore. A replayed
+        // rotation is only a divider — the identity transfer it names
+        // already happened.
+        return {
+          type: "session_stage",
+          stage: frame.stage,
+          model: frame.model,
+          document: frame.document,
+          arc: frame.arc,
+        };
+      case "replay_relocation":
+        // Where, in a replay, the card changed its project directory: after
+        // the history carried from the old directory and before the first
+        // turn said in the new one. Only a divider.
         return {
           type: "session_relocation",
-          fromDir: typeof ev.from_dir === "string" ? ev.from_dir : "",
-          toDir: typeof ev.to_dir === "string" ? ev.to_dir : "",
-        } as unknown as CodeSessionEvent;
-      }
-      if (ev.type === "compact_summary") {
-        // The compaction summary string — folded into `compactionSeed` so
-        // the carry-forward block restores (live and on reload).
-        return {
-          type: "compact_summary",
-          summary: typeof ev.summary === "string" ? ev.summary : "",
-        } as unknown as CodeSessionEvent;
-      }
-      if (
-        ev.type === "task_started" ||
-        ev.type === "task_updated" ||
-        ev.type === "task_progress"
-      ) {
-        // Background-job lifecycle frames — snake_case wire narrowed
-        // to the camelCase reducer events by the select-jobs helpers.
-        // A drifted/malformed frame narrows to undefined and is
-        // dropped here rather than dispatched.
-        const narrowed =
-          ev.type === "task_started"
-            ? narrowTaskStartedFrame(ev)
-            : ev.type === "task_updated"
-              ? narrowTaskUpdatedFrame(ev)
-              : narrowTaskProgressFrame(ev);
-        return narrowed ?? null;
-      }
-      if (ev.type === "unknown_event") {
-        // Normalize tugcode's snake_case forward-compat frame to the
-        // reducer event's camelCase. The reducer stamps `at` itself
-        // (time-free wire, like the error path).
+          fromDir: frame.from_dir,
+          toDir: frame.to_dir,
+        };
+      case "unknown_event":
+        // tugcode's forward-compat catch-all: claude streamed a top-level
+        // event type this build doesn't translate. The reducer folds it
+        // into `unknownEvent`, driving a soft warn banner, and stamps `at`
+        // itself.
         return {
           type: "unknown_event",
-          originalType:
-            typeof ev.original_type === "string" ? ev.original_type : "unknown",
-          payloadHexPreview:
-            typeof ev.payload_hex_preview === "string"
-              ? ev.payload_hex_preview
-              : "",
-        } as unknown as CodeSessionEvent;
-      }
-      return ev as unknown as CodeSessionEvent;
+          originalType: frame.original_type,
+          payloadHexPreview: frame.payload_hex_preview,
+        };
+      case "streaming_usage":
+        // Live intra-turn token usage — high-frequency telemetry published
+        // to the streaming document's live-usage path (never the snapshot);
+        // no phase change, no persist.
+        return frame;
+      case "resume_failed":
+        // tugcode emits this after a failed `--resume` spawn. The reducer
+        // rolls it into `lastError`.
+        logSessionLifecycle("code_store.resume_failed_recv", {
+          tug_session_id: this.tugSessionId,
+          stale_session_id: frame.stale_session_id,
+          reason: frame.reason,
+        });
+        return frame;
+      case "replay_started":
+      case "replay_complete":
+        // Replay bracket events emitted by the JSONL replay translator. The
+        // reducer transitions into / out of the `replaying` phase on these
+        // and populates `lastReplayResult` on completion.
+        return frame;
+      case "add_user_message":
+        return this.addUserMessageEvent(frame);
+      case "wake_started":
+      case "assistant_opener":
+      case "tug_notice":
+        // Turn openers with no user message. `wake_started` opens a wake
+        // bracket when claude resumes from idle on an async trigger
+        // (Monitor / CronCreate / ScheduleWakeup / …); `assistant_opener`
+        // opens an assistant-only turn for orphan assistant content
+        // (`tuglaws/turn-metric.md` S02); `tug_notice` is tugcast's opener
+        // beside a turn Tug injected itself, so no server-initiated turn
+        // arrives with no visible cause. The `turnKey` is a React-key seed
+        // with no meaning on the wire, minted here so the reducer stays
+        // pure.
+        return { ...frame, turnKey: mintTurnKey() };
+      case "task_started":
+        // Background-job lifecycle frames (the JOBS cell's feed — unrelated
+        // to the TaskCreate/TaskUpdate tool calls behind TASKS), folded into
+        // the session-lifetime jobs ledger. An empty id is refused by the
+        // mapping and the frame dropped.
+        return taskStartedEvent(frame) ?? null;
+      case "task_updated":
+        return taskUpdatedEvent(frame) ?? null;
+      case "task_progress":
+        // In-flight ticks for a backgrounded agent: the reducer folds the
+        // latest tick's tool and usage onto the running job row, and never
+        // inserts one.
+        return taskProgressEvent(frame) ?? null;
+      case "prompt_anchor":
+      case "rewind_preview_result":
+      case "rewind_result":
+        // `/rewind` frames. `prompt_anchor` carries the live turn's rewind
+        // anchor (the reducer stamps it onto the turn);
+        // `rewind_preview_result` carries a per-turn diff-stat (folded into
+        // the preview cache); `rewind_result` is the applied-rewind ack.
+        return frame;
+      case "replay_batch":
+      case "tool_progress":
+      case "run_progress":
+        // Taken apart before admission (`UNWRAPPED_CODE_OUTPUT_TYPES`).
+        return null;
     }
+  }
+
+  /**
+   * Per-turn synthetic user-message frame, emitted by the replay translator
+   * at the start of each replayed turn and by tugcode's mid-turn snapshot
+   * path. The reducer's `handleAddUserMessage` mints a `pendingTurn` whose
+   * `initialMessages` is `[user_message]`, so the following
+   * `turn_complete` commits a `TurnEntry` with the historical submission.
+   */
+  private addUserMessageEvent(
+    frame: Extract<AnyDecodedFrame, { type: "add_user_message" }>,
+  ): CodeSessionEvent {
+    // `turnKey` is a client-side React-key seed minted by the store
+    // wrapper for every dispatched replay event. The wire doesn't (and
+    // shouldn't) carry it — replay is a synthesis of historical user
+    // submissions, and the cell wrapper identity is purely React's
+    // concern. Minting here keeps the reducer pure.
+    //
+    // The wire's `content` blocks (Anthropic API shape, carried verbatim
+    // through tugcast / tugcode) are walked through
+    // `synthesizeUserMessageFromBlocks` to produce the substrate
+    // `(text, atoms)` pair. No resolver — replay path mints fresh atom ids;
+    // the bytes-store is per-card-mount (fresh on reload) so
+    // orphan-from-id-reuse is impossible.
+    const rawContent: ContentBlock[] = frame.content;
+    // A `/compact`-born first message carries the recap as a marked
+    // leading content block (it rode the wire with the user's text).
+    // Split it off the *raw* content before synthesis so the recap never
+    // passes through `synthesizeUserMessageFromBlocks` (which parses
+    // `@`-mention markers): the bubble is the residual user content, the
+    // recap re-marks `compactionSeed` so the carry-forward summary renders
+    // on reload exactly as live.
+    const lead = rawContent[0];
+    const leadText = lead !== undefined && lead.type === "text" ? lead.text : "";
+    const seedSummary = leadText !== "" ? splitCompactionSeed(leadText) : null;
+    // A canceled `/compact` leaves its throwaway summarization turn in the
+    // discarded session's JSONL (claude persisted it; the client's
+    // `suppress` never crossed the wire). Recognize it on reload and mark
+    // the turn suppressed so it is dropped, not committed.
+    const suppressedTurn = leadText !== "" && isCompactionSummarizeText(leadText);
+    const content = seedSummary !== null ? rawContent.slice(1) : rawContent;
+    const synth = synthesizeUserMessageFromBlocks(content, this.atomBytesStore);
+    return {
+      type: "add_user_message",
+      text: synth.text,
+      atoms: synth.atoms,
+      tug_session_id: stampedSessionId(frame),
+      turnKey: mintTurnKey(),
+      timestamp: frame.timestamp,
+      // `/rewind` anchor on the replay / mid-turn-snapshot path; the
+      // reducer stamps it onto the turn.
+      promptUuid:
+        frame.promptUuid !== undefined && frame.promptUuid.length > 0
+          ? frame.promptUuid
+          : undefined,
+      // Who authored the submission, as tugcode's translator stated it on
+      // the one frame it identified as a stage's opening prompt.
+      origin: frame.origin === "wheel" ? "wheel" : undefined,
+      ...(seedSummary !== null ? { compactionSummary: seedSummary } : {}),
+      ...(suppressedTurn ? { suppressedTurn: true } : {}),
+    };
+  }
+
+  private frameToEvent(
+    feedId: number,
+    decoded: unknown,
+  ): CodeSessionEvent | null {
     if (feedId === FeedId.SESSION_STATE) {
       // SESSION_STATE payload shape is `{ tug_session_id, state, detail }`.
       // Only `state: "errored"` maps to a reducer event; all other

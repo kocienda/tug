@@ -8,9 +8,12 @@
  *   constructing the FeedStore; the filter must run against the replayed
  *   payload inside the synchronous `onFrame` → cached-replay callback.
  * - Filter is optional: omitting it is passthrough (original behavior).
+ * - Failures are named for what failed: a decode or filter throw logs as a
+ *   decode failure and drops the frame; a listener throw logs as a listener
+ *   exception naming the feed and the listener, and the rest still run.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
 
 import { FeedStore, defaultDecode, type FeedStoreFilter } from "../lib/feed-store";
 import { FeedId, type FeedIdValue } from "../protocol";
@@ -288,5 +291,104 @@ describe("FeedStore filter", () => {
     // callback closures would pin the dead store forever.
     expect(mock.callbackCount(FeedId.SESSION_SIDEBAND)).toBe(0);
     expect(mock.callbackCount(FeedId.DIGEST)).toBe(0);
+  });
+});
+
+describe("FeedStore failure reporting", () => {
+  function captureErrors(run: () => void): string[] {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      run();
+      return spy.mock.calls.map((args) => String(args[0]));
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  test("a decode throw logs as a decode failure and drops the frame", () => {
+    const { conn, mock } = makeMockConn();
+    const store = new FeedStore(
+      conn,
+      [FeedId.SESSION_SIDEBAND] as readonly FeedIdValue[],
+      () => {
+        throw new Error("bad bytes");
+      },
+    );
+    let notified = 0;
+    store.subscribe(() => notified++);
+    const before = store.getSnapshot();
+
+    const errors = captureErrors(() => mock.emit(FeedId.SESSION_SIDEBAND, encodeJson({})));
+
+    expect(errors).toEqual([
+      `[FeedStore] failed to decode payload for feed 0x${FeedId.SESSION_SIDEBAND.toString(16)}:`,
+    ]);
+    expect(store.getSnapshot()).toBe(before);
+    expect(notified).toBe(0);
+  });
+
+  test("a filter throw logs as a decode failure and drops the frame", () => {
+    const { conn, mock } = makeMockConn();
+    const filter: FeedStoreFilter = () => {
+      throw new Error("filter bug");
+    };
+    const store = new FeedStore(
+      conn,
+      [FeedId.SESSION_SIDEBAND] as readonly FeedIdValue[],
+      defaultDecode,
+      filter,
+    );
+    let notified = 0;
+    store.subscribe(() => notified++);
+    const before = store.getSnapshot();
+
+    const errors = captureErrors(() => mock.emit(FeedId.SESSION_SIDEBAND, encodeJson({ a: 1 })));
+
+    expect(errors).toEqual([
+      `[FeedStore] failed to decode payload for feed 0x${FeedId.SESSION_SIDEBAND.toString(16)}:`,
+    ]);
+    expect(store.getSnapshot()).toBe(before);
+    expect(notified).toBe(0);
+  });
+
+  test("a listener throw logs as a listener exception and the rest still run", () => {
+    const { conn, mock } = makeMockConn();
+    const store = new FeedStore(conn, [FeedId.SESSION_SIDEBAND] as readonly FeedIdValue[]);
+    const ran: string[] = [];
+    store.subscribe(() => ran.push("first"));
+    store.subscribe(function brokenListener() {
+      ran.push("broken");
+      throw new Error("listener bug");
+    });
+    store.subscribe(() => ran.push("last"));
+
+    const errors = captureErrors(() =>
+      mock.emit(FeedId.SESSION_SIDEBAND, encodeJson({ payload: "x" })),
+    );
+
+    const feedHex = `0x${FeedId.SESSION_SIDEBAND.toString(16)}`;
+    expect(errors).toEqual([`[FeedStore] listener brokenListener threw for feed ${feedHex}:`]);
+    expect(ran).toEqual(["first", "broken", "last"]);
+    // The frame was admitted: a listener's failure does not undo the snapshot.
+    expect(
+      (store.getSnapshot().get(FeedId.SESSION_SIDEBAND) as { payload: string }).payload,
+    ).toBe("x");
+  });
+
+  test("an anonymous listener is named by its position", () => {
+    const { conn, mock } = makeMockConn();
+    const store = new FeedStore(conn, [FeedId.SESSION_SIDEBAND] as readonly FeedIdValue[]);
+    const listeners: Array<() => void> = [
+      () => {},
+      () => {
+        throw new Error("anon bug");
+      },
+    ];
+    for (const listener of listeners) store.subscribe(listener);
+
+    const errors = captureErrors(() => mock.emit(FeedId.SESSION_SIDEBAND, encodeJson({})));
+
+    const feedHex = `0x${FeedId.SESSION_SIDEBAND.toString(16)}`;
+    expect(errors).toEqual([`[FeedStore] listener #1 threw for feed ${feedHex}:`]);
   });
 });

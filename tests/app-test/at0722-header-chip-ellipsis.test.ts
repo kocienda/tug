@@ -88,11 +88,12 @@ async function mountLongRead(app: Harness): Promise<void> {
   });
   await ingest({
     type: "tool_result",
+    is_error: false,
     tug_session_id: SID,
     tool_use_id: "tc-read",
     output: "alpha\nbravo\n",
   });
-  await ingest({ type: "turn_complete", tug_session_id: SID, msg_id: "m1", result: "success" });
+  await ingest({ type: "turn_complete", seq: 0, tug_session_id: SID, msg_id: "m1", result: "success" });
   await ingest({
     type: "replay_complete",
     tug_session_id: SID,

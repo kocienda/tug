@@ -235,13 +235,16 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
         });
         await frame({
           type: "assistant_text",
+          seq: 0,
+          rev: 0,
+          status: "complete",
           msg_id: `${SID}-m1`,
           block_index: 0,
           text: "working the step",
           is_partial: false,
         });
         const midTurnTs = Date.now();
-        await frame({ type: "turn_complete", msg_id: `${SID}-m1`, result: "success" });
+        await frame({ type: "turn_complete", seq: 0, msg_id: `${SID}-m1`, result: "success" });
 
         // The live seat survives the commit.
         await app.waitForCondition<boolean>(

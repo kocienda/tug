@@ -121,6 +121,9 @@ describe.skipIf(!SHOULD_RUN)("at0312 focus-attr stability", () => {
             feedId: FEED_CODE_OUTPUT,
             decoded: {
               type: "assistant_text",
+              seq: 0,
+              rev: 0,
+              status: "complete",
               tug_session_id: sid,
               msg_id: `${sid}-m0`,
               text: `streaming line ${n}\n`.repeat(n + 1),

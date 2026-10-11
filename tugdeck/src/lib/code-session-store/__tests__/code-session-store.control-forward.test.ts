@@ -61,6 +61,7 @@ function drainToStreaming(
 ): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     text: "a",
@@ -71,6 +72,7 @@ function drainToStreaming(
   // submitting → awaiting_first_token
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     text: "b",
@@ -236,6 +238,8 @@ describe("CodeSessionStore — synthetic AskUserQuestion (Step 6)", () => {
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       request_id: FIXTURE_IDS.REQUEST_ID,
       is_question: true,
+      tool_name: "AskUserQuestion",
+      input: {},
       question: "pick one",
       options: [
         { key: "a", label: "Option A" },
@@ -280,6 +284,8 @@ describe("CodeSessionStore — synthetic AskUserQuestion (Step 6)", () => {
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       request_id: FIXTURE_IDS.REQUEST_ID,
       is_question: true,
+      tool_name: "AskUserQuestion",
+      input: {},
       question: "pick one",
       options: [
         { key: "a", label: "Option A" },
@@ -338,6 +344,8 @@ describe("CodeSessionStore — stacked dialogs", () => {
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       request_id: "req-question-2",
       is_question: true,
+      tool_name: "AskUserQuestion",
+      input: {},
       question: "pick one",
       options: [{ key: "a", label: "Option A" }],
     });
@@ -385,6 +393,8 @@ describe("CodeSessionStore — stacked dialogs", () => {
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       request_id: "req-question-3",
       is_question: true,
+      tool_name: "AskUserQuestion",
+      input: {},
       question: "pick again",
       options: [{ key: "b", label: "Option B" }],
     });

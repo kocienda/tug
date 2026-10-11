@@ -1174,7 +1174,12 @@ export interface ToolUseStructured {
   type: "tool_use_structured";
   tool_use_id: string;
   tool_name: string;
-  structured_result: Record<string, unknown>;
+  /**
+   * claude's `tool_use_result`, forwarded verbatim. Usually an object, but
+   * claude sends a bare string for some results (a tool error's message), and
+   * the golden catalog has captured both.
+   */
+  structured_result: Record<string, unknown> | string;
   ipc_version: number;
 }
 

@@ -163,6 +163,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "assistant_text",
+            status: "complete",
             tug_session_id: SID,
             msg_id: "m1",
             text: "Here is a longer assistant reply that spans the transcript region with enough prose that a click near the top of the content area lands on this row's text.",
@@ -172,6 +173,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "turn_complete",
+            seq: 0,
             tug_session_id: SID,
             msg_id: "m1",
             result: "success",

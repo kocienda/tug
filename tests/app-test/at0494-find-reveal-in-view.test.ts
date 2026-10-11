@@ -140,12 +140,15 @@ async function seedTurns(app: App, turns: number): Promise<void> {
     });
     await frame({
       type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
       msg_id: msgId,
       block_index: 0,
       text: replyText(n),
       is_partial: false,
     });
-    await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+    await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
   }
 }
 
@@ -395,12 +398,13 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals a match inside an editor", ()
         await app.driveSession("A", { op: "send", text: "read it" });
         await frame({
           type: "tool_use",
+          seq: 0,
           msg_id: "m-read",
           tool_use_id: "tc-read",
           tool_name: "Read",
           input: { file_path: "/tmp/at0494/sample.ts" },
         });
-        await frame({ type: "tool_result", tool_use_id: "tc-read", output: "ok" });
+        await frame({ type: "tool_result", is_error: false, tool_use_id: "tc-read", output: "ok" });
         await frame({
           type: "tool_use_structured",
           tool_use_id: "tc-read",
@@ -416,7 +420,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals a match inside an editor", ()
             },
           },
         });
-        await frame({ type: "turn_complete", msg_id: "m-read", result: "success" });
+        await frame({ type: "turn_complete", seq: 0, msg_id: "m-read", result: "success" });
         await app.waitForCondition<boolean>(
           `document.querySelector('${READ_BLOCK}') !== null`,
           { timeoutMs: 10_000 },
@@ -619,6 +623,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: the active match stays painted", () => {
         await app.driveSession("A", { op: "send", text: "run it" });
         await frame({
           type: "tool_use",
+          seq: 0,
           msg_id: "m-bash",
           tool_use_id: "tc-bash",
           tool_name: "Bash",
@@ -635,12 +640,15 @@ describe.skipIf(!SHOULD_RUN)("AT0494: the active match stays painted", () => {
         });
         await frame({
           type: "assistant_text",
+          seq: 0,
+          rev: 0,
+          status: "complete",
           msg_id: "m-bash",
           block_index: 0,
           text: `The ${HEADER_PROBE} appears in the reply too.`,
           is_partial: false,
         });
-        await frame({ type: "turn_complete", msg_id: "m-bash", result: "success" });
+        await frame({ type: "turn_complete", seq: 0, msg_id: "m-bash", result: "success" });
         await app.waitForCondition<boolean>(
           `document.querySelector('${CARD} [data-slot="bash-tool-block"]') !== null`,
           { timeoutMs: 10_000 },
@@ -722,6 +730,9 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a revealed match stays painted", () => {
           });
           await frame({
             type: "assistant_text",
+            seq: 0,
+            rev: 0,
+            status: "complete",
             msg_id: msgId,
             block_index: 0,
             text: replyText(n),
@@ -731,6 +742,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a revealed match stays painted", () => {
             const tuId = `${TRAVEL_SID}-tu${n}`;
             await frame({
               type: "tool_use",
+              seq: 0,
               msg_id: msgId,
               tool_use_id: tuId,
               tool_name: "Bash",
@@ -749,7 +761,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a revealed match stays painted", () => {
               is_error: false,
             });
           }
-          await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+          await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
         }
         await app.waitForCondition<boolean>(
           `document.querySelector('${SCROLLER}[data-evict-active]') !== null`,
@@ -858,6 +870,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every mounted match paints", () => {
           const tuId = `${MULTI_SID}-tu${i}`;
           await frame({
             type: "tool_use",
+            seq: 0,
             msg_id: `${MULTI_SID}-m0`,
             tool_use_id: tuId,
             tool_name: "Bash",
@@ -872,12 +885,15 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every mounted match paints", () => {
         }
         await frame({
           type: "assistant_text",
+          seq: 0,
+          rev: 0,
+          status: "complete",
           msg_id: `${MULTI_SID}-m0`,
           block_index: 0,
           text: `This session is named ${HEADER_PROBE}, per the log.`,
           is_partial: false,
         });
-        await frame({ type: "turn_complete", msg_id: `${MULTI_SID}-m0`, result: "success" });
+        await frame({ type: "turn_complete", seq: 0, msg_id: `${MULTI_SID}-m0`, result: "success" });
         await app.waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="bash-tool-block"]').length === 3`,
           { timeoutMs: 10_000 },
@@ -1128,6 +1144,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a match past a header clamp is shown", () 
         await app.driveSession("A", { op: "send", text: "run it" });
         await frame({
           type: "tool_use",
+          seq: 0,
           msg_id: "m-clamp",
           tool_use_id: "tc-clamp",
           tool_name: "Bash",
@@ -1139,7 +1156,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a match past a header clamp is shown", () 
           output: "nothing found",
           is_error: false,
         });
-        await frame({ type: "turn_complete", msg_id: "m-clamp", result: "success" });
+        await frame({ type: "turn_complete", seq: 0, msg_id: "m-clamp", result: "success" });
         await app.waitForCondition<boolean>(
           `document.querySelector('${CARD} [data-slot="bash-tool-block"]') !== null`,
           { timeoutMs: 10_000 },

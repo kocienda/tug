@@ -13,7 +13,7 @@
  * (#s06-golden-loader)
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -126,6 +126,11 @@ function assertNoUnknownTokens(processed: string, absPath: string): void {
  * Fields where `{{uuid}}` is a known id and may appear multiple times
  * across an event stream. Any other field that carries `{{uuid}}` is a
  * forward-compat surprise and trips the falsification guard.
+ *
+ * The camelCase ids arrived with later captures — the prompt anchor's
+ * `promptUuid`, the rewind and fork lineage's `forkPoint` /
+ * `newSessionId` / `parentSessionId`, and a bare `uuid` — and keep their
+ * placeholder as-is.
  */
 const KNOWN_UUID_FIELDS: ReadonlySet<string> = new Set([
   "session_id",
@@ -135,6 +140,11 @@ const KNOWN_UUID_FIELDS: ReadonlySet<string> = new Set([
   "request_id",
   "task_id",
   "claude_session_id",
+  "promptUuid",
+  "forkPoint",
+  "newSessionId",
+  "parentSessionId",
+  "uuid",
 ]);
 
 interface PendingToolCall {
@@ -431,6 +441,21 @@ function assertLeafHasNoUuid(
 // ---------------------------------------------------------------------------
 // Public entry points
 // ---------------------------------------------------------------------------
+
+/**
+ * List every catalog version (`v2.1.104`, `v2.1.105`, …), sorted: the
+ * version directories that carry a `manifest.json`. The `-spike` directories
+ * beside them have none — they hold raw `claude -p` captures, not the
+ * post-tugcode frames this loader serves (see their `README.md`). A test that
+ * must hold across the whole catalog walks this rather than naming versions,
+ * so a newly captured version is covered the moment its directory lands.
+ */
+export function listGoldenVersions(): string[] {
+  const root = path.resolve(import.meta.dir, FIXTURE_ROOT_RELATIVE);
+  return readdirSync(root)
+    .filter((entry) => existsSync(path.join(root, entry, "manifest.json")))
+    .sort();
+}
 
 /**
  * List the *loadable* probe names for a catalog version — every

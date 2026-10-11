@@ -255,7 +255,7 @@ export interface PendingTurn {
 }
 
 /** Derive a Message's `messageKey` from the wire coordinate it owns. */
-function wireMessageKey(msgId: string, blockIndex: number): string {
+function wireMessageKey(msgId: string, blockIndex: number | undefined): string {
   return `${msgId}-b${blockIndex}`;
 }
 
@@ -273,8 +273,12 @@ export function systemNoteKey(turnKey: string, seq: number): string {
   return `${turnKey}-sys${seq}`;
 }
 
-/** Composite key into `ScratchEntry.blockIndex`. */
-function blockKey(msgId: string, blockIndex: number): string {
+/**
+ * Composite key into `ScratchEntry.blockIndex`. A text frame captured before
+ * `content_block_start` existed has no `block_index`, and keys on the string
+ * `undefined`, as it always has.
+ */
+function blockKey(msgId: string, blockIndex: number | undefined): string {
   return `${msgId}:${blockIndex}`;
 }
 

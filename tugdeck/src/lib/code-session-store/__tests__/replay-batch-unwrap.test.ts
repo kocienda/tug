@@ -2,8 +2,8 @@
  * `replay_batch` unwrap at the ingest boundary.
  *
  * A `replay_batch` is a transport-only envelope: the store unwraps it
- * and dispatches each inner frame through the same `frameToEvent` +
- * `dispatch` path a per-frame replay would take. These tests pin the
+ * and decodes and dispatches each inner frame exactly as a per-frame
+ * replay would. These tests pin the
  * invariant that batched ingest is indistinguishable from per-frame
  * ingest — same transcript, same dispatched-frame count — against the
  * REAL store + reducer (frames delivered through the same
@@ -44,13 +44,14 @@ function turnFrames(n: number): Array<Record<string, unknown>> {
     { type: "add_user_message", content: [{ type: "text", text: `prompt ${n}` }] },
     {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(n),
       text: `reply ${n}`,
       is_partial: false,
       rev: 0,
       seq: 0,
     },
-    { type: "turn_complete", msg_id: FIXTURE_IDS.MSG_ID_N(n), result: "success" },
+    { type: "turn_complete", seq: 0, msg_id: FIXTURE_IDS.MSG_ID_N(n), result: "success" },
   ];
 }
 

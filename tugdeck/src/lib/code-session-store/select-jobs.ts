@@ -1,7 +1,7 @@
 /**
- * Background-jobs ledger — wire narrowing for the `task_started` /
- * `task_updated` IPC frames and the pure helpers behind the Z2 `JOBS`
- * cell.
+ * Background-jobs ledger — the camelCase mapping for the decoded
+ * `task_started` / `task_updated` / `task_progress` IPC frames and the
+ * pure helpers behind the Z2 `JOBS` cell.
  *
  * **Terminology guard.** Two unrelated "task" vocabularies cross this
  * store. The `TaskCreate` / `TaskUpdate` *tool calls* are the todo
@@ -25,6 +25,7 @@
  * @module lib/code-session-store/select-jobs
  */
 
+import type { DecodedFrame } from "@tugproto/outbound-decoders";
 import type { ToolUseMessage } from "./types";
 import type {
   TaskStartedEvent,
@@ -149,91 +150,77 @@ const EMPTY_JOBS: readonly JobItem[] = Object.freeze([]);
 export const EMPTY_JOBS_LEDGER: readonly JobItem[] = EMPTY_JOBS;
 
 // ---------------------------------------------------------------------------
-// Wire narrowing (pure)
+// Wire mapping (pure)
 // ---------------------------------------------------------------------------
 
 /**
- * Narrow a decoded `task_started` CODE_OUTPUT frame into the camelCase
- * {@link TaskStartedEvent}. Defensive: returns `undefined` when the
- * required `task_id` / `tool_use_id` strings are missing, so a drifted
- * frame is dropped rather than dispatched malformed.
+ * Map a decoded `task_started` frame onto the camelCase
+ * {@link TaskStartedEvent}. The decoder has checked the shape; this refuses
+ * an empty `task_id` / `tool_use_id`, a value no job row can be keyed by,
+ * by returning `undefined` so the frame is dropped.
  */
-export function narrowTaskStartedFrame(
-  frame: Record<string, unknown>,
+export function taskStartedEvent(
+  frame: DecodedFrame<"task_started">,
 ): TaskStartedEvent | undefined {
-  if (frame.type !== "task_started") return undefined;
-  const taskId = frame.task_id;
-  const toolUseId = frame.tool_use_id;
-  if (typeof taskId !== "string" || taskId.length === 0) return undefined;
-  if (typeof toolUseId !== "string" || toolUseId.length === 0) return undefined;
-  const subagentType = frame.subagent_type;
+  const { task_id: taskId, tool_use_id: toolUseId, subagent_type: subagentType } = frame;
+  if (taskId.length === 0 || toolUseId.length === 0) return undefined;
   return {
     type: "task_started",
     taskId,
     toolUseId,
-    description: typeof frame.description === "string" ? frame.description : "",
-    taskType: typeof frame.task_type === "string" ? frame.task_type : "",
-    ...(typeof subagentType === "string" ? { subagentType } : {}),
-    ...(typeof frame.tug_session_id === "string"
-      ? { tug_session_id: frame.tug_session_id }
-      : {}),
+    description: frame.description,
+    taskType: frame.task_type,
+    ...(subagentType !== undefined ? { subagentType } : {}),
+    ...tugSessionIdOf(frame),
   };
 }
 
 /**
- * Narrow a decoded `task_updated` CODE_OUTPUT frame into the camelCase
+ * Map a decoded `task_updated` frame onto the camelCase
  * {@link TaskUpdatedEvent}. tugcode has already flattened claude's
- * `patch` object onto the frame (`status` / `end_time`). Defensive on
- * the required `task_id` / `status` strings.
+ * `patch` object onto the frame (`status` / `end_time`). An empty
+ * `task_id` or `status` is refused, as in {@link taskStartedEvent}.
  */
-export function narrowTaskUpdatedFrame(
-  frame: Record<string, unknown>,
+export function taskUpdatedEvent(
+  frame: DecodedFrame<"task_updated">,
 ): TaskUpdatedEvent | undefined {
-  if (frame.type !== "task_updated") return undefined;
-  const taskId = frame.task_id;
-  const status = frame.status;
-  if (typeof taskId !== "string" || taskId.length === 0) return undefined;
-  if (typeof status !== "string" || status.length === 0) return undefined;
+  const { task_id: taskId, status } = frame;
+  if (taskId.length === 0 || status.length === 0) return undefined;
   return {
     type: "task_updated",
     taskId,
     status,
-    ...(typeof frame.end_time === "number" ? { endTime: frame.end_time } : {}),
-    ...(typeof frame.tug_session_id === "string"
-      ? { tug_session_id: frame.tug_session_id }
-      : {}),
+    ...(frame.end_time !== undefined ? { endTime: frame.end_time } : {}),
+    ...tugSessionIdOf(frame),
   };
 }
 
 /**
- * Narrow a decoded `task_progress` CODE_OUTPUT frame into the camelCase
- * {@link TaskProgressEvent}. Defensive on the required `task_id` /
- * `tool_use_id`; the progress detail (`last_tool_name`, `usage`) is
- * optional and camelCased here so a partial frame still folds.
+ * Map a decoded `task_progress` frame onto the camelCase
+ * {@link TaskProgressEvent}. An empty `task_id` / `tool_use_id` is
+ * refused; the progress detail (`last_tool_name`, `usage`) is optional
+ * and camelCased here so a partial frame still folds.
  */
-export function narrowTaskProgressFrame(
-  frame: Record<string, unknown>,
+export function taskProgressEvent(
+  frame: DecodedFrame<"task_progress">,
 ): TaskProgressEvent | undefined {
-  if (frame.type !== "task_progress") return undefined;
-  const taskId = frame.task_id;
-  const toolUseId = frame.tool_use_id;
-  if (typeof taskId !== "string" || taskId.length === 0) return undefined;
-  if (typeof toolUseId !== "string" || toolUseId.length === 0) return undefined;
-  const subagentType = frame.subagent_type;
-  const lastToolName = frame.last_tool_name;
-  const rawUsage =
-    typeof frame.usage === "object" && frame.usage !== null
-      ? (frame.usage as Record<string, unknown>)
-      : null;
+  const {
+    task_id: taskId,
+    tool_use_id: toolUseId,
+    subagent_type: subagentType,
+    last_tool_name: lastToolName,
+    usage: rawUsage,
+  } = frame;
+  if (taskId.length === 0 || toolUseId.length === 0) return undefined;
   const usage = rawUsage
     ? {
-        ...(typeof rawUsage.total_tokens === "number"
+        ...(rawUsage.total_tokens !== undefined
           ? { totalTokens: rawUsage.total_tokens }
           : {}),
-        ...(typeof rawUsage.tool_uses === "number"
+        ...(rawUsage.tool_uses !== undefined
           ? { toolUses: rawUsage.tool_uses }
           : {}),
-        ...(typeof rawUsage.duration_ms === "number"
+        ...(rawUsage.duration_ms !== undefined
           ? { durationMs: rawUsage.duration_ms }
           : {}),
       }
@@ -242,14 +229,21 @@ export function narrowTaskProgressFrame(
     type: "task_progress",
     taskId,
     toolUseId,
-    description: typeof frame.description === "string" ? frame.description : "",
-    ...(typeof subagentType === "string" ? { subagentType } : {}),
-    ...(typeof lastToolName === "string" ? { lastToolName } : {}),
+    description: frame.description,
+    ...(subagentType !== undefined ? { subagentType } : {}),
+    ...(lastToolName !== undefined ? { lastToolName } : {}),
     ...(usage && Object.keys(usage).length > 0 ? { usage } : {}),
-    ...(typeof frame.tug_session_id === "string"
-      ? { tug_session_id: frame.tug_session_id }
-      : {}),
+    ...tugSessionIdOf(frame),
   };
+}
+
+/**
+ * tugcast's `tug_session_id` stamp, which no decoder declares and every
+ * decoded frame carries through, as a spreadable field.
+ */
+function tugSessionIdOf(frame: object): { tug_session_id?: string } {
+  const id = (frame as { tug_session_id?: unknown }).tug_session_id;
+  return typeof id === "string" ? { tug_session_id: id } : {};
 }
 
 /**

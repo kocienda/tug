@@ -134,7 +134,7 @@ function feedBracket(
     elapsed += chunk;
     emit(conn, {
       type: "add_user_message",
-      text: `turn ${n++}`,
+      content: [{ type: "text", text: `turn ${n++}` }],
       ipc_version: IPC_VERSION,
     });
   }
@@ -152,7 +152,10 @@ const replayComplete = (count: number) => ({
 const apiRetry = (attempt: number) => ({
   type: "api_retry",
   attempt,
-  message: "Connection error, retrying",
+  max_retries: 10,
+  retry_delay_ms: 3000,
+  error_status: null,
+  error: "Connection error, retrying",
   ipc_version: IPC_VERSION,
 });
 const replayBatch = (frames: ReadonlyArray<Record<string, unknown>>) => ({
@@ -241,8 +244,8 @@ describe("replay bracket — only bracket frames buy silence time", () => {
       emit(
         conn,
         replayBatch([
-          { type: "add_user_message", text: `turn ${i}` },
-          { type: "turn_complete", msg_id: `m${i}`, seq: i, result: "" },
+          { type: "add_user_message", content: [{ type: "text", text: `turn ${i}` }] },
+          { type: "turn_complete", msg_id: `m${i}`, seq: i, result: "success" },
         ]),
       );
       expect(store.getSnapshot().phase).toBe("replaying");
@@ -262,7 +265,7 @@ describe("replay bracket — only bracket frames buy silence time", () => {
     timers.advance(10_000);
     emit(conn, {
       type: "add_user_message",
-      text: "turn 0",
+      content: [{ type: "text", text: "turn 0" }],
       ipc_version: IPC_VERSION,
     });
     // Four retries over 12 s, all inside the window the real frame

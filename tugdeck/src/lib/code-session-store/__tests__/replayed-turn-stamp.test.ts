@@ -37,6 +37,7 @@ function emitTurn(conn: TestFrameChannel, n: number): void {
   });
   emit(conn, {
     type: "assistant_text",
+    status: "complete",
     msg_id: FIXTURE_IDS.MSG_ID_N(n),
     text: `reply ${n}`,
     is_partial: false,
@@ -45,6 +46,7 @@ function emitTurn(conn: TestFrameChannel, n: number): void {
   });
   emit(conn, {
     type: "turn_complete",
+    seq: 0,
     msg_id: FIXTURE_IDS.MSG_ID_N(n),
     result: "success",
   });
@@ -72,6 +74,7 @@ describe("replayed-turn stamp", () => {
     store.send("live prompt", []);
     emit(conn, {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(3),
       text: "live reply",
       is_partial: false,
@@ -80,6 +83,7 @@ describe("replayed-turn stamp", () => {
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(3),
       result: "success",
     });

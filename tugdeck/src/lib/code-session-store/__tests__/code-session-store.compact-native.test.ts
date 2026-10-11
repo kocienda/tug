@@ -41,13 +41,14 @@ function turnFrames(n: number): Array<Record<string, unknown>> {
     { type: "add_user_message", content: [{ type: "text", text: `prompt ${n}` }] },
     {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(n),
       text: `reply ${n}`,
       is_partial: false,
       rev: 0,
       seq: 0,
     },
-    { type: "turn_complete", msg_id: FIXTURE_IDS.MSG_ID_N(n), result: "success" },
+    { type: "turn_complete", seq: 0, msg_id: FIXTURE_IDS.MSG_ID_N(n), result: "success" },
   ];
 }
 

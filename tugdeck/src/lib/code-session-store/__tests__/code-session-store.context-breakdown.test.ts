@@ -76,7 +76,7 @@ describe("CodeSessionStore — context_breakdown wire-frame ingestion", () => {
       context_max: 200_000,
       categories: [
         { id: "system_prompt", label: "System prompt", tokens: 3_500 },
-        { id: "messages", label: "Messages", tokens: 12_000 },
+        { id: "system_tools", label: "System tools", tokens: 12_000 },
       ],
     });
 
@@ -103,7 +103,7 @@ describe("CodeSessionStore — context_breakdown wire-frame ingestion", () => {
       from_supervisor_attach: true,
       context_max: 200_000,
       categories: [
-        { id: "messages", label: "Messages", tokens: 8_000 },
+        { id: "system_tools", label: "System tools", tokens: 8_000 },
       ],
     });
 
@@ -129,7 +129,7 @@ describe("CodeSessionStore — context_breakdown wire-frame ingestion", () => {
       tug_session_id: "tug00000-0000-4000-8000-000000000aaa",
       context_max: 200_000,
       categories: [
-        { id: "messages", label: "Messages", tokens: 8_000 },
+        { id: "system_tools", label: "System tools", tokens: 8_000 },
       ],
     });
 

@@ -201,8 +201,8 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
         // Commit the turn with an assistant message.
         await frame({ type: "prompt_anchor", promptUuid: "uuid-1" });
         await frame({ type: "content_block_start", msg_id: "m1", block_index: 0, kind: "text" });
-        await frame({ type: "assistant_text", msg_id: "m1", block_index: 0, text: "hi", is_partial: false });
-        await frame({ type: "turn_complete", msg_id: "m1", result: "success" });
+        await frame({ type: "assistant_text", seq: 0, rev: 0, status: "complete", msg_id: "m1", block_index: 0, text: "hi", is_partial: false });
+        await frame({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
 
         // Back to idle: Stop gates off; the committed transcript
         // enables Copy Last Response and Rewind; the Mode control unlocks.

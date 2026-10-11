@@ -69,6 +69,7 @@ describe("tug_notice — the opener that makes an injected turn visible", () => 
     emit(conn, { type: "tug_notice", origin: "base-motion", text: BODY });
     emit(conn, {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       text: "on it",
       is_partial: false,
@@ -77,6 +78,7 @@ describe("tug_notice — the opener that makes an injected turn visible", () => 
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       result: "success",
     });
@@ -171,9 +173,10 @@ describe("tug_notice — the opener that makes an injected turn visible", () => 
   it("the same submission replays from the JSONL as one user-origin turn", () => {
     const { store, conn } = makeStore();
     emit(conn, { type: "replay_started" });
-    emit(conn, { type: "add_user_message", text: BODY, atoms: [] });
+    emit(conn, { type: "add_user_message", content: [{ type: "text", text: BODY }] });
     emit(conn, {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       text: "on it",
       is_partial: false,
@@ -182,6 +185,7 @@ describe("tug_notice — the opener that makes an injected turn visible", () => 
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       result: "success",
     });

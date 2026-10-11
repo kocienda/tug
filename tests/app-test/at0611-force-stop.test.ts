@@ -154,6 +154,9 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await frame({
             type: "assistant_text",
+            seq: 0,
+            rev: 0,
+            status: "partial",
             msg_id: "m1",
             block_index: 0,
             text: "one, two",

@@ -157,6 +157,7 @@ const userMsg = (text: string) => ({
 });
 const asstText = (msgId: string, text: string, seq: number) => ({
   type: "assistant_text",
+  status: "complete",
   tug_session_id: SID,
   msg_id: msgId,
   text,
@@ -166,6 +167,7 @@ const asstText = (msgId: string, text: string, seq: number) => ({
 });
 const turnDone = (msgId: string) => ({
   type: "turn_complete",
+  seq: 0,
   tug_session_id: SID,
   msg_id: msgId,
   result: "success",
@@ -598,6 +600,12 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // span. This is the behavior the command case must NOT show.
         expect((await selectionText()).length).toBeGreaterThan(0);
         await app.nativeKey("Escape");
+        // The second gesture waits for the first menu to be gone: a
+        // right-click that lands while it is still dismissing opens nothing.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-item-action="copy"]') === null`,
+          { timeoutMs: 4000 },
+        );
 
         // --- the command: one entity, so the whole of it is taken -------
         await clearSelection();

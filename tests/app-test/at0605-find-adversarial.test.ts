@@ -121,12 +121,15 @@ async function seedTurns(
     await frame({ type: "content_block_start", msg_id: msgId, block_index: 0, kind: "text" });
     await frame({
       type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
       msg_id: msgId,
       block_index: 0,
       text: replyText(n),
       is_partial: false,
     });
-    await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+    await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
   }
 }
 
@@ -340,6 +343,9 @@ describe.skipIf(!SHOULD_RUN)("AT0605c: a second card does not erase the first ca
         for (let i = 0; i < 30; i += 1) {
           await frameB({
             type: "assistant_text",
+            seq: 0,
+            rev: 0,
+            status: "partial",
             msg_id: `${sidB}-m0`,
             block_index: 0,
             text: `streaming token ${i} `.repeat(i + 1),
@@ -360,7 +366,7 @@ describe.skipIf(!SHOULD_RUN)("AT0605c: a second card does not erase the first ca
 })()`);
           if (state.inA === 0) losses.push(i);
         }
-        await frameB({ type: "turn_complete", msg_id: `${sidB}-m0`, result: "success" });
+        await frameB({ type: "turn_complete", seq: 0, msg_id: `${sidB}-m0`, result: "success" });
 
         note(`frames after which card A held no paint: ${JSON.stringify(losses)}`);
         expect(

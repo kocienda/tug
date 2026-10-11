@@ -161,13 +161,16 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
   steps.push(
     f({
       type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
       msg_id: m1,
       block_index: 0,
       text: "A short single-block reply mentioning the element once.",
       is_partial: false,
     }),
   );
-  steps.push(f({ type: "turn_complete", msg_id: m1, result: "success" }));
+  steps.push(f({ type: "turn_complete", seq: 0, msg_id: m1, result: "success" }));
 
   steps.push(d({ op: "send", text: "> a quoted prompt about the element\n> second line here" }));
   const m2 = nextMsg();
@@ -176,13 +179,16 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
   steps.push(
     f({
       type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
       msg_id: m2,
       block_index: 0,
       text: MULTI_BLOCK_MARKDOWN,
       is_partial: false,
     }),
   );
-  steps.push(f({ type: "turn_complete", msg_id: m2, result: "success" }));
+  steps.push(f({ type: "turn_complete", seq: 0, msg_id: m2, result: "success" }));
 
   // --- 2. Thinking, which projects its label plus prose (expanded) or a
   //        one-line preview (collapsed). Seeded expanded; `at0602` folds it.
@@ -208,13 +214,16 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
   steps.push(
     f({
       type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
       msg_id: m3,
       block_index: 1,
       text: "And the reply that followed the thinking, with an element.",
       is_partial: false,
     }),
   );
-  steps.push(f({ type: "turn_complete", msg_id: m3, result: "success" }));
+  steps.push(f({ type: "turn_complete", seq: 0, msg_id: m3, result: "success" }));
 
   // --- 3. System notes, one per rendered source. ---
   for (const [source, text] of [
@@ -254,6 +263,7 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
     steps.push(
       f({
         type: "tool_use",
+        seq: 0,
         msg_id: mb,
         tool_use_id: c.id,
         tool_name: "Bash",
@@ -268,7 +278,7 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
         is_error: c.stderr !== undefined,
       }),
     );
-    steps.push(f({ type: "turn_complete", msg_id: mb, result: "success" }));
+    steps.push(f({ type: "turn_complete", seq: 0, msg_id: mb, result: "success" }));
   }
 
   // --- 5. A Read call — its body is an embedded editor (`editor` segment),
@@ -278,13 +288,14 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
   steps.push(
     f({
       type: "tool_use",
+      seq: 0,
       msg_id: mr,
       tool_use_id: "tc-read",
       tool_name: "Read",
       input: { file_path: "/tmp/at0602/elements.ts" },
     }),
   );
-  steps.push(f({ type: "tool_result", tool_use_id: "tc-read", output: "ok" }));
+  steps.push(f({ type: "tool_result", is_error: false, tool_use_id: "tc-read", output: "ok" }));
   steps.push(
     f({
       type: "tool_use_structured",
@@ -302,7 +313,7 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
       },
     }),
   );
-  steps.push(f({ type: "turn_complete", msg_id: mr, result: "success" }));
+  steps.push(f({ type: "turn_complete", seq: 0, msg_id: mr, result: "success" }));
 
   // --- 6. A default-routed tool whose result is markdown — the branch
   //        `pickOutputBody` reduces through the parse cache.
@@ -311,6 +322,7 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
   steps.push(
     f({
       type: "tool_use",
+      seq: 0,
       msg_id: md,
       tool_use_id: "tc-default",
       tool_name: "WebFetch",
@@ -325,7 +337,7 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
       is_error: false,
     }),
   );
-  steps.push(f({ type: "turn_complete", msg_id: md, result: "success" }));
+  steps.push(f({ type: "turn_complete", seq: 0, msg_id: md, result: "success" }));
 
   // --- 7. Shell exchanges: a plain one, and two claimed by bespoke blocks. ---
   steps.push(

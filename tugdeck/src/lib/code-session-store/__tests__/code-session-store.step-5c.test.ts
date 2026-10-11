@@ -68,6 +68,7 @@ function dispatchTurnCompleteSuccess(
 ): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "turn_complete",
+    seq: 0,
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     result: "success",
@@ -293,6 +294,7 @@ describe("Step 5c — queued-send + handleTurnComplete flush integration", () =>
     // Drive into streaming so the second submit lands in the queue.
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       text: "ok",
@@ -329,6 +331,7 @@ describe("Step 5c — queued-send + handleTurnComplete flush integration", () =>
     store.send(`one ${C}`, [imageAtom("editor-A", "first.png")]);
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       text: "ok",

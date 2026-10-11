@@ -170,6 +170,7 @@ describe("CodeSessionStore — session_not_owned CONTROL error (T3.4.a.1)", () =
     // Drive past awaiting_first_token into streaming.
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: TUG_A,
       msg_id: FIXTURE_IDS.MSG_ID,
       text: "a",
@@ -179,6 +180,7 @@ describe("CodeSessionStore — session_not_owned CONTROL error (T3.4.a.1)", () =
     });
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: TUG_A,
       msg_id: FIXTURE_IDS.MSG_ID,
       text: "b",
@@ -252,6 +254,7 @@ describe("CodeSessionStore — multi-card routing of CONTROL errors (T3.4.a.1)",
     // Successful turn clears lastError per.
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: TUG_A,
       msg_id: FIXTURE_IDS.MSG_ID,
       text: "a",
@@ -261,6 +264,7 @@ describe("CodeSessionStore — multi-card routing of CONTROL errors (T3.4.a.1)",
     });
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: TUG_A,
       msg_id: FIXTURE_IDS.MSG_ID,
       text: "b",
@@ -270,6 +274,7 @@ describe("CodeSessionStore — multi-card routing of CONTROL errors (T3.4.a.1)",
     });
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "turn_complete",
+      seq: 0,
       tug_session_id: TUG_A,
       msg_id: FIXTURE_IDS.MSG_ID,
       result: "success",

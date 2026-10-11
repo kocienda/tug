@@ -18,7 +18,7 @@
  * A real 29 MB session with 9 compactions showed both symptoms at once. This
  * drives the same frame sequence — replay bracket, `/compact` envelope,
  * boundary, summary, canned reply, `turn_complete` — twice, through the
- * store's real `frameToEvent → dispatch → render` path, and asserts every
+ * store's real `decode → dispatch → render` path, and asserts every
  * boundary reads as a session-meta divider outside any turn attribution.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
@@ -90,13 +90,14 @@ function turnFrames(n: number): Array<Record<string, unknown>> {
     },
     {
       type: "assistant_text",
+      status: "complete",
       msg_id: `msg-turn-${n}`,
       text: `reply ${n}`,
       is_partial: false,
       rev: 0,
       seq: 0,
     },
-    { type: "turn_complete", msg_id: `msg-turn-${n}`, result: "success" },
+    { type: "turn_complete", seq: 0, msg_id: `msg-turn-${n}`, result: "success" },
   ];
 }
 
@@ -125,13 +126,14 @@ function compactionFrames(n: number): Array<Record<string, unknown>> {
     },
     {
       type: "assistant_text",
+      status: "complete",
       msg_id: `msg-compact-${n}`,
       text: CANNED_REPLY,
       is_partial: false,
       rev: 0,
       seq: 0,
     },
-    { type: "turn_complete", msg_id: `msg-compact-${n}`, result: "success" },
+    { type: "turn_complete", seq: 0, msg_id: `msg-compact-${n}`, result: "success" },
   ];
 }
 

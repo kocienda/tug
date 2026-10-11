@@ -79,6 +79,7 @@ function questionForward(): Record<string, unknown> {
     request_id: "at0402-q-1",
     tool_use_id: "at0402-tu-1",
     is_question: true,
+    tool_name: "AskUserQuestion",
     input: {
       questions: [
         {

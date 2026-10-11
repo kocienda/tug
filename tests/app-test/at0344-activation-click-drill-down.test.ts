@@ -112,6 +112,7 @@ async function seedBoth(app: App): Promise<void> {
   await app.driveSession("A", { op: "send", text: "ask" });
   await app.driveSession("A", f(SID_A, {
     type: "assistant_text",
+    status: "complete",
     msg_id: "m0",
     text: "a settled reply with plain prose in it.",
     is_partial: false,
@@ -120,6 +121,7 @@ async function seedBoth(app: App): Promise<void> {
   }));
   await app.driveSession("A", f(SID_A, {
     type: "turn_complete",
+    seq: 0,
     msg_id: "m0",
     result: "success",
   }));

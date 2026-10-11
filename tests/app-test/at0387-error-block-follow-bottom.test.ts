@@ -79,6 +79,9 @@ async function seedTurn(app: App, n: number): Promise<void> {
   });
   await frame(app, {
     type: "assistant_text",
+    seq: 0,
+    rev: 0,
+    status: "complete",
     msg_id: msgId,
     block_index: 0,
     text: [
@@ -91,7 +94,7 @@ async function seedTurn(app: App, n: number): Promise<void> {
     ].join("\n"),
     is_partial: false,
   });
-  await frame(app, { type: "turn_complete", msg_id: msgId, result: "success" });
+  await frame(app, { type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
 /** A real failing `just app-test` tail — long enough that the block's
@@ -179,12 +182,15 @@ async function seedBashTurn(
   });
   await frame(app, {
     type: "assistant_text",
+    seq: 0,
+    rev: 0,
+    status: "complete",
     msg_id: msgId,
     block_index: 2,
     text: "The run came back non-zero. Reading the failure now.",
     is_partial: false,
   });
-  await frame(app, { type: "turn_complete", msg_id: msgId, result: "success" });
+  await frame(app, { type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
 interface Snap {

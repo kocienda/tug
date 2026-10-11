@@ -70,6 +70,7 @@ describe("CodeSessionStore — dispose teardown (Step 9)", () => {
     // decode; even if it didn't, we already unsubscribed.
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       msg_id: FIXTURE_IDS.MSG_ID_N(2),
       text: "ghost",
@@ -146,6 +147,7 @@ describe("CodeSessionStore — dispose teardown (Step 9)", () => {
     // still updates.
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       msg_id: FIXTURE_IDS.MSG_ID,
       text: "x",

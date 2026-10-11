@@ -338,6 +338,9 @@ const SHAPES: readonly Shape[] = [
 // The oracle
 // ---------------------------------------------------------------------------
 
+/** How many times a clean-but-silent `git merge-file` is asked again. */
+const ORACLE_ATTEMPTS = 3;
+
 interface OracleAnswer {
   /** `git merge-file`'s exit status: 0 clean, >0 the conflict count. */
   status: number;
@@ -352,18 +355,31 @@ interface OracleAnswer {
  * `--diff3` is deliberately not passed: the default output is what a clean
  * merge produces, and conflict markers are never compared here because a
  * conflicted merge fails on its status first.
+ *
+ * A clean exit with nothing on stdout, when neither side is empty, is not a
+ * merge git made — a clean merge of two non-empty sides is never empty — but
+ * the oracle failing to answer, which has been seen once under heavy machine
+ * load. It is asked again rather than reported as a disagreement, and an
+ * oracle that keeps not answering fails as exactly that.
  */
 function gitMergeFile(paths: { base: string; ours: string; theirs: string }, triple: Triple): OracleAnswer {
   writeFileSync(paths.base, triple.base, "utf8");
   writeFileSync(paths.ours, triple.ours, "utf8");
   writeFileSync(paths.theirs, triple.theirs, "utf8");
-  const run = spawnSync(GIT as string, ["merge-file", "-p", paths.ours, paths.base, paths.theirs], {
-    encoding: "utf8",
-  });
-  if (run.error !== undefined && run.error !== null) {
-    throw new Error(`[merge-fuzz] git merge-file did not run: ${String(run.error)}`);
+  const canBeEmpty = triple.ours === "" || triple.theirs === "";
+  for (let attempt = 1; attempt <= ORACLE_ATTEMPTS; attempt++) {
+    const run = spawnSync(GIT as string, ["merge-file", "-p", paths.ours, paths.base, paths.theirs], {
+      encoding: "utf8",
+    });
+    if (run.error !== undefined && run.error !== null) {
+      throw new Error(`[merge-fuzz] git merge-file did not run: ${String(run.error)}`);
+    }
+    const answer = { status: run.status ?? -1, text: run.stdout ?? "" };
+    if (answer.status !== 0 || answer.text !== "" || canBeEmpty) return answer;
   }
-  return { status: run.status ?? -1, text: run.stdout ?? "" };
+  throw new Error(
+    `[merge-fuzz] git merge-file exited clean with no output ${ORACLE_ATTEMPTS} times for non-empty sides`,
+  );
 }
 
 /** A failure's whole corpse: the triple, both answers, and the case index. */

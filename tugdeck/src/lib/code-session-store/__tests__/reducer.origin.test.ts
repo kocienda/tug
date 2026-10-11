@@ -39,6 +39,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     emit(conn, { type: "assistant_opener" });
     emit(conn, {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       text: "continued reply",
       is_partial: false,
@@ -47,6 +48,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       result: "success",
     });
@@ -71,6 +73,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     });
     emit(conn, {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(2),
       text: "the answer",
       is_partial: false,
@@ -79,6 +82,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(2),
       result: "success",
     });
@@ -99,6 +103,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     });
     emit(conn, {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       text: "a",
       is_partial: false,
@@ -107,6 +112,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       result: "success",
     });
@@ -114,6 +120,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     emit(conn, { type: "assistant_opener" });
     emit(conn, {
       type: "assistant_text",
+      status: "complete",
       msg_id: FIXTURE_IDS.MSG_ID_N(2),
       text: "orphan",
       is_partial: false,
@@ -122,6 +129,7 @@ describe("origin-first turn model — reducer over real frames", () => {
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(2),
       result: "success",
     });

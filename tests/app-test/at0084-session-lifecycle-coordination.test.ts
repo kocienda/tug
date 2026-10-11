@@ -14,7 +14,7 @@
  * It drives the store through the `driveSession` harness verb:
  *   - `send` — a user submission (mid-turn `send` queues).
  *   - `ingestFrame` — a decoded `CODE_OUTPUT` frame fed through the
- *     store's real `frameToEvent` → `dispatch` path.
+ *     store's real decode → `dispatch` path.
  *   - `interrupt` / `transportClose` — the cancel + transport overlays.
  *
  * One card per scenario, one pane each, all mounted at once:
@@ -106,6 +106,7 @@ function assistantText(
 ): Record<string, unknown> {
   return {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: sessionIdFor(cardId),
     msg_id: msgId,
     text,
@@ -137,6 +138,7 @@ function turnCompleteSuccess(
 ): Record<string, unknown> {
   return {
     type: "turn_complete",
+    seq: 0,
     tug_session_id: sessionIdFor(cardId),
     msg_id: msgId,
     result: "success",
@@ -149,6 +151,7 @@ function turnCompleteError(
 ): Record<string, unknown> {
   return {
     type: "turn_complete",
+    seq: 0,
     tug_session_id: sessionIdFor(cardId),
     msg_id: msgId,
     result: "error",
@@ -162,6 +165,7 @@ function controlRequestForward(cardId: CardId): Record<string, unknown> {
     request_id: `${cardId}-perm-1`,
     is_question: false,
     tool_name: "Bash",
+    input: { command: "ls" },
   };
 }
 

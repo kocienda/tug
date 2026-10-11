@@ -39,6 +39,7 @@ function driveToStreaming(
 ): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     text: "a",
@@ -48,6 +49,7 @@ function driveToStreaming(
   });
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     text: "b",
@@ -64,6 +66,7 @@ function dispatchTurnCompleteSuccess(
 ): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "turn_complete",
+    seq: 0,
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     result: "success",
@@ -200,6 +203,7 @@ describe("CodeSessionStore — queue flush via turn_complete(success) collapse (
 
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "turn_complete",
+      seq: 0,
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       msg_id: FIXTURE_IDS.MSG_ID,
       result: "error",

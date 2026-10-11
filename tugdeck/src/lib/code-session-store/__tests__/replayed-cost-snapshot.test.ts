@@ -60,6 +60,7 @@ function emitTurnWithCost(
   });
   emit(conn, {
     type: "assistant_text",
+    status: "complete",
     msg_id: FIXTURE_IDS.MSG_ID_N(n),
     text: `reply ${n}`,
     is_partial: false,
@@ -68,6 +69,7 @@ function emitTurnWithCost(
   });
   emit(conn, {
     type: "turn_complete",
+    seq: 0,
     msg_id: FIXTURE_IDS.MSG_ID_N(n),
     result: "success",
     telemetry: {

@@ -45,6 +45,7 @@ function driveToStreaming(
 ): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     text: "a",
@@ -54,6 +55,7 @@ function driveToStreaming(
   });
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     text: "b",
@@ -205,6 +207,8 @@ describe("CodeSessionStore — a rotation clears the banner it superseded", () =
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "session_segment",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      parentSessionId: "claude-before",
+      newSessionId: "claude-after",
       kind: "rotation",
       stage: "audit",
       model: "opus",
@@ -357,6 +361,7 @@ describe("CodeSessionStore — retry recovery from errored (Step 8)", () => {
     driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID_N(2));
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "turn_complete",
+      seq: 0,
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       msg_id: FIXTURE_IDS.MSG_ID_N(2),
       result: "success",

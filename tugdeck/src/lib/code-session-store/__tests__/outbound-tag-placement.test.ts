@@ -2,21 +2,26 @@
  * Every tugcode outbound tag has a written-down place in the deck.
  *
  * `OUTBOUND_TAGS` (`@tugproto/outbound`) is the whole set of frames tugcode
- * emits. Each one is either admitted by the Session card's store
- * (`KNOWN_CODE_OUTPUT_TYPES`), taken apart by the store before admission,
- * handled by another store that subscribes to CODE_OUTPUT, or dropped on
- * purpose, with the reason beside it. A new tugcode tag fails here until it is
- * placed, so a frame the deck silently ignores is a decision somebody wrote
- * down rather than one nobody noticed.
+ * emits. Each one is either decoded by the Session card's store — through its
+ * entry in the decoder table (`OUTBOUND_DECODERS`), then admitted to the
+ * reducer or taken apart before admission — handled by another store that
+ * subscribes to CODE_OUTPUT, or dropped on purpose, with the reason beside it.
+ * A new tugcode tag fails here until it is placed, so a frame the deck
+ * silently ignores is a decision somebody wrote down rather than one nobody
+ * noticed.
  */
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { OUTBOUND_TAGS } from "@tugproto/outbound";
-import { KNOWN_CODE_OUTPUT_TYPES } from "../../code-session-store";
+import { hasDecoder, OUTBOUND_DECODERS } from "@tugproto/outbound-decoders";
+import { KNOWN_CODE_OUTPUT_TYPES, UNWRAPPED_CODE_OUTPUT_TYPES } from "../../code-session-store";
 
-/** Taken apart in `CodeSessionStore.routeFrame` before the admission check. */
+/**
+ * Taken apart in `CodeSessionStore.routeFrame` before admission, with the
+ * reason. `run_progress` is tugcast's frame, not tugcode's, so it is not here.
+ */
 const UNWRAPPED_BEFORE_ADMISSION: Record<string, string> = {
   replay_batch: "unwrapped; each inner frame is routed on its own",
   tool_progress: "diverted to RunProgressStore as a heartbeat",
@@ -66,8 +71,7 @@ function deckSources(): string[] {
 
 function placesOf(tag: string): string[] {
   const places: string[] = [];
-  if (KNOWN_CODE_OUTPUT_TYPES.has(tag)) places.push("KNOWN_CODE_OUTPUT_TYPES");
-  if (tag in UNWRAPPED_BEFORE_ADMISSION) places.push("UNWRAPPED_BEFORE_ADMISSION");
+  if (hasDecoder(tag)) places.push("OUTBOUND_DECODERS");
   if (tag in HANDLED_ELSEWHERE) places.push("HANDLED_ELSEWHERE");
   if (tag in DROPPED_ON_PURPOSE) places.push("DROPPED_ON_PURPOSE");
   return places;
@@ -79,6 +83,23 @@ describe("outbound tag placement", () => {
       ({ places }) => places.length !== 1,
     );
     expect(misplaced).toEqual([]);
+  });
+
+  test("a decoded tag is admitted or unwrapped, never both", () => {
+    const tags = Object.keys(OUTBOUND_DECODERS);
+    const both = tags.filter(
+      (tag) => KNOWN_CODE_OUTPUT_TYPES.has(tag) && UNWRAPPED_CODE_OUTPUT_TYPES.has(tag),
+    );
+    const neither = tags.filter(
+      (tag) => !KNOWN_CODE_OUTPUT_TYPES.has(tag) && !UNWRAPPED_CODE_OUTPUT_TYPES.has(tag),
+    );
+    expect({ both, neither }).toEqual({ both: [], neither: [] });
+  });
+
+  test("the unwrapped tugcode tags are the store's, each with its reason", () => {
+    const outbound = new Set<string>(OUTBOUND_TAGS);
+    const storeUnwrapped = [...UNWRAPPED_CODE_OUTPUT_TYPES].filter((tag) => outbound.has(tag));
+    expect(storeUnwrapped.sort()).toEqual(Object.keys(UNWRAPPED_BEFORE_ADMISSION).sort());
   });
 
   test("the lists name only real outbound tags", () => {

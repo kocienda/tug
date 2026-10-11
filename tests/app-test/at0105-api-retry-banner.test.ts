@@ -16,7 +16,7 @@
  * The pure halves (`classifyApiRetry`, `projectNotices`, `reconcileNotices`,
  * `deriveSessionCardBannerSpec`) are unit-tested. This drives the **live surface**
  * end to end without a real (rare) API failure: it injects synthetic frames
- * through the store's real `frameToEvent → dispatch` path
+ * through the store's real `decode → dispatch` path
  * (`driveSession`/`ingestFrame`) and asserts (1) the pane body is never
  * `inert`, (2) a bulletin shows with the classified label + live attempt
  * count, (3) a new attempt updates it in place, (4) a likely-fatal category
@@ -219,6 +219,11 @@ describe.skipIf(!SHOULD_RUN)(
               type: "cost_update",
               tug_session_id: TUG_SESSION_ID,
               total_cost_usd: 0.01,
+              num_turns: 1,
+              duration_ms: 0,
+              duration_api_ms: 0,
+              usage: {},
+              modelUsage: {},
             },
           });
           await app.waitForCondition<boolean>(

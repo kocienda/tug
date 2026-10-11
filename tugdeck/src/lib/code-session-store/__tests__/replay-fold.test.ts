@@ -61,6 +61,7 @@ function emitReplayedTurn(conn: TestFrameChannel, n: number): void {
   });
   emit(conn, {
     type: "assistant_text",
+    status: "complete",
     msg_id: FIXTURE_IDS.MSG_ID_N(n),
     text: `reply ${n}`,
     is_partial: false,
@@ -69,6 +70,7 @@ function emitReplayedTurn(conn: TestFrameChannel, n: number): void {
   });
   emit(conn, {
     type: "turn_complete",
+    seq: 0,
     msg_id: FIXTURE_IDS.MSG_ID_N(n),
     result: "success",
   });
@@ -182,6 +184,7 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(notifies()).toBe(afterReplay + 1);
     emit(conn, {
       type: "assistant_text",
+      status: "partial",
       msg_id: FIXTURE_IDS.MSG_ID_N(9),
       text: "live reply",
       is_partial: true,
@@ -191,6 +194,7 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(notifies()).toBe(afterReplay + 2);
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(9),
       result: "success",
     });
@@ -249,6 +253,7 @@ describe("replay fold — one snapshot tick per flush", () => {
     const delta = (seq: number): void =>
       emit(conn, {
         type: "assistant_text",
+        status: "partial",
         msg_id: FIXTURE_IDS.MSG_ID_N(1),
         text: "x",
         is_partial: true,
@@ -278,6 +283,7 @@ describe("replay fold — one snapshot tick per flush", () => {
     const clearedBefore = clearedCount;
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       result: "success",
     });

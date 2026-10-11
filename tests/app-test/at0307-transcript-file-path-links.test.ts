@@ -184,6 +184,7 @@ const userMsg = (text: string) => ({
 });
 const asstText = (msgId: string, text: string, seq: number) => ({
   type: "assistant_text",
+  status: "complete",
   tug_session_id: SID,
   msg_id: msgId,
   text,
@@ -193,6 +194,7 @@ const asstText = (msgId: string, text: string, seq: number) => ({
 });
 const turnDone = (msgId: string) => ({
   type: "turn_complete",
+  seq: 0,
   tug_session_id: SID,
   msg_id: msgId,
   result: "success",
@@ -365,6 +367,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "tool_result",
+            is_error: false,
             tug_session_id: SID,
             tool_use_id: "tc-1",
             output: FILE_BODY,
@@ -484,6 +487,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "tool_result",
+            is_error: false,
             tug_session_id: SID,
             tool_use_id: "tc-1",
             output: FILE_BODY,
@@ -562,6 +566,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "tool_result",
+            is_error: false,
             tool_use_id: "tc-g1",
             output: realPath,
           });
@@ -575,7 +580,7 @@ describe.skipIf(!SHOULD_RUN)(
               truncated: false,
             },
           });
-          await ingest({ type: "turn_complete", msg_id: "m1", result: "success" });
+          await ingest({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
 
           // A Glob block mounts collapsed — its header is the whole block
           // until the disclosure is opened, so the rows are not in the DOM
@@ -1085,6 +1090,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "tool_result",
+            is_error: false,
             tug_session_id: SID,
             tool_use_id: "tc-b1",
             output: "5 total",

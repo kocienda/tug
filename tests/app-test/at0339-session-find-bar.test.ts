@@ -280,6 +280,7 @@ async function seedSession(app: App): Promise<void> {
     await app.driveSession("A", { op: "send", text: `ask ${i}` });
     await app.driveSession("A", f({
       type: "assistant_text",
+      status: "complete",
       msg_id: `m${i}`,
       text: `${PROBE} ${tail} sits in reply ${i}.`,
       is_partial: false,
@@ -288,6 +289,7 @@ async function seedSession(app: App): Promise<void> {
     }));
     await app.driveSession("A", f({
       type: "turn_complete",
+      seq: 0,
       msg_id: `m${i}`,
       result: "success",
     }));

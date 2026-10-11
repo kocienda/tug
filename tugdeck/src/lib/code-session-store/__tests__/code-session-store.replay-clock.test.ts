@@ -625,7 +625,7 @@ describe("CodeSessionStore — replay silence deadline", () => {
       timers.advance(REPLAY_SILENCE_DEADLINE_MS / 2);
       emit(conn, {
         type: "add_user_message",
-        text: `turn ${i}`,
+        content: [{ type: "text", text: `turn ${i}` }],
         ipc_version: IPC_VERSION,
       });
       expect(store.getSnapshot().phase).toBe("replaying");

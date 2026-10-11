@@ -21,7 +21,7 @@
  * unit-tested and the tugcode emit is covered by
  * `tugcode/src/__tests__/session-stage-rotation.test.ts`. This drives the
  * **live render**: open a turn, inject a synthetic rotation `session_segment` and the
- * `session_init` behind it through the store's real `frameToEvent → dispatch`
+ * `session_init` behind it through the store's real `decode → dispatch`
  * path, and assert both facts on the real DOM.
  *
  * The second test is the restore leg. On relaunch the arc's whole lineage is
@@ -143,6 +143,9 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: CODE_OUTPUT_FEED,
             decoded: {
               type: "assistant_text",
+              seq: 0,
+              rev: 0,
+              status: "complete",
               tug_session_id: TUG_SESSION_ID,
               msg_id: "m1",
               block_index: 0,
@@ -155,6 +158,7 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: CODE_OUTPUT_FEED,
             decoded: {
               type: "turn_complete",
+              seq: 0,
               tug_session_id: TUG_SESSION_ID,
               msg_id: "m1",
               result: "success",
@@ -312,6 +316,9 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: CODE_OUTPUT_FEED,
             decoded: {
               type: "assistant_text",
+              seq: 0,
+              rev: 0,
+              status: "complete",
               tug_session_id: TUG_SESSION_ID,
               msg_id: "m1",
               block_index: 0,
@@ -324,6 +331,7 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: CODE_OUTPUT_FEED,
             decoded: {
               type: "turn_complete",
+              seq: 0,
               tug_session_id: TUG_SESSION_ID,
               msg_id: "m1",
               result: "success",
@@ -418,6 +426,7 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: CODE_OUTPUT_FEED,
             decoded: {
               type: "turn_complete",
+              seq: 0,
               tug_session_id: TUG_SESSION_ID,
               msg_id: "m1",
               result: "success",
@@ -541,12 +550,15 @@ describe.skipIf(!SHOULD_RUN)(
             });
             await ingest({
               type: "assistant_text",
+              seq: 0,
+              rev: 0,
+              status: "complete",
               msg_id: msgId,
               block_index: 0,
               text: `re: ${text}`,
               is_partial: false,
             });
-            await ingest({ type: "turn_complete", msg_id: msgId, result: "success" });
+            await ingest({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
           };
 
           await ingest({ type: "replay_started" });
@@ -647,12 +659,15 @@ describe.skipIf(!SHOULD_RUN)(
             });
             await ingest({
               type: "assistant_text",
+              seq: 0,
+              rev: 0,
+              status: "complete",
               msg_id: msgId,
               block_index: 0,
               text: `re: ${text}`,
               is_partial: false,
             });
-            await ingest({ type: "turn_complete", msg_id: msgId, result: "success", timestamp: endedAt });
+            await ingest({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success", timestamp: endedAt });
           };
 
           // Round numbers an hour back, so the clocks read as history rather
@@ -676,6 +691,7 @@ describe.skipIf(!SHOULD_RUN)(
             type: "replay_stage",
             stage: "audit",
             model: "opus",
+            document: ".tug/arcs/foo/tasks.md",
             arc: "foo",
           });
           await replaySpan("m-audit", "audit the branch", T + 50_000, T + 60_000);
@@ -839,7 +855,7 @@ describe.skipIf(!SHOULD_RUN)(
             seq: 1,
           });
           await app.driveSession("A", { op: "send", text: INTERJECTION, atoms: [] });
-          await ingest({ type: "tool_result", tool_use_id: "tc-9", output: "ok" });
+          await ingest({ type: "tool_result", is_error: false, tool_use_id: "tc-9", output: "ok" });
 
           await app.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(
@@ -913,7 +929,13 @@ describe.skipIf(!SHOULD_RUN)(
             });
 
           await ingest({ type: "replay_started" });
-          await ingest({ type: "replay_stage", stage: "implement", model: "opus", arc: "foo" });
+          await ingest({
+            type: "replay_stage",
+            stage: "implement",
+            model: "opus",
+            document: ".tug/arcs/foo/tasks.md",
+            arc: "foo",
+          });
           // The stage opener, as the translator states it.
           await ingest({
             type: "add_user_message",
@@ -928,7 +950,7 @@ describe.skipIf(!SHOULD_RUN)(
             input: { file_path: "/tmp/x" },
             seq: 1,
           });
-          await ingest({ type: "tool_result", tool_use_id: "tc-9", output: "ok" });
+          await ingest({ type: "tool_result", is_error: false, tool_use_id: "tc-9", output: "ok" });
           // The interjection, as a `queued_command` attachment restores it:
           // mid-bracket, and stating no origin at all.
           await ingest({
@@ -937,12 +959,15 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "assistant_text",
+            seq: 0,
+            rev: 0,
+            status: "complete",
             msg_id: "m9",
             block_index: 0,
             text: "will do",
             is_partial: false,
           });
-          await ingest({ type: "turn_complete", msg_id: "m9", result: "success" });
+          await ingest({ type: "turn_complete", seq: 0, msg_id: "m9", result: "success" });
           await ingest({ type: "replay_complete", count: 1 });
 
           await app.waitForCondition<boolean>(

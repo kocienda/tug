@@ -285,6 +285,9 @@ async function seedTurn(app: App, card: SessionId, n: number): Promise<void> {
   });
   await frame({
     type: "assistant_text",
+    seq: 0,
+    rev: 0,
+    status: "complete",
     msg_id: msgId,
     block_index: 0,
     text:
@@ -296,7 +299,7 @@ async function seedTurn(app: App, card: SessionId, n: number): Promise<void> {
       "```\n$ some command\nsome output, a few lines of it\nand another\n```\n",
     is_partial: false,
   });
-  await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+  await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
 async function settled(app: App): Promise<void> {

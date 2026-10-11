@@ -109,6 +109,7 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
         });
         await ingest({
           type: "assistant_text",
+          status: "complete",
           tug_session_id: SID,
           msg_id: "m1",
           text: `Wrote the brief. Run it with \`${LINE}\`.`,
@@ -116,7 +117,7 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
           rev: 0,
           seq: 0,
         });
-        await ingest({ type: "turn_complete", tug_session_id: SID, msg_id: "m1", result: "success" });
+        await ingest({ type: "turn_complete", seq: 0, tug_session_id: SID, msg_id: "m1", result: "success" });
         await ingest({
           type: "replay_complete",
           tug_session_id: SID,

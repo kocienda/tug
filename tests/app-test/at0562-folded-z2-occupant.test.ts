@@ -515,6 +515,7 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: CODE_OUTPUT_FEED,
             decoded: {
               type: "turn_complete",
+              seq: 0,
               tug_session_id: SID,
               msg_id: "at0562-compact",
               result: "interrupted",

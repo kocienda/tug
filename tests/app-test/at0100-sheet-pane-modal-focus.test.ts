@@ -89,8 +89,8 @@ describe.skipIf(!SHOULD_RUN)("AT0100: a sheet is pane-modal — no cross-pane fo
           });
         await app.driveSession("A", { op: "send", text: "hello" });
         await frame({ type: "content_block_start", msg_id: "m1", block_index: 0, kind: "text" });
-        await frame({ type: "assistant_text", msg_id: "m1", block_index: 0, text: "hi", is_partial: false });
-        await frame({ type: "turn_complete", msg_id: "m1", result: "success" });
+        await frame({ type: "assistant_text", seq: 0, rev: 0, status: "complete", msg_id: "m1", block_index: 0, text: "hi", is_partial: false });
+        await frame({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROMPT_A)}) !== null`,
           { timeoutMs: 8000 },

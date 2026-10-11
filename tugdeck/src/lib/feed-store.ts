@@ -124,8 +124,13 @@ export class FeedStore {
     for (const feedId of feedIds) {
       const unsub = connection.onFrame(feedId, (payload: Uint8Array) => {
         if (this._disposed) return;
+        const feedHex = `0x${feedId.toString(16)}`;
+        // Decode and filter are the frame's admission: a failure in
+        // either is a decode failure for the feed, and the frame is
+        // dropped before the snapshot moves.
+        let decoded: unknown;
         try {
-          const decoded = decode(payload);
+          decoded = decode(payload);
           // Session-scoped filter, per [D11]. Runs on both live frames
           // and the replay-on-subscribe path (see module JSDoc) because
           // `TugConnection.onFrame` replays the cached `lastPayload`
@@ -134,15 +139,27 @@ export class FeedStore {
           if (this._filter && !this._filter(feedId, decoded)) {
             return;
           }
-          // Create a new Map reference so useSyncExternalStore detects the change.
-          const next = new Map(this._data);
-          next.set(feedId, decoded);
-          this._data = next;
-          for (const listener of this._listeners) {
-            listener();
-          }
         } catch (err) {
-          console.error(`[FeedStore] failed to decode payload for feed 0x${feedId.toString(16)}:`, err);
+          console.error(`[FeedStore] failed to decode payload for feed ${feedHex}:`, err);
+          return;
+        }
+        // Create a new Map reference so useSyncExternalStore detects the change.
+        const next = new Map(this._data);
+        next.set(feedId, decoded);
+        this._data = next;
+        // Each listener is isolated: one that throws is reported as its
+        // own exception, never as a decode failure, and the rest still run.
+        // Iterate a copy so a listener that unsubscribes mid-notify does
+        // not shift the ones after it.
+        const listeners = this._listeners.slice();
+        for (let i = 0; i < listeners.length; i++) {
+          const listener = listeners[i];
+          try {
+            listener();
+          } catch (err) {
+            const name = listener.name || `#${i}`;
+            console.error(`[FeedStore] listener ${name} threw for feed ${feedHex}:`, err);
+          }
         }
       });
       this._frameUnsubs.push(unsub);

@@ -142,12 +142,15 @@ async function settleTurn(app: App, msgId: string): Promise<void> {
   await frame({ type: "content_block_start", msg_id: msgId, block_index: 0, kind: "text" });
   await frame({
     type: "assistant_text",
+    seq: 0,
+    rev: 0,
+    status: "complete",
     msg_id: msgId,
     block_index: 0,
     text: "reviewed",
     is_partial: false,
   });
-  await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+  await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
 /** The last user row's command atom label and its text. */

@@ -20,7 +20,7 @@
  *
  * The reducer's commit is unit-tested in `reducer.turn-cancelled.test.ts`.
  * This drives the live surface: a real user turn, a real Stop, and then the
- * cancel receipt injected through the store's real `frameToEvent → dispatch`
+ * cancel receipt injected through the store's real `decode → dispatch`
  * path, asserting the three things the user actually sees come back —
  * the Z5 button, the STATE cell, and the composer.
  *
@@ -139,6 +139,9 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await frame({
             type: "assistant_text",
+            seq: 0,
+            rev: 0,
+            status: "partial",
             msg_id: "m1",
             block_index: 0,
             text: "one, two",

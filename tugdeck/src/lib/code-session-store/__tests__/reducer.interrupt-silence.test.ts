@@ -140,6 +140,9 @@ function caseBInterrupt(): ReturnType<typeof makeStore> {
   fixture.store.send("hi", []);
   emit(fixture.conn, {
     type: "assistant_text",
+    seq: 0,
+    rev: 0,
+    status: "partial",
     msg_id: "m1",
     block_index: 0,
     text: "partial",
@@ -326,7 +329,7 @@ describe("what clears a stalled stop", () => {
     emit(conn, {
       type: "error",
       message: "protocol error",
-      site: "drain_eof",
+      site: "drain_eof_open_turn",
       ipc_version: IPC_VERSION,
     });
     const snap = store.getSnapshot();

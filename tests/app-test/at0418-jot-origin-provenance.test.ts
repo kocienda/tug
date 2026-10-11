@@ -173,6 +173,7 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           });
           await ingest({
             type: "assistant_text",
+            status: "complete",
             tug_session_id: SID,
             msg_id: "m1",
             text: `Tune it in \`${CITED}\`.`,
@@ -182,6 +183,7 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           });
           await ingest({
             type: "turn_complete",
+            seq: 0,
             tug_session_id: SID,
             msg_id: "m1",
             result: "success",

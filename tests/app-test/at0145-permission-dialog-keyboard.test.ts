@@ -152,6 +152,7 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
           feedId: FEED_CODE_OUTPUT,
           decoded: {
             type: "assistant_text",
+            status: "partial",
             tug_session_id: SID,
             msg_id: "at0145-msg-1",
             text: "Running tokei…",

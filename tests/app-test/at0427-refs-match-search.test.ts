@@ -418,6 +418,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "tool_result",
+            is_error: false,
             tool_use_id: "tc-g1",
             output: `${hit}:2:// spinnaker rides here`,
           });
@@ -437,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)(
               ],
             },
           });
-          await ingest({ type: "turn_complete", msg_id: "m1", result: "success" });
+          await ingest({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
 
           const GREP = `${CARD} [data-slot="grep-tool-block"]`;
           await app.waitForCondition<boolean>(

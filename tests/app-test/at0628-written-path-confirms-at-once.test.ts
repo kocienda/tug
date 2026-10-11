@@ -124,6 +124,7 @@ const userMsg = (text: string) => ({
 });
 const asstText = (msgId: string, text: string) => ({
   type: "assistant_text",
+  status: "complete",
   tug_session_id: SID,
   msg_id: msgId,
   text,
@@ -133,6 +134,7 @@ const asstText = (msgId: string, text: string) => ({
 });
 const turnDone = (msgId: string) => ({
   type: "turn_complete",
+  seq: 0,
   tug_session_id: SID,
   msg_id: msgId,
   result: "success",
@@ -266,6 +268,7 @@ describe.skipIf(!SHOULD_RUN)("AT0628: a write the session watched", () => {
         });
         await ingest({
           type: "tool_result",
+          is_error: false,
           tug_session_id: SID,
           tool_use_id: "tc-w1",
           output: `File created successfully at: ${briefPath}`,

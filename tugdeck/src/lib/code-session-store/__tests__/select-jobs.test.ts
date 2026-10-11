@@ -24,9 +24,9 @@ import {
   jobKindForLaunch,
   jobKindFromTaskType,
   markRunningJobsStopped,
-  narrowTaskStartedFrame,
-  narrowTaskUpdatedFrame,
-  narrowTaskProgressFrame,
+  taskStartedEvent,
+  taskUpdatedEvent,
+  taskProgressEvent,
   agentTokensForTurn,
   jobsOwnedByTurn,
   parseBackgroundLaunchResult,
@@ -34,6 +34,23 @@ import {
   type JobItem,
 } from "../select-jobs";
 import type { ToolUseMessage } from "../types";
+import { decodeOutbound } from "@tugproto/outbound-decoders";
+import { isDecodeError } from "@tugproto/decode";
+
+// A frame takes the store's path: its tugproto decoder, then the camelCase
+// mapping. Either one refusing it yields `undefined`, which is a dropped frame.
+function startedFromWire(frame: unknown) {
+  const decoded = decodeOutbound("task_started", frame);
+  return isDecodeError(decoded) ? undefined : taskStartedEvent(decoded);
+}
+function updatedFromWire(frame: unknown) {
+  const decoded = decodeOutbound("task_updated", frame);
+  return isDecodeError(decoded) ? undefined : taskUpdatedEvent(decoded);
+}
+function progressFromWire(frame: unknown) {
+  const decoded = decodeOutbound("task_progress", frame);
+  return isDecodeError(decoded) ? undefined : taskProgressEvent(decoded);
+}
 
 function job(overrides: Partial<JobItem> & { jobId: string }): JobItem {
   return {
@@ -93,9 +110,9 @@ const AGENT_PROGRESS = {
   tug_session_id: "tug-1",
 };
 
-describe("narrowTaskStartedFrame", () => {
+describe("startedFromWire", () => {
   test("narrows a bash launch frame to camelCase", () => {
-    const ev = narrowTaskStartedFrame(BASH_STARTED);
+    const ev = startedFromWire(BASH_STARTED);
     expect(ev).toEqual({
       type: "task_started",
       taskId: "bkn113zww",
@@ -107,25 +124,25 @@ describe("narrowTaskStartedFrame", () => {
   });
 
   test("narrows an agent frame, carrying subagentType", () => {
-    const ev = narrowTaskStartedFrame(AGENT_STARTED);
+    const ev = startedFromWire(AGENT_STARTED);
     expect(ev?.taskType).toBe("local_agent");
     expect(ev?.subagentType).toBe("general-purpose");
   });
 
   test("rejects wrong type and missing required ids", () => {
-    expect(narrowTaskStartedFrame({ type: "task_updated" })).toBeUndefined();
+    expect(startedFromWire({ type: "task_updated" })).toBeUndefined();
     expect(
-      narrowTaskStartedFrame({ ...BASH_STARTED, task_id: undefined }),
+      startedFromWire({ ...BASH_STARTED, task_id: undefined }),
     ).toBeUndefined();
     expect(
-      narrowTaskStartedFrame({ ...BASH_STARTED, tool_use_id: "" }),
+      startedFromWire({ ...BASH_STARTED, tool_use_id: "" }),
     ).toBeUndefined();
   });
 });
 
-describe("narrowTaskUpdatedFrame", () => {
+describe("updatedFromWire", () => {
   test("narrows a status flip, carrying endTime", () => {
-    const ev = narrowTaskUpdatedFrame(UPDATED_COMPLETED);
+    const ev = updatedFromWire(UPDATED_COMPLETED);
     expect(ev).toEqual({
       type: "task_updated",
       taskId: "bkn113zww",
@@ -136,30 +153,30 @@ describe("narrowTaskUpdatedFrame", () => {
 
   test("accepts the full observed status vocabulary", () => {
     for (const status of ["completed", "failed", "killed"]) {
-      const ev = narrowTaskUpdatedFrame({ ...UPDATED_COMPLETED, status });
+      const ev = updatedFromWire({ ...UPDATED_COMPLETED, status });
       expect(ev?.status).toBe(status);
     }
   });
 
   test("omits endTime when absent and rejects missing required fields", () => {
-    const noEnd = narrowTaskUpdatedFrame({
+    const noEnd = updatedFromWire({
       ...UPDATED_COMPLETED,
       end_time: undefined,
     });
     expect(noEnd).toBeDefined();
     expect("endTime" in noEnd!).toBe(false);
     expect(
-      narrowTaskUpdatedFrame({ ...UPDATED_COMPLETED, task_id: "" }),
+      updatedFromWire({ ...UPDATED_COMPLETED, task_id: "" }),
     ).toBeUndefined();
     expect(
-      narrowTaskUpdatedFrame({ ...UPDATED_COMPLETED, status: undefined }),
+      updatedFromWire({ ...UPDATED_COMPLETED, status: undefined }),
     ).toBeUndefined();
   });
 });
 
-describe("narrowTaskProgressFrame", () => {
+describe("progressFromWire", () => {
   test("narrows a progress tick, camelCasing usage detail", () => {
-    const ev = narrowTaskProgressFrame(AGENT_PROGRESS);
+    const ev = progressFromWire(AGENT_PROGRESS);
     expect(ev).toEqual({
       type: "task_progress",
       taskId: "ab5660790736ebc09",
@@ -173,17 +190,18 @@ describe("narrowTaskProgressFrame", () => {
   });
 
   test("tolerates a usage-less / tool-less tick and rejects id-less frames", () => {
-    const minimal = narrowTaskProgressFrame({
+    const minimal = progressFromWire({
       type: "task_progress",
       task_id: "t1",
       tool_use_id: "toolu_x",
+      description: "",
     });
     expect(minimal).toBeDefined();
     expect("usage" in minimal!).toBe(false);
     expect("lastToolName" in minimal!).toBe(false);
-    expect(narrowTaskProgressFrame({ type: "task_updated" })).toBeUndefined();
+    expect(progressFromWire({ type: "task_updated" })).toBeUndefined();
     expect(
-      narrowTaskProgressFrame({ ...AGENT_PROGRESS, tool_use_id: "" }),
+      progressFromWire({ ...AGENT_PROGRESS, tool_use_id: "" }),
     ).toBeUndefined();
   });
 });
@@ -193,7 +211,7 @@ describe("applyJobProgress", () => {
     const ledger: readonly JobItem[] = [
       job({ jobId: "ab5660790736ebc09", kind: "agent" }),
     ];
-    const ev = narrowTaskProgressFrame(AGENT_PROGRESS)!;
+    const ev = progressFromWire(AGENT_PROGRESS)!;
     const next = applyJobProgress(ledger, ev);
     expect(next).not.toBe(ledger);
     expect(next[0]!.progress).toEqual({
@@ -208,7 +226,7 @@ describe("applyJobProgress", () => {
     const running: readonly JobItem[] = [
       job({ jobId: "ab5660790736ebc09", kind: "agent" }),
     ];
-    const ev = narrowTaskProgressFrame(AGENT_PROGRESS)!;
+    const ev = progressFromWire(AGENT_PROGRESS)!;
     // Unknown id — the agent was foreground, no row was inserted.
     expect(applyJobProgress(running, { ...ev, taskId: "zzz" })).toBe(running);
     // Terminal row — a late tick must not disturb the final snapshot.

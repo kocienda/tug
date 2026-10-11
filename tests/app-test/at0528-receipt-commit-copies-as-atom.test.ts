@@ -213,6 +213,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "assistant_text",
+            status: "complete",
             tug_session_id: SID,
             msg_id: "m0",
             text: "Ready.",
@@ -222,6 +223,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "turn_complete",
+            seq: 0,
             tug_session_id: SID,
             msg_id: "m0",
             result: "success",

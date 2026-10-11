@@ -1052,7 +1052,8 @@ export class App {
    * lifecycle matrix — `send` a user message, `ingestFrame` a decoded
    * wire frame, `interrupt`, or drive the transport overlay. The card
    * must be bound first (`bindSession`). Frames flow through the
-   * store's real `frameToEvent` → `dispatch` path.
+   * store's real decode → `dispatch` path: a frame whose shape has drifted
+   * from its `@tugproto/outbound-decoders` decoder is logged and dropped.
    */
   driveSession(
     cardId: string,

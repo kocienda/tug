@@ -66,6 +66,8 @@ function constructStore(conn: TestFrameChannel): CodeSessionStore {
 function driveToThinking(conn: TestFrameChannel, msgId: string): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "thinking_text",
+    seq: 0,
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     block_index: 0,
@@ -78,6 +80,7 @@ function driveToThinking(conn: TestFrameChannel, msgId: string): void {
 function driveToAnswer(conn: TestFrameChannel, msgId: string): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: msgId,
     text: "here is the answer",
@@ -229,6 +232,7 @@ describe("termination interrupt gate", () => {
 
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "turn_complete",
+      seq: 0,
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       result: "interrupted",

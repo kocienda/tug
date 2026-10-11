@@ -111,6 +111,7 @@ async function presentPermission(app: App): Promise<void> {
     feedId: FEED_CODE_OUTPUT,
     decoded: {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: SID,
       msg_id: "at0148-msg-1",
       text: "Running tokei…",

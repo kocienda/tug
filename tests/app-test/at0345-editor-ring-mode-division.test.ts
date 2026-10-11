@@ -151,6 +151,7 @@ describe.skipIf(!SHOULD_RUN)("AT0345: an editor rings iff it is parked", () => {
           decoded: {
             tug_session_id: SID,
             type: "assistant_text",
+            status: "complete",
             msg_id: "m0",
             text: "a settled reply.",
             is_partial: false,
@@ -164,6 +165,7 @@ describe.skipIf(!SHOULD_RUN)("AT0345: an editor rings iff it is parked", () => {
           decoded: {
             tug_session_id: SID,
             type: "turn_complete",
+            seq: 0,
             msg_id: "m0",
             result: "success",
           },

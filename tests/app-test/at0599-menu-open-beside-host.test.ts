@@ -159,12 +159,14 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "tool_result",
+            is_error: false,
             tug_session_id: SID,
             tool_use_id: "tc-1",
             output: FILE_BODY,
           });
           await ingest({
             type: "turn_complete",
+            seq: 0,
             tug_session_id: SID,
             msg_id: "m1",
             result: "success",

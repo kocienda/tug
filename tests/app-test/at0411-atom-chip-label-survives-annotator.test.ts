@@ -161,6 +161,7 @@ describe.skipIf(!SHOULD_RUN)("AT0411: the annotator leaves a chip's label alone"
         });
         await ingest({
           type: "assistant_text",
+          status: "complete",
           tug_session_id: SID,
           msg_id: "m1",
           text: "Reading it now.",
@@ -170,6 +171,7 @@ describe.skipIf(!SHOULD_RUN)("AT0411: the annotator leaves a chip's label alone"
         });
         await ingest({
           type: "turn_complete",
+          seq: 0,
           tug_session_id: SID,
           msg_id: "m1",
           result: "success",

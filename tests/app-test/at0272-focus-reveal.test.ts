@@ -148,6 +148,7 @@ async function openQuestion(app: App): Promise<void> {
     feedId: FEED_CODE_OUTPUT,
     decoded: {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: SID,
       msg_id: "at0272-msg-1",
       text: "Questions…",
@@ -162,6 +163,7 @@ async function openQuestion(app: App): Promise<void> {
     request_id: "at0272-q-1",
     tool_use_id: "at0272-tu-1",
     is_question: true,
+    tool_name: "AskUserQuestion",
     input: { questions: tallQuestions() },
   };
   await app.driveSession("A", {

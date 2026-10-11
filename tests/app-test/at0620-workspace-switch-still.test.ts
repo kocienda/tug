@@ -762,7 +762,7 @@ const streamScript = (cardIds: readonly string[]): string =>
         window.__tug.driveSession(cardId, {
           op: "ingestFrame", feedId: ${FEED_CODE_OUTPUT},
           decoded: {
-            type: "assistant_text", tug_session_id: sid, msg_id: msgId,
+            type: "assistant_text", status: "complete", tug_session_id: sid, msg_id: msgId,
             text: "a reply written while nobody was looking, number " + i,
             is_partial: false, rev: 0, seq: 0,
           },
@@ -770,7 +770,7 @@ const streamScript = (cardIds: readonly string[]): string =>
         window.__tug.driveSession(cardId, {
           op: "ingestFrame", feedId: ${FEED_CODE_OUTPUT},
           decoded: {
-            type: "turn_complete", tug_session_id: sid, msg_id: msgId,
+            type: "turn_complete", seq: 0, tug_session_id: sid, msg_id: msgId,
             result: "success",
           },
         });

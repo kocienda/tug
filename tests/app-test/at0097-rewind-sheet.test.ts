@@ -79,8 +79,8 @@ async function buildTurn(app: App, i: number): Promise<void> {
   await app.driveSession("A", { op: "send", text: `prompt ${i}` });
   await frame({ type: "prompt_anchor", promptUuid: uuid });
   await frame({ type: "content_block_start", msg_id: msgId, block_index: 0, kind: "text" });
-  await frame({ type: "assistant_text", msg_id: msgId, block_index: 0, text: `reply ${i}`, is_partial: false });
-  await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+  await frame({ type: "assistant_text", seq: 0, rev: 0, status: "complete", msg_id: msgId, block_index: 0, text: `reply ${i}`, is_partial: false });
+  await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
 /** Each listed message's side of the cut: kept / point (the rewind point) /

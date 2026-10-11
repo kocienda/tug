@@ -140,6 +140,7 @@ const userMsg = (text: string) => ({
 });
 const turnDone = (msgId: string) => ({
   type: "turn_complete",
+  seq: 0,
   tug_session_id: SID,
   msg_id: msgId,
   result: "success",
@@ -172,6 +173,7 @@ async function mountSkillHeader(app: Harness): Promise<void> {
   });
   await ingest({
     type: "tool_result",
+    is_error: false,
     tug_session_id: SID,
     tool_use_id: "tc-1",
     output: "done",
@@ -294,6 +296,7 @@ async function mountCensusSurfaces(app: Harness): Promise<void> {
   });
   await ingest({
     type: "tool_result",
+    is_error: false,
     tug_session_id: SID,
     tool_use_id: "tc-skill",
     output: "done",
@@ -309,6 +312,7 @@ async function mountCensusSurfaces(app: Harness): Promise<void> {
   });
   await ingest({
     type: "tool_result",
+    is_error: false,
     tug_session_id: SID,
     tool_use_id: "tc-bash",
     output: "M tugdeck/src/app.tsx\n",
@@ -328,6 +332,7 @@ async function mountCensusSurfaces(app: Harness): Promise<void> {
   });
   await ingest({
     type: "tool_result",
+    is_error: false,
     tug_session_id: SID,
     tool_use_id: "tc-task",
     output: "found 15",
@@ -346,6 +351,7 @@ async function mountCensusSurfaces(app: Harness): Promise<void> {
   });
   await ingest({
     type: "tool_result",
+    is_error: false,
     tug_session_id: SID,
     tool_use_id: "tc-read",
     output: "alpha\nbravo\n",
@@ -361,7 +367,7 @@ async function mountCensusSurfaces(app: Harness): Promise<void> {
       tool_use_id: "tc-wake",
       status: "completed",
       summary: "loop pacing",
-      output_file: null,
+      output_file: "",
     },
   });
   await ingest(replayComplete());

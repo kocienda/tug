@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
         await app.driveSession("A", {
           op: "ingestFrame",
           feedId: 0x40,
-          decoded: { tug_session_id: SID, type: "turn_complete", msg_id: "m1", result: "success" },
+          decoded: { tug_session_id: SID, type: "turn_complete", seq: 0, msg_id: "m1", result: "success" },
         });
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,

@@ -12,7 +12,7 @@
  * `running` rows; a `scheduled` row falsely marked `stopped` would
  * contradict the wake that then actually fires. The pure rule is
  * unit-tested in `select-jobs.test.ts`; this drives the live surface:
- * register a wakeup through the store's real `frameToEvent → dispatch`
+ * register a wakeup through the store's real `decode → dispatch`
  * path, inject the respawn's `session_init`, and assert the JOBS cell
  * still reports the row as scheduled (a false flip would report it
  * finished).
@@ -131,6 +131,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await ingest({
             type: "turn_complete",
+            seq: 0,
             tug_session_id: SID,
             msg_id: "m1",
             result: "success",

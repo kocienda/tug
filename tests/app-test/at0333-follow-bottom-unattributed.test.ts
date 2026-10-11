@@ -111,12 +111,15 @@ async function seedTurn(app: App, n: number): Promise<void> {
   });
   await frame({
     type: "assistant_text",
+    seq: 0,
+    rev: 0,
+    status: "complete",
     msg_id: msgId,
     block_index: 0,
     text: replyText(n),
     is_partial: false,
   });
-  await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+  await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
 /** Launch, seed a tall transcript, and wait until eviction has armed —
@@ -208,6 +211,7 @@ async function presentQuestion(app: App, tag: string): Promise<string> {
     request_id: `${SID}-q-${tag}`,
     tool_use_id: `${SID}-tu-${tag}`,
     is_question: true,
+    tool_name: "AskUserQuestion",
     input: {
       questions: [
         {
@@ -235,6 +239,7 @@ async function withdrawQuestion(app: App, msgId: string): Promise<void> {
     decoded: {
       tug_session_id: SID,
       type: "turn_complete",
+      seq: 0,
       msg_id: msgId,
       result: "success",
     },

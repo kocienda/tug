@@ -147,6 +147,7 @@ function driveResume(
   });
   emit(conn, {
     type: "tool_use",
+    seq: 0,
     msg_id: msgId,
     tool_use_id: AGENT_ID,
     tool_name: "Agent",
@@ -157,6 +158,7 @@ function driveResume(
   children.forEach((c, idx) => {
     const childFrame = {
       type: "tool_use",
+      seq: 0,
       msg_id: `msg-child-${idx}`,
       tool_use_id: c.toolUseId,
       tool_name: c.toolName,
@@ -168,6 +170,7 @@ function driveResume(
     if (opts.duplicateFirstChild && idx === 0) emit(conn, childFrame);
     emit(conn, {
       type: "tool_result",
+      is_error: false,
       tool_use_id: c.toolUseId,
       output: c.resultOutput,
       ipc_version: IPC_VERSION,
@@ -189,6 +192,7 @@ function driveResume(
   });
   emit(conn, {
     type: "turn_complete",
+    seq: 0,
     msg_id: msgId,
     result: "success",
     ipc_version: IPC_VERSION,

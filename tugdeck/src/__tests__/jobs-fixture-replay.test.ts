@@ -39,8 +39,11 @@ interface CapturedJob {
   /** The launching tool call's name + input (from the assistant snapshot). */
   toolName: string;
   input: Record<string, unknown>;
-  /** The launch `tool_result`'s content payload (string or block array). */
-  resultContent: unknown;
+  /**
+   * The launch `tool_result`'s content as tugcode forwards it: a string
+   * verbatim, a block array as its text blocks joined (`event-mapping.ts`).
+   */
+  resultContent: string;
   /** The raw task_started event. */
   started: Record<string, unknown>;
   /** The raw task_updated event (absent for the foreground agent). */
@@ -76,7 +79,7 @@ beforeAll(async () => {
         toolUseId: String(ev.tool_use_id),
         toolName: "",
         input: {},
-        resultContent: null,
+        resultContent: "",
         started: ev,
       });
     }
@@ -115,7 +118,12 @@ beforeAll(async () => {
         if (block.type !== "tool_result") continue;
         for (const job of jobs.values()) {
           if (block.tool_use_id === job.toolUseId) {
-            job.resultContent = block.content;
+            job.resultContent = Array.isArray(block.content)
+              ? (block.content as Array<Record<string, unknown>>)
+                  .filter((b) => b.type === "text")
+                  .map((b) => String(b.text))
+                  .join("")
+              : String(block.content ?? "");
           }
         }
       }
@@ -203,6 +211,7 @@ function runLaunchTurn(
   });
   emit(conn, {
     type: "tool_use",
+    seq: 0,
     msg_id: msgId,
     tool_use_id: job.toolUseId,
     tool_name: job.toolName,
@@ -214,6 +223,7 @@ function runLaunchTurn(
   }
   emit(conn, {
     type: "tool_result",
+    is_error: false,
     tool_use_id: job.toolUseId,
     output: job.resultContent,
     ipc_version: IPC_VERSION,
@@ -221,6 +231,7 @@ function runLaunchTurn(
   if (opts.completeTurn !== false) {
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: msgId,
       result: "success",
       ipc_version: IPC_VERSION,
@@ -276,6 +287,7 @@ describe("jobs fixture replay — lifecycle through the real store", () => {
     });
     emit(conn, {
       type: "tool_use",
+      seq: 0,
       msg_id: MSG,
       tool_use_id: TU,
       tool_name: "Agent",
@@ -301,6 +313,7 @@ describe("jobs fixture replay — lifecycle through the real store", () => {
     // The async-launch echo IS the discriminant.
     emit(conn, {
       type: "tool_result",
+      is_error: false,
       tool_use_id: TU,
       output:
         "Async agent launched successfully.\nagentId: " +
@@ -481,6 +494,7 @@ describe("jobs fixture replay — replay suppression", () => {
     });
     emit(conn, {
       type: "tool_use",
+      seq: 0,
       msg_id: msgId,
       tool_use_id: job.toolUseId,
       tool_name: job.toolName,
@@ -491,12 +505,14 @@ describe("jobs fixture replay — replay suppression", () => {
     emit(conn, taskStartedFrame(job));
     emit(conn, {
       type: "tool_result",
+      is_error: false,
       tool_use_id: job.toolUseId,
       output: job.resultContent,
       ipc_version: IPC_VERSION,
     });
     emit(conn, {
       type: "turn_complete",
+      seq: 0,
       msg_id: msgId,
       result: "success",
       ipc_version: IPC_VERSION,

@@ -220,6 +220,7 @@ async function seedSession(app: App): Promise<void> {
       "A",
       f({
         type: "assistant_text",
+        status: "complete",
         msg_id: `m${i}`,
         text: `${PROBE} ${tail} sits in reply ${i}.`,
         is_partial: false,
@@ -227,7 +228,7 @@ async function seedSession(app: App): Promise<void> {
         seq: 0,
       }),
     );
-    await app.driveSession("A", f({ type: "turn_complete", msg_id: `m${i}`, result: "success" }));
+    await app.driveSession("A", f({ type: "turn_complete", seq: 0, msg_id: `m${i}`, result: "success" }));
   }
   await app.waitForCondition<boolean>(
     `document.querySelectorAll('${CARD} [data-tug-list-cell-index]').length >= 4`,

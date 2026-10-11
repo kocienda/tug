@@ -17,16 +17,19 @@ import type { InterruptReason, TextRef } from "./types";
 import type * as Wire from "@tugproto/outbound";
 
 /**
- * A tugcode frame as `frameToEvent` hands it to the reducer, typed from its
+ * A tugcode frame as the store hands it to the reducer, typed from its
  * one declaration in `@tugproto/outbound` rather than restated here. tugcast
- * stamps `tug_session_id` on the way through and the deck never reads
- * `ipc_version`; the index signature keeps a field a newer tugcode adds
- * readable before the deck names it. `Narrowed` lists fields the event
+ * stamps `tug_session_id` on the way through, the deck never reads
+ * `ipc_version`, and the decoder admits `session_id` absent, as every
+ * `@tugproto/outbound-decoders` decoder admits the envelope; the index
+ * signature keeps a field a newer tugcode adds readable before the deck
+ * names it. `Narrowed` lists fields the event
  * re-types (intersected back in by the caller). Distributes over a union
  * frame such as `content_block_start`.
  */
 type WireEvent<T, Narrowed extends keyof T = never> = T extends unknown
-  ? Omit<T, "ipc_version" | Narrowed> & {
+  ? Omit<T, "ipc_version" | "session_id" | Narrowed> & {
+      session_id?: string;
       tug_session_id?: string;
       [key: string]: unknown;
     }
@@ -213,15 +216,21 @@ export type SessionInitEvent = WireEvent<Wire.SessionInit>;
 
 /** Decoded assistant_text partial or terminal frame. `block_index`
  *  correlates the delta with its opening `content_block_start` via
- *  the wire's `(msg_id, block_index)` coordinate ([D07]). Required —
- *  every text frame tugcode emits after Step 5 carries it.
+ *  the wire's `(msg_id, block_index)` coordinate ([D07]). Every text
+ *  frame tugcode emits now carries it; a capture from before
+ *  `content_block_start` existed does not, and the decoder admits it
+ *  absent (`LegacyOptional` in `@tugproto/outbound-decoders`).
  */
-export type AssistantTextEvent = WireEvent<Wire.AssistantText>;
+export type AssistantTextEvent = WireEvent<Wire.AssistantText, "block_index"> & {
+  block_index?: number;
+};
 
 /** Decoded thinking_text partial or terminal frame. See
  *  {@link AssistantTextEvent} for the `block_index` correlation
  *  contract. */
-export type ThinkingTextEvent = WireEvent<Wire.ThinkingText>;
+export type ThinkingTextEvent = WireEvent<Wire.ThinkingText, "block_index"> & {
+  block_index?: number;
+};
 
 /**
  * `content_block_start` — wire-derived block-open marker emitted by
@@ -772,9 +781,11 @@ export interface UnknownEventEvent {
  * errored and from transport close. Listed in the outbound event table
  * (design doc) but never captured in v2.1.105 fixtures, so tests
  * exercise it via synthetic dispatch. Routes to the `errored` phase
- * with cause `wire_error`.
+ * with cause `wire_error`. `site` and `recoverable` may be absent
+ * (`LegacyOptional` in `@tugproto/outbound-decoders`).
  */
-export type WireErrorEvent = WireEvent<Wire.ErrorEvent>;
+export type WireErrorEvent = WireEvent<Wire.ErrorEvent, "site" | "recoverable"> &
+  Partial<Pick<Wire.ErrorEvent, "site" | "recoverable">>;
 
 /**
  * Internal event mapped from a `SESSION_STATE { state: "errored" }`

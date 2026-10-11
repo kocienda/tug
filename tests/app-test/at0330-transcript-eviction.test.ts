@@ -119,6 +119,9 @@ async function seedTurns(app: App, turns: number): Promise<void> {
     });
     await frame({
       type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
       msg_id: msgId,
       block_index: 0,
       text: replyText(n),
@@ -128,6 +131,7 @@ async function seedTurns(app: App, turns: number): Promise<void> {
       const tuId = `${SID}-tu${n}`;
       await frame({
         type: "tool_use",
+        seq: 0,
         msg_id: msgId,
         tool_use_id: tuId,
         tool_name: "Bash",
@@ -140,7 +144,7 @@ async function seedTurns(app: App, turns: number): Promise<void> {
         is_error: false,
       });
     }
-    await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+    await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
   }
 }
 

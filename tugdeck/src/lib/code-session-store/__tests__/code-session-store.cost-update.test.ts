@@ -31,12 +31,22 @@ function constructStore(conn: TestFrameChannel): CodeSessionStore {
   });
 }
 
+/** The fields tugcode's `cost_update` always carries, zeroed. */
+const COST_FIELDS = {
+  num_turns: 0,
+  duration_ms: 0,
+  duration_api_ms: 0,
+  usage: {},
+  modelUsage: {},
+};
+
 function driveToStreaming(
   conn: TestFrameChannel,
   store: CodeSessionStore,
 ): void {
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: FIXTURE_IDS.MSG_ID,
     text: "h",
@@ -46,6 +56,7 @@ function driveToStreaming(
   });
   conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
     type: "assistant_text",
+    status: "partial",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     msg_id: FIXTURE_IDS.MSG_ID,
     text: "i",
@@ -104,23 +115,25 @@ describe("CodeSessionStore — cost_update (Step 6)", () => {
       type: "cost_update",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       total_cost_usd: 0.01337,
+      ...COST_FIELDS,
+      duration_ms: 4200,
     });
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "cost_update",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       total_cost_usd: 0.042,
+      ...COST_FIELDS,
       num_turns: 5,
+      duration_ms: 100,
     });
 
     const snap = store.getSnapshot();
     expect(snap.lastCost?.totalCostUsd).toBe(0.042);
     expect(snap.lastCost?.numTurns).toBe(5);
-    // Fields not present on the second event default to null — we
-    // fully replace, never merge. Renderers see a clean snapshot.
-    expect(snap.lastCost?.durationMs).toBeNull();
+    expect(snap.lastCost?.durationMs).toBe(100);
   });
 
-  it("leaves optional fields null when the wire event omits them", () => {
+  it("drops a cost_update that omits a field tugcode always sends", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);
 
@@ -130,14 +143,9 @@ describe("CodeSessionStore — cost_update (Step 6)", () => {
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       total_cost_usd: 0.0001,
     });
-
-    const snap = store.getSnapshot();
-    expect(snap.lastCost?.totalCostUsd).toBe(0.0001);
-    expect(snap.lastCost?.numTurns).toBeNull();
-    expect(snap.lastCost?.durationMs).toBeNull();
-    expect(snap.lastCost?.durationApiMs).toBeNull();
-    expect(snap.lastCost?.usage).toBeNull();
-    expect(snap.lastCost?.modelUsage).toBeNull();
+    // The frame fails its decoder at `num_turns` and never reaches the
+    // reducer.
+    expect(store.getSnapshot().lastCost).toBeNull();
   });
 
   it("ignores cost_update with non-numeric total_cost_usd", () => {
@@ -191,6 +199,7 @@ describe("CodeSessionStore — cost_update (Step 6)", () => {
       type: "cost_update",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       total_cost_usd: 0.01,
+      ...COST_FIELDS,
       permission_denials: [
         { tool_name: "Bash", tool_use_id: "tu-1", tool_input: { command: "curl x" } },
       ],
@@ -209,6 +218,7 @@ describe("CodeSessionStore — cost_update (Step 6)", () => {
       type: "cost_update",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       total_cost_usd: 0.02,
+      ...COST_FIELDS,
       permission_denials: [
         { tool_name: "Bash", tool_use_id: "tu-1", tool_input: { command: "curl x" } },
         { tool_name: "WebFetch", tool_use_id: "tu-2", tool_input: { url: "https://x" } },
@@ -224,6 +234,7 @@ describe("CodeSessionStore — cost_update (Step 6)", () => {
       type: "cost_update",
       tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
       total_cost_usd: 0.03,
+      ...COST_FIELDS,
     });
     expect(store.getSnapshot().permissionDenials).toBe(before);
   });

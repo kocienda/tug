@@ -215,6 +215,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
           decoded: {
             tug_session_id: SID,
             type: "turn_complete",
+            seq: 0,
             msg_id: "m1",
             result: "success",
           },

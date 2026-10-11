@@ -62,6 +62,7 @@ function launchBackgroundAgent(
   });
   emit(conn, {
     type: "tool_use",
+    seq: 0,
     msg_id: MSG,
     tool_use_id: AGENT_TU,
     tool_name: "Agent",
@@ -71,6 +72,7 @@ function launchBackgroundAgent(
   // The async-launch echo — creates the background-agent job.
   emit(conn, {
     type: "tool_result",
+    is_error: false,
     tool_use_id: AGENT_TU,
     output:
       "Async agent launched successfully.\nagentId: " +
@@ -83,6 +85,7 @@ function launchBackgroundAgent(
   // The launching turn ends — the agent runs on in the background.
   emit(conn, {
     type: "turn_complete",
+    seq: 0,
     msg_id: MSG,
     result: "success",
     ipc_version: IPC_VERSION,
@@ -98,6 +101,7 @@ function emitChild(
 ): void {
   emit(conn, {
     type: "tool_use",
+    seq: 0,
     msg_id: `m-child-${id}`,
     tool_use_id: id,
     tool_name: "Bash",
@@ -107,6 +111,7 @@ function emitChild(
   });
   emit(conn, {
     type: "tool_result",
+    is_error: false,
     tool_use_id: id,
     output,
     ipc_version: IPC_VERSION,
@@ -144,6 +149,7 @@ describe("live subagent children — inter-turn routing to the job", () => {
     // Redeliver the same child tool_use (as a resume splice would).
     emit(conn, {
       type: "tool_use",
+      seq: 0,
       msg_id: "m-child-dup",
       tool_use_id: "toolu_c1",
       tool_name: "Bash",
@@ -239,6 +245,7 @@ describe("live subagent children — inter-turn routing to the job", () => {
     store.send("explore", []);
     emit(conn, {
       type: "tool_use",
+      seq: 0,
       msg_id: "m-fg-agent",
       tool_use_id: "toolu_fg_agent",
       tool_name: "Agent",
@@ -264,6 +271,7 @@ describe("live subagent children — inter-turn routing to the job", () => {
     store.send("do it", []);
     emit(conn, {
       type: "tool_use",
+      seq: 0,
       msg_id: "m-fg",
       tool_use_id: "toolu_fg_child",
       tool_name: "Bash",

@@ -155,12 +155,15 @@ describe.skipIf(!SHOULD_RUN)("AT0497: the streamed message's scroll", () => {
         await frame({ type: "content_block_start", msg_id: "m1", block_index: 0, kind: "text" });
         await frame({
           type: "assistant_text",
+          seq: 0,
+          rev: 0,
+          status: "complete",
           msg_id: "m1",
           block_index: 0,
           text: "hi",
           is_partial: false,
         });
-        await frame({ type: "turn_complete", msg_id: "m1", result: "success" });
+        await frame({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },

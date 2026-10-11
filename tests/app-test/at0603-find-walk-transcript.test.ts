@@ -137,6 +137,7 @@ async function seedMixedTurns(app: App, turns: number): Promise<void> {
     await frame({ type: "prompt_anchor", promptUuid: `${SID}-u${n}` });
     await frame({
       type: "tool_use",
+      seq: 0,
       msg_id: msgId,
       tool_use_id: `${SID}-tu${n}`,
       tool_name: "Bash",
@@ -156,12 +157,15 @@ async function seedMixedTurns(app: App, turns: number): Promise<void> {
     });
     await frame({
       type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
       msg_id: msgId,
       block_index: 0,
       text: replyText(n),
       is_partial: false,
     });
-    await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+    await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
     if (n % 3 === 0) {
       await app.driveSession("A", {
         op: "shellExchange",

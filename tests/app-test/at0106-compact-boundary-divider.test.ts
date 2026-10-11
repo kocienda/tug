@@ -14,7 +14,7 @@
  * `handleCompactBoundary`) are unit-tested; the tugcode emit is covered
  * in `tugcode/src/__tests__/session.test.ts`. This drives the **live
  * render**: open a turn, inject a synthetic `compact_boundary` through the
- * store's real `frameToEvent → dispatch` path, and assert the divider.
+ * store's real `decode → dispatch` path, and assert the divider.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -98,7 +98,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.driveSession("A", { op: "send", text: "do a long thing", atoms: [] });
 
           // Inject a synthetic compact_boundary through the store's real
-          // frameToEvent → dispatch path.
+          // decode → dispatch path.
           await app.driveSession("A", {
             op: "ingestFrame",
             feedId: CODE_OUTPUT_FEED,

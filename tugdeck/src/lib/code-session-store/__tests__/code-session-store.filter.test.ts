@@ -108,6 +108,7 @@ describe("CodeSessionStore — multi-instance filter isolation (Step 9)", () => 
     for (const rev of [0, 1]) {
       conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
         type: "assistant_text",
+        status: "partial",
         tug_session_id: TUG_A,
         msg_id: FIXTURE_IDS.MSG_ID,
         text: "a",
@@ -118,6 +119,7 @@ describe("CodeSessionStore — multi-instance filter isolation (Step 9)", () => 
     }
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "turn_complete",
+      seq: 0,
       tug_session_id: TUG_A,
       msg_id: FIXTURE_IDS.MSG_ID,
       result: "success",
@@ -142,6 +144,7 @@ describe("CodeSessionStore — multi-instance filter isolation (Step 9)", () => 
     // store at all. storeA stays in submitting.
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
       type: "assistant_text",
+      status: "partial",
       tug_session_id: "tug00000-0000-4000-8000-0000000000cc",
       msg_id: FIXTURE_IDS.MSG_ID,
       text: "stray",

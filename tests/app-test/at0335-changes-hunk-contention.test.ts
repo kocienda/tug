@@ -236,6 +236,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
           decoded: {
             tug_session_id: SID_A,
             type: "turn_complete",
+            seq: 0,
             msg_id: "m1",
             result: "success",
           },

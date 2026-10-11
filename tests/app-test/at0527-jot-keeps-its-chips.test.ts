@@ -307,6 +307,7 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
             });
             await ingest({
               type: "assistant_text",
+              status: "complete",
               tug_session_id: SID,
               msg_id: "m1",
               text: `Tune it in \`${realPath}\`.`,
@@ -316,6 +317,7 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
             });
             await ingest({
               type: "turn_complete",
+              seq: 0,
               tug_session_id: SID,
               msg_id: "m1",
               result: "success",

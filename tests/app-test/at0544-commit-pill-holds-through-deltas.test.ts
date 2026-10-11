@@ -101,6 +101,7 @@ const userMsg = (text: string) => ({
 });
 const asstText = (msgId: string, text: string) => ({
   type: "assistant_text",
+  status: "complete",
   tug_session_id: SID,
   msg_id: msgId,
   text,
@@ -110,6 +111,7 @@ const asstText = (msgId: string, text: string) => ({
 });
 const turnDone = (msgId: string) => ({
   type: "turn_complete",
+  seq: 0,
   tug_session_id: SID,
   msg_id: msgId,
   result: "success",
@@ -125,6 +127,7 @@ const replayComplete = () => ({
 });
 const asstDelta = (msgId: string, text: string, rev: number) => ({
   type: "assistant_text",
+  status: "partial",
   tug_session_id: SID,
   msg_id: msgId,
   text,

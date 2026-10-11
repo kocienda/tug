@@ -89,12 +89,15 @@ async function seedTurn(app: App, n: number): Promise<void> {
   });
   await frame({
     type: "assistant_text",
+    seq: 0,
+    rev: 0,
+    status: "complete",
     msg_id: msgId,
     block_index: 0,
     text: `## step ${n}\n\nReply number ${n}, long enough to take a few lines of the transcript so that forty of them overflow the scrollport.\n\n- marker ${n}`,
     is_partial: false,
   });
-  await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+  await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
 interface AnchorSnap {

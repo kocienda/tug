@@ -77,6 +77,7 @@ function controlRequestForward(): Record<string, unknown> {
     request_id: "at0146-q-1",
     tool_use_id: "at0146-tu-1",
     is_question: true,
+    tool_name: "AskUserQuestion",
     input: {
       questions: [
         {
@@ -101,6 +102,7 @@ function controlRequestForwardSingle(): Record<string, unknown> {
     request_id: "at0146-q-2",
     tool_use_id: "at0146-tu-2",
     is_question: true,
+    tool_name: "AskUserQuestion",
     input: {
       questions: [
         {
@@ -122,6 +124,7 @@ function controlRequestForwardMultiQuestion(): Record<string, unknown> {
     request_id: "at0146-q-3",
     tool_use_id: "at0146-tu-3",
     is_question: true,
+    tool_name: "AskUserQuestion",
     input: {
       questions: [
         {
@@ -266,6 +269,7 @@ describe.skipIf(!SHOULD_RUN)("AT0146: QuestionDialog is card-modal", () => {
           feedId: FEED_CODE_OUTPUT,
           decoded: {
             type: "assistant_text",
+            status: "partial",
             tug_session_id: SID,
             msg_id: "at0146-msg-1",
             text: "Let me ask…",

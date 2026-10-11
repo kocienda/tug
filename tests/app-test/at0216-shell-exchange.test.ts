@@ -249,12 +249,15 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await frame({
             type: "assistant_text",
+            seq: 0,
+            rev: 0,
+            status: "complete",
             msg_id: "m1",
             block_index: 0,
             text: "hi there",
             is_partial: false,
           });
-          await frame({ type: "turn_complete", msg_id: "m1", result: "success" });
+          await frame({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
 
           // --- Four real exchanges through the live shell backend. The last
           // reads $TUG_SESSION_ID,
