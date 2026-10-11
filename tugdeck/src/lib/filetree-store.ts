@@ -10,6 +10,7 @@
  * @module lib/filetree-store
  */
 
+import { Subscribable } from "./subscribable";
 import type { FeedStore, FeedStoreFilter } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
 import { FeedId } from "../protocol";
@@ -98,10 +99,9 @@ function parseResponsePayload(payload: unknown): FileTreeResultSnapshot | null {
  * Sends queries to tugcast via FILETREE_QUERY, receives scored results on
  * FILETREE. Exposes a subscribable CompletionProvider for the @ trigger.
  */
-export class FileTreeStore {
+export class FileTreeStore extends Subscribable {
   private _snapshot: FileTreeResultSnapshot = { ...EMPTY_SNAPSHOT };
   private _responded = false;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private _feedId: FeedIdValue;
@@ -134,6 +134,7 @@ export class FileTreeStore {
   private _answeredRoot: string | null = null;
 
   constructor(feedStore: FeedStore, feedId: FeedIdValue, projectDir?: string) {
+    super();
     this._feedId = feedId;
     this._projectDir = projectDir;
     this._unsubscribeFeed = feedStore.subscribe(() => {
@@ -171,9 +172,7 @@ export class FileTreeStore {
 
     this._snapshot = parsed;
     this._responded = true;
-    for (const listener of this._listeners) {
-      listener();
-    }
+    this.notify();
   }
 
   /**
@@ -207,14 +206,6 @@ export class FileTreeStore {
   answeredRoot(): string | null {
     return this._projectDir ?? this._answeredRoot;
   }
-
-  /** Subscribe to store updates. Returns an unsubscribe function. */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /** Return the current file tree result snapshot. */
   getSnapshot = (): FileTreeResultSnapshot => {
@@ -293,6 +284,6 @@ export class FileTreeStore {
       this._unsubscribeFeed();
       this._unsubscribeFeed = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

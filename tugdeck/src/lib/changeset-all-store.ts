@@ -19,6 +19,7 @@
  * @module lib/changeset-all-store
  */
 
+import { Subscribable } from "./subscribable";
 import { useMemo } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -36,14 +37,14 @@ const IDLE_SNAPSHOT: WorkspacesChangesetSnapshot = Object.freeze({
   projects: [] as ProjectChangeset[],
 });
 
-export class ChangesetAllStore {
+export class ChangesetAllStore extends Subscribable {
   private _snapshot: WorkspacesChangesetSnapshot = IDLE_SNAPSHOT;
-  private readonly _listeners = new Set<() => void>();
   private readonly _feedStore: FeedStore;
   private readonly _unsubscribeFeed: () => void;
   private _lastPayloadRef: unknown = undefined;
 
   constructor(connection: TugConnection) {
+    super();
     // CHANGESET_ALL carries no workspace_key scoping — account-global,
     // intentionally unfiltered.
     this._feedStore = new FeedStore(connection, [FeedId.CHANGESET_ALL]);
@@ -64,19 +65,14 @@ export class ChangesetAllStore {
     this._lastPayloadRef = payload;
     if (!isWorkspacesChangesetSnapshot(payload)) return;
     this._snapshot = payload;
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   dispose(): void {
     this._unsubscribeFeed();
     this._feedStore.dispose();
-    this._listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => this._listeners.delete(listener);
-  };
 
   getSnapshot = (): WorkspacesChangesetSnapshot => this._snapshot;
 }

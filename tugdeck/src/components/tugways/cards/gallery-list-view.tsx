@@ -60,6 +60,7 @@
  *    to disengage).
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import "./gallery.css";
 
 import React from "react";
@@ -129,13 +130,13 @@ const STATIC_MARKDOWN_SAMPLES: ReadonlyArray<string> = [
  * `reset`) drive the header bar's buttons. Each mutation emits
  * synchronously after updating `items`.
  */
-class GalleryListViewDataSource implements TugListViewDataSource {
+class GalleryListViewDataSource extends Subscribable implements TugListViewDataSource {
   private items: DemoItem[];
-  private readonly listeners = new Set<() => void>();
   private version = 0;
   private nextInsertedId = 0;
 
   constructor() {
+    super();
     this.items = this._buildInitialItems();
   }
 
@@ -156,42 +157,35 @@ class GalleryListViewDataSource implements TugListViewDataSource {
     return this.items[index];
   }
 
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
   getVersion(): unknown {
     return this.version;
   }
 
   insertAtTop(): void {
     this.items = [this._makeInsertedItem(), ...this.items];
-    this._emit();
+    this.notify();
   }
 
   insertAtBottom(): void {
     this.items = [...this.items, this._makeInsertedItem()];
-    this._emit();
+    this.notify();
   }
 
   removeLast(): void {
     if (this.items.length === 0) return;
     this.items = this.items.slice(0, -1);
-    this._emit();
+    this.notify();
   }
 
   reset(): void {
     this.nextInsertedId = 0;
     this.items = this._buildInitialItems();
-    this._emit();
+    this.notify();
   }
 
-  private _emit(): void {
+  override notify(): void {
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    super.notify();
   }
 
   private _makeInsertedItem(): DemoItem {

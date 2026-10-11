@@ -116,6 +116,7 @@
  *        through React state.
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import {
   Annotation,
   EditorState,
@@ -755,7 +756,7 @@ function sameCompletionItems(
 
 const completionPlugin = ViewPlugin.fromClass(
   class implements CompletionPluginValue {
-    private listeners = new Set<() => void>();
+    private readonly listeners = createSubscribable();
     private lastState: TugCompletionState;
     private providerUnsubscribe: (() => void) | null = null;
 
@@ -785,7 +786,7 @@ const completionPlugin = ViewPlugin.fromClass(
           this.installProviderSubscription(newState);
         }
         this.lastState = newState;
-        for (const listener of this.listeners) listener();
+        this.listeners.notify();
         // A synchronous provider has no `subscribe` refresh, so the
         // `filtered` computed during detection (in the transaction
         // extender, before the document change is reflected) can be stale.
@@ -867,16 +868,13 @@ const completionPlugin = ViewPlugin.fromClass(
      * field's `update` returns a fresh object only on real changes).
      */
     subscribe(listener: () => void): () => void {
-      this.listeners.add(listener);
-      return () => {
-        this.listeners.delete(listener);
-      };
+      return this.listeners.subscribe(listener);
     }
 
     destroy(): void {
       this.providerUnsubscribe?.();
       this.providerUnsubscribe = null;
-      this.listeners.clear();
+      this.listeners.clearListeners();
     }
   },
 );

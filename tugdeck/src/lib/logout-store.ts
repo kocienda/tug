@@ -12,25 +12,18 @@
  * @module lib/logout-store
  */
 
+import { Subscribable } from "./subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
-class LogoutStore {
+class LogoutStore extends Subscribable {
   private _nonce = 0;
-  private readonly _listeners = new Set<() => void>();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): number => this._nonce;
 
   request(): void {
     this._nonce += 1;
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 }
 

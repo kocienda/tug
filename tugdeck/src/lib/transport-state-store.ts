@@ -19,22 +19,15 @@
  * @module lib/transport-state-store
  */
 
+import { Subscribable } from "./subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
 /** App-level transport health. */
 export type AppTransportState = "online" | "offline" | "reconnecting";
 
-class TransportStateStore {
+class TransportStateStore extends Subscribable {
   private _state: AppTransportState = "online";
-  private readonly _listeners = new Set<() => void>();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): AppTransportState => this._state;
 
@@ -42,7 +35,7 @@ class TransportStateStore {
   set(next: AppTransportState): void {
     if (this._state === next) return;
     this._state = next;
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 }
 

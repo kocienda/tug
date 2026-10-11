@@ -37,6 +37,7 @@
  *    notice-outside-list.
  */
 
+import { Subscribable } from "./subscribable";
 import { useLayoutEffect, useRef } from "react";
 
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
@@ -105,13 +106,13 @@ function filterFieldsForRow(row: SessionRow): (string | null | undefined)[] {
  *    surfaces the error per [D11]; the picker form may render a
  *    placeholder for the idle case.
  */
-export class SessionsDataSource implements TugListViewDataSource {
+export class SessionsDataSource extends Subscribable implements TugListViewDataSource {
   private inputs: SessionsInputs;
   private rows: SessionsRow[] = [];
-  private readonly listeners = new Set<() => void>();
   private version = 0;
 
   constructor(inputs: SessionsInputs) {
+    super();
     this.inputs = inputs;
     this.recompute();
   }
@@ -152,13 +153,6 @@ export class SessionsDataSource implements TugListViewDataSource {
     const row = this.rows[index];
     if (row.kind !== "session-resume") return true;
     return row.row.state !== "live" && row.row.terminal_live === null;
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
   }
 
   getVersion(): unknown {
@@ -252,10 +246,6 @@ export class SessionsDataSource implements TugListViewDataSource {
     return true;
   }
 
-  notifyAll(): void {
-    for (const listener of this.listeners) listener();
-  }
-
   private recompute(): void {
     const { projectDir, ledger } = this.inputs;
     const filterQuery = this.inputs.filterQuery ?? "";
@@ -324,7 +314,7 @@ export function useSessionsDataSource(
   const didChange = ds.setInputsWithoutNotify(inputs);
 
   useLayoutEffect(() => {
-    if (didChange) ds.notifyAll();
+    if (didChange) ds.notify();
     // didChange is captured per render; intentional.
   });
 

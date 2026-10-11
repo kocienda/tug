@@ -19,6 +19,7 @@
  * @module lib/default-model-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putDefaultModel } from "@/settings-api";
 import {
@@ -47,12 +48,12 @@ export function writePersistedDefaultModel(selector: string): void {
   putDefaultModel(selector);
 }
 
-export class DefaultModelStore {
+export class DefaultModelStore extends Subscribable {
   private _selector: string;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribeTugbank: (() => void) | null = null;
 
   constructor() {
+    super();
     this._selector = this._readFromCache() ?? DEFAULT_MODEL_SELECTOR;
 
     const client = getTugbankClient();
@@ -62,7 +63,7 @@ export class DefaultModelStore {
         const fresh = this._readFromCache() ?? DEFAULT_MODEL_SELECTOR;
         if (fresh !== this._selector) {
           this._selector = fresh;
-          for (const listener of this._listeners) listener();
+          this.notify();
         }
       });
     }
@@ -77,14 +78,6 @@ export class DefaultModelStore {
   /** Current default selector. (L02 — useSyncExternalStore) */
   getSnapshot = (): string => this._selector;
 
-  /** Subscribe to changes. Returns unsubscribe. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
   /**
    * Update the global default. Optimistically reflects locally and across open
    * cards via `setLocalValue`, then persists. A value that isn't a real
@@ -93,7 +86,7 @@ export class DefaultModelStore {
   set(selector: string): void {
     if (!isModelSelector(selector) || selector === this._selector) return;
     this._selector = selector;
-    for (const listener of this._listeners) listener();
+    this.notify();
     writePersistedDefaultModel(selector);
   }
 
@@ -103,6 +96,6 @@ export class DefaultModelStore {
       this._unsubscribeTugbank();
       this._unsubscribeTugbank = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

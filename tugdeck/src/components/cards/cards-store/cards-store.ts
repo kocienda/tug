@@ -25,6 +25,7 @@
  * @module components/cards/cards-store/cards-store
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import type { TaggedValue } from "@/lib/tugbank-client";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -46,7 +47,7 @@ import {
 
 class CardsStore {
   private _state: CardsState = createInitialState();
-  private readonly _listeners = new Set<() => void>();
+  private readonly _listeners = createSubscribable();
   private _tugbankUnsub: (() => void) | null = null;
   private _initialized = false;
 
@@ -117,13 +118,9 @@ class CardsStore {
     if (options.persist) {
       this._persistDiff(prev, next);
     }
-    for (const listener of this._listeners) {
-      try {
-        listener();
-      } catch (err) {
-        console.warn("[CardsStore] listener error:", err);
-      }
-    }
+    this._listeners.notifyCatching((err) => {
+      console.warn("[CardsStore] listener error:", err);
+    });
   }
 
   private _persistDiff(prev: CardsState, next: CardsState): void {
@@ -145,10 +142,7 @@ class CardsStore {
 
   subscribe = (listener: () => void): (() => void) => {
     this._ensureInitialized();
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
+    return this._listeners.subscribe(listener);
   };
 
   getSnapshot = (): CardsSnapshot => {
@@ -216,7 +210,7 @@ class CardsStore {
       this._tugbankUnsub();
       this._tugbankUnsub = null;
     }
-    this._listeners.clear();
+    this._listeners.clearListeners();
     this._state = createInitialState();
     this._initialized = false;
   }

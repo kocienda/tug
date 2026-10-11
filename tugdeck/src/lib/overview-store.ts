@@ -30,6 +30,7 @@
  * invoked by {@link OverviewStore.dispose}.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -255,9 +256,8 @@ function subscribeToListOverviewPostsOk(listener: OkListener): () => void {
 // The store
 // ---------------------------------------------------------------------------
 
-export class OverviewStore {
+export class OverviewStore extends Subscribable {
   private readonly conn: TugConnection;
-  private readonly listeners = new Set<() => void>();
   private readonly disposers: Array<() => void> = [];
   private snapshot: OverviewSnapshot = IDLE_SNAPSHOT;
   private tailRequested = false;
@@ -285,6 +285,7 @@ export class OverviewStore {
   private currents = new Map<string, SessionCurrentLineEntry>();
 
   constructor(conn: TugConnection) {
+    super();
     this.conn = conn;
     // Live posts fold as they are written — including while the tail load is
     // still in flight; the merge dedupes on ledger identity.
@@ -313,7 +314,7 @@ export class OverviewStore {
     this.clearPendingTimer();
     for (const fn of this.disposers) fn();
     this.disposers.length = 0;
-    this.listeners.clear();
+    this.clearListeners();
   }
 
   private clearPendingTimer(): void {
@@ -378,11 +379,6 @@ export class OverviewStore {
     this.commit(this.snapshot.posts, this.snapshot.status, requestId);
     return requestId;
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
 
   /**
    * Current snapshot. The first call kicks the one-shot ledger-tail CONTROL
@@ -582,7 +578,7 @@ export class OverviewStore {
       // already held ([L02]).
       currents: Object.freeze(new Map(this.currents)),
     });
-    this.tick();
+    this.notify();
   }
 
   /**
@@ -606,10 +602,6 @@ export class OverviewStore {
     });
     this.conn.send(frame.feedId, frame.payload);
     this.commit(snap.posts, snap.status, snap.pendingRequestId);
-  }
-
-  private tick(): void {
-    for (const listener of [...this.listeners]) listener();
   }
 }
 

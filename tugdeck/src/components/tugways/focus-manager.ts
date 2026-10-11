@@ -43,6 +43,7 @@
  * key view, written directly to the DOM ([L06]) -- never React state.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { createContext } from "react";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { deckTrace } from "@/deck-trace";
@@ -2592,7 +2593,7 @@ export class FocusContext {
 
 // ---- FocusManager (deck coordinator) ----
 
-export class FocusManager {
+export class FocusManager extends Subscribable {
   // The per-card focus universes, keyed by cardId, plus the default context for
   // the no-card path (tests / gallery / standalone previews).
   private contexts: Map<string, FocusContext> = new Map();
@@ -2609,7 +2610,6 @@ export class FocusManager {
 
   // ---- Subscription (single global notify-all) ----
   private version = 0;
-  private subscribers: Set<() => void> = new Set();
 
   // ---- Chain attachment ----
   private chain: ResponderChainManager | null = null;
@@ -2629,6 +2629,7 @@ export class FocusManager {
   private focusKeyMemo: Map<string, HTMLElement | null> | null = null;
 
   constructor() {
+    super();
     this.defaultContext = new FocusContext(this, null);
   }
 
@@ -2700,7 +2701,7 @@ export class FocusManager {
     // beside naming the key card; the DOM focus claim stays in `adoptKeyCard`.
     if (cardId !== null) this.settleFirstResponderForActivation();
     if (changed) {
-      this.touch();
+      this.notify();
       // The key card is a KBF derivation input (Class B, Spec S01): switching
       // to a `kbfAtRest` card engages the mode and away from one disengages it.
       this.settleKbfEngagement();
@@ -4090,7 +4091,7 @@ export class FocusManager {
     if (this.accessMode === mode) return;
     this.accessMode = mode;
     if (mode === "standard") this.clearMirrorArtifacts();
-    this.touch();
+    this.notify();
     this.activeContext().focusKeyView();
     // Accessibility mode is Class C of the KBF derivation — permanently
     // engaged — so a flip is a mode change and must repaint `data-kbf`.
@@ -4320,7 +4321,7 @@ export class FocusManager {
     // (`kbfManual()`), and consumers subscribe to it: a card already engaged by
     // its own `kbfAtRest` still has to hear ⌥⇥, or its cycle scope never goes
     // up. Gating the notify on the DERIVED answer is why it didn't.
-    this.touch();
+    this.notify();
   }
 
   /**
@@ -4358,14 +4359,6 @@ export class FocusManager {
 
   // ---- Subscription (for useSyncExternalStore consumers, [L02]) ----
 
-  /** Subscribe to manager changes. Returns an unsubscribe function. */
-  subscribe(callback: () => void): () => void {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  }
-
   /** Monotonic version for `useSyncExternalStore` snapshots. */
   getVersion(): number {
     return this.version;
@@ -4373,14 +4366,13 @@ export class FocusManager {
 
   /** Internal: a context mutated — bump the global version and notify all. */
   notifyChange(): void {
-    this.touch();
+    this.notify();
   }
 
-  private touch(): void {
+  /** Bump the global version, then tell every subscriber. */
+  override notify(): void {
     this.version += 1;
-    for (const cb of this.subscribers) {
-      cb();
-    }
+    super.notify();
   }
 
   // ---- Active-context delegations ----

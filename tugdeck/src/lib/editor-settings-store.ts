@@ -19,6 +19,7 @@
  * @module lib/editor-settings-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putEditorSettings } from "@/settings-api";
 import type { EditorSettings } from "@/settings-api";
@@ -75,14 +76,14 @@ export function clampEditorTabSize(value: number): number {
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
-export class EditorSettingsStore {
+export class EditorSettingsStore extends Subscribable {
   private _settings: EditorSettings;
-  private _listeners: Set<() => void> = new Set();
   private _targetEl: HTMLElement | null = null;
   private _regenerateAtoms: (() => void) | null = null;
   private _unsubscribeTugbank: (() => void) | null = null;
 
   constructor() {
+    super();
     // Synchronous read from TugbankClient cache (populated before any
     // React rendering occurs). Falls back to defaults if not yet stored.
     this._settings = this._readFromCache() ?? { ...DEFAULT_SETTINGS };
@@ -164,12 +165,6 @@ export class EditorSettingsStore {
     return this._settings;
   };
 
-  /** Subscribe to settings changes. Returns unsubscribe. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => { this._listeners.delete(listener); };
-  };
-
   /** Update a single setting. Applies immediately and persists. */
   set(partial: Partial<EditorSettings>): void {
     // When changing font, auto-set the default size for that font.
@@ -186,7 +181,7 @@ export class EditorSettingsStore {
       this._unsubscribeTugbank();
       this._unsubscribeTugbank = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
     this._targetEl = null;
     this._regenerateAtoms = null;
   }
@@ -206,7 +201,7 @@ export class EditorSettingsStore {
     this._applyAtomFont();
 
     // Notify useSyncExternalStore subscribers (popup button labels).
-    for (const listener of this._listeners) listener();
+    this.notify();
 
     // Persist to tugbank (fire-and-forget).
     if (persist) putEditorSettings(next);

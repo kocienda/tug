@@ -42,6 +42,7 @@
  * @module lib/text-card-store
  */
 
+import { Subscribable } from "./subscribable";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import type {
   FileReadErrorKind,
@@ -317,9 +318,8 @@ function baseName(path: string): string {
  * One Text card's autosave engine. Construct per card; `dispose()` on card
  * destruction.
  */
-export class TextCardStore {
+export class TextCardStore extends Subscribable {
   private _snapshot: TextCardSnapshot = EMPTY_SNAPSHOT;
-  private _listeners = new Set<() => void>();
   private _bridge: TextCardBridge | null = null;
   /**
    * The save contract, fixed at construction. Held off the snapshot so a
@@ -404,25 +404,19 @@ export class TextCardStore {
   private _releaseWatch: (() => void) | null = null;
 
   constructor(opts?: { saveMode?: SaveMode }) {
+    super();
     this._saveMode = opts?.saveMode ?? "automatic";
     this._snapshot = { ...EMPTY_SNAPSHOT, saveMode: this._saveMode };
   }
 
   // ── useSyncExternalStore surface ─────────────────────────────────────────
 
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
   getSnapshot = (): TextCardSnapshot => this._snapshot;
 
   private _update(patch: Partial<TextCardSnapshot>): void {
     this._snapshot = { ...this._snapshot, ...patch };
     this._syncWatch();
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
 
   /**
@@ -1879,7 +1873,7 @@ export class TextCardStore {
       );
     }
     this._disposed = true;
-    this._listeners.clear();
+    this.clearListeners();
     this._bridge = null;
   }
 }

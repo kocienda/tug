@@ -19,6 +19,7 @@
  * @module lib/permission-rules-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
 import {
   emptyPermissionsSnapshot,
@@ -62,28 +63,21 @@ function applyLocal(
  * current snapshot, notifies subscribers on every change, and performs
  * optimistic mutations reconciled against a fresh read.
  */
-export class PermissionRulesStore {
+export class PermissionRulesStore extends Subscribable {
   private snapshot: PermissionsSnapshot;
-  private readonly listeners = new Set<() => void>();
   private readonly cwd: string;
 
   constructor(cwd: string) {
+    super();
     this.cwd = cwd;
     this.snapshot = emptyPermissionsSnapshot(cwd);
   }
 
   getSnapshot = (): PermissionsSnapshot => this.snapshot;
 
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-
   private set(next: PermissionsSnapshot): void {
     this.snapshot = next;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   /** Fetch every scope's buckets and publish the resulting snapshot. */

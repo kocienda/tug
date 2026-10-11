@@ -14,6 +14,8 @@
  * @module lib/text-card-open-registry
  */
 
+import { createSubscribable } from "./subscribable";
+
 export interface TextCardOpenEntry {
   /** The card's canonically-bound path, or null before binding. */
   getPath(): string | null;
@@ -70,16 +72,13 @@ const entries = new Map<string, TextCardOpenEntry>();
  *  asynchronously (mount → file read), so a consumer that projects open cards
  *  (the Cards card Text Files list) must re-read when the binding lands, not just
  *  when the card mounts. */
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 let version = 0;
 
 /** Subscribe to registry changes (register / unregister / path-bind /
  *  unsaved-mark flip). */
 export function subscribeOpenTextCards(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return listeners.subscribe(listener);
 }
 
 /** A monotonic token that bumps on every registry change — a
@@ -93,7 +92,7 @@ export function getOpenTextCardsVersion(): number {
  *  bound path changes. */
 export function notifyOpenTextCardsChanged(): void {
   version += 1;
-  for (const listener of listeners) listener();
+  listeners.notify();
 }
 
 export function registerOpenTextCard(

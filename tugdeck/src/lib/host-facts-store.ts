@@ -17,6 +17,7 @@
  * @module lib/host-facts-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -100,9 +101,8 @@ const HOST_ENDPOINT = "/api/host";
  * `getSnapshot` returns a referentially stable value between renders —
  * the snapshot object is assigned exactly once ([L02]).
  */
-export class HostFactsStore {
+export class HostFactsStore extends Subscribable {
   private snapshot: HostFacts | null = null;
-  private readonly listeners = new Set<() => void>();
   private readonly loaded: Promise<void>;
 
   /**
@@ -110,6 +110,7 @@ export class HostFactsStore {
    * defaults to the global `fetch`; tests inject a stub.
    */
   constructor(fetchImpl: HostFactsFetch = fetch) {
+    super();
     this.loaded = this.load(fetchImpl);
   }
 
@@ -120,14 +121,6 @@ export class HostFactsStore {
   ready(): Promise<void> {
     return this.loaded;
   }
-
-  /** Subscribe to resolution. Returns an unsubscribe function. */
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /**
    * The resolved host facts, or `null` while unresolved or after a
@@ -149,7 +142,7 @@ export class HostFactsStore {
     }
     if (facts !== null) {
       this.snapshot = facts;
-      for (const listener of [...this.listeners]) listener();
+      this.notify();
     }
   }
 }

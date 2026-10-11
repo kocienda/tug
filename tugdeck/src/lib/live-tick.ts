@@ -10,6 +10,7 @@
  * @module lib/live-tick
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 /**
@@ -20,7 +21,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
  * the snapshot reference changes — and the snapshot changes once per
  * tick).
  */
-const tickListeners = new Set<() => void>();
+const tickListeners = createSubscribable();
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let tickValue = 0;
 
@@ -29,22 +30,22 @@ function startTick(): void {
   tickValue = Date.now();
   tickTimer = setInterval(() => {
     tickValue = Date.now();
-    for (const fn of tickListeners) fn();
+    tickListeners.notify();
   }, 1_000);
 }
 
 function stopTickIfIdle(): void {
-  if (tickListeners.size === 0 && tickTimer !== null) {
+  if (tickListeners.listenerCount === 0 && tickTimer !== null) {
     clearInterval(tickTimer);
     tickTimer = null;
   }
 }
 
 function subscribeTick(listener: () => void): () => void {
-  tickListeners.add(listener);
+  const unsubscribe = tickListeners.subscribe(listener);
   startTick();
   return () => {
-    tickListeners.delete(listener);
+    unsubscribe();
     stopTickIfIdle();
   };
 }

@@ -23,6 +23,7 @@
  * @module lib/skills-inventory-store
  */
 
+import { Subscribable } from "./subscribable";
 import type { FeedStore } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
 import { FeedId } from "../protocol";
@@ -127,9 +128,8 @@ export function parseSkillsInventoryPayload(
 
 // ── SkillsInventoryStore ─────────────────────────────────────────────────────
 
-export class SkillsInventoryStore {
+export class SkillsInventoryStore extends Subscribable {
   private _snapshot: SkillsInventorySnapshot = EMPTY_SNAPSHOT;
-  private _listeners = new Set<() => void>();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private readonly _feedStore: FeedStore;
@@ -138,6 +138,7 @@ export class SkillsInventoryStore {
   private _seq = 0;
 
   constructor(feedStore: FeedStore, feedId: FeedIdValue, tugSessionId: string) {
+    super();
     this._feedStore = feedStore;
     this._feedId = feedId;
     this._tugSessionId = tugSessionId;
@@ -197,15 +198,8 @@ export class SkillsInventoryStore {
 
   private _set(next: SkillsInventorySnapshot): void {
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): SkillsInventorySnapshot => this._snapshot;
 
@@ -232,6 +226,6 @@ export class SkillsInventoryStore {
       this._unsubscribeFeed();
       this._unsubscribeFeed = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

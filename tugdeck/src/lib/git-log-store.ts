@@ -46,6 +46,7 @@
  * @module lib/git-log-store
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedStore } from "./feed-store";
 import { FeedId } from "../protocol";
 import { getConnection } from "./connection-singleton";
@@ -204,9 +205,8 @@ export function formatGitLog(payload: GitLogPayload): string {
  */
 let nextStoreId = 0;
 
-export class GitLogStore {
+export class GitLogStore extends Subscribable {
   private _snapshot: GitLogStoreSnapshot = EMPTY_SNAPSHOT;
-  private _listeners = new Set<() => void>();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private _lastHeadRef: unknown = undefined;
@@ -215,6 +215,7 @@ export class GitLogStore {
   private _seq = 0;
 
   constructor(feedStore: FeedStore) {
+    super();
     this._feedStore = feedStore;
     this._storeId = ++nextStoreId;
     this._unsubscribeFeed = feedStore.subscribe(() => {
@@ -394,15 +395,8 @@ export class GitLogStore {
 
   private _set(next: GitLogStoreSnapshot): void {
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): GitLogStoreSnapshot => this._snapshot;
 
@@ -431,7 +425,7 @@ export class GitLogStore {
       this._unsubscribeFeed();
       this._unsubscribeFeed = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }
 

@@ -23,6 +23,7 @@
  * @module lib/shell-classify-store
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedId, type FeedIdValue } from "../protocol";
 import type { FeedStore } from "./feed-store";
 import { getConnection } from "./connection-singleton";
@@ -58,11 +59,10 @@ function keyFor(line: string, withGrammar: boolean): string {
   return `${withGrammar ? "g" : "-"}:${line}`;
 }
 
-export class ShellClassifyStore {
+export class ShellClassifyStore extends Subscribable {
   private readonly _verdicts = new Map<string, ShellVerdict>();
   private readonly _pending = new Map<string, (verdict: ShellVerdict | null) => void>();
   private readonly _timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly _listeners = new Set<() => void>();
   private readonly _unsubscribeFeed: () => void;
   /** Immutable copy handed to `getSnapshot`, rebuilt when a verdict lands —
    * `useSyncExternalStore` compares snapshots by identity, so returning the
@@ -75,6 +75,7 @@ export class ShellClassifyStore {
     private readonly _feedId: FeedIdValue,
     private readonly _tugSessionId: string,
   ) {
+    super();
     this._unsubscribeFeed = _feedStore.subscribe(() => this._onFeedUpdate());
     // Fold any frame already present at construction (replay-on-subscribe).
     this._onFeedUpdate();
@@ -166,15 +167,8 @@ export class ShellClassifyStore {
   clear(): void {
     this._verdicts.clear();
     this._snapshot = new Map();
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /** Every verdict landed so far. Routing reads `get`; this is the [L02] surface. */
   getSnapshot = (): ReadonlyMap<string, ShellVerdict> => this._snapshot;
@@ -182,7 +176,7 @@ export class ShellClassifyStore {
   dispose(): void {
     this._disposed = true;
     this._unsubscribeFeed();
-    this._listeners.clear();
+    this.clearListeners();
     // Anything still waiting gets the answer that changes nothing — and
     // `_settle` clears each parked timer, so none outlives the store [L27].
     for (const key of [...this._pending.keys()]) this._settle(key, null);
@@ -240,7 +234,7 @@ export class ShellClassifyStore {
     }
 
     this._settle(key, verdict);
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
 
   /** Test seam: fold a raw `SHELL_OUTPUT` payload as if it arrived on the feed. */

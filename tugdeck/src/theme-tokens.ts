@@ -3,8 +3,8 @@
  * observing theme changes.
  *
  * getTokenValue reads the current resolved value of a CSS custom property.
- * subscribeThemeChange / unsubscribeThemeChange let non-React code observe
- * theme changes without pulling state into React [L22].
+ * subscribeThemeChange lets non-React code observe theme changes without
+ * pulling state into React [L22]; it returns the unsubscribe.
  *
  * The theme provider calls notifyThemeChange when the theme switches.
  * In production, CSS is guaranteed to be applied at that point (stylesheet
@@ -12,11 +12,13 @@
  * notification defers until the sentinel token value actually changes.
  */
 
+import { createSubscribable } from "@/lib/subscribable";
+
 // Sentinel token — used to detect when CSS has been applied after a theme change.
 // Must differ between themes. --tugx-host-canvas-color is designed for this.
 const SENTINEL_TOKEN = "--tugx-host-canvas-color";
 
-const _subscribers = new Set<() => void>();
+const _subscribers = createSubscribable();
 let _cachedSentinel = "";
 let _pendingObserver: MutationObserver | null = null;
 
@@ -25,14 +27,9 @@ export function getTokenValue(tokenName: string): string {
   return getComputedStyle(document.body).getPropertyValue(tokenName).trim();
 }
 
-/** Subscribe to theme change notifications. */
-export function subscribeThemeChange(callback: () => void): void {
-  _subscribers.add(callback);
-}
-
-/** Unsubscribe from theme change notifications. */
-export function unsubscribeThemeChange(callback: () => void): void {
-  _subscribers.delete(callback);
+/** Subscribe to theme change notifications. Returns the unsubscribe. */
+export function subscribeThemeChange(callback: () => void): () => void {
+  return _subscribers.subscribe(callback);
 }
 
 /**
@@ -51,9 +48,7 @@ function reflectThemeAppearance(): void {
 /** Fire all theme change subscribers. */
 function fireSubscribers(): void {
   reflectThemeAppearance();
-  for (const cb of _subscribers) {
-    cb();
-  }
+  _subscribers.notify();
 }
 
 /**

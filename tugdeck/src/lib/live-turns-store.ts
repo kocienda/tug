@@ -33,6 +33,7 @@
  * @module lib/live-turns-store
  */
 
+import { createSubscribable, Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { cardServicesStore } from "./card-services-store";
@@ -102,24 +103,16 @@ function sameAnswer(
  * one subscription per card, rebuilt whenever the set changes — never one per
  * reader, so the cost is the deck's rather than the wizard's.
  */
-export class LiveTurnsStore {
-  private readonly listeners = new Set<() => void>();
+export class LiveTurnsStore extends Subscribable {
   private readonly sourceUnsubs: Array<() => void> = [];
   private readonly detachSources: () => void;
   private snapshot: LiveTurnsSnapshot = NO_LIVE_TURNS;
 
   constructor(private readonly context: LiveTurnsContext) {
+    super();
     this.detachSources = context.observeSources(this.resync);
     this.resync();
   }
-
-  /** [L02] — the subscribe half of the `useSyncExternalStore` contract. */
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /**
    * [L02] — reference-stable between publications. Two reads with no change
@@ -131,7 +124,7 @@ export class LiveTurnsStore {
   dispose(): void {
     this.detachSources();
     this.releaseSources();
-    this.listeners.clear();
+    this.clearListeners();
   }
 
   /**
@@ -164,16 +157,16 @@ export class LiveTurnsStore {
       titles.length === 0
         ? NO_LIVE_TURNS
         : Object.freeze({ count: titles.length, titles: Object.freeze(titles) });
-    for (const listener of [...this.listeners]) listener();
+    this.notify();
   };
 }
 
 // ---- The module singleton, and the one place the deck reaches it ----
 
-const sourceListeners = new Set<() => void>();
+const sourceListeners = createSubscribable();
 
 function notifySources(): void {
-  for (const listener of [...sourceListeners]) listener();
+  sourceListeners.notify();
 }
 
 let attachedDeck: LiveTurnsDeck | null = null;
@@ -226,12 +219,7 @@ export const liveTurnsStore = new LiveTurnsStore({
     }
     return sources;
   },
-  observeSources: (listener) => {
-    sourceListeners.add(listener);
-    return () => {
-      sourceListeners.delete(listener);
-    };
-  },
+  observeSources: (listener) => sourceListeners.subscribe(listener),
 });
 
 /** Read the aggregate from React, the only way external state may enter ([L02]). */

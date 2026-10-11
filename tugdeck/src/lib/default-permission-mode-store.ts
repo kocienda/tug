@@ -19,6 +19,7 @@
  * @module lib/default-permission-mode-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putDefaultPermissionMode } from "@/settings-api";
 import {
@@ -32,12 +33,12 @@ import type { PermissionMode } from "@tugproto/inbound";
 /** The mode new cards spawn with when nothing else is configured. */
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "default";
 
-export class DefaultPermissionModeStore {
+export class DefaultPermissionModeStore extends Subscribable {
   private _mode: PermissionMode;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribeTugbank: (() => void) | null = null;
 
   constructor() {
+    super();
     this._mode = this._readFromCache() ?? DEFAULT_PERMISSION_MODE;
 
     const client = getTugbankClient();
@@ -47,7 +48,7 @@ export class DefaultPermissionModeStore {
         const fresh = this._readFromCache() ?? DEFAULT_PERMISSION_MODE;
         if (fresh !== this._mode) {
           this._mode = fresh;
-          for (const listener of this._listeners) listener();
+          this.notify();
         }
       });
     }
@@ -64,14 +65,6 @@ export class DefaultPermissionModeStore {
   /** Current default mode. (L02 — useSyncExternalStore) */
   getSnapshot = (): PermissionMode => this._mode;
 
-  /** Subscribe to changes. Returns unsubscribe. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
   /**
    * Update the global default. Optimistically reflects locally and across
    * open cards via `setLocalValue`, then persists. A value that isn't a real
@@ -80,7 +73,7 @@ export class DefaultPermissionModeStore {
   set(mode: string): void {
     if (!isPermissionMode(mode) || mode === this._mode) return;
     this._mode = mode;
-    for (const listener of this._listeners) listener();
+    this.notify();
 
     const client = getTugbankClient();
     if (client) {
@@ -98,6 +91,6 @@ export class DefaultPermissionModeStore {
       this._unsubscribeTugbank();
       this._unsubscribeTugbank = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

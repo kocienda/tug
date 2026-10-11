@@ -24,6 +24,7 @@
  * @module lib/commit-mode-controller
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { LandOutcome, LandingMode, LandingRefusal, LandingSnapshot } from "@/lib/landing-mode";
@@ -127,12 +128,11 @@ export interface CommitModeControllerDeps {
   codeSessionStore: CodeSessionStore;
 }
 
-export class CommitModeController implements LandingMode {
+export class CommitModeController extends Subscribable implements LandingMode {
   /** The landing this mode performs ([P01]) — the composer's labels read it. */
   readonly kind = "commit" as const;
 
   private readonly deps: CommitModeControllerDeps;
-  private readonly listeners = new Set<() => void>();
   private readonly unsubscribes: (() => void)[] = [];
 
   private active = false;
@@ -144,6 +144,7 @@ export class CommitModeController implements LandingMode {
   private refusalSeq = 0;
 
   constructor(deps: CommitModeControllerDeps) {
+    super();
     this.deps = deps;
     this.snapshot = this.derive();
 
@@ -161,13 +162,6 @@ export class CommitModeController implements LandingMode {
   }
 
   // ── Store surface ([L02]) ──────────────────────────────────────────────
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): CommitModeSnapshot => this.snapshot;
 
@@ -268,12 +262,8 @@ export class CommitModeController implements LandingMode {
     const next = this.derive();
     if (!snapshotsEqual(next, this.snapshot)) {
       this.snapshot = next;
-      this.fire();
+      this.notify();
     }
-  }
-
-  private fire(): void {
-    for (const listener of [...this.listeners]) listener();
   }
 
   // ── Triggers ───────────────────────────────────────────────────────────
@@ -297,7 +287,7 @@ export class CommitModeController implements LandingMode {
     this.seedMessage = seed.length > 0 ? seed : null;
     this.active = true;
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
   }
 
   /**
@@ -355,7 +345,7 @@ export class CommitModeController implements LandingMode {
     const verbStore = getChangesetVerbStore();
     if (verbStore?.commitState(entryKey).phase === "error") verbStore.clearCommit(entryKey);
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
   }
 
   /** Persist a message edit into the changeset draft ([P05]; `edited` pin rides). */
@@ -460,7 +450,7 @@ export class CommitModeController implements LandingMode {
     tugDevLogStore.warn("landing", `commit land refused: ${sentence}`, { kind, ...gate });
     sendLandingReceipt({ kind: "commit", verdict: "refused", reason, sentence, gate });
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
     return { kind: "refused", sentence };
   }
 
@@ -469,7 +459,7 @@ export class CommitModeController implements LandingMode {
     if (this.landRefusal === null) return;
     this.landRefusal = null;
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
   }
 
   /**
@@ -520,7 +510,7 @@ export class CommitModeController implements LandingMode {
 
   dispose(): void {
     for (const unsub of this.unsubscribes) unsub();
-    this.listeners.clear();
+    this.clearListeners();
   }
 }
 

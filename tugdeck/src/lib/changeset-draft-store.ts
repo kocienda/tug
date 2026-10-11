@@ -25,6 +25,7 @@
  * @module lib/changeset-draft-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -85,11 +86,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export class ChangesetDraftStore {
+export class ChangesetDraftStore extends Subscribable {
   private readonly _connection: TugConnection;
   private readonly _unsubscribe: () => void;
   private readonly _unsubscribeDisconnect: () => void;
-  private readonly _listeners = new Set<() => void>();
   private _overlays = new Map<string, DraftOverlay>();
   private readonly _stallTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly _pendingWrites = new Map<string, PendingDraftWrite>();
@@ -97,6 +97,7 @@ export class ChangesetDraftStore {
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
+    super();
     this._connection = connection;
     this._unsubscribe = connection.onFrame(FeedId.CONTROL, (payload) =>
       this._onControl(payload),
@@ -134,7 +135,7 @@ export class ChangesetDraftStore {
       this._clearStall(key);
       changed = true;
     }
-    if (changed) for (const listener of [...this._listeners]) listener();
+    if (changed) this.notify();
   }
 
   /**
@@ -309,7 +310,7 @@ export class ChangesetDraftStore {
     } else {
       this._clearStall(key);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   private _armStall(key: string): void {
@@ -332,7 +333,7 @@ export class ChangesetDraftStore {
     const prev = this._overlays.get(key);
     if (prev?.phase !== "drafting") return;
     this._overlays.set(key, { phase: "error", text: prev.text, detail: STALLED_DETAIL });
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   overlay(workspaceKey: string, ownerKind: string, ownerId: string): DraftOverlay {
@@ -347,13 +348,8 @@ export class ChangesetDraftStore {
     for (const timer of this._writeTimers.values()) clearTimeout(timer);
     this._writeTimers.clear();
     this._pendingWrites.clear();
-    this._listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => this._listeners.delete(listener);
-  };
 }
 
 let _activeStore: ChangesetDraftStore | null = null;

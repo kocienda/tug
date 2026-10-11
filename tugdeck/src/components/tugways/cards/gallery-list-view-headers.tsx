@@ -55,6 +55,7 @@
  *    contract is orthogonal.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import "./gallery.css";
 
 import React from "react";
@@ -107,11 +108,11 @@ const ITEMS: ReadonlyArray<RoledItem> = [
   { id: "s4-f",  kind: "section-action", role: "footer", label: "Footer D — quiet action row" },
 ];
 
-class GalleryListViewHeadersDataSource implements TugListViewDataSource {
+class GalleryListViewHeadersDataSource extends Subscribable implements TugListViewDataSource {
   private readonly items: ReadonlyArray<RoledItem>;
-  private readonly listeners = new Set<() => void>();
 
   constructor(items: ReadonlyArray<RoledItem>) {
+    super();
     this.items = items;
   }
 
@@ -134,13 +135,6 @@ class GalleryListViewHeadersDataSource implements TugListViewDataSource {
   /** Cell-renderer accessor — reads the full item at `index`. */
   rowAt(index: number): RoledItem {
     return this.items[index];
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
   }
 
   /**

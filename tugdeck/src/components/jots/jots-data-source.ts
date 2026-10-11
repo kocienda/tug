@@ -26,6 +26,7 @@
  * @module components/jots/jots-data-source
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useLayoutEffect, useRef } from "react";
 
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
@@ -40,13 +41,13 @@ export interface JotsInputs {
   readonly editingId: string | null;
 }
 
-export class JotsDataSource implements TugListViewDataSource {
+export class JotsDataSource extends Subscribable implements TugListViewDataSource {
   private inputs: JotsInputs;
   private rows: readonly Jot[];
-  private readonly listeners = new Set<() => void>();
   private version = 0;
 
   constructor(inputs: JotsInputs) {
+    super();
     this.inputs = inputs;
     this.rows = JotsDataSource.project(inputs);
   }
@@ -76,13 +77,6 @@ export class JotsDataSource implements TugListViewDataSource {
 
   kindForIndex(): string {
     return "jot";
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
   }
 
   getVersion(): unknown {
@@ -122,10 +116,6 @@ export class JotsDataSource implements TugListViewDataSource {
     this.version += 1;
     return true;
   }
-
-  notifyAll(): void {
-    for (const listener of this.listeners) listener();
-  }
 }
 
 /**
@@ -147,7 +137,7 @@ export function useJotsDataSource(
   const didChange = ds.setInputsWithoutNotify(inputs);
 
   useLayoutEffect(() => {
-    if (didChange) ds.notifyAll();
+    if (didChange) ds.notify();
     // didChange is captured per render; intentional.
   });
 

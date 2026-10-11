@@ -43,6 +43,7 @@
  * @module lib/markdown-text-style-grammar
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import { html } from "@codemirror/lang-html";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { LanguageDescription, LanguageSupport } from "@codemirror/language";
@@ -66,14 +67,14 @@ import {
 // without duplicating the alias table.
 
 /** Listeners for {@link subscribeMarkdownGrammars}. */
-const grammarListeners = new Set<() => void>();
+const grammarListeners = createSubscribable();
 
 /** Monotonic; changes only when a fence grammar finishes loading. */
 let grammarRevision = 0;
 
 function bumpGrammarRevision(): void {
   grammarRevision++;
-  for (const listener of grammarListeners) listener();
+  grammarListeners.notify();
 }
 
 /**
@@ -84,10 +85,7 @@ function bumpGrammarRevision(): void {
  * calls it again. This store is that nudge.
  */
 export function subscribeMarkdownGrammars(callback: () => void): () => void {
-  grammarListeners.add(callback);
-  return () => {
-    grammarListeners.delete(callback);
-  };
+  return grammarListeners.subscribe(callback);
 }
 
 /** Current grammar revision — stable between arrivals, as `getSnapshot` requires. */

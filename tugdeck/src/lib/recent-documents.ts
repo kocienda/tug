@@ -16,6 +16,7 @@
  * @module lib/recent-documents
  */
 
+import { createSubscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { TEXT_CARD_DEFAULTS_DOMAIN } from "./text-card-settings";
 import { publishRecentDocuments } from "./host-menu-state";
@@ -72,7 +73,7 @@ let unreachable: ReadonlySet<string> = new Set();
 let reachableRecents: string[] = [];
 
 /** Change listeners — notified whenever the in-memory MRU mutates. */
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 
 /**
  * Subscribe to MRU changes (seed / note / clear). Returns an unsubscribe.
@@ -80,12 +81,11 @@ const listeners = new Set<() => void>();
  * changes, the same way it consumes any [L02] store's `subscribe`.
  */
 export function subscribeRecentDocuments(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  return listeners.subscribe(listener);
 }
 
 function notifyRecentDocuments(): void {
-  for (const listener of listeners) listener();
+  listeners.notify();
 }
 
 /** Recompute the reachable projection. Reference-stable when unchanged. */

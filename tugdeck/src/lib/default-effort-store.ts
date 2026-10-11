@@ -19,6 +19,7 @@
  * @module lib/default-effort-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putDefaultEffort } from "@/settings-api";
 import {
@@ -34,12 +35,12 @@ function isEffortLevel(value: string): boolean {
   return (EFFORT_LEVELS as readonly string[]).includes(value);
 }
 
-export class DefaultEffortStore {
+export class DefaultEffortStore extends Subscribable {
   private _level: string;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribeTugbank: (() => void) | null = null;
 
   constructor() {
+    super();
     this._level = this._readFromCache() ?? DEFAULT_EFFORT_LEVEL;
 
     const client = getTugbankClient();
@@ -49,7 +50,7 @@ export class DefaultEffortStore {
         const fresh = this._readFromCache() ?? DEFAULT_EFFORT_LEVEL;
         if (fresh !== this._level) {
           this._level = fresh;
-          for (const listener of this._listeners) listener();
+          this.notify();
         }
       });
     }
@@ -66,14 +67,6 @@ export class DefaultEffortStore {
   /** Current default level. (L02 — useSyncExternalStore) */
   getSnapshot = (): string => this._level;
 
-  /** Subscribe to changes. Returns unsubscribe. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
   /**
    * Update the global default. Optimistically reflects locally and across open
    * cards via `setLocalValue`, then persists. A value that isn't a recognized
@@ -82,7 +75,7 @@ export class DefaultEffortStore {
   set(level: string): void {
     if (!isEffortLevel(level) || level === this._level) return;
     this._level = level;
-    for (const listener of this._listeners) listener();
+    this.notify();
 
     const client = getTugbankClient();
     if (client) {
@@ -100,6 +93,6 @@ export class DefaultEffortStore {
       this._unsubscribeTugbank();
       this._unsubscribeTugbank = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

@@ -18,6 +18,7 @@
  * @module lib/usage-store
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedStore } from "./feed-store";
 import { FeedId } from "../protocol";
 import type { TugConnection } from "../connection";
@@ -96,9 +97,8 @@ function parseAccount(raw: unknown): UsageAccount | null {
 /** Re-fetch only when the last successful result is older than this. */
 const FRESHNESS_MS = 30_000;
 
-export class UsageStore {
+export class UsageStore extends Subscribable {
   private _snapshot: UsageStoreSnapshot = IDLE_SNAPSHOT;
-  private _listeners = new Set<() => void>();
   private readonly _connection: TugConnection;
   private readonly _feedStore: FeedStore;
   private readonly _unsubscribeFeed: () => void;
@@ -108,6 +108,7 @@ export class UsageStore {
   private _nowMs: () => number;
 
   constructor(connection: TugConnection, nowMs: () => number = () => Date.now()) {
+    super();
     this._connection = connection;
     this._nowMs = nowMs;
     // USAGE carries no workspace_key — account-global, intentionally unfiltered.
@@ -176,15 +177,8 @@ export class UsageStore {
 
   private _set(next: UsageStoreSnapshot): void {
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): UsageStoreSnapshot => this._snapshot;
 
@@ -222,6 +216,6 @@ export class UsageStore {
   dispose(): void {
     this._unsubscribeFeed();
     this._feedStore.dispose();
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

@@ -32,16 +32,16 @@
  * @module lib/path-commands-store
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedId, type FeedIdValue } from "../protocol";
 import type { FeedStore } from "./feed-store";
 import { getConnection } from "./connection-singleton";
 
-export class PathCommandsStore {
+export class PathCommandsStore extends Subscribable {
   private _pathCommands: ReadonlySet<string> | null = null;
   private _shellWords: ReadonlySet<string> | null = null;
   /** The union the classifier reads, rebuilt only when a frame folds ([L02]). */
   private _union: ReadonlySet<string> | null = null;
-  private readonly _listeners = new Set<() => void>();
   private readonly _unsubscribeFeed: () => void;
   private _requested = false;
 
@@ -51,6 +51,7 @@ export class PathCommandsStore {
     private readonly _tugSessionId: string,
     private readonly _projectDir?: string,
   ) {
+    super();
     this._unsubscribeFeed = _feedStore.subscribe(() => this._onFeedUpdate());
     // Fold any frame already present at construction (replay-on-subscribe).
     this._onFeedUpdate();
@@ -105,15 +106,8 @@ export class PathCommandsStore {
     const union = new Set(this._pathCommands);
     if (this._shellWords) for (const name of this._shellWords) union.add(name);
     this._union = union;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /**
    * Every word this session's shell would resolve — PATH names ∪ shell word
@@ -123,7 +117,7 @@ export class PathCommandsStore {
 
   dispose(): void {
     this._unsubscribeFeed();
-    this._listeners.clear();
+    this.clearListeners();
   }
 
   /** Test seam: fold a raw `SHELL_OUTPUT` payload as if it arrived on the feed. */

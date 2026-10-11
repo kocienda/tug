@@ -37,6 +37,7 @@
  * unit-tested against a constructed multi-layer world.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import type { Chord, CommandBinding, CommandEntry, BindingScope } from "./command-registry";
 import { COMMANDS } from "./command-registry";
 import { TUG_ACTIONS } from "./action-vocabulary";
@@ -151,7 +152,7 @@ export interface ResolvedBinding {
   readonly shadowedBy?: { readonly commandId: string; readonly layer: ResolutionLayer };
 }
 
-export class KeymapRegistry {
+export class KeymapRegistry extends Subscribable {
   private entries: readonly CommandEntry[];
   /** Merged default + override binding lists, keyed by command id. */
   private bindings: Map<string, readonly CommandBinding[]>;
@@ -166,10 +167,10 @@ export class KeymapRegistry {
    */
   private readonly claimedMenuItems = new Set<string>();
   private environment: KeymapEnvironment = EMPTY_KEYMAP_ENVIRONMENT;
-  private readonly subscribers = new Set<() => void>();
   private version = 0;
 
   constructor(entries: readonly CommandEntry[] = COMMANDS) {
+    super();
     this.entries = entries;
     this.bindings = new Map();
     this.globalIndex = new Map();
@@ -211,13 +212,6 @@ export class KeymapRegistry {
   // Bound properties, not prototype methods: `useSyncExternalStore` takes
   // these as bare function references, and a prototype method handed over
   // that way arrives with no `this` at all.
-
-  subscribe = (callback: () => void): (() => void) => {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  };
 
   /** Bumps on every binding change, so React readers can `useSyncExternalStore`. */
   getSnapshot = (): number => this.version;
@@ -529,9 +523,9 @@ export class KeymapRegistry {
     this.globalIndex = index;
   }
 
-  private notify(): void {
+  override notify(): void {
     this.version += 1;
-    for (const subscriber of this.subscribers) subscriber();
+    super.notify();
   }
 }
 

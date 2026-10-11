@@ -75,6 +75,7 @@
  *    does — see the `useMemo` block below.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import "./gallery.css";
 
 import React from "react";
@@ -145,11 +146,11 @@ function buildItems(): PathItem[] {
   return items;
 }
 
-class GalleryListViewFilterDataSource implements TugListViewDataSource {
+class GalleryListViewFilterDataSource extends Subscribable implements TugListViewDataSource {
   private readonly items: ReadonlyArray<PathItem>;
-  private readonly listeners = new Set<() => void>();
 
   constructor(items: ReadonlyArray<PathItem>) {
+    super();
     this.items = items;
   }
 
@@ -168,13 +169,6 @@ class GalleryListViewFilterDataSource implements TugListViewDataSource {
   /** Cell-renderer accessor — reads the full path item at `index`. */
   itemAt(index: number): PathItem {
     return this.items[index];
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
   }
 
   /**

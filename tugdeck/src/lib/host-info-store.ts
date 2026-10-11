@@ -14,6 +14,7 @@
  * @module lib/host-info-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -53,17 +54,8 @@ export function parseHandshakeHost(raw: unknown): HostInfo | null {
  * stable value between renders — the snapshot object is replaced only when the
  * value actually changes ([L02]).
  */
-export class HostInfoStore {
+export class HostInfoStore extends Subscribable {
   private snapshot: HostInfo | null = null;
-  private readonly listeners = new Set<() => void>();
-
-  /** Subscribe to changes. Returns an unsubscribe function. */
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /**
    * The host OS identity, or `null` while unknown (pre-handshake, or a
@@ -90,7 +82,7 @@ export class HostInfoStore {
       return;
     }
     this.snapshot = info;
-    for (const listener of [...this.listeners]) listener();
+    this.notify();
   }
 }
 

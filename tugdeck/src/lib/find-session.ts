@@ -38,6 +38,7 @@
  * @module lib/find-session
  */
 
+import { Subscribable } from "./subscribable";
 import type { FindOptions } from "./transcript-search";
 import type { FindSurface, FindSurfaceSnapshot } from "./find-surface";
 
@@ -124,9 +125,8 @@ export interface FindSessionHooks {
   onOptionsChanged?: (options: FindOptions) => void;
 }
 
-export class FindSession implements FindSurface {
+export class FindSession extends Subscribable implements FindSurface {
   private state: FindSessionState;
-  private readonly listeners = new Set<() => void>();
   private engine: FindEngineDelegate | null = null;
   private readonly hooks: FindSessionHooks;
 
@@ -134,6 +134,7 @@ export class FindSession implements FindSurface {
     initialOptions: FindOptions = DEFAULT_FIND_OPTIONS,
     hooks: FindSessionHooks = {},
   ) {
+    super();
     this.hooks = hooks;
     this.state = {
       query: "",
@@ -174,13 +175,6 @@ export class FindSession implements FindSurface {
   }
 
   // ── Store surface ([L02]) ────────────────────────────────────────────────
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): FindSessionState => this.state;
 
@@ -317,12 +311,8 @@ export class FindSession implements FindSurface {
   }
 
   private emit(): void {
-    for (const listener of [...this.listeners]) {
-      try {
-        listener();
-      } catch (err) {
-        console.error("FindSession listener threw:", err);
-      }
-    }
+    this.notifyCatching((err) => {
+      console.error("FindSession listener threw:", err);
+    });
   }
 }

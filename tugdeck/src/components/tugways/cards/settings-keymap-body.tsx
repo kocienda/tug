@@ -77,6 +77,7 @@
  * @module components/tugways/cards/settings-keymap-body
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import "./settings-keymap-body.css";
 
 import React, {
@@ -150,9 +151,8 @@ import {
  * or the filter changes; the source is one stable instance that swaps its
  * projection, so the list reconciles rather than remounting ([L26]).
  */
-class KeymapDataSource implements TugListViewDataSource {
+class KeymapDataSource extends Subscribable implements TugListViewDataSource {
   private items: readonly KeymapListItem[] = [];
-  private readonly listeners = new Set<() => void>();
   private version = 0;
 
   numberOfItems(): number {
@@ -165,13 +165,6 @@ class KeymapDataSource implements TugListViewDataSource {
 
   kindForIndex(index: number): string {
     return this.items[index].kind;
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
   }
 
   getVersion(): unknown {
@@ -187,10 +180,6 @@ class KeymapDataSource implements TugListViewDataSource {
     this.items = next;
     this.version += 1;
     return true;
-  }
-
-  notifyAll(): void {
-    for (const listener of this.listeners) listener();
   }
 }
 
@@ -882,7 +871,7 @@ export function SettingsKeymapBody(): React.ReactElement {
   if (dataSource.current === null) dataSource.current = new KeymapDataSource();
   const changed = dataSource.current.setItemsWithoutNotify(items);
   useLayoutEffect(() => {
-    if (changed) dataSource.current.notifyAll();
+    if (changed) dataSource.current.notify();
   });
 
   const ctx = useMemo<KeymapCellContext>(

@@ -34,6 +34,8 @@
  * @module lib/session-name-store
  */
 
+import { Subscribable } from "./subscribable";
+
 /** How a `/rename` came back from the ledger. */
 export interface NameSettle {
   /** Whether the ledger wrote the name. */
@@ -57,9 +59,8 @@ export interface DisplacedLine {
   tag: string;
 }
 
-class SessionNameStore {
+class SessionNameStore extends Subscribable {
   private names = new Map<string, string>();
-  private readonly listeners = new Set<() => void>();
   private version = 0;
   private readonly waiters = new Map<
     string,
@@ -69,13 +70,6 @@ class SessionNameStore {
       notify?: (settle: NameSettle) => void;
     }
   >();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /**
    * A monotonic token that bumps on every change — the whole-store
@@ -104,7 +98,7 @@ class SessionNameStore {
       this.names.set(lineId, trimmed);
     }
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   /**

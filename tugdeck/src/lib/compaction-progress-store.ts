@@ -50,6 +50,7 @@
  * ([L02] external state reaches React through `useSyncExternalStore`).
  */
 
+import { Subscribable } from "./subscribable";
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -90,9 +91,8 @@ export function isCompactingCard(
   return run !== undefined && run.outcome === null;
 }
 
-class CompactionProgressStore {
+class CompactionProgressStore extends Subscribable {
   private state: CompactionRuns = NO_RUNS;
-  private readonly listeners = new Set<() => void>();
   /**
    * Each open run's own cancel, keyed by card — the closure
    * `session-compaction-run` builds when it opens the run, which interrupts
@@ -133,13 +133,6 @@ class CompactionProgressStore {
    * rather than through React.
    */
   private readonly refusalNudges = new Map<string, Set<() => void>>();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** Stable between notifications — safe for `useSyncExternalStore`. */
   getSnapshot = (): CompactionRuns => this.state;
@@ -235,7 +228,7 @@ class CompactionProgressStore {
     const next = new Map(this.state);
     next.delete(cardId);
     this.state = next;
-    this.emit();
+    this.notify();
   }
 
   private settle(
@@ -254,11 +247,7 @@ class CompactionProgressStore {
     const next = new Map(this.state);
     next.set(cardId, run);
     this.state = next;
-    this.emit();
-  }
-
-  private emit(): void {
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   /** Drop this card's hold, if it took one. Idempotent. */

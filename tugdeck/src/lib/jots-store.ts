@@ -13,6 +13,7 @@
  * foreign-merge carve-out (Risk R01) and undo coalescing.
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedId } from "../protocol";
 import type { TugConnection } from "../connection";
 import { getConnection } from "./connection-singleton";
@@ -58,7 +59,7 @@ function docsEqual(a: JotsDoc, b: JotsDoc): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export class JotsStore {
+export class JotsStore extends Subscribable {
   private doc: JotsDoc = emptyDoc();
   private undoStack: UndoStack = emptyUndo();
   private editBaseline: JotsDoc | null = null;
@@ -71,11 +72,11 @@ export class JotsStore {
     error: null,
     editingId: null,
   });
-  private readonly listeners = new Set<() => void>();
   private unsubFeed: (() => void) | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(conn: TugConnection | null) {
+    super();
     if (conn === null) {
       tugDevLogStore.warn("jots-store", "no connection at construction; feed inactive");
       return;
@@ -92,13 +93,8 @@ export class JotsStore {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    this.listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
 
   getSnapshot = (): JotsSnapshot => this.snapshot;
 
@@ -291,7 +287,7 @@ export class JotsStore {
       error: this.error,
       editingId: this.editingId,
     });
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   private save(immediate: boolean): void {

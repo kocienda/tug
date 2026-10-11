@@ -31,6 +31,8 @@
  * @module components/cards/cards-space-verb-request
  */
 
+import { Subscribable } from "@/lib/subscribable";
+
 /** A workspace verb the Workspaces card has yet to answer. */
 export interface SpaceVerbRequest {
   readonly verb: "rename" | "delete";
@@ -42,19 +44,10 @@ export interface SpaceVerbRequest {
   readonly token: number;
 }
 
-class SpaceVerbRequestStore {
+class SpaceVerbRequestStore extends Subscribable {
   private slot: SpaceVerbRequest | null = null;
 
   private nextToken = 1;
-
-  private readonly listeners = new Set<() => void>();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** Stable by identity until a request, a clear, or a prune moves it. */
   getSnapshot = (): SpaceVerbRequest | null => this.slot;
@@ -92,12 +85,8 @@ class SpaceVerbRequestStore {
   _resetForTest = (): void => {
     this.slot = null;
     this.nextToken = 1;
-    this.listeners.clear();
+    this.clearListeners();
   };
-
-  private notify(): void {
-    for (const listener of this.listeners) listener();
-  }
 }
 
 export const cardsSpaceVerbRequest = new SpaceVerbRequestStore();

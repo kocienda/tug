@@ -112,7 +112,7 @@ import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTabKeyBinding } from "./editor-tab-key";
 import { loadMarkdownTextStyling } from "./tug-text-editor/markdown-text-styling";
 import { sessionNameStore } from "@/lib/session-name-store";
-import { subscribeThemeChange, unsubscribeThemeChange } from "@/theme-tokens";
+import { subscribeThemeChange } from "@/theme-tokens";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { AtomBytesStore } from "@/lib/atom-bytes-store";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
@@ -2784,7 +2784,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       const onThemeChange = (): void => {
         view.dispatch({ effects: regenerateAtomsEffect.of(null) });
       };
-      subscribeThemeChange(onThemeChange);
+      const unsubscribeTheme = subscribeThemeChange(onThemeChange);
 
       // A session chip draws the session's DISPLAY title ([D141]), which is the
       // user's own name once they have set one — and a bake cannot subscribe to
@@ -2917,7 +2917,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         if (id !== null) {
           selectionGuard.updateCardDomSelection(id, null);
         }
-        unsubscribeThemeChange(onThemeChange);
+        unsubscribeTheme();
         unsubscribeNames();
         view.destroy();
         viewRef.current = null;

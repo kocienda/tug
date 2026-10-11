@@ -30,6 +30,7 @@
  * @module lib/transcript-settings-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putTranscriptSettings } from "@/settings-api";
 import type { TranscriptSettings } from "@/settings-api";
@@ -45,13 +46,13 @@ export const DEFAULT_TRANSCRIPT_SETTINGS: TranscriptSettings = {
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
-export class TranscriptSettingsStore {
+export class TranscriptSettingsStore extends Subscribable {
   private _settings: TranscriptSettings;
-  private _listeners: Set<() => void> = new Set();
   private _targetEl: HTMLElement | null = null;
   private _unsubscribeTugbank: (() => void) | null = null;
 
   constructor() {
+    super();
     this._settings = this._readFromCache() ?? { ...DEFAULT_TRANSCRIPT_SETTINGS };
 
     const client = getTugbankClient();
@@ -100,12 +101,6 @@ export class TranscriptSettingsStore {
     return this._settings;
   };
 
-  /** Subscribe to settings changes. Returns unsubscribe. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => { this._listeners.delete(listener); };
-  };
-
   /** Update one or more settings. Applies immediately and persists. */
   set(partial: Partial<TranscriptSettings>): void {
     const next = { ...this._settings, ...partial };
@@ -118,7 +113,7 @@ export class TranscriptSettingsStore {
       this._unsubscribeTugbank();
       this._unsubscribeTugbank = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
     this._targetEl = null;
   }
 
@@ -129,7 +124,7 @@ export class TranscriptSettingsStore {
 
     this._applyCSSProperties();
 
-    for (const listener of this._listeners) listener();
+    this.notify();
 
     if (persist) putTranscriptSettings(next);
   }

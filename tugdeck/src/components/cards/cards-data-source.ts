@@ -34,6 +34,7 @@
  * @module components/cards/cards-data-source
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -989,10 +990,9 @@ export type CardsCensus = Readonly<Record<CardsGroup, number>>;
 // The data source
 // ---------------------------------------------------------------------------
 
-export class CardsDataSource implements TugListViewDataSource {
+export class CardsDataSource extends Subscribable implements TugListViewDataSource {
   private inputs: LensCardsInputs;
   private rows: CardsRow[] = [];
-  private readonly listeners = new Set<() => void>();
   private readonly resolvers: Partial<CardsResolvers>;
   private version = 0;
 
@@ -1000,6 +1000,7 @@ export class CardsDataSource implements TugListViewDataSource {
    *  passes none. Held for the source's lifetime — a resolver set is a wiring
    *  choice, not an input that changes between recomputes. */
   constructor(inputs: LensCardsInputs, resolvers: Partial<CardsResolvers> = {}) {
+    super();
     this.inputs = inputs;
     this.resolvers = resolvers;
     this.recompute();
@@ -1040,13 +1041,6 @@ export class CardsDataSource implements TugListViewDataSource {
    */
   roleForIndex(index: number): TugListViewCellRole {
     return this.rows[index]?.type === "space-empty" ? "header" : "cell";
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
   }
 
   getVersion(): unknown {
@@ -1206,10 +1200,6 @@ export class CardsDataSource implements TugListViewDataSource {
     this.inputs = next;
     this.recompute();
     return true;
-  }
-
-  notifyAll(): void {
-    for (const listener of this.listeners) listener();
   }
 
   /** Whether a filter is narrowing the list right now. */
@@ -1442,7 +1432,7 @@ export function useCardsDataSource(
   const didChange = ds.setInputsWithoutNotify(full);
 
   useLayoutEffect(() => {
-    if (didChange) ds.notifyAll();
+    if (didChange) ds.notify();
     // didChange is captured per render; intentional.
   });
 

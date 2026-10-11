@@ -19,6 +19,7 @@
  * @module lib/prompt-history-store
  */
 
+import { Subscribable } from "./subscribable";
 import type { HistoryProvider, TugTextEditingState } from "./tug-text-types";
 import {
   appendPromptHistory,
@@ -290,7 +291,7 @@ function entryToEditingState(entry: HistoryEntry): TugTextEditingState {
  * **Capacity:** none. The corpus is unbounded by design; the window is what's
  * bounded, and only by what has been asked for.
  */
-export class PromptHistoryStore {
+export class PromptHistoryStore extends Subscribable {
   private _sessions: Map<string, HistoryEntry[]> = new Map();
   private _loadedSessions: Set<string> = new Set();
   /** Whether older entries exist behind the window's top edge, per session. */
@@ -302,21 +303,12 @@ export class PromptHistoryStore {
   private _loadPromises: Map<string, Promise<void>> = new Map();
   /** Single-flight guard for backward paging, per session. */
   private _extendPromises: Map<string, Promise<void>> = new Map();
-  private _listeners: Set<() => void> = new Set();
   private _lastActiveSessionId: string | null = null;
   private _version = 0;
   private _cachedSnapshot: PromptHistorySnapshot | null = null;
   private _cachedSnapshotVersion = -1;
 
   // ── L02: subscribe/getSnapshot ────────────────────────────────────────────
-
-  /** Subscribe to store updates. Returns an unsubscribe function. */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /**
    * Return the current snapshot. Lightweight — counts only.
@@ -369,7 +361,7 @@ export class PromptHistoryStore {
     });
 
     this._version++;
-    this._notifyListeners();
+    this.notify();
   }
 
   /**
@@ -427,7 +419,7 @@ export class PromptHistoryStore {
         // Bump on every successful load completion so observers can
         // see "loaded but empty" as a real transition, not a no-op.
         this._version++;
-        this._notifyListeners();
+        this.notify();
       } catch (err) {
         logSessionLifecycle("history.load_error", {
           session_id: sessionId,
@@ -477,7 +469,7 @@ export class PromptHistoryStore {
           has_more: page.hasMore,
         });
         this._version++;
-        this._notifyListeners();
+        this.notify();
       } catch (err) {
         logSessionLifecycle("history.extend_error", {
           session_id: sessionId,
@@ -519,7 +511,7 @@ export class PromptHistoryStore {
     void patchPromptAtomPath(clientEntryId, atomId, path);
     if (touched) {
       this._version++;
-      this._notifyListeners();
+      this.notify();
     }
   }
 
@@ -585,14 +577,6 @@ export class PromptHistoryStore {
    */
   _kickExtendOlder(sessionId: string): void {
     void this.extendOlder(sessionId);
-  }
-
-  // ── Private ───────────────────────────────────────────────────────────────
-
-  private _notifyListeners(): void {
-    for (const listener of this._listeners) {
-      listener();
-    }
   }
 }
 

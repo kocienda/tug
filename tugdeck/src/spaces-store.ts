@@ -16,11 +16,12 @@
  * {@link SpacesStore.notify} at the point its commit needs subscribers told.
  */
 
+import { Subscribable } from "./lib/subscribable";
 import type { DeckState } from "./layout-tree";
 import { activeSpaceTheme, type SpaceRecord, type SpacesSnapshot, type SpacesState } from "./spaces";
 import { preloadTheme } from "./contexts/theme-provider";
 
-export class SpacesStore {
+export class SpacesStore extends Subscribable {
   /**
    * Every space this instance holds, in the user's order.
    *
@@ -48,9 +49,6 @@ export class SpacesStore {
    */
   private mounted: Set<string> = new Set();
 
-  /** Subscribers to the spaces store — the list's shape, not the decks. */
-  private subscribers: Set<() => void> = new Set();
-
   /**
    * The last {@link SpacesSnapshot} handed out, rebuilt only when the list
    * changes. `useSyncExternalStore` compares by identity and would loop
@@ -60,19 +58,11 @@ export class SpacesStore {
   private snapshotCache: SpacesSnapshot | null = null;
 
   // ---- The useSyncExternalStore contract ----
-
-  /**
-   * Subscribe to changes in the SPACE LIST — a space added, renamed, removed,
-   * reordered, or activated. Not to changes inside a deck: those are the deck
-   * store's, and a Workspaces-card row that re-rendered on every pane move
-   * would be paying for a fact it does not draw.
-   */
-  subscribe = (callback: () => void): (() => void) => {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  };
+  //
+  // `subscribe` (the base's) hears changes in the SPACE LIST — a space added,
+  // renamed, removed, reordered, or activated. Not changes inside a deck:
+  // those are the deck store's, and a Workspaces-card row that re-rendered on
+  // every pane move would be paying for a fact it does not draw.
 
   /**
    * The space list's identities and order, plus which is active. Stable by
@@ -110,9 +100,9 @@ export class SpacesStore {
    * mutation of the list — and by nothing else, because a rebuild with no
    * change would hand React a new identity for the same list.
    */
-  notify(): void {
+  override notify(): void {
     this.snapshotCache = null;
-    for (const callback of this.subscribers) callback();
+    super.notify();
   }
 
   // ---- Reads ----

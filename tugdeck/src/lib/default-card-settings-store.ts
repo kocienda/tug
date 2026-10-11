@@ -17,6 +17,7 @@
  * @module lib/default-card-settings-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putCardSettingsDefaults } from "@/settings-api";
 import type { TaggedValue } from "./tugbank-client";
@@ -33,13 +34,13 @@ export interface DefaultCardSettingsSpec<T> {
   builtIn: T;
 }
 
-export class DefaultCardSettingsStore<T extends object> {
+export class DefaultCardSettingsStore<T extends object> extends Subscribable {
   private readonly _spec: DefaultCardSettingsSpec<T>;
   private _defaults: T;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribeTugbank: (() => void) | null = null;
 
   constructor(spec: DefaultCardSettingsSpec<T>) {
+    super();
     this._spec = spec;
     this._defaults = this._readFromCache() ?? { ...spec.builtIn };
 
@@ -48,7 +49,7 @@ export class DefaultCardSettingsStore<T extends object> {
       this._unsubscribeTugbank = client.onDomainChanged((domain) => {
         if (domain !== spec.defaultsDomain) return;
         this._defaults = this._readFromCache() ?? { ...spec.builtIn };
-        for (const listener of this._listeners) listener();
+        this.notify();
       });
     }
   }
@@ -64,14 +65,6 @@ export class DefaultCardSettingsStore<T extends object> {
   /** Current deck-wide defaults. ([L02] — useSyncExternalStore) */
   getSnapshot = (): T => this._defaults;
 
-  /** Subscribe to changes. Returns unsubscribe. ([L02]) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
   /**
    * Update the deck-wide defaults. Optimistically reflects locally and across
    * open cards via `setLocalValue`, then persists.
@@ -79,7 +72,7 @@ export class DefaultCardSettingsStore<T extends object> {
   set(partial: Partial<T>): void {
     const next = { ...this._defaults, ...partial };
     this._defaults = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
 
     const client = getTugbankClient();
     if (client) {
@@ -97,6 +90,6 @@ export class DefaultCardSettingsStore<T extends object> {
       this._unsubscribeTugbank();
       this._unsubscribeTugbank = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

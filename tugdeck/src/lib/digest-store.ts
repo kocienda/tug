@@ -19,6 +19,7 @@
  * process, and the deck never caches digest lines locally.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -389,14 +390,14 @@ function lineKey(atMs: number, beat: number): string {
   return `${atMs}:${beat}`;
 }
 
-export class DigestStore {
+export class DigestStore extends Subscribable {
   private readonly conn: TugConnection;
-  private readonly listeners = new Set<() => void>();
   private readonly disposers: Array<() => void> = [];
   private snapshot: DigestSnapshot = IDLE_SNAPSHOT;
   private tailRequested = false;
 
   constructor(conn: TugConnection) {
+    super();
     this.conn = conn;
     // Live lines fold as the commentator speaks — including while the
     // tail load is still pending (the merge dedupes by line identity).
@@ -411,13 +412,8 @@ export class DigestStore {
   dispose(): void {
     for (const fn of this.disposers) fn();
     this.disposers.length = 0;
-    this.listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
 
   /**
    * A new message was submitted for `scope`: everything currently on
@@ -430,7 +426,7 @@ export class DigestStore {
     const cleared = new Map(this.snapshot.cleared);
     cleared.set(scope, keys);
     this.snapshot = Object.freeze({ ...this.snapshot, cleared });
-    this.tick();
+    this.notify();
   }
 
   /**
@@ -520,11 +516,7 @@ export class DigestStore {
       latest: capped.length > 0 ? capped[capped.length - 1] : null,
       cleared: this.snapshot.cleared,
     });
-    this.tick();
-  }
-
-  private tick(): void {
-    for (const listener of [...this.listeners]) listener();
+    this.notify();
   }
 }
 

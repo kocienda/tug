@@ -56,6 +56,7 @@
  * @module lib/motion-guard/breaker
  */
 
+import { createSubscribable } from "../subscribable";
 import {
   RENDER_COST_BUDGET_MS,
   REST_UPDATES_BUDGET_PER_S,
@@ -120,7 +121,7 @@ export interface DemoteRoot {
 }
 
 class MotionBreakerImpl implements MotionBreaker {
-  private readonly resumeListeners = new Set<() => void>();
+  private readonly resumeListeners = createSubscribable();
 
   constructor(private readonly rootOf: () => DemoteRoot | null) {}
 
@@ -145,7 +146,7 @@ class MotionBreakerImpl implements MotionBreaker {
     }
     if (!root.hasAttribute(DEMOTED_ATTRIBUTE)) return;
     root.removeAttribute(DEMOTED_ATTRIBUTE);
-    for (const listener of [...this.resumeListeners]) listener();
+    this.resumeListeners.notify();
   }
 
   reset(): void {
@@ -153,10 +154,7 @@ class MotionBreakerImpl implements MotionBreaker {
   }
 
   onResume(listener: () => void): () => void {
-    this.resumeListeners.add(listener);
-    return () => {
-      this.resumeListeners.delete(listener);
-    };
+    return this.resumeListeners.subscribe(listener);
   }
 }
 

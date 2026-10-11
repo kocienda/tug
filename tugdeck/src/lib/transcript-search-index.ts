@@ -10,6 +10,12 @@
  * entire transcript regardless of what is mounted. Painting (a separate
  * concern) then resolves DOM Ranges only for the handful of mounted rows.
  *
+ * **"Entire" means the loaded window.** The data source's rows are the store's
+ * transcript, which holds the most recent `TRANSCRIPT_TURN_CAP` context turns
+ * of a long session and reaches older ones through load previous. Find covers
+ * what is loaded; a turn the cap evicted, or one never paged in, is not
+ * searched until it is loaded again.
+ *
  * **Units mirror the DOM's `data-tugx-findable` containers.** Each projected
  * part corresponds 1:1, in DOM order, with one marked container in the row's
  * rendered cell (`transcript-find-highlighter.ts` walks exactly those). A

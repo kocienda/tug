@@ -25,6 +25,7 @@
  * @module lib/session-activity-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -198,9 +199,8 @@ function makeMeter(channel: ActivityChannel): ActivityMeterLike {
     : new RateMeter();
 }
 
-export class SessionActivityStore {
+export class SessionActivityStore extends Subscribable {
   private readonly conn: TugConnection | null;
-  private readonly listeners = new Set<() => void>();
   private readonly disposers: Array<() => void> = [];
   /** session id → channel → meter. */
   private readonly meters = new Map<
@@ -232,6 +232,7 @@ export class SessionActivityStore {
   >();
 
   constructor(conn: TugConnection | null) {
+    super();
     this.conn = conn;
     if (conn !== null) {
       // One app-scoped subscription to the raw ACTIVITY feed ([P01]).
@@ -260,16 +261,11 @@ export class SessionActivityStore {
   dispose(): void {
     for (const fn of this.disposers) fn();
     this.disposers.length = 0;
-    this.listeners.clear();
+    this.clearListeners();
     this.meters.clear();
     this.activityListeners.clear();
     this.gaugePublished.clear();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
 
   /**
    * Zero-lag activity clock for `session`: `listener` runs synchronously
@@ -509,7 +505,7 @@ export class SessionActivityStore {
       sessions.set(session, this.channels(session));
     }
     this.snapshot = Object.freeze({ enabled: this.snapshot.enabled, sessions });
-    for (const listener of [...this.listeners]) listener();
+    this.notify();
   }
 }
 

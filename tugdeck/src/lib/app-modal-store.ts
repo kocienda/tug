@@ -23,16 +23,17 @@
  * @module lib/app-modal-store
  */
 
+import { createSubscribable } from "./subscribable";
 import { useLayoutEffect } from "react";
 
 /** The three surfaces that take the app modally. */
 export type AppModalOwner = "configure-tug" | "update-tug" | "version-gate";
 
 const openOwners = new Set<AppModalOwner>();
-const subscribers = new Set<() => void>();
+const subscribers = createSubscribable();
 
 function notify(): void {
-  for (const subscriber of subscribers) subscriber();
+  subscribers.notify();
 }
 
 export const appModalStore = {
@@ -83,10 +84,7 @@ export const appModalStore = {
   },
 
   subscribe(subscriber: () => void): () => void {
-    subscribers.add(subscriber);
-    return () => {
-      subscribers.delete(subscriber);
-    };
+    return subscribers.subscribe(subscriber);
   },
 };
 

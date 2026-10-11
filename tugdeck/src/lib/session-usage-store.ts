@@ -27,22 +27,15 @@
  * @module lib/session-usage-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
 import type { SessionUsage } from "@/protocol";
 
-class SessionUsageStore {
+class SessionUsageStore extends Subscribable {
   private usage = new Map<string, SessionUsage>();
-  private readonly listeners = new Set<() => void>();
   private version = 0;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** A monotonic token that bumps on every change — the whole-store snapshot. */
   getVersion = (): number => this.version;
@@ -79,7 +72,7 @@ class SessionUsageStore {
       this.usage.set(id, usage);
     }
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   /** Drop the entry for a segment the ledger no longer holds. */
@@ -92,7 +85,7 @@ class SessionUsageStore {
     if (this.usage.size === 0) return;
     this.usage.clear();
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 }
 

@@ -17,6 +17,7 @@
  * provider, which subscribes here and pushes the mode into the manager.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { putKeyboardAccess } from "./settings-api";
@@ -38,9 +39,8 @@ export function normalizeKeyboardAccessMode(raw: string | null | undefined): Key
   return raw === "accessibility" ? "accessibility" : "standard";
 }
 
-class KeyboardAccessStore {
+class KeyboardAccessStore extends Subscribable {
   private mode: KeyboardAccessMode = DEFAULT_KEYBOARD_ACCESS_MODE;
-  private subscribers: Set<() => void> = new Set();
   private initialized = false;
 
   /**
@@ -89,22 +89,9 @@ class KeyboardAccessStore {
     this.setMode(this.mode === "standard" ? "accessibility" : "standard");
   }
 
-  subscribe = (callback: () => void): (() => void) => {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  };
-
   private applyAttribute(): void {
     if (typeof document === "undefined") return;
     document.documentElement.setAttribute(KEYBOARD_ACCESS_ATTRIBUTE, this.mode);
-  }
-
-  private notify(): void {
-    for (const cb of this.subscribers) {
-      cb();
-    }
   }
 }
 

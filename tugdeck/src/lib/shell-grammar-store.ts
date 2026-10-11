@@ -18,6 +18,7 @@
  * @module lib/shell-grammar-store
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedId, type FeedIdValue } from "../protocol";
 import type { FeedStore } from "./feed-store";
 import { getConnection } from "./connection-singleton";
@@ -70,11 +71,10 @@ function isBand(value: unknown): value is GrammarBand {
   return value === "yes" || value === "maybe" || value === "no" || value === "unknown";
 }
 
-export class ShellGrammarStore {
+export class ShellGrammarStore extends Subscribable {
   private readonly _grades = new Map<string, LineGrade>();
   private readonly _pending = new Map<string, (grade: LineGrade) => void>();
   private readonly _timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly _listeners = new Set<() => void>();
   private readonly _unsubscribeFeed: () => void;
   /** Immutable copy handed to `getSnapshot`, rebuilt when a grade lands —
    * `useSyncExternalStore` compares snapshots by identity, so returning the
@@ -87,6 +87,7 @@ export class ShellGrammarStore {
     private readonly _feedId: FeedIdValue,
     private readonly _tugSessionId: string,
   ) {
+    super();
     this._unsubscribeFeed = _feedStore.subscribe(() => this._onFeedUpdate());
     // Fold any frame already present at construction (replay-on-subscribe).
     this._onFeedUpdate();
@@ -170,15 +171,8 @@ export class ShellGrammarStore {
   clear(): void {
     this._grades.clear();
     this._snapshot = new Map();
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /** Every grade landed so far. Routing reads `get`; this is the [L02] surface. */
   getSnapshot = (): ReadonlyMap<string, LineGrade> => this._snapshot;
@@ -186,7 +180,7 @@ export class ShellGrammarStore {
   dispose(): void {
     this._disposed = true;
     this._unsubscribeFeed();
-    this._listeners.clear();
+    this.clearListeners();
     // Anything still waiting gets the answer that changes nothing.
     for (const line of [...this._pending.keys()]) this._settle(line, UNKNOWN_GRADE);
   }
@@ -233,7 +227,7 @@ export class ShellGrammarStore {
     this._snapshot = new Map(this._grades);
 
     this._settle(p.line, grade);
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
 
   /** Test seam: fold a raw `SHELL_OUTPUT` payload as if it arrived on the feed. */

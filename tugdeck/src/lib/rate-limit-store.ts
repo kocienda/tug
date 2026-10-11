@@ -22,6 +22,7 @@
  * @module lib/rate-limit-store
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedStore } from "./feed-store";
 import { FeedId, type RateLimitInfo } from "../protocol";
 import type { TugConnection } from "../connection";
@@ -60,14 +61,14 @@ function parseRateLimitInfo(raw: unknown): RateLimitInfo | null {
  * `useSyncExternalStore` contract (`subscribe` / `getSnapshot`) plus a
  * test-only ingest seam.
  */
-export class RateLimitStore {
+export class RateLimitStore extends Subscribable {
   private _latest: RateLimitInfo | null = null;
-  private _listeners: Set<() => void> = new Set();
   private _feedStore: FeedStore;
   private _unsubscribeFeed: () => void;
   private _lastPayloadRef: unknown = undefined;
 
   constructor(connection: TugConnection) {
+    super();
     // SESSION_SIDEBAND carries no workspace_key and is intentionally
     // unfiltered — we want every session's frames here (account-global
     // quota), unlike the per-card stores.
@@ -98,16 +99,8 @@ export class RateLimitStore {
 
   private _setLatest(info: RateLimitInfo): void {
     this._latest = info;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  /** Subscribe to store updates. Returns an unsubscribe function. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /** Latest account-global quota, or null before the first event. (L02) */
   getSnapshot = (): RateLimitInfo | null => this._latest;
@@ -125,6 +118,6 @@ export class RateLimitStore {
   dispose(): void {
     this._unsubscribeFeed();
     this._feedStore.dispose();
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

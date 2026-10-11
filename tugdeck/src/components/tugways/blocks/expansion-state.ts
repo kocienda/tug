@@ -25,15 +25,16 @@
  * @module components/tugways/blocks/expansion-state
  */
 
+import { Subscribable } from "@/lib/subscribable";
+
 /** Serialized shape on the [A9] axis: only the overrides. */
 export interface PersistedExpansionState {
   /** `toolUseId` → collapsed, recorded only where it differs from the default. */
   overrides: Record<string, boolean>;
 }
 
-export class ToolBlockExpansionState {
+export class ToolBlockExpansionState extends Subscribable {
   private overrides = new Map<string, boolean>();
-  private listeners = new Set<() => void>();
   private _version = 0;
 
   /**
@@ -45,18 +46,6 @@ export class ToolBlockExpansionState {
   get version(): number {
     return this._version;
   }
-
-  /**
-   * Subscribe to resolved-value changes ([L02]-compatible: pair with
-   * `version` as the snapshot). `seed` does not notify — it runs once
-   * before first paint, so there is no earlier snapshot to invalidate.
-   */
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** Resolved collapsed value for a block: override wins, else default. */
   resolve(toolUseId: string, defaultCollapsed: boolean): boolean {
@@ -78,7 +67,7 @@ export class ToolBlockExpansionState {
     }
     if (before !== collapsed) {
       this._version += 1;
-      for (const listener of this.listeners) listener();
+      this.notify();
     }
   }
 

@@ -63,6 +63,7 @@
  * proposing chain-touching changes.
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import { createContext } from "react";
 import type { TugAction } from "./action-vocabulary";
 import type { KeyBinding } from "./keybinding-map";
@@ -517,7 +518,7 @@ export class ResponderChainManager {
   } | null = null;
   private firstResponderId: string | null = null;
   private validationVersion = 0;
-  private subscribers: Set<() => void> = new Set();
+  private readonly subscribers = createSubscribable();
 
   /**
    * When the generic subscribers are told — see {@link incrementAndNotify}.
@@ -1682,10 +1683,7 @@ export class ResponderChainManager {
    * register, unregister). Returns an unsubscribe function.
    */
   subscribe(callback: () => void): () => void {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
+    return this.subscribers.subscribe(callback);
   }
 
   /** Returns the current validationVersion for useSyncExternalStore snapshots. */
@@ -1737,13 +1735,13 @@ export class ResponderChainManager {
           ran = true;
           this.cancelDeferredNotify = null;
           perfMark("tug:chain-notify");
-          for (const cb of this.subscribers) cb();
+          this.subscribers.notify();
         });
         // A scheduler that ran `flush` inline has nothing left to release.
         if (!ran) this.cancelDeferredNotify = cancel;
       }
     } else {
-      for (const cb of this.subscribers) cb();
+      this.subscribers.notify();
     }
     this.notifyKeyResponderObservers();
   }

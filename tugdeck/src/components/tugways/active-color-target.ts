@@ -9,6 +9,7 @@
  * appearance — so both the well's host and the picker resolve to one truth.
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { TugColorSpec } from "./tugcolor";
@@ -28,10 +29,10 @@ export interface ActiveColorTarget {
 }
 
 let current: ActiveColorTarget | null = null;
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 
 function emit(): void {
-  for (const l of listeners) l();
+  listeners.notify();
 }
 
 export function getActiveColorTarget(): ActiveColorTarget | null {
@@ -58,8 +59,7 @@ export function clearActiveColorTarget(senderId?: string): void {
 }
 
 export function subscribeActiveColorTarget(cb: () => void): () => void {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
+  return listeners.subscribe(cb);
 }
 
 /** React hook: the currently-active color target (or null). */

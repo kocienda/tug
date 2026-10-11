@@ -75,7 +75,7 @@ import {
 } from "@/lib/sparkline-instrument";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { SparklineWorkerResponse } from "@/lib/workers/sparkline-render-worker";
-import { subscribeThemeChange, unsubscribeThemeChange } from "@/theme-tokens";
+import { subscribeThemeChange } from "@/theme-tokens";
 import { usePageZoom } from "@/lib/page-zoom-store";
 import { isTugMotionEnabled } from "./scale-timing";
 
@@ -445,7 +445,7 @@ export function TugSparkline({
     const repaintColors = (): void => {
       host.setColors(resolveSparklineColors(container));
     };
-    subscribeThemeChange(repaintColors);
+    const unsubscribeTheme = subscribeThemeChange(repaintColors);
 
     /**
      * Coming back from a hidden page: re-post the window. Timers are throttled
@@ -465,7 +465,7 @@ export function TugSparkline({
         mountedHosts.delete(container);
       }
       unsubscribe();
-      unsubscribeThemeChange(repaintColors);
+      unsubscribeTheme();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [

@@ -36,6 +36,7 @@ import { isNetworkStalled } from "./lifecycle-state";
 import type {
   AddUserMessageEvent,
   ApiRetryEvent,
+  TranscriptEvictedEvent,
   ModelRefusalFallbackEvent,
   OutputTruncatedEvent,
   CompactBoundaryEvent,
@@ -4692,6 +4693,90 @@ export function truncateTranscriptAtAnchor(
   return transcript.slice(0, idx);
 }
 
+/**
+ * How many context turns the session store keeps loaded before an append
+ * evicts the oldest. The longest session on the development machine held 251
+ * typed turns (25 MB of JSONL) when this was set, so 500 leaves twice that
+ * before a live session pages anything out. Ink rows (`shell`, `refs`) are not
+ * counted and never evicted: their ledgers restore whole, outside the window.
+ */
+export const TRANSCRIPT_TURN_CAP = 500;
+
+/** The context turns in `transcript` — every turn that is not an ink row. */
+export function countContextTurns(transcript: ReadonlyArray<TurnEntry>): number {
+  let n = 0;
+  for (const turn of transcript) {
+    if (!isInkOrigin(turn.origin)) n++;
+  }
+  return n;
+}
+
+/**
+ * Drop the oldest context turns of `transcript` until at most `limit` remain.
+ * Returns the SAME array reference and no evictions when it is already within
+ * the limit. Survivors keep their `TurnEntry` references ([L26]); ink rows
+ * keep their seats, because the window they live outside is not this one.
+ * `windowTurns` is the context-turn count before the eviction.
+ */
+export function evictOldestTurns(
+  transcript: ReadonlyArray<TurnEntry>,
+  limit: number,
+): {
+  transcript: ReadonlyArray<TurnEntry>;
+  evicted: TurnEntry[];
+  windowTurns: number;
+} {
+  const windowTurns = countContextTurns(transcript);
+  let excess = windowTurns - limit;
+  if (excess <= 0) return { transcript, evicted: [], windowTurns };
+  const evicted: TurnEntry[] = [];
+  const kept: TurnEntry[] = [];
+  for (const turn of transcript) {
+    if (excess > 0 && !isInkOrigin(turn.origin)) {
+      evicted.push(turn);
+      excess--;
+    } else {
+      kept.push(turn);
+    }
+  }
+  return { transcript: kept, evicted, windowTurns };
+}
+
+/**
+ * Advance the recency window past turns the transcript cap evicted. The
+ * window's start moves by the eviction and older turns now exist; the total
+ * never shrinks, and on a session no replay windowed it is the context turns
+ * the window held before the eviction. The evicted turns' ids leave
+ * `committedMsgIds` at the same moment: the dedupe guards against a turn
+ * committing twice into the window, and a turn outside it is not there to
+ * duplicate — while one paged back in by load-previous must not be refused
+ * as already seen.
+ */
+function handleTranscriptEvicted(
+  state: CodeSessionState,
+  event: TranscriptEvictedEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (event.evicted <= 0) return { state, effects: [] };
+  const first = state.replayWindow?.firstLoadedTurnIndex ?? 0;
+  const committedMsgIds = new Set(state.committedMsgIds);
+  for (const id of event.evictedMsgIds) committedMsgIds.delete(id);
+  return {
+    state: {
+      ...state,
+      committedMsgIds,
+      replayWindow: {
+        firstLoadedTurnIndex: first + event.evicted,
+        totalTurns: Math.max(
+          state.replayWindow?.totalTurns ?? 0,
+          first + event.windowTurns,
+        ),
+        hasOlder: true,
+      },
+    },
+    effects: [],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Cost update — telemetry surface, phase-tolerant
 // ---------------------------------------------------------------------------
@@ -7889,6 +7974,8 @@ export function reduce(
       // Mark the next replay bracket as a prepend (older range). Pure
       // flag flip; the request itself is sent by the store wrapper.
       return { state: { ...state, replayPrependActive: true }, effects: [] };
+    case "transcript_evicted":
+      return handleTranscriptEvicted(state, event);
     case "tick_soft_budget":
       return handleTickSoftBudget(state);
     case "tick_timeout_dwell_done":

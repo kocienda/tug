@@ -23,6 +23,7 @@
  * @module lib/join-mode-controller
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
@@ -293,12 +294,11 @@ export interface JoinModeControllerDeps {
  */
 const ARC_OWNER_KIND = "arc";
 
-export class JoinModeController implements LandingMode {
+export class JoinModeController extends Subscribable implements LandingMode {
   /** The landing this mode performs ([P01]) — the composer's labels read it. */
   readonly kind = "join" as const;
 
   private readonly deps: JoinModeControllerDeps;
-  private readonly listeners = new Set<() => void>();
   private readonly unsubscribes: (() => void)[] = [];
 
   private active = false;
@@ -340,6 +340,7 @@ export class JoinModeController implements LandingMode {
   private refusalSeq = 0;
 
   constructor(deps: JoinModeControllerDeps) {
+    super();
     this.deps = deps;
     this.snapshot = this.derive();
 
@@ -364,13 +365,6 @@ export class JoinModeController implements LandingMode {
   }
 
   // ── Store surface ([L02]) ──────────────────────────────────────────────
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): JoinModeSnapshot => this.snapshot;
 
@@ -528,7 +522,7 @@ export class JoinModeController implements LandingMode {
     const next = this.derive();
     if (!snapshotsEqual(next, this.snapshot)) {
       this.snapshot = next;
-      this.fire();
+      this.notify();
     }
   }
 
@@ -616,10 +610,6 @@ export class JoinModeController implements LandingMode {
     }, SETTLED_REST_MS);
   }
 
-  private fire(): void {
-    for (const listener of [...this.listeners]) listener();
-  }
-
   // ── Triggers ───────────────────────────────────────────────────────────
 
   /**
@@ -647,7 +637,7 @@ export class JoinModeController implements LandingMode {
     this.seedMessage = seed.length > 0 ? seed : null;
     this.active = true;
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
     this.ensureCandidate();
   }
 
@@ -703,7 +693,7 @@ export class JoinModeController implements LandingMode {
     this.narration = null;
     this.target = target;
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
   }
 
   // `resumeTeardown` lived here. It is gone with its button ([P08]): the join
@@ -752,7 +742,7 @@ export class JoinModeController implements LandingMode {
     const verbStore = getChangesetVerbStore();
     if (verbStore?.joinState(entryKey).phase === "error") verbStore.clearJoin(entryKey);
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
   }
 
   /** Persist a message edit into the arc's draft row. */
@@ -875,7 +865,7 @@ export class JoinModeController implements LandingMode {
     tugDevLogStore.warn("landing", `join land refused: ${sentence}`, { kind, ...gate });
     sendLandingReceipt({ kind: "join", verdict: "refused", reason, sentence, gate });
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
     return { kind: "refused", sentence };
   }
 
@@ -884,7 +874,7 @@ export class JoinModeController implements LandingMode {
     if (this.landRefusal === null) return;
     this.landRefusal = null;
     this.snapshot = this.derive();
-    this.fire();
+    this.notify();
   }
 
   /**
@@ -1006,7 +996,7 @@ export class JoinModeController implements LandingMode {
 
   dispose(): void {
     for (const unsub of this.unsubscribes) unsub();
-    this.listeners.clear();
+    this.clearListeners();
     if (this.narrationRestTimer !== null) clearTimeout(this.narrationRestTimer);
   }
 }

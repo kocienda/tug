@@ -60,6 +60,7 @@
  * @module lib/changeset-join-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -198,11 +199,10 @@ function readStringArray(value: unknown): string[] {
   return value.filter((v): v is string => typeof v === "string");
 }
 
-export class ChangesetJoinStore {
+export class ChangesetJoinStore extends Subscribable {
   private readonly _connection: TugConnection;
   private readonly _unsubscribe: () => void;
   private readonly _unobserveClose: () => void;
-  private readonly _listeners = new Set<() => void>();
   private _states = new Map<string, ResolveState>();
   private readonly _decoder = new TextDecoder();
   /**
@@ -243,6 +243,7 @@ export class ChangesetJoinStore {
   private readonly _runSeenOnFeed = new Set<string>();
 
   constructor(connection: TugConnection) {
+    super();
     this._connection = connection;
     this._unsubscribe = connection.onFrame(FeedId.CONTROL, (payload) =>
       this._onControl(payload),
@@ -285,7 +286,7 @@ export class ChangesetJoinStore {
       );
       landCleared = false;
     }
-    if (landCleared) this._emit();
+    if (landCleared) this.notify();
   }
 
   /** End a run with a reason. */
@@ -380,7 +381,7 @@ export class ChangesetJoinStore {
       const status = typeof body.status === "string" ? body.status : "";
       if (beat === "") return;
       this._land.set(k, { beat, status });
-      this._emit();
+      this.notify();
       return;
     }
     // The join is over, one way or the other — and that is the one beat the
@@ -403,7 +404,7 @@ export class ChangesetJoinStore {
         terminal: true,
         ...(detail === null ? {} : { detail }),
       });
-      this._emit();
+      this.notify();
       return;
     }
 
@@ -550,11 +551,7 @@ export class ChangesetJoinStore {
     } else {
       this._states.set(k, next);
     }
-    this._emit();
-  }
-
-  private _emit(): void {
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -786,7 +783,7 @@ export class ChangesetJoinStore {
       beat: "requested",
       status: "start",
     });
-    this._emit();
+    this.notify();
   }
 
   /**
@@ -801,7 +798,7 @@ export class ChangesetJoinStore {
    * a join nobody is running is the same lie in the other direction.
    */
   clearLand(workspaceKey: string, arc: string): void {
-    if (this._land.delete(key(workspaceKey, arc))) this._emit();
+    if (this._land.delete(key(workspaceKey, arc))) this.notify();
   }
 
   dispose(): void {
@@ -811,13 +808,8 @@ export class ChangesetJoinStore {
     this._deadlines.clear();
     this._runSeenOnFeed.clear();
     this._land.clear();
-    this._listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => this._listeners.delete(listener);
-  };
 }
 
 let _activeStore: ChangesetJoinStore | null = null;

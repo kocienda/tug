@@ -23,6 +23,7 @@
  * @module lib/git-diff-store
  */
 
+import { Subscribable } from "./subscribable";
 import { statLineFrom } from "./commit-format";
 import type { FeedStore } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
@@ -275,9 +276,8 @@ function isCommitDescriptor(
  */
 let nextStoreId = 0;
 
-export class GitDiffStore {
+export class GitDiffStore extends Subscribable {
   private _snapshot: GitDiffSnapshot = EMPTY_SNAPSHOT;
-  private _listeners = new Set<() => void>();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private readonly _feedStore: FeedStore;
@@ -288,6 +288,7 @@ export class GitDiffStore {
   private _seq = 0;
 
   constructor(feedStore: FeedStore, feedId: FeedIdValue, projectDir?: string) {
+    super();
     this._feedStore = feedStore;
     this._feedId = feedId;
     this._projectDir = projectDir;
@@ -385,15 +386,8 @@ export class GitDiffStore {
 
   private _set(next: GitDiffSnapshot): void {
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): GitDiffSnapshot => this._snapshot;
 
@@ -422,6 +416,6 @@ export class GitDiffStore {
       this._unsubscribeFeed();
       this._unsubscribeFeed = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

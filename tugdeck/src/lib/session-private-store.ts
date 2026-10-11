@@ -36,6 +36,8 @@
  * @module lib/session-private-store
  */
 
+import { Subscribable } from "./subscribable";
+
 /** How a `/private` toggle came back from the ledger. */
 export interface PrivateSettle {
   /** Whether the ledger wrote the value. */
@@ -44,20 +46,12 @@ export interface PrivateSettle {
   reason?: string;
 }
 
-class SessionPrivateStore {
+class SessionPrivateStore extends Subscribable {
   private readonly privateIds = new Set<string>();
-  private readonly listeners = new Set<() => void>();
   private readonly waiters = new Map<
     string,
     { requested: boolean; notify: (settle: PrivateSettle) => void }
   >();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** Whether `tugSessionId` is currently out of the Overview. */
   isPrivate = (tugSessionId: string): boolean =>
@@ -71,7 +65,7 @@ class SessionPrivateStore {
     if (this.privateIds.has(tugSessionId) === isPrivate) return;
     if (isPrivate) this.privateIds.add(tugSessionId);
     else this.privateIds.delete(tugSessionId);
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   /**

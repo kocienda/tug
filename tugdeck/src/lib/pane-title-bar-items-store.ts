@@ -30,6 +30,8 @@
  * @module lib/pane-title-bar-items-store
  */
 
+import { Subscribable } from "./subscribable";
+
 /**
  * A single title-bar item a card contributes — a COMMAND REFERENCE, not a
  * label and a callback.
@@ -69,9 +71,8 @@ export interface PaneTitleBarItem {
   unavailableHint?: string;
 }
 
-class PaneTitleBarItemsStore {
+class PaneTitleBarItemsStore extends Subscribable {
   private readonly _byCard = new Map<string, readonly PaneTitleBarItem[]>();
-  private readonly _listeners = new Set<() => void>();
 
   /** Publish (or replace) the title-bar items for `cardId`. Passing `null`
    *  (or an empty array) clears them — no card-contributed control renders. */
@@ -79,28 +80,17 @@ class PaneTitleBarItemsStore {
     if (items === null || items.length === 0) {
       if (!this._byCard.has(cardId)) return;
       this._byCard.delete(cardId);
-      this._notify();
+      this.notify();
       return;
     }
     this._byCard.set(cardId, items);
-    this._notify();
+    this.notify();
   }
 
   /** Read the items for `cardId`, or `null` when none. */
   get(cardId: string | null): readonly PaneTitleBarItem[] | null {
     if (cardId === null) return null;
     return this._byCard.get(cardId) ?? null;
-  }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
-  private _notify(): void {
-    for (const listener of this._listeners) listener();
   }
 }
 

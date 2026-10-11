@@ -16,6 +16,7 @@
  * @module lib/sidebar-width-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import type { TaggedValue } from "./tugbank-client";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
@@ -29,9 +30,8 @@ function domainFor(componentId: string): string {
   return `dev.tugapp.${componentId}`;
 }
 
-class SidebarWidthStore {
+class SidebarWidthStore extends Subscribable {
   private _widths: Readonly<Record<string, number>> = {};
-  private readonly _listeners = new Set<() => void>();
   private readonly _hydrated = new Set<string>();
   private _tugbankUnsub: (() => void) | null = null;
 
@@ -70,21 +70,10 @@ class SidebarWidthStore {
   }
 
   private _notify(): void {
-    for (const listener of this._listeners) {
-      try {
-        listener();
-      } catch (err) {
-        console.warn("[SidebarWidthStore] listener error:", err);
-      }
-    }
+    this.notifyCatching((err) => {
+      console.warn("[SidebarWidthStore] listener error:", err);
+    });
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): Readonly<Record<string, number>> => this._widths;
 

@@ -27,6 +27,8 @@
  * @module lib/os-thumbnail-store
  */
 
+import { createSubscribable } from "./subscribable";
+
 interface ThumbnailBridgeMessageHandlers {
   thumbnailPath?: { postMessage: (v: unknown) => void };
 }
@@ -50,18 +52,15 @@ const thumbnails = new Map<string, string | null>();
 /** Paths with a request in flight, so a re-render never starts a second one. */
 const inFlight = new Set<string>();
 
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 
 function notify(): void {
-  for (const listener of listeners) listener();
+  listeners.notify();
 }
 
 /** Subscribe to thumbnail arrivals — the `useSyncExternalStore` half. */
 export function subscribeToOSThumbnails(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return listeners.subscribe(listener);
 }
 
 /**

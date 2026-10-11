@@ -49,6 +49,7 @@
  * @module lib/changeset-verb-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -402,10 +403,9 @@ function readStringArray(value: unknown): string[] {
   return value.filter((v): v is string => typeof v === "string");
 }
 
-export class ChangesetVerbStore {
+export class ChangesetVerbStore extends Subscribable {
   private readonly _connection: TugConnection;
   private readonly _unsubscribe: () => void;
-  private readonly _listeners = new Set<() => void>();
   /** project_dir → git-init request state. Absent ⇒ idle. */
   private _gitInit = new Map<string, GitInitState>();
   /** entry key → commit round-trip state. Absent ⇒ idle. */
@@ -449,6 +449,7 @@ export class ChangesetVerbStore {
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
+    super();
     this._connection = connection;
     this._unsubscribe = connection.onFrame(FeedId.CONTROL, (payload) =>
       this._onControl(payload),
@@ -596,7 +597,7 @@ export class ChangesetVerbStore {
         summary,
         receiptId: receiptIdOf(body),
       });
-      for (const listener of [...this._listeners]) listener();
+      this.notify();
     } else if (body.action === "arc_note") {
       // The run's quiet lines. Unsolicited like `arc_receipt` and for the same
       // reason — a `tugtool arc` verb is a short-lived process with no client
@@ -620,7 +621,7 @@ export class ChangesetVerbStore {
       // because a card consumes on every frame.
       if (notes.length > ARC_NOTE_CAP) notes.splice(0, notes.length - ARC_NOTE_CAP);
       this._arcNotes.set(session, notes);
-      for (const listener of [...this._listeners]) listener();
+      this.notify();
     } else if (body.action === "changeset_join_ok") {
       const arc = typeof body.arc === "string" ? body.arc : null;
       if (arc === null) return;
@@ -784,7 +785,7 @@ export class ChangesetVerbStore {
     } else {
       this._gitInit.set(projectDir, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /** Send `changeset_git_init` for `projectDir` and mark it in-flight. */
@@ -803,7 +804,7 @@ export class ChangesetVerbStore {
     } else {
       this._claims.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -850,7 +851,7 @@ export class ChangesetVerbStore {
     } else {
       this._disclaims.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -905,7 +906,7 @@ export class ChangesetVerbStore {
     } else {
       this._commits.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -970,7 +971,7 @@ export class ChangesetVerbStore {
     } else {
       this._pushes.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -1010,7 +1011,7 @@ export class ChangesetVerbStore {
     } else {
       this._joins.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -1079,7 +1080,7 @@ export class ChangesetVerbStore {
     } else {
       this._discards.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -1111,7 +1112,7 @@ export class ChangesetVerbStore {
     } else {
       this._deleteDocuments.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -1148,7 +1149,7 @@ export class ChangesetVerbStore {
     } else {
       this._replays.set(entryKey, state);
     }
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   /**
@@ -1186,13 +1187,8 @@ export class ChangesetVerbStore {
 
   dispose(): void {
     this._unsubscribe();
-    this._listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => this._listeners.delete(listener);
-  };
 }
 
 // ---------------------------------------------------------------------------

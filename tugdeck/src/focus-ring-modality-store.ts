@@ -24,6 +24,7 @@
  * subscribes here and pushes the policy into the manager.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { putFocusRingModality } from "./settings-api";
@@ -46,9 +47,8 @@ export function normalizeFocusRingModality(raw: string | null | undefined): Focu
   return raw === "pointer" ? "pointer" : "keyboard";
 }
 
-class FocusRingModalityStore {
+class FocusRingModalityStore extends Subscribable {
   private mode: FocusRingModality = DEFAULT_FOCUS_RING_MODALITY;
-  private subscribers: Set<() => void> = new Set();
   private initialized = false;
 
   /**
@@ -92,19 +92,6 @@ class FocusRingModalityStore {
   /** Flip between the two policies. Convenience for the in-app toggle. */
   toggle(): void {
     this.setMode(this.mode === "keyboard" ? "pointer" : "keyboard");
-  }
-
-  subscribe = (callback: () => void): (() => void) => {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  };
-
-  private notify(): void {
-    for (const cb of this.subscribers) {
-      cb();
-    }
   }
 }
 

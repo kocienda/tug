@@ -39,6 +39,7 @@
  * @module components/tugways/cards/session-picker-quiet
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import type { ArrivalQuiet } from "@/lib/arrival-reveal";
 import {
   getSessionLedgerStore,
@@ -126,12 +127,7 @@ export function sessionPickerQuiet(): ArrivalQuiet | null {
   if (ledger === null) return null;
   const projectDir = readSeedPath();
   return {
-    subscribe: (listener) => {
-      drawnListeners.add(listener);
-      return () => {
-        drawnListeners.delete(listener);
-      };
-    },
+    subscribe: (listener) => drawnListeners.subscribe(listener),
     isQuiet: () =>
       pickerContentQuiet(
         ledger.getSnapshot(projectDir),
@@ -140,7 +136,7 @@ export function sessionPickerQuiet(): ArrivalQuiet | null {
   };
 }
 
-const drawnListeners = new Set<() => void>();
+const drawnListeners = createSubscribable();
 
 /**
  * The picker has DRAWN a listing frame — called by `SessionProjectPickerForm`
@@ -149,5 +145,5 @@ const drawnListeners = new Set<() => void>();
  * its rule now, over a DOM that matches the store ([L04]).
  */
 export function notifyPickerDrawn(): void {
-  for (const listener of [...drawnListeners]) listener();
+  drawnListeners.notify();
 }

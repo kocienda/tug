@@ -38,6 +38,7 @@
  * @module keymap-override-store
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import type { CommandBinding, Chord, BindingScope } from "./components/tugways/command-registry";
 import { COMMANDS_BY_ID, isCommandLocked } from "./components/tugways/command-registry";
 import { chordKey } from "./components/tugways/chord-format";
@@ -172,9 +173,8 @@ function serialize(bindings: readonly CommandBinding[]): string {
  * The store
  * ------------------------------------------------------------------------- */
 
-class KeymapOverrideStore {
+class KeymapOverrideStore extends Subscribable {
   private overrides = new Map<string, CommandBinding[]>();
-  private readonly subscribers = new Set<() => void>();
   private version = 0;
 
   /**
@@ -224,13 +224,6 @@ class KeymapOverrideStore {
 
   /** Bumps on every override change, for `useSyncExternalStore` readers. */
   getSnapshot = (): number => this.version;
-
-  subscribe = (callback: () => void): (() => void) => {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  };
 
   /**
    * Give a command a binding list of its own. An empty list is "explicitly
@@ -340,9 +333,9 @@ class KeymapOverrideStore {
     for (const commandId of this.overrides.keys()) this.apply(commandId);
   }
 
-  private notify(): void {
+  override notify(): void {
     this.version += 1;
-    for (const callback of this.subscribers) callback();
+    super.notify();
   }
 }
 

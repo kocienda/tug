@@ -17,6 +17,8 @@
  * @module lib/file-view-open-registry
  */
 
+import { createSubscribable } from "./subscribable";
+
 export interface FileViewOpenEntry {
   /** The card's bound path, or null before the seed restores. */
   getPath(): string | null;
@@ -31,15 +33,12 @@ export interface FileViewOpenEntry {
 const entries = new Map<string, FileViewOpenEntry>();
 
 /** Observers notified when a viewer card mounts, unmounts, or rebinds. */
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 let version = 0;
 
 /** Subscribe to registry changes (register / unregister / path rebind). */
 export function subscribeOpenFileViewCards(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return listeners.subscribe(listener);
 }
 
 /** A monotonic token that bumps on every registry change — a
@@ -52,7 +51,7 @@ export function getOpenFileViewCardsVersion(): number {
  *  object is the same. Called by a viewer card when its path rebinds. */
 export function notifyOpenFileViewCardsChanged(): void {
   version += 1;
-  for (const listener of listeners) listener();
+  listeners.notify();
 }
 
 export function registerOpenFileViewCard(

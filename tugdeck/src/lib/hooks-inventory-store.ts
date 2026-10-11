@@ -18,6 +18,7 @@
  * @module lib/hooks-inventory-store
  */
 
+import { Subscribable } from "./subscribable";
 import type { FeedStore } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
 import { FeedId } from "../protocol";
@@ -184,9 +185,8 @@ export function parseHooksInventoryPayload(
 
 // ── HooksInventoryStore ──────────────────────────────────────────────────────
 
-export class HooksInventoryStore {
+export class HooksInventoryStore extends Subscribable {
   private _snapshot: HooksInventorySnapshot = EMPTY_SNAPSHOT;
-  private _listeners = new Set<() => void>();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private readonly _feedStore: FeedStore;
@@ -195,6 +195,7 @@ export class HooksInventoryStore {
   private _seq = 0;
 
   constructor(feedStore: FeedStore, feedId: FeedIdValue, tugSessionId: string) {
+    super();
     this._feedStore = feedStore;
     this._feedId = feedId;
     this._tugSessionId = tugSessionId;
@@ -238,15 +239,8 @@ export class HooksInventoryStore {
 
   private _set(next: HooksInventorySnapshot): void {
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): HooksInventorySnapshot => this._snapshot;
 
@@ -264,6 +258,6 @@ export class HooksInventoryStore {
       this._unsubscribeFeed();
       this._unsubscribeFeed = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

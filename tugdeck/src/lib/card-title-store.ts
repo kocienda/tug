@@ -53,6 +53,8 @@
  * @module lib/card-title-store
  */
 
+import { Subscribable } from "./subscribable";
+
 /**
  * A Session card's request for the masthead tier, and the key the chrome
  * resolves its content from. Never a snapshot of what to display: session
@@ -214,10 +216,9 @@ function sameMasthead(
   );
 }
 
-class CardTitleStore {
+class CardTitleStore extends Subscribable {
   private readonly _overrides = new Map<string, string>();
   private readonly _mastheads = new Map<string, CardMastheadPayload>();
-  private readonly _listeners = new Set<() => void>();
 
   /**
    * Set the title override for `cardId`, optionally with a masthead sidecar.
@@ -235,7 +236,7 @@ class CardTitleStore {
     this._overrides.set(cardId, title);
     if (masthead === undefined) this._mastheads.delete(cardId);
     else this._mastheads.set(cardId, masthead);
-    this._notify();
+    this.notify();
   }
 
   /**
@@ -250,7 +251,7 @@ class CardTitleStore {
   setMasthead(cardId: string, masthead: CardMastheadPayload): void {
     if (sameMasthead(this._mastheads.get(cardId), masthead)) return;
     this._mastheads.set(cardId, masthead);
-    this._notify();
+    this.notify();
   }
 
   /** Remove the title override (and any masthead) for `cardId`. */
@@ -258,7 +259,7 @@ class CardTitleStore {
     if (!this._overrides.has(cardId) && !this._mastheads.has(cardId)) return;
     this._overrides.delete(cardId);
     this._mastheads.delete(cardId);
-    this._notify();
+    this.notify();
   }
 
   /** Read the title override for `cardId`, or `null` when none. */
@@ -290,20 +291,13 @@ class CardTitleStore {
 
   private _version = 0;
 
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
-  private _notify(): void {
+  override notify(): void {
     // Bump BEFORE the listeners run: a `useSyncExternalStore` subscriber reads
     // the snapshot from inside its notification, and a revision incremented
     // afterwards would hand it the value it already had — the store would
     // notify and nothing would recompute.
     this._version += 1;
-    for (const listener of this._listeners) listener();
+    super.notify();
   }
 }
 

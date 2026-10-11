@@ -78,6 +78,9 @@ import {
   replaySilenceEffect,
   streamStallCancelEffect,
   truncateTranscriptAtAnchor,
+  evictOldestTurns,
+  countContextTurns,
+  TRANSCRIPT_TURN_CAP,
   upsertInkTurn,
   appendTurnInterleavingInk,
   absorbArcNotes,
@@ -185,6 +188,14 @@ const LIVE_USAGE_PATH = "telemetry.liveTurnUsage";
  * invisible (streamed text paints imperatively, off this path).
  */
 const LIVE_NOTIFY_MIN_MS = 16;
+
+/**
+ * The refusal a conversation rewind gets when its anchor is not in the loaded
+ * transcript window — a turn the transcript cap evicted, or one never paged
+ * in. Carried in `lastRewindResult.error`, which the rewind sheet shows.
+ */
+export const REWIND_ANCHOR_OUTSIDE_WINDOW =
+  "That message is no longer loaded. Load previous to reach it, then rewind.";
 
 /**
  * Replay-fold flush threshold. While the reducer's `replaying` phase
@@ -392,6 +403,13 @@ export interface CodeSessionStoreOptions {
    */
   restoreWindowTurns?: number;
   /**
+   * Context turns the transcript holds before an append evicts the oldest
+   * into the load-previous window. Defaults to {@link TRANSCRIPT_TURN_CAP};
+   * tests pass a small one. A {@link restoreWindowTurns} deeper than the cap
+   * raises the limit to it, so a faithful restore keeps its anchor.
+   */
+  transcriptTurnCap?: number;
+  /**
    * The per-card queue of shell / `/btw` interactions staged to ride the next
    * code-route submission as attributed `<tug-context>` context. Consulted at
    * {@link CodeSessionStore.send}: a non-suppressed, non-command submission
@@ -466,6 +484,16 @@ export class CodeSessionStore {
   // for the load sheet's determinate progress. The loaded-so-far value
   // is derived from `_prependStaging` at snapshot time.
   private _loadPreviousTarget = 0;
+  // Context turns `_transcript` may hold before the oldest are evicted.
+  // Starts at the cap, or at the restore window when that is deeper, and
+  // only rises: a load-previous that pages in past it raises it to what the
+  // user asked to see, so the window keeps what they paged in and slides by
+  // one per later turn rather than snapping back.
+  private _transcriptTurnLimit: number;
+  // True from a conversation rewind's send until its `rewind_result` ack (or
+  // a transport close). The cap holds off meanwhile, so the anchor the ack
+  // truncates at cannot be evicted out from under it.
+  private _conversationRewindInFlight = false;
   private _listeners: Array<() => void> = [];
   private _cachedSnapshot: CodeSessionSnapshot | null = null;
 
@@ -548,6 +576,12 @@ export class CodeSessionStore {
     this.displayLabel = options.displayLabel ?? options.tugSessionId.slice(0, 8);
     this.restoreWindowTurns =
       options.restoreWindowTurns ?? DEFAULT_REPLAY_WINDOW_TURNS;
+    // A faithful restore deeper than the cap asked to see its saved anchor;
+    // the window holds what it restores, as it holds what load previous adds.
+    this._transcriptTurnLimit = Math.max(
+      options.transcriptTurnCap ?? TRANSCRIPT_TURN_CAP,
+      this.restoreWindowTurns,
+    );
     this.sessionMode = options.sessionMode;
     this.pendingContextStore = options.pendingContextStore;
     this.timerSource = options.timerSource ?? DEFAULT_TIMER_SOURCE;
@@ -735,6 +769,15 @@ export class CodeSessionStore {
    *  surface; not part of the public L02 contract.
    */
   _lastSentUserMessageForTest = (): unknown => this._lastSentUserMessage;
+
+  /**
+   * Test-only. How many message ids the reducer's commit dedupe holds — the
+   * one reducer set that grows with the session, which the transcript cap
+   * holds to the size of the loaded window.
+   *
+   * @internal — not part of the public L02 contract.
+   */
+  _committedMsgIdCountForTest = (): number => this.state.committedMsgIds.size;
 
   /**
    * Test-only. Drive the transport-lifecycle transitions the store
@@ -1495,6 +1538,25 @@ export class CodeSessionStore {
     draft?: { text: string; atoms: ReadonlyArray<AtomSegment> },
   ): void {
     if (this._disposed) return;
+    // A conversation rewind cuts the loaded transcript at its anchor, so the
+    // anchor has to be in the window. The sheet only offers loaded turns; an
+    // anchor outside the window is refused in the ack's own shape rather
+    // than sent, because the server would chop turns the deck cannot cut.
+    // Load previous reaches an older turn first.
+    if (
+      scope !== "code" &&
+      !this._transcript.some((turn) => turn.promptUuid === promptUuid)
+    ) {
+      this.dispatch({
+        type: "rewind_result",
+        promptUuid,
+        scope,
+        canRewind: false,
+        error: REWIND_ANCHOR_OUTSIDE_WINDOW,
+      });
+      return;
+    }
+    if (scope !== "code") this._conversationRewindInFlight = true;
     this.dispatch({
       type: "session_rewind_request",
       promptUuid,
@@ -2372,18 +2434,73 @@ export class CodeSessionStore {
     return null;
   }
 
+  /**
+   * Hold the transcript at its turn limit. When the window holds more
+   * context turns than the limit, the oldest leave `_transcript`, their
+   * render-once parse entries are dropped, and the reducer advances the
+   * recency window past them and forgets their ids — so they read as older
+   * turns the load-previous door pages back in, as on a partially restored
+   * session.
+   * Never mid-bracket: a replay's turns land first and are held to the
+   * limit once it closes, and a load-previous bracket only ever raises it.
+   */
+  private enforceTranscriptCap(): void {
+    if (
+      this.state.phase === "replaying" ||
+      this.state.replayPrependActive ||
+      this._conversationRewindInFlight
+    ) {
+      return;
+    }
+    const { transcript, evicted, windowTurns } = evictOldestTurns(
+      this._transcript,
+      this._transcriptTurnLimit,
+    );
+    if (evicted.length === 0) return;
+    this._transcript = transcript;
+    for (const turn of evicted) {
+      invalidateCachedParsesByPrefix(
+        this.streamingDocument,
+        `turn.${turn.turnKey}.`,
+      );
+    }
+    this.state = reduce(this.state, {
+      type: "transcript_evicted",
+      evicted: evicted.length,
+      evictedMsgIds: evicted.flatMap((turn) =>
+        turn.msgId ? [turn.msgId] : [],
+      ),
+      windowTurns,
+    }).state;
+  }
+
   private dispatch(
     event: CodeSessionEvent,
     origin: "wire" | "local" = "local",
   ): void {
     this._perfBeforeReduce(event);
+    if (event.type === "rewind_result" || event.type === "transport_close") {
+      this._conversationRewindInFlight = false;
+    }
     const prev = this.state;
     const dispatchStart = performance.now();
     const reduceStart = dispatchStart;
-    const { state, effects } = reduce(this.state, event);
+    const reduced = reduce(this.state, event);
+    const effects = reduced.effects;
     const reduceMs = performance.now() - reduceStart;
-    this.state = state;
+    this.state = reduced.state;
+    const transcriptBefore = this._transcript;
     this.processEffects(effects);
+    // The transcript cap runs only when the effects moved the transcript or
+    // a replay bracket closed over the turns it held back, so a token delta
+    // never pays for a count of the window.
+    if (
+      this._transcript !== transcriptBefore ||
+      (prev.phase === "replaying" && this.state.phase !== "replaying")
+    ) {
+      this.enforceTranscriptCap();
+    }
+    const state = this.state;
     // The two replay deadlines, both armed here rather than in the
     // reducer: the silence one because only the wrapper knows an event's
     // origin, and the bracket cap because arming and cancelling it are
@@ -2789,6 +2906,11 @@ export class CodeSessionStore {
               ...this._transcript,
             ]);
             this._prependStaging = [];
+            // The user asked to see these; the cap rises to hold them.
+            this._transcriptTurnLimit = Math.max(
+              this._transcriptTurnLimit,
+              countContextTurns(this._transcript),
+            );
           }
           break;
         case "discard-prepend":

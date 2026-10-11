@@ -55,6 +55,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createSubscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { layoutRectOf } from "@/lib/page-zoom-store";
 import { Copy, Plus, X } from "lucide-react";
@@ -483,27 +484,18 @@ function useJotAnnotationLinks(jot: Jot): Extension {
   // a channel nobody was listening on.
   const resolveRef = useRef(resolvePath);
   resolveRef.current = resolvePath;
-  const listenersRef = useRef<Set<() => void>>(new Set());
+  const listeners = useMemo(() => createSubscribable(), []);
   useEffect(() => {
-    const listeners = listenersRef.current;
-    return subscribe(() => {
-      for (const listener of listeners) listener();
-    });
-  }, [subscribe]);
+    return subscribe(() => listeners.notify());
+  }, [subscribe, listeners]);
 
   return useMemo(
     () =>
       annotationLinkExtension({
         resolvePath: (reference) => resolveRef.current(reference),
-        subscribe: (listener) => {
-          const listeners = listenersRef.current;
-          listeners.add(listener);
-          return () => {
-            listeners.delete(listener);
-          };
-        },
+        subscribe: (listener) => listeners.subscribe(listener),
       }),
-    [],
+    [listeners],
   );
 }
 

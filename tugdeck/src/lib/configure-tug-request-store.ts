@@ -18,20 +18,13 @@
  * @module lib/configure-tug-request-store
  */
 
+import { Subscribable } from "./subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
-class ConfigureTugRequestStore {
+class ConfigureTugRequestStore extends Subscribable {
   private _nonce = 0;
   private _onDemand = false;
-  private readonly _listeners = new Set<() => void>();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getNonce = (): number => this._nonce;
 
@@ -39,17 +32,13 @@ class ConfigureTugRequestStore {
 
   request(): void {
     this._nonce += 1;
-    this.emit();
+    this.notify();
   }
 
   setOnDemand(open: boolean): void {
     if (this._onDemand === open) return;
     this._onDemand = open;
-    this.emit();
-  }
-
-  private emit(): void {
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 }
 

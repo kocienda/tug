@@ -36,6 +36,7 @@
  * @module lib/defaults-metadata-adapter
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import type {
   CapabilityModel,
@@ -91,7 +92,7 @@ let lastBuild: {
   snapshot: SessionMetadataSnapshot;
 } | null = null;
 
-export class DefaultsMetadataAdapter {
+export class DefaultsMetadataAdapter extends Subscribable {
   /** The deck-default model selector store — the model picker's write target. */
   readonly modelStore: DefaultModelStore;
   /** The deck-default effort store — the effort picker's write target. */
@@ -101,10 +102,10 @@ export class DefaultsMetadataAdapter {
 
   private _catalog: CapabilityModel[] | null;
   private _snapshot: SessionMetadataSnapshot;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribes: Array<() => void> = [];
 
   constructor() {
+    super();
     this.modelStore = new DefaultModelStore();
     this.effortStore = new DefaultEffortStore();
     this.permissionModeStore = new DefaultPermissionModeStore();
@@ -147,25 +148,17 @@ export class DefaultsMetadataAdapter {
     const next = this._build();
     if (next === this._snapshot) return;
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 
   /** Current defaults-shaped snapshot. (L02 — useSyncExternalStore) */
   getSnapshot = (): SessionMetadataSnapshot => this._snapshot;
 
-  /** Subscribe to changes in any composed source. Returns unsubscribe. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
   /** Tear down all source subscriptions and the stores the adapter owns. */
   dispose(): void {
     for (const unsubscribe of this._unsubscribes) unsubscribe();
     this._unsubscribes = [];
-    this._listeners.clear();
+    this.clearListeners();
     this.modelStore.dispose();
     this.effortStore.dispose();
     this.permissionModeStore.dispose();

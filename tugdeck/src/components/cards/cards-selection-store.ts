@@ -25,6 +25,7 @@
  * @module components/cards/cards-selection-store
  */
 
+import { createSubscribable, Subscribable } from "@/lib/subscribable";
 import { isSidebarCard } from "@/card-registry";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
@@ -42,17 +43,9 @@ const EMPTY: LensSelectionSnapshot = { ids: [], anchorId: null };
  * The layout selection. One instance ({@link cardsSelectionStore}) serves the
  * process; the class exists so tests can hold an isolated one.
  */
-export class CardsSelectionStore {
+export class CardsSelectionStore extends Subscribable {
   private snapshot: LensSelectionSnapshot = EMPTY;
-  private listeners = new Set<() => void>();
   private autoSelectSuppressed = false;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): LensSelectionSnapshot => this.snapshot;
 
@@ -165,7 +158,7 @@ export class CardsSelectionStore {
       return;
     }
     this.snapshot = next;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 }
 
@@ -200,21 +193,18 @@ export const cardsSelectionStore = new CardsSelectionStore();
 // answer for a list nobody is in.
 
 let cursorCardId: string | null = null;
-const cursorListeners = new Set<() => void>();
+const cursorListeners = createSubscribable();
 
 /** Publish the card the Cards list's cursor is on, or `null`. */
 export function setLayoutCursorCard(cardId: string | null): void {
   if (cardId === cursorCardId) return;
   cursorCardId = cardId;
-  for (const listener of cursorListeners) listener();
+  cursorListeners.notify();
 }
 
 /** Watch the cursor card. Returns the unsubscribe. */
 export function subscribeLayoutCursorCard(listener: () => void): () => void {
-  cursorListeners.add(listener);
-  return () => {
-    cursorListeners.delete(listener);
-  };
+  return cursorListeners.subscribe(listener);
 }
 
 /** The card the Cards list's cursor is on, or `null`. */

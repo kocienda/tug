@@ -28,7 +28,9 @@
  * @module lib/session-tag-store
  */
 
-class SessionTagStore {
+import { Subscribable } from "./subscribable";
+
+class SessionTagStore extends Subscribable {
   private tags = new Map<string, string>();
   /**
    * The reverse index, `tag → lineId` — what makes the callsign
@@ -42,15 +44,7 @@ class SessionTagStore {
    * must stop resolving. Dropping the old key here is what does that.
    */
   private byTag = new Map<string, string>();
-  private readonly listeners = new Set<() => void>();
   private version = 0;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /**
    * A monotonic token that bumps on every change — the whole-store
@@ -116,7 +110,7 @@ class SessionTagStore {
       this.byTag.set(trimmed, lineId);
     }
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   /**

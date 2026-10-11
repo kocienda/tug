@@ -21,6 +21,7 @@
  * @module lib/pending-context-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { PENDING_CONTEXT_DOMAIN, putPendingContext } from "@/settings-api";
 
@@ -177,7 +178,7 @@ function parsePersistedItem(raw: unknown): PendingContextItem | null {
   };
 }
 
-export class PendingContextStore {
+export class PendingContextStore extends Subscribable {
   private _items: readonly PendingContextItem[] = EMPTY_ITEMS;
   private _shellContext = false;
   private _btwContext = false;
@@ -186,7 +187,6 @@ export class PendingContextStore {
     shellContext: false,
     btwContext: false,
   };
-  private _listeners = new Set<() => void>();
   private _seq = 0;
   private readonly _lineId: string | undefined;
   private readonly _legacyKey: string | undefined;
@@ -203,6 +203,7 @@ export class PendingContextStore {
    * context survives the re-key rather than silently emptying.
    */
   constructor(lineId?: string, legacyKey?: string) {
+    super();
     this._lineId = lineId;
     this._legacyKey = legacyKey;
     this._loadPersisted();
@@ -363,20 +364,13 @@ export class PendingContextStore {
     // Every mutation routes through `_emit`, so this is the one persistence
     // point ([P07]) — the durable blob always mirrors the live state.
     this._persist();
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): PendingContextSnapshot => this._snapshot;
 
   dispose(): void {
-    this._listeners.clear();
+    this.clearListeners();
     this._items = EMPTY_ITEMS;
   }
 }

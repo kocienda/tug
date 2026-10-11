@@ -19,11 +19,13 @@
  * @module components/tugways/chord-capture-state
  */
 
+import { createSubscribable } from "@/lib/subscribable";
+
 let armedCount = 0;
-const subscribers = new Set<() => void>();
+const subscribers = createSubscribable();
 
 function notify(): void {
-  for (const subscriber of subscribers) subscriber();
+  subscribers.notify();
 }
 
 export const chordCaptureState = {
@@ -45,9 +47,6 @@ export const chordCaptureState = {
   },
 
   subscribe(subscriber: () => void): () => void {
-    subscribers.add(subscriber);
-    return () => {
-      subscribers.delete(subscriber);
-    };
+    return subscribers.subscribe(subscriber);
   },
 };

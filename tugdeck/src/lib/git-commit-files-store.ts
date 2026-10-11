@@ -24,6 +24,7 @@
  * @module lib/git-commit-files-store
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedStore } from "./feed-store";
 import { FeedId } from "../protocol";
 import { getConnection } from "./connection-singleton";
@@ -123,9 +124,8 @@ export function parseGitCommitFilesPayload(
  */
 let nextStoreId = 0;
 
-export class GitCommitFilesStore {
+export class GitCommitFilesStore extends Subscribable {
   private _snapshot: GitCommitFilesStoreSnapshot = EMPTY_COMMIT_FILES_SNAPSHOT;
-  private _listeners = new Set<() => void>();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private readonly _feedStore: FeedStore;
@@ -133,6 +133,7 @@ export class GitCommitFilesStore {
   private _seq = 0;
 
   constructor(feedStore: FeedStore) {
+    super();
     this._feedStore = feedStore;
     this._storeId = ++nextStoreId;
     this._unsubscribeFeed = feedStore.subscribe(() => this._onFeedUpdate());
@@ -184,15 +185,8 @@ export class GitCommitFilesStore {
 
   private _set(next: GitCommitFilesStoreSnapshot): void {
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): GitCommitFilesStoreSnapshot => this._snapshot;
 
@@ -201,7 +195,7 @@ export class GitCommitFilesStore {
       this._unsubscribeFeed();
       this._unsubscribeFeed = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }
 

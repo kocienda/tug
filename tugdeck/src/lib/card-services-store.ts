@@ -31,6 +31,7 @@
  * frame is sent to a supervisor session that has already torn down.
  */
 
+import { createSubscribable } from "./subscribable";
 import { CodeSessionStore } from "./code-session-store";
 import { EditorSettingsStore } from "./editor-settings-store";
 import { TranscriptSettingsStore } from "./transcript-settings-store";
@@ -235,7 +236,7 @@ class CardServicesStore {
   private readonly _heldSwaps = new Map<string, HeldSwap>();
   /** {@link HELD_SWAP_LIMIT_MS}, shortened by tests that exercise the limit. */
   private _heldSwapLimitMs = HELD_SWAP_LIMIT_MS;
-  private readonly _listeners = new Set<() => void>();
+  private readonly _listeners = createSubscribable();
   private _bindingUnsub: (() => void) | null = null;
   private _deckUnsub: (() => void) | null = null;
   /** The attached deck, read at construct time for the saved scroll anchor
@@ -360,7 +361,7 @@ class CardServicesStore {
     }
 
     if (changed) {
-      for (const l of this._listeners) l();
+      this._listeners.notify();
     }
   }
 
@@ -385,7 +386,7 @@ class CardServicesStore {
       // No connection: nothing will ever answer for the new session, so
       // there is nothing to wait for. Swap now, as any other re-bind does.
       this._dispose(cardId);
-      for (const l of this._listeners) l();
+      this._listeners.notify();
       return;
     }
     shown.codeSessionStore.holdSendsForHandOver();
@@ -449,7 +450,7 @@ class CardServicesStore {
       handed_over: waiting.length,
     });
     services.codeSessionStore.seedQueuedSends(waiting);
-    for (const l of this._listeners) l();
+    this._listeners.notify();
   }
 
   /** Discard a held swap's bag, which was never shown. */
@@ -918,10 +919,7 @@ class CardServicesStore {
    */
   subscribe = (listener: () => void): (() => void) => {
     this._ensureInitialized();
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
+    return this._listeners.subscribe(listener);
   };
 
   /**

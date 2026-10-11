@@ -23,6 +23,7 @@
  * @module components/chrome/settle-engine
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import type { RefObject } from "react";
 import { useCallback, useRef, useLayoutEffect } from "react";
 import {
@@ -391,17 +392,14 @@ export interface SettleEngineDeps {
  * settle it was meant to interrupt had landed.
  */
 let settleTeardownGeneration = 0;
-const settleTeardownListeners = new Set<() => void>();
+const settleTeardownListeners = createSubscribable();
 export function tearDownSettleForTest(): void {
   settleTeardownGeneration += 1;
   tellReactNow(() => {
-    for (const listener of settleTeardownListeners) listener();
+    settleTeardownListeners.notify();
   });
 }
-const subscribeSettleTeardown = (listener: () => void): (() => void) => {
-  settleTeardownListeners.add(listener);
-  return () => settleTeardownListeners.delete(listener);
-};
+const subscribeSettleTeardown = settleTeardownListeners.subscribe;
 const readSettleTeardown = (): number => settleTeardownGeneration;
 
 /**

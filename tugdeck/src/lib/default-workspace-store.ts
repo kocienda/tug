@@ -25,6 +25,7 @@
  * @module lib/default-workspace-store
  */
 
+import { createSubscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { makeDirectory } from "./fs-mkdir";
 import {
@@ -45,7 +46,7 @@ type Entry =
   | { readonly state: "failed" };
 
 const cache = new Map<string, Entry>();
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 
 /**
  * The path whose hold is the *default* one — tracked separately so a change to
@@ -58,15 +59,12 @@ let heldDefaultPath: string | null = null;
 let watchingSetting = false;
 
 function notify(): void {
-  for (const listener of listeners) listener();
+  listeners.notify();
 }
 
 /** Subscribe to acquisition changes — the `useSyncExternalStore` half. */
 export function subscribeWorkspaces(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return listeners.subscribe(listener);
 }
 
 /**

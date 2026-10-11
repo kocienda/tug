@@ -20,6 +20,7 @@
  * @module lib/default-text-card-store
  */
 
+import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putTextCardDefaults } from "@/settings-api";
 import {
@@ -30,12 +31,12 @@ import {
   type TextCardSettings,
 } from "./text-card-settings";
 
-export class DefaultTextCardStore {
+export class DefaultTextCardStore extends Subscribable {
   private _defaults: TextCardSettings;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribeTugbank: (() => void) | null = null;
 
   constructor() {
+    super();
     this._defaults = this._readFromCache() ?? { ...DEFAULT_TEXT_CARD_SETTINGS };
 
     const client = getTugbankClient();
@@ -44,7 +45,7 @@ export class DefaultTextCardStore {
         if (domain !== TEXT_CARD_DEFAULTS_DOMAIN) return;
         const fresh = this._readFromCache() ?? { ...DEFAULT_TEXT_CARD_SETTINGS };
         this._defaults = fresh;
-        for (const listener of this._listeners) listener();
+        this.notify();
       });
     }
   }
@@ -60,14 +61,6 @@ export class DefaultTextCardStore {
   /** Current deck-wide defaults. (L02 — useSyncExternalStore) */
   getSnapshot = (): TextCardSettings => this._defaults;
 
-  /** Subscribe to changes. Returns unsubscribe. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
-
   /**
    * Update the deck-wide defaults. Optimistically reflects locally and
    * across open cards via `setLocalValue`, then persists.
@@ -75,7 +68,7 @@ export class DefaultTextCardStore {
   set(partial: Partial<TextCardSettings>): void {
     const next = { ...this._defaults, ...partial };
     this._defaults = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
 
     const client = getTugbankClient();
     if (client) {
@@ -93,6 +86,6 @@ export class DefaultTextCardStore {
       this._unsubscribeTugbank();
       this._unsubscribeTugbank = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

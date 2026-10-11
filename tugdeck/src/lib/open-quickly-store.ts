@@ -10,17 +10,18 @@
  * @module lib/open-quickly-store
  */
 
+import { createSubscribable } from "./subscribable";
+
 let open = false;
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 
 function emit(): void {
-  for (const l of listeners) l();
+  listeners.notify();
 }
 
 /** Subscribe to open/close changes. Returns an unsubscribe function. */
 export function subscribeOpenQuickly(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  return listeners.subscribe(listener);
 }
 
 /** Current open state (the `useSyncExternalStore` snapshot). */

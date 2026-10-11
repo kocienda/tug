@@ -14,6 +14,8 @@
  * @module lib/editor-stats-store
  */
 
+import { Subscribable } from "./subscribable";
+
 export interface EditorStats {
   /** 1-based line of the caret (or the start of a ranged selection). */
   caretLine: number;
@@ -35,22 +37,14 @@ export const EMPTY_EDITOR_STATS: EditorStats = {
   chars: 0,
 };
 
-export class EditorStatsStore {
+export class EditorStatsStore extends Subscribable {
   private _stats: EditorStats = EMPTY_EDITOR_STATS;
-  private _listeners = new Set<() => void>();
 
   getSnapshot = (): EditorStats => this._stats;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /** Publish a fresh stats snapshot (called from the CM6 update listener). */
   set = (stats: EditorStats): void => {
     this._stats = stats;
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 }

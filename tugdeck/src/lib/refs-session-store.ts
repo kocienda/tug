@@ -18,6 +18,7 @@
  * it lives here rather than being derived back out of the transcript.
  */
 
+import { Subscribable } from "./subscribable";
 import { FeedId, type FeedIdValue } from "../protocol";
 import type { FeedStore } from "./feed-store";
 import { getConnection } from "./connection-singleton";
@@ -50,9 +51,8 @@ export interface RefsSessionSnapshot {
   root: string;
 }
 
-export class RefsSessionStore {
+export class RefsSessionStore extends Subscribable {
   private _snapshot: RefsSessionSnapshot;
-  private _listeners = new Set<() => void>();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private _seq = 0;
@@ -80,6 +80,7 @@ export class RefsSessionStore {
     projectDir: string,
     codeSessionStore: CodeSessionStore,
   ) {
+    super();
     this._feedStore = feedStore;
     this._feedId = feedId;
     this._tugSessionId = tugSessionId;
@@ -253,15 +254,8 @@ export class RefsSessionStore {
 
   private _set(next: RefsSessionSnapshot): void {
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): RefsSessionSnapshot => this._snapshot;
 
@@ -269,7 +263,7 @@ export class RefsSessionStore {
     this._restoreFetch.dispose();
     this._unsubscribeFeed?.();
     this._unsubscribeFeed = null;
-    this._listeners.clear();
+    this.clearListeners();
   }
 
   /** Test seam: fold a raw `REFS_OUTPUT` payload as if it arrived on the feed. */

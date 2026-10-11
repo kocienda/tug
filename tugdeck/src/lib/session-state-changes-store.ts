@@ -14,6 +14,7 @@
  * ticks.
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { TugConnection } from "@/connection";
@@ -48,13 +49,13 @@ const PENDING_SNAPSHOT: SessionStateChangesSnapshot = Object.freeze({
   rows: EMPTY_ROWS,
 });
 
-export class SessionStateChangesStore {
+export class SessionStateChangesStore extends Subscribable {
   private readonly conn: TugConnection;
   private readonly snapshots = new Map<string, SessionStateChangesSnapshot>();
-  private readonly listeners = new Set<() => void>();
   private readonly disposers: Array<() => void> = [];
 
   constructor(conn: TugConnection) {
+    super();
     this.conn = conn;
     this.disposers.push(
       subscribeToLocalSessionStateChange((event) => this.onLocalChange(event)),
@@ -69,13 +70,8 @@ export class SessionStateChangesStore {
   dispose(): void {
     for (const fn of this.disposers) fn();
     this.disposers.length = 0;
-    this.listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
 
   /**
    * Return the cached snapshot for `tugSessionId`. The first call
@@ -106,7 +102,7 @@ export class SessionStateChangesStore {
   invalidate(tugSessionId: string): void {
     if (!this.snapshots.has(tugSessionId)) return;
     this.snapshots.delete(tugSessionId);
-    this.tick();
+    this.notify();
   }
 
   private async kickLoad(tugSessionId: string): Promise<void> {
@@ -117,7 +113,7 @@ export class SessionStateChangesStore {
         rows: EMPTY_ROWS,
         error: { reason: result.reason },
       });
-      this.tick();
+      this.notify();
       return;
     }
     // The cache may already contain locally-published rows that
@@ -142,7 +138,7 @@ export class SessionStateChangesStore {
       status: "ready",
       rows: Object.freeze(merged),
     });
-    this.tick();
+    this.notify();
   }
 
   private onLocalChange(event: LocalSessionStateChange): void {
@@ -164,11 +160,7 @@ export class SessionStateChangesStore {
       status: cached.status === "pending" ? "pending" : "ready",
       rows: Object.freeze(nextRows),
     });
-    this.tick();
-  }
-
-  private tick(): void {
-    for (const listener of [...this.listeners]) listener();
+    this.notify();
   }
 }
 

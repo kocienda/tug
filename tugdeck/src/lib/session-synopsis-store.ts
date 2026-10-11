@@ -20,17 +20,11 @@
  * @module lib/session-synopsis-store
  */
 
-class SessionSynopsisStore {
-  private synopses = new Map<string, string>();
-  private readonly listeners = new Set<() => void>();
-  private version = 0;
+import { Subscribable } from "./subscribable";
 
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
+class SessionSynopsisStore extends Subscribable {
+  private synopses = new Map<string, string>();
+  private version = 0;
 
   /**
    * A monotonic token that bumps on every change — the whole-store
@@ -60,7 +54,7 @@ class SessionSynopsisStore {
       this.synopses.set(lineId, trimmed);
     }
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   /**

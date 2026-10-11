@@ -7,6 +7,8 @@
  * commit ([L02]).
  */
 
+import { createSubscribable } from "./subscribable";
+
 export type LabFlags = {
   /**
    * Render session transcripts with `evictOffscreen` withheld — the full
@@ -18,14 +20,11 @@ export type LabFlags = {
 
 let flags: LabFlags = { transcriptEvictionDisabled: false };
 
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 
 export const labFlags = {
   subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
+    return listeners.subscribe(listener);
   },
 
   getSnapshot(): LabFlags {
@@ -35,6 +34,6 @@ export const labFlags = {
   setTranscriptEvictionDisabled(disabled: boolean): void {
     if (flags.transcriptEvictionDisabled === disabled) return;
     flags = { ...flags, transcriptEvictionDisabled: disabled };
-    for (const listener of listeners) listener();
+    listeners.notify();
   },
 };

@@ -37,6 +37,7 @@
  * @module lib/tug-dev-log-store/tug-dev-log-store
  */
 
+import { createSubscribable } from "../subscribable";
 import { getTugbankClient } from "../tugbank-singleton";
 import { getConnection } from "../connection-singleton";
 import type { ControlAction } from "@tugproto/control";
@@ -87,7 +88,7 @@ export interface TugDevLogInput {
 
 class TugDevLogStore {
   private _state: TugDevLogState = createInitialState();
-  private readonly _listeners = new Set<() => void>();
+  private readonly _listeners = createSubscribable();
   private _tugbankUnsub: (() => void) | null = null;
   private _initialized = false;
   private _nextId = 1;
@@ -159,15 +160,11 @@ class TugDevLogStore {
   }
 
   private _notify(): void {
-    for (const listener of this._listeners) {
-      try {
-        listener();
-      } catch (err) {
-        // Cannot recurse into tugDevLogStore.warn() here — would
-        // re-enter the store mid-notify. Fall back to console.
-        console.warn("[TugDevLogStore] listener error:", err);
-      }
-    }
+    this._listeners.notifyCatching((err) => {
+      // Cannot recurse into tugDevLogStore.warn() here — would
+      // re-enter the store mid-notify. Fall back to console.
+      console.warn("[TugDevLogStore] listener error:", err);
+    });
   }
 
   private _persistDiff(prev: TugDevLogState, next: TugDevLogState): void {
@@ -193,10 +190,7 @@ class TugDevLogStore {
 
   subscribe = (listener: () => void): (() => void) => {
     this._ensureInitialized();
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
+    return this._listeners.subscribe(listener);
   };
 
   getSnapshot = (): TugDevLogSnapshot => {
@@ -322,7 +316,7 @@ class TugDevLogStore {
       this._tugbankUnsub();
       this._tugbankUnsub = null;
     }
-    this._listeners.clear();
+    this._listeners.clearListeners();
     this._pending = [];
     this._flushScheduled = false;
     this._state = createInitialState();

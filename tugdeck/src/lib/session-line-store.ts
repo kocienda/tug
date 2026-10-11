@@ -31,18 +31,12 @@
  * @module lib/session-line-store
  */
 
-class SessionLineStore {
+import { Subscribable } from "./subscribable";
+
+class SessionLineStore extends Subscribable {
   private lineBySession = new Map<string, string>();
   private seatByLine = new Map<string, string>();
-  private readonly listeners = new Set<() => void>();
   private version = 0;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** A monotonic token that bumps on every change — the whole-store snapshot. */
   getVersion = (): number => this.version;
@@ -91,7 +85,7 @@ class SessionLineStore {
     this.lineBySession.delete(sessionId);
     if (this.seatByLine.get(lineId) === sessionId) this.seatByLine.delete(lineId);
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 
   private write(sessionId: string, lineId: string, seat: boolean): void {
@@ -104,7 +98,7 @@ class SessionLineStore {
     this.lineBySession.set(session, line);
     if (seat) this.seatByLine.set(line, session);
     this.version += 1;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 }
 

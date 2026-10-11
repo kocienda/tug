@@ -32,6 +32,7 @@
  * @module lib/session-ledger-store
  */
 
+import { createSubscribable, Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { TugConnection } from "../connection";
@@ -122,7 +123,7 @@ interface RowLocation {
   projectDir: string;
 }
 
-export class SessionLedgerStore {
+export class SessionLedgerStore extends Subscribable {
   private readonly conn: TugConnection;
   private readonly snapshots = new Map<string, WorkspaceSnapshot>();
   /** Reverse index from session_id → workspace, kept in lockstep with snapshots. */
@@ -142,7 +143,6 @@ export class SessionLedgerStore {
    * session ({@link findRow}) is answered. A browse still sees nothing.
    */
   private readonly detachedRows = new Map<string, SessionRow>();
-  private readonly listeners = new Set<() => void>();
 
   /** Resolves attached to in-flight `trash_session` calls, keyed by id. */
   private readonly pendingTrash = new Map<string, (r: TrashSessionResult) => void>();
@@ -150,6 +150,7 @@ export class SessionLedgerStore {
   private readonly disposers: Array<() => void> = [];
 
   constructor(conn: TugConnection) {
+    super();
     this.conn = conn;
     this.installSubscriptions();
   }
@@ -162,13 +163,8 @@ export class SessionLedgerStore {
   dispose(): void {
     for (const fn of this.disposers) fn();
     this.disposers.length = 0;
-    this.listeners.clear();
+    this.clearListeners();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
 
   /**
    * Return the cached snapshot for `projectDir`. The first call for a
@@ -213,7 +209,7 @@ export class SessionLedgerStore {
     }
     if (cached.status !== "ready" || cached.scanning === true) return;
     this.snapshots.set(projectDir, { ...cached, scanning: true });
-    this.tick();
+    this.notify();
     this.requestList(projectDir);
   };
 
@@ -238,7 +234,7 @@ export class SessionLedgerStore {
     this.snapshots.clear();
     this.rowLocations.clear();
     this.detachedRows.clear();
-    this.tick();
+    this.notify();
   }
 
   /**
@@ -363,7 +359,7 @@ export class SessionLedgerStore {
           rows: sorted.length,
           withSynopsis: sorted.filter((r) => (r.synopsis ?? "").length > 0).length,
         });
-        this.tick();
+        this.notify();
       }),
       subscribeToListSessionsErr(({ project_dir, reason }) => {
         const failed: WorkspaceSnapshot = {
@@ -372,7 +368,7 @@ export class SessionLedgerStore {
           error: { reason },
         };
         this.snapshots.set(project_dir, failed);
-        this.tick();
+        this.notify();
       }),
       subscribeToListSessionsProgress(({ project_dir, parsed, total }) => {
         const cached = this.snapshots.get(project_dir);
@@ -386,7 +382,7 @@ export class SessionLedgerStore {
           ...cached,
           scanProgress: { parsed, total },
         });
-        this.tick();
+        this.notify();
       }),
       subscribeToSessionUpdated((push) => {
         if (push.removed) {
@@ -441,7 +437,7 @@ export class SessionLedgerStore {
       this.rowLocations.set(sessionId, {
         projectDir: this.rowLocations.get(sessionId)?.projectDir ?? row.project_dir,
       });
-      this.tick();
+      this.notify();
       return;
     }
     // Locate the cache slot via the reverse index, falling back to the
@@ -461,7 +457,7 @@ export class SessionLedgerStore {
       // until a real listing settles, and that settle takes the row over.
       this.detachedRows.set(sessionId, row);
       this.rowLocations.set(sessionId, { projectDir });
-      this.tick();
+      this.notify();
       return;
     }
     // The listing is its home now, so the detached copy would only be a
@@ -484,7 +480,7 @@ export class SessionLedgerStore {
       scanning: cached.scanning,
       scanProgress: cached.scanProgress,
     });
-    this.tick();
+    this.notify();
   }
 
   private removeRow(sessionId: string): void {
@@ -503,11 +499,7 @@ export class SessionLedgerStore {
       scanning: cached.scanning,
       scanProgress: cached.scanProgress,
     });
-    this.tick();
-  }
-
-  private tick(): void {
-    for (const listener of [...this.listeners]) listener();
+    this.notify();
   }
 }
 
@@ -532,17 +524,14 @@ let _activeStore: SessionLedgerStore | null = null;
  * report. The bus outlives the store; {@link attachSessionLedgerStore} forwards
  * the store's ticks into it and wakes everyone already waiting.
  */
-const hookListeners = new Set<() => void>();
+const hookListeners = createSubscribable();
 
 function subscribeToLedger(listener: () => void): () => void {
-  hookListeners.add(listener);
-  return () => {
-    hookListeners.delete(listener);
-  };
+  return hookListeners.subscribe(listener);
 }
 
 function notifyLedgerHooks(): void {
-  for (const listener of [...hookListeners]) listener();
+  hookListeners.notify();
 }
 
 export function attachSessionLedgerStore(conn: TugConnection): SessionLedgerStore {

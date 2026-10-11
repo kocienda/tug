@@ -21,13 +21,12 @@
  * stable by identity until a frame lands.
  */
 
+import { Subscribable } from "./subscribable";
 import type { CardBinding } from "../protocol";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 
-class SpaceBindingsLedgerStore {
+class SpaceBindingsLedgerStore extends Subscribable {
   private rows: ReadonlyMap<string, CardBinding> = new Map();
-
-  private subscribers: Set<() => void> = new Set();
 
   private installed = false;
 
@@ -37,13 +36,6 @@ class SpaceBindingsLedgerStore {
    * as the page does and never unsubscribes.
    */
   private uninstall: (() => void) | null = null;
-
-  subscribe = (callback: () => void): (() => void) => {
-    this.subscribers.add(callback);
-    return () => {
-      this.subscribers.delete(callback);
-    };
-  };
 
   /** The newest ledger row per card id. Stable until a frame replaces it. */
   getSnapshot = (): ReadonlyMap<string, CardBinding> => this.rows;
@@ -72,7 +64,7 @@ class SpaceBindingsLedgerStore {
         next.set(binding.card_id, binding);
       }
       this.rows = next;
-      for (const callback of this.subscribers) callback();
+      this.notify();
     });
   };
 
@@ -85,7 +77,7 @@ class SpaceBindingsLedgerStore {
     this.uninstall = null;
     this.rows = new Map();
     this.installed = false;
-    this.subscribers.clear();
+    this.clearListeners();
   };
 }
 

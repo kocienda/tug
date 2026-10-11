@@ -30,6 +30,7 @@
  * @module components/tugways/cards/rewind-turn-source
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import type {
   TugListViewDataSource,
 } from "@/components/tugways/tug-list-view";
@@ -119,14 +120,14 @@ export function canOfferRewind(
  * Diff-stats update via the store snapshot the cell reads, not via this data
  * source.
  */
-export class RewindTurnDataSource implements TugListViewDataSource {
+export class RewindTurnDataSource extends Subscribable implements TugListViewDataSource {
   private readonly rows: readonly RewindMessageRow[];
   /** Row indices that cannot be the rewind point (cut blocked below them). */
   private blockedCuts: ReadonlySet<number> = new Set();
   private version = 0;
-  private readonly listeners = new Set<() => void>();
 
   constructor(rows: readonly RewindMessageRow[]) {
+    super();
     this.rows = rows;
   }
 
@@ -161,14 +162,7 @@ export class RewindTurnDataSource implements TugListViewDataSource {
   setBlockedCuts(blocked: ReadonlySet<number>): void {
     this.blockedCuts = blocked;
     this.version += 1;
-    this.listeners.forEach((listener) => listener());
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    this.notify();
   }
 
   getVersion(): unknown {

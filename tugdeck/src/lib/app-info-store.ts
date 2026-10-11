@@ -16,6 +16,8 @@
  * @module lib/app-info-store
  */
 
+import { createSubscribable } from "./subscribable";
+
 /** App identity fields from the native `show-card` payload. */
 export interface AppInfo {
   /** The running variant's display name (`CFBundleName`), e.g.
@@ -49,10 +51,10 @@ const APP_INFO_KEYS = [
 ] as const;
 
 let snapshot: AppInfo | null = null;
-const listeners = new Set<() => void>();
+const listeners = createSubscribable();
 
 function notify(): void {
-  for (const listener of listeners) listener();
+  listeners.notify();
 }
 
 export const appInfoStore = {
@@ -86,15 +88,12 @@ export const appInfoStore = {
   },
 
   subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
+    return listeners.subscribe(listener);
   },
 
   /** Test-only reset for isolation between cases. */
   _resetForTest(): void {
     snapshot = null;
-    listeners.clear();
+    listeners.clearListeners();
   },
 };

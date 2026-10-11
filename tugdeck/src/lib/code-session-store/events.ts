@@ -1306,6 +1306,24 @@ export interface BeginLoadPreviousEvent {
 }
 
 /**
+ * Internal action dispatched by the store after the transcript cap evicted
+ * the oldest committed turns from the loaded window. The reducer advances
+ * the recency window past them — `firstLoadedTurnIndex` by `evicted`,
+ * `hasOlder` true — so the load-previous door pages them back in exactly as
+ * it does for a partially restored session — and drops `evictedMsgIds` from
+ * `committedMsgIds`, so the set stays the size of the window and a turn paged
+ * back in is not deduped away as already committed. `windowTurns` is the
+ * window's context-turn count before the eviction, which sizes `totalTurns`
+ * when no replay ever reported one.
+ */
+export interface TranscriptEvictedEvent {
+  type: "transcript_evicted";
+  evicted: number;
+  evictedMsgIds: string[];
+  windowTurns: number;
+}
+
+/**
  * Internal action dispatched by the soft-budget timer
  * (`REPLAY_SOFT_BUDGET_MS` after `replay_started`). The reducer flips
  * `replaySoftBudgetElapsed` to `true`. Dropped if not currently in
@@ -1471,6 +1489,7 @@ export type CodeSessionEvent =
   | ClearJobsActionEvent
   | BindResumeAcknowledgedEvent
   | BeginLoadPreviousEvent
+  | TranscriptEvictedEvent
   | TickSoftBudgetEvent
   | TickTimeoutDwellDoneEvent
   | TickPreflightDoneEvent

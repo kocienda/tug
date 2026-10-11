@@ -26,6 +26,7 @@
  * (#s03-theme-provider), [D08] Production theme links
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import React, {
   createContext,
   useContext,
@@ -89,7 +90,7 @@ export function sendCanvasColor(hex: string): void {
 // ---------------------------------------------------------------------------
 
 let onScreenTheme: string = BASE_THEME_NAME;
-const onScreenThemeListeners = new Set<() => void>();
+const onScreenThemeListeners = createSubscribable();
 
 /** The name of the theme on screen. */
 export function getOnScreenTheme(): string {
@@ -105,10 +106,7 @@ export function seedOnScreenTheme(theme: string): void {
 }
 
 function subscribeOnScreenTheme(listener: () => void): () => void {
-  onScreenThemeListeners.add(listener);
-  return () => {
-    onScreenThemeListeners.delete(listener);
-  };
+  return onScreenThemeListeners.subscribe(listener);
 }
 
 /**
@@ -121,7 +119,7 @@ function finishThemeChange(theme: string, hostCanvasColor: string | null): void 
   if (hostCanvasColor !== null) sendCanvasColor(hostCanvasColor);
   if (theme !== onScreenTheme) {
     onScreenTheme = theme;
-    for (const listener of Array.from(onScreenThemeListeners)) listener();
+    onScreenThemeListeners.notify();
   }
   notifyThemeChange();
   themeMirror.write(theme);

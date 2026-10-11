@@ -24,6 +24,8 @@
  * @module lib/shade-view-controller
  */
 
+import { Subscribable } from "./subscribable";
+
 /** Which Shade the view slot is showing; `"none"` is the transcript. */
 export type ShadeView = "none" | "changes" | "history";
 
@@ -36,21 +38,8 @@ export type NamedShadeView = Exclude<ShadeView, "none">;
  * to `useSyncExternalStore`; a `ShadeView` snapshot is referentially
  * stable by value.
  */
-export class ShadeViewController {
+export class ShadeViewController extends Subscribable {
   private view: ShadeView = "none";
-  private readonly listeners = new Set<() => void>();
-
-  /**
-   * Subscribe to visibility commits. Returns an unsubscribe function.
-   * Paired with {@link getSnapshot} this is the `useSyncExternalStore`
-   * store surface.
-   */
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** The current Shade view — a referentially stable string snapshot. */
   getSnapshot = (): ShadeView => this.view;
@@ -76,12 +65,8 @@ export class ShadeViewController {
   private commit(next: ShadeView): void {
     if (next === this.view) return;
     this.view = next;
-    for (const listener of [...this.listeners]) {
-      try {
-        listener();
-      } catch (err) {
-        console.error("ShadeViewController listener threw:", err);
-      }
-    }
+    this.notifyCatching((err) => {
+      console.error("ShadeViewController listener threw:", err);
+    });
   }
 }

@@ -44,6 +44,7 @@
  * @module lib/transcript-find-engine
  */
 
+import { Subscribable } from "./subscribable";
 import {
   searchSegments,
   type FindOptions,
@@ -132,7 +133,7 @@ function healedSegments(
   return out;
 }
 
-export class TranscriptFindEngine implements FindEngineDelegate {
+export class TranscriptFindEngine extends Subscribable implements FindEngineDelegate {
   private session: FindSession | null = null;
   private index: RowSegment[][] = [];
   /**
@@ -171,7 +172,6 @@ export class TranscriptFindEngine implements FindEngineDelegate {
     query: "",
     options: DEFAULT_FIND_OPTIONS,
   };
-  private readonly listeners = new Set<() => void>();
 
   // ── Delegate protocol (driven by the session) ────────────────────────────
 
@@ -286,13 +286,6 @@ export class TranscriptFindEngine implements FindEngineDelegate {
   getIndex(): readonly (readonly RowSegment[])[] {
     return this.effectiveIndex;
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): TranscriptFindEngineSnapshot => this.state;
 
@@ -494,12 +487,8 @@ export class TranscriptFindEngine implements FindEngineDelegate {
       query,
       options,
     };
-    for (const listener of [...this.listeners]) {
-      try {
-        listener();
-      } catch (err) {
-        console.error("TranscriptFindEngine listener threw:", err);
-      }
-    }
+    this.notifyCatching((err) => {
+      console.error("TranscriptFindEngine listener threw:", err);
+    });
   }
 }

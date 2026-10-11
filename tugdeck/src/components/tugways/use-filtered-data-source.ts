@@ -137,6 +137,7 @@
  *  - tugplan-session-picker-redesign [D01] uitableview-search-split.
  */
 
+import { createSubscribable } from "@/lib/subscribable";
 import React from "react";
 
 import type {
@@ -211,7 +212,7 @@ export class FilteredDataSource implements FilteredTugListViewDataSource {
   private base: TugListViewDataSource;
   private predicate: FilterPredicate;
   private baseIndices: number[] = [];
-  private listeners = new Set<() => void>();
+  private readonly listeners = createSubscribable();
   private version = 0;
   private baseUnsubscribe: (() => void) | null = null;
 
@@ -246,13 +247,13 @@ export class FilteredDataSource implements FilteredTugListViewDataSource {
   }
 
   subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    if (this.listeners.size === 1 && this.baseUnsubscribe === null) {
+    const unsubscribe = this.listeners.subscribe(listener);
+    if (this.listeners.listenerCount === 1 && this.baseUnsubscribe === null) {
       this.attachToBase();
     }
     return () => {
-      this.listeners.delete(listener);
-      if (this.listeners.size === 0 && this.baseUnsubscribe !== null) {
+      unsubscribe();
+      if (this.listeners.listenerCount === 0 && this.baseUnsubscribe !== null) {
         this.baseUnsubscribe();
         this.baseUnsubscribe = null;
       }
@@ -319,7 +320,7 @@ export class FilteredDataSource implements FilteredTugListViewDataSource {
 
   /** Fire all subscriber listeners exactly once each. */
   notifyAll(): void {
-    for (const listener of this.listeners) listener();
+    this.listeners.notify();
   }
 
   // ---- Internal ----

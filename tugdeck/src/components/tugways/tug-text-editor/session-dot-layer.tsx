@@ -38,6 +38,7 @@
  * @module components/tugways/tug-text-editor/session-dot-layer
  */
 
+import { Subscribable } from "@/lib/subscribable";
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
@@ -344,8 +345,7 @@ function hostKey(el: HTMLElement): string {
  * so this watches the element and republishes — never accumulating, always a
  * reading of what is in the layer now ([B07]).
  */
-class DotHostStore {
-  private readonly listeners = new Set<() => void>();
+class DotHostStore extends Subscribable {
   private snapshot: readonly DotHost[] = NO_HOSTS;
   private layerEl: HTMLElement | null = null;
   private observer: MutationObserver | null = null;
@@ -373,11 +373,6 @@ class DotHostStore {
     this.layerEl = null;
     this.publish(NO_HOSTS);
   }
-
-  readonly subscribe = (onChange: () => void): (() => void) => {
-    this.listeners.add(onChange);
-    return () => void this.listeners.delete(onChange);
-  };
 
   readonly getSnapshot = (): readonly DotHost[] => this.snapshot;
 
@@ -414,7 +409,7 @@ class DotHostStore {
   private publish(next: readonly DotHost[]): void {
     if (sameHosts(this.snapshot, next)) return;
     this.snapshot = next;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 }
 

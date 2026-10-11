@@ -30,6 +30,7 @@
  * @module lib/card-modal-hold-store
  */
 
+import { Subscribable } from "./subscribable";
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -78,16 +79,8 @@ export function isCardHeld(
   return holds.has(cardId);
 }
 
-class CardModalHoldStore {
+class CardModalHoldStore extends Subscribable {
   private state: CardModalHolds = NO_HOLDS;
-  private readonly listeners = new Set<() => void>();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
 
   /** Stable between notifications — safe for `useSyncExternalStore`. */
   getSnapshot = (): CardModalHolds => this.state;
@@ -109,7 +102,7 @@ class CardModalHoldStore {
       const next = new Map(this.state);
       next.delete(cardId);
       this.state = next;
-      this.emit();
+      this.notify();
     };
   }
 
@@ -117,11 +110,7 @@ class CardModalHoldStore {
     const next = new Map(this.state);
     next.set(cardId, hold);
     this.state = next;
-    this.emit();
-  }
-
-  private emit(): void {
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 }
 

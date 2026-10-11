@@ -12,6 +12,7 @@
  * @module lib/session-metadata-store
  */
 
+import { Subscribable } from "./subscribable";
 import type { FeedStore } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
 import type { CompletionProvider, CompletionItem } from "./tug-text-types";
@@ -463,7 +464,7 @@ export type ReadableMetadataStore = Pick<
  * Exposes subscribe/getSnapshot for useSyncExternalStore and
  * getCommandCompletionProvider() for the / trigger.
  */
-export class SessionMetadataStore {
+export class SessionMetadataStore extends Subscribable {
   // The two raw sources, held separately, plus optimistic overrides. The
   // public `_snapshot` is the DERIVED reconciliation of all three
   // ({@link reconcileSnapshot}) — never patched in place, so the views can
@@ -472,7 +473,6 @@ export class SessionMetadataStore {
   private _system: SystemRegion | null = null;
   private _optimistic: OptimisticOverrides = {};
   private _snapshot: SessionMetadataSnapshot = EMPTY_SNAPSHOT;
-  private _listeners: Set<() => void> = new Set();
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
   private _feedId: FeedIdValue;
@@ -483,6 +483,7 @@ export class SessionMetadataStore {
     feedId: FeedIdValue,
     tugSessionId: string | null = null,
   ) {
+    super();
     this._feedId = feedId;
     this._tugSessionId = tugSessionId;
     this._unsubscribeFeed = feedStore.subscribe(() => {
@@ -594,18 +595,8 @@ export class SessionMetadataStore {
       this._system,
       this._optimistic,
     );
-    for (const listener of this._listeners) {
-      listener();
-    }
+    this.notify();
   }
-
-  /** Subscribe to store updates. Returns an unsubscribe function. (L02) */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   /** Return the current session metadata snapshot. (L02) */
   getSnapshot = (): SessionMetadataSnapshot => {
@@ -729,6 +720,6 @@ export class SessionMetadataStore {
       this._unsubscribeFeed();
       this._unsubscribeFeed = null;
     }
-    this._listeners.clear();
+    this.clearListeners();
   }
 }

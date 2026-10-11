@@ -41,6 +41,7 @@
  * @module lib/changes-route-controller
  */
 
+import { Subscribable } from "./subscribable";
 import {
   ChangesetAllStore,
   getChangesetAllStore,
@@ -211,7 +212,7 @@ const EMPTY_SNAPSHOT: WorkspacesChangesetSnapshot = { projects: [] };
  * subscribes to the app-level `ChangesetAllStore` singleton and republishes
  * a filtered, selection-aware slice. `dispose` unsubscribes.
  */
-export class ChangesRouteController {
+export class ChangesRouteController extends Subscribable {
   readonly tugSessionId: string;
   readonly workspaceKey: string;
   readonly projectDir: string;
@@ -229,13 +230,13 @@ export class ChangesRouteController {
   private readonly _binding: ChangesRouteBinding;
   private readonly _allStore: ChangesetAllStore | null;
   private readonly _unsubscribe: () => void;
-  private readonly _listeners = new Set<() => void>();
   private _snapshot: ChangesRouteSnapshot;
 
   constructor(
     binding: ChangesRouteBinding,
     allStore: ChangesetAllStore | null = getChangesetAllStore(),
   ) {
+    super();
     this._binding = binding;
     this.tugSessionId = binding.tugSessionId;
     this.workspaceKey = binding.workspaceKey;
@@ -254,17 +255,10 @@ export class ChangesRouteController {
 
   private _recompute(): void {
     this._snapshot = this._derive();
-    for (const listener of [...this._listeners]) listener();
+    this.notify();
   }
 
   // ── Store surface ([L02]) ──────────────────────────────────────────────
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  };
 
   getSnapshot = (): ChangesRouteSnapshot => this._snapshot;
 
@@ -467,6 +461,6 @@ export class ChangesRouteController {
 
   dispose(): void {
     this._unsubscribe();
-    this._listeners.clear();
+    this.clearListeners();
   }
 }
